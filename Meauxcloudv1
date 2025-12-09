@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeauxCloud - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+```
+    :root {
+        --primary-blue: #00bcd4;
+        --text-primary: #202124;
+        --text-secondary: #5f6368;
+        --border-color: #dadce0;
+        --hover-bg: #f8f9fa;
+        --card-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+        --card-hover-shadow: 0 4px 8px rgba(0,0,0,0.16), 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    body {
+        font-family: 'Google Sans', 'Segoe UI', Roboto, Arial, sans-serif;
+        background: #ffffff;
+        color: var(--text-primary);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+    }
+
+    /* Header */
+    header {
+        background: #ffffff;
+        border-bottom: 1px solid var(--border-color);
+        padding: 16px 0;
+        margin-bottom: 32px;
+    }
+
+    .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .logo {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+        color: var(--text-primary);
+    }
+
+    .logo-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .logo-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .logo-text {
+        font-size: 22px;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .nav {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+    }
+
+    .nav-item {
+        padding: 8px 16px;
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background 0.2s;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .nav-item:hover {
+        background: var(--hover-bg);
+    }
+
+    .nav-item.active {
+        color: var(--primary-blue);
+        background: #e3f2fd;
+    }
+
+    .user-profile {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px 6px 6px;
+        border-radius: 24px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    .user-profile:hover {
+        background: var(--hover-bg);
+    }
+
+    .user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--primary-blue);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 500;
+        color: white;
+    }
+
+    .user-name {
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    /* Page Title */
+    .page-header {
+        margin-bottom: 24px;
+    }
+
+    .page-title {
+        font-size: 24px;
+        font-weight: 400;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+    }
+
+    .page-subtitle {
+        font-size: 14px;
+        color: var(--text-secondary);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+
+    .stat-card {
+        background: #ffffff;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 20px;
+        transition: box-shadow 0.2s, transform 0.2s;
+    }
+
+    .stat-card:hover {
+        box-shadow: var(--card-hover-shadow);
+        transform: translateY(-2px);
+    }
+
+    .stat-label {
+        font-size: 14px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+        font-weight: 500;
+    }
+
+    .stat-value {
+        font-size: 32px;
+        font-weight: 400;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+
+    .stat-change {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+        color: #1e8e3e;
+    }
+
+    .stat-change.neutral {
+        color: var(--text-secondary);
+    }
+
+    /* Main Content Grid */
+    .main-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 24px;
+        margin-bottom: 32px;
+    }
+
+    @media (max-width: 968px) {
+        .main-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .card {
+        background: #ffffff;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 24px;
+        box-shadow: var(--card-shadow);
+    }
+
+    .card-title {
+        font-size: 18px;
+        font-weight: 500;
+        margin-bottom: 20px;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* Email List */
+    .email-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .email-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px;
+        border-radius: 8px;
+        transition: background 0.2s;
+        cursor: pointer;
+    }
+
+    .email-item:hover {
+        background: var(--hover-bg);
+    }
+
+    .email-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #e3f2fd;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+
+    .email-content {
+        flex: 1;
+    }
+
+    .email-address {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 2px;
+    }
+
+    .email-status {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    .email-badge {
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        background: #e8f5e9;
+        color: #1e8e3e;
+    }
+
+    /* Team Members */
+    .team-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .team-member {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 8px;
+        transition: background 0.2s;
+    }
+
+    .team-member:hover {
+        background: var(--hover-bg);
+    }
+
+    .team-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--primary-blue);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        font-weight: 500;
+        color: white;
+        flex-shrink: 0;
+    }
+
+    .team-info {
+        flex: 1;
+    }
+
+    .team-name {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 2px;
+    }
+
+    .team-role {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    .team-status {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #1e8e3e;
+    }
+
+    /* Action Buttons */
+    .actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        margin-top: 24px;
+    }
+
+    .action-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 24px;
+        background: #ffffff;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--text-primary);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .action-btn:hover {
+        background: var(--hover-bg);
+        border-color: var(--text-secondary);
+    }
+
+    .action-btn.primary {
+        background: var(--primary-blue);
+        border: none;
+        color: white;
+    }
+
+    .action-btn.primary:hover {
+        background: #00acc1;
+        box-shadow: 0 1px 3px rgba(0,188,212,0.3);
+    }
+
+    /* Activity Feed */
+    .activity-list {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .activity-item {
+        display: flex;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid #f1f3f4;
+    }
+
+    .activity-item:last-child {
+        border-bottom: none;
+    }
+
+    .activity-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #e3f2fd;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+    }
+
+    .activity-content {
+        flex: 1;
+    }
+
+    .activity-text {
+        font-size: 14px;
+        color: var(--text-primary);
+        margin-bottom: 2px;
+    }
+
+    .activity-time {
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+
+    /* Divider */
+    .divider {
+        height: 1px;
+        background: var(--border-color);
+        margin: 24px 0;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .container {
+            padding: 16px;
+        }
+
+        .header-content {
+            flex-direction: column;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .nav {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .main-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+```
+
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="header-content">
+            <a href="/" class="logo">
+                <div class="logo-icon">
+                    <!-- Replace this URL with your Cloudflare R2 URL or CDN URL -->
+                    <img src="https://YOUR-BUCKET.r2.dev/meauxcloud-logo.png" alt="MeauxCloud">
+                </div>
+                <span class="logo-text">MeauxCloud</span>
+            </a>
+
+```
+        <nav class="nav">
+            <button class="nav-item active">Dashboard</button>
+            <button class="nav-item">Team</button>
+            <button class="nav-item">Files</button>
+            <button class="nav-item">Settings</button>
+        </nav>
+
+        <div class="user-profile">
+            <div class="user-avatar">SP</div>
+            <span class="user-name">Sam Primeaux</span>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">Manage your cloud infrastructure and team</p>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">iCloud Storage</div>
+            <div class="stat-value">2.0 TB</div>
+            <div class="stat-change">320 GB used · 84% available</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">Email Addresses</div>
+            <div class="stat-value">3</div>
+            <div class="stat-change">All functioning properly</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">Domain Health</div>
+            <div class="stat-value">100%</div>
+            <div class="stat-change">DNS verified</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">System Status</div>
+            <div class="stat-value">Live</div>
+            <div class="stat-change neutral">All systems operational</div>
+        </div>
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="main-grid">
+        <!-- Email Management -->
+        <div class="card">
+            <h2 class="card-title">Email Addresses</h2>
+            <div class="email-list">
+                <div class="email-item">
+                    <div class="email-icon">📧</div>
+                    <div class="email-content">
+                        <div class="email-address"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="a5cdc0dce5cccbcbc0d7c4d0d1cac1ccc1c4c6d18bc6cac8">[email&#160;protected]</a></div>
+                        <div class="email-status">Primary contact · Catch-all enabled</div>
+                    </div>
+                    <div class="email-badge">Active</div>
+                </div>
+
+                <div class="email-item">
+                    <div class="email-icon">💼</div>
+                    <div class="email-content">
+                        <div class="email-address"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="187b7d77587176767d6a796d6c777c717c797b6c367b7775">[email&#160;protected]</a></div>
+                        <div class="email-status">Executive communications</div>
+                    </div>
+                    <div class="email-badge">Active</div>
+                </div>
+
+                <div class="email-item">
+                    <div class="email-icon">⚙️</div>
+                    <div class="email-content">
+                        <div class="email-address"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="6003140f20090e0e05120115140f0409040103144e030f0d">[email&#160;protected]</a></div>
+                        <div class="email-status">Technical communications</div>
+                    </div>
+                    <div class="email-badge">Active</div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="action-btn primary">+ Add Email</button>
+                <button class="action-btn">⚙️ Configure Routing</button>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div>
+            <!-- Team Members -->
+            <div class="card">
+                <h2 class="card-title">Team Members</h2>
+                <div class="team-list">
+                    <div class="team-member">
+                        <div class="team-avatar">SP</div>
+                        <div class="team-info">
+                            <div class="team-name">Sam Primeaux</div>
+                            <div class="team-role">Owner · CEO</div>
+                        </div>
+                        <div class="team-status"></div>
+                    </div>
+
+                    <div class="team-member">
+                        <div class="team-avatar" style="background: #5f6368;">+</div>
+                        <div class="team-info">
+                            <div class="team-name">Add Team Member</div>
+                            <div class="team-role">Invite via Apple ID</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="card" style="margin-top: 24px;">
+                <h2 class="card-title">Recent Activity</h2>
+                <div class="activity-list">
+                    <div class="activity-item">
+                        <div class="activity-icon">✓</div>
+                        <div class="activity-content">
+                            <div class="activity-text">Email routing configured</div>
+                            <div class="activity-time">2 hours ago</div>
+                        </div>
+                    </div>
+
+                    <div class="activity-item">
+                        <div class="activity-icon">🔒</div>
+                        <div class="activity-content">
+                            <div class="activity-text">DNS records verified</div>
+                            <div class="activity-time">1 day ago</div>
+                        </div>
+                    </div>
+
+                    <div class="activity-item">
+                        <div class="activity-icon">🌐</div>
+                        <div class="activity-content">
+                            <div class="activity-text">Domain connected to Cloudflare</div>
+                            <div class="activity-time">2 days ago</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+```
