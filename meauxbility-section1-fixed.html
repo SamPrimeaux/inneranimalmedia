@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Meauxbility - Built by a survivor for survivors</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://js.stripe.com/v3/"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0C2D31;line-height:1.6;-webkit-font-smoothing:antialiased}
+
+:root{
+--meauxxxPrimary:#FF6B00;
+--meauxxxPrimaryDark:#E85D00;
+--meauxxxPrimaryLight:#FF8A33;
+--meauxxxSecondary:#339999;
+--meauxxxSecondaryDark:#2C8B8B;
+--meauxxxAccent:#8b5cf6;
+--meauxxxTextPrimary:#0C2D31;
+--meauxxxTextSecondary:#173E45;
+--meauxxxSurface:#FFFFFF;
+--meauxxxSurfaceAlt:#F7FAFB;
+--meauxxxBorder:rgba(12,45,49,0.08);
+--meauxxxContainer:min(1200px,100%);
+--meauxxxEase:cubic-bezier(0.4,0,0.2,1);
+--meauxxxEaseOut:cubic-bezier(0,0,0.2,1)
+}
+
+.meauxxxContainer{max-width:var(--meauxxxContainer);margin:0 auto;padding:0 1.5rem}
+@media(min-width:768px){.meauxxxContainer{padding:0 2rem}}
+
+.meauxxxHeadingXL{font-size:clamp(2rem,5vw,3.5rem);font-weight:900;line-height:1.1;letter-spacing:-0.02em;margin:0}
+.meauxxxHeadingLG{font-size:clamp(1.75rem,4vw,3rem);font-weight:800;line-height:1.15;letter-spacing:-0.01em;margin:0}
+.meauxxxHeadingMD{font-size:clamp(1.25rem,2.5vw,1.75rem);font-weight:700;line-height:1.2;margin:0;text-align:center}
+.meauxxxTextLead{font-size:clamp(1.125rem,2vw,1.375rem);line-height:1.6;color:var(--meauxxxTextSecondary)}
+.meauxxxTextHighlight{color:var(--meauxxxPrimary);font-weight:700}
+
+.meauxxxButton{display:inline-block;padding:12px 18px;border-radius:10px;font-weight:700;font-size:14px;text-decoration:none;transition:transform .2s ease,background-color .25s ease,color .25s ease,box-shadow .25s ease;cursor:pointer;border:none;position:relative;overflow:hidden;white-space:nowrap}
+.meauxxxButton:focus-visible{outline:2px solid var(--meauxxxPrimary);outline-offset:3px}
+.meauxxxButtonPrimary{background:linear-gradient(135deg,#FF6B35 0%,#E85D00 100%);color:#ffffff;box-shadow:0 8px 18px rgba(0,0,0,.25)}
+.meauxxxButtonPrimary:hover{transform:translateY(-2px);background:linear-gradient(135deg,#FF7A1A 0%,#F06D10 100%);box-shadow:0 10px 22px rgba(0,0,0,.3)}
+/* FIXED: Secondary button with forced border visibility */
+.meauxxxButtonSecondary{
+  color:#FF6B35 !important;
+  background:transparent !important;
+  border:2px solid #FF6B35 !important;
+  box-shadow:0 0 20px rgba(255,107,0,0.2) !important
+}
+.meauxxxButtonSecondary:hover{
+  color:#fff !important;
+  background:#FF6B35 !important;
+  transform:translateY(-1px);
+  box-shadow:0 4px 12px rgba(255,107,53,0.3) !important
+}
+.meauxxxButtonGroup{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;justify-content:center;margin-bottom:3rem}
+
+/* FIXED: Massive announcement text matching hero title */
+.meauxxxAnnouncement{background:var(--meauxxxSurface);border-bottom:1px solid var(--meauxxxBorder);padding:1rem 0;overflow:hidden;position:relative}
+.meauxxxAnnouncementWrapper{display:flex;position:relative;width:200%}
+.meauxxxAnnouncementTrack{display:flex;animation:meauxxxRTL 25s linear infinite;width:100%;gap:6rem;align-items:center}
+@keyframes meauxxxRTL{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.meauxxxAnnouncementText{
+  display:inline-block;
+  font-weight:900;
+  font-size:clamp(2rem,5vw,3.5rem) !important;
+  line-height:1.1;
+  letter-spacing:-0.02em;
+  text-transform:uppercase;
+  white-space:nowrap;
+  color:var(--meauxxxTextPrimary)
+}
+.meauxxxAnnouncementDot{color:var(--meauxxxPrimary);margin:0 1.5rem;font-size:1.5rem}
+
+/* Hero with proper scroll-based image scaling */
+.meauxxxHero{padding:clamp(4rem,8vw,6rem) 0 2rem;min-height:85vh;display:flex;align-items:center;background:linear-gradient(180deg,var(--meauxxxSurface) 0%,var(--meauxxxSurface) 60%,var(--meauxxxSurfaceAlt) 100%)}
+.meauxxxHeroContent{text-align:center}
+.meauxxxHeroMedia{position:relative;width:100%;max-width:1000px;margin:0 auto 2rem;border-radius:20px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,0.12);background:var(--meauxxxSurfaceAlt)}
+.meauxxxHeroMedia img{
+  width:100%;
+  height:auto;
+  display:block;
+  transform:scale(1.1);
+  transition:none;
+  will-change:transform
+}
+.meauxxxHeroTitle{margin-bottom:1.5rem}
+.meauxxxHeroDescription{max-width:800px;margin:0 auto 2rem}
+
+/* Values with Icon Morph */
+.meauxxxValues{padding:3rem 0 4rem;background:var(--meauxxxSurfaceAlt)}
+.meauxxxValuesHeader{text-align:center;margin-bottom:3rem}
+.meauxxxValuesGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:3rem;margin-top:3rem}
+.meauxxxValueCard{text-align:center;opacity:0;transform:translateY(20px);transition:all 0.6s var(--meauxxxEase)}
+.meauxxxValueCard.meauxxxInView{opacity:1;transform:translateY(0)}
+.meauxxxIconMorph{position:relative;width:180px;height:180px;margin:0 auto 1rem;cursor:pointer}
+.meauxxxValueIcon{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.08));transition:opacity 0.4s ease,transform 0.4s ease}
+.meauxxxIconText{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:800;color:var(--meauxxxSecondary);text-align:center;opacity:0;transform:scale(0.8);transition:opacity 0.4s ease,transform 0.4s ease}
+.meauxxxIconMorph.morphed .meauxxxValueIcon{opacity:0;transform:scale(0.8)}
+.meauxxxIconMorph.morphed .meauxxxIconText{opacity:1;transform:scale(1)}
+.meauxxxValueLabel{display:block;font-size:0.75rem;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--meauxxxPrimary);margin-bottom:0.5rem;text-align:center}
+.meauxxxValueTitle{margin-bottom:1rem;text-align:center}
+.meauxxxValueDescription{color:var(--meauxxxTextSecondary);max-width:320px;margin:0 auto;text-align:center}
+
+.meauxxxGap{padding:4rem 0;background:var(--meauxxxSurface)}
+.meauxxxGapHeader{text-align:center;margin-bottom:3rem}
+.meauxxxGapGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-top:2rem}
+.meauxxxGapCard{padding:1.5rem;background:var(--meauxxxSurface);border:1px solid var(--meauxxxBorder);border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);transition:all 0.3s var(--meauxxxEase);position:relative;overflow:hidden}
+.meauxxxGapCard::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:var(--meauxxxSecondary);transform:scaleY(0);transition:transform 0.3s var(--meauxxxEase)}
+.meauxxxGapCard:hover{transform:translateY(-4px);box-shadow:0 8px 24px rgba(0,0,0,0.08);border-color:var(--meauxxxSecondary)}
+.meauxxxGapCard:hover::before{transform:scaleY(1)}
+.meauxxxGapCardTitle{font-size:1.125rem;font-weight:700;color:var(--meauxxxSecondary);margin-bottom:0.5rem}
+.meauxxxGapCardText{color:var(--meauxxxTextSecondary);line-height:1.6}
+
+.meauxxxCampaign{padding:3rem 0;background:white}
+.meauxxxCampaignLayout{display:grid;grid-template-columns:1fr;gap:2rem;align-items:center;max-width:1100px;margin:0 auto}
+@media(min-width:768px){.meauxxxCampaignLayout{grid-template-columns:0.8fr 1.2fr;gap:3rem}}
+.meauxxxCampaignImage{border-radius:20px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,0.12);position:relative;max-width:450px}
+.meauxxxCampaignImage::after{content:'';position:absolute;top:-100%;left:-100%;width:200%;height:200%;background:linear-gradient(45deg,transparent 30%,rgba(255,255,255,0.1) 50%,transparent 70%);transform:rotate(45deg);transition:all 1.5s ease;opacity:0}
+.meauxxxCampaignImage.meauxxxGlisten::after{animation:meauxxxGlistenAnim 1.5s ease}
+@keyframes meauxxxGlistenAnim{0%{transform:rotate(45deg) translateX(-100%);opacity:0}50%{opacity:1}100%{transform:rotate(45deg) translateX(100%);opacity:0}}
+.meauxxxCampaignImage img{width:100%;height:auto;display:block}
+.meauxxxCampaignContent{padding:1rem 0}
+.meauxxxCampaignNumber{font-size:3rem;font-weight:900;color:var(--meauxxxSecondary);margin-bottom:0.5rem}
+.meauxxxCampaignText{color:var(--meauxxxTextSecondary);margin-bottom:1rem;font-size:1.375rem;font-weight:500;line-height:1.6}
+.meauxxxCampaignText strong{color:var(--meauxxxPrimary);font-weight:800}
+.meauxxxProgress{margin:2rem 0}
+.meauxxxProgressBar{height:16px;background:rgba(51,153,153,0.1);border-radius:999px;overflow:hidden;position:relative}
+.meauxxxProgressFill{height:100%;background:linear-gradient(90deg,var(--meauxxxSecondary),var(--meauxxxSecondaryDark));border-radius:999px;transition:width 1.5s cubic-bezier(0.4,0,0.2,1);position:relative}
+.meauxxxProgressFill::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent);animation:meauxxxShimmer 2s infinite}
+@keyframes meauxxxShimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.meauxxxProgressText{display:flex;justify-content:space-between;margin-top:0.75rem;font-size:1.125rem;font-weight:600;color:var(--meauxxxTextSecondary)}
+.meauxxxProgressAmount{font-weight:800;color:var(--meauxxxTextPrimary)}
+
+/* Full Donation Modal */
+.meauxxxModalBackdrop{position:fixed;inset:0;background:rgba(5,27,30,0.9);display:none;align-items:center;justify-content:center;z-index:9999;opacity:0;transition:opacity 0.3s ease;padding:1rem}
+.meauxxxModalBackdrop.meauxxxActive{display:flex;opacity:1}
+.meauxxxModal{width:min(680px,95vw);max-height:85vh;background:white;border-radius:16px;box-shadow:0 24px 48px rgba(0,0,0,0.2);overflow:hidden;transform:scale(0.9) translateY(20px);transition:transform 0.3s ease;position:relative}
+.meauxxxModalBackdrop.meauxxxActive .meauxxxModal{transform:scale(1) translateY(0)}
+.meauxxxModalHeader{display:flex;align-items:center;justify-content:space-between;padding:1.5rem;border-bottom:1px solid rgba(0,0,0,0.1);background:linear-gradient(135deg,rgba(255,107,0,0.05) 0%,rgba(51,153,153,0.05) 100%)}
+.meauxxxModalHeader::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--meauxxxPrimary) 0%,var(--meauxxxSecondary) 100%)}
+.meauxxxModalTitle{font-weight:900;color:var(--meauxxxTextPrimary);font-size:1.5rem;margin:0}
+.meauxxxModalSubtitle{color:var(--meauxxxTextSecondary);font-size:0.9rem;margin-top:0.25rem}
+.meauxxxModalClose{appearance:none;border:0;background:transparent;cursor:pointer;padding:8px;border-radius:8px;font-size:1.5rem;color:var(--meauxxxTextPrimary);transition:all 0.2s}
+.meauxxxModalClose:hover{background:rgba(255,107,0,0.1);color:var(--meauxxxPrimary);transform:rotate(90deg)}
+.meauxxxModalBody{padding:1.25rem}
+.meauxxxDonateGrid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
+@media(max-width:640px){.meauxxxDonateGrid{grid-template-columns:1fr;gap:1rem}}
+.meauxxxDonateOptions{background:rgba(51,153,153,0.05);border:1px solid rgba(51,153,153,0.2);border-radius:12px;padding:1rem}
+.meauxxxOptionTitle{font-size:1.125rem;font-weight:800;color:var(--meauxxxTextPrimary);margin-bottom:1rem}
+.meauxxxFrequencyToggle{display:flex;background:rgba(0,0,0,0.05);border-radius:6px;padding:3px;margin-bottom:1rem}
+.meauxxxFrequencyBtn{flex:1;padding:0.5rem;background:transparent;border:none;color:var(--meauxxxTextSecondary);font-weight:600;cursor:pointer;border-radius:4px;transition:all 0.2s;font-size:0.875rem}
+.meauxxxFrequencyBtn.meauxxxActive{background:linear-gradient(135deg,var(--meauxxxPrimary) 0%,var(--meauxxxPrimaryDark) 100%);color:white}
+.meauxxxAmountGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-bottom:0.75rem}
+.meauxxxAmountBtn{padding:0.625rem;background:white;border:2px solid rgba(51,153,153,0.2);border-radius:6px;color:var(--meauxxxTextPrimary);font-weight:700;cursor:pointer;transition:all 0.2s;font-size:0.875rem}
+.meauxxxAmountBtn:hover{background:rgba(51,153,153,0.1);border-color:var(--meauxxxSecondary);transform:translateY(-1px)}
+.meauxxxAmountBtn.meauxxxSelected{background:linear-gradient(135deg,rgba(51,153,153,0.2),rgba(51,153,153,0.1));border-color:var(--meauxxxSecondary);color:var(--meauxxxSecondaryDark)}
+.meauxxxCustomAmount{width:100%;padding:0.625rem;background:white;border:2px solid rgba(51,153,153,0.2);border-radius:6px;color:var(--meauxxxTextPrimary);font-size:0.875rem;margin-bottom:0.75rem}
+.meauxxxCustomAmount:focus{outline:none;border-color:var(--meauxxxSecondary)}
+.meauxxxDesignation select{width:100%;padding:0.625rem;background:white;border:2px solid rgba(51,153,153,0.2);border-radius:6px;color:var(--meauxxxTextPrimary);font-size:0.875rem}
+.meauxxxDonorInfo{background:rgba(255,107,0,0.03);border:1px solid rgba(255,107,0,0.2);border-radius:12px;padding:1rem}
+.meauxxxFormGroup{margin-bottom:0.75rem}
+.meauxxxFormGroup label{display:block;color:var(--meauxxxTextPrimary);margin-bottom:0.25rem;font-weight:600;font-size:0.875rem}
+.meauxxxFormInput{width:100%;padding:0.625rem;background:white;border:2px solid rgba(255,107,0,0.2);border-radius:6px;color:var(--meauxxxTextPrimary);font-size:0.875rem}
+.meauxxxFormInput:focus{outline:none;border-color:var(--meauxxxPrimary)}
+.meauxxxNameGrid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem}
+.meauxxxStripeElement{padding:0.625rem;background:white;border:2px solid rgba(255,107,0,0.2);border-radius:6px}
+.meauxxxDonateSubmit{width:100%;padding:1rem;background:linear-gradient(135deg,var(--meauxxxPrimary) 0%,var(--meauxxxPrimaryDark) 100%);color:white;border:none;border-radius:8px;font-size:1rem;font-weight:800;cursor:pointer;transition:all 0.2s;margin-top:1rem}
+.meauxxxDonateSubmit:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 20px rgba(255,107,0,0.3)}
+.meauxxxDonateSubmit:disabled{opacity:0.6;cursor:not-allowed}
+.meauxxxSecurityNotice{display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-top:1rem;color:var(--meauxxxTextSecondary);font-size:0.75rem}
+.meauxxxSuccessMessage{display:none;text-align:center;padding:1.5rem;background:rgba(33,196,140,0.1);border:1px solid rgba(33,196,140,0.3);border-radius:12px;margin-bottom:1rem}
+.meauxxxSuccessMessage.meauxxxShow{display:block}
+
+@media(prefers-reduced-motion:reduce){
+.meauxxxAnnouncementTrack{animation:none}
+.meauxxxHeroMedia img,.meauxxxValueCard,.meauxxxGapCard{transition-duration:0.01ms}
+}
+@media(max-width:768px){
+.meauxxxHero{min-height:auto;padding:3rem 0 1rem}
+.meauxxxButtonGroup{justify-content:center}
+.meauxxxValuesGrid,.meauxxxGapGrid{gap:2rem}
+}
+</style>
+</head>
+<body>
+
+<!-- FIXED: Massive title-sized announcement -->
+<section class="meauxxxAnnouncement">
+<div class="meauxxxContainer">
+<div class="meauxxxAnnouncementWrapper">
+<div class="meauxxxAnnouncementTrack">
+<span class="meauxxxAnnouncementText">MORE OPTIONS <span class="meauxxxAnnouncementDot">•</span> MORE ACCESS <span class="meauxxxAnnouncementDot">•</span> MORE LIFE</span>
+<span class="meauxxxAnnouncementText">MORE OPTIONS <span class="meauxxxAnnouncementDot">•</span> MORE ACCESS <span class="meauxxxAnnouncementDot">•</span> MORE LIFE</span>
+</div>
+</div>
+</div>
+</section>
+
+<section class="meauxxxHero">
+<div class="meauxxxContainer">
+<div class="meauxxxHeroContent">
+<div class="meauxxxHeroMedia" id="meauxxxHeroMedia">
+<img id="meauxxxHeroImg" src="https://cdn.shopify.com/s/files/1/0685/1654/4672/files/sam-smile-pikes-peak.jpg?v=1754025762" alt="Sam Primeaux at Pikes Peak" loading="eager">
+</div>
+<h1 class="meauxxxHeadingXL meauxxxHeroTitle">Built by a survivor for survivors.</h1>
+<p class="meauxxxTextLead meauxxxHeroDescription">
+We connect people with <span class="meauxxxTextHighlight">spinal cord injuries</span> to the
+<span class="meauxxxTextHighlight">treatments</span>, 
+<span class="meauxxxTextHighlight">technology</span>, and
+<span class="meauxxxTextHighlight">community</span> that change outcomes.
+</p>
+<div class="meauxxxButtonGroup">
+<button class="meauxxxButton meauxxxButtonPrimary" onclick="openApplicationModal()">Get Support</button>
+<a href="https://meauxbility.org/pages/donmichael-our-first-campaign" class="meauxxxButton meauxxxButtonSecondary">Our First Campaign</a>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Icon Morph Values -->
+<section class="meauxxxValues">
+<div class="meauxxxContainer">
+<div class="meauxxxValuesHeader">
+<h2 class="meauxxxHeadingLG">Why Meauxbility</h2>
+</div>
+<div class="meauxxxValuesGrid">
+<article class="meauxxxValueCard" data-animate="fade-up">
+<div class="meauxxxIconMorph" onclick="morphIcon(this)">
+<img class="meauxxxValueIcon" src="https://cdn.shopify.com/s/files/1/0685/1654/4672/files/5.png?v=1753332352" alt="Mission">
+<div class="meauxxxIconText">AMBITION</div>
+</div>
+<span class="meauxxxValueLabel">OUR MISSION</span>
+<h3 class="meauxxxHeadingMD meauxxxValueTitle">Experience-Driven Recovery</h3>
+<p class="meauxxxValueDescription">Founded by Sam Primeaux after his 2017 paralysis. We turn lived experience into a roadmap others can follow to recovery.</p>
+</article>
+<article class="meauxxxValueCard" data-animate="fade-up" data-delay="100">
+<div class="meauxxxIconMorph" onclick="morphIcon(this)">
+<img class="meauxxxValueIcon" src="https://cdn.shopify.com/s/files/1/0685/1654/4672/files/6.png?v=1753332353" alt="Empowerment">
+<div class="meauxxxIconText">EMPOWERMENT</div>
+</div>
+<span class="meauxxxValueLabel">EMPOWERMENT</span>
+<h3 class="meauxxxHeadingMD meauxxxValueTitle">Transform Your Journey</h3>
+<p class="meauxxxValueDescription">We combine funding, mentorship, and a practical recovery playbook so people with mobility challenges can accelerate their progress.</p>
+</article>
+<article class="meauxxxValueCard" data-animate="fade-up" data-delay="200" id="meauxxxCommunityCard">
+<div class="meauxxxIconMorph" onclick="morphIcon(this)">
+<img class="meauxxxValueIcon" src="https://cdn.shopify.com/s/files/1/0685/1654/4672/files/3_c666d932-e895-4620-928e-20762c2be381.png?v=1753332353" alt="Community">
+<div class="meauxxxIconText">ADAPTABILITY</div>
+</div>
+<span class="meauxxxValueLabel">COMMUNITY</span>
+<h3 class="meauxxxHeadingMD meauxxxValueTitle">Stronger Together</h3>
+<p class="meauxxxValueDescription">What began as one story is now a growing network creating more access—and more life—together. Join the movement.</p>
+</article>
+</div>
+</div>
+</section>
+
+<section class="meauxxxGap">
+<div class="meauxxxContainer">
+<div class="meauxxxGapHeader">
+<h2 class="meauxxxHeadingLG">The Gap We're Closing</h2>
+<p class="meauxxxTextLead">Three barriers stand between injury and independence. We're removing them.</p>
+</div>
+<div class="meauxxxGapGrid">
+<article class="meauxxxGapCard" data-animate="fade-up">
+<h3 class="meauxxxGapCardTitle">COST</h3>
+<p class="meauxxxGapCardText">First-year SCI costs reach $1.4M. Lifetime up to $6.3M. We connect survivors to funding and resources.</p>
+</article>
+<article class="meauxxxGapCard" data-animate="fade-up" data-delay="100">
+<h3 class="meauxxxGapCardTitle">KNOWLEDGE</h3>
+<p class="meauxxxGapCardText">18,400 new SCIs yearly. Families waste precious time searching. We provide instant vetted guidance.</p>
+</article>
+<article class="meauxxxGapCard" data-animate="fade-up" data-delay="200">
+<h3 class="meauxxxGapCardTitle">ACCESS</h3>
+<p class="meauxxxGapCardText">Equipment exists but remains unreachable. We bridge the gap between innovation and those who need it.</p>
+</article>
+</div>
+</div>
+</section>
+
+<section class="meauxxxCampaign">
+<div class="meauxxxContainer">
+<div class="meauxxxCampaignLayout">
+<div class="meauxxxCampaignImage" id="meauxxxCampaignImage">
+<img src="https://cdn.shopify.com/s/files/1/0685/1654/4672/files/img-5722.jpg?v=1754010593" alt="DonMichael" loading="lazy">
+</div>
+<div class="meauxxxCampaignContent">
+<div class="meauxxxCampaignNumber">01</div>
+<h2 class="meauxxxHeadingLG">Help Fund DonMichael's New Beginning</h2>
+<p class="meauxxxCampaignText">
+Mobility challenges touch every part of life—freedom, opportunity, and dignity. 
+Our first initiative is raising <strong>$10,000</strong> to provide DonMichael, 
+living with Friedreich's ataxia, a custom wheelchair that truly fits his needs.
+</p>
+<p class="meauxxxCampaignText">
+This isn't just equipment—it's independence, access, and the confidence to pursue life on his terms.
+</p>
+<div class="meauxxxProgress">
+<div class="meauxxxProgressBar">
+<div class="meauxxxProgressFill" id="meauxxxProgressBar" style="width: 0%;"></div>
+</div>
+<div class="meauxxxProgressText">
+<span class="meauxxxProgressAmount" id="meauxxxProgressAmount">$0 raised</span>
+<span>$10,000 goal</span>
+</div>
+</div>
+<div class="meauxxxButtonGroup">
+<button class="meauxxxButton meauxxxButtonPrimary" onclick="openMeauxxxModal('donmichael')">Be DonMichael's First Hero →</button>
+<a href="https://meauxbility.org/pages/donmichael-our-first-campaign" class="meauxxxButton meauxxxButtonSecondary">Learn More</a>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Full Donation Modal -->
+<div class="meauxxxModalBackdrop" id="meauxxxModalBackdrop">
+<div class="meauxxxModal">
+<div class="meauxxxModalHeader">
+<div>
+<h3 class="meauxxxModalTitle">Support DonMichael's Campaign</h3>
+<p class="meauxxxModalSubtitle">Every dollar transforms lives</p>
+</div>
+<button class="meauxxxModalClose" onclick="closeMeauxxxModal()">&times;</button>
+</div>
+<div class="meauxxxModalBody">
+<div class="meauxxxSuccessMessage" id="meauxxxSuccessMsg">
+<div style="font-size: 2rem; margin-bottom: 0.5rem;">✅</div>
+<div style="font-weight: 800; color: var(--meauxxxTextPrimary); margin-bottom: 0.25rem;">Thank You!</div>
+<div style="color: var(--meauxxxTextSecondary); font-size: 0.875rem;">Your donation has been processed successfully.</div>
+</div>
+<div class="meauxxxDonateGrid">
+<div class="meauxxxDonateOptions">
+<h3 class="meauxxxOptionTitle">Choose Your Gift</h3>
+<div class="meauxxxFrequencyToggle">
+<button class="meauxxxFrequencyBtn meauxxxActive" onclick="setMeauxxxFrequency('one_time')">One Time</button>
+<button class="meauxxxFrequencyBtn" onclick="setMeauxxxFrequency('monthly')">Monthly</button>
+</div>
+<div class="meauxxxAmountGrid">
+<button class="meauxxxAmountBtn" onclick="selectMeauxxxAmount(25)">$25</button>
+<button class="meauxxxAmountBtn" onclick="selectMeauxxxAmount(50)">$50</button>
+<button class="meauxxxAmountBtn" onclick="selectMeauxxxAmount(100)">$100</button>
+<button class="meauxxxAmountBtn meauxxxSelected" onclick="selectMeauxxxAmount(250)">$250</button>
+<button class="meauxxxAmountBtn" onclick="selectMeauxxxAmount(500)">$500</button>
+<button class="meauxxxAmountBtn" onclick="selectMeauxxxAmount(1000)">$1k</button>
+</div>
+<input type="number" class="meauxxxCustomAmount" placeholder="Custom amount" min="1" oninput="selectMeauxxxCustom(this.value)">
+<div class="meauxxxDesignation">
+<select id="meauxxxDesignation">
+<option value="general">Where Most Needed</option>
+<option value="donmichael" selected>DonMichael's Wheelchair</option>
+<option value="samscar">Sam's Car Fund</option>
+</select>
+</div>
+</div>
+<div class="meauxxxDonorInfo">
+<h3 class="meauxxxOptionTitle">Your Information</h3>
+<div class="meauxxxNameGrid">
+<div class="meauxxxFormGroup">
+<label>First Name</label>
+<input type="text" class="meauxxxFormInput" id="meauxxxFirstName" required>
+</div>
+<div class="meauxxxFormGroup">
+<label>Last Name</label>
+<input type="text" class="meauxxxFormInput" id="meauxxxLastName" required>
+</div>
+</div>
+<div class="meauxxxFormGroup">
+<label>Email</label>
+<input type="email" class="meauxxxFormInput" id="meauxxxEmail" required>
+</div>
+<div class="meauxxxFormGroup">
+<label>Card Information</label>
+<div id="meauxxx-card-element" class="meauxxxStripeElement"></div>
+</div>
+<button class="meauxxxDonateSubmit" onclick="processMeauxxxDonation()">
+<span>Complete Donation</span>
+</button>
+<div class="meauxxxSecurityNotice">
+🔒 Secure & tax-deductible
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+(function() {
+'use strict';
+
+// FIXED: Continuous scroll-based hero image scaling
+const heroImg = document.getElementById('meauxxxHeroImg');
+let ticking = false;
+
+function updateImageScale() {
+  const scrollY = window.scrollY || window.pageYOffset;
+  const windowHeight = window.innerHeight;
+  const scrollProgress = Math.min(Math.max(scrollY / windowHeight, 0), 1);
+  
+  // Scale from 1.1 to 1.0 based on scroll
+  const scale = 1.1 - (scrollProgress * 0.1);
+  
+  if (heroImg) {
+    heroImg.style.transform = `scale(${scale})`;
+  }
+  
+  ticking = false;
+}
+
+function requestTick() {
+  if (!ticking) {
+    window.requestAnimationFrame(updateImageScale);
+    ticking = true;
+  }
+}
+
+// Add scroll listener
+window.addEventListener('scroll', requestTick, { passive: true });
+// Initial call
+updateImageScale();
+
+// Animation Observer for other elements
+const observerOptions = {threshold: 0.1, rootMargin: '0px 0px -50px 0px'};
+const animateObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const delay = entry.target.dataset.delay || 0;
+      setTimeout(() => {
+        entry.target.classList.add('meauxxxInView');
+        // Dispatch event for 3D model trigger
+        if (entry.target.id === 'meauxxxCommunityCard') {
+          window.dispatchEvent(new CustomEvent('communityCardVisible'));
+        }
+      }, delay);
+      animateObserver.unobserve(entry.target);
+    }
+  });
+}, observerOptions);
+
+document.querySelectorAll('[data-animate]').forEach(el => {
+  animateObserver.observe(el);
+});
+
+// Campaign Image Glisten
+const campaignImage = document.getElementById('meauxxxCampaignImage');
+if (campaignImage) {
+  const campaignObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      setTimeout(() => campaignImage.classList.add('meauxxxGlisten'), 500);
+      campaignObserver.unobserve(campaignImage);
+    }
+  }, {threshold: 0.3});
+  campaignObserver.observe(campaignImage);
+}
+
+// Icon Morph Function
+window.morphIcon = function(element) {
+  element.classList.toggle('morphed');
+};
+
+// Stripe Integration
+let meauxxxAmount = 250;
+let meauxxxFrequency = 'one_time';
+let meauxxxStripe = null;
+let meauxxxCard = null;
+
+if (typeof Stripe !== 'undefined') {
+  meauxxxStripe = Stripe('pk_live_51S4R0SRW56Pm3uYI8EKbysm1ok4peVXSD6G17HtFy8BDuG9Carn8Ry7iPVzulMBtdEFcz5pFvXpE04CIgn8PY6WS00aXOqMYEI');
+  const elements = meauxxxStripe.elements();
+  meauxxxCard = elements.create('card', {
+    style: {
+      base: {fontSize: '14px', color: '#0C2D31', fontFamily: 'Inter, sans-serif'}
+    }
+  });
+  const cardElement = document.getElementById('meauxxx-card-element');
+  if (cardElement) meauxxxCard.mount('#meauxxx-card-element');
+}
+
+window.openMeauxxxModal = function(preset) {
+  document.getElementById('meauxxxModalBackdrop').classList.add('meauxxxActive');
+  document.body.style.overflow = 'hidden';
+};
+
+window.closeMeauxxxModal = function() {
+  document.getElementById('meauxxxModalBackdrop').classList.remove('meauxxxActive');
+  document.body.style.overflow = '';
+};
+
+window.selectMeauxxxAmount = function(amt) {
+  meauxxxAmount = amt;
+  document.querySelectorAll('.meauxxxAmountBtn').forEach(btn => btn.classList.remove('meauxxxSelected'));
+  event.target.classList.add('meauxxxSelected');
+};
+
+window.selectMeauxxxCustom = function(val) {
+  if (val && val > 0) {
+    meauxxxAmount = parseFloat(val);
+    document.querySelectorAll('.meauxxxAmountBtn').forEach(btn => btn.classList.remove('meauxxxSelected'));
+  }
+};
+
+window.setMeauxxxFrequency = function(type) {
+  meauxxxFrequency = type;
+  document.querySelectorAll('.meauxxxFrequencyBtn').forEach(btn => btn.classList.remove('meauxxxActive'));
+  event.target.classList.add('meauxxxActive');
+};
+
+window.processMeauxxxDonation = async function() {
+  console.log('Processing donation:', meauxxxAmount, meauxxxFrequency);
+};
+
+window.openApplicationModal = function() {
+  console.log('Application modal in Section 2');
+};
+
+// Progress Bar
+const savedAmount = parseInt(localStorage.getItem('donmichael_meauxxx') || '0');
+const percent = Math.min((savedAmount / 10000) * 100, 100);
+document.getElementById('meauxxxProgressAmount').textContent = `$${savedAmount.toLocaleString()} raised`;
+document.getElementById('meauxxxProgressBar').style.width = percent + '%';
+
+})();
+</script>
+
+</body>
+</html>
