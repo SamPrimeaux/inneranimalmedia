@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meauxbility — Launch Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* =========================
+   Brand Tokens & Base Layer
+   ========================= */
+:root{
+  --mx-teal:#339999;
+  --mx-orange:#FF6B35;
+  --mx-purple:#9B59B6;
+  --mx-mint:#4AECDC;
+  --mx-bg:#0a0e1a;
+  --mx-bg-2:#0e152b;
+  --glass:rgba(255,255,255,.07);
+  --glass-hover:rgba(255,255,255,.11);
+  --stroke:rgba(255,255,255,.14);
+  --text:#e7eef6;
+  --text-dim:#a8b5c9;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;scroll-behavior:smooth}
+
+body{
+margin:0;
+font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+color:var(–text);
+background: radial-gradient(60vw 60vw at -10% -10%, #142033, transparent 60%),
+radial-gradient(50vw 50vw at 110% 10%, #1c2942, transparent 60%),
+linear-gradient(180deg, var(–mx-bg), var(–mx-bg-2));
+overflow-x:hidden;
+}
+
+/* =========================
+Scrollable Shell
+========================= */
+.shell{
+min-height:100%;
+scroll-snap-type:y proximity;
+overflow-y:auto;
+}
+
+.panel{
+scroll-snap-align:start;
+min-height:100vh;
+padding:80px 24px 48px;
+display:flex;
+align-items:center;
+justify-content:center;
+position:relative;
+}
+
+/* Floating particles */
+.bokeh{
+position:absolute;
+inset:0;
+pointer-events:none;
+overflow:hidden;
+z-index:0;
+}
+.bokeh span{
+position:absolute;
+filter:blur(24px);
+opacity:.18;
+border-radius:50%;
+background: radial-gradient(closest-side, #ffffff22, #ffffff00);
+animation: float 20s ease-in-out infinite;
+}
+.bokeh span:nth-child(1){
+width:280px;
+height:280px;
+left:5%;
+top:15%;
+background: radial-gradient(closest-side, var(–mx-teal)33, #ffffff00);
+}
+.bokeh span:nth-child(2){
+width:220px;
+height:220px;
+right:8%;
+top:25%;
+animation-duration:25s;
+background: radial-gradient(closest-side, var(–mx-purple)28, #ffffff00);
+}
+.bokeh span:nth-child(3){
+width:320px;
+height:320px;
+left:15%;
+bottom:12%;
+animation-duration:28s;
+background: radial-gradient(closest-side, var(–mx-mint)25, #ffffff00);
+}
+
+@keyframes float{
+0%, 100% { transform: translate(0, 0) scale(1) }
+33% { transform: translate(12px, -20px) scale(1.05) }
+66% { transform: translate(-15px, -12px) scale(0.98) }
+}
+
+/* =========================
+Glass Components
+========================= */
+.glass{
+background:var(–glass);
+backdrop-filter:saturate(160%) blur(16px);
+border:1px solid var(–stroke);
+border-radius:20px;
+box-shadow:0 24px 72px rgba(0,0,0,.5);
+position:relative;
+z-index:1;
+}
+
+.glass-hover{
+transition: all 0.3s ease;
+}
+
+.glass-hover:hover{
+background:var(–glass-hover);
+transform: translateY(-2px);
+box-shadow:0 28px 84px rgba(0,0,0,.6);
+}
+
+/* Typography */
+.hero-title{
+font-size:clamp(32px, 5vw, 56px);
+font-weight:800;
+line-height:1.1;
+margin:0 0 16px;
+background:linear-gradient(135deg, var(–mx-mint), var(–mx-purple), var(–mx-teal));
+-webkit-background-clip:text;
+background-clip:text;
+color:transparent;
+}
+
+.section-title{
+font-size:clamp(24px, 3.5vw, 36px);
+font-weight:800;
+margin:0 0 12px;
+color:var(–text);
+}
+
+.subtitle{
+font-size:clamp(16px, 2vw, 20px);
+color:var(–text-dim);
+margin:0 0 32px;
+line-height:1.6;
+}
+
+/* Step Cards */
+.step-grid{
+display:grid;
+gap:20px;
+grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+margin:32px 0;
+}
+
+.step-card{
+padding:28px;
+position:relative;
+overflow:hidden;
+}
+
+.step-number{
+position:absolute;
+top:-12px;
+right:20px;
+font-size:96px;
+font-weight:800;
+opacity:.06;
+line-height:1;
+background:linear-gradient(135deg, var(–mx-mint), var(–mx-purple));
+-webkit-background-clip:text;
+background-clip:text;
+color:transparent;
+}
+
+.step-card h3{
+margin:0 0 12px;
+font-size:20px;
+font-weight:700;
+position:relative;
+z-index:1;
+}
+
+.step-card .label{
+display:inline-block;
+padding:4px 12px;
+border-radius:999px;
+background:rgba(67,236,220,.15);
+color:var(–mx-mint);
+font-size:12px;
+font-weight:600;
+margin-bottom:12px;
+border:1px solid rgba(67,236,220,.3);
+}
+
+.step-card p{
+margin:0 0 16px;
+line-height:1.6;
+color:var(–text-dim);
+position:relative;
+z-index:1;
+}
+
+.step-card code{
+display:block;
+background:rgba(0,0,0,.3);
+padding:12px 16px;
+border-radius:8px;
+font-size:13px;
+font-family:‘Courier New’, monospace;
+border:1px solid rgba(255,255,255,.08);
+color:var(–mx-mint);
+margin-top:12px;
+overflow-x:auto;
+}
+
+/* Campaign Section */
+.campaign-grid{
+display:grid;
+gap:20px;
+grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.campaign-card{
+padding:24px;
+}
+
+.campaign-card h4{
+margin:0 0 8px;
+font-size:18px;
+font-weight:700;
+display:flex;
+align-items:center;
+gap:10px;
+}
+
+.campaign-card .icon{
+width:32px;
+height:32px;
+display:flex;
+align-items:center;
+justify-content:center;
+border-radius:8px;
+font-size:18px;
+}
+
+.icon-orange{ background:rgba(255,107,53,.2); color:var(–mx-orange); }
+.icon-purple{ background:rgba(155,89,182,.2); color:var(–mx-purple); }
+.icon-teal{ background:rgba(51,153,153,.2); color:var(–mx-teal); }
+
+.campaign-card ul{
+margin:12px 0 0 0;
+padding-left:20px;
+color:var(–text-dim);
+line-height:1.8;
+}
+
+.campaign-card ul li{
+margin:8px 0;
+}
+
+/* Priority Banner */
+.priority-banner{
+padding:20px 24px;
+background:linear-gradient(135deg, rgba(255,107,53,.15), rgba(155,89,182,.15));
+border:2px solid rgba(255,107,53,.3);
+margin:32px 0;
+}
+
+.priority-banner strong{
+color:var(–mx-orange);
+font-size:18px;
+display:block;
+margin-bottom:8px;
+}
+
+/* Buttons & CTAs */
+.btn-row{
+display:flex;
+gap:12px;
+flex-wrap:wrap;
+margin-top:24px;
+}
+
+.btn{
+display:inline-flex;
+align-items:center;
+gap:10px;
+padding:12px 24px;
+border-radius:12px;
+text-decoration:none;
+font-weight:600;
+transition:all 0.3s ease;
+border:1px solid var(–stroke);
+background:rgba(255,255,255,.08);
+color:var(–text);
+}
+
+.btn:hover{
+background:rgba(255,255,255,.14);
+transform:translateY(-2px);
+}
+
+.btn-primary{
+background:linear-gradient(135deg, var(–mx-mint), var(–mx-teal));
+border:none;
+color:#0a0e1a;
+font-weight:700;
+}
+
+.btn-primary:hover{
+background:linear-gradient(135deg, #5fffef, #40b3b3);
+box-shadow:0 12px 32px rgba(67,236,220,.4);
+}
+
+/* Container */
+.container{
+max-width:1200px;
+width:100%;
+position:relative;
+z-index:1;
+}
+
+/* Footer Navigation */
+.nav-footer{
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:20px 24px;
+margin-top:40px;
+border-top:1px solid var(–stroke);
+}
+
+.nav-dots{
+display:flex;
+gap:8px;
+}
+
+.nav-dot{
+width:8px;
+height:8px;
+border-radius:50%;
+background:rgba(255,255,255,.2);
+transition:all 0.3s ease;
+}
+
+.nav-dot.active{
+background:var(–mx-mint);
+width:24px;
+border-radius:4px;
+}
+
+/* Responsive */
+@media (max-width:768px){
+.panel{
+padding:60px 16px 32px;
+}
+
+.step-grid,
+.campaign-grid{
+grid-template-columns:1fr;
+}
+
+.btn-row{
+flex-direction:column;
+}
+
+.btn{
+justify-content:center;
+}
+}
+
+/* Scroll indicator */
+.scroll-indicator{
+position:absolute;
+bottom:32px;
+left:50%;
+transform:translateX(-50%);
+display:flex;
+flex-direction:column;
+align-items:center;
+gap:8px;
+opacity:.6;
+animation:bounce 2s ease-in-out infinite;
+}
+
+@keyframes bounce{
+0%, 100%{ transform:translateX(-50%) translateY(0) }
+50%{ transform:translateX(-50%) translateY(8px) }
+}
+
+.scroll-indicator span{
+font-size:12px;
+font-weight:600;
+text-transform:uppercase;
+letter-spacing:1px;
+}
+
+.scroll-arrow{
+width:24px;
+height:24px;
+border-left:2px solid var(–mx-mint);
+border-bottom:2px solid var(–mx-mint);
+transform:rotate(-45deg);
+}
+</style>
+
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ===== PANEL 1: HERO ===== -->
+
+  <section class="panel">
+    <div class="bokeh">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+
+```
+<div class="container">
+  <div class="glass" style="padding:48px 40px;">
+    <h1 class="hero-title">Meaux Platform Launch Playbook</h1>
+    <p class="subtitle">Your complete workflow from idea to production Cloudflare Worker, plus your first campaign strategy to convert waitlist customers into paying users.</p>
+    
+    <div class="btn-row">
+      <a href="#workflow" class="btn btn-primary">View Workflow →</a>
+      <a href="#campaign" class="btn">Campaign Strategy</a>
+    </div>
+  </div>
+</div>
+
+<div class="scroll-indicator">
+  <span>Scroll</span>
+  <div class="scroll-arrow"></div>
+</div>
+```
+
+  </section>
+
+  <!-- ===== PANEL 2: WORKFLOW ===== -->
+
+  <section id="workflow" class="panel">
+    <div class="bokeh">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+
+```
+<div class="container">
+  <div class="glass" style="padding:40px;">
+    <h2 class="section-title">Idea → Cursor → Live Worker</h2>
+    <p class="subtitle">Your streamlined development workflow for shipping features fast</p>
+    
+    <div class="step-grid">
+      
+      <!-- Step 1 -->
+      <div class="glass step-card glass-hover">
+        <div class="step-number">1</div>
+        <span class="label">Planning</span>
+        <h3>Define & Document</h3>
+        <p>Start with clear requirements. What does this feature do? Who uses it? What data does it need?</p>
+        <p><strong>Action:</strong> Create a brief doc or comment outlining:</p>
+        <ul style="margin:8px 0 0 20px; color:var(--text-dim); line-height:1.8;">
+          <li>User story / use case</li>
+          <li>Required endpoints or pages</li>
+          <li>Data models (D1 tables)</li>
+          <li>Integrations (Resend, Stripe, etc.)</li>
+        </ul>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="glass step-card glass-hover">
+        <div class="step-number">2</div>
+        <span class="label">Development</span>
+        <h3>Build in Cursor</h3>
+        <p>Use Cursor AI to scaffold your Worker, write routes, and connect to D1/R2. Leverage Claude for complex logic.</p>
+        <code>// Example: New Worker endpoint
+```
+
+export default {
+async fetch(request, env) {
+// Your logic here
+return new Response(‘Hello’)
+}
+}</code>
+<p style="margin-top:12px;"><strong>Pro tip:</strong> Keep workers focused. One worker = one responsibility.</p>
+</div>
+
+```
+      <!-- Step 3 -->
+      <div class="glass step-card glass-hover">
+        <div class="step-number">3</div>
+        <span class="label">Testing</span>
+        <h3>Local Dev & Test</h3>
+        <p>Run wrangler locally to test your worker before deployment. Verify database queries and API responses.</p>
+        <code>wrangler dev --local
+```
+
+# Test at http://localhost:8787</code>
+
+```
+        <p style="margin-top:12px;">Validate: authentication, data flow, edge cases, error handling.</p>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="glass step-card glass-hover">
+        <div class="step-number">4</div>
+        <span class="label">Deployment</span>
+        <h3>Deploy to Production</h3>
+        <p>Push to Cloudflare and configure routes/domains. Your worker goes live on the edge instantly.</p>
+        <code>wrangler deploy
+```
+
+# Live at *.meauxbility.com</code>
+
+```
+        <p style="margin-top:12px;">Update DNS, set environment variables, bind D1/R2 resources in wrangler.toml.</p>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="glass step-card glass-hover">
+        <div class="step-number">5</div>
+        <span class="label">Monitoring</span>
+        <h3>Monitor & Iterate</h3>
+        <p>Watch Cloudflare analytics, check error logs, and gather user feedback. Ship improvements rapidly.</p>
+        <p style="margin-top:12px;"><strong>Tools:</strong> Cloudflare dashboard, custom logging, user feedback channels.</p>
+      </div>
+
+    </div>
+
+    <div class="nav-footer">
+      <div class="nav-dots">
+        <div class="nav-dot"></div>
+        <div class="nav-dot active"></div>
+        <div class="nav-dot"></div>
+      </div>
+      <a href="#campaign" class="btn">Next: Campaign Strategy →</a>
+    </div>
+  </div>
+</div>
+```
+
+  </section>
+
+  <!-- ===== PANEL 3: CAMPAIGN STRATEGY ===== -->
+
+  <section id="campaign" class="panel">
+    <div class="bokeh">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+
+```
+<div class="container">
+  <div class="glass" style="padding:40px;">
+    <h2 class="section-title">First Campaign: Convert Waitlist → Customers</h2>
+    <p class="subtitle">Focused strategy to activate your waiting customers and generate revenue</p>
+    
+    <!-- Priority -->
+    <div class="glass priority-banner">
+      <strong>🎯 Priority Objective Once Live:</strong>
+      <p style="margin:8px 0 0; color:var(--text-dim); line-height:1.6;">
+        Convert your waitlist into paying customers. You have people ready to pay—your first goal is to onboard them smoothly and collect their first payments.
+      </p>
+    </div>
+
+    <!-- Campaign Cards -->
+    <div class="campaign-grid">
+      
+      <!-- Week 1 -->
+      <div class="glass campaign-card">
+        <h4>
+          <span class="icon icon-orange">📧</span>
+          Week 1: Launch Announcement
+        </h4>
+        <ul>
+          <li><strong>Email your waitlist</strong> with personalized invitations</li>
+          <li>Highlight: "We're live! Choose your tier and start today"</li>
+          <li>Include direct signup links with promo codes if applicable</li>
+          <li>Send via Resend with tracking enabled</li>
+          <li><strong>Goal:</strong> 30-40% open rate, 10-15% signups</li>
+        </ul>
+      </div>
+
+      <!-- Week 2-3 -->
+      <div class="glass campaign-card">
+        <h4>
+          <span class="icon icon-purple">🚀</span>
+          Week 2-3: Onboarding Blitz
+        </h4>
+        <ul>
+          <li><strong>Personal outreach</strong> to high-value prospects on waitlist</li>
+          <li>Offer onboarding calls for Enterprise tier customers</li>
+          <li>Share quick-win tutorials (MeauxWork setup, MeauxChat invite)</li>
+          <li>Create 2-3 short demo videos showing key features</li>
+          <li><strong>Goal:</strong> 5-10 paying customers across all tiers</li>
+        </ul>
+      </div>
+
+      <!-- Week 4 -->
+      <div class="glass campaign-card">
+        <h4>
+          <span class="icon icon-teal">💬</span>
+          Week 4: Feedback & Iterate
+        </h4>
+        <ul>
+          <li><strong>Collect feedback</strong> from early customers via surveys or calls</li>
+          <li>Address blockers and bugs immediately</li>
+          <li>Ship 2-3 requested features or improvements</li>
+          <li>Ask for testimonials and case study participation</li>
+          <li><strong>Goal:</strong> 90%+ satisfaction, identify expansion opportunities</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- Tactical Details -->
+    <div class="glass" style="padding:28px; margin-top:24px;">
+      <h3 style="margin:0 0 16px; font-size:20px;">Campaign Tactics</h3>
+      
+      <div style="display:grid; gap:16px;">
+        <div>
+          <strong style="color:var(--mx-mint);">Email Sequence (Resend)</strong>
+          <p style="margin:6px 0 0; color:var(--text-dim); line-height:1.6;">
+            • Day 0: Launch announcement<br>
+            • Day 3: Feature spotlight (MeauxWork or MeauxCreate)<br>
+            • Day 7: Success stories + limited-time incentive<br>
+            • Day 14: Final reminder for waitlist discount
+          </p>
+        </div>
+        
+        <div>
+          <strong style="color:var(--mx-mint);">Landing Page Updates</strong>
+          <p style="margin:6px 0 0; color:var(--text-dim); line-height:1.6;">
+            • Add "Now Live" banner to meauxbility.com<br>
+            • Create dedicated "/pricing" and "/signup" pages<br>
+            • Showcase customer logos (with permission)<br>
+            • Display real-time stats: "X teams already using Meaux"
+          </p>
+        </div>
+        
+        <div>
+          <strong style="color:var(--mx-mint);">Payment & Onboarding</strong>
+          <p style="margin:6px 0 0; color:var(--text-dim); line-height:1.6;">
+            • Stripe Checkout for seamless payment<br>
+            • Auto-provision accounts on payment success<br>
+            • Welcome email with login credentials (via Resend)<br>
+            • In-app onboarding checklist for new users
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success Metrics -->
+    <div class="glass" style="padding:28px; margin-top:20px; background:rgba(67,236,220,.05); border:1px solid rgba(67,236,220,.2);">
+      <h3 style="margin:0 0 12px; font-size:18px; color:var(--mx-mint);">30-Day Success Metrics</h3>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:20px;">
+        <div>
+          <div style="font-size:32px; font-weight:800; color:var(--mx-mint);">10-20</div>
+          <div style="font-size:14px; color:var(--text-dim);">Paying Customers</div>
+        </div>
+        <div>
+          <div style="font-size:32px; font-weight:800; color:var(--mx-mint);">$2K-5K</div>
+          <div style="font-size:14px; color:var(--text-dim);">Monthly Recurring Revenue</div>
+        </div>
+        <div>
+          <div style="font-size:32px; font-weight:800; color:var(--mx-mint);">90%+</div>
+          <div style="font-size:14px; color:var(--text-dim);">Customer Satisfaction</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav-footer">
+      <div class="nav-dots">
+        <div class="nav-dot"></div>
+        <div class="nav-dot"></div>
+        <div class="nav-dot active"></div>
+      </div>
+      <a href="#workflow" class="btn">Back to Workflow</a>
+    </div>
+  </div>
+</div>
+```
+
+  </section>
+
+</div>
+
+</body>
+</html>
