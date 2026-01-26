@@ -702,7 +702,7 @@ body {
           <div class="tool-name">MeauxWork</div>
         </a>
 
-        <a href="https://meauxbility.com/photo" class="tool-card">
+        <a href="scan.html" class="tool-card">
           <div class="tool-icon photo">
             <svg viewBox="0 0 24 24" fill="#021014">
               <path d="M8 5v14l11-7z"/>
