@@ -111,7 +111,18 @@ export default {
     // but typically we just let the worker handle API and return `env.ASSETS.fetch(request)` for everything else.
     
     if (env.ASSETS) {
-      const response = await env.ASSETS.fetch(request);
+      let response = await env.ASSETS.fetch(request);
+      
+      // If 404, try appending .html for extensionless URLs
+      if (response.status === 404 && !url.pathname.includes('.')) {
+        const htmlUrl = new URL(request.url);
+        htmlUrl.pathname += '.html';
+        const htmlResponse = await env.ASSETS.fetch(htmlUrl);
+        if (htmlResponse.status === 200) {
+          response = htmlResponse;
+        }
+      }
+
       const newHeaders = new Headers(response.headers);
       newHeaders.set("X-Worker-Debug", "Active");
       newHeaders.set("Cache-Control", "no-cache"); // Temporarily disable cache to debug
