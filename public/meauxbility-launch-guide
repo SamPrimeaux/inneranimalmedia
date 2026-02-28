@@ -523,7 +523,7 @@ return new Response(‘Hello’)
         <code>wrangler deploy
 ```
 
-# Live at *.cidi.inneranimalmedia.com</code>
+# Live at *.httpsiautodidact.com</code>
 
 ```
         <p style="margin-top:12px;">Update DNS, set environment variables, bind D1/R2 resources in wrangler.toml.</p>
@@ -645,7 +645,7 @@ return new Response(‘Hello’)
         <div>
           <strong style="color:var(--mx-mint);">Landing Page Updates</strong>
           <p style="margin:6px 0 0; color:var(--text-dim); line-height:1.6;">
-            • Add "Now Live" banner to cidi.inneranimalmedia.com<br>
+            • Add "Now Live" banner to httpsiautodidact.com<br>
             • Create dedicated "/pricing" and "/signup" pages<br>
             • Showcase customer logos (with permission)<br>
             • Display real-time stats: "X teams already using Meaux"
