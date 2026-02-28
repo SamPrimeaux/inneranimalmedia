@@ -5,7 +5,7 @@
     // Dark: Home (/), Services, Dashboard, Scan
     // Light: Work, About, MeauxAI
     let isLight = false;
-    if (path.includes('work') || path.includes('about') || path.includes('meauxai')) {
+    if (path.includes('work') || path.includes('about') || path.includes('meauxai') || path.includes('meauxbility')) {
         isLight = true;
     }
     
