@@ -111,7 +111,15 @@ export default {
     // but typically we just let the worker handle API and return `env.ASSETS.fetch(request)` for everything else.
     
     if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
+      const response = await env.ASSETS.fetch(request);
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set("X-Worker-Debug", "Active");
+      newHeaders.set("Cache-Control", "no-cache"); // Temporarily disable cache to debug
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders
+      });
     }
     
     return new Response('Not Found', { status: 404 });
