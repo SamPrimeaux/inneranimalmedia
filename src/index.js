@@ -115,10 +115,14 @@ export default {
       
       // If 404, try appending .html for extensionless URLs
       if (response.status === 404 && !url.pathname.includes('.')) {
-        // Special route for /dashboard/kanban -> meauxbility-launch-guide.html
+        // Special route for /dashboard/kanban -> meauxbility-launch-guide
         if (url.pathname === '/dashboard/kanban') {
              const kanbanUrl = new URL(request.url);
-             kanbanUrl.pathname = '/meauxbility-launch-guide.html';
+             kanbanUrl.pathname = '/meauxbility-launch-guide'; // Changed from .html to match file name without extension if it was renamed, but wait, the file is meauxbility-launch-guide (no extension in file system?)
+             // Let's check file system again.
+             // ls public -> meauxbility-launch-guide (no .html)
+             // So we should fetch /meauxbility-launch-guide
+             
              const kanbanResponse = await env.ASSETS.fetch(kanbanUrl);
              if (kanbanResponse.status === 200) {
                  response = kanbanResponse;
