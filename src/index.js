@@ -54,6 +54,51 @@ export default {
         }
       }
 
+      // R2 Endpoints
+      if (url.pathname.startsWith('/api/files')) {
+        // List Files
+        if (request.method === 'GET' && url.pathname === '/api/files') {
+          try {
+            const list = await env.BUCKET.list();
+            return new Response(JSON.stringify(list), {
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+          }
+        }
+
+        // Get File Content (Proxy)
+        // Usage: /api/files/filename.ext
+        const key = url.pathname.replace('/api/files/', '');
+        if (key && request.method === 'GET') {
+          try {
+            const object = await env.BUCKET.get(key);
+            if (!object) {
+              return new Response('File not found', { status: 404 });
+            }
+            const headers = new Headers();
+            object.writeHttpMetadata(headers);
+            headers.set('etag', object.httpEtag);
+            return new Response(object.body, { headers });
+          } catch (error) {
+            return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+          }
+        }
+        
+        // Upload File (Deploy)
+        if (key && request.method === 'PUT') {
+           try {
+             await env.BUCKET.put(key, request.body);
+             return new Response(JSON.stringify({ success: true, key }), {
+               headers: { 'Content-Type': 'application/json' }
+             });
+           } catch (error) {
+             return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+           }
+        }
+      }
+
       return new Response('Not Found', { status: 404 });
     }
 
