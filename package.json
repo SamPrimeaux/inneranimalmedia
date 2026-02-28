@@ -7,7 +7,9 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@cloudflare/ai": "^1.0.55"
+    "@cloudflare/ai": "^1.0.55",
+    "base64-js": "^1.5.1",
+    "mustache": "^4.2.0"
   },
   "devDependencies": {
     "wrangler": "^3.0.0"
