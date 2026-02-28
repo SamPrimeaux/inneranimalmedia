@@ -1,0 +1,11 @@
+{
+  "name": "inneranimalmedia-cidi",
+  "compatibility_date": "2026-02-28",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
