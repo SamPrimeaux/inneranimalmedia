@@ -18,5 +18,20 @@ database_id = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
 binding = "BUCKET"
 bucket_name = "autonomous-coding-agent"
 
+[[tail_consumers]]
+service = "inneranimalmedia-tail"
+
 [observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
 enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
