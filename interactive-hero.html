@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeauxStack - Projects</title>
+    <style>
+        :root {
+            --bg-color: #fbf7f1; /* Light beige from mockup background */
+            --text-color: #1a1a1a;
+            --panel-bg: #1e1e1e; /* Dark panel background */
+            --panel-sidebar: #161616;
+            --accent-blue: #3b82f6;
+            --accent-orange: #f97316;
+            --accent-green: #22c55e;
+            --border-color: #333;
+            --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            font-family: var(--font-main);
+            color: var(--text-color);
+            overflow-x: hidden;
+        }
+
+        /* Hero Container */
+        .hero-section {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 80px;
+            position: relative;
+        }
+
+        /* Headline */
+        .headline {
+            font-size: clamp(3rem, 6vw, 5rem);
+            font-weight: 500;
+            text-align: center;
+            line-height: 1.1;
+            margin-bottom: 40px;
+            letter-spacing: -0.02em;
+            color: #1a1a1a;
+        }
+
+        /* CTA Buttons */
+        .cta-container {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 60px;
+            z-index: 10;
+        }
+
+        .cta-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 24px;
+            background: #f0f0f0;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .cta-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background: #ffffff;
+        }
+
+        .cta-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            color: #fff;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        /* Agent Panel Window */
+        .agent-panel-wrapper {
+            width: 90%;
+            max-width: 1200px;
+            perspective: 1000px;
+            margin-bottom: 100px;
+        }
+
+        .agent-panel {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            box-shadow: 0 50px 100px -20px rgba(0,0,0,0.25), 0 30px 60px -30px rgba(0,0,0,0.3);
+            overflow: hidden;
+            display: flex;
+            height: 700px;
+            opacity: 0;
+            transform: translateY(100px) rotateX(10deg);
+            transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .agent-panel.in-view {
+            opacity: 1;
+            transform: translateY(0) rotateX(0);
+        }
+
+        /* Window Controls */
+        .window-controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 8px;
+            z-index: 20;
+        }
+
+        .control-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .dot-red { background: #ff5f56; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #27c93f; }
+
+        /* Sidebar */
+        .panel-sidebar {
+            width: 300px;
+            background: var(--panel-sidebar);
+            border-right: 1px solid var(--border-color);
+            padding: 60px 20px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .sidebar-header {
+            color: #fff;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .task-item {
+            padding: 10px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.03);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .task-item:hover {
+            background: rgba(255,255,255,0.06);
+        }
+
+        .task-item.active {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+
+        .task-title {
+            color: #e0e0e0;
+            font-size: 13px;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .task-status {
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-icon {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* Main Content */
+        .panel-main {
+            flex: 1;
+            padding: 60px 40px 40px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .main-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+        }
+
+        .project-title {
+            color: #fff;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .branch-info {
+            color: #888;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn-status {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .btn-merge {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 24px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 24px;
+        }
+
+        .tab {
+            color: #888;
+            padding-bottom: 12px;
+            font-size: 14px;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .tab.active {
+            color: #fff;
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: #fff;
+        }
+
+        .plan-section {
+            background: #111;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            flex: 1;
+            padding: 20px;
+            font-family: monospace;
+        }
+
+        .plan-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            color: #3b82f6;
+            font-size: 13px;
+        }
+
+        .step-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .step-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #aaa;
+            font-size: 13px;
+        }
+
+        .step-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #444;
+        }
+
+        .step-item.active {
+            color: #fff;
+        }
+
+        .step-item.active .step-dot {
+            background: #3b82f6;
+            box-shadow: 0 0 8px #3b82f6;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; box-shadow: 0 0 8px #3b82f6; }
+            50% { opacity: 0.5; box-shadow: 0 0 4px #3b82f6; }
+            100% { opacity: 1; box-shadow: 0 0 8px #3b82f6; }
+        }
+
+        .step-status-badge {
+            margin-left: auto;
+            font-size: 11px;
+            color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        /* Chat Overlay */
+        .chat-overlay {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 350px;
+            height: 500px;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            transform: translateY(120%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 100;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+
+        .chat-overlay.active {
+            transform: translateY(0);
+        }
+
+        .chat-header {
+            padding: 16px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-title {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .close-chat {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            color: #666;
+        }
+
+        .chat-body {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            max-width: 80%;
+            line-height: 1.4;
+        }
+
+        .message.bot {
+            background: #f0f0f0;
+            color: #333;
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+
+        .message.user {
+            background: #3b82f6;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .chat-input-area {
+            padding: 16px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            outline: none;
+        }
+
+        .chat-send {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0 16px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .headline {
+                font-size: 2.5rem;
+            }
+            .cta-container {
+                flex-direction: column;
+                width: 80%;
+            }
+            .cta-btn {
+                justify-content: center;
+            }
+            .agent-panel {
+                flex-direction: column;
+                height: auto;
+            }
+            .panel-sidebar {
+                width: 100%;
+                height: 200px;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <section class="hero-section">
+        <h1 class="headline">Think in projects,<br>not chats.</h1>
+        
+        <div class="cta-container">
+            <button class="cta-btn" onclick="openChat('plan')">
+                <div class="cta-icon">P</div>
+                Plan
+            </button>
+            <button class="cta-btn" onclick="openChat('build')">
+                <div class="cta-icon">B</div>
+                Build
+            </button>
+            <button class="cta-btn" onclick="openChat('ship')">
+                <div class="cta-icon">S</div>
+                Ship
+            </button>
+        </div>
+
+        <div class="agent-panel-wrapper">
+            <div class="agent-panel" id="agentPanel">
+                <div class="window-controls">
+                    <div class="control-dot dot-red"></div>
+                    <div class="control-dot dot-yellow"></div>
+                    <div class="control-dot dot-green"></div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="panel-sidebar">
+                    <div class="sidebar-header">
+                        <span>InnerAnimalMedia</span>
+                        <span style="font-size: 12px; opacity: 0.5;">▼</span>
+                    </div>
+
+                    <div class="task-list">
+                        <div class="task-item">
+                            <div class="task-title">dynamic-data-collection-form</div>
+                            <div class="task-status" style="color: #888;">
+                                <span class="status-icon" style="border: 1px solid #666;"></span> To Do
+                            </div>
+                        </div>
+
+                        <div class="task-item active">
+                            <div class="task-title">Add SSO with Passkeys</div>
+                            <div class="task-status" style="color: #3b82f6;">
+                                <span class="status-icon" style="background: #3b82f6;"></span> In Progress
+                            </div>
+                        </div>
+
+                        <div class="task-item">
+                            <div class="task-title">advanced-user-input-form-i...</div>
+                            <div class="task-status" style="color: #f97316;">
+                                <span class="status-icon" style="background: #f97316;"></span> In Review
+                            </div>
+                        </div>
+
+                        <div class="task-item">
+                            <div class="task-title">responsive-feedback-submissi...</div>
+                            <div class="task-status" style="color: #22c55e;">
+                                <span class="status-icon" style="background: #22c55e;"></span> Completed
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Content -->
+                <div class="panel-main">
+                    <div class="main-header">
+                        <div>
+                            <div class="project-title">InnerAnimalMedia</div>
+                            <div class="branch-info">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="6" y1="3" x2="6" y2="15"></line>
+                                    <circle cx="18" cy="6" r="3"></circle>
+                                    <circle cx="6" cy="18" r="3"></circle>
+                                    <path d="M18 9a9 9 0 0 1-9 9"></path>
+                                </svg>
+                                Branch main
+                            </div>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="btn-status">In Progress ▼</button>
+                            <button class="btn-merge">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 15l-6-6-6 6"/>
+                                </svg>
+                                Merge
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="tabs">
+                        <div class="tab active">Steps</div>
+                        <div class="tab">Changes</div>
+                        <div class="tab">Commits</div>
+                    </div>
+
+                    <div class="plan-section">
+                        <div class="plan-header">
+                            <span>Edit plan.md</span>
+                            <span style="color: #666;">Auto-start <span style="display:inline-block; width:20px; height:10px; background:#333; border-radius:10px; margin-left:5px;"></span></span>
+                        </div>
+                        
+                        <div class="step-list">
+                            <div class="step-item active">
+                                <div class="step-dot"></div>
+                                <span>Requirements</span>
+                                <span class="step-status-badge">In progress</span>
+                            </div>
+                            <div class="step-item">
+                                <div class="step-dot"></div>
+                                <span>Technical Specification</span>
+                            </div>
+                            <div class="step-item">
+                                <div class="step-dot"></div>
+                                <span>Planning</span>
+                            </div>
+                            <div class="step-item">
+                                <div class="step-dot"></div>
+                                <span>Implementation</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Chat Overlay -->
+    <div class="chat-overlay" id="chatOverlay">
+        <div class="chat-header">
+            <span class="chat-title" id="chatTitle">Agent Chat</span>
+            <button class="close-chat" onclick="closeChat()">×</button>
+        </div>
+        <div class="chat-body" id="chatBody">
+            <div class="message bot">
+                Hello! I'm ready to help you with your project. What would you like to do?
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" class="chat-input" placeholder="Type a message..." id="chatInput">
+            <button class="chat-send" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // Scroll Animation
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.2
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('in-view');
+                }
+            });
+        }, observerOptions);
+
+        const agentPanel = document.getElementById('agentPanel');
+        observer.observe(agentPanel);
+
+        // Chat Functionality
+        const chatOverlay = document.getElementById('chatOverlay');
+        const chatTitle = document.getElementById('chatTitle');
+        const chatBody = document.getElementById('chatBody');
+        const chatInput = document.getElementById('chatInput');
+
+        function openChat(mode) {
+            chatOverlay.classList.add('active');
+            let title = "Agent Chat";
+            let initialMessage = "";
+
+            switch(mode) {
+                case 'plan':
+                    title = "Plan Project";
+                    initialMessage = "Let's plan your next feature. What are the requirements?";
+                    break;
+                case 'build':
+                    title = "Build Feature";
+                    initialMessage = "Ready to code. Which task should I start working on?";
+                    break;
+                case 'ship':
+                    title = "Ship Release";
+                    initialMessage = "Preparing for deployment. Shall I run the test suite first?";
+                    break;
+            }
+
+            chatTitle.textContent = title;
+            
+            // Clear previous user messages but keep context
+            chatBody.innerHTML = `
+                <div class="message bot">
+                    ${initialMessage}
+                </div>
+            `;
+        }
+
+        function closeChat() {
+            chatOverlay.classList.remove('active');
+        }
+
+        function sendMessage() {
+            const text = chatInput.value.trim();
+            if (text) {
+                // Add user message
+                const userMsg = document.createElement('div');
+                userMsg.className = 'message user';
+                userMsg.textContent = text;
+                chatBody.appendChild(userMsg);
+                
+                chatInput.value = '';
+                chatBody.scrollTop = chatBody.scrollHeight;
+
+                // Simulate bot response
+                setTimeout(() => {
+                    const botMsg = document.createElement('div');
+                    botMsg.className = 'message bot';
+                    botMsg.textContent = "I'm processing your request... (This is a demo)";
+                    chatBody.appendChild(botMsg);
+                    chatBody.scrollTop = chatBody.scrollHeight;
+                }, 1000);
+            }
+        }
+
+        // Allow Enter key to send
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>

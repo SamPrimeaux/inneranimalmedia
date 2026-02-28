@@ -686,7 +686,7 @@ body {
 
     <div class="hero-buttons">
       <button class="btn btn-primary">Launch App</button>
-      <button class="btn btn-secondary">View Details</button>
+      <a href="interactive-hero.html" class="btn btn-secondary" style="text-decoration:none; display:flex; align-items:center; justify-content:center;">Projects Hero</a>
     </div>
 
     <!-- Recommended Tools -->
