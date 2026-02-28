@@ -571,7 +571,7 @@ return new Response(‘Hello’)
     
     <!-- Priority -->
     <div class="glass priority-banner">
-      <strong>🎯 Priority Objective Once Live:</strong>
+      <strong>PRIORITY Objective Once Live:</strong>
       <p style="margin:8px 0 0; color:var(--text-dim); line-height:1.6;">
         Convert your waitlist into paying customers. You have people ready to pay—your first goal is to onboard them smoothly and collect their first payments.
       </p>
@@ -583,7 +583,7 @@ return new Response(‘Hello’)
       <!-- Week 1 -->
       <div class="glass campaign-card">
         <h4>
-          <span class="icon icon-orange">📧</span>
+          <span class="icon icon-orange">EMAIL</span>
           Week 1: Launch Announcement
         </h4>
         <ul>
@@ -598,7 +598,7 @@ return new Response(‘Hello’)
       <!-- Week 2-3 -->
       <div class="glass campaign-card">
         <h4>
-          <span class="icon icon-purple">🚀</span>
+          <span class="icon icon-purple">ROCKET</span>
           Week 2-3: Onboarding Blitz
         </h4>
         <ul>
@@ -613,7 +613,7 @@ return new Response(‘Hello’)
       <!-- Week 4 -->
       <div class="glass campaign-card">
         <h4>
-          <span class="icon icon-teal">💬</span>
+          <span class="icon icon-teal">CHAT</span>
           Week 4: Feedback & Iterate
         </h4>
         <ul>

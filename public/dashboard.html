@@ -219,7 +219,7 @@
         <header>
             <h1>R2 Explorer</h1>
             <div class="header-actions">
-                <button class="btn-refresh" onclick="loadFiles()">↻ Refresh</button>
+                <button class="btn-refresh" onclick="loadFiles()">Refresh</button>
             </div>
         </header>
 
@@ -277,7 +277,7 @@
                         const div = document.createElement('div');
                         div.className = 'file-item';
                         div.innerHTML = `
-                            <span class="file-icon">📄</span>
+                            <span class="file-icon">FILE</span>
                             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${file.key}</span>
                         `;
                         div.onclick = () => selectFile(file.key, div);
