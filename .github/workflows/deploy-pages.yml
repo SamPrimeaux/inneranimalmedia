@@ -36,4 +36,4 @@ jobs:
         run: |
           echo "✅ GitHub Pages deployed!"
           echo "🌐 URL: https://samprimeaux.github.io/inneranimalmedia/"
-          echo "🔗 Redirects to: https://inneranimalmedia.meauxbility.workers.dev"
+          echo "🔗 Redirects to: https://cidi.inneranimalmedia.com"
