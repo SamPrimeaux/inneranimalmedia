@@ -115,11 +115,21 @@ export default {
       
       // If 404, try appending .html for extensionless URLs
       if (response.status === 404 && !url.pathname.includes('.')) {
-        const htmlUrl = new URL(request.url);
-        htmlUrl.pathname += '.html';
-        const htmlResponse = await env.ASSETS.fetch(htmlUrl);
-        if (htmlResponse.status === 200) {
-          response = htmlResponse;
+        // Special route for /dashboard/kanban -> meauxbility-launch-guide.html
+        if (url.pathname === '/dashboard/kanban') {
+             const kanbanUrl = new URL(request.url);
+             kanbanUrl.pathname = '/meauxbility-launch-guide.html';
+             const kanbanResponse = await env.ASSETS.fetch(kanbanUrl);
+             if (kanbanResponse.status === 200) {
+                 response = kanbanResponse;
+             }
+        } else {
+            const htmlUrl = new URL(request.url);
+            htmlUrl.pathname += '.html';
+            const htmlResponse = await env.ASSETS.fetch(htmlUrl);
+            if (htmlResponse.status === 200) {
+              response = htmlResponse;
+            }
         }
       }
 

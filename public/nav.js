@@ -269,6 +269,7 @@
                 <li><a href="/" class="nav-link">Home</a></li>
                 <li><a href="/work.html" class="nav-link">Work</a></li>
                 <li><a href="/meauxbility" class="nav-link">Meauxbility</a></li>
+                <li><a href="/dashboard/kanban" class="nav-link">Launch Guide</a></li>
                 <li><a href="/services.html" class="nav-link">Services</a></li>
                 <li><a href="/about.html" class="nav-link">About</a></li>
                 <li><a href="/dashboard.html" class="nav-link">Dashboard</a></li>
