@@ -1,0 +1,15 @@
+{
+  "name": "inneranimalmedia-cidi",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/ai": "^1.0.55"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
