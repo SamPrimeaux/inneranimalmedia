@@ -682,7 +682,7 @@
             chatOverlay.classList.remove('active');
         }
 
-        function sendMessage() {
+        async function sendMessage() {
             const text = chatInput.value.trim();
             if (text) {
                 // Add user message
@@ -694,14 +694,54 @@
                 chatInput.value = '';
                 chatBody.scrollTop = chatBody.scrollHeight;
 
-                // Simulate bot response
-                setTimeout(() => {
+                // Add loading message
+                const loadingMsg = document.createElement('div');
+                loadingMsg.className = 'message bot';
+                loadingMsg.textContent = "Thinking...";
+                chatBody.appendChild(loadingMsg);
+                chatBody.scrollTop = chatBody.scrollHeight;
+
+                try {
+                    // Call the Worker API
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ message: text })
+                    });
+
+                    const data = await response.json();
+                    
+                    // Remove loading message
+                    chatBody.removeChild(loadingMsg);
+
+                    // Add bot response
                     const botMsg = document.createElement('div');
                     botMsg.className = 'message bot';
-                    botMsg.textContent = "I'm processing your request... (This is a demo)";
+                    
+                    if (data.error) {
+                        botMsg.textContent = "Error: " + data.error;
+                        botMsg.style.color = "red";
+                    } else {
+                        botMsg.textContent = data.response;
+                    }
+                    
                     chatBody.appendChild(botMsg);
                     chatBody.scrollTop = chatBody.scrollHeight;
-                }, 1000);
+
+                } catch (error) {
+                    // Remove loading message
+                    chatBody.removeChild(loadingMsg);
+                    
+                    const errorMsg = document.createElement('div');
+                    errorMsg.className = 'message bot';
+                    errorMsg.textContent = "Sorry, I encountered an error connecting to the server.";
+                    errorMsg.style.color = "red";
+                    chatBody.appendChild(errorMsg);
+                    chatBody.scrollTop = chatBody.scrollHeight;
+                    console.error('Error:', error);
+                }
             }
         }
 
