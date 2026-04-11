@@ -1,0 +1,41 @@
+src/core/.gitkeep
+src/api/.gitkeep
+src/tools/builtin/.gitkeep
+src/integrations/.gitkeep
+src/middleware/.gitkeep
+src/do/.gitkeep
+scripts/.gitkeep
+
+src/
+├── core/
+│   ├── router.js          ← request routing
+│   ├── responses.js       ← json/error helpers
+│   ├── utils.js           ← shared utilities
+│   └── auth.js            ← auth validation
+├── api/
+│   ├── agent.js           ← agent Sam endpoints
+│   ├── dashboard.js       ← dashboard API
+│   ├── cicd.js            ← pipeline endpoints
+│   ├── mcp.js             ← MCP tool endpoints
+│   ├── rag.js             ← RAG query endpoints
+│   └── admin.js           ← admin/superadmin routes
+├── tools/
+│   └── builtin/           ← one file per tool fn
+├── integrations/
+│   ├── anthropic.js       ← Claude API client
+│   ├── resend.js          ← email
+│   ├── github.js          ← GitHub API
+│   └── cloudflare.js      ← CF-specific helpers
+├── middleware/
+│   ├── cors.js
+│   ├── rateLimit.js
+│   └── logging.js
+└── do/                    ← Durable Object classes
+scripts/
+├── benchmark-full.sh
+└── promote-to-prod.sh
+.github/
+└── workflows/
+    ├── sandbox.yml
+    ├── staging.yml
+    └── production.yml
