@@ -1,0 +1,165 @@
+name = "inneranimalmedia"
+main = "src/index.js"
+compatibility_date = "2026-01-20"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
+no_bundle = false
+
+[build]
+command = ""
+
+# esbuild options belong in wrangler.jsonc / per-project build config; top-level [esbuild] is not valid and triggers Wrangler warnings.
+
+[[routes]]
+pattern = "inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
+[[routes]]
+pattern = "www.inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
+[[routes]]
+pattern = "webhooks.inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
+[ai]
+binding = "AI"
+
+# [[ai_search]]
+# binding = "AI_SEARCH"
+# instance_name = "iam-autorag"
+
+[browser]
+binding = "MYBROWSER"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "inneranimalmedia-assets"
+
+# Dashboard JS/HTML/CSS served on inneranimalmedia.com — production bucket only.
+# Staging: agent-sam-sandbox-cicd (wrangler.jsonc / deploy-sandbox.sh). Promote copies → here.
+[[r2_buckets]]
+binding = "DASHBOARD"
+bucket_name = "agent-sam"
+
+[[r2_buckets]]
+binding = "AUTORAG_BUCKET"
+bucket_name = "autorag"
+
+[[r2_buckets]]
+binding = "DOCS_BUCKET"
+bucket_name = "iam-docs"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "iam-platform"
+
+[[r2_buckets]]
+binding = "TOOLS"
+bucket_name = "tools"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "inneranimalmedia-business"
+database_id = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
+
+# inneranimalmedia-supabase-hyperdrive
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "08183bb9d2914e87ac8395d7e4ecff60"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "ai-search-inneranimalmedia-aisearch"
+
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "ai-search-iam-autorag"
+
+[[vectorize]]
+binding = "VECTORIZE_DOCS"
+index_name = "ai-search-iam-docs-search"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "09438d5e4f664bf78467a15af7743c44"
+
+[[kv_namespaces]]
+binding = "SESSION_CACHE"
+id = "dc87920b0a9247979a213c09df9a0234"
+
+[[durable_objects.bindings]]
+name = "IAM_COLLAB"
+class_name = "IAMCollaborationSession"
+
+[[durable_objects.bindings]]
+name = "CHESS_SESSION"
+class_name = "ChessRoom"
+[[durable_objects.bindings]]
+name = "AGENT_SESSION"
+class_name = "AgentChatSqlV1"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["IAMCollaborationSession"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["ChessRoom"]
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["IAMAgentSession"]
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["AgentChatSqlV1"]
+
+[[queues.producers]]
+binding = "MY_QUEUE"
+queue = "74b3155b36334b69852411c083d50322"
+
+[[queues.consumers]]
+queue = "74b3155b36334b69852411c083d50322"
+
+[[analytics_engine_datasets]]
+binding = "WAE"
+dataset = "inneranimalmedia"
+
+[triggers]
+crons = [
+  "0 6 * * *",    # RAG/knowledge sync — real handler exists
+  "30 13 * * *",  # Daily plan email — real handler exists
+  "0 9 * * *",    # FinancialCommand stub — real handler added today
+  "*/30 * * * *", # Queue processor + overnight progress — handler exists, was missing
+  "0 12 * * *",   # Daily summary email — Phase 3C active
+  "0 0 * * *"     # Daily digest email — handler exists, was missing
+]
+
+[vars]
+CLOUDFLARE_ACCOUNT_ID = "ede6590ac0d2fb7daf155b35653457b2"
+CLOUDFLARE_IMAGES_ACCOUNT_HASH = "g7wf09fCONpnidkRnR_5vw"
+GITHUB_CLIENT_ID = "Ov23li6BZYxjVtGUWibX"
+GOOGLE_CLIENT_ID = "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com"
+TENANT_ID = "tenant_sam_primeaux"
+WORKSPACE_ID = "ws_inneranimalmedia"
+DEPLOY_ENV = "production"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+
+[[tail_consumers]]
+service = "inneranimalmedia-tail"
