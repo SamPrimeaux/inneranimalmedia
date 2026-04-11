@@ -7,30 +7,93 @@ src/do/.gitkeep
 scripts/.gitkeep
 
 src/
+├── index.js
 ├── core/
-│   ├── router.js          ← request routing
-│   ├── responses.js       ← json/error helpers
-│   ├── utils.js           ← shared utilities
-│   └── auth.js            ← auth validation
+│   ├── router.js
+│   ├── responses.js
+│   ├── auth.js
+│   ├── session.js
+│   ├── d1.js
+│   ├── r2.js
+│   ├── notifications.js
+│   ├── terminal.js
+│   ├── themes.js
+│   └── durable_objects.js
 ├── api/
-│   ├── agent.js           ← agent Sam endpoints
-│   ├── dashboard.js       ← dashboard API
-│   ├── cicd.js            ← pipeline endpoints
-│   ├── mcp.js             ← MCP tool endpoints
-│   ├── rag.js             ← RAG query endpoints
-│   └── admin.js           ← admin/superadmin routes
+│   ├── agent.js
+│   ├── agentsam.js
+│   ├── auth.js
+│   ├── cicd.js
+│   ├── cicd-event.js
+│   ├── dashboard.js
+│   ├── deployments.js
+│   ├── draw.js
+│   ├── finance.js
+│   ├── git-status.js
+│   ├── health.js
+│   ├── hub.js
+│   ├── integrations.js
+│   ├── integrity.js
+│   ├── mcp.js
+│   ├── overview.js
+│   ├── post-deploy.js
+│   ├── r2-api.js
+│   ├── rag.js
+│   ├── settings.js
+│   ├── telemetry.js
+│   ├── themes.js
+│   ├── vault.js
+│   └── workspace.js
 ├── tools/
-│   └── builtin/           ← one file per tool fn
+│   ├── ai-dispatch.js
+│   ├── db.js
+│   ├── fs.js
+│   ├── github-dispatch.js
+│   ├── http-dispatch.js
+│   ├── network-tier-dispatchers.js
+│   ├── proxy-dispatch.js
+│   ├── r2-dispatch.js
+│   ├── terminal-dispatch.js
+│   ├── terminal.js
+│   ├── time.js
+│   └── builtin/
+│       ├── agent.js
+│       ├── anthropic-batch.js
+│       ├── anthropic-cli.js
+│       ├── computer-use.js
+│       ├── context.js
+│       ├── db.js
+│       ├── deploy.js
+│       ├── imessage.js
+│       ├── integrations.js
+│       ├── media.js
+│       ├── platform.js
+│       ├── reasoning.js
+│       ├── storage.js
+│       ├── telemetry.js
+│       ├── web.js
+│       └── workflow.js
 ├── integrations/
-│   ├── anthropic.js       ← Claude API client
-│   ├── resend.js          ← email
-│   ├── github.js          ← GitHub API
-│   └── cloudflare.js      ← CF-specific helpers
+│   ├── anthropic.js
+│   ├── bluebubbles.js
+│   ├── canvas.js
+│   ├── gemini.js
+│   ├── github.js
+│   ├── hyperdrive.js
+│   ├── openai.js
+│   ├── playwright.js
+│   ├── resend.js
+│   ├── tokens.js
+│   ├── vertex.js
+│   └── workers-ai.js
 ├── middleware/
 │   ├── cors.js
 │   ├── rateLimit.js
 │   └── logging.js
-└── do/                    ← Durable Object classes
+└── do/
+    ├── AgentChat.js
+    ├── Collaboration.js
+    └── Legacy.js
 scripts/
 ├── benchmark-full.sh
 └── promote-to-prod.sh
