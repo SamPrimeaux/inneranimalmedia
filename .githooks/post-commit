@@ -1,0 +1,5 @@
+#!/bin/sh
+# Log the new HEAD commit to D1 cicd_events (non-blocking; safe if Cloudflare env missing).
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+"$ROOT/scripts/log-repo-edit-to-cicd-events.sh" || true
+exit 0
