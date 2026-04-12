@@ -4,34 +4,32 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { VoxelEngine } from './services/VoxelEngine';
-import { StudioSidebar } from './components/StudioSidebar';
-import { UIOverlay } from './components/UIOverlay';
-import { ChatAssistant } from './components/ChatAssistant';
+import { VoxelEngine }        from './services/VoxelEngine';
+import { StudioSidebar }      from './components/StudioSidebar';
+import { UIOverlay }          from './components/UIOverlay';
+import { ChatAssistant }      from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
-import { MCPPanel } from './components/MCPPanel';
+import { MCPPanel }           from './components/MCPPanel';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from './agentChatConstants';
-import { WorkspaceLauncher } from './components/WorkspaceLauncher';
+import { WorkspaceLauncher }  from './components/WorkspaceLauncher';
 import { GorillaModeShell, type GorillaModeHandle } from './components/GorillaModeShell';
-import { ExtensionsPanel } from './components/ExtensionsPanel';
 import { MonacoEditorView, type EditorModelMeta } from './components/MonacoEditorView';
-import { LocalExplorer } from './components/LocalExplorer';
-import { BrowserView } from './components/BrowserView';
-import { SettingsPanel } from './components/SettingsPanel';
-import { ToolLauncherBar } from './components/ToolLauncherBar';
+import { LocalExplorer }      from './components/LocalExplorer';
+import { BrowserView }        from './components/BrowserView';
+import { SettingsPanel }      from './components/SettingsPanel';
+import { ToolLauncherBar }    from './components/ToolLauncherBar';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
-import { ExcalidrawView } from './components/ExcalidrawView';
-import { DatabaseBrowser, type DatabaseExplorerJump } from './components/DatabaseBrowser';
-import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/UnifiedSearchBar';
-import { GitHubActionsPanel } from './components/GitHubActionsPanel';
-import { GitHubExplorer } from './components/GitHubExplorer';
+import { ExcalidrawView }     from './components/ExcalidrawView';
+import { DatabaseBrowser }    from './components/DatabaseBrowser';
+import { UnifiedSearchBar, type SearchNavigate } from './components/UnifiedSearchBar';
+import { GitHubExplorer }     from './components/GitHubExplorer';
 import { KnowledgeSearchPanel } from './components/KnowledgeSearchPanel';
 import { ProblemsDebugPanel } from './components/ProblemsDebugPanel';
 import { WorkspaceExplorerPanel } from './components/WorkspaceExplorerPanel';
 import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
-import { R2Explorer } from './components/R2Explorer';
-import { PlaywrightConsole } from './components/PlaywrightConsole';
-import { SourcePanel } from './components/SourcePanel';
+import { R2Explorer }         from './components/R2Explorer';
+import { PlaywrightConsole }  from './components/PlaywrightConsole';
+import { SourcePanel }        from './components/SourcePanel';
 import {
   ProjectType, AppState, GameEntity, GenerationConfig,
   ArtStyle, SceneConfig, CADTool, CustomAsset, CADPlane, type ActiveFile,
@@ -53,16 +51,18 @@ import {
 } from './src/ideWorkspace';
 import { useEditor } from './src/EditorContext';
 import {
-  Sparkles, Files, Search, GitBranch, PlayCircle, Blocks, Box, Settings,
+  Search, GitBranch, Blocks, Box, Settings,
   PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon,
-  LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github,
+  LayoutTemplate, Network, Layers, Monitor, Bug, Github,
   Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, Columns2,
-  PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2,
-  HardDrive, Package,
+  Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2,
 } from 'lucide-react';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+// Product name is the one truly static string — it is the product.
+const PRODUCT_NAME = 'Agent Sam';
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function escapeHtmlForPreview(s: string): string {
   return s
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -75,10 +75,10 @@ function isRenderablePreviewFilename(name: string): boolean {
 
 function previewButtonTitle(name: string): string {
   if (/\.(html|htm)$/i.test(name)) return 'Preview HTML in Browser tab';
-  if (/\.svg$/i.test(name)) return 'Preview SVG in Browser tab';
-  if (/\.md$/i.test(name)) return 'Preview Markdown in Browser tab';
-  if (/\.jsx$/i.test(name)) return 'Open JSX preview in Browser tab';
-  if (/\.tsx$/i.test(name)) return 'Open TSX preview in Browser tab';
+  if (/\.svg$/i.test(name))        return 'Preview SVG in Browser tab';
+  if (/\.md$/i.test(name))         return 'Preview Markdown in Browser tab';
+  if (/\.jsx$/i.test(name))        return 'Open JSX preview in Browser tab';
+  if (/\.tsx$/i.test(name))        return 'Open TSX preview in Browser tab';
   return 'Preview in Browser tab';
 }
 
@@ -94,9 +94,6 @@ function previewAddressBarLabel(file: ActiveFile): string {
   return `preview:${(file.name || 'buffer').trim() || 'buffer'}`;
 }
 
-// Product name is the one truly static string — it is the product.
-const PRODUCT_NAME = 'Agent Sam';
-
 function buildAgentSamGreeting(workspaceDisplayLine: string): string {
   const w = workspaceDisplayLine.trim();
   if (!w || w === 'No workspace') {
@@ -105,35 +102,34 @@ function buildAgentSamGreeting(workspaceDisplayLine: string): string {
   return `Hi! I'm ${PRODUCT_NAME}. Current workspace: ${w}. What should we work on?`;
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── LucideLike type ──────────────────────────────────────────────────────────
+type LucideLike = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
+// ─── App ──────────────────────────────────────────────────────────────────────
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
-  const containerRef  = useRef<HTMLDivElement>(null);
-  const engineRef     = useRef<VoxelEngine | null>(null);
-  const terminalRef   = useRef<GorillaModeHandle>(null);
-  const collabWsRef   = useRef<WebSocket | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const engineRef    = useRef<VoxelEngine | null>(null);
+  const terminalRef  = useRef<GorillaModeHandle>(null);
+  const collabWsRef  = useRef<WebSocket | null>(null);
 
   const [activeProject, setActiveProject] = useState<ProjectType>(ProjectType.SANDBOX);
   const [appState, setAppState]           = useState<AppState>(AppState.EDITING);
   const [voxelCount, setVoxelCount]       = useState<number>(0);
   const [isGenerating, setIsGenerating]   = useState(false);
   const [customAssets, setCustomAssets]   = useState<CustomAsset[]>([]);
-
-  const [undoStack, setUndoStack] = useState<GameEntity[]>([]);
-  const [redoStack, setRedoStack] = useState<GameEntity[]>([]);
+  const [undoStack, setUndoStack]         = useState<GameEntity[]>([]);
+  const [redoStack, setRedoStack]         = useState<GameEntity[]>([]);
 
   // ── Workspace config from API ─────────────────────────────────────────────
-  // workspaceCdCommand is resolved server-side and never hardcoded here.
   const [workspaceCdCommand, setWorkspaceCdCommand] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     fetch('/api/agentsam/config', { credentials: 'same-origin' })
       .then(r => r.ok ? r.json() : null)
       .then(d => {
-        if (typeof d?.workspace_cd_command === 'string' && d.workspace_cd_command.trim()) {
+        if (typeof d?.workspace_cd_command === 'string' && d.workspace_cd_command.trim())
           setWorkspaceCdCommand(d.workspace_cd_command.trim());
-        }
       })
       .catch(() => {});
   }, []);
@@ -142,37 +138,37 @@ const App: React.FC = () => {
   type TabId = 'Workspace' | 'welcome' | 'engine' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'database';
 
   const [activeActivity, setActiveActivity] = useState<
-    'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'settings' | 'drive' | 'playwright' | null
+    'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' |
+    'actions' | 'projects' | 'settings' | 'drive' | 'playwright' | null
   >(() => typeof window !== 'undefined' && window.innerWidth < 768 ? null : 'files');
 
   const [agentPosition, setAgentPosition] = useState<'right' | 'left' | 'off'>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'off' : 'right'
   );
 
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [splitLayout, setSplitLayout]       = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen]     = useState(false);
+  const [splitLayout, setSplitLayout]           = useState(false);
   const [shellOutputLines, setShellOutputLines] = useState<string[]>([]);
-  const [ideWorkspace, setIdeWorkspace]     = useState<IdeWorkspaceSnapshot>(() => ({ source: 'none' }));
-  const [recentFiles, setRecentFiles]       = useState<RecentFileEntry[]>([]);
-  const [gitBranch, setGitBranch]           = useState(() => 'main');
+  const [ideWorkspace, setIdeWorkspace]         = useState<IdeWorkspaceSnapshot>(() => ({ source: 'none' }));
+  const [recentFiles, setRecentFiles]           = useState<RecentFileEntry[]>([]);
+  const [gitBranch, setGitBranch]               = useState(() => 'main');
   const [agentChatConversationId, setAgentChatConversationId] = useState(() =>
     typeof window !== 'undefined' ? localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID)?.trim() || '' : ''
   );
-  const [dbExplorerJump, setDbExplorerJump] = useState<DatabaseExplorerJump | null>(null);
-  const [errorCount, setErrorCount]         = useState(0);
-  const [warningCount, setWarningCount]     = useState(0);
-  const [healthOk, setHealthOk]             = useState<boolean | null>(null);
-  const [tunnelHealthy, setTunnelHealthy]   = useState<boolean | null>(null);
-  const [tunnelLabel, setTunnelLabel]       = useState<string | null>(null);
-  const [terminalOk, setTerminalOk]         = useState<boolean | null>(null);
+  const [errorCount, setErrorCount]     = useState(0);
+  const [warningCount, setWarningCount] = useState(0);
+  const [healthOk, setHealthOk]         = useState<boolean | null>(null);
+  const [tunnelHealthy, setTunnelHealthy] = useState<boolean | null>(null);
+  const [tunnelLabel, setTunnelLabel]   = useState<string | null>(null);
+  const [terminalOk, setTerminalOk]     = useState<boolean | null>(null);
   const [lastDeployLine, setLastDeployLine] = useState<string | null>(null);
-  const [editorMeta, setEditorMeta]         = useState<EditorModelMeta>({
+  const [editorMeta, setEditorMeta]     = useState<EditorModelMeta>({
     tabSize: 2, insertSpaces: true, eol: 'LF', encoding: 'UTF-8',
   });
   const [agentNotifications, setAgentNotifications] = useState<AgentNotificationRow[]>([]);
-  const [cursorPos, setCursorPos]           = useState({ line: 1, col: 1 });
+  const [cursorPos, setCursorPos]       = useState({ line: 1, col: 1 });
   const [nativeFolderOpenSignal, setNativeFolderOpenSignal] = useState(0);
-  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen]   = useState(false);
   const [isWorkspaceLauncherOpen, setWorkspaceLauncherOpen] = useState(false);
   const [isNarrowViewport, setIsNarrowViewport] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 768
@@ -180,21 +176,20 @@ const App: React.FC = () => {
   const mobileSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const [githubExpandRepo, setGithubExpandRepo] = useState<string | null>(null);
 
-  // Browser tab — default empty, populated when navigating
-  const [browserUrl, setBrowserUrl]                   = useState<string>('');
+  const [browserUrl, setBrowserUrl]               = useState<string>('');
   const [browserAddressDisplay, setBrowserAddressDisplay] = useState<string | null>(null);
-  const [browserTabTitle, setBrowserTabTitle]         = useState<string | null>(null);
-
-  // GLB viewer — no default asset
-  const [glbViewerUrl, setGlbViewerUrl]               = useState<string>('');
-  const [glbViewerFilename, setGlbViewerFilename]     = useState('');
-
-  const [toastMsg, setToastMsg]   = useState<string | null>(null);
-  const [cmdSearch, setCmdSearch] = useState('');
+  const [browserTabTitle, setBrowserTabTitle]     = useState<string | null>(null);
+  const [glbViewerUrl, setGlbViewerUrl]           = useState<string>('');
+  const [glbViewerFilename, setGlbViewerFilename] = useState('');
+  const [toastMsg, setToastMsg]                   = useState<string | null>(null);
 
   // ── Workspace / auth ──────────────────────────────────────────────────────
-  const [authWorkspaceId, setAuthWorkspaceId]   = useState<string | null>(null);
-  const [workspaceRows, setWorkspaceRows]       = useState<Array<{ id: string; name: string }>>([]);
+  const [authWorkspaceId, setAuthWorkspaceId] = useState<string | null>(null);
+  const [workspaceRows, setWorkspaceRows]     = useState<Array<{
+    id:          string;
+    name:        string;
+    environment?: string;
+  }>>([]);
 
   const workspaceDisplayName = useMemo(() => {
     const id = authWorkspaceId?.trim();
@@ -209,13 +204,17 @@ const App: React.FC = () => {
   useEffect(() => {
     fetch('/api/settings/workspaces', { credentials: 'same-origin' })
       .then(r => r.ok ? r.json() : null)
-      .then((d: { current?: string; data?: Array<{ id?: string; name?: string }> } | null) => {
+      .then((d: { current?: string; data?: Array<{ id?: string; name?: string; environment?: string }> } | null) => {
         if (d?.current && typeof d.current === 'string') setAuthWorkspaceId(d.current);
         if (Array.isArray(d?.data)) {
           setWorkspaceRows(
             d.data
               .filter(r => r && typeof r.id === 'string')
-              .map(r => ({ id: r.id as string, name: typeof r.name === 'string' ? r.name : r.id as string }))
+              .map(r => ({
+                id:          r.id as string,
+                name:        typeof r.name === 'string' ? r.name : r.id as string,
+                environment: typeof r.environment === 'string' ? r.environment : undefined,
+              }))
           );
         }
       })
@@ -226,14 +225,13 @@ const App: React.FC = () => {
     document.title = `${workspaceDisplayName} — ${PRODUCT_NAME}`;
   }, [workspaceDisplayName]);
 
-  // ── IAM_COLLAB realtime sync — use authWorkspaceId, not a hardcoded string ─
+  // ── IAM_COLLAB realtime — authWorkspaceId, not hardcoded ─────────────────
   useEffect(() => {
     const roomId = authWorkspaceId || 'default';
     const proto  = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl  = `${proto}//${window.location.host}/api/collab/room/${roomId}`;
     const ws     = new WebSocket(wsUrl);
     collabWsRef.current = ws;
-
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
@@ -248,7 +246,6 @@ const App: React.FC = () => {
       } catch (_) {}
     };
     ws.onerror = () => {};
-
     return () => { try { ws.close(); } catch (_) {} };
   }, [authWorkspaceId]);
 
@@ -261,8 +258,14 @@ const App: React.FC = () => {
   }, []);
 
   // ── IDE persist ───────────────────────────────────────────────────────────
-  const idePersistRef = useRef({ ideWorkspace: { source: 'none' } as IdeWorkspaceSnapshot, gitBranch: 'main', recentFiles: [] as RecentFileEntry[] });
-  useEffect(() => { idePersistRef.current = { ideWorkspace, gitBranch, recentFiles }; }, [ideWorkspace, gitBranch, recentFiles]);
+  const idePersistRef = useRef({
+    ideWorkspace: { source: 'none' } as IdeWorkspaceSnapshot,
+    gitBranch: 'main',
+    recentFiles: [] as RecentFileEntry[],
+  });
+  useEffect(() => {
+    idePersistRef.current = { ideWorkspace, gitBranch, recentFiles };
+  }, [ideWorkspace, gitBranch, recentFiles]);
 
   const hydrateGenRef    = useRef(0);
   const prevAgentConvRef = useRef<string>('');
@@ -271,12 +274,10 @@ const App: React.FC = () => {
     const id   = agentChatConversationId?.trim() || '';
     const prev = prevAgentConvRef.current;
     prevAgentConvRef.current = id;
-
     if (prev && prev !== id) {
       const s = idePersistRef.current;
       void persistIdeToApi(prev, { v: IDE_PERSIST_VERSION, ideWorkspace: s.ideWorkspace, gitBranch: s.gitBranch, recentFiles: s.recentFiles });
     }
-
     if (!id) return;
     const gen = ++hydrateGenRef.current;
     let cancelled = false;
@@ -299,7 +300,11 @@ const App: React.FC = () => {
   }, [agentChatConversationId, ideWorkspace, gitBranch, recentFiles]);
 
   const mappedRecentFiles = useMemo(() =>
-    recentFiles.map(f => ({ name: f.name, path: f.workspacePath || f.githubPath || f.r2Key || f.id, label: f.label })),
+    recentFiles.map(f => ({
+      name:  f.name,
+      path:  f.workspacePath || f.githubPath || f.r2Key || f.id,
+      label: f.label,
+    })),
     [recentFiles]
   );
 
@@ -377,8 +382,10 @@ const App: React.FC = () => {
       const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
       const id  = typeof raw === 'string' ? raw.trim() : '';
       setAgentChatConversationId(id);
-      if (!id) { setChatMessages([{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayName) }]); return; }
-
+      if (!id) {
+        setChatMessages([{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayName) }]);
+        return;
+      }
       void fetch(`/api/agent/sessions/${encodeURIComponent(id)}/messages`, { credentials: 'same-origin' })
         .then(r => r.ok ? r.json() : [])
         .then((rows: unknown) => {
@@ -396,7 +403,10 @@ const App: React.FC = () => {
             const content = typeof raw === 'string' ? raw : raw != null ? JSON.stringify(raw) : '';
             mapped.push({ role, content: content.trim() ? content : '(empty)' });
           }
-          setChatMessages(mapped.length ? mapped : [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayName) }]);
+          setChatMessages(mapped.length
+            ? mapped
+            : [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayName) }]
+          );
         })
         .catch(() => setChatMessages([{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayName) }]));
     };
@@ -405,7 +415,10 @@ const App: React.FC = () => {
   }, [workspaceDisplayName]);
 
   // ── Navigation helpers ────────────────────────────────────────────────────
-  const narrowBackToCenter = useCallback(() => { setActiveActivity(null); setAgentPosition('off'); }, []);
+  const narrowBackToCenter = useCallback(() => {
+    setActiveActivity(null);
+    setAgentPosition('off');
+  }, []);
 
   const openGitHubFromChat = useCallback((opts?: { expandRepoFullName?: string }) => {
     const fn = opts?.expandRepoFullName?.trim();
@@ -425,7 +438,12 @@ const App: React.FC = () => {
 
   const openInMonacoFromChat = useCallback(
     (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => {
-      setActiveFile({ name: file.name, content: file.content, originalContent: file.originalContent !== undefined ? file.originalContent : file.content ?? '', githubPath: file.githubPath, githubSha: file.githubSha, r2Key: file.r2Key, r2Bucket: file.r2Bucket });
+      setActiveFile({
+        name: file.name, content: file.content,
+        originalContent: file.originalContent !== undefined ? file.originalContent : file.content ?? '',
+        githubPath: file.githubPath, githubSha: file.githubSha,
+        r2Key: file.r2Key, r2Bucket: file.r2Bucket,
+      });
       revealMainWorkspaceIfNarrow();
       setOpenTabs(prev => prev.includes('code') ? prev : [...prev, 'code']);
       setActiveTab('code');
@@ -459,7 +477,6 @@ const App: React.FC = () => {
       setOpenTabs(p => p.includes('code') ? p : [...p, 'code']);
       setActiveTab('code');
     };
-
     try {
       if (entry.githubRepo && entry.githubPath && entry.githubBranch) {
         const [owner, repo] = entry.githubRepo.split('/');
@@ -519,7 +536,47 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const toggleActivity = (activity: 'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'settings' | 'drive' | 'playwright') => {
+  // ── Tool launcher events → browser panel ─────────────────────────────────
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ external_url?: string }>).detail;
+      const url = d?.external_url?.trim();
+      if (!url) return;
+      setBrowserAddressDisplay(null);
+      setBrowserTabTitle(null);
+      setBrowserUrl(url);
+      setOpenTabs(prev => prev.includes('browser') ? prev : [...prev, 'browser']);
+      setActiveTab('browser');
+    };
+    // Listen for any iam-tool:* event that carries an external_url
+    ['iam-tool:meshy', 'iam-tool:spline', 'iam-tool:blender'].forEach(ev =>
+      window.addEventListener(ev, h as EventListener)
+    );
+    const onDraw = () => {
+      setOpenTabs(prev => prev.includes('excalidraw') ? prev : [...prev, 'excalidraw']);
+      setActiveTab('excalidraw');
+    };
+    window.addEventListener('iam-tool:draw', onDraw);
+    return () => {
+      ['iam-tool:meshy', 'iam-tool:spline', 'iam-tool:blender'].forEach(ev =>
+        window.removeEventListener(ev, h as EventListener)
+      );
+      window.removeEventListener('iam-tool:draw', onDraw);
+    };
+  }, []);
+
+  // ── DB navigation via CustomEvent (replaces explorerJump prop) ───────────
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ table?: string; sql?: string; dbTarget?: string }>).detail;
+      setOpenTabs(prev => prev.includes('database') ? prev : [...prev, 'database']);
+      setActiveTab('database');
+    };
+    window.addEventListener('iam-db-navigate', h as EventListener);
+    return () => window.removeEventListener('iam-db-navigate', h as EventListener);
+  }, []);
+
+  const toggleActivity = (activity: typeof activeActivity extends null ? never : NonNullable<typeof activeActivity>) => {
     setActiveActivity(prev => prev === activity ? null : activity);
   };
 
@@ -532,11 +589,10 @@ const App: React.FC = () => {
     setActiveActivity(null);
   }, []);
 
-  const handleUnifiedNavigate = useCallback((nav: UnifiedSearchNavigate) => {
+  const handleUnifiedNavigate = useCallback((nav: SearchNavigate) => {
     if (nav.kind === 'table') {
-      setOpenTabs(prev => prev.includes('database') ? prev : [...prev, 'database']);
-      setActiveTab('database');
-      setDbExplorerJump({ token: Date.now(), table: nav.name, dbTarget: 'd1' });
+      // Navigate DB panel via event — no prop needed
+      window.dispatchEvent(new CustomEvent('iam-db-navigate', { detail: { table: nav.name, dbTarget: 'd1' } }));
       return;
     }
     if (nav.kind === 'conversation') {
@@ -550,36 +606,57 @@ const App: React.FC = () => {
       setActiveActivity('search');
       return;
     }
-    if (nav.kind === 'sql' || nav.kind === 'column') {
+    if (nav.kind === 'sql') {
       const sql = nav.sql?.trim();
       if (!sql) return;
-      setOpenTabs(prev => prev.includes('database') ? prev : [...prev, 'database']);
-      setActiveTab('database');
-      setDbExplorerJump({ token: Date.now(), querySql: sql, dbTarget: 'd1' });
+      window.dispatchEvent(new CustomEvent('iam-db-navigate', { detail: { sql, dbTarget: 'd1' } }));
+      return;
+    }
+    if (nav.kind === 'file' || nav.kind === 'recent_file') {
+      const path = nav.path?.trim();
+      if (path) setToastMsg(`File: ${path}`);
+      return;
+    }
+    if (nav.kind === 'file_change') {
+      setActiveActivity('git');
       return;
     }
     if (nav.kind === 'deployment') {
-      const t = nav.summary?.trim();
+      const t = 'summary' in nav ? nav.summary?.trim() : '';
       if (t) void navigator.clipboard?.writeText(t).catch(() => {});
+    }
+    if (nav.kind === 'command') {
+      // Shell fires these directly; App handles any UI commands
+      if (nav.cmd === 'db')      { openTab('database'); return; }
+      if (nav.cmd === 'draw')    { openTab('excalidraw'); return; }
+      if (nav.cmd === 'voxel')   { openTab('engine'); return; }
+      if (nav.cmd === 'browser') { openTab('browser'); return; }
+      if (nav.cmd === 'terminal') { setIsTerminalOpen(p => !p); return; }
+      if (nav.cmd === 'mcp')     { toggleActivity('mcps'); return; }
+      if (nav.cmd === 'deploy')  { toggleActivity('actions'); return; }
+      if (nav.cmd === 'theme')   { toggleActivity('settings'); return; }
+      if (nav.cmd === 'new-chat') {
+        window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id: null } }));
+        return;
+      }
+      // Default: send to terminal
+      terminalRef.current?.runCommand(nav.cmd);
     }
   }, []);
 
   // ── Live status polling ───────────────────────────────────────────────────
   const fetchLiveStatus = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
-
     try {
       const hr = await fetch('/api/health');
       const hj = await hr.json().catch(() => ({}));
       setHealthOk(hr.ok ? !!hj.ok : false);
     } catch { setHealthOk(false); }
-
     try {
       const r = await fetch('/api/agent/git/status', cred);
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.branch) setGitBranch(String(d.branch));
     } catch { /* ignore */ }
-
     try {
       const r = await fetch('/api/agent/problems', cred);
       const d = await r.json().catch(() => ({}));
@@ -592,7 +669,6 @@ const App: React.FC = () => {
         setWarningCount(warnA.length);
       }
     } catch { /* ignore */ }
-
     try {
       const r = await fetch('/api/tunnel/status', cred);
       const j = await r.json().catch(() => ({}));
@@ -607,13 +683,11 @@ const App: React.FC = () => {
         setTunnelLabel(j?.error ? String(j.error).slice(0, 72) : `tunnel ${r.status}`);
       }
     } catch { setTunnelHealthy(null); setTunnelLabel(null); }
-
     try {
       const r = await fetch('/api/agent/terminal/config-status', cred);
       const j = await r.json().catch(() => ({}));
       if (r.ok) setTerminalOk(!!j.terminal_configured);
     } catch { /* ignore */ }
-
     try {
       const r = await fetch('/api/overview/deployments', cred);
       const j = await r.json().catch(() => ({}));
@@ -623,13 +697,11 @@ const App: React.FC = () => {
         setLastDeployLine(bits.join(' · ') || null);
       } else { setLastDeployLine(null); }
     } catch { setLastDeployLine(null); }
-
     try {
       const r = await fetch('/api/agent/notifications', cred);
       const j = await r.json().catch(() => ({}));
       if (r.ok && Array.isArray(j.notifications)) setAgentNotifications(j.notifications as AgentNotificationRow[]);
     } catch { /* ignore */ }
-
     fetch('/api/agent/telemetry', { method: 'GET', credentials: 'same-origin' }).catch(() => {});
   }, []);
 
@@ -685,7 +757,7 @@ const App: React.FC = () => {
       const res  = await fetch(`/api/r2/file?bucket=${encodeURIComponent(event.bucket)}&key=${encodeURIComponent(event.key)}`, { credentials: 'same-origin' });
       if (!res.ok) return;
       const data = await res.json();
-      const content = typeof data.content === 'string' ? data.content : '';
+      const content  = typeof data.content === 'string' ? data.content : '';
       const baseName = event.key.split('/').pop() || event.key;
       setActiveFile({ name: baseName, content, originalContent: content, r2Key: event.key, r2Bucket: event.bucket });
       revealMainWorkspaceIfNarrow();
@@ -714,7 +786,6 @@ const App: React.FC = () => {
     const name = activeFile.name || '';
     if (!isRenderablePreviewFilename(name)) return;
     if (htmlPreviewBlobRef.current) { URL.revokeObjectURL(htmlPreviewBlobRef.current); htmlPreviewBlobRef.current = null; }
-
     let blob: Blob;
     if (/\.(html|htm)$/i.test(name)) {
       blob = new Blob([activeFile.content], { type: 'text/html; charset=utf-8' });
@@ -729,7 +800,6 @@ const App: React.FC = () => {
       const doc    = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>${escapeHtmlForPreview(name)}</title></head><body><p><strong>React preview requires a build step.</strong> ${isTsx ? 'TSX' : 'JSX'} must be compiled.</p><pre style="white-space:pre-wrap;font-size:12px">${srcEsc}</pre></body></html>`;
       blob = new Blob([doc], { type: 'text/html; charset=utf-8' });
     } else { return; }
-
     const u = URL.createObjectURL(blob);
     htmlPreviewBlobRef.current = u;
     setBrowserAddressDisplay(previewAddressBarLabel(activeFile));
@@ -747,7 +817,6 @@ const App: React.FC = () => {
 
   const handleSaveFile = useCallback(async (content: string) => {
     if (!activeFile) return;
-
     if (activeFile.driveFileId) {
       try {
         const res = await fetch('/api/drive/file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ fileId: activeFile.driveFileId, content, mimeType: guessMimeForDrive(activeFile.name || 'file.txt') }) });
@@ -758,7 +827,6 @@ const App: React.FC = () => {
       } catch { setToastMsg('Drive save failed'); }
       return;
     }
-
     if (activeFile.handle) {
       try {
         const writable = await activeFile.handle.createWritable();
@@ -768,7 +836,6 @@ const App: React.FC = () => {
       } catch (err) { console.error('Save failed:', err); }
       return;
     }
-
     if (activeFile.r2Key) {
       try {
         const res = await fetch('/api/r2/file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ bucket: activeFile.r2Bucket ?? 'DASHBOARD', key: activeFile.r2Key, content }) });
@@ -777,7 +844,6 @@ const App: React.FC = () => {
       } catch (e) { console.error(e); }
       return;
     }
-
     if (activeFile.githubPath && activeFile.githubRepo) {
       const [owner, repo] = activeFile.githubRepo.split('/');
       if (!owner || !repo) return;
@@ -790,11 +856,9 @@ const App: React.FC = () => {
       } catch { setToastMsg('GitHub save failed'); }
       return;
     }
-
     setActiveFile(prev => prev ? { ...prev, content, originalContent: content } : null);
   }, [activeFile]);
 
-  // ── CAD save/load — no alert() ────────────────────────────────────────────
   const handleSave = async (id: string) => {
     try {
       await fetch(`/api/cad/upload/${id}`, { method: 'POST', body: JSON.stringify({ undoStack, genConfig, sceneConfig }) });
@@ -811,7 +875,10 @@ const App: React.FC = () => {
       setUndoStack([]);
       setRedoStack([]);
       if (data.undoStack) {
-        data.undoStack.forEach((ent: GameEntity) => { engineRef.current?.spawnEntity(ent); setUndoStack(prev => [...prev, ent]); });
+        data.undoStack.forEach((ent: GameEntity) => {
+          engineRef.current?.spawnEntity(ent);
+          setUndoStack(prev => [...prev, ent]);
+        });
       }
       if (data.genConfig) handleUpdateGenConfig(data.genConfig);
       if (data.sceneConfig) setSceneConfig(data.sceneConfig);
@@ -819,7 +886,6 @@ const App: React.FC = () => {
     } catch { setToastMsg('Load failed'); }
   };
 
-  // ── Terminal bridge ───────────────────────────────────────────────────────
   const runInTerminal = useCallback((cmd: string) => {
     if (!isTerminalOpen) setIsTerminalOpen(true);
     setTimeout(() => terminalRef.current?.runCommand(cmd), 100);
@@ -841,7 +907,7 @@ const App: React.FC = () => {
       .catch(() => applyCachedCmsThemeFallback());
   }, [authWorkspaceId]);
 
-  // Cmd+J
+  // Cmd+J toggles terminal
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') { setIsTerminalOpen(p => !p); e.preventDefault(); }
@@ -851,7 +917,7 @@ const App: React.FC = () => {
   }, []);
 
   // ── 3D engine ─────────────────────────────────────────────────────────────
-  const [genConfig, setGenConfig] = useState<GenerationConfig>({ style: ArtStyle.CYBERPUNK, density: 5, usePhysics: true, cadTool: CADTool.NONE, cadPlane: CADPlane.XZ, extrusion: 1 });
+  const [genConfig, setGenConfig]     = useState<GenerationConfig>({ style: ArtStyle.CYBERPUNK, density: 5, usePhysics: true, cadTool: CADTool.NONE, cadPlane: CADPlane.XZ, extrusion: 1 });
   const [sceneConfig, setSceneConfig] = useState<SceneConfig>({ ambientIntensity: 1.5, sunColor: '#ffffff', castShadows: true, showPhysicsDebug: false });
 
   useEffect(() => {
@@ -898,8 +964,8 @@ const App: React.FC = () => {
   const handleUpdateGenConfig = (cfg: Partial<GenerationConfig>) => {
     const next = { ...genConfig, ...cfg };
     setGenConfig(next);
-    if (cfg.cadTool !== undefined)  engineRef.current?.setCADTool(cfg.cadTool);
-    if (cfg.cadPlane !== undefined) engineRef.current?.setCADPlane(cfg.cadPlane);
+    if (cfg.cadTool !== undefined)   engineRef.current?.setCADTool(cfg.cadTool);
+    if (cfg.cadPlane !== undefined)  engineRef.current?.setCADPlane(cfg.cadPlane);
     if (cfg.extrusion !== undefined) engineRef.current?.setExtrusion(cfg.extrusion);
   };
 
@@ -922,11 +988,12 @@ const App: React.FC = () => {
       const res = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: `PROJECT: ${activeProject}\nSTYLE: ${genConfig.style}\nGUIDELINES: ${styleGuidelines[genConfig.style]}\nPHYSICS: ${genConfig.usePhysics}\nDENSITY: ${genConfig.density}/10\nCOMMAND: "${prompt}"\n\nReturn a JSON array of NEW entities.` }) });
       const data = await res.json();
       if (data.response && engineRef.current) {
-        const entities: any[] = JSON.parse(data.response);
+        const entities: unknown[] = JSON.parse(data.response);
         entities.forEach(ent => {
-          const formatted = { ...ent, voxels: ent.voxels.map((v: any) => ({ ...v, color: typeof v.color === 'string' ? parseInt(v.color.replace('#', ''), 16) : v.color })) };
-          engineRef.current?.spawnEntity(formatted);
-          setUndoStack(prev => [...prev, formatted]);
+          const e = ent as Record<string, unknown>;
+          const formatted = { ...e, voxels: (e.voxels as unknown[]).map((v: unknown) => { const vx = v as Record<string, unknown>; return { ...vx, color: typeof vx.color === 'string' ? parseInt(vx.color.replace('#', ''), 16) : vx.color }; }) };
+          engineRef.current?.spawnEntity(formatted as GameEntity);
+          setUndoStack(prev => [...prev, formatted as GameEntity]);
         });
         setRedoStack([]);
       }
@@ -935,9 +1002,9 @@ const App: React.FC = () => {
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const narrowBlocksCenter  = isNarrowViewport && (!!activeActivity || agentPosition !== 'off');
-  const narrowNeedsBack     = narrowBlocksCenter;
-  const statusIndentLabel   = useMemo(() => `${editorMeta.insertSpaces ? 'Spaces' : 'Tabs'}: ${editorMeta.tabSize}`, [editorMeta]);
+  const narrowBlocksCenter = isNarrowViewport && (!!activeActivity || agentPosition !== 'off');
+  const narrowNeedsBack    = narrowBlocksCenter;
+  const statusIndentLabel  = useMemo(() => `${editorMeta.insertSpaces ? 'Spaces' : 'Tabs'}: ${editorMeta.tabSize}`, [editorMeta]);
 
   const lastPersistedTabRef = useRef<TabId | null>(null);
   useEffect(() => { lastPersistedTabRef.current = null; }, [agentChatConversationId]);
@@ -961,7 +1028,7 @@ const App: React.FC = () => {
     window.dispatchEvent(new CustomEvent('iam-agent-external-send', { detail: { message: msg } }));
   }, [agentPosition]);
 
-  // ── Chat panel (shared across left/right positions) ───────────────────────
+  // ── Chat panel content ────────────────────────────────────────────────────
   const chatPanelContent = (
     <ChatAssistant
       activeProject={activeProject}
@@ -1025,19 +1092,19 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex gap-0.5 items-center mr-1 shrink-0">
-          <button type="button" title="More (mobile)" className="md:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]" onClick={() => setMobileMoreOpen(true)}>
+          <button type="button" title="More (mobile)" className="md:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]" onClick={() => setMobileMoreOpen(true)}>
             <MoreHorizontal size={15} strokeWidth={1.75} />
           </button>
-          <button type="button" title="Toggle split editor" className={`p-1.5 rounded transition-colors ${splitLayout ? 'text-[var(--color-primary)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`} onClick={() => setSplitLayout(v => !v)}>
+          <button type="button" title="Toggle split editor" className={`p-1.5 rounded transition-colors ${splitLayout ? 'text-[var(--color-primary)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'}`} onClick={() => setSplitLayout(v => !v)}>
             <Columns2 size={15} strokeWidth={1.75} />
           </button>
-          <button type="button" title="Toggle agent panel" className="p-1.5 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)] rounded transition-colors" onClick={onChatLayoutToggle}>
+          <button type="button" title="Toggle agent panel" className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] rounded transition-colors" onClick={onChatLayoutToggle}>
             {agentPosition === 'left' ? <PanelLeftClose size={15} strokeWidth={1.75} /> : <PanelRightClose size={15} strokeWidth={1.75} />}
           </button>
-          <button type="button" title="Terminal (Cmd+J)" className={`p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--color-primary)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`} onClick={() => setIsTerminalOpen(p => !p)}>
+          <button type="button" title="Terminal (Cmd+J)" className={`p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--color-primary)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'}`} onClick={() => setIsTerminalOpen(p => !p)}>
             <TermIcon size={15} strokeWidth={1.75} />
           </button>
-          <button type="button" title="Settings" className={`p-1.5 rounded transition-colors ${activeActivity === 'settings' ? 'text-[var(--color-primary)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`} onClick={() => toggleActivity('settings')}>
+          <button type="button" title="Settings" className={`p-1.5 rounded transition-colors ${activeActivity === 'settings' ? 'text-[var(--color-primary)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'}`} onClick={() => toggleActivity('settings')}>
             <Settings size={15} strokeWidth={1.75} />
           </button>
         </div>
@@ -1047,20 +1114,21 @@ const App: React.FC = () => {
 
         {/* ACTIVITY BAR */}
         <div className="hidden md:flex w-12 bg-[var(--bg-panel)] flex-col items-center py-4 gap-4 border-r border-[var(--border-subtle)] shrink-0 z-50">
-          <ActivityIcon icon={PenTool}   title="Draw"             active={openTabs.includes('excalidraw')} onClick={() => openTab('excalidraw')} />
-          <ActivityIcon icon={Search}    title="Search"           active={activeActivity === 'search'}     onClick={() => toggleActivity('search')} />
-          <ActivityIcon icon={GitBranch} title="Source Control"   active={activeActivity === 'git'}        onClick={() => toggleActivity('git')} />
-          <ActivityIcon icon={Bug}       title="Run & Debug"      active={activeActivity === 'debug'}      onClick={() => toggleActivity('debug')} />
-          <ActivityIcon icon={Network}   title="Remote Explorers" active={activeActivity === 'remote'}     onClick={() => toggleActivity('remote')} />
-          <ActivityIcon icon={Layers}    title="Tools & MCP"      active={activeActivity === 'mcps'}       onClick={() => toggleActivity('mcps')} />
-          <ActivityIcon icon={Github}    title="GitHub Actions"   active={activeActivity === 'actions'}    onClick={() => toggleActivity('actions')} />
-          <ActivityIcon icon={Database}  title="D1 Explorer"      active={openTabs.includes('database')}   onClick={() => { openTab('database'); setActiveActivity(null); }} />
-          <ActivityIcon icon={Cloud}     title="Cloud Sync"       active={activeActivity === 'drive'}      onClick={() => toggleActivity('drive')} />
-          <ActivityIcon icon={Monitor}   title="Playwright"       active={activeActivity === 'playwright'} onClick={() => toggleActivity('playwright')} />
+          <ActivityIcon icon={PenTool}   title="Draw"           active={openTabs.includes('excalidraw')} onClick={() => openTab('excalidraw')} />
+          <ActivityIcon icon={Search}    title="Search"         active={activeActivity === 'search'}     onClick={() => toggleActivity('search')} />
+          <ActivityIcon icon={GitBranch} title="Source Control" active={activeActivity === 'git'}        onClick={() => toggleActivity('git')} />
+          <ActivityIcon icon={Bug}       title="Run & Debug"    active={activeActivity === 'debug'}      onClick={() => toggleActivity('debug')} />
+          <ActivityIcon icon={Network}   title="Remote"         active={activeActivity === 'remote'}     onClick={() => toggleActivity('remote')} />
+          <ActivityIcon icon={Layers}    title="Tools & MCP"    active={activeActivity === 'mcps'}       onClick={() => toggleActivity('mcps')} />
+          <ActivityIcon icon={Github}    title="GitHub"         active={activeActivity === 'actions'}    onClick={() => toggleActivity('actions')} />
+          <ActivityIcon icon={Database}  title="Database"       active={openTabs.includes('database')}   onClick={() => { openTab('database'); setActiveActivity(null); }} />
+          <ActivityIcon icon={Cloud}     title="Cloud Sync"     active={activeActivity === 'drive'}      onClick={() => toggleActivity('drive')} />
+          <ActivityIcon icon={Monitor}   title="Playwright"     active={activeActivity === 'playwright'} onClick={() => toggleActivity('playwright')} />
           <div className="flex-1" />
-          <ActivityIcon icon={FolderOpen} title="Projects"        active={activeActivity === 'projects'}   onClick={() => toggleActivity('projects')} />
-          <ActivityIcon icon={Monitor}    title="Engine View"     active={activeActivity === 'cad'}        onClick={() => toggleActivity('cad')} />
-          <ActivityIcon icon={Settings}   title="Settings"        active={activeActivity === 'settings'}   onClick={() => toggleActivity('settings')} />
+          <ActivityIcon icon={FolderOpen} title="Projects"      active={activeActivity === 'projects'}   onClick={() => toggleActivity('projects')} />
+          {/* Studio (was "Engine View") — Box icon distinguishes from Monitor/Playwright */}
+          <ActivityIcon icon={Box}       title="Studio"         active={activeActivity === 'cad'}        onClick={() => toggleActivity('cad')} />
+          <ActivityIcon icon={Settings}  title="Settings"       active={activeActivity === 'settings'}   onClick={() => toggleActivity('settings')} />
         </div>
 
         {/* LEFT AGENT */}
@@ -1080,8 +1148,8 @@ const App: React.FC = () => {
 
         {/* SIDEBAR */}
         <div
-          className={`transition-all duration-75 shrink-0 bg-[var(--bg-panel)] flex flex-col z-40 overflow-hidden shadow-2xl md:shadow-none hover:border-[var(--color-primary)] relative group
-          ${activeActivity ? 'absolute inset-y-0 left-0 md:relative md:left-0 max-md:!w-full max-md:z-[46] max-md:inset-0 border-r border-[var(--border-subtle)] opacity-100 pointer-events-auto' : 'border-none opacity-0 pointer-events-none'} glass-panel`}
+          className={`transition-all duration-75 shrink-0 bg-[var(--bg-panel)] flex flex-col z-40 overflow-hidden shadow-2xl md:shadow-none relative group glass-panel
+          ${activeActivity ? 'absolute inset-y-0 left-0 md:relative md:left-0 max-md:!w-full max-md:z-[46] max-md:inset-0 border-r border-[var(--border-subtle)] opacity-100 pointer-events-auto' : 'border-none opacity-0 pointer-events-none'}`}
           style={{ width: activeActivity ? sidebarW : 0 }}
           {...(narrowNeedsBack && !!activeActivity ? mobileEdgeSwipeHandlers : {})}
         >
@@ -1115,14 +1183,16 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {activeActivity && <div className="w-1 cursor-col-resize hover:bg-[var(--color-primary)] active:bg-[var(--color-primary)] transition-colors shrink-0 z-50 hidden md:block" onPointerDown={e => startResize('sidebar', e)} />}
+        {activeActivity && (
+          <div className="w-1 cursor-col-resize hover:bg-[var(--color-primary)] active:bg-[var(--color-primary)] transition-colors shrink-0 z-50 hidden md:block" onPointerDown={e => startResize('sidebar', e)} />
+        )}
 
         {/* MAIN EDITOR */}
         <div className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--bg-app)] relative ${narrowBlocksCenter ? 'max-md:hidden' : ''}`}>
 
-          {/* Editor tabs */}
+          {/* Tab bar — no QuickOpen pills */}
           <div className="h-10 flex items-center shrink-0 pl-0 relative z-10 overflow-x-auto overflow-y-hidden no-scrollbar">
-            {openTabs.includes('Workspace') && <Tab title="Workspace" icon={<Layers size={13} className="text-[var(--color-primary)]" />} active={activeTab === 'Workspace'} onClick={() => setActiveTab('Workspace')} onClose={e => closeTab('Workspace', e)} />}
+            {openTabs.includes('Workspace')  && <Tab title="Workspace" icon={<Layers size={13} className="text-[var(--color-primary)]" />}  active={activeTab === 'Workspace'}  onClick={() => setActiveTab('Workspace')}  onClose={e => closeTab('Workspace', e)} />}
             {openTabs.includes('code') && (
               <>
                 <Tab
@@ -1136,22 +1206,16 @@ const App: React.FC = () => {
                   </button>
                 )}
                 {activeFile?.r2Key?.trim() && activeFile?.r2Bucket?.trim() && (
-                  <button type="button" onClick={e => { e.stopPropagation(); void navigator.clipboard.writeText(`${activeFile.r2Bucket!.trim()}/${activeFile.r2Key!.trim()}`); setToastMsg('R2 path copied'); }} title={`Copy R2 path`} className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--bg-hover)] hover:border-[var(--color-primary)]">
+                  <button type="button" onClick={e => { e.stopPropagation(); void navigator.clipboard.writeText(`${activeFile.r2Bucket!.trim()}/${activeFile.r2Key!.trim()}`); setToastMsg('R2 path copied'); }} title="Copy R2 path" className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--bg-hover)] hover:border-[var(--color-primary)]">
                     <Link2 size={14} className="text-[var(--text-muted)]" strokeWidth={1.75} aria-hidden />
                   </button>
                 )}
               </>
             )}
-            {openTabs.includes('engine')    && <Tab title="Voxel"    icon={<Box size={13} />}      active={activeTab === 'engine'}    onClick={() => setActiveTab('engine')}    onClose={e => closeTab('engine', e)} />}
-            {openTabs.includes('browser')   && <Tab title={browserTabTitle ?? 'Browser'} icon={<Globe size={13} />}   active={activeTab === 'browser'}   onClick={() => setActiveTab('browser')}   onClose={e => closeTab('browser', e)} />}
-            {openTabs.includes('excalidraw') && <Tab title="Draw"    icon={<PenTool size={13} />}  active={activeTab === 'excalidraw'} onClick={() => setActiveTab('excalidraw')} onClose={e => closeTab('excalidraw', e)} />}
-            {openTabs.includes('database')   && <Tab title="Database" icon={<Database size={13} />} active={activeTab === 'database'}  onClick={() => setActiveTab('database')}  onClose={e => closeTab('database', e)} />}
-            <div className="ml-auto flex items-center gap-0.5 pr-2 shrink-0">
-              {!openTabs.includes('engine')    && <QuickOpen label="Voxel"    onClick={() => openTab('engine')} />}
-              {!openTabs.includes('browser')   && <QuickOpen label="Browser"  onClick={() => openTab('browser')} />}
-              {!openTabs.includes('excalidraw') && <QuickOpen label="Draw"    onClick={() => openTab('excalidraw')} />}
-              {!openTabs.includes('database')   && <QuickOpen label="Database" onClick={() => openTab('database')} />}
-            </div>
+            {openTabs.includes('engine')     && <Tab title="Studio"   icon={<Box size={13} />}       active={activeTab === 'engine'}    onClick={() => setActiveTab('engine')}    onClose={e => closeTab('engine', e)} />}
+            {openTabs.includes('browser')    && <Tab title={browserTabTitle ?? 'Browser'} icon={<Globe size={13} />} active={activeTab === 'browser'}  onClick={() => setActiveTab('browser')}   onClose={e => closeTab('browser', e)} />}
+            {openTabs.includes('excalidraw') && <Tab title="Draw"     icon={<PenTool size={13} />}   active={activeTab === 'excalidraw'} onClick={() => setActiveTab('excalidraw')} onClose={e => closeTab('excalidraw', e)} />}
+            {openTabs.includes('database')   && <Tab title="Database" icon={<Database size={13} />}  active={activeTab === 'database'}  onClick={() => setActiveTab('database')}  onClose={e => closeTab('database', e)} />}
             <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--border-subtle)] z-[-1]" />
           </div>
 
@@ -1159,15 +1223,78 @@ const App: React.FC = () => {
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
             <div className="flex-1 min-h-0 relative flex flex-col">
               <div ref={containerRef} className={`absolute inset-0 z-0 transition-opacity duration-300 ${activeTab === 'engine' ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} style={{ background: 'var(--scene-bg)' }} />
-              {activeTab === 'Workspace'   && <div className="absolute inset-0 z-10"><WorkspaceDashboard onOpenFolder={() => { setActiveActivity('files'); setNativeFolderOpenSignal(n => n + 1); }} onConnectWorkspace={() => setWorkspaceLauncherOpen(true)} onGithubSync={() => setActiveActivity('actions')} recentFiles={recentFiles} workspaceRows={workspaceRows} authWorkspaceId={authWorkspaceId} onSwitchWorkspace={id => setAuthWorkspaceId(id)} onSendMessage={handleSendMessage} /></div>}
-              {activeTab === 'engine'      && <div className="relative z-10 w-full h-full pointer-events-none flex flex-col justify-end pb-8"><ToolLauncherBar onNavigate={url => { setBrowserAddressDisplay(null); setBrowserTabTitle(null); setBrowserUrl(url); openTab('browser'); }} /></div>}
-              {activeTab === 'code'        && <div className="absolute inset-0 z-10" data-editor-split={splitLayout ? 'true' : undefined}><MonacoEditorView fileData={activeFile} isDirty={isDirty} onSave={handleSaveFile} onCursorPositionChange={(line, col) => setCursorPos({ line, col })} onEditorModelMeta={setEditorMeta} onChange={val => { if (activeFile && val !== undefined) setActiveFile(prev => prev ? { ...prev, content: val, originalContent: prev.originalContent ?? prev.content } : null); }} /></div>}
-              {activeTab === 'browser'     && <div className="absolute inset-0 z-10 overflow-hidden"><BrowserView url={browserUrl} addressDisplay={browserAddressDisplay} /></div>}
-              {activeTab === 'excalidraw'  && <div className="absolute inset-0 z-10 flex flex-col"><ExcalidrawView /></div>}
-              {activeTab === 'database'    && <div className="absolute inset-0 z-10 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]"><DatabaseBrowser explorerJump={dbExplorerJump} onExplorerJumpConsumed={() => setDbExplorerJump(null)} onClose={() => { const next = openTabs.filter(t => t !== 'database'); setOpenTabs(next); if (activeTab === 'database') setActiveTab(next.length > 0 ? next[next.length - 1] : 'Workspace'); }} /></div>}
+              {activeTab === 'Workspace'  && (
+                <div className="absolute inset-0 z-10">
+                  <WorkspaceDashboard
+                    onOpenFolder={() => { setActiveActivity('files'); setNativeFolderOpenSignal(n => n + 1); }}
+                    onConnectWorkspace={() => setWorkspaceLauncherOpen(true)}
+                    onGithubSync={() => setActiveActivity('actions')}
+                    recentFiles={recentFiles}
+                    workspaceRows={workspaceRows}
+                    authWorkspaceId={authWorkspaceId}
+                    onSwitchWorkspace={id => setAuthWorkspaceId(id)}
+                    onSendMessage={handleSendMessage}
+                  />
+                </div>
+              )}
+              {activeTab === 'engine' && (
+                <div className="relative z-10 w-full h-full pointer-events-none flex flex-col justify-end pb-8">
+                  <UIOverlay
+                    voxelCount={voxelCount}
+                    appState={appState}
+                    activeProject={activeProject}
+                    isGenerating={isGenerating}
+                    onTogglePlay={() => {}}
+                    onClear={() => { engineRef.current?.clearWorld(); setUndoStack([]); setRedoStack([]); }}
+                    genConfig={genConfig}
+                    onUpdateGenConfig={handleUpdateGenConfig}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                    canUndo={undoStack.length > 0}
+                    canRedo={redoStack.length > 0}
+                  />
+                  <div className="pointer-events-auto">
+                    <ToolLauncherBar
+                      onToolEvent={(eventName, detail) => {
+                        // External URLs → browser panel (handled by event listener above)
+                        // Draw → excalidraw (handled by event listener above)
+                      }}
+                      onImportGlb={(file) => {
+                        const url = URL.createObjectURL(file);
+                        setGlbViewerUrl(prev => { if (prev.startsWith('blob:')) URL.revokeObjectURL(prev); return url; });
+                        setGlbViewerFilename(file.name);
+                        openTab('engine');
+                        engineRef.current?.spawnEntity({ id: `glb-${Date.now()}`, name: file.name.replace(/\.glb$/i, ''), type: 'prop', position: { x: 0, y: 1, z: 0 }, behavior: { type: 'dynamic', mass: 10, restitution: 0.2 }, modelUrl: url, scale: 1 });
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {activeTab === 'code'      && (
+                <div className="absolute inset-0 z-10" data-editor-split={splitLayout ? 'true' : undefined}>
+                  <MonacoEditorView
+                    fileData={activeFile}
+                    onSave={handleSaveFile}
+                    onCursorPositionChange={(line, col) => setCursorPos({ line, col })}
+                    onEditorModelMeta={setEditorMeta}
+                  />
+                </div>
+              )}
+              {activeTab === 'browser'   && <div className="absolute inset-0 z-10 overflow-hidden"><BrowserView url={browserUrl} addressDisplay={browserAddressDisplay} /></div>}
+              {activeTab === 'excalidraw' && <div className="absolute inset-0 z-10 flex flex-col"><ExcalidrawView /></div>}
+              {activeTab === 'database'  && (
+                <div className="absolute inset-0 z-10 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">
+                  <DatabaseBrowser
+                    onClose={() => {
+                      const next = openTabs.filter(t => t !== 'database');
+                      setOpenTabs(next);
+                      if (activeTab === 'database') setActiveTab(next.length > 0 ? next[next.length - 1] : 'Workspace');
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
-            {/* GorillaModeShell — replaces XTermShell */}
             {isTerminalOpen && (
               <GorillaModeShell
                 ref={terminalRef}
@@ -1199,7 +1326,7 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* STATUS BAR */}
+      {/* TOAST */}
       {toastMsg && (
         <div className="fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center max-md:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]" role="status">
           {toastMsg}
@@ -1228,15 +1355,15 @@ const App: React.FC = () => {
             </div>
             <div className="overflow-y-auto p-2 flex flex-col gap-0.5">
               {[
-                { icon: PenTool, label: 'Draw',             action: () => { setMobileMoreOpen(false); setActiveActivity(null); setAgentPosition('off'); openTab('excalidraw'); } },
-                { icon: Search,  label: 'Search',           action: () => { setMobileMoreOpen(false); toggleActivity('search'); } },
+                { icon: PenTool,   label: 'Draw',           action: () => { setMobileMoreOpen(false); setActiveActivity(null); setAgentPosition('off'); openTab('excalidraw'); } },
+                { icon: Search,    label: 'Search',         action: () => { setMobileMoreOpen(false); toggleActivity('search'); } },
                 { icon: GitBranch, label: 'Source Control', action: () => { setMobileMoreOpen(false); toggleActivity('git'); } },
-                { icon: Bug,     label: 'Run & Debug',      action: () => { setMobileMoreOpen(false); toggleActivity('debug'); } },
-                { icon: Network, label: 'Remote Explorers', action: () => { setMobileMoreOpen(false); toggleActivity('remote'); } },
-                { icon: Layers,  label: 'Tools & MCP',      action: () => { setMobileMoreOpen(false); toggleActivity('mcps'); } },
-                { icon: Cloud,   label: 'Cloud Sync',       action: () => { setMobileMoreOpen(false); toggleActivity('drive'); } },
-                { icon: Monitor, label: 'Playwright',       action: () => { setMobileMoreOpen(false); toggleActivity('playwright'); } },
-                { icon: Monitor, label: 'Engine View',      action: () => { setMobileMoreOpen(false); toggleActivity('cad'); } },
+                { icon: Bug,       label: 'Run & Debug',    action: () => { setMobileMoreOpen(false); toggleActivity('debug'); } },
+                { icon: Network,   label: 'Remote',         action: () => { setMobileMoreOpen(false); toggleActivity('remote'); } },
+                { icon: Layers,    label: 'Tools & MCP',    action: () => { setMobileMoreOpen(false); toggleActivity('mcps'); } },
+                { icon: Cloud,     label: 'Cloud Sync',     action: () => { setMobileMoreOpen(false); toggleActivity('drive'); } },
+                { icon: Monitor,   label: 'Playwright',     action: () => { setMobileMoreOpen(false); toggleActivity('playwright'); } },
+                { icon: Box,       label: 'Studio',         action: () => { setMobileMoreOpen(false); toggleActivity('cad'); } },
               ].map(({ icon, label, action }) => (
                 <MobileMoreRow key={label} icon={icon} label={label} onClick={action} />
               ))}
@@ -1245,9 +1372,10 @@ const App: React.FC = () => {
         </>
       )}
 
+      {/* STATUS BAR */}
       <StatusBar
         branch={gitBranch}
-        workspace={authWorkspaceId || formatWorkspaceStatusLine(ideWorkspace)}
+        workspace={workspaceDisplayName}
         errorCount={errorCount}
         warningCount={warningCount}
         showCursor={activeTab === 'code'}
@@ -1289,8 +1417,6 @@ const App: React.FC = () => {
 
 // ─── Helper UI Components ─────────────────────────────────────────────────────
 
-type LucideLike = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
-
 const MobileMoreRow: React.FC<{ icon: LucideLike; label: string; onClick: () => void }> = ({ icon: Icon, label, onClick }) => (
   <button type="button" className="flex w-full items-center gap-3 min-h-[44px] rounded-lg px-3 text-left text-[13px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)]" onClick={onClick}>
     <Icon size={20} strokeWidth={1.5} className="shrink-0 text-[var(--text-muted)]" />
@@ -1305,31 +1431,35 @@ const MobileNavBtn: React.FC<{ icon: LucideLike; label: string; active: boolean;
   </button>
 );
 
-const ActivityIcon: React.FC<{ icon: any; active: boolean; onClick: () => void; title?: string }> = ({ icon: Icon, active, onClick, title }) => (
+const ActivityIcon: React.FC<{ icon: LucideLike; active: boolean; onClick: () => void; title?: string }> = ({ icon: Icon, active, onClick, title }) => (
   <div onClick={onClick} title={title} className={`p-3 cursor-pointer transition-colors relative ${active ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}>
     {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-9 bg-[var(--color-primary)] rounded-r-md" />}
     <Icon size={25} strokeWidth={1} />
   </div>
 );
 
-const Tab: React.FC<{ title: React.ReactNode; icon: React.ReactNode; active: boolean; onClick: () => void; onClose?: (e: React.MouseEvent) => void }> = ({ title, icon, active, onClick, onClose }) => (
+const Tab: React.FC<{
+  title:    React.ReactNode;
+  icon:     React.ReactNode;
+  active:   boolean;
+  onClick:  () => void;
+  onClose?: (e: React.MouseEvent) => void;
+}> = ({ title, icon, active, onClick, onClose }) => (
   <div onClick={onClick} className={`h-full flex items-center gap-1.5 pl-3 pr-2 text-[12px] select-none cursor-pointer border-r border-[var(--border-subtle)] relative group whitespace-nowrap shrink-0 ${active ? 'bg-[var(--bg-app)] text-[var(--color-primary)]' : 'bg-[var(--bg-panel)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'}`}>
     {active && <div className="absolute top-0 left-0 right-0 h-[2px] bg-[var(--color-primary)]" />}
     {icon}
     <span className="max-w-[120px] truncate">{title}</span>
     {onClose && (
-      <button onClick={onClose} className={`ml-1 p-0.5 rounded transition-all hover:bg-red-500/20 hover:text-red-400 ${active ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-50 hover:!opacity-100'}`} title="Close tab">
+      <button
+        onClick={onClose}
+        className={`ml-1 p-0.5 rounded transition-all hover:bg-[var(--solar-red)]/20 hover:text-[var(--solar-red)] ${active ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-50 hover:!opacity-100'}`}
+        title="Close tab"
+      >
         <XIcon size={11} />
       </button>
     )}
     {!active && <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--border-subtle)]" />}
   </div>
-);
-
-const QuickOpen: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button onClick={onClick} className="text-[10px] px-2 py-0.5 rounded text-[var(--text-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)] font-mono" title={`Open ${label}`}>
-    + {label}
-  </button>
 );
 
 export default App;
