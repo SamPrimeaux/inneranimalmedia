@@ -1,0 +1,64 @@
+/* 1. Design tokens — must be first so Tailwind can reference CSS vars */
+@import './inneranimalmedia.css';
+
+/* 2. Fonts — Nunito (UI) + JetBrains Mono (code) */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+/* 3. Tailwind */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base chrome ──────────────────────────────────────────────────────────── */
+/* body font is set in inneranimalmedia.css via var(--font-ui).
+   Only structural/smoothing properties live here. */
+body {
+  -webkit-font-smoothing:  antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
+  line-height: 1.5;
+}
+
+code, kbd, pre, samp {
+  font-family: var(--font-mono) !important;
+  letter-spacing: -0.02em;
+}
+
+/* ── Terminal shell layout ────────────────────────────────────────────────── */
+.terminal-wrapper {
+  display:        flex !important;
+  flex-direction: column !important;
+  min-height:     0 !important;
+  flex:           1 1 0% !important;
+}
+
+.xterm-shell-viewport {
+  flex:       1 1 0% !important;
+  min-height: 0 !important;
+  height:     auto !important;
+}
+
+/* ── Nav search ───────────────────────────────────────────────────────────── */
+.nav-search-container { position: relative; }
+
+.nav-dropdown {
+  position:   absolute;
+  top:        100%;
+  left:       0;
+  margin-top: 0.5rem;
+  width:      100%;
+  max-width:  500px;
+  z-index:    50;
+}
+
+/* ── Split editor layout ──────────────────────────────────────────────────── */
+[data-editor-split="true"] {
+  display:               grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap:                   1px;
+  background:            var(--border-subtle);
+}
+
+[data-editor-split="true"] > * {
+  background: var(--bg-app);
+}
