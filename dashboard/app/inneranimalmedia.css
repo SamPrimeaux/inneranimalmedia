@@ -1,0 +1,208 @@
+/*
+ * Inner Animal Media — global design tokens and chrome styles
+ *
+ * Defaults below load before JavaScript. They are overridden at runtime when
+ * GET /api/themes/active returns theme variables from the cms_themes table
+ * (workspace-scoped). applyCmsThemeToDocument() sets matching custom
+ * properties on document.documentElement so the UI tracks DB-driven theme
+ * changes without a full reload.
+ *
+ * Expected API shape: { slug?, name?, is_dark?, data?: { "--token-name": "value", ... } }
+ * First-paint cache: localStorage keys inneranimalmedia_theme_css,
+ * inneranimalmedia_theme_is_dark (see src/applyCmsTheme.ts).
+ *
+ * Token layers (do not break this order when overriding):
+ *   1. Raw palette  — --solar-*  (never reference directly in components)
+ *   2. Semantic     — --bg-*, --text-*, --accent-*, --border-*
+ *   3. Component    — --terminal-*, --monaco-*, --editor-*
+ *   4. Runtime CMS  — applyCmsThemeToDocument() patches :root at this layer
+ */
+
+/* ============================================================
+   1. RAW PALETTE
+   IAM variant of Solarized Dark — intentionally shifted from
+   upstream Solarized (#002b36) to a cooler blue-green base.
+   ============================================================ */
+:root {
+  --solar-base03:  #00212b;
+  --solar-base02:  #0a2d38;
+  --solar-base01:  #4a7a87;
+  --solar-base00:  #6e8d96;
+  --solar-base0:   #9cb5bc;
+  --solar-base1:   #b0ccd2;
+
+  --solar-yellow:  #e6ac00;
+  --solar-orange:  #d95f1c;
+  --solar-red:     #e63333;
+  --solar-magenta: #d33682;
+  --solar-violet:  #7c83d4;
+  --solar-blue:    #3a9fe8;
+  --solar-cyan:    #2dd4bf;
+  --solar-green:   #a3b800;
+
+  /* ============================================================
+     2. SEMANTIC LAYOUT
+     Override these via cms_themes.data — never hardcode below
+     this layer in components.
+     ============================================================ */
+
+  /* Surfaces */
+  --bg-app:        var(--solar-base03);
+  --bg-panel:      var(--solar-base02);
+  --bg-elevated:   color-mix(in srgb, var(--bg-panel) 88%, var(--solar-cyan) 12%);
+  --bg-hover:      rgba(42, 161, 152, 0.08);
+  --bg-disabled:   color-mix(in srgb, var(--bg-app) 85%, var(--solar-base02) 15%);
+  --bg-scene:      color-mix(in srgb, var(--solar-base03) 60%, #000 40%);
+
+  /* scene-bg alias — matches --bg-scene; both resolve identically.
+     Components may use either; CMS overrides targeting --bg-scene
+     propagate automatically here. */
+  --scene-bg:      var(--bg-scene);
+
+  /* Borders */
+  --border-subtle: color-mix(in srgb, var(--solar-base02) 60%, var(--solar-cyan) 10%);
+  --border-focus:  var(--solar-cyan);
+
+  /* Text */
+  --text-main:     var(--solar-base0);
+  --text-muted:    var(--solar-base01);
+  --text-heading:  var(--solar-base1);
+  --text-placeholder:        color-mix(in srgb, var(--solar-base01) 55%, transparent);
+  --text-placeholder-strong: color-mix(in srgb, var(--solar-base01) 35%, transparent);
+  --text-chrome-muted:       color-mix(in srgb, var(--solar-base01) 40%, transparent);
+
+  /* Accents */
+  --accent-primary:   var(--solar-blue);
+  --accent-secondary: var(--solar-cyan);
+  --accent-warning:   var(--solar-yellow);
+  --accent-danger:    var(--solar-red);
+  --accent-success:   var(--solar-green);
+
+  /* ============================================================
+     3. TYPOGRAPHY TOKENS
+     --font-sans  — UI font stack. Nunito loads via Google Fonts
+                    in index.html; Inter is the fallback for any
+                    environment where Nunito is unavailable.
+     --font-ui    — semantic alias for --font-sans; use this in
+                    components so the token meaning is explicit.
+     --font-mono  — monospace stack for terminals, code, SQL.
+     ============================================================ */
+  --font-sans: "Nunito", "Inter", system-ui, -apple-system,
+               BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-ui:   var(--font-sans);
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code",
+               ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-xs:   0.6875rem;   /* 11px */
+  --text-sm:   0.75rem;     /* 12px */
+  --text-base: 0.875rem;    /* 14px — dashboard base */
+  --text-md:   1rem;        /* 16px */
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+
+  /* ============================================================
+     4. BORDER RADIUS SCALE
+     ============================================================ */
+  --radius-xs:  2px;
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  10px;
+  --radius-xl:  14px;
+  --radius-full: 9999px;
+
+  /* ============================================================
+     5. COMPONENT — TERMINAL / XTERM
+     ============================================================ */
+  --terminal-chrome:    var(--solar-base02);
+  --terminal-surface:   color-mix(in srgb, var(--bg-app) 70%, #000 30%);
+  --terminal-tab-muted: var(--text-muted);
+
+  /* ============================================================
+     6. COMPONENT — MONACO / CODE
+     ============================================================ */
+  --bg-code-pre:            color-mix(in srgb, var(--bg-app) 75%, #000 25%);
+  --editor-selection-bg:    color-mix(in srgb, var(--solar-cyan) 24%, transparent);
+  --monaco-scrollbar-thumb: color-mix(in srgb, var(--border-subtle) 50%, transparent);
+  --monaco-scrollbar-hover: color-mix(in srgb, var(--solar-cyan) 25%, transparent);
+
+  /* ============================================================
+     7. COMPONENT — FORM / TOGGLE CONTROLS
+     ============================================================ */
+  --toggle-knob: var(--solar-base1);
+}
+
+/* ============================================================
+   BASE CHROME
+   ============================================================ */
+body {
+  background:  var(--bg-app);
+  color:       var(--text-main);
+  font-family: var(--font-ui);
+  font-size:   var(--text-base);
+  margin:      0;
+  overflow:    hidden; /* app shell — scroll lives inside layout panels */
+}
+
+::selection {
+  background: color-mix(in srgb, var(--solar-cyan) 20%, transparent);
+  color:      var(--solar-cyan);
+}
+
+/* ============================================================
+   SCROLLBARS
+   ============================================================ */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--bg-app); }
+::-webkit-scrollbar-thumb  { background: var(--bg-panel); border-radius: var(--radius-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-subtle); }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ============================================================
+   UTILITY CLASSES
+   ============================================================ */
+.glass-panel {
+  background:          color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  backdrop-filter:     blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/*
+ * glow-border — adds a cyan box-shadow ring on hover/active.
+ * The ::after pseudo-element is intentionally empty; do not
+ * add background-color here — it would paint over child content.
+ */
+.glow-border { position: relative; }
+.glow-border::after {
+  content:        '';
+  position:       absolute;
+  inset:          0;
+  box-shadow:     0 0 0 0 transparent;
+  border-radius:  inherit;
+  transition:     box-shadow 0.2s ease;
+  pointer-events: none;
+}
+.glow-border:hover::after,
+.glow-border:active::after {
+  box-shadow: 0 0 10px var(--solar-cyan);
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes pulse-dirty {
+  0%, 100% { opacity: 1;   transform: scale(1);   }
+  50%      { opacity: 0.5; transform: scale(0.8); }
+}
+.animate-pulse-dirty {
+  animation: pulse-dirty 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-slide-up {
+  animation: slide-up 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
