@@ -6,7 +6,7 @@
  * Requires:
  *   - `npm i postgres` in package.json
  *   - nodejs_compat flag in wrangler.jsonc
- *   - env.HYPERDRIVE binding (ID: 9108dd6499bb44c286e4eb298c6ffafb)
+ *   - env.HYPERDRIVE binding (ID: 08183bb9d2914e87ac8395d7e4ecff60)
  *
  * Owns: user/client data that lives in Supabase (not D1).
  * Never used for D1 tables — those use env.DB directly.
@@ -67,7 +67,6 @@ export async function queryHyperdrive(env, sqlText, params = []) {
  */
 export async function pgQuery(env, sqlText, params = []) {
   const rows = await queryHyperdrive(env, sqlText, params);
-  // postgres.js returns result rows as objects — convert to plain array
   return Array.isArray(rows) ? rows.map(r => ({ ...r })) : [];
 }
 
@@ -76,7 +75,7 @@ export async function pgQuery(env, sqlText, params = []) {
 /**
  * HTTP dispatcher for /api/hyperdrive route.
  * Accepts POST with { sql, params, operation }.
- * Auth required. Reads blocked for dangerous operations.
+ * Auth required. Blocked for dangerous operations.
  */
 export async function handleHyperdriveApi(request, env) {
   const method = request.method.toUpperCase();
