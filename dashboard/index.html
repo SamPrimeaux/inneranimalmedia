@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
 
-    <!-- 
+    <!--
       Inline theme bootstrap — runs before first paint to avoid flash.
       Reads CSS vars and dark/light preference from localStorage,
       applies them to :root immediately.
@@ -50,7 +50,7 @@
     <!-- Dashboard shell layout vars -->
     <link rel="stylesheet" href="/static/dashboard/shell.css" />
 
-    <!-- 
+    <!--
       Tailwind is bundled via Vite — no CDN script.
       CDN copy caused duplicate React instance (minified error #525).
     -->
@@ -69,15 +69,14 @@
       body {
         overflow: hidden;
         font-family: var(--font-sans, 'Nunito', system-ui, -apple-system, sans-serif);
-        background-color: var(--bg-app, #0a1a1f);
-        color: var(--text-main, #9cb5bc);
+        background-color: var(--bg-app);
+        color: var(--text-main);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
 
-      /* Prevent flash of unstyled content before theme loads */
       #root:empty {
-        background-color: var(--bg-app, #0a1a1f);
+        background-color: var(--bg-app);
       }
     </style>
   </head>
