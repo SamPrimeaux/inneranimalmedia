@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@cloudflare/puppeteer": "^0.0.35",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@cloudflare/puppeteer": "^1.0.4",
     "@cloudflare/workers-types": "^4.20260329.1",
     "wrangler": "^4.0.0"
   }
