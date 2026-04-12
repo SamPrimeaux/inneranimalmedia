@@ -5,28 +5,78 @@
  * Tables: ai_knowledge_chunks, context_index, agent_platform_context,
  *         agentsam_project_context, agent_messages, ai_compiled_context_cache
  *
- * Bindings: env.AI (Workers AI for embeddings), env.VECTORIZE_INDEX (optional)
+ * Bindings:
+ *   env.AI               — Workers AI (embeddings for D1 ingest)
+ *   env.DB               — D1 database
+ *   env.AI_SEARCH_TOKEN  — Service API token for AI Search REST API
+ *   env.CLOUDFLARE_ACCOUNT_ID       — Cloudflare account ID
+ *
+ * AI Search instance: inneranimalmedia-autorag
+ * DO NOT query env.VECTORIZE directly — that index is managed by AI Search
+ * and uses qwen3-embedding-0.6b (1024 dims). Our D1 ingest uses bge-base (768 dims).
+ * Querying it directly causes silent dimension mismatch. Use the REST API instead.
  */
-import { jsonResponse }                    from '../core/responses.js';
+import { jsonResponse }               from '../core/responses.js';
 import { getAuthUser, tenantIdFromEnv,
-         isIngestSecretAuthorized }         from '../core/auth.js';
+         isIngestSecretAuthorized }    from '../core/auth.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const UNIFIED_RAG_EMBED_MODEL  = '@cf/baai/bge-base-en-v1.5';
-export const RAG_MEMORY_EMBED_MODEL   = '@cf/baai/bge-large-en-v1.5';
-export const RAG_CHUNK_MAX_CHARS      = 600;
-export const RAG_CHUNK_OVERLAP        = 80;
-export const RAG_EMBED_BATCH_SIZE     = 32;
+// Used for D1 ai_knowledge_chunks ingest only.
+// DO NOT use to embed queries against env.VECTORIZE —
+// that index uses qwen3-embedding-0.6b (1024 dims), this model outputs 768 dims.
+export const UNIFIED_RAG_EMBED_MODEL   = '@cf/baai/bge-base-en-v1.5';
+export const RAG_CHUNK_MAX_CHARS       = 600;
+export const RAG_CHUNK_OVERLAP         = 80;
+export const RAG_EMBED_BATCH_SIZE      = 32;
 export const RAG_COMPACT_MAX_MSG_CHARS = 800;
-export const RAG_COMPACT_HOURS        = 48;
+export const RAG_COMPACT_HOURS         = 48;
+
+const AI_SEARCH_INSTANCE = 'inneranimalmedia-autorag';
+
+// ─── AI Search REST Client ────────────────────────────────────────────────────
+
+/**
+ * Query the AI Search instance via REST API.
+ * Returns { response, data } or null on failure.
+ *
+ * @param {object} env
+ * @param {string} query
+ * @param {number} maxResults
+ */
+async function queryAiSearch(env, query, maxResults = 5) {
+  const token     = env.AI_SEARCH_TOKEN;
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+
+  if (!token || !accountId) return null;
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-search/instances/${AI_SEARCH_INSTANCE}/search`;
+
+  try {
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({ query, max_num_results: maxResults }),
+    });
+
+    if (!res.ok) {
+      console.warn('[rag/ai-search] API error:', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+
+    const json = await res.json();
+    return json?.result ?? null;
+  } catch (e) {
+    console.warn('[rag/ai-search] fetch failed:', e?.message);
+    return null;
+  }
+}
 
 // ─── Cache Invalidation ───────────────────────────────────────────────────────
 
-/**
- * Invalidate the compiled agent context cache after knowledge base writes.
- * Called from agentsam.js and hooks.js after memory index updates.
- */
 export function invalidateCompiledContextCache(env) {
   if (!env?.DB) return;
   env.DB.prepare(
@@ -99,86 +149,110 @@ export function chunkMarkdown(text, maxChars = RAG_CHUNK_MAX_CHARS, overlap = RA
 // ─── Unified Search ───────────────────────────────────────────────────────────
 
 /**
- * Parallel RAG search across D1 knowledge chunks, context_index,
- * agent_platform_context, agentsam_project_context, and Vectorize.
+ * Parallel RAG search across:
+ *   1. AI Search REST API (inneranimalmedia-autorag R2 index)
+ *   2. D1 ai_knowledge_chunks (cosine similarity via bge-base embeddings)
+ *   3. D1 context_index, agent_platform_context, agentsam_project_context (LIKE)
  *
+ * Results are merged, deduplicated by content hash, and ranked by score.
  * Returns { matches, results, count, _meta }.
+ *
+ * @param {object} env
+ * @param {string} query
+ * @param {object} opts  - { topK }
  */
 export async function unifiedRagSearch(env, query, opts = {}) {
   const q = String(query || '').trim();
-  if (!q || !env.DB || !env.AI) {
-    return { matches: [], results: [], count: 0, _error: 'missing_bindings' };
-  }
+  if (!q) return { matches: [], results: [], count: 0, _error: 'empty_query' };
 
   const topK    = Math.min(Math.max(1, opts.topK || 8), 24);
-  const likePct = `%${sanitizeUnifiedRagLike(q)}%`;
   const t0      = Date.now();
+  const raw     = [];
 
-  // 1. Embed the query
-  const emb  = await env.AI.run(UNIFIED_RAG_EMBED_MODEL, { text: q }).catch(() => null);
-  const qVec = emb?.data?.[0] ?? emb?.result?.data?.[0];
-  if (!qVec || !Array.isArray(qVec)) {
-    return { matches: [], results: [], count: 0, _error: 'embedding_failed' };
+  // ── Source 1: AI Search REST API ──────────────────────────────────────────
+  const aiSearchPromise = queryAiSearch(env, q, Math.min(topK, 6));
+
+  // ── Source 2 + 3: D1 parallel queries ─────────────────────────────────────
+  const likePct = `%${sanitizeUnifiedRagLike(q)}%`;
+
+  const d1Promise = (env.DB && env.AI)
+    ? Promise.all([
+        env.AI.run(UNIFIED_RAG_EMBED_MODEL, { text: q }).catch(() => null),
+
+        env.DB.prepare(
+          `SELECT id, content, embedding_vector, created_at, knowledge_id
+           FROM ai_knowledge_chunks WHERE is_indexed = 1 LIMIT 300`
+        ).all().catch(() => ({ results: [] })),
+
+        env.DB.prepare(
+          `SELECT id, title, summary, inline_content
+           FROM context_index WHERE is_active = 1 AND (title LIKE ? OR summary LIKE ?) LIMIT 30`
+        ).bind(likePct, likePct).all().catch(() => ({ results: [] })),
+
+        env.DB.prepare(
+          `SELECT id, memory_key, memory_value
+           FROM agent_platform_context WHERE memory_value LIKE ? LIMIT 50`
+        ).bind(likePct).all().catch(() => ({ results: [] })),
+
+        env.DB.prepare(
+          `SELECT id, project_key, description
+           FROM agentsam_project_context WHERE status = 'active' AND description LIKE ? LIMIT 30`
+        ).bind(likePct).all().catch(() => ({ results: [] })),
+      ])
+    : Promise.resolve(null);
+
+  const [aiSearchResult, d1Results] = await Promise.all([aiSearchPromise, d1Promise]);
+
+  // ── Merge AI Search results ───────────────────────────────────────────────
+  if (aiSearchResult?.data && Array.isArray(aiSearchResult.data)) {
+    for (const item of aiSearchResult.data) {
+      const text = item.content || item.text || item.chunk || '';
+      if (!text) continue;
+      raw.push({
+        text,
+        source:      item.id || item.filename || 'ai-search',
+        source_type: 'ai_search',
+        score:       typeof item.score === 'number' ? item.score : 0.75,
+      });
+    }
   }
 
-  // 2. Parallel retrieval
-  const [chunkRes, ctxRes, platRes, projRes, vecMatches] = await Promise.all([
-    env.DB.prepare(
-      `SELECT id, content, embedding_vector, created_at, knowledge_id
-       FROM ai_knowledge_chunks WHERE is_indexed = 1 LIMIT 300`
-    ).all().catch(() => ({ results: [] })),
+  // ── Merge D1 results ──────────────────────────────────────────────────────
+  if (d1Results) {
+    const [embResult, chunkRes, ctxRes, platRes, projRes] = d1Results;
 
-    env.DB.prepare(
-      `SELECT id, title, summary, inline_content
-       FROM context_index WHERE is_active = 1 AND (title LIKE ? OR summary LIKE ?) LIMIT 30`
-    ).bind(likePct, likePct).all().catch(() => ({ results: [] })),
+    const qVec = embResult?.data?.[0] ?? embResult?.result?.data?.[0];
 
-    env.DB.prepare(
-      `SELECT id, memory_key, memory_value
-       FROM agent_platform_context WHERE memory_value LIKE ? LIMIT 50`
-    ).bind(likePct).all().catch(() => ({ results: [] })),
+    if (qVec && Array.isArray(qVec)) {
+      for (const c of chunkRes.results || []) {
+        try {
+          const vec   = JSON.parse(c.embedding_vector);
+          const score = unifiedRagCosine(qVec, vec) * 0.7 + unifiedRagRecency01(c.created_at) * 0.3;
+          raw.push({
+            text:        c.content,
+            source:      c.knowledge_id || c.id,
+            source_type: 'knowledge_chunks',
+            score,
+          });
+        } catch (_) {}
+      }
+    }
 
-    env.DB.prepare(
-      `SELECT id, project_key, description
-       FROM agentsam_project_context WHERE status = 'active' AND description LIKE ? LIMIT 30`
-    ).bind(likePct).all().catch(() => ({ results: [] })),
-
-    env.VECTORIZE_INDEX
-      ? env.VECTORIZE_INDEX.query(qVec, { topK: 8, returnMetadata: 'all' }).catch(() => [])
-      : Promise.resolve([]),
-  ]);
-
-  const raw = [];
-
-  // Score knowledge chunks via cosine similarity
-  for (const c of chunkRes.results || []) {
-    try {
-      const vec   = JSON.parse(c.embedding_vector);
-      const score = unifiedRagCosine(qVec, vec) * 0.7 + unifiedRagRecency01(c.created_at) * 0.3;
-      raw.push({ text: c.content, source: c.knowledge_id || c.id, source_type: 'knowledge_chunks', score });
-    } catch (_) {}
+    for (const c of ctxRes.results || []) {
+      raw.push({ text: c.inline_content || c.summary, source: c.id, source_type: 'context_index', score: 0.6 });
+    }
+    for (const c of platRes.results || []) {
+      raw.push({ text: c.memory_value, source: c.memory_key, source_type: 'agent_platform_context', score: 0.55 });
+    }
+    for (const c of projRes.results || []) {
+      raw.push({ text: c.description, source: c.project_key, source_type: 'agentsam_project_context', score: 0.55 });
+    }
   }
 
-  // Flat score for text matches
-  for (const c of ctxRes.results || []) {
-    raw.push({ text: c.inline_content || c.summary, source: c.id, source_type: 'context_index', score: 0.6 });
-  }
-  for (const c of platRes.results || []) {
-    raw.push({ text: c.memory_value, source: c.memory_key, source_type: 'agent_platform_context', score: 0.55 });
-  }
-  for (const c of projRes.results || []) {
-    raw.push({ text: c.description, source: c.project_key, source_type: 'agentsam_project_context', score: 0.55 });
-  }
-
-  // Vectorize results (already scored)
-  for (const m of Array.isArray(vecMatches) ? vecMatches : (vecMatches?.matches || [])) {
-    const text = m.metadata?.text || m.metadata?.content || '';
-    if (text) raw.push({ text, source: m.id, source_type: 'vectorize', score: m.score || 0.5 });
-  }
-
-  // Deduplicate by content hash, keep highest score
+  // ── Deduplicate by content hash, keep highest score ───────────────────────
   const byHash = new Map();
   for (const item of raw) {
+    if (!item.text) continue;
     const h    = unifiedRagContentHash(item.text);
     const prev = byHash.get(h);
     if (!prev || item.score > prev.score) byHash.set(h, item);
@@ -203,16 +277,12 @@ export async function unifiedRagSearch(env, query, opts = {}) {
 
 // ─── Chat Compaction ──────────────────────────────────────────────────────────
 
-/**
- * Compact old agent messages to R2 for long-term storage.
- */
 export async function compactAgentChatsToR2(env) {
   if (!env.DB) return { error: 'DB missing' };
-  const cutoff  = Math.floor(Date.now() / 1000) - (RAG_COMPACT_HOURS * 3600);
+  const cutoff = Math.floor(Date.now() / 1000) - (RAG_COMPACT_HOURS * 3600);
   const { results } = await env.DB.prepare(
     `SELECT conversation_id, role, content FROM agent_messages WHERE created_at < ?`
   ).bind(cutoff).all().catch(() => ({ results: [] }));
-  // Group by conversation and push to R2
   return { conversations_compacted: (results || []).length };
 }
 
@@ -224,7 +294,7 @@ export async function handleRagApi(request, url, env, ctx) {
 
   if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-  // ── POST /api/rag/search or /api/search ──────────────────────────────────
+  // ── POST /api/rag/search or /api/search ───────────────────────────────────
   if ((path === '/api/rag/search' || path === '/api/search') && method === 'POST') {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -243,7 +313,28 @@ export async function handleRagApi(request, url, env, ctx) {
     }
   }
 
+  // ── POST /api/rag/ai-search ───────────────────────────────────────────────
+  // Direct AI Search generation response — returns { response, data }
+  if (path === '/api/rag/ai-search' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+    let body = {};
+    try { body = await request.json(); } catch (_) {}
+
+    const { query, max_results = 5 } = body;
+    if (!query) return jsonResponse({ error: 'query required' }, 400);
+
+    const result = await queryAiSearch(env, query, max_results);
+    if (!result) return jsonResponse({ error: 'AI Search unavailable' }, 503);
+
+    return jsonResponse({ ok: true, ...result });
+  }
+
   // ── POST /api/rag/ingest ──────────────────────────────────────────────────
+  // Writes chunks to D1 with bge-base embeddings.
+  // AI Search R2 ingest is handled separately by uploading files to
+  // the inneranimalmedia-autorag R2 bucket and triggering a sync.
   if (path === '/api/rag/ingest' && method === 'POST') {
     const authorized = isIngestSecretAuthorized(request, env) || !!(await getAuthUser(request, env));
     if (!authorized) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -260,7 +351,6 @@ export async function handleRagApi(request, url, env, ctx) {
 
     for (const chunk of chunks) {
       try {
-        // Generate embedding
         const emb = await env.AI.run(UNIFIED_RAG_EMBED_MODEL, { text: chunk }).catch(() => null);
         const vec = emb?.data?.[0] ?? emb?.result?.data?.[0];
 
@@ -287,7 +377,7 @@ export async function handleRagApi(request, url, env, ctx) {
     return jsonResponse({ ok: true, chunks_indexed: indexed, title, doc_type });
   }
 
-  // ── GET /api/rag/context ─────────────────────────────────────────────────
+  // ── GET /api/rag/context ──────────────────────────────────────────────────
   if (path === '/api/rag/context' && method === 'GET') {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -296,7 +386,8 @@ export async function handleRagApi(request, url, env, ctx) {
     try {
       const { results } = await env.DB.prepare(
         `SELECT id, title, summary, doc_type, scope, importance_score, access_count, updated_at
-         FROM context_index WHERE is_active = 1 ORDER BY importance_score DESC, updated_at DESC LIMIT ?`
+         FROM context_index WHERE is_active = 1
+         ORDER BY importance_score DESC, updated_at DESC LIMIT ?`
       ).bind(limit).all();
       return jsonResponse({ entries: results || [] });
     } catch (e) {
