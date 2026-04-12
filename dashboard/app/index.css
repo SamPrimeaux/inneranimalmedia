@@ -10,8 +10,6 @@
 @tailwind utilities;
 
 /* ── Base chrome ──────────────────────────────────────────────────────────── */
-/* body font is set in inneranimalmedia.css via var(--font-ui).
-   Only structural/smoothing properties live here. */
 body {
   -webkit-font-smoothing:  antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -61,4 +59,19 @@ code, kbd, pre, samp {
 
 [data-editor-split="true"] > * {
   background: var(--bg-app);
+}
+
+/* ── Studio engine progress bar (UIOverlay.tsx) ──────────────────────────── */
+@keyframes progress {
+  0%   { width: 0%;   margin-left: 0;    }
+  50%  { width: 60%;  margin-left: 20%;  }
+  100% { width: 0%;   margin-left: 100%; }
+}
+.animate-progress {
+  animation: progress 2s ease-in-out infinite;
+}
+
+/* ── Glow cyan — replaces hardcoded rgba shadows in components ───────────── */
+.glow-cyan {
+  box-shadow: 0 0 8px color-mix(in srgb, var(--solar-cyan) 25%, transparent);
 }
