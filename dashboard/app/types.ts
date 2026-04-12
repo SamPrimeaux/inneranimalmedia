@@ -1,5 +1,3 @@
-// types.ts
-
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export enum ProjectType {
@@ -16,21 +14,21 @@ export enum AppState {
 }
 
 export enum ArtStyle {
-  REALISTIC  = 'realistic',
-  CARTOON    = 'cartoon',
-  PIXEL      = 'pixel',
-  LOW_POLY   = 'low_poly',
-  WIREFRAME  = 'wireframe',
+  REALISTIC = 'realistic',
+  CARTOON   = 'cartoon',
+  PIXEL     = 'pixel',
+  LOW_POLY  = 'low_poly',
+  WIREFRAME = 'wireframe',
 }
 
 export enum CADTool {
-  SELECT    = 'select',
-  BOX       = 'box',
-  SPHERE    = 'sphere',
-  CYLINDER  = 'cylinder',
-  PLANE     = 'plane',
-  EXTRUDE   = 'extrude',
-  MEASURE   = 'measure',
+  SELECT   = 'select',
+  BOX      = 'box',
+  SPHERE   = 'sphere',
+  CYLINDER = 'cylinder',
+  PLANE    = 'plane',
+  EXTRUDE  = 'extrude',
+  MEASURE  = 'measure',
 }
 
 export enum CADPlane {
@@ -42,22 +40,28 @@ export enum CADPlane {
 // ─── Core file type ───────────────────────────────────────────────────────────
 
 export interface ActiveFile {
-  id:            string;
-  name:          string;
-  content:       string;
-  isDirty?:      boolean;
-  language?:     string;
-  workspacePath?: string;
-  workspaceId?:  string;
+  id:               string;
+  name:             string;
+  content:          string;
+  isDirty?:         boolean;
+  language?:        string;
+  workspacePath?:   string;
+  workspaceId?:     string;
 
   // R2 source
-  r2Key?:        string;
-  r2Bucket?:     string;
+  r2Key?:           string;
+  r2Bucket?:        string;
 
   // GitHub source
-  githubRepo?:   string;
-  githubPath?:   string;
-  githubSha?:    string;   // for conflict detection on save
+  githubRepo?:      string;
+  githubPath?:      string;
+  githubSha?:       string;
+
+  // Google Drive source
+  driveFileId?:     string;
+
+  // Local File System Access API handle (browser native)
+  handle?:          FileSystemFileHandle;
 
   // Original content snapshot (for diff view)
   originalContent?: string;
@@ -66,19 +70,19 @@ export interface ActiveFile {
 // ─── Scene / generation ───────────────────────────────────────────────────────
 
 export interface SceneConfig {
-  ambientLight:    number;
-  fogDensity:      number;
-  skyColor:        string;
-  groundColor:     string;
-  shadowsEnabled:  boolean;
+  ambientLight:   number;
+  fogDensity:     number;
+  skyColor:       string;
+  groundColor:    string;
+  shadowsEnabled: boolean;
 }
 
 export interface GenerationConfig {
-  prompt:     string;
-  artStyle:   ArtStyle;
-  seed?:      number;
-  steps?:     number;
-  guidance?:  number;
+  prompt:    string;
+  artStyle:  ArtStyle;
+  seed?:     number;
+  steps?:    number;
+  guidance?: number;
 }
 
 // ─── Entities ─────────────────────────────────────────────────────────────────
@@ -95,12 +99,12 @@ export interface GameEntity {
 // ─── Assets ───────────────────────────────────────────────────────────────────
 
 export interface CustomAsset {
-  id:        string;
-  name:      string;
-  url:       string;
-  type:      'glb' | 'gltf' | 'image' | 'audio' | 'other';
-  r2Key?:    string;
-  r2Bucket?: string;
-  sizeBytes?: number;
+  id:          string;
+  name:        string;
+  url:         string;
+  type:        'glb' | 'gltf' | 'image' | 'audio' | 'other';
+  r2Key?:      string;
+  r2Bucket?:   string;
+  sizeBytes?:  number;
   uploadedAt?: string;
 }
