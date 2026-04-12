@@ -1,34 +1,47 @@
-// Sandbox Worker only: inneranimal-dashboard (Workers Builds / wrangler.jsonc).
-// Workers Builds deploy command: npm run deploy:sandbox (see docs/SANDBOX_WORKERS_BUILDS.md).
-// Production Worker (inneranimalmedia): ALWAYS deploy with -c wrangler.production.toml — never replace that file from here.
-// R2: ASSETS + DASHBOARD → agent-sam-sandbox-cicd. AUTORAG/DOCS/R2/TOOLS use same bucket names as prod (TOOLS = Monaco/code).
-// Queues omitted: same queue consumer cannot bind to two Workers; production inneranimalmedia keeps MY_QUEUE consumer.
-//
-// Optional secrets (wrangler secret put -c wrangler.jsonc) for *.workers.dev email/password form:
-//   SANDBOX_DASHBOARD_PASSWORD — shared dev gate (plaintext; compared with timingSafeEqualUtf8).
-//   OR SANDBOX_DASHBOARD_PBKDF2_SALT + SANDBOX_DASHBOARD_PBKDF2_HASH (hex, same PBKDF2-SHA256 100k as auth_users).
-//   Optional SANDBOX_DASHBOARD_IMPERSONATE_USER — auth_users id/email to session as when gate matches (default: email from form).
+/**
+ * Inner Animal Media — Dashboard Worker Configuration
+ *
+ * Bindings & Services:
+ *   D1: inneranimalmedia-business (primary data store)
+ *   R2: iam-platform, inneranimalmedia, autorag, iam-docs, tools, agent-sam
+ *   KV: SESSION_CACHE (production-KV_SESSIONS), KV (general)
+ *   Hyperdrive: Supabase postgres connection
+ *   Vectorize: ai-search-inneranimalmedia-aisearch, ai-search-iam-autorag
+ *   Durable Objects: AgentChatSqlV1, IAMCollaborationSession, ChessRoom
+ *   AI: Cloudflare Workers AI binding
+ *   Browser: Cloudflare Puppeteer binding
+ *
+ * Secrets (wrangler secret put -c wrangler.jsonc):
+ *   ANTHROPIC_API_KEY, GITHUB_TOKEN, OPENAI_API_KEY, GOOGLE_AI_API_KEY
+ *   CLOUDFLARE_API_TOKEN, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+ *   + all others from: wrangler secret list -c wrangler.jsonc
+ *
+ * Deploy: wrangler deploy -c wrangler.jsonc
+ * Production: wrangler deploy -c wrangler.production.toml
+ */
 
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
+  "$schema": "https://raw.githubusercontent.com/cloudflare/wrangler2/main/packages/wrangler/config-schema.json",
   "name": "inneranimal-dashboard",
   "main": "src/index.js",
   "compatibility_date": "2026-01-20",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": true,
-  "no_bundle": false,
-  // Vite SPA bundle (must not use binding name "ASSETS" — that is the R2 bucket below).
-  // run_worker_first: so GET / hits worker.js and serves R2 ASSETS index-v3.html (landing) instead of dist/index.html (IAM Explorer).
+
   "build": {
     "command": ""
   },
+
+  /* ─── AI & Browser Bindings ─────────────────────────────────────── */
   "ai": {
     "binding": "AI"
   },
   "browser": {
     "binding": "MYBROWSER"
   },
+
+  /* ─── D1 Database ────────────────────────────────────────────────── */
   "d1_databases": [
     {
       "binding": "DB",
@@ -36,14 +49,16 @@
       "database_id": "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
     }
   ],
+
+  /* ─── R2 Buckets ────────────────────────────────────────────────── */
   "r2_buckets": [
     {
       "binding": "ASSETS",
-      "bucket_name": "agent-sam-sandbox-cicd"
+      "bucket_name": "inneranimalmedia"
     },
     {
       "binding": "DASHBOARD",
-      "bucket_name": "agent-sam-sandbox-cicd"
+      "bucket_name": "inneranimalmedia"
     },
     {
       "binding": "AUTORAG_BUCKET",
@@ -60,14 +75,22 @@
     {
       "binding": "TOOLS",
       "bucket_name": "tools"
+    },
+    {
+      "binding": "AGENT_SAM_BUCKET",
+      "bucket_name": "agent-sam"
     }
   ],
+
+  /* ─── Hyperdrive (Supabase postgres) ────────────────────────────── */
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
       "id": "08183bb9d2914e87ac8395d7e4ecff60"
     }
   ],
+
+  /* ─── Vectorize (semantic search) ──────────────────────────────── */
   "vectorize": [
     {
       "binding": "VECTORIZE",
@@ -78,6 +101,8 @@
       "index_name": "ai-search-iam-autorag"
     }
   ],
+
+  /* ─── KV Namespaces ─────────────────────────────────────────────── */
   "kv_namespaces": [
     {
       "binding": "KV",
@@ -88,6 +113,8 @@
       "id": "dc87920b0a9247979a213c09df9a0234"
     }
   ],
+
+  /* ─── Durable Objects ──────────────────────────────────────────── */
   "durable_objects": {
     "bindings": [
       {
@@ -104,6 +131,8 @@
       }
     ]
   },
+
+  /* ─── D1 Migrations ────────────────────────────────────────────── */
   "migrations": [
     {
       "tag": "v4",
@@ -114,12 +143,16 @@
       "new_sqlite_classes": ["AgentChatSqlV1"]
     }
   ],
+
+  /* ─── Analytics Engine ─────────────────────────────────────────── */
   "analytics_engine_datasets": [
     {
       "binding": "WAE",
       "dataset": "inneranimalmedia"
     }
   ],
+
+  /* ─── Cron Triggers ────────────────────────────────────────────── */
   "triggers": {
     "crons": [
       "0 6 * * *",
@@ -129,16 +162,25 @@
       "0 0 * * *"
     ]
   },
+
+  /* ─── Environment Variables (NOT secrets) ──────────────────────── */
   "vars": {
     "CLOUDFLARE_ACCOUNT_ID": "ede6590ac0d2fb7daf155b35653457b2",
     "CLOUDFLARE_IMAGES_ACCOUNT_HASH": "g7wf09fCONpnidkRnR_5vw",
     "GITHUB_CLIENT_ID": "Ov23li6BZYxjVtGUWibX",
     "GOOGLE_CLIENT_ID": "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com",
     "TENANT_ID": "tenant_sam_primeaux",
-    "SANDBOX_SIGNIN_FALLBACK_URL": "https://pub-0d103dec19f84813ab2d58b17153a95f.r2.dev/static/auth-signin.html",
     "WORKSPACE_ID": "ws_sandbox",
-    "DEPLOY_ENV": "sandbox"
+    "DEPLOY_ENV": "sandbox",
+    "SANDBOX_SIGNIN_FALLBACK_URL": "https://pub-0d103dec19f84813ab2d58b17153a95f.r2.dev/static/auth-signin.html",
+    "VITE_LOGO_URL": "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail",
+    "VITE_PRODUCT_LABEL": "Inner Animal Media — Agent Sam",
+    "VITE_SHELL_VERSION": "v173",
+    "VITE_API_BASE": "https://inneranimalmedia.com",
+    "VITE_DASHBOARD_URL": "https://inneranimal-dashboard.meauxbility.workers.dev"
   },
+
+  /* ─── Observability ────────────────────────────────────────────── */
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
@@ -154,6 +196,8 @@
       "head_sampling_rate": 1
     }
   },
+
+  /* ─── Tail Consumer ────────────────────────────────────────────── */
   "tail_consumers": [
     {
       "service": "inneranimalmedia-tail"
