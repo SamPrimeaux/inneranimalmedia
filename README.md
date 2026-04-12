@@ -4,6 +4,142 @@
 > Built and operated by Sam Primeaux — Lafayette, Louisiana.
 
 ---
+Repo — Files Still Needed
+dashboard/app/ — Root files not yet built
+index.html          ← audited, not rebuilt yet (font fix, title env var, CDN Tailwind removal)
+index.tsx           ← React root, mounts <App /> — not touched
+App.tsx             ← main shell (biggest remaining file — orchestrates everything)
+types.ts            ← shared TypeScript types (ActiveFile etc.) — referenced everywhere
+vite.config.ts      ← needs VITE_LOGO_URL, VITE_PRODUCT_LABEL env defines
+tsconfig.json       ← not touched
+package.json        ← not touched
+wrangler.production.toml ← needs same 6 vars added as wrangler.jsonc
+dashboard/app/components/ — Not yet rebuilt
+StatusBar.tsx           ← bottom bar (font wrong, WS_INNERANIMALMEDIA hardcode, all values audit)
+ChatAssistant.tsx       ← main Agent Sam chat panel (most critical frontend component)
+ThemeSwitcher.tsx       ← COLLAB_WORKSPACE_ID hardcode, session context needed
+XTermShell.tsx          ← terminal (PTY wiring, mostly working)
+BrowserView.tsx         ← internal browser panel (globe icon, Playwright jobs)
+PlaywrightConsole.tsx   ← browser testing jobs panel (UI cleanup)
+ExcalidrawView.tsx      ← Draw panel (library loading from R2, agent wiring)
+GLBViewer.tsx           ← referenced in MonacoEditorView, must exist
+StudioSidebar.tsx       ← Voxel engine sidebar (R2 URL hardcodes, project list)
+WorkspaceExplorerPanel.tsx ← window.prompt removal, already audited
+WorkspaceLauncher.tsx   ← workspace switching modal
+R2Explorer.tsx          ← R2 file browser panel
+LocalExplorer.tsx       ← local file system explorer
+GitHubExplorer.tsx      ← GitHub sync panel
+GoogleDriveExplorer.tsx ← Drive integration panel
+KnowledgeSearchPanel.tsx← RAG/AutoRAG search UI
+SettingsPanel.tsx       ← workspace settings
+ProblemsDebugPanel.tsx  ← error/warning panel
+JsonModal.tsx           ← JSON viewer modal
+GlobalSearchPage.tsx    ← full-page search view
+src/ — Backend gaps
+scripts/
+  deploy-sandbox.sh       ← not yet in new repo
+  promote-to-prod.sh      ← not yet in new repo
+  benchmark-providers.sh  ← not yet in new repo
+  deploy-cf-builds.sh     ← not yet in new repo
+
+.github/workflows/
+  sandbox.yml             ← CF Builds CI/CD
+  production.yml          ← production deploy gate
+
+Phase Breakdown
+
+Phase 1 — CI/CD System (Agent Sam Managed)
+Goal: Agent Sam can autonomously deploy, promote, benchmark, and roll back — no manual terminal needed for routine ops.
+What gets built:
+
+deploy-sandbox.sh + promote-to-prod.sh wired to cicd_pipeline_runs table (already exists in DB)
+.github/workflows/sandbox.yml — on push to main, runs build + deploys sandbox, posts result to cicd_events
+Agent Sam gains worker_deploy MCP tool wired to these scripts via PTY terminal
+StatusBar.tsx rebuild — shows live deploy status, branch, version from DB not hardcoded
+ProblemsDebugPanel.tsx — surfaces cicd_events errors inline in the dashboard
+Agent Sam CI/CD commands: /deploy sandbox, /promote, /rollback, /benchmark
+
+Done when: You can type "deploy to sandbox" in Agent Sam chat and watch it build, deploy, and report back with the version number and any errors — all without touching a terminal.
+
+Phase 2 — Agent Sam Refinement (Decision Matrix)
+Goal: Agent Sam becomes self-improving. It can audit its own behavior, propose rule changes, and execute approved improvements.
+What gets built:
+
+ChatAssistant.tsx full rebuild — streaming responses, tool call visualization, human-in-the-loop approval UI for dangerous operations
+KnowledgeSearchPanel.tsx — surfaces AutoRAG results inline, lets you teach Sam by adding documents
+Decision matrix system: Agent Sam proposes an action → you see the reasoning → approve/reject → Sam executes and logs the outcome to agentsam_executions
+SettingsPanel.tsx — model routing rules, token limits, capability gates all editable from UI (not just DB)
+Gated execution: any destructive operation (DB write, deploy, file delete) requires explicit approval in the chat before proceeding
+Benchmark pipeline: benchmark-providers.sh exposed as /benchmark slash command, results surfaced in a comparison table in chat
+
+Done when: Agent Sam can run a full self-audit, identify underperforming routing rules, propose fixes, get your approval, apply them, and verify improvement — all in one chat session.
+
+Phase 3 — inneranimalmedia.com Pages
+Goal: Every public-facing page on inneranimalmedia.com is rebuilt, connected to the platform, and deployable from Agent Sam.
+Pages that need work (from your old R2 content):
+/                   ← Landing (already live, needs CMS connection)
+/work               ← Portfolio/case studies
+/about              ← About page
+/services           ← Services/pricing
+/contact            ← Contact form → wired to your DB
+/dashboard/*        ← All dashboard routes properly unified
+/dashboard/overview ← Rebuild as React route inside agent dashboard
+/dashboard/finance  ← Connect to real finance data
+/dashboard/clients  ← Client management
+/dashboard/billing  ← Billing/subscriptions
+/dashboard/calendar ← Calendar
+/dashboard/kanban   ← Kanban board
+/dashboard/cms      ← CMS editor
+/dashboard/mail     ← Email/Resend integration
+/dashboard/pipelines← Pipeline management
+What gets built:
+
+App.tsx — unified routing for all dashboard pages, removes duplicate HTML shell pattern
+WorkspaceDashboard.tsx is already done ✅ — becomes the home screen for /dashboard/agent
+Each broken dashboard page gets the SyntaxError patch + loadThemes() sync (already documented)
+Public pages get a CMS connection so content is editable from the dashboard without a deploy
+
+Done when: Every page at inneranimalmedia.com loads, looks right, and can be edited from your own dashboard without touching the repo.
+
+Phase 4 — Other Apps
+Based on what I know about your ecosystem, these are the apps queued:
+Meauxbility (meauxbility.org)
+
+501(c)(3) nonprofit for spinal cord injury survivors
+Needs: donation flow (Stripe), event calendar, resource directory, adaptive athletics section
+Stack: same Cloudflare Workers pattern, separate D1 database (meauxos)
+
+Inner Animals (inneranimals.com)
+
+Separate brand from Inner Animal Media
+Needs: brand page, product/service listings
+
+iAutodidact
+
+Educational/community platform
+Needs: course structure, community features, user accounts
+
+For each app the pattern is:
+
+Scaffold the repo from the IAM template (clean src/ + dashboard/app/ structure we've built)
+New D1 database + wrangler config
+Connect to same Agent Sam MCP server (multi-tenant already supported via tenant_id)
+Brand-specific theme in cms_themes table
+Agent Sam can manage all four apps from one dashboard with workspace switching
+
+
+Tomorrow's Priority Order
+1. StatusBar.tsx          ← fixes visible font/hardcode issues immediately
+2. App.tsx                ← unblocks everything else (routing, tab removal, globe icon)
+3. index.html + index.tsx ← fixes title hardcode, CDN Tailwind
+4. ChatAssistant.tsx      ← most value per hour of work
+5. GLBViewer.tsx          ← unblocks MonacoEditorView GLB rendering
+6. deploy scripts         ← unblocks Phase 1
+7. ExcalidrawView.tsx     ← Draw panel with R2 libraries
+8. BrowserView.tsx        ← globe icon, Playwright cleanup
+9. Remaining components   ← in order of dependency
+
+
 
 ## What This Is
 
