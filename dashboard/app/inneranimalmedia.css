@@ -14,8 +14,10 @@
  * Token layers (do not break this order when overriding):
  *   1. Raw palette  — --solar-*  (never reference directly in components)
  *   2. Semantic     — --bg-*, --text-*, --accent-*, --border-*
- *   3. Component    — --terminal-*, --monaco-*, --editor-*
- *   4. Runtime CMS  — applyCmsThemeToDocument() patches :root at this layer
+ *   3. Alias        — --color-primary, --color-primary-hover, etc.
+ *                     These are the tokens components must use.
+ *   4. Component    — --terminal-*, --monaco-*, --editor-*
+ *   5. Runtime CMS  — applyCmsThemeToDocument() patches :root at this layer
  */
 
 /* ============================================================
@@ -41,37 +43,45 @@
   --solar-green:   #a3b800;
 
   /* ============================================================
-     2. SEMANTIC LAYOUT
-     Override these via cms_themes.data — never hardcode below
-     this layer in components.
+     2. SEMANTIC SURFACES
+     Override via cms_themes.data — never hardcode below this
+     layer in components.
      ============================================================ */
 
-  /* Surfaces */
-  --bg-app:        var(--solar-base03);
-  --bg-panel:      var(--solar-base02);
-  --bg-elevated:   color-mix(in srgb, var(--bg-panel) 88%, var(--solar-cyan) 12%);
-  --bg-hover:      rgba(42, 161, 152, 0.08);
-  --bg-disabled:   color-mix(in srgb, var(--bg-app) 85%, var(--solar-base02) 15%);
-  --bg-scene:      color-mix(in srgb, var(--solar-base03) 60%, #000 40%);
+  --bg-app:      var(--solar-base03);
+  --bg-panel:    var(--solar-base02);
+  --bg-elevated: color-mix(in srgb, var(--bg-panel) 88%, var(--solar-cyan) 12%);
+  --bg-hover:    rgba(45, 212, 191, 0.08);
+  --bg-disabled: color-mix(in srgb, var(--bg-app) 85%, var(--solar-base02) 15%);
+  --bg-scene:    color-mix(in srgb, var(--solar-base03) 60%, #000 40%);
 
-  /* scene-bg alias — matches --bg-scene; both resolve identically.
-     Components may use either; CMS overrides targeting --bg-scene
-     propagate automatically here. */
-  --scene-bg:      var(--bg-scene);
+  /* scene-bg alias — resolves identically to --bg-scene.
+     Components may use either; CMS overrides propagate to both. */
+  --scene-bg: var(--bg-scene);
 
-  /* Borders */
+  /* ============================================================
+     3. SEMANTIC BORDERS
+     ============================================================ */
+
   --border-subtle: color-mix(in srgb, var(--solar-base02) 60%, var(--solar-cyan) 10%);
   --border-focus:  var(--solar-cyan);
+  --border-active: color-mix(in srgb, var(--solar-cyan) 40%, transparent);
 
-  /* Text */
-  --text-main:     var(--solar-base0);
-  --text-muted:    var(--solar-base01);
-  --text-heading:  var(--solar-base1);
+  /* ============================================================
+     4. SEMANTIC TEXT
+     ============================================================ */
+
+  --text-main:               var(--solar-base0);
+  --text-muted:              var(--solar-base01);
+  --text-heading:            var(--solar-base1);
   --text-placeholder:        color-mix(in srgb, var(--solar-base01) 55%, transparent);
   --text-placeholder-strong: color-mix(in srgb, var(--solar-base01) 35%, transparent);
   --text-chrome-muted:       color-mix(in srgb, var(--solar-base01) 40%, transparent);
 
-  /* Accents */
+  /* ============================================================
+     5. SEMANTIC ACCENTS
+     ============================================================ */
+
   --accent-primary:   var(--solar-blue);
   --accent-secondary: var(--solar-cyan);
   --accent-warning:   var(--solar-yellow);
@@ -79,68 +89,115 @@
   --accent-success:   var(--solar-green);
 
   /* ============================================================
-     3. TYPOGRAPHY TOKENS
-     --font-sans  — UI font stack. Nunito loads via Google Fonts
-                    in index.html; Inter is the fallback for any
-                    environment where Nunito is unavailable.
+     6. COMPONENT ALIASES
+     These are what App.tsx, components, and Tailwind arbitrary
+     values reference. Always map to semantic tokens above —
+     never to raw palette directly. CMS overrides target these.
+     ============================================================ */
+
+  /* Primary action — tabs, focus rings, active indicators */
+  --color-primary:       var(--solar-cyan);
+  --color-primary-hover: color-mix(in srgb, var(--solar-cyan) 80%, #fff 20%);
+  --color-primary-muted: color-mix(in srgb, var(--solar-cyan) 15%, transparent);
+
+  /* Secondary action */
+  --color-secondary:       var(--solar-blue);
+  --color-secondary-hover: color-mix(in srgb, var(--solar-blue) 80%, #fff 20%);
+
+  /* Danger / destructive */
+  --color-danger:       var(--solar-red);
+  --color-danger-hover: color-mix(in srgb, var(--solar-red) 80%, #fff 20%);
+  --color-danger-muted: color-mix(in srgb, var(--solar-red) 12%, transparent);
+
+  /* Warning */
+  --color-warning:       var(--solar-yellow);
+  --color-warning-muted: color-mix(in srgb, var(--solar-yellow) 12%, transparent);
+
+  /* Success */
+  --color-success:       var(--solar-green);
+  --color-success-muted: color-mix(in srgb, var(--solar-green) 12%, transparent);
+
+  /* ============================================================
+     7. TYPOGRAPHY
+     --font-sans  — Nunito loads via Google Fonts in index.html;
+                    Inter is the fallback for any environment
+                    where Nunito is unavailable.
      --font-ui    — semantic alias for --font-sans; use this in
                     components so the token meaning is explicit.
      --font-mono  — monospace stack for terminals, code, SQL.
      ============================================================ */
+
   --font-sans: "Nunito", "Inter", system-ui, -apple-system,
                BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-ui:   var(--font-sans);
   --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code",
                ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
-  --text-xs:   0.6875rem;   /* 11px */
-  --text-sm:   0.75rem;     /* 12px */
-  --text-base: 0.875rem;    /* 14px — dashboard base */
-  --text-md:   1rem;        /* 16px */
+  --text-xs:   0.6875rem;  /* 11px */
+  --text-sm:   0.75rem;    /* 12px */
+  --text-base: 0.875rem;   /* 14px — dashboard base */
+  --text-md:   1rem;       /* 16px */
   --text-lg:   1.125rem;
   --text-xl:   1.25rem;
 
   /* ============================================================
-     4. BORDER RADIUS SCALE
+     8. BORDER RADIUS SCALE
      ============================================================ */
-  --radius-xs:  2px;
-  --radius-sm:  4px;
-  --radius-md:  6px;
-  --radius-lg:  10px;
-  --radius-xl:  14px;
+
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   10px;
+  --radius-xl:   14px;
   --radius-full: 9999px;
 
   /* ============================================================
-     5. COMPONENT — TERMINAL / XTERM
+     9. COMPONENT — TERMINAL / XTERM
      ============================================================ */
+
   --terminal-chrome:    var(--solar-base02);
   --terminal-surface:   color-mix(in srgb, var(--bg-app) 70%, #000 30%);
   --terminal-tab-muted: var(--text-muted);
 
   /* ============================================================
-     6. COMPONENT — MONACO / CODE
+     10. COMPONENT — MONACO / CODE EDITOR
      ============================================================ */
+
   --bg-code-pre:            color-mix(in srgb, var(--bg-app) 75%, #000 25%);
   --editor-selection-bg:    color-mix(in srgb, var(--solar-cyan) 24%, transparent);
   --monaco-scrollbar-thumb: color-mix(in srgb, var(--border-subtle) 50%, transparent);
   --monaco-scrollbar-hover: color-mix(in srgb, var(--solar-cyan) 25%, transparent);
+  --monaco-bg:              var(--bg-app);
 
   /* ============================================================
-     7. COMPONENT — FORM / TOGGLE CONTROLS
+     11. COMPONENT — FORM / TOGGLE CONTROLS
      ============================================================ */
-  --toggle-knob: var(--solar-base1);
+
+  --toggle-knob:       var(--solar-base1);
+  --input-bg:          color-mix(in srgb, var(--bg-app) 60%, var(--bg-panel) 40%);
+  --input-border:      var(--border-subtle);
+  --input-border-focus: var(--border-focus);
 }
 
 /* ============================================================
    BASE CHROME
    ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
-  background:  var(--bg-app);
-  color:       var(--text-main);
-  font-family: var(--font-ui);
-  font-size:   var(--text-base);
-  margin:      0;
-  overflow:    hidden; /* app shell — scroll lives inside layout panels */
+  background:           var(--bg-app);
+  color:                var(--text-main);
+  font-family:          var(--font-ui);
+  font-size:            var(--text-base);
+  margin:               0;
+  overflow:             hidden; /* app shell — scroll lives inside layout panels */
+  -webkit-font-smoothing:  antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 ::selection {
@@ -151,6 +208,7 @@ body {
 /* ============================================================
    SCROLLBARS
    ============================================================ */
+
 ::-webkit-scrollbar        { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track  { background: var(--bg-app); }
 ::-webkit-scrollbar-thumb  { background: var(--bg-panel); border-radius: var(--radius-full); }
@@ -159,13 +217,24 @@ body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+.custom-scrollbar::-webkit-scrollbar        { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track  { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb  {
+  background:    var(--border-subtle);
+  border-radius: var(--radius-full);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-muted);
+}
+
 /* ============================================================
    UTILITY CLASSES
    ============================================================ */
+
 .glass-panel {
-  background:          color-mix(in srgb, var(--bg-panel) 70%, transparent);
-  backdrop-filter:     blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background:               color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  backdrop-filter:          blur(12px);
+  -webkit-backdrop-filter:  blur(12px);
 }
 
 /*
@@ -185,12 +254,13 @@ body {
 }
 .glow-border:hover::after,
 .glow-border:active::after {
-  box-shadow: 0 0 10px var(--solar-cyan);
+  box-shadow: 0 0 10px var(--color-primary);
 }
 
 /* ============================================================
    ANIMATIONS
    ============================================================ */
+
 @keyframes pulse-dirty {
   0%, 100% { opacity: 1;   transform: scale(1);   }
   50%      { opacity: 0.5; transform: scale(0.8); }
@@ -205,4 +275,42 @@ body {
 }
 .animate-slide-up {
   animation: slide-up 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.15s ease forwards;
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 4px var(--color-primary-muted); }
+  50%      { box-shadow: 0 0 12px var(--color-primary); }
+}
+.animate-glow-pulse {
+  animation: glow-pulse 2.4s ease-in-out infinite;
+}
+
+/* ============================================================
+   PROGRESS ANIMATION
+   Used by index.css loading states
+   ============================================================ */
+
+@keyframes progress-indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-progress {
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+
+/* ============================================================
+   GLOW CYAN UTILITY
+   Explicit class for cyan text-shadow accents (StatusBar, etc.)
+   ============================================================ */
+
+.glow-cyan {
+  text-shadow: 0 0 8px var(--solar-cyan);
 }
