@@ -47,7 +47,7 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: path.resolve(__dirname, 'app/index.tsx'),
         output: {
-          entryFileNames: 'agent-dashboard.js',
+          entryFileNames: 'dashboard.js',
           chunkFileNames: '[name].js',
           assetFileNames: '[name][extname]',
         },
