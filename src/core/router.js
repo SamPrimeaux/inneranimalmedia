@@ -163,7 +163,7 @@ export async function handleRequest(request, env, ctx) {
           const config = typeof themeRow.config === 'object' ? themeRow.config : JSON.parse(themeRow.config || '{}');
           const rawVars = config.variables || config.data || config || {};
           Object.entries(rawVars).forEach(([k, v]) => {
-            const key = k.startsWith('--') ? k : \`--\${k.replace(/_/g, '-')}\`;
+            const key = k.startsWith('--') ? k : `--${k.replace(/_/g, '-')}`;
             themeVars[key] = v;
           });
           isDark = config.mode === 'dark' || config.is_dark === true;
