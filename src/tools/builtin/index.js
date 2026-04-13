@@ -466,9 +466,33 @@ const PLATFORM_HANDLERS = {
 // ─── Agent Sam Handlers ───────────────────────────────────────────────────────
 
 const AGENTSAM_HANDLERS = {
-  async agentsam_list_agents(params, env)       { return selfFetch(env, '/api/agentsam/agents', 'GET'); },
-  async agentsam_get_agent({ role_or_id }, env) { return selfFetch(env, `/api/agentsam/ai/${encodeURIComponent(role_or_id)}`, 'GET'); },
-  async agentsam_run_agent(params, env)          { return selfFetch(env, '/api/agent/workflows/trigger', 'POST', params); },
+  async agentsam_list_agents(params, env) {
+    if (!env.DB) return { error: 'DB not configured' };
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, role_name, status, mode, is_global, tenant_id, context_max_tokens, output_max_tokens
+       FROM agentsam_ai WHERE status = 'active' ORDER BY sort_order ASC, name ASC`
+    ).all().catch(() => ({ results: [] }));
+    return { agents: results || [], count: (results || []).length };
+  },
+
+  async agentsam_get_agent({ role_or_id }, env) {
+    if (!env.DB)     return { error: 'DB not configured' };
+    if (!role_or_id) return { error: 'role_or_id required' };
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, role_name, status, mode, is_global, tenant_id,
+              system_prompt, model_policy_json, tool_permissions_json,
+              context_max_tokens, output_max_tokens, thinking_mode, effort
+       FROM agentsam_ai WHERE id = ? OR role_name = ? LIMIT 1`
+    ).bind(role_or_id, role_or_id).all().catch(() => ({ results: [] }));
+    const agent = results?.[0];
+    if (!agent) return { error: `Agent not found: ${role_or_id}` };
+    return { agent };
+  },
+
+  // Workflow trigger stays proxied — action handled by agent.js workflow layer
+  async agentsam_run_agent(params, env) {
+    return selfFetch(env, '/api/agent/workflows/trigger', 'POST', params);
+  },
 };
 
 // ─── AI Model Handlers ────────────────────────────────────────────────────────
