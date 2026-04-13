@@ -2,16 +2,13 @@
  * API Layer: Agent Sam Reasoning Engine
  * Handles all /api/agent/* routes.
  *
- * Key changes from monolith:
- *  - jsonResponse from responses.js (not auth.js)
- *  - All hardcoded model/worker/URL strings removed
- *  - agentChatSseHandler: proper agentic tool loop replacing raw SSE passthrough
- *  - classifyIntent() + loadToolsForRequest() replace client-supplied body.tools
- *  - Mode config + user policy loaded per-request
- *  - Approval gate wired: high-risk tool calls write to agent_command_proposals,
- *    stream approval_required event, pause execution
- *  - Telemetry written per model turn (not just at end)
- *  - Tool execution delegated to src/tools/builtin/index.js dispatcher
+ * Key notes:
+ *  - All model resolution uses agent_model_registry (not ai_models)
+ *  - No hardcoded model strings — always resolved from DB
+ *  - Tool definitions loaded per-request via classifyIntent + loadToolsForRequest
+ *  - Approval gate wired for high-risk tool calls
+ *  - Telemetry written per request via writeTelemetry
+ *  - Tool execution delegated to src/tools/builtin/index.js
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
 import { unifiedRagSearch }                             from './rag.js';
@@ -29,15 +26,11 @@ import { dispatchToolCall }                             from '../tools/builtin/i
 
 // ─── Request-scoped Context Loaders ──────────────────────────────────────────
 
-/**
- * Load the active mode config row from agent_mode_configs.
- * Falls back to safe defaults if not found.
- */
 async function loadModeConfig(env, modeSlug) {
   const slug = modeSlug || 'ask';
-  if (!env.DB) return { slug, temperature: 0.7, auto_run: 0, max_tool_calls: 15, system_prompt_fragment: null, context_strategy: 'standard' };
+  const defaults = { slug, temperature: 0.7, auto_run: 0, max_tool_calls: 15, system_prompt_fragment: null, context_strategy: 'standard' };
+  if (!env.DB) return defaults;
 
-  // KV cache — mode configs change rarely
   const cacheKey = `mode_cfg:${slug}`;
   if (env.KV) {
     try {
@@ -52,91 +45,59 @@ async function loadModeConfig(env, modeSlug) {
               system_prompt_fragment, context_strategy, tool_policy_json, model_preference
        FROM agent_mode_configs WHERE slug = ? AND is_active = 1 LIMIT 1`
     ).bind(slug).first();
-
-    const config = row || { slug, temperature: 0.7, auto_run: 0, max_tool_calls: 15, system_prompt_fragment: null, context_strategy: 'standard' };
-
-    if (env.KV) {
-      env.KV.put(cacheKey, JSON.stringify(config), { expirationTtl: 300 }).catch(() => {});
-    }
-
+    const config = row || defaults;
+    if (env.KV) env.KV.put(cacheKey, JSON.stringify(config), { expirationTtl: 300 }).catch(() => {});
     return config;
-  } catch (_) {
-    return { slug, temperature: 0.7, auto_run: 0, max_tool_calls: 15, system_prompt_fragment: null, context_strategy: 'standard' };
-  }
+  } catch (_) { return defaults; }
 }
 
-/**
- * Load user policy from agentsam_user_policy.
- * Returns safe defaults (most restrictive) if no row exists.
- */
 async function loadUserPolicy(env, userId, workspaceId = '') {
   const defaults = { auto_run_mode: 'allowlist', mcp_tools_protection: 1, file_deletion_protection: 1, external_file_protection: 1 };
   if (!env.DB || !userId) return defaults;
-
   try {
     const row = await env.DB.prepare(
       `SELECT auto_run_mode, mcp_tools_protection, file_deletion_protection, external_file_protection
        FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`
     ).bind(userId, workspaceId || '').first();
     return row || defaults;
-  } catch (_) {
-    return defaults;
-  }
+  } catch (_) { return defaults; }
 }
 
 /**
- * Resolve the best available fallback model from ai_models.
- * Never hardcoded — always from DB.
+ * Resolve the best available model from agent_model_registry.
+ * No provider preference — cheapest capable model wins.
+ * Provider and cost decisions belong in the DB, not here.
  */
 async function resolveDefaultModel(env) {
-  if (!env.DB) return 'claude-sonnet-4-6';
+  if (!env.DB) return null;
   try {
     const row = await env.DB.prepare(
-      `SELECT model_key FROM ai_models
-       WHERE is_active = 1 AND show_in_picker = 1 AND supports_tools = 1
-         AND provider = 'anthropic'
-       ORDER BY input_rate_per_mtok ASC LIMIT 1`
+      `SELECT model_key FROM agent_model_registry
+       WHERE role IN ('agent', 'chat')
+         AND supports_function_calling = 1
+       ORDER BY input_cost_per_1m ASC LIMIT 1`
     ).first();
-    return row?.model_key || 'claude-sonnet-4-6';
-  } catch (_) {
-    return 'claude-sonnet-4-6';
-  }
+    return row?.model_key || null;
+  } catch (_) { return null; }
 }
 
 // ─── Approval Gate ────────────────────────────────────────────────────────────
 
-/**
- * Determine whether a tool call needs human approval given mode + user policy.
- * Checks tool-level requires_approval AND user policy mcp_tools_protection AND mode auto_run.
- */
 function needsApproval(validationResult, modeConfig, userPolicy) {
   if (!validationResult.allowed) return false;
   if (!validationResult.requiresConfirmation) return false;
-  // If mode is auto_run AND user policy is 'auto', skip approval
   if (modeConfig.auto_run === 1 && userPolicy.auto_run_mode === 'auto') return false;
   return true;
 }
 
-/**
- * Write an approval request to agent_command_proposals and mcp_tool_calls.
- * Returns the proposal_id.
- */
 async function createApprovalRequest(env, opts) {
-  const {
-    tenantId, sessionId, userId,
-    toolName, toolArgs, toolCallId,
-    riskLevel, rationale,
-  } = opts;
-
+  const { tenantId, sessionId, userId, toolName, toolArgs, toolCallId, riskLevel, rationale } = opts;
   const proposalId  = 'prop_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const toolCallRow = 'mtc_'  + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now         = Math.floor(Date.now() / 1000);
   const expiresAt   = now + 3600;
-
   if (!env.DB) return proposalId;
-
   const argsStr = typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs || {});
-
   try {
     await env.DB.prepare(
       `INSERT INTO agent_command_proposals
@@ -146,40 +107,23 @@ async function createApprovalRequest(env, opts) {
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`
     ).bind(
       proposalId, tenantId, sessionId, 'agent-sam', 'agent_generated',
-      toolName,
-      `${toolName}(${argsStr.slice(0, 500)})`,
-      argsStr,
+      toolName, `${toolName}(${argsStr.slice(0, 500)})`, argsStr,
       rationale || `Tool call requires approval: ${toolName}`,
-      riskLevel || 'medium',
-      toolName,
-      'pending',
-      expiresAt, now, now
+      riskLevel || 'medium', toolName, 'pending', expiresAt, now, now
     ).run();
-
-    // Link to mcp_tool_calls
     await env.DB.prepare(
       `INSERT INTO mcp_tool_calls
        (id, tenant_id, session_id, tool_name, tool_category, input_schema,
         status, approval_gate_id, invoked_by, invoked_at, created_at, updated_at)
        VALUES (?,?,?,?,?,?,'awaiting_approval',?,?,datetime('now'),datetime('now'),datetime('now'))`
     ).bind(
-      toolCallRow, tenantId, sessionId, toolName,
-      'builtin', argsStr.slice(0, 10000),
-      proposalId,
-      userId || 'agent-sam',
-      toolCallId || null
+      toolCallRow, tenantId, sessionId, toolName, 'builtin',
+      argsStr.slice(0, 10000), proposalId, userId || 'agent-sam', toolCallId || null
     ).run().catch(() => {});
-
-  } catch (e) {
-    console.warn('[agent] createApprovalRequest failed:', e?.message);
-  }
-
+  } catch (e) { console.warn('[agent] createApprovalRequest:', e?.message); }
   return proposalId;
 }
 
-/**
- * Write an audit log entry for tool execution decisions.
- */
 async function auditToolDecision(env, opts) {
   if (!env.DB) return;
   try {
@@ -187,10 +131,7 @@ async function auditToolDecision(env, opts) {
       `INSERT INTO agent_audit_log (id, tenant_id, actor_role_id, event_type, message, metadata_json)
        VALUES (?, ?, 'agent-sam', ?, ?, ?)`
     ).bind(
-      crypto.randomUUID(),
-      opts.tenantId || 'system',
-      opts.eventType,
-      opts.message,
+      crypto.randomUUID(), opts.tenantId || 'system', opts.eventType, opts.message,
       JSON.stringify({ tool: opts.toolName, reason: opts.reason, risk: opts.riskLevel })
     ).run();
   } catch (_) {}
@@ -198,30 +139,6 @@ async function auditToolDecision(env, opts) {
 
 // ─── SSE Tool Loop ────────────────────────────────────────────────────────────
 
-/**
- * Run the agentic tool loop — the core of the SSE handler.
- *
- * Sends messages to the model, streams text/thinking to the client,
- * handles tool_use blocks with the approval gate, executes approved tools,
- * feeds results back for the next turn, and repeats until end_turn.
- *
- * @param {object}   env
- * @param {object}   ctx           - execution context (waitUntil)
- * @param {function} emit          - write SSE event to stream: emit(type, payload)
- * @param {object}   params
- * @param {object[]} params.messages      - conversation history
- * @param {object[]} params.tools         - tool definitions from loadToolsForRequest
- * @param {string}   params.systemPrompt
- * @param {string}   params.modelKey
- * @param {number}   params.temperature
- * @param {number}   params.maxToolCalls
- * @param {string}   params.mode
- * @param {object}   params.modeConfig
- * @param {object}   params.userPolicy
- * @param {string}   params.sessionId
- * @param {string}   params.tenantId
- * @param {string}   params.userId
- */
 async function runAgentToolLoop(env, ctx, emit, params) {
   const {
     messages, tools, systemPrompt, modelKey,
@@ -231,246 +148,127 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   } = params;
 
   const conversationMessages = [...messages];
-  let   toolCallsUsed = 0;
-  let   totalUsage    = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
-  let   turnCount     = 0;
+  let toolCallsUsed = 0;
+  let totalUsage    = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  let turnCount     = 0;
 
-  while (turnCount < 10) { // max 10 model turns per request
+  while (turnCount < 10) {
     turnCount++;
-
     let stream;
     try {
-      stream = await chatWithAnthropic({
-        messages: conversationMessages,
-        tools,
-        env,
-        options: {
-          model: modelKey,
-          systemPrompt,
-          temperature,
-        },
-      });
+      stream = await chatWithAnthropic({ messages: conversationMessages, tools, env, options: { model: modelKey, systemPrompt, temperature } });
     } catch (e) {
       emit('error', { message: 'Model call failed', detail: e.message });
       break;
     }
 
-    // Collect tool_use blocks from this turn
     const pendingToolCalls = [];
-    let   stopReason        = null;
-    let   turnUsage         = null;
-    const assistantContent  = [];
+    let stopReason = null, turnUsage = null;
+    const assistantContent = [];
 
-    // Stream this turn
     for await (const chunk of stream) {
       if (chunk.type === 'content_block_start') {
-        if (chunk.content_block?.type === 'thinking') {
-          emit('thinking_start', {});
-        }
+        if (chunk.content_block?.type === 'thinking') emit('thinking_start', {});
         if (chunk.content_block?.type === 'tool_use') {
-          pendingToolCalls.push({
-            id:    chunk.content_block.id,
-            name:  chunk.content_block.name,
-            _args: '',
-          });
+          pendingToolCalls.push({ id: chunk.content_block.id, name: chunk.content_block.name, _args: '' });
           assistantContent.push({ type: 'tool_use', id: chunk.content_block.id, name: chunk.content_block.name, input: {} });
         }
-        if (chunk.content_block?.type === 'text') {
-          assistantContent.push({ type: 'text', text: '' });
-        }
+        if (chunk.content_block?.type === 'text') assistantContent.push({ type: 'text', text: '' });
       }
-
       if (chunk.type === 'content_block_delta') {
         const delta = chunk.delta;
         if (delta.type === 'text_delta') {
-          // Append to last text block
           const last = assistantContent.findLast(b => b.type === 'text');
           if (last) last.text += delta.text;
           emit('text', { text: delta.text });
         }
-        if (delta.type === 'thinking_delta') {
-          emit('thinking', { text: delta.thinking });
-        }
+        if (delta.type === 'thinking_delta') emit('thinking', { text: delta.thinking });
         if (delta.type === 'input_json_delta') {
           const call = pendingToolCalls.findLast(c => !c._done);
           if (call) call._args += delta.partial_json;
         }
-        if (delta.type === 'signature_delta') {
-          emit('signature', { signature: delta.signature });
-        }
+        if (delta.type === 'signature_delta') emit('signature', { signature: delta.signature });
       }
-
       if (chunk.type === 'content_block_stop') {
-        // Finalize tool call args
         const call = pendingToolCalls.findLast(c => !c._done);
         if (call) {
           call._done = true;
           try { call.input = JSON.parse(call._args || '{}'); } catch { call.input = {}; }
-          // Update assistantContent block
           const blk = assistantContent.find(b => b.type === 'tool_use' && b.id === call.id);
           if (blk) blk.input = call.input;
         }
       }
-
-      if (chunk.type === 'message_start' && chunk.message?.id) {
-        emit('id', { id: chunk.message.id });
-      }
-
+      if (chunk.type === 'message_start' && chunk.message?.id) emit('id', { id: chunk.message.id });
       if (chunk.type === 'message_delta') {
         if (chunk.usage) turnUsage = chunk.usage;
         if (chunk.delta?.stop_reason) stopReason = chunk.delta.stop_reason;
       }
     }
 
-    // Accumulate token usage
     if (turnUsage) {
-      totalUsage.input_tokens              += turnUsage.input_tokens              || 0;
-      totalUsage.output_tokens             += turnUsage.output_tokens             || 0;
-      totalUsage.cache_read_input_tokens   += turnUsage.cache_read_input_tokens   || 0;
+      totalUsage.input_tokens               += turnUsage.input_tokens               || 0;
+      totalUsage.output_tokens              += turnUsage.output_tokens              || 0;
+      totalUsage.cache_read_input_tokens    += turnUsage.cache_read_input_tokens    || 0;
       totalUsage.cache_creation_input_tokens += turnUsage.cache_creation_input_tokens || 0;
     }
 
-    // Add assistant turn to conversation
     conversationMessages.push({ role: 'assistant', content: assistantContent });
-
-    // If no tool calls or end_turn, we're done
     if (!pendingToolCalls.length || stopReason === 'end_turn') break;
 
-    // ── Process tool calls ────────────────────────────────────────────────────
     const toolResults = [];
-
     for (const call of pendingToolCalls) {
       if (toolCallsUsed >= maxToolCalls) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
-        toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached for this request.' });
+        toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached.' });
         continue;
       }
-
-      // Layer 1: validate tool is allowed for this mode
       const validation = await validateToolCall(env, mode, call.name);
-
       if (!validation.allowed) {
-        await auditToolDecision(env, {
-          tenantId, toolName: call.name,
-          eventType: 'tool_blocked',
-          message:   `Tool blocked: ${call.name} — ${validation.reason}`,
-          riskLevel: 'blocked',
-          reason:    validation.reason,
-        });
+        await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_blocked', message: `Blocked: ${call.name} — ${validation.reason}`, riskLevel: 'blocked', reason: validation.reason });
         emit('tool_blocked', { tool: call.name, reason: validation.reason });
-        toolResults.push({
-          type: 'tool_result', tool_use_id: call.id,
-          content: `This tool is not available in ${mode} mode: ${validation.reason}`,
-        });
+        toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Tool not available in ${mode} mode: ${validation.reason}` });
         continue;
       }
-
-      // Layer 2: approval gate
       if (needsApproval(validation, modeConfig, userPolicy)) {
-        const proposalId = await createApprovalRequest(env, {
-          tenantId, sessionId, userId,
-          toolName:   call.name,
-          toolArgs:   call.input,
-          toolCallId: call.id,
-          riskLevel:  validation.riskLevel,
-          rationale:  `Agent requested ${call.name} (${validation.riskLevel} risk) — awaiting approval`,
-        });
-
-        // Notify Sam
-        notifySam(env, {
-          subject: `Approval required: ${call.name}`,
-          body:    `Tool: ${call.name}\nRisk: ${validation.riskLevel}\nArgs: ${JSON.stringify(call.input || {}).slice(0, 500)}\n\nApprove: ${(env.IAM_ORIGIN || '').replace(/\/$/, '')}/dashboard/overview?proposal=${proposalId}`,
-          category: 'approval',
-        }).catch(() => {});
-
-        emit('approval_required', {
-          proposal_id: proposalId,
-          tool_name:   call.name,
-          tool_args:   call.input,
-          risk_level:  validation.riskLevel,
-          message:     `This action requires your approval before proceeding.`,
-        });
-
-        // Return a placeholder result so the model knows execution paused
-        toolResults.push({
-          type: 'tool_result', tool_use_id: call.id,
-          content: `Awaiting approval (proposal_id: ${proposalId}). The user has been notified.`,
-        });
+        const proposalId = await createApprovalRequest(env, { tenantId, sessionId, userId, toolName: call.name, toolArgs: call.input, toolCallId: call.id, riskLevel: validation.riskLevel, rationale: `Agent requested ${call.name} (${validation.riskLevel} risk)` });
+        notifySam(env, { subject: `Approval required: ${call.name}`, body: `Tool: ${call.name}\nRisk: ${validation.riskLevel}\nArgs: ${JSON.stringify(call.input||{}).slice(0,500)}\n\nApprove: ${(env.IAM_ORIGIN||'').replace(/\/$/,'')}/dashboard/overview?proposal=${proposalId}`, category: 'approval' }).catch(() => {});
+        emit('approval_required', { proposal_id: proposalId, tool_name: call.name, tool_args: call.input, risk_level: validation.riskLevel, message: 'This action requires your approval.' });
+        toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Awaiting approval (proposal_id: ${proposalId}).` });
         continue;
       }
-
-      // Layer 3: execute
       toolCallsUsed++;
-
       emit('tool_call', { tool: call.name, args: call.input });
-
-      await auditToolDecision(env, {
-        tenantId, toolName: call.name,
-        eventType: 'tool_executed',
-        message:   `Executing tool: ${call.name}`,
-        riskLevel: validation.riskLevel,
-        reason:    'allowed',
-      });
-
+      await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_executed', message: `Executing: ${call.name}`, riskLevel: validation.riskLevel, reason: 'allowed' });
       let toolOutput = '';
       try {
-        const execResult = await dispatchToolCall(env, call.name, call.input, {
-          sessionId, tenantId, userId,
-        });
-        toolOutput = typeof execResult === 'string'
-          ? execResult
-          : JSON.stringify(execResult);
+        const execResult = await dispatchToolCall(env, call.name, call.input, { sessionId, tenantId, userId });
+        toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
       } catch (e) {
         toolOutput = `Tool execution failed: ${e.message}`;
         emit('tool_error', { tool: call.name, error: e.message });
       }
-
       emit('tool_result', { tool: call.name, output: toolOutput.slice(0, 2000) });
-
-      toolResults.push({
-        type:        'tool_result',
-        tool_use_id: call.id,
-        content:     toolOutput,
-      });
-
-      // Log to mcp_tool_calls
+      toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: toolOutput });
       if (env.DB) {
         env.DB.prepare(
           `INSERT OR IGNORE INTO mcp_tool_calls
            (id, tenant_id, session_id, tool_name, tool_category, input_schema,
             output, status, invoked_by, invoked_at, completed_at, created_at, updated_at)
            VALUES (?,?,?,?,?,?,?,'completed',?,datetime('now'),datetime('now'),datetime('now'),datetime('now'))`
-        ).bind(
-          'mtc_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16),
-          tenantId, sessionId, call.name, 'builtin',
-          JSON.stringify(call.input || {}),
-          toolOutput.slice(0, 50000),
-          userId || 'agent-sam'
-        ).run().catch(() => {});
+        ).bind('mtc_' + crypto.randomUUID().replace(/-/g,'').slice(0,16), tenantId, sessionId, call.name, 'builtin', JSON.stringify(call.input||{}), toolOutput.slice(0,50000), userId||'agent-sam').run().catch(() => {});
       }
     }
-
-    // Feed tool results back to model for next turn
-    if (toolResults.length) {
-      conversationMessages.push({ role: 'user', content: toolResults });
-    }
-
+    if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
     if (stopReason === 'end_turn') break;
   }
 
-  // Write telemetry for the full request (all turns combined)
   if (totalUsage.input_tokens || totalUsage.output_tokens) {
     ctx.waitUntil?.(writeTelemetry(env, {
-      sessionId,
-      tenantId,
-      provider:          'anthropic',
-      model:             modelKey,
-      inputTokens:       totalUsage.input_tokens,
-      outputTokens:      totalUsage.output_tokens,
-      cacheReadTokens:   totalUsage.cache_read_input_tokens,
-      cacheWriteTokens:  totalUsage.cache_creation_input_tokens,
-      toolCallCount:     toolCallsUsed,
-      success:           true,
+      sessionId, tenantId, provider: 'anthropic', model: modelKey,
+      inputTokens: totalUsage.input_tokens, outputTokens: totalUsage.output_tokens,
+      cacheReadTokens: totalUsage.cache_read_input_tokens,
+      cacheWriteTokens: totalUsage.cache_creation_input_tokens,
+      toolCallCount: toolCallsUsed, success: true,
     }));
   }
 
@@ -481,17 +279,15 @@ async function runAgentToolLoop(env, ctx, emit, params) {
 
 export async function agentChatSseHandler(env, request, ctx, session) {
   const body = await request.json().catch(() => ({}));
-
-  const message        = (body.message || '').trim();
+  const message = (body.message || '').trim();
   if (!message) return jsonResponse({ error: 'message required' }, 400);
 
-  const sessionId      = body.conversationId || body.session_id || body.sessionId || null;
-  const requestedMode  = String(body.mode || 'ask').toLowerCase();
-  const tenantId       = session?.tenant_id || tenantIdFromEnv(env);
-  const userId         = session?.user_id || null;
-  const workspaceId    = body.workspace_id || '';
+  const sessionId     = body.conversationId || body.session_id || body.sessionId || null;
+  const requestedMode = String(body.mode || 'ask').toLowerCase();
+  const tenantId      = session?.tenant_id || tenantIdFromEnv(env);
+  const userId        = session?.user_id || null;
+  const workspaceId   = body.workspace_id || '';
 
-  // ── Load context in parallel ──────────────────────────────────────────────
   const [modeConfig, userPolicy, intentResult, agentMeta] = await Promise.all([
     loadModeConfig(env, requestedMode),
     loadUserPolicy(env, userId, workspaceId),
@@ -499,69 +295,41 @@ export async function agentChatSseHandler(env, request, ctx, session) {
     body.agentId ? getAgentMetadata(env, body.agentId) : Promise.resolve(null),
   ]);
 
-  // ── Load tools from DB (not from body) ───────────────────────────────────
-  const { tools: dbTools } = await loadToolsForRequest(env, requestedMode, intentResult.intent, {
-    limit:          modeConfig.max_tool_calls || 20,
-    includeSchemas: true,
-  });
+  const { tools: dbTools } = await loadToolsForRequest(env, requestedMode, intentResult.intent, { limit: modeConfig.max_tool_calls || 20, includeSchemas: true });
+  const tools = dbTools.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema || { type: 'object', properties: {} } }));
 
-  // Convert to Anthropic tool format
-  const tools = dbTools.map(t => ({
-    name:         t.name,
-    description:  t.description,
-    input_schema: t.input_schema || { type: 'object', properties: {} },
-  }));
-
-  // ── Resolve model ─────────────────────────────────────────────────────────
   let modelKey = modeConfig.model_preference || body.model || null;
   if (!modelKey) {
     const agentModel = agentMeta?.model_policy?.model_key;
     modelKey = agentModel || await resolveDefaultModel(env);
   }
 
-  // ── Build system prompt ───────────────────────────────────────────────────
-  const ragResult     = await unifiedRagSearch(env, message, { topK: modeConfig.context_strategy === 'minimal' ? 3 : 8 });
-  const ragContext    = (ragResult.matches || []).join('\n\n');
-  const basePrompt    = agentMeta?.system_prompt || 'You are Agent Sam, an autonomous AI coding and operations assistant for Inner Animal Media.';
-  const modeFragment  = modeConfig.system_prompt_fragment ? `\n\n${modeConfig.system_prompt_fragment}` : '';
-  const contextBlock  = ragContext ? `\n\nRelevant context:\n${ragContext}` : '';
-  const systemPrompt  = basePrompt + modeFragment + contextBlock;
+  const ragResult    = await unifiedRagSearch(env, message, { topK: modeConfig.context_strategy === 'minimal' ? 3 : 8 });
+  const ragContext   = (ragResult.matches || []).join('\n\n');
+  const basePrompt   = agentMeta?.system_prompt || 'You are Agent Sam, an autonomous AI coding and operations assistant for Inner Animal Media.';
+  const modeFragment = modeConfig.system_prompt_fragment ? `\n\n${modeConfig.system_prompt_fragment}` : '';
+  const contextBlock = ragContext ? `\n\nRelevant context:\n${ragContext}` : '';
+  const systemPrompt = basePrompt + modeFragment + contextBlock;
 
-  // ── Build SSE stream ──────────────────────────────────────────────────────
-  const encoder  = new TextEncoder();
+  const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
-  const writer   = writable.getWriter();
+  const writer  = writable.getWriter();
 
   const emit = (type, payload) => {
-    try {
-      writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`));
-    } catch (_) {}
+    try { writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`)); } catch (_) {}
   };
 
-  // Emit initial context metadata (non-blocking for client to show intent/tools)
-  emit('context', {
-    intent:     intentResult.intent,
-    mode:       requestedMode,
-    model:      modelKey,
-    tool_count: tools.length,
-  });
+  emit('context', { intent: intentResult.intent, mode: requestedMode, model: modelKey, tool_count: tools.length });
 
-  // Run the tool loop in background via ctx.waitUntil + stream
   ;(async () => {
     try {
       await runAgentToolLoop(env, ctx, emit, {
-        messages:    body.messages || [{ role: 'user', content: message }],
-        tools,
-        systemPrompt,
-        modelKey,
-        temperature:    modeConfig.temperature || 0.7,
-        maxToolCalls:   modeConfig.max_tool_calls || 20,
-        mode:           requestedMode,
-        modeConfig,
-        userPolicy,
-        sessionId,
-        tenantId,
-        userId,
+        messages: body.messages || [{ role: 'user', content: message }],
+        tools, systemPrompt, modelKey,
+        temperature:  modeConfig.temperature || 0.7,
+        maxToolCalls: modeConfig.max_tool_calls || 20,
+        mode: requestedMode, modeConfig, userPolicy,
+        sessionId, tenantId, userId,
       });
     } catch (e) {
       emit('error', { message: 'Agent loop failed', detail: e.message });
@@ -582,27 +350,32 @@ export async function agentChatSseHandler(env, request, ctx, session) {
 
 // ─── Main Dispatcher ──────────────────────────────────────────────────────────
 
-export async function handleAgentRequest(request, env, ctx) {
-  const url      = new URL(request.url);
-  const path     = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
-  const method   = request.method.toUpperCase();
+export async function handleAgentApi(request, url, env, ctx) {
+  const path   = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
+  const method = request.method.toUpperCase();
 
   // ── /api/agent/models ─────────────────────────────────────────────────────
+  // Sourced from agent_model_registry — the authoritative model + pricing source
   if (path === '/api/agent/models') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const showInPicker = url.searchParams.get('show_in_picker') === '1';
+    const provider     = url.searchParams.get('provider') || null;
+    const role         = url.searchParams.get('role') || null;
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT id, display_name AS name, provider, model_key, api_platform, show_in_picker,
-                supports_tools, supports_web_search, supports_vision, size_class,
-                input_rate_per_mtok, output_rate_per_mtok, context_max_tokens
-         FROM ai_models
-         WHERE COALESCE(is_active, 0) = 1
-           AND (size_class IS NULL OR size_class NOT IN ('image','audio','embedding'))
-           AND api_platform IN ('anthropic_api','gemini_api','vertex_ai','openai','workers_ai','cursor')
-           ${showInPicker ? 'AND show_in_picker = 1' : ''}
-         ORDER BY provider, display_name`
-      ).all();
+      let sql = `SELECT id, model_key, provider, display_name, role, cost_tier,
+                        input_cost_per_1m, output_cost_per_1m, cached_input_cost_per_1m,
+                        cache_write_cost_per_1m, cache_read_cost_per_1m,
+                        batch_input_cost_per_1m, batch_output_cost_per_1m,
+                        context_window, supports_function_calling,
+                        supports_vision, supports_reasoning, supports_batch,
+                        strengths, best_for, charge_type, charge_unit
+                 FROM agent_model_registry WHERE 1=1`;
+      const params = [];
+      if (provider) { sql += ' AND provider = ?'; params.push(provider); }
+      if (role)     { sql += ' AND role = ?';     params.push(role); }
+      sql += ' ORDER BY provider, role, input_cost_per_1m ASC';
+      const stmt = params.length ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
+      const { results } = await stmt.all();
       return jsonResponse(results || []);
     } catch (e) { return jsonResponse({ error: e?.message }, 500); }
   }
@@ -674,7 +447,7 @@ export async function handleAgentRequest(request, env, ctx) {
 
   const notifReadMatch = path.match(/^\/api\/agent\/notifications\/([^/]+)\/read$/);
   if (notifReadMatch && method === 'PATCH') {
-    const nid = decodeURIComponent(notifReadMatch[1] || '').trim();
+    const nid      = decodeURIComponent(notifReadMatch[1] || '').trim();
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
@@ -695,13 +468,13 @@ export async function handleAgentRequest(request, env, ctx) {
 
   const kbMatch = path.match(/^\/api\/agent\/keyboard-shortcuts\/([^/]+)$/);
   if (kbMatch && method === 'PATCH') {
-    const rowId = decodeURIComponent(kbMatch[1] || '').trim();
+    const rowId    = decodeURIComponent(kbMatch[1] || '').trim();
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
-    const body = await request.json().catch(() => ({}));
-    const en = body.is_enabled;
-    const turnOn = en === true || en === 1 || en === '1';
+    const body    = await request.json().catch(() => ({}));
+    const en      = body.is_enabled;
+    const turnOn  = en === true || en === 1 || en === '1';
     const turnOff = en === false || en === 0 || en === '0';
     if (!turnOn && !turnOff) return jsonResponse({ error: 'is_enabled required' }, 400);
     const existing = await env.DB.prepare(`SELECT id, is_system FROM keyboard_shortcuts WHERE id = ?`).bind(rowId).first();
@@ -808,13 +581,13 @@ export async function handleAgentRequest(request, env, ctx) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
-    const body        = await request.json().catch(() => ({}));
-    const tenantId    = tenantIdFromEnv(env);
+    const body       = await request.json().catch(() => ({}));
+    const tenantId   = tenantIdFromEnv(env);
     if (!tenantId) return jsonResponse({ error: 'TENANT_ID not configured' }, 503);
-    const proposalId  = 'prop_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
-    const now         = Math.floor(Date.now() / 1000);
-    const proposedBy  = String(authUser.email || authUser.id || 'user').slice(0,200);
-    const iamOrigin   = (env.IAM_ORIGIN || '').replace(/\/$/,'');
+    const proposalId = 'prop_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
+    const now        = Math.floor(Date.now() / 1000);
+    const proposedBy = String(authUser.email || authUser.id || 'user').slice(0,200);
+    const iamOrigin  = (env.IAM_ORIGIN || '').replace(/\/$/,'');
     await env.DB.prepare(`INSERT INTO agent_command_proposals (id, tenant_id, agent_session_id, proposed_by, command_source, command_name, command_text, filled_template, rationale, risk_level, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(proposalId, tenantId, body.session_id||null, proposedBy, 'dashboard', 'git_sync_workflow', 'GitHub sync workflow', 'GitHub sync workflow', 'User requested Git sync from dashboard.', 'medium', 'pending', now, now).run();
     notifySam(env, { subject: 'Git sync proposal pending', body: `Proposal: ${proposalId}\nApprove: ${iamOrigin}/dashboard/overview?proposal=${proposalId}`, category: 'proposal' }, ctx);
     return jsonResponse({ ok: true, proposal_id: proposalId, risk_level: 'medium' });
@@ -827,7 +600,8 @@ export async function handleAgentRequest(request, env, ctx) {
       const batch = await env.DB.batch([
         env.DB.prepare(`SELECT id, name, role_name, mode, thinking_mode, effort FROM agentsam_ai WHERE status='active' ORDER BY sort_order, name`),
         env.DB.prepare(`SELECT id, service_name, service_type, endpoint_url, is_active, health_status FROM mcp_services WHERE is_active=1 ORDER BY service_name`),
-        env.DB.prepare(`SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens, supports_tools FROM ai_models WHERE is_active=1 AND show_in_picker=1 ORDER BY CASE provider WHEN 'anthropic' THEN 1 WHEN 'google' THEN 2 WHEN 'openai' THEN 3 ELSE 4 END, input_rate_per_mtok ASC`),
+        // Models from agent_model_registry — the authoritative source
+        env.DB.prepare(`SELECT id, model_key, provider, display_name, role, cost_tier, input_cost_per_1m, output_cost_per_1m, context_window, supports_function_calling, supports_vision, supports_reasoning FROM agent_model_registry ORDER BY provider, role, input_cost_per_1m ASC`),
         env.DB.prepare(`SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20`),
       ]);
       return jsonResponse({ agents: batch[0]?.results||[], mcp_services: batch[1]?.results||[], models: batch[2]?.results||[], sessions: batch[3]?.results||[] });
@@ -857,11 +631,11 @@ export async function handleAgentRequest(request, env, ctx) {
   if (path === '/api/agent/sessions') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     if (method === 'POST') {
-      const body    = await request.json().catch(() => ({}));
-      const id      = crypto.randomUUID();
-      const now     = Math.floor(Date.now() / 1000);
-      const name    = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : 'New Conversation';
-      const r2Key   = `agent-sessions/${id}/context.json`;
+      const body   = await request.json().catch(() => ({}));
+      const id     = crypto.randomUUID();
+      const now    = Math.floor(Date.now() / 1000);
+      const name   = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : 'New Conversation';
+      const r2Key  = `agent-sessions/${id}/context.json`;
       const sessCtx = JSON.stringify({ session_id: id, name, created_at: Date.now(), message_count: 0, messages: [] });
       if (env.R2) await env.R2.put(r2Key, sessCtx, { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
       if (env.SESSION_CACHE) await env.SESSION_CACHE.put(`sess_ctx:${id}`, sessCtx, { expirationTtl: 86400 }).catch(() => {});
@@ -882,11 +656,11 @@ export async function handleAgentRequest(request, env, ctx) {
     const body        = await request.json().catch(() => ({}));
     const commandText = String(body.command_text || body.command || '').trim();
     if (!commandText) return jsonResponse({ error: 'command_text required' }, 400);
-    const tenantId    = tenantIdFromEnv(env);
+    const tenantId   = tenantIdFromEnv(env);
     if (!tenantId) return jsonResponse({ error: 'TENANT_ID not configured' }, 503);
-    const proposalId  = 'prop_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
-    const now         = Math.floor(Date.now() / 1000);
-    const iamOrigin   = (env.IAM_ORIGIN || '').replace(/\/$/,'');
+    const proposalId = 'prop_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
+    const now        = Math.floor(Date.now() / 1000);
+    const iamOrigin  = (env.IAM_ORIGIN || '').replace(/\/$/,'');
     await env.DB.prepare(`INSERT INTO agent_command_proposals (id, tenant_id, agent_session_id, proposed_by, command_source, command_name, command_text, filled_template, rationale, risk_level, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(proposalId, tenantId, body.session_id||null, 'agent-sam', 'agent_generated', String(body.command_name||'proposed').slice(0,200), commandText, commandText, String(body.rationale||'Agent proposed command').slice(0,8000), 'medium', 'pending', now, now).run();
     notifySam(env, { subject: `Proposal pending: ${commandText.slice(0,80)}`, body: `ID: ${proposalId}\nApprove: ${iamOrigin}/dashboard/overview?proposal=${proposalId}`, category: 'proposal' }, ctx);
     return jsonResponse({ ok: true, proposal_id: proposalId });
@@ -935,19 +709,19 @@ export async function handleAgentRequest(request, env, ctx) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
-    const body        = await request.json().catch(() => ({}));
+    const body         = await request.json().catch(() => ({}));
     const workflowName = String(body.workflow_name || '').trim();
     if (!workflowName) return jsonResponse({ error: 'workflow_name required' }, 400);
-    const tenantId    = tenantIdFromEnv(env);
+    const tenantId     = tenantIdFromEnv(env);
     if (!tenantId) return jsonResponse({ error: 'TENANT_ID not configured' }, 503);
-    const runId       = 'wfr_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
+    const runId        = 'wfr_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
     await env.DB.prepare(`INSERT INTO workflow_runs (id, tenant_id, workflow_id, workflow_name, trigger_source, triggered_by, status, input_data, created_at, updated_at) VALUES (?,?,?,?,'api','agent-sam','pending',?,datetime('now'),datetime('now'))`).bind(runId, tenantId, body.workflow_id||null, workflowName, body.input_data ? JSON.stringify(body.input_data) : null).run();
     return jsonResponse({ ok: true, run_id: runId, status: 'pending' });
   }
 
   // ── /api/agent/rag/query ──────────────────────────────────────────────────
   if (path === '/api/agent/rag/query' && method === 'POST') {
-    const body = await request.json().catch(() => ({}));
+    const body  = await request.json().catch(() => ({}));
     const query = (body.query || body.q || '').trim();
     if (!query) return jsonResponse({ error: 'query required', matches: [], results: [], count: 0 }, 400);
     const out = await unifiedRagSearch(env, query, { topK: body.top_k || 8 });
@@ -961,10 +735,10 @@ export async function handleAgentRequest(request, env, ctx) {
     const body   = await request.json().catch(() => ({}));
     const prompt = String(body.prompt || '').trim();
     if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
-    // Resolve image model from DB — never hardcoded
-    const modelRow = await env.DB.prepare(`SELECT model_key FROM ai_models WHERE provider='workers_ai' AND size_class='image' AND is_active=1 ORDER BY sort_order ASC LIMIT 1`).first().catch(() => null);
+    // Model from agent_model_registry — never hardcoded
+    const modelRow = await env.DB.prepare(`SELECT model_key FROM agent_model_registry WHERE provider='workers_ai' AND role='image' ORDER BY input_cost_per_1m ASC LIMIT 1`).first().catch(() => null);
     const model    = modelRow?.model_key;
-    if (!model) return jsonResponse({ error: 'No active Workers AI image model configured' }, 503);
+    if (!model) return jsonResponse({ error: 'No active Workers AI image model in agent_model_registry' }, 503);
     try {
       const result = await env.AI.run(model, { prompt });
       const bytes  = result instanceof ArrayBuffer ? new Uint8Array(result) : result;
@@ -1007,17 +781,6 @@ export async function handleAgentRequest(request, env, ctx) {
     return jsonResponse(results || []);
   }
 
-  // ── /api/agent/boot ───────────────────────────────────────────────────────
-  if (path === '/api/agent/boot') {
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    const batch = await env.DB.batch([
-      env.DB.prepare(`SELECT id, name, role_name, mode, thinking_mode, effort FROM agentsam_ai WHERE status='active' ORDER BY sort_order, name`),
-      env.DB.prepare(`SELECT id, service_name, service_type, endpoint_url, is_active, health_status FROM mcp_services WHERE is_active=1 ORDER BY service_name`),
-      env.DB.prepare(`SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens, supports_tools FROM ai_models WHERE is_active=1 AND show_in_picker=1 ORDER BY CASE provider WHEN 'anthropic' THEN 1 WHEN 'google' THEN 2 WHEN 'openai' THEN 3 ELSE 4 END, input_rate_per_mtok ASC`),
-    ]).catch(() => [[],[],[]]);
-    return jsonResponse({ agents: batch[0]?.results||[], mcp_services: batch[1]?.results||[], models: batch[2]?.results||[] });
-  }
-
   // ── /api/agent/bootstrap ──────────────────────────────────────────────────
   if (path === '/api/agent/bootstrap' && method === 'GET') {
     const session = await getSession(env, request).catch(() => null);
@@ -1044,18 +807,15 @@ async function handleAgentBootstrapRequest(request, env, ctx, session) {
   try {
     const userId   = session?.user_id || 'system';
     const cacheKey = `bootstrap_${userId}`;
-
     if (env.DB) {
       const cached = await env.DB.prepare(`SELECT compiled_context FROM ai_compiled_context_cache WHERE context_hash = ? AND (expires_at IS NULL OR expires_at > unixepoch())`).bind(cacheKey).first().catch(() => null);
       if (cached?.compiled_context) {
         return new Response(cached.compiled_context, { headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT' } });
       }
     }
-
     const today     = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     let dailyLog = '', yesterdayLog = '', schemaMemory = '', todayTodo = '';
-
     if (env.R2) {
       const fetchR2 = async k => { const o = await env.R2.get(k); return o ? await o.text() : ''; };
       [dailyLog, yesterdayLog, schemaMemory, todayTodo] = await Promise.all([
@@ -1065,20 +825,16 @@ async function handleAgentBootstrapRequest(request, env, ctx, session) {
         fetchR2('memory/today-todo.md'),
       ]);
     }
-
     if (!todayTodo && env.DB) {
       const row = await env.DB.prepare(`SELECT value FROM agent_memory_index WHERE key = 'today_todo' AND tenant_id = ?`).bind(session?.tenant_id || 'system').first().catch(() => null);
       if (row?.value) todayTodo = String(row.value);
     }
-
     const context = { daily_log: dailyLog || null, yesterday_log: yesterdayLog || null, schema_and_records_memory: schemaMemory || null, today_todo: todayTodo || null, date: today };
-
     if (env.DB && ctx?.waitUntil) {
       ctx.waitUntil(
         env.DB.prepare(`INSERT INTO ai_compiled_context_cache (id, context_hash, context_type, compiled_context, source_context_ids_json, token_count, tenant_id, created_at, last_accessed_at, expires_at) VALUES (?,?,'bootstrap',?,'[]',0,?,unixepoch(),unixepoch(),unixepoch()+1800) ON CONFLICT(context_hash) DO UPDATE SET compiled_context=excluded.compiled_context, expires_at=excluded.expires_at, last_accessed_at=unixepoch()`).bind(cacheKey, cacheKey, JSON.stringify(context), session?.tenant_id || 'system').run().catch(() => {})
       );
     }
-
     return jsonResponse(context);
   } catch (e) {
     return jsonResponse({ error: String(e.message || e) }, 500);
