@@ -127,7 +127,7 @@ export async function buildSuperadminContext(env, sessionId, sessionUserKey) {
   const displayName = (userProfile && userProfile.display_name) || authRow.name || 'User';
   const role = (userProfile && userProfile.role) || 'superadmin';
   const workspaceId = (userProfile && userProfile.default_workspace_id) || 'ws_default';
-  
+
   return {
     id: sessionId,
     email: loginEmail,
@@ -190,11 +190,20 @@ export function sessionIsPlatformSuperadmin(session) {
 }
 
 /**
- * Legacy Tenant Mapping
+ * Resolves TENANT_ID from env.
  */
 export function tenantIdFromEnv(env) {
   if (!env || env.TENANT_ID == null) return null;
   const s = String(env.TENANT_ID).trim();
+  return s || null;
+}
+
+/**
+ * Resolves PROJECT_ID from env.
+ */
+export function projectIdFromEnv(env) {
+  if (!env || env.PROJECT_ID == null) return null;
+  const s = String(env.PROJECT_ID).trim();
   return s || null;
 }
 
@@ -218,25 +227,19 @@ export function getApexDomain(hostname) {
   if (!hostname) return '';
   const parts = hostname.split('.');
   if (parts.length >= 2) {
-    // Basic logic for inneranimalmedia.com ecosystem
     if (hostname.endsWith('inneranimalmedia.com')) return 'inneranimalmedia.com';
-    
-    // Safety check for public suffixes like .workers.dev where Domain cookies fail
     if (hostname.endsWith('.workers.dev') || hostname.endsWith('.pages.dev')) return '';
-    
-    // Return the apex domain (e.g., example.com) without a leading dot.
     return parts.slice(-2).join('.');
   }
   return hostname;
 }
 
 /**
- * Global Session Retrieval (KV + Context)
+ * Global Session Retrieval (KV + D1 fallback)
  */
 export async function getSession(env, request) {
   const cookieHeader = request.headers.get('Cookie') || '';
-  
-  // Find all occurrences of the session cookie
+
   const sessionCandidates = [];
   const regex = new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`, 'g');
   let match;
@@ -256,28 +259,27 @@ export async function getSession(env, request) {
     }
   }
 
-  // 2. Try D1 Fallback (P0 fix for auth loops)
+  // 2. D1 fallback
   if (env.DB) {
     for (const sessionId of sessionCandidates) {
       try {
         const row = await env.DB.prepare(
-          `SELECT id, user_id, expires_at, tenant_id FROM auth_sessions 
-           WHERE id = ? AND datetime(expires_at) > datetime('now') 
+          `SELECT id, user_id, expires_at, tenant_id FROM auth_sessions
+           WHERE id = ? AND datetime(expires_at) > datetime('now')
            LIMIT 1`
         ).bind(sessionId).first();
 
         if (row) {
-          // Success: Repopulate KV so cache is warm for next request
-          const payload = { 
-            v: 1, 
-            user_id: row.user_id, 
-            tenant_id: row.tenant_id, 
-            expires_at: row.expires_at 
+          const payload = {
+            v: 1,
+            user_id: row.user_id,
+            tenant_id: row.tenant_id,
+            expires_at: row.expires_at,
           };
           if (env.SESSION_CACHE) {
             await env.SESSION_CACHE.put(
-              IAM_KV_SESSION_KEY_PREFIX + sessionId, 
-              JSON.stringify(payload), 
+              IAM_KV_SESSION_KEY_PREFIX + sessionId,
+              JSON.stringify(payload),
               { expirationTtl: 3600 }
             );
           }
@@ -331,14 +333,12 @@ export async function resolveTenantAtLogin(env, userId) {
   return resolveTenantIdForWorker(null, env);
 }
 
-/** Hex string to Uint8Array for PBKDF2 salt. */
 function hexToBytes(hex) {
   const arr = [];
   for (let i = 0; i < hex.length; i += 2) arr.push(parseInt(hex.slice(i, i + 2), 16));
   return new Uint8Array(arr);
 }
 
-/** Verify password against PBKDF2-SHA256 stored hash (hex) and salt (hex). Returns true if match. */
 export async function verifyPassword(password, saltHex, hashHex) {
   const salt = hexToBytes(saltHex);
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
@@ -351,7 +351,6 @@ export async function verifyPassword(password, saltHex, hashHex) {
   return derivedHex === hashHex.toLowerCase();
 }
 
-/** Generate new salt (32 bytes hex) and PBKDF2-SHA256 hash for change-password. Returns { saltHex, hashHex }. */
 export async function hashPassword(password) {
   const salt = crypto.getRandomValues(new Uint8Array(32));
   const saltHex = Array.from(salt).map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -366,8 +365,7 @@ export async function hashPassword(password) {
 }
 
 export async function writeIamSessionToKv_old(env, sessionId, userId, tenantId, expiresAtIso) {
-    // Legacy mapping (superseded by writeIamSessionToKv)
-    return writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso);
+  return writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso);
 }
 
 export async function getAuthUser(request, env) {
@@ -378,19 +376,11 @@ export async function getAuthUser(request, env) {
   let email = session._session_user_id || session.user_id;
   const tenantId = resolveTenantIdForWorker(session, env);
 
-  // Resolve role and superadmin status via the correct join chain:
-  //   auth_sessions.user_id ('usr_*')
-  //     → users WHERE id = 'usr_*'         → email
-  //     → auth_users WHERE email = ?        → is_superadmin
-  //
-  // NOTE: auth_users uses 'au_*' IDs — never look up auth_users by the usr_* user_id directly.
-  // NOTE: Do NOT use auth_users.tenant_id for resolution (au_sam_inneranimalmedia has null).
   let role = 'user';
   let is_superadmin = 0;
 
   if (env.DB && userId) {
     try {
-      // Step 1: Resolve canonical email from users table (works for both usr_* and email-keyed sessions)
       let resolvedEmail = null;
       if (userId.startsWith('usr_')) {
         const userRow = await env.DB.prepare(
@@ -399,17 +389,11 @@ export async function getAuthUser(request, env) {
         if (userRow) {
           resolvedEmail = userRow.email || null;
           if (resolvedEmail && (!email || email === userId)) email = resolvedEmail;
-          // Prefer users.tenant_id over session tenant_id (auth_users.tenant_id may be null)
-          if (userRow.tenant_id && !tenantId) {
-            // Note: tenantId is const from above; rebuild below if needed
-          }
         }
       } else {
-        // Session user_id is already an email or au_* format — use directly
         resolvedEmail = email && email !== userId ? email : userId;
       }
 
-      // Step 2: Look up auth_users by email to get is_superadmin
       const lookupEmail = resolvedEmail || String(email || userId);
       if (lookupEmail) {
         const authRow = await env.DB.prepare(
@@ -421,7 +405,6 @@ export async function getAuthUser(request, env) {
           is_superadmin = 1;
           role = 'superadmin';
           if (authRow.email && (!email || email === userId)) email = authRow.email;
-          // Superadmins bypass all workspace membership checks — universal access
           return { id: userId, email, tenant_id: tenantId, role, is_superadmin };
         }
       }
@@ -430,7 +413,6 @@ export async function getAuthUser(request, env) {
     }
   }
 
-  // Non-superadmin: resolve canonical email from the 'users' table for usr_-style IDs
   if (env.DB && userId && userId.startsWith('usr_') && (!email || email === userId)) {
     try {
       const u = await env.DB.prepare(
@@ -445,9 +427,8 @@ export async function getAuthUser(request, env) {
   return { id: userId, email, tenant_id: tenantId, role, is_superadmin };
 }
 
-
 /**
- * True when X-Ingest-Secret matches vault/env INGEST_SECRET (MCP / trusted automation).
+ * True when X-Ingest-Secret matches env.INGEST_SECRET.
  */
 export function isIngestSecretAuthorized(request, env) {
   const h = request.headers.get('X-Ingest-Secret');
