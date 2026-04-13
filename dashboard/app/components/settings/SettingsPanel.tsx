@@ -1,22 +1,22 @@
 import { useState, useEffect } from "react";
 import { AGENT_SETTINGS_TABS, SETTINGS_TAB_IDS, readStoredSettingsTab, writeStoredSettingsTab } from "./constants";
 import { relativeTime } from "./utils";
-import { GeneralTab } from "./tabs/GeneralTab";
-import { EnvironmentTab } from "./tabs/EnvironmentTab";
-import { DeployBetaTab } from "./tabs/DeployTab";
-import { IntegrationsTab, ProvidersTab } from "./tabs/IntegrationsTab";
-import { SpendTab } from "./tabs/SpendTab";
-import { HooksTab } from "./tabs/HooksTab";
-import { CmdAllowlistTab, McpToolsTab, RoutingRulesTab } from "./tabs/PolicyTabs";
-import { IndexingDocsTab } from "./tabs/IndexingDocsTab";
-import { RulesSkillsSubagentsTab } from "./tabs/RulesSkillsTab";
-import { NetworkSettingsTab } from "./tabs/NetworkTab";
-import { ModelsSettingsTab } from "./tabs/ModelsTab";
-import { AgentsTab } from "./tabs/AgentsTab";
-import { TabSettingsTab } from "./tabs/TabSettingsTab";
-import { DocsTab } from "./tabs/DocsTab";
-import { ToolsMcpTab } from "./tabs/ToolsMcpTab";
-import { MarketplaceSettingsTab } from "./tabs/MarketplaceTab";
+import { GeneralTab } from "./GeneralTab";
+import { EnvironmentTab } from "./EnvironmentTab";
+import { DeployBetaTab } from "./DeployTab";
+import { IntegrationsTab, ProvidersTab } from "./IntegrationsTab";
+import { SpendTab } from "./SpendTab";
+import { HooksTab } from "./HooksTab";
+import { CmdAllowlistTab, McpToolsTab, RoutingRulesTab } from "./PolicyTabs";
+import { IndexingDocsTab } from "./IndexingDocsTab";
+import { RulesSkillsSubagentsTab } from "./RulesSkillsTab";
+import { NetworkSettingsTab } from "./NetworkTab";
+import { ModelsSettingsTab } from "./ModelsTab";
+import { AgentsTab } from "./AgentsTab";
+import { TabSettingsTab } from "./TabSettingsTab";
+import { DocsTab } from "./DocsTab";
+import { ToolsMcpTab } from "./ToolsMcpTab";
+import { MarketplaceSettingsTab } from "./MarketplaceTab";
 
 // ── Inlined trivial compositions ────────────────────────────
 
