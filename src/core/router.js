@@ -273,6 +273,10 @@ export async function handleRequest(request, env, ctx) {
     return serveStaticPage(env, 'source/public/auth-reset.html');
   }
 
+  if (path === '/dashboard/agent' || path === '/dashboard/agent.html') {
+    return serveStaticPage(env, 'source/public/dashboard-agent.html');
+  }
+
   // ── 404 ───────────────────────────────────────────────────────────────────
 
   return jsonResponse({ error: 'Not found', path }, 404);
