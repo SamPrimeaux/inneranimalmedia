@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/types/element/types';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types/types';
-import '@excalidraw/excalidraw/index.css';
+import '@excalidraw/excalidraw/dist/excalidraw.min.css';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
