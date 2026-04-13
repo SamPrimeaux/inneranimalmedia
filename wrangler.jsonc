@@ -84,7 +84,8 @@
 
   "migrations": [
     { "tag": "v4", "new_sqlite_classes": ["IAMAgentSession"] },
-    { "tag": "v5", "new_sqlite_classes": ["AgentChatSqlV1"] }
+    { "tag": "v5", "new_sqlite_classes": ["AgentChatSqlV1"] },
+    { "tag": "v6", "deleted_classes": ["IAMSession"] }
   ],
 
   "analytics_engine_datasets": [
