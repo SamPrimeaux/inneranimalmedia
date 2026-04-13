@@ -1,24 +1,12 @@
 /**
  * Inner Animal Media — Dashboard Worker Configuration (Sandbox)
  *
- * Bindings & Services:
- *   D1: inneranimalmedia-business (primary data store)
- *   R2: iam-platform, inneranimalmedia, inneranimalmedia-autorag, iam-docs, tools, agent-sam
- *   KV: SESSION_CACHE (production-KV_SESSIONS), KV (MCP_TOKENS)
- *   Hyperdrive: Supabase postgres connection (id: 08183bb9d2914e87ac8395d7e4ecff60)
- *   Vectorize: ai-search-inneranimalmedia-autorag, ai-search-iam-autorag
- *   Durable Objects: AgentChatSqlV1, IAMCollaborationSession, ChessRoom
- *   AI: Cloudflare Workers AI binding
- *   Browser: Cloudflare Puppeteer binding
+ * Bindings match exactly what is live in the Cloudflare dashboard.
  *
- * Secrets (wrangler secret put -c wrangler.jsonc):
+ * Secrets (wrangler secret put):
  *   ANTHROPIC_API_KEY, GITHUB_TOKEN, OPENAI_API_KEY, GOOGLE_AI_API_KEY
  *   CLOUDFLARE_API_TOKEN, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
  *   AI_SEARCH_TOKEN, DEPLOY_TRACKING_TOKEN, GEMINI_API_KEY
- *   + all others from: wrangler secret list -c wrangler.jsonc
- *
- * Deploy: wrangler deploy -c wrangler.jsonc
- * Production: wrangler deploy -c wrangler.production.toml
  */
 
 {
@@ -34,7 +22,6 @@
     "command": ""
   },
 
-  /* ─── Routes ────────────────────────────────────────────────────── */
   "routes": [
     {
       "pattern": "sandbox.inneranimalmedia.com",
@@ -43,15 +30,14 @@
     }
   ],
 
-  /* ─── AI & Browser Bindings ─────────────────────────────────────── */
   "ai": {
     "binding": "AI"
   },
+
   "browser": {
     "binding": "MYBROWSER"
   },
 
-  /* ─── D1 Database ────────────────────────────────────────────────── */
   "d1_databases": [
     {
       "binding": "DB",
@@ -60,35 +46,15 @@
     }
   ],
 
-  /* ─── R2 Buckets ────────────────────────────────────────────────── */
   "r2_buckets": [
-    {
-      "binding": "ASSETS",
-      "bucket_name": "inneranimalmedia"
-    },
-    {
-      "binding": "DASHBOARD",
-      "bucket_name": "inneranimalmedia"
-    },
-    {
-      "binding": "AUTORAG_BUCKET",
-      "bucket_name": "inneranimalmedia-autorag"
-    },
-    {
-      "binding": "DOCS_BUCKET",
-      "bucket_name": "iam-docs"
-    },
-    {
-      "binding": "R2",
-      "bucket_name": "iam-platform"
-    },
-    {
-      "binding": "TOOLS",
-      "bucket_name": "tools"
-    }
+    { "binding": "ASSETS",        "bucket_name": "inneranimalmedia" },
+    { "binding": "DASHBOARD",     "bucket_name": "inneranimalmedia" },
+    { "binding": "AUTORAG_BUCKET","bucket_name": "inneranimalmedia-autorag" },
+    { "binding": "DOCS_BUCKET",   "bucket_name": "iam-docs" },
+    { "binding": "R2",            "bucket_name": "iam-platform" },
+    { "binding": "TOOLS",         "bucket_name": "tools" }
   ],
 
-  /* ─── Hyperdrive (Supabase postgres) ────────────────────────────── */
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
@@ -96,69 +62,35 @@
     }
   ],
 
-  /* ─── Vectorize ──────────────────────────────────────────────────── */
   "vectorize": [
     {
       "binding": "VECTORIZE",
       "index_name": "ai-search-inneranimalmedia-autorag"
-    },
-    {
-      "binding": "VECTORIZE_INDEX",
-      "index_name": "ai-search-iam-autorag"
     }
   ],
 
-  /* ─── KV Namespaces ─────────────────────────────────────────────── */
   "kv_namespaces": [
-    {
-      "binding": "KV",
-      "id": "09438d5e4f664bf78467a15af7743c44"
-    },
-    {
-      "binding": "SESSION_CACHE",
-      "id": "dc87920b0a9247979a213c09df9a0234"
-    }
+    { "binding": "KV",            "id": "09438d5e4f664bf78467a15af7743c44" },
+    { "binding": "SESSION_CACHE", "id": "dc87920b0a9247979a213c09df9a0234" }
   ],
 
-  /* ─── Durable Objects ──────────────────────────────────────────── */
   "durable_objects": {
     "bindings": [
-      {
-        "name": "IAM_COLLAB",
-        "class_name": "IAMCollaborationSession"
-      },
-      {
-        "name": "CHESS_SESSION",
-        "class_name": "ChessRoom"
-      },
-      {
-        "name": "AGENT_SESSION",
-        "class_name": "AgentChatSqlV1"
-      }
+      { "name": "AGENT_SESSION", "class_name": "AgentChatSqlV1" },
+      { "name": "CHESS_SESSION", "class_name": "ChessRoom" },
+      { "name": "IAM_COLLAB",    "class_name": "IAMCollaborationSession" }
     ]
   },
 
-  /* ─── D1 Migrations ────────────────────────────────────────────── */
   "migrations": [
-    {
-      "tag": "v4",
-      "new_sqlite_classes": ["IAMAgentSession"]
-    },
-    {
-      "tag": "v5",
-      "new_sqlite_classes": ["AgentChatSqlV1"]
-    }
+    { "tag": "v4", "new_sqlite_classes": ["IAMAgentSession"] },
+    { "tag": "v5", "new_sqlite_classes": ["AgentChatSqlV1"] }
   ],
 
-  /* ─── Analytics Engine ─────────────────────────────────────────── */
   "analytics_engine_datasets": [
-    {
-      "binding": "WAE",
-      "dataset": "inneranimalmedia"
-    }
+    { "binding": "WAE", "dataset": "inneranimalmedia" }
   ],
 
-  /* ─── Cron Triggers ────────────────────────────────────────────── */
   "triggers": {
     "crons": [
       "0 6 * * *",
@@ -169,25 +101,23 @@
     ]
   },
 
-  /* ─── Environment Variables (NOT secrets) ──────────────────────── */
   "vars": {
-    "CLOUDFLARE_ACCOUNT_ID": "ede6590ac0d2fb7daf155b35653457b2",
+    "CLOUDFLARE_ACCOUNT_ID":          "ede6590ac0d2fb7daf155b35653457b2",
     "CLOUDFLARE_IMAGES_ACCOUNT_HASH": "g7wf09fCONpnidkRnR_5vw",
-    "GITHUB_CLIENT_ID": "Ov23li6BZYxjVtGUWibX",
-    "GOOGLE_CLIENT_ID": "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com",
-    "TENANT_ID": "tenant_sam_primeaux",
-    "WORKSPACE_ID": "ws_sandbox",
-    "DEPLOY_ENV": "sandbox",
-    "IAM_ORIGIN": "https://inneranimal-dashboard.meauxbility.workers.dev",
-    "SANDBOX_SIGNIN_FALLBACK_URL": "https://pub-0d103dec19f84813ab2d58b17153a95f.r2.dev/static/auth-signin.html",
-    "VITE_LOGO_URL": "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail",
-    "VITE_PRODUCT_LABEL": "Inner Animal Media — Agent Sam",
-    "VITE_SHELL_VERSION": "v1",
-    "VITE_API_BASE": "https://inneranimalmedia.com",
-    "VITE_DASHBOARD_URL": "https://inneranimal-dashboard.meauxbility.workers.dev"
+    "GITHUB_CLIENT_ID":               "Ov23li6BZYxjVtGUWibX",
+    "GOOGLE_CLIENT_ID":               "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com",
+    "TENANT_ID":                      "tenant_sam_primeaux",
+    "WORKSPACE_ID":                   "ws_sandbox",
+    "DEPLOY_ENV":                     "sandbox",
+    "IAM_ORIGIN":                     "https://inneranimal-dashboard.meauxbility.workers.dev",
+    "SANDBOX_SIGNIN_FALLBACK_URL":    "https://pub-0d103dec19f84813ab2d58b17153a95f.r2.dev/static/auth-signin.html",
+    "VITE_LOGO_URL":                  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail",
+    "VITE_PRODUCT_LABEL":             "Inner Animal Media — Agent Sam",
+    "VITE_SHELL_VERSION":             "v1",
+    "VITE_API_BASE":                  "https://inneranimalmedia.com",
+    "VITE_DASHBOARD_URL":             "https://inneranimal-dashboard.meauxbility.workers.dev"
   },
 
-  /* ─── Observability ────────────────────────────────────────────── */
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
@@ -204,10 +134,7 @@
     }
   },
 
-  /* ─── Tail Consumer ────────────────────────────────────────────── */
   "tail_consumers": [
-    {
-      "service": "inneranimalmedia-tail"
-    }
+    { "service": "inneranimalmedia-tail" }
   ]
 }
