@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { formatUsd2, relativeTime } from "../utils";
+import { formatUsd2, relativeTime } from "./utils";
 
 function formatSuccessRatePct(v) {
   if (v == null || v === "") return null;

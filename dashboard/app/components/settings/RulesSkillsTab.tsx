@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Editor from "@monaco-editor/react";
 import { Btn, ControlledSwitch, SectionLabel, Input, Modal, WideModal } from "./atoms";
 import { AGENTSAM_WORKSPACE_QUERY, WORKSPACE_ENFORCEMENT } from "./constants";
-import { agentsamWorkspaceIdForNewRule, ruleMatchesFilter, subagentMatchesFilter, skillMatchesFilter, timeAgo, pillStyle } from "../utils";
+import { agentsamWorkspaceIdForNewRule, ruleMatchesFilter, subagentMatchesFilter, skillMatchesFilter, timeAgo, pillStyle } from "./utils";
 
 // ─── SkillCardRow ─────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Btn, ControlledSwitch, SettingsRow, Input, WideModal } from "./atoms";
 import { AGENTSAM_WORKSPACE_QUERY, ROUTING_MATCH_TYPES } from "./constants";
-import { agentsamWorkspaceQueryString } from "../utils";
+import { agentsamWorkspaceQueryString } from "./utils";
 
 // ─── CmdAllowlistTab ──────────────────────────────────────────────────────────
 

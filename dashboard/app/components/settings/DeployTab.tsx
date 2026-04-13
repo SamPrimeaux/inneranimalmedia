@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Btn, SectionLabel, Input, Modal } from "./atoms";
-import { relativeTime, formatLastRanUnix, timeAgo, runCmd } from "../utils";
+import { relativeTime, formatLastRanUnix, timeAgo, runCmd } from "./utils";
 
 // ─── WranglerTab ──────────────────────────────────────────────────────────────
 

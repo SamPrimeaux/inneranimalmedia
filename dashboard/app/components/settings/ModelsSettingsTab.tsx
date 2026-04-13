@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { Btn, ControlledSwitch } from "./atoms";
-import { formatUsd2 } from "../utils";
+import { formatUsd2 } from "./utils";
 
 export function ModelsSettingsTab() {
   const [models, setModels] = useState([]);
