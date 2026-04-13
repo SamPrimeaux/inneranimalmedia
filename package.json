@@ -15,9 +15,9 @@
     "lucide-react": "^0.383.0",
     "monaco-editor": "^0.45.0",
     "postgres": "^3.4.5",
-    "three": "^0.160.0"
     "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react-dom": "^18.3.0",
+    "three": "^0.160.0"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.0.4",
