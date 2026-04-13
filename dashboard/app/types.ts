@@ -1,9 +1,9 @@
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export enum ProjectType {
-  SANDBOX    = 'sandbox',
-  PRODUCTION = 'production',
-  STAGING    = 'staging',
+  CHESS   = 'chess',
+  CAD     = 'cad',
+  SANDBOX = 'sandbox',
 }
 
 export enum AppState {
@@ -14,14 +14,14 @@ export enum AppState {
 }
 
 export enum ArtStyle {
-  REALISTIC = 'realistic',
-  CARTOON   = 'cartoon',
-  PIXEL     = 'pixel',
+  CYBERPUNK = 'cyberpunk',
+  BRUTALIST = 'brutalist',
+  ORGANIC   = 'organic',
   LOW_POLY  = 'low_poly',
-  WIREFRAME = 'wireframe',
 }
 
 export enum CADTool {
+  NONE     = 'none',
   SELECT   = 'select',
   BOX      = 'box',
   SPHERE   = 'sphere',
@@ -40,60 +40,73 @@ export enum CADPlane {
 // ─── Core file type ───────────────────────────────────────────────────────────
 
 export interface ActiveFile {
-  id:               string;
+  id?:              string;
   name:             string;
   content:          string;
   isDirty?:         boolean;
   language?:        string;
   workspacePath?:   string;
   workspaceId?:     string;
-
-  // R2 source
   r2Key?:           string;
   r2Bucket?:        string;
-
-  // GitHub source
   githubRepo?:      string;
   githubPath?:      string;
   githubSha?:       string;
-
-  // Google Drive source
+  githubBranch?:    string;
   driveFileId?:     string;
-
-  // Local File System Access API handle (browser native)
   handle?:          FileSystemFileHandle;
-
-  // Original content snapshot (for diff view)
   originalContent?: string;
 }
 
 // ─── Scene / generation ───────────────────────────────────────────────────────
 
 export interface SceneConfig {
-  ambientLight:   number;
-  fogDensity:     number;
-  skyColor:       string;
-  groundColor:    string;
-  shadowsEnabled: boolean;
+  ambientIntensity: number;
+  sunColor:         string;
+  castShadows:      boolean;
+  showPhysicsDebug: boolean;
 }
 
 export interface GenerationConfig {
-  prompt:    string;
-  artStyle:  ArtStyle;
-  seed?:     number;
-  steps?:    number;
-  guidance?: number;
+  style:     ArtStyle;
+  density:   number;
+  usePhysics: boolean;
+  cadTool:   CADTool;
+  cadPlane:  CADPlane;
+  extrusion: number;
 }
 
 // ─── Entities ─────────────────────────────────────────────────────────────────
 
+export interface EntityPosition {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface EntityBehavior {
+  type:        'dynamic' | 'static' | 'kinematic';
+  mass?:       number;
+  restitution?: number;
+}
+
 export interface GameEntity {
   id:        string;
+  name:      string;
   type:      string;
-  position:  [number, number, number];
-  rotation?: [number, number, number];
-  scale?:    [number, number, number];
+  position:  EntityPosition;
+  rotation?: EntityPosition;
+  scale?:    number;
+  modelUrl?: string;
+  behavior?: EntityBehavior;
+  voxels?:   VoxelData[];
   props?:    Record<string, unknown>;
+}
+
+export interface VoxelData {
+  position: EntityPosition;
+  color:    number;
+  size?:    number;
 }
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
@@ -102,7 +115,7 @@ export interface CustomAsset {
   id:          string;
   name:        string;
   url:         string;
-  type:        'glb' | 'gltf' | 'image' | 'audio' | 'other';
+  type?:       'glb' | 'gltf' | 'image' | 'audio' | 'other';
   r2Key?:      string;
   r2Bucket?:   string;
   sizeBytes?:  number;
