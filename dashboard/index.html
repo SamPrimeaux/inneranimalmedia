@@ -4,9 +4,19 @@
     <meta charset="UTF-8" />
 
     <!--
-      Inline theme bootstrap — runs before first paint to avoid flash.
+      ─── LAYER 1: THEME BOOTSTRAP ────────────────────────────────────────────
+      Runs synchronously before first paint — no network, no flash.
       Reads CSS vars and dark/light preference from localStorage,
-      applies them to :root immediately.
+      applies them to :root immediately via style.setProperty().
+
+      Keys:
+        inneranimalmedia_theme_css     → JSON map of --token: value pairs
+        inneranimalmedia_theme_is_dark → '1' (dark) | '0' (light)
+
+      Source of truth is always cms_themes (DB). localStorage is a
+      first-paint cache only — applyCmsThemeToDocument() in App.tsx
+      re-hydrates from the API on every mount and patches :root inline,
+      which beats stylesheet rules in specificity.
     -->
     <script>
       (function () {
@@ -32,56 +42,83 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Inner Animal Media — Agent Dashboard" />
 
-    <!-- Title driven by Vite env var — never hardcoded -->
+    <!--
+      Title is driven by the Vite env var — never hardcoded.
+      Set VITE_PRODUCT_LABEL in .env or wrangler secrets.
+    -->
     <title>%VITE_PRODUCT_LABEL%</title>
 
-    <!-- Preconnects -->
+    <!-- Preconnects — reduce DNS + TLS overhead for critical origins -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://inneranimalmedia.com" crossorigin />
     <link rel="dns-prefetch" href="https://inneranimalmedia.com" />
 
-    <!-- Fonts -->
+    <!--
+      Fonts — JetBrains Mono for code/terminal, Nunito for UI.
+      Both referenced by --font-mono and --font-ui in inneranimalmedia.css.
+      display=swap prevents FOIT; fallback stacks defined in CSS tokens.
+    -->
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Nunito:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
 
-    <!-- Dashboard shell layout vars -->
-    <link rel="stylesheet" href="/static/dashboard/shell.css" />
-
     <!--
+      ─── LAYER 2: STRUCTURAL PRE-PAINT STYLES ────────────────────────────────
+      Applied before the Vite bundle executes — no network request.
+      Covers only structural layout and body defaults. Full token system,
+      utilities, and component styles load via inneranimalmedia.css
+      through the Vite bundle (imported in index.tsx).
+
+      Do not add component styles here. Do not reference tokens that
+      are not guaranteed by the bootstrap script above.
+
       Tailwind is bundled via Vite — no CDN script.
       CDN copy caused duplicate React instance (minified error #525).
     -->
-
     <style>
-      *, *::before, *::after {
+      *,
+      *::before,
+      *::after {
         box-sizing: border-box;
       }
 
-      html, body, #root {
+      html,
+      body,
+      #root {
         height: 100%;
         margin: 0;
         padding: 0;
       }
 
       body {
-        overflow: hidden;
+        overflow: hidden; /* app shell — scroll lives inside layout panels */
         font-family: var(--font-sans, 'Nunito', system-ui, -apple-system, sans-serif);
-        background-color: var(--bg-app);
-        color: var(--text-main);
+        background-color: var(--bg-app, #00212b);
+        color: var(--text-main, #9cb5bc);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
 
+      /*
+        #root:empty prevents the background flashing to the browser default
+        before React mounts. Must match --bg-app exactly.
+        The fallback hex must stay in sync with --solar-base03 in
+        inneranimalmedia.css. Update both together if the base color changes.
+      */
       #root:empty {
-        background-color: var(--bg-app);
+        background-color: var(--bg-app, #00212b);
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Vite replaces this with the hashed bundle path at build time.
+      /index.tsx is the entry point — imports inneranimalmedia.css first,
+      then index.css (Tailwind), then mounts React.
+    -->
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
