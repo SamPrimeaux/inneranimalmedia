@@ -1,6 +1,6 @@
 # InnerAnimalMedia Platform
 
-Cloudflare-native SaaS platform and AI agent infrastructure.
+Cloudflare-native SaaS platform and AI agent infrastructure. 
 Built and operated by Sam Primeaux — Lafayette, Louisiana.
 
 ---
