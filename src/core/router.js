@@ -76,8 +76,37 @@ async function serveStaticPage(env, r2Key) {
 
 export async function handleRequest(request, env, ctx) {
   const url    = new URL(request.url);
-  const path   = url.pathname;
+  let path     = url.pathname;
   const method = request.method.toUpperCase();
+
+  // Robust path normalization
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.slice(0, -1);
+  }
+
+  // ── Static Asset Provider (R2-backed dashboard artifacts) ─────────────────
+  if (path.startsWith('/static/')) {
+    if (!env.DASHBOARD) return new Response('Storage unavailable', { status: 503 });
+    const key = path.substring(1).split('?')[0]; // remove leading / and ignore query params
+    try {
+      const obj = await env.DASHBOARD.get(key);
+      if (obj) {
+        const contentType = path.endsWith('.js') ? 'application/javascript' :
+                          path.endsWith('.css') ? 'text/css' :
+                          path.endsWith('.svg') ? 'image/svg+xml' :
+                          path.endsWith('.png') ? 'image/png' :
+                          path.endsWith('.html') ? 'text/html' :
+                          'application/octet-stream';
+        return new Response(obj.body, { 
+          headers: { 
+            'Content-Type': contentType, 
+            'Cache-Control': 'public, max-age=3600',
+            'Access-Control-Allow-Origin': '*' 
+          } 
+        });
+      }
+    } catch (e) {}
+  }
 
   // CORS preflight
   if (method === 'OPTIONS') return corsPreFlight();
