@@ -113,6 +113,52 @@ export async function handleRequest(request, env, ctx) {
     return handleAuthApi(request, url, env, ctx);
   }
 
+  // ── Dashboard Shell (1:1 Replica) ──────────────────────────────────────────
+  if (path.startsWith('/dashboard/')) {
+    const slug = path.split('/')[2] || 'agent';
+    
+    // Theme resolution
+    let themeVars = {};
+    let isDark = true;
+
+    if (env.DB) {
+      try {
+        const tid = env.TENANT_ID || 'tenant_sam_primeaux';
+        const themeRow = await env.DB.prepare(
+          `SELECT t.* FROM cms_themes t
+           INNER JOIN settings s ON s.setting_value = t.slug OR s.setting_value = CAST(t.id AS TEXT)
+           WHERE s.setting_key = 'appearance.theme' AND s.tenant_id = ? LIMIT 1`
+        ).bind(tid).first();
+
+        if (themeRow) {
+          const config = typeof themeRow.config === 'object' ? themeRow.config : JSON.parse(themeRow.config || '{}');
+          const rawVars = config.variables || config.data || config || {};
+          Object.entries(rawVars).forEach(([k, v]) => {
+            const key = k.startsWith('--') ? k : \`--\${k.replace(/_/g, '-')}\`;
+            themeVars[key] = v;
+          });
+          isDark = config.mode === 'dark' || config.is_dark === true;
+        }
+      } catch (e) {
+        console.error('Theme Resolution Failure:', e);
+      }
+    }
+
+    const html = renderDashboardShell(slug, {
+      themeVars,
+      isDark,
+      workspaceId: env.WORKSPACE_ID || 'ws_inneranimalmedia',
+      version: env.CF_VERSION_METADATA?.id || 'v58'
+    });
+
+    return new Response(html, {
+      headers: { 
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      }
+    });
+  }
+
   // ── MCP ───────────────────────────────────────────────────────────────────
 
   if (path === '/mcp' || path.startsWith('/api/mcp')) {
