@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { SectionLabel } from "../atoms";
+import { SectionLabel } from "./atoms";
 
 interface NetworkSettingsTabProps {
   onOpenGeneral?: () => void;

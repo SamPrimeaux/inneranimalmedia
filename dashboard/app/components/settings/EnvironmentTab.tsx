@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Btn, StatusDot, SectionLabel, Input, Modal } from "../atoms";
+import { Btn, StatusDot, SectionLabel, Input, Modal } from "./atoms";
 import { timeAgo } from "../utils";
 
 // ─── SecretCard ───────────────────────────────────────────────────────────────

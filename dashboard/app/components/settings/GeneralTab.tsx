@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { SettingsRow, ControlledSwitch, SectionLabel } from "../atoms";
-import { AGENTSAM_WORKSPACE_QUERY } from "../constants";
+import { SettingsRow, ControlledSwitch, SectionLabel } from "./atoms";
+import { AGENTSAM_WORKSPACE_QUERY } from "./constants";
 
 const DEFAULT_MODEL_FALLBACK = "claude-haiku-4-5-20251001";
 

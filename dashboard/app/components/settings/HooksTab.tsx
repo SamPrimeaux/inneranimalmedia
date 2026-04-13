@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Btn, ControlledSwitch, SettingsRow, Input, WideModal } from "../atoms";
-import { HOOK_TRIGGERS, AGENTSAM_WORKSPACE_QUERY } from "../constants";
+import { Btn, ControlledSwitch, SettingsRow, Input, WideModal } from "./atoms";
+import { HOOK_TRIGGERS, AGENTSAM_WORKSPACE_QUERY } from "./constants";
 import { agentsamWorkspaceQueryString, relativeTime, formatLastRanUnix } from "../utils";
 
 export function HooksTab() {

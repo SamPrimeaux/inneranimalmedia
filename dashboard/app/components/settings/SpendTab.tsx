@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Btn } from "../atoms";
+import { Btn } from "./atoms";
 import { formatUsd2, formatTokensK, formatDayLabel, pillStyle } from "../utils";
 
 export function SpendTab() {

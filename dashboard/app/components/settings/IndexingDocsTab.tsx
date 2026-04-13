@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Btn, SectionLabel, ControlledSwitch, Input } from "../atoms";
+import { Btn, SectionLabel, ControlledSwitch, Input } from "./atoms";
 import { agentsamWorkspaceQueryString, relativeTime, formatR2Bytes } from "../utils";
-import { AGENTSAM_WORKSPACE_QUERY } from "../constants";
+import { AGENTSAM_WORKSPACE_QUERY } from "./constants";
 
 // ─── IgnorePatternsTab (embedded) ─────────────────────────────────────────────
 

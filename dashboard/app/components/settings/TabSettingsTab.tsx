@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { ControlledSwitch, SettingsRow } from "../atoms";
-import { AGENTSAM_WORKSPACE_QUERY, readTabComposerPrefs, writeTabComposerPrefs } from "../constants";
+import { ControlledSwitch, SettingsRow } from "./atoms";
+import { AGENTSAM_WORKSPACE_QUERY, readTabComposerPrefs, writeTabComposerPrefs } from "./constants";
 
 export function TabSettingsTab() {
   const policyQuery = new URLSearchParams({ workspace_id: AGENTSAM_WORKSPACE_QUERY }).toString();

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { SectionLabel } from "../atoms";
+import { SectionLabel } from "./atoms";
 
 const MARKETPLACE_TYPE_LABELS = {
   llm: "Language Models",

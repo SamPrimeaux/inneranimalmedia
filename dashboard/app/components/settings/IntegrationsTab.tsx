@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { StatusDot, SectionLabel } from "../atoms";
+import { StatusDot, SectionLabel } from "./atoms";
 
 // ─── McpServicesHealth ────────────────────────────────────────────────────────
 
