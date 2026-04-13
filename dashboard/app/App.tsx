@@ -1154,7 +1154,7 @@ const App: React.FC = () => {
           <ActivityIcon icon={Github}    title="GitHub"         active={activeActivity === 'actions'}    onClick={() => toggleActivity('actions')} />
           <ActivityIcon icon={Database}  title="Database"       active={openTabs.includes('database')}   onClick={() => { openTab('database'); setActiveActivity(null); }} />
           <ActivityIcon icon={Cloud}     title="Cloud Sync"     active={activeActivity === 'drive'}      onClick={() => toggleActivity('drive')} />
-          <ActivityIcon icon={Monitor}   title="Playwright"     active={activeActivity === 'playwright'} onClick={() => toggleActivity('playwright')} />
+          <ActivityIcon icon={Monitor}   title="Playwright"     active={openTabs.includes('browser')} onClick={() => openTab('browser')} />
           <div className="flex-1" />
           <ActivityIcon icon={FolderOpen} title="Projects"      active={activeActivity === 'projects'}   onClick={() => toggleActivity('projects')} />
           {/* Studio (was "Engine View") — Box icon distinguishes from Monitor/Playwright */}
@@ -1193,7 +1193,7 @@ const App: React.FC = () => {
             {activeActivity === 'actions'    && <GitHubExplorer expandRepoFullName={githubExpandRepo} onExpandRepoConsumed={consumeGithubExpandRepo} onOpenInEditor={f => { setActiveFile(f); openTab('code'); revealMainWorkspaceIfNarrow(); }} />}
             {activeActivity === 'drive'      && <GoogleDriveExplorer onOpenInEditor={f => { setActiveFile(f); openTab('code'); revealMainWorkspaceIfNarrow(); }} />}
             {activeActivity === 'remote'     && <R2Explorer onOpenInEditor={f => { setActiveFile(f); openTab('code'); revealMainWorkspaceIfNarrow(); }} />}
-            {activeActivity === 'playwright' && <PlaywrightConsole />}
+            {activeActivity === 'playwright' && null}
             {activeActivity === 'debug'      && <ProblemsDebugPanel onClose={() => setActiveActivity(null)} onNavigateToAgentThread={openAgentThreadFromProblems} onOpenMcpPanel={() => setActiveActivity('mcps')} />}
             {activeActivity === 'git'        && <SourcePanel />}
             {activeActivity === 'projects'   && (
@@ -1395,7 +1395,7 @@ const App: React.FC = () => {
                 { icon: Network,   label: 'Remote',         action: () => { setMobileMoreOpen(false); toggleActivity('remote'); } },
                 { icon: Layers,    label: 'Tools & MCP',    action: () => { setMobileMoreOpen(false); toggleActivity('mcps'); } },
                 { icon: Cloud,     label: 'Cloud Sync',     action: () => { setMobileMoreOpen(false); toggleActivity('drive'); } },
-                { icon: Monitor,   label: 'Playwright',     action: () => { setMobileMoreOpen(false); toggleActivity('playwright'); } },
+                { icon: Monitor,   label: 'Playwright',     action: () => { setMobileMoreOpen(false); openTab('browser'); } },
                 { icon: Box,       label: 'Studio',         action: () => { setMobileMoreOpen(false); toggleActivity('cad'); } },
               ].map(({ icon, label, action }) => (
                 <MobileMoreRow key={label} icon={icon} label={label} onClick={action} />
