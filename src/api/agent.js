@@ -63,11 +63,6 @@ async function loadUserPolicy(env, userId, workspaceId = '') {
   } catch (_) { return defaults; }
 }
 
-/**
- * Resolve the best available model from agent_model_registry.
- * No provider preference — cheapest capable model wins.
- * Provider and cost decisions belong in the DB, not here.
- */
 async function resolveDefaultModel(env) {
   if (!env.DB) return null;
   try {
@@ -206,9 +201,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
 
     if (turnUsage) {
-      totalUsage.input_tokens               += turnUsage.input_tokens               || 0;
-      totalUsage.output_tokens              += turnUsage.output_tokens              || 0;
-      totalUsage.cache_read_input_tokens    += turnUsage.cache_read_input_tokens    || 0;
+      totalUsage.input_tokens                += turnUsage.input_tokens                || 0;
+      totalUsage.output_tokens               += turnUsage.output_tokens               || 0;
+      totalUsage.cache_read_input_tokens     += turnUsage.cache_read_input_tokens     || 0;
       totalUsage.cache_creation_input_tokens += turnUsage.cache_creation_input_tokens || 0;
     }
 
@@ -355,12 +350,10 @@ export async function handleAgentApi(request, url, env, ctx) {
   const method = request.method.toUpperCase();
 
   // ── /api/agent/models ─────────────────────────────────────────────────────
-  // Sourced from agent_model_registry — the authoritative model + pricing source
   if (path === '/api/agent/models') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    const showInPicker = url.searchParams.get('show_in_picker') === '1';
-    const provider     = url.searchParams.get('provider') || null;
-    const role         = url.searchParams.get('role') || null;
+    const provider = url.searchParams.get('provider') || null;
+    const role     = url.searchParams.get('role') || null;
     try {
       let sql = `SELECT id, model_key, provider, display_name, role, cost_tier,
                         input_cost_per_1m, output_cost_per_1m, cached_input_cost_per_1m,
@@ -600,7 +593,6 @@ export async function handleAgentApi(request, url, env, ctx) {
       const batch = await env.DB.batch([
         env.DB.prepare(`SELECT id, name, role_name, mode, thinking_mode, effort FROM agentsam_ai WHERE status='active' ORDER BY sort_order, name`),
         env.DB.prepare(`SELECT id, service_name, service_type, endpoint_url, is_active, health_status FROM mcp_services WHERE is_active=1 ORDER BY service_name`),
-        // Models from agent_model_registry — the authoritative source
         env.DB.prepare(`SELECT id, model_key, provider, display_name, role, cost_tier, input_cost_per_1m, output_cost_per_1m, context_window, supports_function_calling, supports_vision, supports_reasoning FROM agent_model_registry ORDER BY provider, role, input_cost_per_1m ASC`),
         env.DB.prepare(`SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20`),
       ]);
@@ -618,7 +610,30 @@ export async function handleAgentApi(request, url, env, ctx) {
     return jsonResponse((results||[]).map(r=>({ id: r.id, title: r.title||'New Conversation' })));
   }
 
-  // ── /api/agent/sessions ───────────────────────────────────────────────────
+  // ── /api/agent/sessions/:id/messages ─────────────────────────────────────
+  const sessMessagesMatch = path.match(/^\/api\/agent\/sessions\/([^/]+)\/messages$/);
+  if (sessMessagesMatch && method === 'GET') {
+    const convId = decodeURIComponent(sessMessagesMatch[1] || '').trim();
+    if (!convId) return jsonResponse({ error: 'session id required' }, 400);
+    if (env.AGENT_SESSION) {
+      try {
+        const doId = env.AGENT_SESSION.idFromName(convId);
+        const stub = env.AGENT_SESSION.get(doId);
+        const lim  = url.searchParams.get('limit') || '100';
+        const resp = await stub.fetch(new Request(`https://do/history?limit=${encodeURIComponent(lim)}`));
+        const rows = await resp.json().catch(() => []);
+        return jsonResponse(Array.isArray(rows) ? rows : (rows.messages || []));
+      } catch (_) {}
+    }
+    if (!env.DB) return jsonResponse([]);
+    const { results } = await env.DB.prepare(
+      `SELECT role, content, created_at FROM agent_messages
+       WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 200`
+    ).bind(convId).all().catch(() => ({ results: [] }));
+    return jsonResponse(results || []);
+  }
+
+  // ── /api/agent/sessions PATCH /:id ───────────────────────────────────────
   const sessionPatchMatch = path.match(/^\/api\/agent\/sessions\/([^/]+)$/);
   if (sessionPatchMatch && method === 'PATCH') {
     const convId = sessionPatchMatch[1];
@@ -628,6 +643,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     return jsonResponse({ success: true });
   }
 
+  // ── /api/agent/sessions ───────────────────────────────────────────────────
   if (path === '/api/agent/sessions') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     if (method === 'POST') {
@@ -646,6 +662,47 @@ export async function handleAgentApi(request, url, env, ctx) {
     const tenantId = tenantIdFromEnv(env);
     const { results } = await env.DB.prepare(`SELECT s.id, s.session_type, s.status, s.started_at, COALESCE(s.name,ac.name,ac.title,'New Conversation') as name, (SELECT COUNT(*) FROM agent_messages am WHERE am.conversation_id = s.id) as message_count FROM agent_sessions s LEFT JOIN agent_conversations ac ON ac.id = s.id WHERE s.tenant_id = ? ORDER BY s.updated_at DESC LIMIT 50`).bind(tenantId || 'system').all().catch(() => ({ results: [] }));
     return jsonResponse(results || []);
+  }
+
+  // ── /api/agent/workspace/:id ──────────────────────────────────────────────
+  const workspaceMatch = path.match(/^\/api\/agent\/workspace\/([^/]+)$/);
+  if (workspaceMatch && method === 'GET') {
+    const wsId = decodeURIComponent(workspaceMatch[1] || '').trim();
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    try {
+      const row = await env.DB.prepare(
+        `SELECT id, name, environment, settings_json FROM workspaces WHERE id = ? LIMIT 1`
+      ).bind(wsId).first().catch(() => null);
+      if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
+      return jsonResponse(row);
+    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+  }
+
+  // ── /api/agent/terminal/config-status ────────────────────────────────────
+  if (path === '/api/agent/terminal/config-status' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB)   return jsonResponse({ terminal_configured: false });
+    try {
+      const row = await env.DB.prepare(
+        `SELECT id, tunnel_url, shell, cwd, cols, rows
+         FROM terminal_sessions
+         WHERE user_id = ? AND status = 'active'
+           AND tunnel_url IS NOT NULL AND tunnel_url != ''
+         ORDER BY updated_at DESC LIMIT 1`
+      ).bind(String(authUser.id)).first().catch(() => null);
+      if (!row) return jsonResponse({ terminal_configured: false });
+      return jsonResponse({
+        terminal_configured: true,
+        tunnel_url: row.tunnel_url,
+        shell:      row.shell || 'bash',
+        cwd:        row.cwd   || '~',
+        cols:       row.cols  || 220,
+        rows:       row.rows  || 50,
+      });
+    } catch (e) {
+      return jsonResponse({ terminal_configured: false, error: e.message });
+    }
   }
 
   // ── /api/agent/propose ────────────────────────────────────────────────────
@@ -735,7 +792,6 @@ export async function handleAgentApi(request, url, env, ctx) {
     const body   = await request.json().catch(() => ({}));
     const prompt = String(body.prompt || '').trim();
     if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
-    // Model from agent_model_registry — never hardcoded
     const modelRow = await env.DB.prepare(`SELECT model_key FROM agent_model_registry WHERE provider='workers_ai' AND role='image' ORDER BY input_cost_per_1m ASC LIMIT 1`).first().catch(() => null);
     const model    = modelRow?.model_key;
     if (!model) return jsonResponse({ error: 'No active Workers AI image model in agent_model_registry' }, 503);
