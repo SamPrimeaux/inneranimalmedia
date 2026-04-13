@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Sam Dashboard</title>
+    
+    <!-- Theme Bootstrap: Prevents Flash of Incorrect Theme (FOIT) -->
+    <script>
+      (function () {
+        const K_CSS = 'inneranimalmedia_theme_css';
+        const K_DARK = 'inneranimalmedia_theme_is_dark';
+        try {
+          const dark = localStorage.getItem(K_DARK);
+          if (dark === '1' || dark === '0') {
+            document.documentElement.setAttribute('data-theme', dark === '1' ? 'dark' : 'light');
+          }
+          const raw = localStorage.getItem(K_CSS);
+          if (raw) {
+            const vars = JSON.parse(raw);
+            if (vars && typeof vars === 'object') {
+              const root = document.documentElement;
+              Object.entries(vars).forEach(([k, v]) => {
+                if (v != null) root.style.setProperty(k, String(v));
+              });
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Preconnect & Fonts (Aligned with Repo) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* Define fallback tokens matching inneranimalmedia.css */
+        :root {
+            /* Palette */
+            --solar-base03: #00212b;
+            --solar-base02: #0a2d38;
+            --solar-base01: #4a7a87;
+            --solar-base00: #6e8d96;
+            --solar-base0:  #9cb5bc;
+            --solar-base1:  #b0ccd2;
+            --solar-cyan:   #2dd4bf;
+            --solar-blue:   #3a9fe8;
+            --solar-magenta:#d33682;
+
+            /* Semantic */
+            --bg-app:       var(--solar-base03);
+            --bg-panel:     var(--solar-base02);
+            --bg-elevated:  color-mix(in srgb, var(--bg-panel) 88%, var(--solar-cyan) 12%);
+            --bg-hover:     rgba(45, 212, 191, 0.08);
+            --border-subtle:rgba(45, 212, 191, 0.1);
+            --text-main:    var(--solar-base0);
+            --text-muted:   var(--solar-base01);
+            --text-heading: var(--solar-base1);
+            --accent:       var(--solar-cyan);
+            --accent-primary: var(--solar-blue);
+            
+            /* Typography */
+            --font-ui:      'Nunito', 'Inter', system-ui, sans-serif;
+            --font-mono:    'JetBrains Mono', monospace;
+            
+            /* Layout */
+            --rail-width: 64px;
+            --activity-width: 260px;
+            --agent-width: 360px;
+            --header-height: 52px;
+        }
+
+        [data-theme="light"] {
+            --bg-app: #fdf6e3;
+            --bg-panel: #eee8d5;
+            --text-main: #657b83;
+            --text-muted: #93a1a1;
+            --border-subtle: rgba(101, 123, 131, 0.1);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background: var(--bg-app);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* App Shell Layout */
+        .app-shell {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 1. PRIMARY RAIL (SLIM SIDEBAR) */
+        .rail {
+            width: var(--rail-width);
+            background: color-mix(in srgb, var(--bg-app) 90%, black 10%);
+            border-right: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 0;
+            gap: 24px;
+            z-index: 100;
+        }
+        .rail-logo { margin-bottom: 8px; }
+        .rail-logo img { width: 34px; height: 34px; border-radius: 8px; }
+        .rail-btn {
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+        }
+        .rail-btn:hover { background: var(--bg-hover); color: var(--accent); }
+        .rail-btn.active { background: var(--bg-elevated); color: var(--accent); box-shadow: 0 0 15px rgba(45, 212, 191, 0.15); }
+
+        /* 2. ACTIVITY DRAWER (EXPLORER) */
+        .activity-drawer {
+            width: var(--activity-width);
+            background: var(--bg-app);
+            border-right: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn { from { transform: translateX(-10px); opacity: 0; } }
+        
+        .drawer-header {
+            height: var(--header-height);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .explorer-content { flex: 1; padding: 12px; overflow-y: auto; }
+        .explorer-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            font-size: 13px;
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-main);
+            transition: background 0.15s;
+        }
+        .explorer-item:hover { background: var(--bg-hover); }
+        .explorer-item i { color: var(--text-muted); }
+
+        /* 3. MAIN WORKSPACE AREA */
+        .workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-app);
+            position: relative;
+        }
+
+        .workspace-header {
+            height: var(--header-height);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 20px;
+            background: var(--bg-app);
+        }
+
+        .search-container {
+            flex: 1;
+            max-width: 580px;
+            position: relative;
+        }
+        .search-input {
+            width: 100%;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 8px 12px 8px 38px;
+            color: var(--text-heading);
+            font-family: var(--font-ui);
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-input:focus { border-color: var(--accent); }
+        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+
+        .header-actions { display: flex; align-items: center; gap: 14px; color: var(--text-muted); }
+        .header-btn { cursor: pointer; transition: color 0.2s; }
+        .header-btn:hover { color: var(--text-heading); }
+
+        /* TABS */
+        .tab-bar {
+            height: 44px;
+            background: var(--bg-panel);
+            display: flex;
+            align-items: flex-end;
+            padding: 0 12px;
+            gap: 4px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .tab {
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            border-radius: 6px 6px 0 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            border-bottom: none;
+            background: transparent;
+        }
+        .tab.active {
+            background: var(--bg-app);
+            color: var(--text-heading);
+            border-color: var(--border-subtle);
+        }
+        .tab:hover:not(.active) { background: var(--bg-hover); color: var(--text-main); }
+
+        /* CANVAS AREA */
+        .canvas-area {
+            flex: 1;
+            background: color-mix(in srgb, var(--bg-app) 80%, black 20%);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* FLOATING PILL TOOLBAR */
+        .toolbar-pill {
+            position: absolute;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 45, 56, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(45, 212, 191, 0.2);
+            border-radius: 14px;
+            display: flex;
+            padding: 5px 8px;
+            gap: 4px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            z-index: 100;
+        }
+        .tool-btn {
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tool-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .tool-btn.active { background: rgba(45, 212, 191, 0.15); color: var(--accent); }
+        .tool-divider { width: 1px; background: rgba(255,255,255,0.1); margin: 6px 4px; }
+
+        /* 4. AGENT SAM (RIGHT PANEL) */
+        .agent-panel {
+            width: var(--agent-width);
+            background: var(--bg-app);
+            border-left: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+
+        .agent-header {
+            height: var(--header-height);
+            padding: 0 16px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .agent-id { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--solar-blue); }
+        .agent-tabs { display: flex; gap: 16px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); cursor: pointer; }
+        .agent-tabs span:hover { color: var(--text-main); }
+        .agent-tabs span.active { color: var(--text-heading); border-bottom: 2px solid var(--solar-blue); padding-bottom: 4px; }
+
+        .chat-history {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 32px;
+            text-align: center;
+            overflow-y: auto;
+        }
+        .chat-welcome-icon {
+            width: 64px;
+            height: 64px;
+            background: var(--bg-panel);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            color: var(--text-muted);
+            border: 1px solid var(--border-subtle);
+        }
+        .chat-welcome-text h2 { font-size: 16px; color: var(--text-heading); margin-bottom: 8px; font-weight: 700; }
+        .chat-welcome-text p { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+        .chat-input-area {
+            padding: 16px;
+            background: var(--bg-panel);
+            border-top: 1px solid var(--border-subtle);
+        }
+        .chat-box {
+            background: var(--bg-app);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: border-color 0.2s;
+        }
+        .chat-box:focus-within { border-color: var(--solar-blue); }
+        .chat-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-family: inherit;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+            min-height: 48px;
+        }
+        .chat-footer { display: flex; justify-content: space-between; align-items: center; }
+        .chat-attachments { display: flex; gap: 12px; color: var(--text-muted); cursor: pointer; }
+        .chat-attachments i:hover { color: var(--text-main); }
+        .send-btn {
+            background: var(--solar-blue);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .send-btn:hover { opacity: 0.9; }
+
+        /* STATUS BAR */
+        .status-bar {
+            height: 28px;
+            background: #001b22;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-muted);
+            z-index: 200;
+        }
+        .status-left, .status-right { display: flex; align-items: center; gap: 16px; }
+        .status-pill { display: flex; align-items: center; gap: 6px; }
+        .status-indicator { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+        .version-tag { 
+            background: rgba(255,255,255,0.05); 
+            padding: 2px 8px; 
+            border-radius: 4px; 
+            color: var(--solar-cyan);
+            font-family: var(--font-mono);
+        }
+
+        /* GLASS EFFECTS */
+        .glass { background: rgba(10, 45, 56, 0.7) !important; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    </style>
+</head>
+<body>
+
+<div class="app-shell" id="iam-dashboard">
+    <!-- SLIM PRIMARY RAIL -->
+    <nav class="rail">
+        <div class="rail-logo">
+            <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar" alt="IA">
+        </div>
+        <div class="rail-btn active" title="Canvas (Voxel/Draw)"><i data-lucide="layers"></i></div>
+        <div class="rail-btn" title="Search"><i data-lucide="search"></i></div>
+        <div class="rail-btn" title="Code Editor"><i data-lucide="code-2"></i></div>
+        <div class="rail-btn" title="MCP Hub"><i data-lucide="blocks"></i></div>
+        <div class="rail-btn" title="Git Integration"><i data-lucide="git-branch"></i></div>
+        <div class="rail-btn" title="Database Explorer"><i data-lucide="database"></i></div>
+        <div style="flex: 1"></div>
+        <div class="rail-btn" title="Terminal"><i data-lucide="terminal"></i></div>
+        <div class="rail-btn" title="Settings"><i data-lucide="settings"></i></div>
+    </nav>
+
+    <!-- ACTIVITY DRAWER (EXPLORER) -->
+    <aside class="activity-drawer">
+        <div class="drawer-header">
+            <span>Workspace Explorer</span>
+            <i data-lucide="more-horizontal" style="cursor: pointer; width: 14px;"></i>
+        </div>
+        <div class="explorer-content">
+            <div class="explorer-item"><i data-lucide="chevron-right" size="14"></i> <i data-lucide="folder" size="14"></i> agent-dashboard</div>
+            <div class="explorer-item"><i data-lucide="chevron-right" size="14"></i> <i data-lucide="folder" size="14"></i> docs</div>
+            <div class="explorer-item"><i data-lucide="chevron-right" size="14"></i> <i data-lucide="folder" size="14"></i> source</div>
+            <div class="explorer-item" style="padding-left: 24px;"><i data-lucide="file-code" size="14"></i> worker.js</div>
+            <div class="explorer-item" style="padding-left: 24px; color: var(--solar-cyan);"><i data-lucide="file-text" size="14"></i> index-v3.html</div>
+            <div class="explorer-item"><i data-lucide="file-json" size="14"></i> wrangler.jsonc</div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="workspace">
+        <header class="workspace-header">
+            <div class="search-container">
+                <i data-lucide="search" class="search-icon" size="16"></i>
+                <input type="text" class="search-input" value="workspace: Inner Animal Media" placeholder="Search files, commands, and knowledge...">
+            </div>
+            <div class="header-actions">
+                <i data-lucide="layout-grid" class="header-btn" size="18"></i>
+                <i data-lucide="sidebar" class="header-btn" size="18"></i>
+                <i data-lucide="monitor" class="header-btn" size="18"></i>
+            </div>
+        </header>
+
+        <nav class="tab-bar">
+            <div class="tab active"><i data-lucide="eye" size="14"></i> Preview · index-v3.html</div>
+            <div class="tab"><i data-lucide="pen-tool" size="14"></i> Draw</div>
+        </nav>
+
+        <section class="canvas-area">
+            <!-- FLOATING DRAW TOOLBAR -->
+            <div class="toolbar-pill">
+                <div class="tool-btn"><i data-lucide="lock" size="14"></i></div>
+                <div class="tool-divider"></div>
+                <div class="tool-btn"><i data-lucide="hand" size="14"></i></div>
+                <div class="tool-btn active"><i data-lucide="mouse-pointer-2" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="square" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="diamond" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="circle" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="arrow-right" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="minus" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="pen" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="type" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="image" size="14"></i></div>
+                <div class="tool-btn"><i data-lucide="eraser" size="14"></i></div>
+                <div class="tool-divider"></div>
+                <div class="tool-btn"><i data-lucide="library" size="14"></i></div>
+            </div>
+
+            <!-- MOCK CANVAS CONTENT -->
+            <div style="opacity: 0.1; font-size: 140px; font-weight: 800; user-select: none;">CANVAS</div>
+        </section>
+
+        <!-- STATUS BAR -->
+        <footer class="status-bar">
+            <div class="status-left">
+                <div class="status-pill"><div class="status-indicator"></div> IAM-OK</div>
+                <div class="status-pill"><i data-lucide="git-branch" size="12"></i> main</div>
+                <div class="status-pill" style="color: var(--solar-magenta)"><i data-lucide="alert-circle" size="12"></i> 70</div>
+            </div>
+            <div class="status-right">
+                <div class="status-pill">Ln --, Col --</div>
+                <div class="status-pill">UTF-8</div>
+                <div class="status-pill version-tag" id="version-pill">v--</div>
+            </div>
+        </footer>
+    </main>
+
+    <!-- AGENT SAM CHAT PANEL -->
+    <aside class="agent-panel">
+        <header class="agent-header">
+            <div class="agent-id">Agent Sam</div>
+            <div class="agent-tabs">
+                <span class="active">Agent Sam</span>
+                <span>Chats</span>
+                <span>New Chat</span>
+            </div>
+            <i data-lucide="more-horizontal" size="16" style="color: var(--text-muted); cursor: pointer;"></i>
+        </header>
+
+        <div class="chat-history">
+            <div class="chat-welcome-icon">
+                <i data-lucide="bot" size="32"></i>
+            </div>
+            <div class="chat-welcome-text">
+                <h2>What should we work on?</h2>
+                <p>Type below to start a conversation with<br>Agent Sam.</p>
+            </div>
+        </div>
+
+        <div class="chat-input-area">
+            <div class="chat-box">
+                <textarea class="chat-input" placeholder="Message Agent Sam..."></textarea>
+                <div class="chat-footer">
+                    <div class="chat-attachments">
+                        <i data-lucide="paperclip" size="16"></i>
+                        <i data-lucide="image" size="16"></i>
+                    </div>
+                    <button class="send-btn" id="send-btn"><i data-lucide="send" size="14"></i></button>
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<!-- Scripts -->
+<script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    // DYNAMIC VERSIONING (Vite-style)
+    // Pulls from ?v= url parameter or falls back to 'dev-local'
+    (function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const version = urlParams.get('v') || 'dev-local';
+        const pill = document.getElementById('version-pill');
+        if (pill) pill.textContent = version;
+    })();
+
+    // RUNTIME THEME SYNC (DB-DRIVEN)
+    async function syncActiveTheme() {
+        try {
+            // Respect credentials for secure D1/API access
+            const res = await fetch('/api/themes/active', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const payload = await res.json();
+            
+            if (payload && payload.data) {
+                const root = document.documentElement;
+                Object.entries(payload.data).forEach(([k, v]) => {
+                    if (v != null) root.style.setProperty(k, String(v));
+                });
+                
+                // Persist successful sync for next first-paint
+                localStorage.setItem('inneranimalmedia_theme_css', JSON.stringify(payload.data));
+                if (typeof payload.is_dark === 'boolean') {
+                    localStorage.setItem('inneranimalmedia_theme_is_dark', payload.is_dark ? '1' : '0');
+                    root.setAttribute('data-theme', payload.is_dark ? 'dark' : 'light');
+                }
+            }
+        } catch (err) {
+            console.warn('Theme sync failed, using cached or fallback tokens.', err);
+        }
+    }
+
+    // Trigger sync on load
+    window.addEventListener('DOMContentLoaded', syncActiveTheme);
+
+    // Simple interaction logic for demo
+    document.querySelectorAll('.rail-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.rail-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+</script>
+
+</body>
+</html>
