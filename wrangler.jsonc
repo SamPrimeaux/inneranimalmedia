@@ -7,6 +7,11 @@
  *   ANTHROPIC_API_KEY, GITHUB_TOKEN, OPENAI_API_KEY, GOOGLE_AI_API_KEY
  *   CLOUDFLARE_API_TOKEN, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
  *   AI_SEARCH_TOKEN, DEPLOY_TRACKING_TOKEN, GEMINI_API_KEY
+ *
+ * Static assets:
+ *   dashboard/dist/ is built by `cd dashboard && npx vite@5.4.0 build`
+ *   and served by the worker at /static/dashboard/agent/ — no R2 involved.
+ *   Set the CF build command to: cd dashboard && npx --yes vite@5.4.0 build
  */
 
 {
@@ -18,8 +23,12 @@
   "workers_dev": true,
   "preview_urls": true,
 
+  "assets": {
+    "directory": "./dashboard/dist"
+  },
+
   "build": {
-    "command": ""
+    "command": "cd dashboard && npx --yes vite@5.4.0 build"
   },
 
   "routes": [
@@ -47,12 +56,12 @@
   ],
 
   "r2_buckets": [
-    { "binding": "ASSETS",        "bucket_name": "inneranimalmedia" },
-    { "binding": "DASHBOARD",     "bucket_name": "inneranimalmedia" },
-    { "binding": "AUTORAG_BUCKET","bucket_name": "inneranimalmedia-autorag" },
-    { "binding": "DOCS_BUCKET",   "bucket_name": "iam-docs" },
-    { "binding": "R2",            "bucket_name": "iam-platform" },
-    { "binding": "TOOLS",         "bucket_name": "tools" }
+    { "binding": "ASSETS",         "bucket_name": "inneranimalmedia" },
+    { "binding": "DASHBOARD",      "bucket_name": "inneranimalmedia" },
+    { "binding": "AUTORAG_BUCKET", "bucket_name": "inneranimalmedia-autorag" },
+    { "binding": "DOCS_BUCKET",    "bucket_name": "iam-docs" },
+    { "binding": "R2",             "bucket_name": "iam-platform" },
+    { "binding": "TOOLS",          "bucket_name": "tools" }
   ],
 
   "hyperdrive": [
