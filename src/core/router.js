@@ -1,5 +1,5 @@
 import { jsonResponse } from './responses.js';
-import { AGENT_DASHBOARD_SHELL, OVERVIEW_DASHBOARD_SHELL } from './shells.js';
+import { renderDashboardShell } from './shells.js';
 
 // ── API Handlers ──────────────────────────────────────────────────────────────
 import { handleAuthApi }             from '../api/auth.js';
@@ -271,36 +271,38 @@ export async function handleRequest(request, env, ctx) {
   if (path.startsWith('/dashboard/')) {
     const slug = path.split('/')[2] || 'agent';
     
-    // Tier 0: Direct embedded shells (Bulletproof repo-resident serving)
-    if (slug === 'agent') {
-      return new Response(AGENT_DASHBOARD_SHELL, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-    if (slug === 'overview') {
-      return new Response(OVERVIEW_DASHBOARD_SHELL, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-
-    const assetPath = `/source/public/dashboard-${slug}.html`;
-    const r2Key = `source/public/dashboard-${slug}.html`;
-
-    // 1. Try serving from local build assets if the binding exists (Fallback)
-    if (env.STATIC_ASSETS) {
+    // DB-Driven Hydration: Resolve active theme from D1
+    let themeRow = null;
+    let themeVars = {};
+    let isDark = true;
+    
+    if (env.DB) {
       try {
-        const assetUrl = new URL(url);
-        assetUrl.pathname = assetPath;
-        const res = await env.STATIC_ASSETS.fetch(new Request(assetUrl, request));
-        if (res.ok) return res;
-      } catch (e) { /* fall through */ }
+        // Find the system default or user-selected theme
+        themeRow = await env.DB.prepare(
+          `SELECT t.* FROM cms_themes t 
+           WHERE t.is_system = 1 
+           ORDER BY t.sort_order ASC LIMIT 1`
+        ).first();
+
+        if (themeRow) {
+          const config = typeof themeRow.config === 'string' ? JSON.parse(themeRow.config) : (themeRow.config || {});
+          themeVars = config.variables || config.data || config || {};
+          isDark = config.mode === 'dark' || config.is_dark === true || String(themeRow.slug || '').includes('dark');
+        }
+      } catch (e) { console.error('Theme hydration failed:', e); }
     }
 
-    // 2. Fallback to DASHBOARD R2 bucket if build assets are missing
-    if (env.DASHBOARD) {
-      const obj = await env.DASHBOARD.get(r2Key);
-      if (obj) {
-        return new Response(obj.body, {
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
-        });
-      }
-    }
+    const html = renderDashboardShell(slug, {
+      themeVars,
+      isDark,
+      workspaceId: env.WORKSPACE_ID || 'iam-prod',
+      version: env.CF_VERSION_METADATA?.id || 'v58'
+    });
+
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    });
   }
 
   // ── 404 ───────────────────────────────────────────────────────────────────
