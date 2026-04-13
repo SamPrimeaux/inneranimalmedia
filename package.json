@@ -15,7 +15,8 @@
     "lucide-react": "^0.383.0",
     "three": "^0.160.1",
     "@monaco-editor/react": "^4.7.0",
-    "monaco-editor": "^0.45.0"
+    "monaco-editor": "^0.45.0",
+    "@excalidraw/excalidraw": "^0.17.6"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.0.4",
