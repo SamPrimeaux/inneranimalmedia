@@ -1,5 +1,6 @@
 import { jsonResponse } from './responses.js';
 import { renderDashboardShell } from './shells.js';
+import { getAuthUser } from '../core/auth.js';
 
 // ── API Handlers ──────────────────────────────────────────────────────────────
 import { handleAuthApi }             from '../api/auth.js';
@@ -27,6 +28,7 @@ import { handleHealthApi }           from '../api/health.js';
 import { handleDrawApi }             from '../api/draw.js';
 import { handleGitStatusApi }        from '../api/git-status.js';
 import { handleAdminApi }            from '../api/admin.js';
+import { handleGithubApi }           from '../api/github.js';
 
 // ── CORS Headers ──────────────────────────────────────────────────────────────
 
@@ -42,13 +44,6 @@ function corsPreFlight() {
 
 // ── Static Page Server ────────────────────────────────────────────────────────
 
-/**
- * Serve a static HTML file from the ASSETS R2 bucket.
- * Key maps to source/public/ in the repo — upload files there,
- * then sync to the ASSETS bucket with the same relative paths.
- *
- * Falls back to 404 HTML if the object is not found.
- */
 async function serveStaticPage(env, r2Key) {
   if (!env.ASSETS) {
     return new Response('Service unavailable', { status: 503 });
@@ -87,22 +82,22 @@ export async function handleRequest(request, env, ctx) {
   // ── Static Asset Provider (R2-backed dashboard artifacts) ─────────────────
   if (path.startsWith('/static/')) {
     if (!env.DASHBOARD) return new Response('Storage unavailable', { status: 503 });
-    const key = path.substring(1).split('?')[0]; // remove leading / and ignore query params
+    const key = path.substring(1).split('?')[0];
     try {
       const obj = await env.DASHBOARD.get(key);
       if (obj) {
-        const contentType = path.endsWith('.js') ? 'application/javascript' :
-                          path.endsWith('.css') ? 'text/css' :
-                          path.endsWith('.svg') ? 'image/svg+xml' :
-                          path.endsWith('.png') ? 'image/png' :
-                          path.endsWith('.html') ? 'text/html' :
-                          'application/octet-stream';
-        return new Response(obj.body, { 
-          headers: { 
-            'Content-Type': contentType, 
+        const contentType = path.endsWith('.js')   ? 'application/javascript' :
+                            path.endsWith('.css')  ? 'text/css' :
+                            path.endsWith('.svg')  ? 'image/svg+xml' :
+                            path.endsWith('.png')  ? 'image/png' :
+                            path.endsWith('.html') ? 'text/html' :
+                            'application/octet-stream';
+        return new Response(obj.body, {
+          headers: {
+            'Content-Type': contentType,
             'Cache-Control': 'public, max-age=3600',
-            'Access-Control-Allow-Origin': '*' 
-          } 
+            'Access-Control-Allow-Origin': '*',
+          },
         });
       }
     } catch (e) {}
@@ -110,6 +105,16 @@ export async function handleRequest(request, env, ctx) {
 
   // CORS preflight
   if (method === 'OPTIONS') return corsPreFlight();
+
+  // ── Collab WebSocket (IAMCollaborationSession DO) ─────────────────────────
+  // Must be before auth so WebSocket upgrade is not blocked by JSON auth checks.
+  if (path.startsWith('/api/collab/room/')) {
+    if (!env.IAM_COLLAB) return jsonResponse({ error: 'IAM_COLLAB not configured' }, 503);
+    const roomId = path.replace('/api/collab/room/', '').split('/')[0] || 'default';
+    const doId   = env.IAM_COLLAB.idFromName(roomId);
+    const stub   = env.IAM_COLLAB.get(doId);
+    return stub.fetch(request);
+  }
 
   // ── Internal / webhook routes ─────────────────────────────────────────────
 
@@ -123,6 +128,17 @@ export async function handleRequest(request, env, ctx) {
 
   if (path === '/api/deploy/post' || path.startsWith('/api/post-deploy')) {
     return handlePostDeployApi(request, url, env, ctx);
+  }
+
+  // ── GitHub API (before /api/integrations catch-all) ──────────────────────
+  // Handles /api/integrations/github/repos and /api/github/repos/:owner/:repo/*
+  if (path.startsWith('/api/integrations/github') || path.startsWith('/api/github/')) {
+    return handleGithubApi(request, url, env, ctx);
+  }
+
+  // ── Google Drive stub (gdrive.js not yet implemented) ─────────────────────
+  if (path.startsWith('/api/integrations/gdrive') || path.startsWith('/api/drive/')) {
+    return jsonResponse({ error: 'Google Drive integration not yet configured', code: 'gdrive_not_implemented' }, 501);
   }
 
   if (path.startsWith('/api/integrations') || path.startsWith('/api/webhooks')) {
@@ -142,31 +158,38 @@ export async function handleRequest(request, env, ctx) {
     return handleAuthApi(request, url, env, ctx);
   }
 
-  // ── Dashboard Shell (1:1 Replica) ──────────────────────────────────────────
+  // ── Dashboard Shell ───────────────────────────────────────────────────────
   if (path.startsWith('/dashboard/')) {
     const slug = path.split('/')[2] || 'agent';
-    
-    // Theme resolution
+
+    let themeRow  = null;
     let themeVars = {};
-    let isDark = true;
+    let isDark    = true;
 
     if (env.DB) {
       try {
-        const tid = env.TENANT_ID || 'tenant_sam_primeaux';
-        const themeRow = await env.DB.prepare(
+        const tid = typeof env.TENANT_ID === 'string' ? env.TENANT_ID : 'tenant_sam_primeaux';
+
+        themeRow = await env.DB.prepare(
           `SELECT t.* FROM cms_themes t
            INNER JOIN settings s ON s.setting_value = t.slug OR s.setting_value = CAST(t.id AS TEXT)
            WHERE s.setting_key = 'appearance.theme' AND s.tenant_id = ? LIMIT 1`
         ).bind(tid).first();
 
+        if (!themeRow) {
+          themeRow = await env.DB.prepare(
+            `SELECT * FROM cms_themes WHERE is_system = 1 ORDER BY sort_order ASC LIMIT 1`
+          ).first();
+        }
+
         if (themeRow) {
-          const config = typeof themeRow.config === 'object' ? themeRow.config : JSON.parse(themeRow.config || '{}');
+          const config  = typeof themeRow.config === 'string' ? JSON.parse(themeRow.config) : (themeRow.config || {});
           const rawVars = config.variables || config.data || config || {};
           Object.entries(rawVars).forEach(([k, v]) => {
             const key = k.startsWith('--') ? k : `--${k.replace(/_/g, '-')}`;
             themeVars[key] = v;
           });
-          isDark = config.mode === 'dark' || config.is_dark === true;
+          isDark = config.mode === 'dark' || config.is_dark === true || String(themeRow.slug || '').includes('dark');
         }
       } catch (e) {
         console.error('Theme Resolution Failure:', e);
@@ -177,14 +200,14 @@ export async function handleRequest(request, env, ctx) {
       themeVars,
       isDark,
       workspaceId: env.WORKSPACE_ID || 'ws_inneranimalmedia',
-      version: env.CF_VERSION_METADATA?.id || env.SHELL_VERSION || String(Date.now())
+      version: env.CF_VERSION_METADATA?.id || env.SHELL_VERSION || String(Date.now()),
     });
 
     return new Response(html, {
-      headers: { 
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      }
+      headers: {
+        'Content-Type':  'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
     });
   }
 
@@ -218,6 +241,58 @@ export async function handleRequest(request, env, ctx) {
 
   if (path === '/health' || path.startsWith('/api/health')) {
     return handleHealthApi(request, url, env, ctx);
+  }
+
+  // ── Tunnel status ─────────────────────────────────────────────────────────
+  if (path === '/api/tunnel/status' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB)   return jsonResponse({ healthy: false, status: 'no-db', connections: 0 });
+    try {
+      const row = await env.DB.prepare(
+        `SELECT tunnel_url, status, connections
+         FROM tunnel_sessions
+         WHERE user_id = ? AND status = 'active'
+         ORDER BY updated_at DESC LIMIT 1`
+      ).bind(String(authUser.id)).first().catch(() => null);
+      if (!row) return jsonResponse({ healthy: false, status: 'no-tunnel', connections: 0 });
+      return jsonResponse({
+        healthy:    true,
+        status:     row.status,
+        connections: row.connections || 0,
+        tunnel_url: row.tunnel_url,
+      });
+    } catch (e) {
+      return jsonResponse({ healthy: false, status: 'error', error: e.message, connections: 0 });
+    }
+  }
+
+  // ── Branding / logo ───────────────────────────────────────────────────────
+  if (path.startsWith('/api/branding/')) {
+    const asset = path.replace('/api/branding/', '');
+    if (asset === 'logo' && env.DB) {
+      try {
+        const row = await env.DB.prepare(
+          `SELECT logo_url FROM cms_tenants WHERE id = ? LIMIT 1`
+        ).bind(env.TENANT_ID || 'tenant_sam_primeaux').first().catch(() => null);
+        if (row?.logo_url) return Response.redirect(row.logo_url, 302);
+      } catch (_) {}
+    }
+    if (env.ASSETS) {
+      const obj = await env.ASSETS.get(`branding/${asset}`).catch(() => null);
+      if (obj) {
+        const ext = asset.split('.').pop() || '';
+        const ct  = ext === 'svg'  ? 'image/svg+xml' :
+                    ext === 'png'  ? 'image/png' :
+                    ext === 'webp' ? 'image/webp' :
+                    'application/octet-stream';
+        return new Response(obj.body, {
+          headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=3600' },
+        });
+      }
+    }
+    // Silent 204 — App.tsx has onError handler that hides the img element
+    return new Response('', { status: 204 });
   }
 
   // ── Overview / analytics ──────────────────────────────────────────────────
@@ -298,7 +373,7 @@ export async function handleRequest(request, env, ctx) {
     return handleAdminApi(request, url, env, ctx);
   }
 
-  // ── Dashboard ─────────────────────────────────────────────────────────────
+  // ── Dashboard (terminal, chat, browser, playwright, hyperdrive) ───────────
 
   if (
     path.startsWith('/api/chat')       ||
@@ -323,8 +398,6 @@ export async function handleRequest(request, env, ctx) {
   }
 
   // ── Public static pages (served from ASSETS R2 bucket) ───────────────────
-  // Files must be uploaded to the ASSETS bucket matching these keys.
-  // Repo source: source/public/
 
   if (path === '/' || path === '/index.html') {
     return serveStaticPage(env, 'source/public/index.html');
@@ -340,64 +413,6 @@ export async function handleRequest(request, env, ctx) {
 
   if (path === '/auth-reset' || path === '/auth-reset.html' || path === '/auth/reset') {
     return serveStaticPage(env, 'source/public/auth-reset.html');
-  }
-
-  // Handle all dashboard routes dynamically (overview, agent, etc.)
-  if (path.startsWith('/dashboard/')) {
-    const slug = path.split('/')[2] || 'agent';
-    
-    // ── THEME RESOLUTION (Production-Parity Logic) ──────────────────────────
-    let themeRow = null;
-    let themeVars = {};
-    let isDark = true;
-    
-    if (env.DB) {
-      try {
-        const tid = (typeof env.TENANT_ID === 'string') ? env.TENANT_ID : 'tenant_sam_primeaux';
-        
-        // 1. Try settings table (Tenant-wide active theme)
-        themeRow = await env.DB.prepare(
-          `SELECT t.* FROM cms_themes t
-           INNER JOIN settings s ON s.setting_value = t.slug OR s.setting_value = CAST(t.id AS TEXT)
-           WHERE s.setting_key = 'appearance.theme' AND s.tenant_id = ? LIMIT 1`
-        ).bind(tid).first();
-
-        // 2. Fallback to system default
-        if (!themeRow) {
-          themeRow = await env.DB.prepare(
-            `SELECT * FROM cms_themes WHERE is_system = 1 ORDER BY sort_order ASC LIMIT 1`
-          ).first();
-        }
-
-        if (themeRow) {
-          const config = typeof themeRow.config === 'string' ? JSON.parse(themeRow.config) : (themeRow.config || {});
-          // Deep extract: handle 'variables' or 'data' or root keys
-          const rawVars = config.variables || config.data || config || {};
-          // Ensure all keys are normalized
-          Object.entries(rawVars).forEach(([k, v]) => {
-            const key = k.startsWith('--') ? k : `--${k.replace(/_/g, '-')}`;
-            themeVars[key] = v;
-          });
-          isDark = config.mode === 'dark' || config.is_dark === true || String(themeRow.slug || '').includes('dark');
-        }
-      } catch (e) {
-        console.error('Theme Resolution Failure:', e);
-      }
-    }
-
-    const html = renderDashboardShell(slug, {
-      themeVars,
-      isDark,
-      workspaceId: env.WORKSPACE_ID || 'ws_sandbox',
-      version: env.CF_VERSION_METADATA?.id || env.SHELL_VERSION || String(Date.now())
-    });
-
-    return new Response(html, {
-      headers: { 
-        'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      }
-    });
   }
 
   // ── 404 ───────────────────────────────────────────────────────────────────
