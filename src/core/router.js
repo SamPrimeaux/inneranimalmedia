@@ -177,7 +177,7 @@ export async function handleRequest(request, env, ctx) {
       themeVars,
       isDark,
       workspaceId: env.WORKSPACE_ID || 'ws_inneranimalmedia',
-      version: env.CF_VERSION_METADATA?.id || 'v58'
+      version: env.CF_VERSION_METADATA?.id || env.SHELL_VERSION || String(Date.now())
     });
 
     return new Response(html, {
@@ -389,7 +389,7 @@ export async function handleRequest(request, env, ctx) {
       themeVars,
       isDark,
       workspaceId: env.WORKSPACE_ID || 'ws_sandbox',
-      version: env.CF_VERSION_METADATA?.id || 'v58'
+      version: env.CF_VERSION_METADATA?.id || env.SHELL_VERSION || String(Date.now())
     });
 
     return new Response(html, {
