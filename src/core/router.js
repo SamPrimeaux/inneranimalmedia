@@ -276,9 +276,38 @@ export async function handleRequest(request, env, ctx) {
   // Handle all dashboard routes dynamically (overview, agent, etc.)
   if (path.startsWith('/dashboard/')) {
     const slug = path.split('/')[2] || 'agent';
-    const assetUrl = new URL(url);
-    assetUrl.pathname = `/source/public/dashboard-${slug}.html`;
-    return env.STATIC_ASSETS.fetch(new Request(assetUrl, request));
+    const assetPath = `/source/public/dashboard-${slug}.html`;
+    const r2Key = `source/public/dashboard-${slug}.html`;
+
+    // 1. Try serving from local build assets if the binding exists
+    if (env.STATIC_ASSETS) {
+      try {
+        const assetUrl = new URL(url);
+        assetUrl.pathname = assetPath;
+        const res = await env.STATIC_ASSETS.fetch(new Request(assetUrl, request));
+        if (res.ok) return res;
+      } catch (e) { /* fall through */ }
+    }
+
+    // 2. Fallback to DASHBOARD R2 bucket if build assets are missing
+    if (env.DASHBOARD) {
+      const obj = await env.DASHBOARD.get(r2Key);
+      if (obj) {
+        return new Response(obj.body, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+    }
+
+    // 3. Last resort fallback to ASSETS R2 bucket
+    if (env.ASSETS) {
+      const obj = await env.ASSETS.get(r2Key);
+      if (obj) {
+        return new Response(obj.body, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+    }
   }
 
   // ── 404 ───────────────────────────────────────────────────────────────────
