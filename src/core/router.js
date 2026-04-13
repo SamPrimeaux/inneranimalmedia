@@ -271,37 +271,57 @@ export async function handleRequest(request, env, ctx) {
   if (path.startsWith('/dashboard/')) {
     const slug = path.split('/')[2] || 'agent';
     
-    // DB-Driven Hydration: Resolve active theme from D1
+    // ── THEME RESOLUTION (Production-Parity Logic) ──────────────────────────
     let themeRow = null;
     let themeVars = {};
     let isDark = true;
     
     if (env.DB) {
       try {
-        // Find the system default or user-selected theme
+        const tid = (typeof env.TENANT_ID === 'string') ? env.TENANT_ID : 'tenant_sam_primeaux';
+        
+        // 1. Try settings table (Tenant-wide active theme)
         themeRow = await env.DB.prepare(
-          `SELECT t.* FROM cms_themes t 
-           WHERE t.is_system = 1 
-           ORDER BY t.sort_order ASC LIMIT 1`
-        ).first();
+          `SELECT t.* FROM cms_themes t
+           INNER JOIN settings s ON s.setting_value = t.slug OR s.setting_value = CAST(t.id AS TEXT)
+           WHERE s.setting_key = 'appearance.theme' AND s.tenant_id = ? LIMIT 1`
+        ).bind(tid).first();
+
+        // 2. Fallback to system default
+        if (!themeRow) {
+          themeRow = await env.DB.prepare(
+            `SELECT * FROM cms_themes WHERE is_system = 1 ORDER BY sort_order ASC LIMIT 1`
+          ).first();
+        }
 
         if (themeRow) {
           const config = typeof themeRow.config === 'string' ? JSON.parse(themeRow.config) : (themeRow.config || {});
-          themeVars = config.variables || config.data || config || {};
+          // Deep extract: handle 'variables' or 'data' or root keys
+          const rawVars = config.variables || config.data || config || {};
+          // Ensure all keys are normalized
+          Object.entries(rawVars).forEach(([k, v]) => {
+            const key = k.startsWith('--') ? k : `--${k.replace(/_/g, '-')}`;
+            themeVars[key] = v;
+          });
           isDark = config.mode === 'dark' || config.is_dark === true || String(themeRow.slug || '').includes('dark');
         }
-      } catch (e) { console.error('Theme hydration failed:', e); }
+      } catch (e) {
+        console.error('Theme Resolution Failure:', e);
+      }
     }
 
     const html = renderDashboardShell(slug, {
       themeVars,
       isDark,
-      workspaceId: env.WORKSPACE_ID || 'iam-prod',
+      workspaceId: env.WORKSPACE_ID || 'ws_sandbox',
       version: env.CF_VERSION_METADATA?.id || 'v58'
     });
 
     return new Response(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      headers: { 
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      }
     });
   }
 
