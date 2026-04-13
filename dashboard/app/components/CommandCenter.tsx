@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { 
   DollarSign, Zap, Cloud, Users, AlertOctagon, CheckCircle,
   MoreVertical, ArrowUpRight, ArrowDownRight, Activity as ActivityIcon,
-  Server, ShieldCheck, Globe, Code, Layers
+  Server, ShieldCheck, Globe, Code, Layers, Workflow
 } from 'lucide-react';
 import { 
   Sparkline, CircularGauge, HybridBarLineChart, DonutChart 
