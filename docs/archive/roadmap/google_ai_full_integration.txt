@@ -1,0 +1,50 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_google_integration
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Google AI Full Integration
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Fix Google Streaming
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Replace ReadableStream pull() with TransformStream, add ?alt=sse, fix gateway routing
+---
+### STEP None: Build Google Tool Loop
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+chatWithToolsGoogle with functionDeclarations, execution, functionResponse cycle
+---
+### STEP None: Fix Google Model Keys
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Correct fake Gemini 3.x model keys to real preview model IDs
+---
+### STEP None: Google Image Generation
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Wire Gemini image models (gemini-3.1-flash-image-preview) for image output
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #active
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

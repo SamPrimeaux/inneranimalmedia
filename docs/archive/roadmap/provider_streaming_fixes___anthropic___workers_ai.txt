@@ -1,0 +1,44 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_streaming_fixes
+  status: completed
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Provider Streaming Fixes — Anthropic + Workers AI
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Fix streamWorkersAI SSE output
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+streamWorkersAI at line 7413 exists but emits chunks:0. Benchmark confirmed 1-2s response time but no text events. Likely not enqueuing text SSE events or using wrong response shape from env.AI.run(). Grep line 7413 and inspect.
+---
+### STEP None: Fix chatWithToolsAnthropic SSE streaming
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+Replace await res.json() with stream:true + SSE pipe. content_block_delta → text_delta events. Buffer tool_use blocks by content block ID. Execute tools after message_stop. Loop. Eliminates 6-10s blank screen.
+---
+### STEP None: Remove AI Gateway from Anthropic + OpenAI streaming paths
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+canStreamAnthropic no longer blocked by useGateway. callGatewayChat no longer called for openai/anthropic. Google gateway path removed. Workers AI unaffected. Direct API calls only.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #completed
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

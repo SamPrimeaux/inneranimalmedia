@@ -1,0 +1,122 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_agent_sam_core
+  status: in_progress
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Agent Sam — Core Platform Sprint
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Anthropic SSE Streaming Fix
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Replace await res.json() with SSE streaming in chatWithToolsAnthropic. Eliminates 6-10s blank screen. Switch to stream:true, pipe content_block_delta events, buffer tool_use blocks, loop.
+---
+### STEP None: spend_ledger Agent Chat Writes
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add INSERT to spend_ledger at end of streamDoneDbWrites for all providers. Finance dashboard is blind to agent chat costs since Feb 18.
+---
+### STEP None: agentsam_skill /invoke Endpoint
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Build POST /api/skills/:id/invoke. 12 skills registered with slash triggers, none executable. Needs route handler + skill loader + system prompt injection.
+---
+### STEP None: Model Picker UX Redesign
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Replace 41-model dropdown with 5-mode smart picker (Auto/Fast/Balanced/Deep/Research/Reason). Hide deprecated/image-only/cursor models from picker. Power user override in SettingsPanel.
+---
+### STEP None: OpenAI Webhook HMAC Verify
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add verifyKind:openai case to handleInboundWebhook. HMAC-SHA256 using webhook-id+webhook-timestamp+webhook-signature headers. Endpoint live at /api/hooks/openai, secret=OPENAI_WEBHOOK_SECRET. Currently accepts any POST unverified.
+---
+### STEP None: AGENT_SESSION DO WebSocket Handler
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Build WebSocket handler inside IAMSession DO. Move chat messages into DO SQLite. Route /api/agent/chat through env.AGENT_SESSION. DO wired in both workers, class is stub.
+---
+### STEP None: AI Search / Vectorize Rebuild
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Unified RAG search built — unifiedRagSearch() fans out across ai_knowledge_chunks (D1 cosine), context_index, agent_platform_context, agentsam_project_context. /api/search/federated live. Search bar in agent.html wired. AUTORAG_BUCKET R2 fetch for LIKE fallback branch added. 187 indexed chunks live. Vectorize indexes deprecated.
+---
+### STEP None: Full Model Smoke Test Suite
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+End-to-end smoke test all active models. Document which pass tool use, streaming, vision. Update smoke-test.sh with full model matrix. Deploy-test-promote script currently tests 7 core + 3 tool use.
+---
+### STEP None: Fix deploy-sandbox.sh --worker-only Flag
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+deploy-sandbox.sh ignores --worker-only and always rebuilds React. SKIP_BUILD check happens after build command. Fix: move check before cd agent-dashboard line.
+---
+### STEP None: Terminal inline AI assist — /explain /ask /fix + auto error detection
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+POST /api/terminal/assist wired to model_routing_rules task_type=terminal_assist + ppf_terminal prompt fragment. iam-pty intercepts slash commands and auto-detects errors. DB-driven model + prompt — zero hardcode.
+---
+### STEP None: Terminal login menu numbers 1-5 wired to real dashboard actions
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+1=cd workspace, 2=navigate agent, 3=open quick actions, 4=open settings/appearance, 5=run diagnostics. dashboard_action JSON message type bridges iam-pty to AgentBottomPanel.
+---
+### STEP None: Wire selectAutoModel to model_routing_rules with perf override support
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+selectAutoModel now reads model_routing_rules by intent→task_type mapping instead of empty ai_routing_rules table. perf_override_model used when performance_score populated.
+---
+### STEP None: Add web_search tool to mcp_registered_tools + wire handler
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+No web_search tool existed — GPT-5.4 was improvising with curl/python. Tool registered in DB and handler wired in worker.js.
+---
+### STEP None: Close model performance feedback loop — populate model_performance_scores
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+routing_decisions has telemetry but model_performance_scores has 0 rows. Need aggregation job to compute scores and feed perf_override_model per task_type.
+---
+### STEP None: Repair r2_write MCP tool — 91% failure rate
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+r2_write is_degraded=1, excluded from all agent modes. Diagnose root cause and repair so Agent Sam can reliably write files via MCP.
+---
+### STEP None: Claude Code local workflow — CLAUDE.md + session bootstrap
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+Claude Code installed v2.1.87. CLAUDE.md to be created from AGENTS.md + deploy rules addendum. Session bootstrap: cd to repo + project_memory query.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #in_progress
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

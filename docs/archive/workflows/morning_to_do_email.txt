@@ -1,0 +1,27 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: workflow
+  id: wf_morning_todo_email
+  category: general
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:32
+  index_priority: medium
+
+---
+TITLE: WORKFLOW - Morning To-Do Email
+CONTEXT: Procedural knowledge for Inner Animal Media operations.
+
+DESCRIPTION:
+Sends Sam a daily actionable plan at 8am CST based on live D1 data
+
+LOGIC_STEPS:
+[]
+
+RETRIEVAL_TAGS:
+#workflow #operations #agentsam #general
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This workflow defines a repeatable platform procedure.
+- SUGGESTION: Verify step compliance by auditing agent execution logs for this specific workflow ID.

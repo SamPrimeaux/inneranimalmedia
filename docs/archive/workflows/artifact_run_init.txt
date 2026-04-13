@@ -1,0 +1,27 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: workflow
+  id: wf_iam_artifact_init
+  category: general
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:32
+  index_priority: medium
+
+---
+TITLE: WORKFLOW - Artifact Run Init
+CONTEXT: Procedural knowledge for Inner Animal Media operations.
+
+DESCRIPTION:
+Create workflow_runs row; register workflow_artifacts contract; emit run_started. Uses mcp_workflows FK for workflow_id when set.
+
+LOGIC_STEPS:
+[]
+
+RETRIEVAL_TAGS:
+#workflow #operations #agentsam #general
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This workflow defines a repeatable platform procedure.
+- SUGGESTION: Verify step compliance by auditing agent execution logs for this specific workflow ID.

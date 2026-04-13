@@ -1,0 +1,30 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: recipe
+  id: rp_content_repurposer_v1
+  trigger: N/A
+  category: content
+  version: 1.0.0
+  timestamp: 2026-04-13 00:03:40
+  index_priority: high
+
+---
+TITLE: Content Repurposer
+CONTEXT: Operational recipe for Agent Sam orchestration.
+
+DESCRIPTION:
+Repurposes one core piece of content into multiple formats (email, social, short-form, outlines, scripts) while keeping voice consistent and avoiding fluff.
+
+SYSTEM_PROMPT:
+N/A
+
+USER_TEMPLATE:
+N/A
+
+RETRIEVAL_TAGS:
+#recipe #agentsam #content
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This recipe is optimized for state-of-the-art LLMs.
+- SUGGESTION: Monitor output tokens if this recipe is used in a loop.

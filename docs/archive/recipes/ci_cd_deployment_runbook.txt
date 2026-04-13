@@ -1,0 +1,30 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: recipe
+  id: rp_cicd_deployment_runbook_v1
+  trigger: N/A
+  category: workflow
+  version: 1.0.0
+  timestamp: 2026-04-13 00:03:40
+  index_priority: high
+
+---
+TITLE: CI/CD Deployment Runbook
+CONTEXT: Operational recipe for Agent Sam orchestration.
+
+DESCRIPTION:
+Produces a disciplined dev→prod promotion plan: build once, promote many, release versioning, smoke tests, rollback, and secrets/env separation.
+
+SYSTEM_PROMPT:
+N/A
+
+USER_TEMPLATE:
+N/A
+
+RETRIEVAL_TAGS:
+#recipe #agentsam #workflow
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This recipe is optimized for state-of-the-art LLMs.
+- SUGGESTION: Monitor output tokens if this recipe is used in a loop.

@@ -1,0 +1,30 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: recipe
+  id: recipe_rag_test
+  trigger: N/A
+  category: debug
+  version: 1.0.0
+  timestamp: 2026-04-13 00:03:40
+  index_priority: high
+
+---
+TITLE: Test RAG Pipeline
+CONTEXT: Operational recipe for Agent Sam orchestration.
+
+DESCRIPTION:
+Verify AutoRAG is returning real context
+
+SYSTEM_PROMPT:
+N/A
+
+USER_TEMPLATE:
+N/A
+
+RETRIEVAL_TAGS:
+#recipe #agentsam #debug
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This recipe is optimized for state-of-the-art LLMs.
+- SUGGESTION: Monitor output tokens if this recipe is used in a loop.

@@ -1,0 +1,38 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_benchmark_race_ui
+  status: planned
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Benchmark Race UI
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Build ModelRace.jsx component
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+React component. Promise.all fires all picker models simultaneously. Per-model state: chunks, cost, elapsed, response text. Lane UI: provider badge, streaming text, chunk counter, cost ticker, timing bar. Animate on chunk arrival.
+---
+### STEP None: Add /dashboard/benchmark route
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+Wire ModelRace.jsx as a dashboard page. Pull model list from /api/agent/boot (already returns all picker models). Add benchmark tab to SettingsPanel or standalone route.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #planned
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

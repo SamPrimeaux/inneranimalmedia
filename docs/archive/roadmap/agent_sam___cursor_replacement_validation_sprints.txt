@@ -1,0 +1,186 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_cursor_replacement_sprints
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Agent Sam — Cursor Replacement Validation Sprints
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: SPRINT 1 — File Read/Write/Edit (foundation)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+OBJECTIVE: Agent Sam reads a file, makes a targeted edit, verifies it, and the result is correct. No human touches the file.
+
+PREREQUISITE: workspace_write_file + workspace_edit_file + think tool shipped (from endgame plan step 1-3).
+
+TEST PROMPT TO GIVE AGENT SAM:
+"In worker.js, find the IAM_DEFAULT_WORKSPACE_ID constant and change its value to ws_inneranimalmedia if it is not already set to that. Use workspace_read_file to find the exact line, workspace_edit_file to change it, then verify with workspace_read_file again. Show me the before and after."
+
+PASS CRITERIA:
+- Agent reads the file without being told line numbers
+- Finds the exact string autonomously
+- workspace_edit_file succeeds (not ambiguous, not not_found)
+- Reads file again and confirms change
+- Does NOT ask you to run any terminal command manually
+- Total time under 3 minutes
+
+FAIL CRITERIA (any one = fail):
+- Agent asks you to run a sed command
+- Agent hallucinates file contents without reading
+- workspace_edit_file returns ambiguous or not_found error
+- Agent gives up and says it cannot edit files
+
+MEASURE:
+SELECT model_id, input_tokens, output_tokens, cost_usd, 
+  CAST((julianday(completed_at) - julianday(started_at)) * 86400 AS INTEGER) as duration_secs
+FROM agentsam_agent_run WHERE status='completed' ORDER BY completed_at DESC LIMIT 3
+---
+### STEP None: SPRINT 2 — Codebase Awareness (find things without being told where)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+OBJECTIVE: Agent Sam answers questions about the codebase by reading files, not hallucinating. Equivalent to Cursor tab completion knowing the codebase.
+
+PREREQUISITE: Sprint 1 passed. AutoRAG sync fixed so knowledge_search works.
+
+TEST PROMPT TO GIVE AGENT SAM:
+"Without me telling you any line numbers: (1) Find where streamDoneDbWrites is defined in worker.js. (2) List what tables it writes to. (3) Find if it writes token_count to agent_messages. Answer based only on what you actually read, not what you assume."
+
+PASS CRITERIA:
+- Agent uses workspace_read_file or knowledge_search to find the function
+- Gives correct line number (verify: grep -n streamDoneDbWrites worker.js)
+- Correctly identifies tables written (agent_messages, agent_sessions)
+- Correctly answers token_count question (yes, added in today session)
+- Does NOT make up line numbers or table names
+- Zero hallucinations
+
+FAIL CRITERIA:
+- Gives wrong line numbers without reading file
+- Says token_count is not written when it is
+- Cannot find the function at all
+
+MEASURE:
+SELECT tool_name, status, COUNT(*) as calls
+FROM mcp_tool_calls 
+WHERE invoked_at > datetime('now','-1 hours')
+GROUP BY tool_name, status ORDER BY calls DESC
+---
+### STEP None: SPRINT 3 — Build a Small Feature End to End (the Cursor replacement test)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+OBJECTIVE: Agent Sam adds a new API endpoint to worker.js from scratch — reads context, writes code, builds, commits. No human writes any code.
+
+PREREQUISITE: Sprints 1 and 2 passed.
+
+TEST PROMPT TO GIVE AGENT SAM:
+"Add a new GET /api/admin/workspace-health endpoint to worker.js. It should: (1) Require Sam-only auth. (2) Query workspace_connectivity_status for ws_inneranimalmedia rows. (3) Return JSON with the results. Place it near the other /api/admin/* routes. Build must pass before you commit. Use the code intelligence workflow: read -> think -> edit -> verify -> build -> commit."
+
+PASS CRITERIA:
+- Agent finds the correct insertion point without being told line number
+- Writes valid JavaScript that node --check passes
+- npm run build passes with 0 errors
+- git commit is made with descriptive message
+- Endpoint exists and returns 200 when curled (after deploy)
+- Agent does not ask you to write any code manually
+- Completes in under 10 minutes
+
+FAIL CRITERIA:
+- Build fails and agent cannot fix it
+- Agent writes the code in chat instead of to the file
+- Agent asks you to copy-paste code into the file
+- Agent corrupts the file (syntax error in node --check)
+
+MEASURE:
+SELECT version, git_hash, created_at FROM deployments ORDER BY created_at DESC LIMIT 1
+---
+### STEP None: SPRINT 4 — Autonomous Deploy Pipeline (Agent Sam ships to sandbox, waits for approval)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+OBJECTIVE: Agent Sam runs the full deploy pipeline autonomously: build -> sandbox deploy -> benchmark -> approval request. Sam only clicks approve.
+
+PREREQUISITE: Sprints 1-3 passed. Human approval gate built (endgame step 12).
+
+TEST PROMPT TO GIVE AGENT SAM:
+"Deploy everything currently uncommitted to sandbox, run the benchmark, and send me an approval request when it passes 31/31. Do not promote to prod until I approve. Run every step yourself via terminal_execute."
+
+PASS CRITERIA:
+- Agent runs deploy-sandbox.sh via terminal_execute (not asking you to run it)
+- Agent reads benchmark output and reports score
+- If benchmark fails, agent diagnoses and retries (not just gives up)
+- Agent sends approval email via Resend when 31/31
+- Agent does NOT promote to prod without approval
+- Agent updates agentsam_agent_run.status = awaiting_approval
+
+FAIL CRITERIA:
+- Agent asks you to run any command manually
+- Agent promotes to prod without approval
+- Agent cannot read benchmark output (terminal stateless issue)
+- Agent ignores failed benchmark tests
+
+COST BENCHMARK:
+SELECT SUM(cost_usd), COUNT(*) as agent_runs,
+  AVG(CAST((julianday(completed_at)-julianday(started_at))*86400 AS INTEGER)) as avg_secs
+FROM agentsam_agent_run 
+WHERE started_at > datetime('now','-2 hours')
+---
+### STEP None: SPRINT 5 — Idea to Platform (the final boss)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+OBJECTIVE: Give Agent Sam a product idea in plain English. It designs, builds, deploys, and presents a working platform for approval. Zero code from Sam.
+
+PREREQUISITE: Sprints 1-4 all passed.
+
+TEST PROMPT TO GIVE AGENT SAM:
+"Build a simple link-in-bio page for Meauxbility (meauxbility.org). It should have: the org name, a short description pulled from the meauxbility_main project context in D1, links to donate, volunteer, and contact. Store the HTML in the assets R2 bucket at pages/meauxbility-links.html. Make it look clean using Tailwind CDN. Deploy it and send me the R2 URL when done."
+
+PASS CRITERIA:
+- Agent reads meauxbility project context from D1 (not hallucinated content)
+- Produces valid HTML with Tailwind
+- Writes file to R2 via r2_write tool (not asking you to upload manually)
+- R2 URL is accessible and renders correctly
+- Entire task completes without Sam writing any code or running any commands
+- Cost under $0.10 total for the session
+
+FAIL CRITERIA:
+- Agent produces HTML in chat instead of writing to R2
+- Agent uses hallucinated org description instead of reading D1
+- r2_write fails (56% failure rate — this tests if that bug is fixed)
+- Agent asks Sam to do anything manually
+
+FINAL SCORE:
+Sprint 1 pass = Agent can edit code
+Sprint 2 pass = Agent knows the codebase  
+Sprint 3 pass = Agent can build features
+Sprint 4 pass = Agent can deploy autonomously
+Sprint 5 pass = Agent Sam replaces Cursor
+
+COST COMPARISON (run after Sprint 5):
+SELECT 
+  COUNT(*) as total_agent_runs,
+  ROUND(SUM(cost_usd),4) as total_cost_usd,
+  ROUND(AVG(cost_usd),4) as avg_cost_per_run
+FROM agentsam_agent_run
+WHERE started_at > datetime('now','-7 days')
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #active
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

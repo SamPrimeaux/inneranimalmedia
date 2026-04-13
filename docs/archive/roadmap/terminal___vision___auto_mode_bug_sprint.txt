@@ -1,0 +1,86 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_terminal_vision_bugfix_2026
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Terminal + Vision + Auto Mode Bug Sprint
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Fix Google/Gemini silent routing fallback
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+Auto selects google/gemini-2.5-flash but model is overridden to Haiku before canStreamGoogle is evaluated. Find override between lines 9447-9895 in worker.js. canStreamGoogle evaluates against already-overridden model. Fix: compute canStreamGoogle from original Auto-selected model before any override. — FIXED 2026-03-27: agentsam_ai model_policy_json primary key removed. Was hardcoding claude-haiku-4-5-20251001 and overriding Auto selection every request. DB-only fix, no deploy needed. — PARTIAL 2026-03-27: Tool loop works (5 iters 200 OK). Final text stream broken — renders nothing in UI. canStreamGoogle=false was the safety valve. Need to fix chatWithToolsGoogle text stream emit before re-enabling.
+---
+### STEP None: Fix vision — images not reaching model
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+images array sent as separate body field but never merged into messages for Anthropic. buildAnthropicBlocks exists and is wired in runToolLoop but chatWithToolsAnthropic path (used for streaming) may not receive images. Add images_count log to chatWithToolsAnthropic Sending request log to confirm. Fix fetch body to pass images into the streaming path.
+---
+### STEP None: AutoRAG circuit breaker — stop 500 on every request
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+iam-autorag AI Search binding returns Internal Error 500 on every request. runRag only fires in agent mode but fires every time. Add circuit breaker: if AutoRAG fails 3x in same request skip it. Or check AI_SEARCH_TOKEN validity. Immediate fix: wrap in try/catch that sets ragContext="" and continues without retrying.
+---
+### STEP None: Fix context_index LIKE pattern too complex
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+fetchContextIndex builds a LIKE pattern from user query that is too complex for SQLite. Fires on every chat. Fix: truncate input to context search, escape special chars, or switch to FTS5 fulltext search.
+---
+### STEP None: Fix Auto mode tool_use_id context loss
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Multi-turn tool loop in Auto mode drops tool_use context between rounds. Error: unexpected tool_use_id found in tool_result blocks. Haiku handles it fine. Auto mode message building strips tool_use blocks from prior assistant turns.
+---
+### STEP None: agentsam_* table instrumentation Phase 1
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Activate core loop tables: agentsam_agent_run (add session_id, tool_count, tokens_used), agentsam_rules_revision (auto-record on save), agentsam_skill_invocation (instrument with params + duration_ms), agentsam_subagent_profile (add allowed_models, rate_limit_per_hour). All worker.js changes, no migrations.
+---
+### STEP None: Fix sandbox deploy pipeline — wire R2 upload to agent-sam-sandbox-cidi
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+npm run deploy:sandbox deploys worker but never uploads built JSX to agent-sam-sandbox-cidi R2 bucket. Sandbox always serves stale build. Fix: create scripts/deploy-sandbox-with-record.sh mirroring deploy-with-record.sh but targeting agent-sam-sandbox-cidi bucket.
+---
+### STEP None: P0: Intent-driven context + tool filtering
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Every request sends 6532 tokens of overhead: 2896 compiled context + 754 pgvector + 2882 tool definitions (36 tools). Intent classifier already runs but only picks model — wire it to also filter context and tools. shell intent: terminal_execute only, no context. sql intent: d1_query/d1_write + schema hints only. question intent: no tools, relevant memory chunks only. action intent: task-relevant tool subset. System prompt should be ~200 tokens max — identity + hard rules only. Everything else conditional. Currently burning 4000 tokens/request baseline before any conversation. At 30k tokens/min rate limit = 7 requests/min ceiling with Sonnet. With filtering = 30-40 requests/min. — KEY LINES: buildAgentContext line 5378, buildModeContext line 5399, compiledContext assembled at line 9665. compiledContextBlob is the 11583 char dump. Fix: in buildModeContext, check intent param and return stripped context for shell/question intents. EXACT FIX: In buildModeContext (line 5399), add intent param. For shell intent: skip compiledContextBlob entirely, return only fileContext. For question intent: return ask-style context (already exists as buildAskContext). For action/mixed: return capped compiledContext (first 3000 chars only, not full 11583). Full context only for agent mode explicit tasks. Also: filterToolsByMode needs shell intent → terminal_execute only (currently only plan/ask/debug/agent are handled). ai_compiled_context_cache is daily — good. Just cap what gets passed from cache to buildModeContext.
+---
+### STEP None: P0: System prompt architecture audit
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Core system prompt is 86 tokens — good. But compiled_context (2896 tokens) is injected every request regardless of relevance. This is a memory dump not a system prompt. Replace with: 1) Static identity/rules block ~200 tokens 2) Dynamic context injected only when relevant to intent 3) Tool definitions trimmed to intent-relevant subset. The agentsam_rules_document should contain only hard rules and identity. Memory/context should come from RAG on demand.
+---
+### STEP None: P0: Fix chatWithToolsGoogle final text stream emission
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Gemini tool loops work (iter 0-5 all 200 OK) but final text response never renders in UI — page goes blank. chatWithToolsGoogle completes but never emits the text SSE event back to the client. streamGoogle function exists at line 6980 but chatWithToolsGoogle at line 6829 does not call it for the final response. Fix: after tool loop completes, emit accumulated text via the SSE send() function. Same pattern as chatWithToolsAnthropic final stream. Gemini is currently the best budget model and should be the PRIMARY Auto selection for question/mixed intents — NOT blocked, NOT hidden. Fix the stream, not the model.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #active
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

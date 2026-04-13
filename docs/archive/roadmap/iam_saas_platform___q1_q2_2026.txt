@@ -1,0 +1,98 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: rp_iam_saas_q1q2_2026
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - IAM SaaS Platform — Q1/Q2 2026
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Full Model Benchmark System
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+31-model smoke test across all providers. benchmark-full.sh + compare-openai.sh shipped. 31/31 PASS on prod.
+---
+### STEP None: Anthropic Real-time Streaming
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+Background _runLoop IIFE — tool responses stream incrementally. patch-anthropic-stream.cjs.
+---
+### STEP None: Workers AI Free Tier — All 6 Models
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+Non-streaming + Promise.race 25s timeout. patch-workers-ai.cjs. chunks:1 $0 confirmed.
+---
+### STEP None: CIDI Deploy Pipeline — Sandbox-First Enforced
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+5-step workflow locked: build→sandbox→benchmark→promote→prod-benchmark→commit. promote-to-prod.sh pulls from R2 not local dist.
+---
+### STEP None: OpenAI Model Tier Selection
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+21 OpenAI models picked: chat/reasoning/codex/image/video/embed tiers. benchmarked and documented.
+---
+### STEP None: Token Optimization — 58% Haiku Reduction
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+buildAgentContext cappedBlob, anthropic explicit caps, pgvector skip for sql/question intents. Haiku SQL 9253→3867 tokens. Cost 55% reduction.
+---
+### STEP None: P0: classifyIntent for Manual Model Selection
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Haiku still at 4077 tokens when user manually selects model (_agentIntent null). OpenAI already at 1541. Fix classifyIntent to cover manual path. Target: <1500 tokens universally.
+---
+### STEP None: Anthropic + Google + Workers AI Model Picker Audit
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+OpenAI complete (21 models). Anthropic: Sonnet 4/Opus 4 hide (superseded). Google: Gemini 2.5 Flash hide/keep decision. Workers AI: hide Llama 3.1 8B + GLM 4.7 + Nemotron. Update ai_models show_in_picker.
+---
+### STEP None: P1: OpenAI Responses API Streaming Fix
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+GPT-5.4-nano/mini showing chunks:0 in some runs. Responses API streaming fix — chunks should be token-by-token not buffered.
+---
+### STEP None: Anthropic Batch API — Nightly Summaries
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+50% cost discount on nightly memory compaction + summaries. Wire batch endpoint for scheduled jobs.
+---
+### STEP None: AIChatAgent Durable Object Migration
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+WebSocket streaming + built-in SQLite per session. Removes need for background IIFE workaround.
+---
+### STEP None: Supabase + Hyperdrive — AutoRAG Vector Memory
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Add SUPABASE_URL/keys to wrangler secrets. Update Hyperdrive binding in wrangler.production.toml. Wire vector embeddings for agent memory.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #active
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

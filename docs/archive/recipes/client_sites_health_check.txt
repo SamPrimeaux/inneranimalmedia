@@ -1,0 +1,30 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: recipe
+  id: rp_client_health_v1
+  trigger: N/A
+  category: ops
+  version: 1.0.0
+  timestamp: 2026-04-13 00:03:40
+  index_priority: high
+
+---
+TITLE: Client Sites Health Check
+CONTEXT: Operational recipe for Agent Sam orchestration.
+
+DESCRIPTION:
+Ping all client sites, check D1 bindings, report red/yellow/green per client
+
+SYSTEM_PROMPT:
+N/A
+
+USER_TEMPLATE:
+N/A
+
+RETRIEVAL_TAGS:
+#recipe #agentsam #ops
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This recipe is optimized for state-of-the-art LLMs.
+- SUGGESTION: Monitor output tokens if this recipe is used in a loop.

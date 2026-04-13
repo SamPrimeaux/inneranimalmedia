@@ -1,0 +1,50 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_routing_fixes
+  status: planned
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - AI Routing System Repair
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Fix intent classifier — intent_slug always unclassified
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+In worker.js, classifyIntent() runs but classification_confidence=0 and intent_slug=unclassified on every routing_decisions row. Find why classifier returns no confident result and fix. Should map intents to model_routing_rules task_types correctly.
+---
+### STEP None: Populate performance_score in model_routing_rules
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+All 24 model_routing_rules rows have performance_score=null, avg_latency_ms=null, success_rate=null. Wire the nightly POST /api/internal/model-perf-sync to read from routing_decisions and populate these fields. Enables data-driven routing.
+---
+### STEP None: Activate perf_override_model system
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+perf_override_model and perf_override_provider are null on all model_routing_rules rows. Once step 2 populates performance_score, wire selectAutoModel() to check perf_override_model first before falling back to primary_model. Add budget guard for expensive models (opus, o3) on low-confidence intents.
+---
+### STEP None: Clarify ai_routing_rules vs model_routing_rules ownership
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+ai_routing_rules has 10 rules all is_active=0, never read by worker.js. model_routing_rules is the live system. Decision: either activate ai_routing_rules as a keyword/intent layer on top of model_routing_rules, or document it as deprecated and delete. Do not run both systems in parallel without clear ownership.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #planned
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

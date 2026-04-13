@@ -1,0 +1,122 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_voxel_chess_livestream
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Voxel Chess + Agent Sam Livestream
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Voxel engine audit
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Read VoxelEngine.ts in full. Document: GLB load path, physics engine (cannon-es), scene graph, camera/controls, existing chess piece spawn logic, entity Map structure. No code changes — audit + notes only.
+---
+### STEP None: Chess piece R2 asset pipeline
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Confirm all 12 chess GLBs (king, queen, rook, bishop, knight, pawn x2 colors) exist in agent-sam R2 under static/chess/pieces/. Wire GET /api/r2/list?prefix=static/chess/ if not present. Document public URLs.
+---
+### STEP None: Chess board + piece rendering in Voxel
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Load board GLB and all 32 pieces into Voxel scene at correct starting positions. Pieces must be selectable/clickable. Physics gizmos off by default in chess project mode. No placeholder geometry.
+---
+### STEP None: Chess game logic layer
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Move validation, turn management, check/checkmate/stalemate detection. Store game state in D1 chess_games table — confirm schema exists or create migration. Expose GET /api/chess/state and POST /api/chess/move.
+---
+### STEP None: Agent Sam chess integration
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Wire Agent Sam to chess game state. Agent can: suggest next move with explanation, play as opponent (any color), respond to natural language like "play Sicilian defense". Move commands update D1 and trigger Voxel piece animation.
+---
+### STEP None: Livestream theater mode
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Fullscreen/theater toggle on Voxel tab hides all sidebar chrome and agent panel. Show: move history overlay, player labels, turn indicator, optional clock. Optimized for OBS capture at 1080p. One keyboard shortcut to toggle.
+---
+### STEP None: /api/generate response shape alignment
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+worker.js /api/generate system prompt updated to return structured voxel entity JSON. App.tsx handleCommand expects { response: "<json>" }. Validate end-to-end: Studio prompt → /api/generate → spawnEntity in Voxel scene. Fix any remaining mismatch.
+---
+### STEP None: Chat GLB → VoxelEngine spawnEntity
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Chat file drop of .glb now calls spawnEntity via engineRef. Validate: drop a GLB in chat → model appears in Voxel scene at position {0,1,0}. Confirm blob URL cleanup on next drop.
+---
+### STEP None: exportForBlender implementation
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+VoxelEngine.exportForBlender() now exports entity data as JSON download. Validate: click Blender Bridge button → file downloads with scene entities. Next iteration: export as glTF not JSON for direct Blender import.
+---
+### STEP None: Meshy R2 → Voxel bridge
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+GET /api/meshy/latest returns most recent GLB from AUTORAG_BUCKET meshy/ prefix as base64 data URL. Wire Studio sidebar "Load Latest Meshy" button to call this route and spawnEntity with result. Validate full loop: Meshy generate → R2 → Voxel scene.
+---
+### STEP None: POST /api/workflow/run end-to-end validation
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Route implemented. Validate: POST with pipeline_id=wfpipe_promote_prod → execution row created in ai_workflow_executions → all stages logged → response returns execution_id + stage_results. Run via Agent Sam chat using workflow_run_pipeline tool.
+---
+### STEP None: Agent Sam voxel + workflow tools validation
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Three MCP tools registered: voxel_spawn_model, voxel_generate_scene, workflow_run_pipeline. Validate each fires correctly from Agent Sam chat in agent mode. Confirm filterToolsByMode caps correctly and tools appear in system prompt.
+---
+### STEP None: LocalExplorer GitHub + Drive real endpoints
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Replace static placeholder text in LocalExplorer.tsx. GitHub section: call GET /api/integrations/github/repos on expand, show repo list or Connect button. Drive section: check /api/integrations/status, show Connect button that fires /api/oauth/google/start.
+---
+### STEP None: iam-welcome.sh startup UI refinement
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add live status line above menu: prod HTTP code, git SHA, dashboard version. Single-keypress navigation (no enter required). Keep pixel art gorilla ASCII art unchanged.
+---
+### STEP None: Session log + cursor-session-log.md update
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Document 2026-04-03 full session: v16 sandbox + prod deploy, cicd tables wired, pipeline_runs + ai_workflow tables seeded, 6 fixes applied to voxel/workflow/agent tools, roadmap plan created.
+---
+### STEP None: Full end-to-end smoke test
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Run benchmark-full.sh against prod. Manually test: (1) Agent Sam chat → voxel_generate_scene → model in Voxel tab, (2) workflow_run_pipeline via chat, (3) chess board loads + Agent Sam suggests move, (4) promote-to-prod.sh → Resend email received. All 31/31 benchmark gates pass.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #active
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

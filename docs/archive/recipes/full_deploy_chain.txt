@@ -1,0 +1,30 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: recipe
+  id: rp_deploy_chain_v1
+  trigger: N/A
+  category: deploy
+  version: 1.0.0
+  timestamp: 2026-04-13 00:03:40
+  index_priority: high
+
+---
+TITLE: Full Deploy Chain
+CONTEXT: Operational recipe for Agent Sam orchestration.
+
+DESCRIPTION:
+node check → npm build → push main → push production → verify health — gated sequence
+
+SYSTEM_PROMPT:
+N/A
+
+USER_TEMPLATE:
+N/A
+
+RETRIEVAL_TAGS:
+#recipe #agentsam #deploy
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This recipe is optimized for state-of-the-art LLMs.
+- SUGGESTION: Monitor output tokens if this recipe is used in a loop.

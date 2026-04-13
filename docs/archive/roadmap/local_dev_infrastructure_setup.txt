@@ -1,0 +1,74 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_local_dev_infra
+  status: planned
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Local Dev Infrastructure Setup
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Resolve all monorepo merge conflicts
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Fix 6 conflicted files in inneranimalmedia-agentsam-dashboard. Protect dashboard/agent.html, take stashed vite.config.js (monaco plugin). Commit + push clean main.
+---
+### STEP None: Sync agentsam-clean branch with Gemini shell
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Push Gemini dashboard/agent.html into agentsam-clean so Cursor has the correct reference. Ensures no future overwrites of protected R2 keys.
+---
+### STEP None: Fix deploy-agent-sam.sh NULL id bug
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+deploy-agent-sam.sh must ALWAYS set E2E_TOOLS_VITE_BASE="/static/dashboard/agent/" before build. vite.config.ts base must be hardcoded as fallback. Script must grep dist/index.html for /static/dashboard/agent/assets/ and ABORT if not found. NULL id bug also fixed. Register all assets per upload.
+---
+### STEP None: Delete old typo R2 bucket agent-sam-sandbox-cidi
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Confirm wrangler.jsonc + deploy-sandbox.sh reference cicd not cidi. Then delete the typo bucket from CF dashboard.
+---
+### STEP None: Set up wrangler dev local environment
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Configure wrangler dev with --local flag for worker.js + D1 + R2 bindings. Open .wrangler/state/v3/d1/*.sqlite in TablePlus for instant query access. Enables zero-deploy dev cycles.
+---
+### STEP None: Validate dashboard_versions autoclean pipeline
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Run deploy-agent-sam.sh end to end. Verify: cicd_runs row inserted, dashboard_versions has is_active=1 with valid id, cicd_events logged, orphaned assets deleted from R2 + D1.
+---
+### STEP None: Promote /dashboard/agent to production
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Once terminal connects clean, theme syncs, OAuth wired, resizable panels work — promote Gemini shell to inneranimalmedia.com/dashboard/agent via promote-to-prod.sh.
+---
+### STEP None: Wire OAuth GitHub + Google Drive fully
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Redirect URIs registered in GitHub OAuth App + Google Cloud Console for sandbox. Test full connect flow: start -> callback -> user_oauth_tokens -> sidebar populated.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #planned
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

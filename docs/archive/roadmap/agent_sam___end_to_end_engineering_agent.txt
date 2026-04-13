@@ -1,0 +1,116 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_agent_sam_endgame
+  status: in_progress
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Agent Sam — End-to-End Engineering Agent
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: think tool — structured reasoning before every action
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add think tool to worker.js. Takes thought:string, returns "Thinking complete!". Wire into filterToolsByIntent for ALL modes — every provider gets this. 20 lines. Biggest quality lever available — model reasons before acting instead of acting blind. Works identically on GPT, Gemini, Claude. Expected: 30-50% reduction in tool call errors on multi-step tasks. Add to agentToolNames, planToolNames, askToolNames sets. No provider-specific code required.
+---
+### STEP None: workspace_write_file — Agent can write files (currently read-only)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add workspace_write_file tool. Uses printf heredoc via PTY: printf "%s" "$CONTENT" > filepath (safer than cat for special chars). Parameters: path (absolute), content (string). Returns: {ok, path, bytes_written}. Backs up existing file to /tmp/iam_backup_{hash} before overwriting. Must normalize path through normalizeWorkspaceAbsolutePath same as workspace_read_file. Add to agentToolNames and planToolNames. This is P0 — Agent Sam cannot build anything without write capability.
+---
+### STEP None: workspace_edit_file — str_replace surgical editing (no more sed disasters)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add workspace_edit_file tool. Parameters: path, old_str, new_str. CRITICAL RULES: (1) Fail with error if old_str not found in file — "str not found, read file first". (2) Fail with error if old_str appears more than once — "ambiguous: N occurrences, be more specific". (3) Backup file before edit. (4) Return snippet of changed section for verification. This replaces all sed/heredoc patterns. Prevents the XTermShell corruption incident class entirely. Also add workspace_undo_edit: restores from /tmp/iam_backup_{hash}.
+---
+### STEP None: Persistent terminal state — cd persists between tool calls
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Currently every terminal_execute call starts a fresh shell. cd in call 1 is forgotten in call 2. Fix: after each command write cwd to /tmp/iam_cwd_{session_id}. Next command prepends: cd $(cat /tmp/iam_cwd_{session_id}) 2>/dev/null || true. Also surface exit_code in tool result: {output, error, exit_code, cwd}. Add 30s timeout with kill + report. Session ID comes from conversationId already in scope.
+---
+### STEP None: Prompt caching — 40-80% cost reduction on all AI calls
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Currently cache_read_input_tokens=0 on every call. 11k+ token system prompt re-encoded every request. Fix per provider: Anthropic: add cache_control:{type:"ephemeral"} to system block + last 3 user turns (inject_prompt_caching pattern from Anthropic loop.py). OpenAI: automatic for inputs >1024 tokens — ensure system prompt is stable (stop regenerating it per request). Google: context caching API for system prompts >32k tokens. Expected: $0.012->$0.001 per classification call. Multiply by 1911 agent calls logged today.
+---
+### STEP None: classifyIntent pattern expansion — code/plan/debug/image patterns missing
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+agent_intent_patterns table has 4 rows (sql, shell, question, mixed). Missing: code, plan, debug, image. Without these, most requests fall through to fallback model (gpt-4.1-nano) even though routing rules exist for code->GPT-5.4 and plan->GPT-5.4. Insert missing patterns with keywords and target_intent values. Also add image intent: generate image, create image, draw, dalle, visualize -> image. Verify by checking classifyIntent source: grep -n "classifyIntent" worker.js | head -10.
+---
+### STEP None: POST /api/admin/run-provider-test + LLM-as-judge evaluator
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Full spec saved in ctx_iam_dashboard_sprint and skill_provider_compare. Build in worker.js near other /api/admin/* routes. Request: {task_category, task_prompt, assertion, models[], judge_model}. Runs all models in parallel via Promise.all. Judge model (Haiku) grades each response with PASS/SCORE/REASON format. Writes to ai_api_test_runs with real assertion_passed, real cost from tokens*rates via ai_models table, real latency_ms. Returns comparison summary with winner. After this ships: weekly cron auto-updates ai_routing_rules when cheaper model wins.
+---
+### STEP None: Code intelligence workflow — safe edit loop in system prompt
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add to Agent Sam system prompt for agent/plan modes: REQUIRED WORKFLOW FOR CODE CHANGES: 1) workspace_read_file target file. 2) think — reason about exact change needed and where. 3) workspace_edit_file with unique old_str. 4) workspace_read_file — verify edit. 5) terminal_execute node --check worker.js (worker changes) or npm run build (frontend). 6) If build fails: workspace_undo_edit, diagnose, retry from step 2. 7) Only commit after build passes. This workflow in the system prompt turns Agent Sam from a code suggester into a code executor that never ships broken builds.
+---
+### STEP None: Web search per provider — Anthropic/OpenAI/Google each need different wiring
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Three separate implementations: (1) Anthropic: add {type:"web_search_20250305",name:"web_search"} to tools array when provider=anthropic. (2) OpenAI: add {type:"web_search_preview"} to tools in Responses API call when provider=openai. (3) Google: add {googleSearch:{}} to tools when provider=google — this is Gemini grounding. Route web search intent to whichever provider is active for that session. Add web_search to agentToolNames. Routing: question/research intent -> Gemini Flash with googleSearch grounding (cheapest + most accurate for factual queries).
+---
+### STEP None: AutoRAG knowledge sync fix — currently returns 401 post-deploy
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+deploy-sandbox.sh calls /api/knowledge/sync after deploy. Returns {"error":"Unauthorized"}. Fix: add deploy API token to the sync request Authorization header in the deploy script. Token stored in CLOUDFLARE_API_TOKEN env var already available in deploy context. After fix: upload ARCHITECTURE.md (docs/ARCHITECTURE.md) to autorag bucket as docs/architecture.md. Upload all agentsam_skill rows nightly via existing 0 6 * * * cron. Verify: after deploy, Agent Sam should be able to knowledge_search("what is the deploy pipeline") and get a real answer from the doc.
+---
+### STEP None: Autonomous deploy sequence — Agent Sam runs full pipeline via terminal
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Agent Sam must execute this exact sequence autonomously: 1) think (plan what changes and why). 2) node --check worker.js. 3) npm run build. 4) git add -A && git commit -m "descriptive message". 5) ./scripts/deploy-sandbox.sh. 6) ./scripts/benchmark-full.sh sandbox (must be 31/31). 7) STOP — request human approval (step 12). Never call promote-to-prod.sh without approval. Add this as a workflow in ai_workflow_pipelines table so Agent Sam can invoke it as a single tool call: generate_execution_plan with workflow_id=deploy_to_sandbox.
+---
+### STEP None: Human approval gate — nothing reaches prod without explicit Sam approval
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+After sandbox benchmark passes 31/31, Agent Sam: (1) Sets agentsam_agent_run.status=awaiting_approval. (2) Generates git diff --stat summary. (3) Sends Resend email to meauxbility@gmail.com with: what changed, sandbox URL, approve/reject links pointing to POST /api/admin/approve-deploy/{run_id} and /reject-deploy/{run_id}. (4) Waits — does not promote. Dashboard shows approval banner when status=awaiting_approval. On approve: run promote-to-prod.sh + benchmark prod + notify. On reject: git revert + notify + ask for feedback. This is the safety layer that makes full autonomy trustworthy.
+---
+### STEP None: r2_write 56% failure rate fix
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+r2_write tool fails 56% of the time per mcp_tool_calls data. Root cause: getR2Binding() or resolveR2BindingAllowlist() routing to wrong binding in some code paths. Diagnosis: grep -n "getR2Binding\|r2_write\|resolveR2" worker.js | head -20. Check if env.R2 vs env.DASHBOARD vs env.TOOLS is being resolved correctly per bucket param. Add explicit error logging to r2_write handler. After fix: test with agent_sam r2_write tool call and verify mcp_tool_calls.status=completed rate improves to >95%.
+---
+### STEP None: Image truncation in long conversations — keep last 3 screenshots only
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+In long conversations with playwright_screenshot tool, the message history accumulates base64 images. Each screenshot is ~100-300KB encoded. After 5+ screenshots the context window fills with stale images. Fix: in the message history assembly before each API call, filter tool_result blocks containing images and keep only the last N (default 3). Port _maybe_filter_to_n_most_recent_images from Anthropic computer-use loop.py. Make N configurable via workspace_settings. This reduces token count on agentic tasks with browser use by 40-60%.
+---
+### STEP None: @mention context injection — @file @skill @project attach live context
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+When user types @file:worker.js, @skill:deploy, or @project:iam-dashboard in the composer, inject that content directly into the next message context. Spec already designed and saved as agent_at_mention_context_system in project_memory. Implementation: (1) Parse @mentions from message on send. (2) For @file: call workspace_read_file or r2_read. (3) For @skill: query agentsam_skill by name/trigger. (4) For @project: query agentsam_project_context by project_key. (5) Prepend resolved content to message as system context. Frontend: show chips for resolved mentions. This eliminates the need to re-explain context every session.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #in_progress
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

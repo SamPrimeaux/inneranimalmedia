@@ -1,0 +1,80 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_meauxcad_ux_refinement
+  status: in_progress
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - MeauxCAD — UI/UX Refinement + Feature Expansion
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Mobile responsiveness (iPhone 13 target)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+App.tsx panel layout: stack panels vertically on small viewports. Sidebar icons become a swipeable bottom drawer. Terminal and editor should not try to share horizontal space below 768px. Test on iPhone 13 Safari. No new dependencies — pure CSS/Tailwind breakpoints.
+---
+### STEP None: Glassmorphism + depth layer
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Sidebar and top bar: backdrop-filter blur(12px) with semi-transparent background. Resizer borders: glow on hover/active with solar-cyan (var --accent or equivalent). Panel backgrounds get subtle gradient depth. Do not apply blur to the 3D viewport or Monaco editor — only chrome/shell elements.
+---
+### STEP None: Micro-animations + motion polish
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Terminal panel slides up on open (translateY transition, 200ms ease-out). Dirty dot on tabs pulses subtly. Panel resize handles illuminate on grab. File tree items fade in on expand. Antigravity response streaming has a cursor blink. Keep all animations under 300ms — nothing that blocks work.
+---
+### STEP None: Excalidraw panel integration
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Add Excalidraw as a new panel type in the StudioSidebar (whiteboard icon). Embed @excalidraw/excalidraw React component. Panel should be resizable like the GLB viewer. Save/load state to R2 (CAD_STORAGE bucket, path: excalidraw/{session_id}.json). Wire Antigravity tool: agent can read and write Excalidraw scene JSON. No Excalidraw cloud — self-hosted only.
+---
+### STEP None: Playwright end-to-end test suite
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Set up Playwright in the MeauxCAD repo. Test matrix: editor loads, terminal opens, GLB viewer renders, Excalidraw panel opens, Antigravity sends a message and gets a response. Run suite in CI on every push to main. Pipe results into cidi_run_results (test_type=route). Gate prod deploy on suite passing.
+---
+### STEP None: 3D modeling pipeline refinement
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+GLB viewer: add orbit controls (if not already), environment lighting toggle, wireframe mode. Add model-viewer web component as a second viewer option for AR/mobile. Upload pipeline: drag GLB into editor area → auto-upload to R2 CAD_STORAGE → open in viewer. Antigravity tool: agent can describe model metadata, suggest transformations. No Blender wasm yet — scoped to viewing + metadata.
+---
+### STEP None: Flexible panel system (layout persistence)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Allow panels to be detached, reordered, or pinned. Save layout state to D1 (user_preferences or cad-specific table). Restore layout on reload. Add a "Reset layout" button. This is the foundation for repurposing as IAM dashboard shell.
+---
+### STEP None: Antigravity agent tool expansion
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Wire remaining placeholder sidebar icons to real functional panels: database browser (D1 query UI), GitHub Actions runner status, R2 file browser. Each becomes an Antigravity-accessible tool. Update agent.md and skill.md with new tool signatures. Keep tool count under 20 to avoid context bloat.
+---
+### STEP None: IAM dashboard shell adaptation (future — do not start until steps 1-7 done)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Once MeauxCAD shell is fully satisfying: extract the panel system, glassmorphism theme, sidebar, and micro-animations as a standalone shell package. Wire into inneranimal-dashboard (agent.html / R2 bucket agent-sam). Replace current hardcoded 3-theme system with MeauxCAD shell + DB-driven theme loader already in agent.html. Do NOT touch inneranimal-dashboard until this step is explicitly started.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #in_progress
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

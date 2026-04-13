@@ -1,0 +1,30 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: recipe
+  id: rp_anthropic_cache_pricing_reference_v1
+  trigger: N/A
+  category: analysis
+  version: 1.0.0
+  timestamp: 2026-04-13 00:03:40
+  index_priority: high
+
+---
+TITLE: Anthropic Cache Pricing Reference
+CONTEXT: Operational recipe for Agent Sam orchestration.
+
+DESCRIPTION:
+Canonical pricing + caching multipliers for Claude models (base, cache write 5m/1h, cache reads, batch discount, US-only multiplier, long-context thresholds). Used by cost calculators and telemetry validators.
+
+SYSTEM_PROMPT:
+N/A
+
+USER_TEMPLATE:
+N/A
+
+RETRIEVAL_TAGS:
+#recipe #agentsam #analysis
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This recipe is optimized for state-of-the-art LLMs.
+- SUGGESTION: Monitor output tokens if this recipe is used in a loop.

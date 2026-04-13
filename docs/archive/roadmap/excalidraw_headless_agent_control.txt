@@ -1,0 +1,68 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_excalidraw_headless
+  status: in_progress
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Excalidraw Headless Agent Control
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Register Excalidraw Tools in D1
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+5 tools: open, add_elements, load_library, export, clear — BUILTIN category
+---
+### STEP None: Wire invokeMcpToolFromChat Handler
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+excalidraw_ prefix handler returns ui_event SSE
+---
+### STEP None: Add iframe ID to FloatingPreviewPanel
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+id="draw-panel-iframe" on draw tab iframe element
+---
+### STEP None: Add iam_excalidraw Listener to draw.html
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Message listener handles open/add_elements/clear actions via __excalidrawApi
+---
+### STEP None: Bump JS Version Cache
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Increment v=141 to v=142 in worker.js so browser loads new agent-dashboard.js
+---
+### STEP None: Fix draw_ready Handshake Timing
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+AgentDashboard waits for draw_ready from iframe before sending iam_excalidraw postMessage
+---
+### STEP None: End-to-End Verify
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Agent calls excalidraw_add_elements, rectangle appears on canvas. No hallucination.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #in_progress
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

@@ -1,0 +1,62 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_telemetry_streaming_20260331
+  status: planned
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Telemetry Bug Fixes + Streaming Re-enable — 2026-03-31
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Deploy Bug 1 double-write fix
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Sandbox deploy, verify one agent_telemetry row per Anthropic request, promote to prod. Confirm agent_costs/ai_usage_log still frozen.
+---
+### STEP None: Re-enable Anthropic streaming (canStreamAnthropic)
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Find flag, audit call sites vs Bug 1 fix, confirm single streamDoneDbWrites on stream path, sandbox test, promote.
+---
+### STEP None: Fix Gemini Flash SSE input_tokens=0
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Find mergeGeminiStreamUsageFromChunk, confirm promptTokenCount read after final chunk, fix accumulator read order.
+---
+### STEP None: Wire agentsam_agent_run completion handler
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+agentsamAgentRunId threading diff is IN worker.js. Sandbox deployed v=202 (10f2cdfb). PENDING: send one chat on sandbox UI, verify agentsam_agent_run row shows status=completed + non-null cost_usd/tokens, then run ./scripts/promote-to-prod.sh. Do NOT git add agent.html — worker.js only. After promote: git add worker.js && git commit -m "fix: wire agentsamAgentRunId through all stream paths + completeAgentsamAgentRun" && git push origin main && git push origin main:agentsam-clean
+---
+### STEP None: mcp_tool_calls cost attribution
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+Check if telemetry_id is in scope at tool call INSERT time. Wire FK or session join. P2 — after P0+P1 closed.
+---
+### STEP None: mcp_tool_calls telemetry attribution — approved approach
+STATUS: pending
+TARGET: N/A
+DESCRIPTION:
+DECISION 2026-03-30: No telemetry_id column yet. agent_telemetry UUID is inline and not surfaced. To wire: (1) migration adding telemetry_id to mcp_tool_calls, (2) capture UUID before INSERT in streamDoneDbWrites, (3) UPDATE mcp_tool_calls SET telemetry_id WHERE session_id + time window. Needs turn_id threaded first. Current join: SELECT t.*, m.tool_name FROM agent_telemetry t LEFT JOIN mcp_tool_calls m ON m.session_id=t.session_id AND m.invoked_at <= t.created_at. Implement after turn_id exists.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #planned
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

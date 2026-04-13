@@ -1,0 +1,50 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_inner_cli_worker_api_v1
+  status: planned
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - InnerAnimal CLI + Worker HTTP APIs (shared with dashboard)
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: CLI auth: mint and validate Bearer tokens on Worker
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Add POST /api/auth/cli-token (or equivalent) with secure storage, expiry, revoke; align with INTERNAL_API_SECRET or vault patterns; no browser cookie dependency.
+---
+### STEP None: Map CLI commands to existing Worker routes
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Reuse /api/r2/list get upload, /api/projects, /api/deployments/*, /api/agent/*, telemetry endpoints; add thin aggregators only where needed (e.g. single status JSON).
+---
+### STEP None: Scaffold @inneranimal/cli (bin/cli.mjs, WorkerClient, config)
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+npx entry, ~/.inneranimal/config.json for base URL and token, shared fetch wrapper, pretty tables and spinners.
+---
+### STEP None: Publish CLI to npm and document first-run
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+CI on tag cli@*, NPM_TOKEN, README. Full npm/scoped/CI/monorepo/PTY mechanics: docs/roadmap/cli-npm-publish-mechanics.md
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #planned
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

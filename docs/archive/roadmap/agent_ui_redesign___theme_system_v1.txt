@@ -1,0 +1,110 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_agent_ui_redesign_v1
+  status: in_progress
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Agent UI Redesign + Theme System v1
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Expand meaux-glass-blue theme CSS vars
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+UPDATE themes SET theme_data to include --terminal-bg, --terminal-text, --terminal-accent, --terminal-prompt, --footer-bg, --footer-border, --panel-bg, --chat-active-glow, --code-bg. Pure D1 write, no deploy needed.
+---
+### STEP None: Wire footer background to theme var
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+In agent.html: change hardcoded footer bg to read var(--footer-bg). Change --bg-nav to match. One CSS change, wrangler deploy.
+---
+### STEP None: Wire xterm.js terminal colors to theme vars
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+On Terminal tab open: read CSS vars --terminal-bg/text/accent/prompt and pass to xterm.js Terminal constructor. On theme swap: call terminal.setOption to recolor. Deploy.
+---
+### STEP None: Terminal toolbar icon opens side panel not /dashboard/terminal
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Reroute the terminal icon in the top toolbar from navigating to /dashboard/terminal to instead opening the right side panel with Terminal tab active. Keep /dashboard/terminal route intact.
+---
+### STEP None: Redesign input bar — unified + popup
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Remove Ask▾ button. Single + icon opens popup with two sections: Mode (Ask/Agent/Plan/Debug) and Attach (File/Image/Drive/GitHub/CF/Screenshot/Memory). Token gauge = small SVG circle only, no text. Mic + send = clean icons only.
+---
+### STEP None: Chat area active glow + illumination
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+When chat area is focused/active: subtle box-shadow or border glow using var(--chat-active-glow). Matches theme accent color. CSS only, no JS needed.
+---
+### STEP None: Replace launcher cards
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Swap 6 cards: New Chat / Files / Memory / MCP / Preview / Terminal. Remove Branch and Extensions placeholders. Wire each to actual functionality.
+---
+### STEP None: Mobile responsive fix
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Sidebar collapses to icon rail at 768px, full hamburger drawer at 480px. Main content fills viewport. No blank screen. Input bar stays anchored. Pure CSS, no logic change.
+---
+### STEP None: Monaco editor tab in side panel
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Add Editor as 4th tab in side panel. Load Monaco from CDN. Wire to r2_read MCP tool for file loading. Wire to r2_write for saving. Agent code output auto-opens this tab with diff view.
+---
+### STEP None: Preview srcdoc blob renderer
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Replace iframe src with srcdoc blob URL renderer. Handles HTML/JSX/TSX without cross-origin blocks. Artifacts render inline in chat on mobile like Claude.ai.
+---
+### STEP None: Browser proxy CF worker
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Build a simple CF worker that fetches external URLs and rewrites absolute paths. Bind to Browser tab iframe. Enables real web browsing from preview panel.
+---
+### STEP None: Agent plan mode queue rendering
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+When agent response contains multi-step plan: render as visible step queue above input. Each step has status dot (pending/running/done/failed). Steps with /run commands auto-execute in Agent mode.
+---
+### STEP None: DB-driven theme system — is_dark + monaco_theme + terminal block in cms_themes
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+All 97 cms_themes rows patched with is_dark, monaco_theme, terminal ANSI palette, login_scene token system, quick_actions, personality. Resolved tokens at serve time in worker.
+---
+### STEP None: Monaco themeConfig prop threading — remove hardcoded dark slug list
+STATUS: done
+TARGET: N/A
+DESCRIPTION:
+FloatingPreviewPanel now reads themeConfig.is_dark and themeConfig.monaco_theme from DB instead of hardcoded slug array. Both AgentBottomPanel instances receive themeConfig.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #in_progress
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

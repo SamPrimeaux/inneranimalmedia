@@ -1,0 +1,27 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: workflow
+  id: wf_iam_cursor_session_document
+  category: general
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:32
+  index_priority: medium
+
+---
+TITLE: WORKFLOW - iam_cursor_composer_session_to_d1
+CONTEXT: Procedural knowledge for Inner Animal Media operations.
+
+DESCRIPTION:
+After Composer work: CIDI row, project_memory, optional agent_telemetry checkpoint, repo session log.
+
+LOGIC_STEPS:
+[]
+
+RETRIEVAL_TAGS:
+#workflow #operations #agentsam #general
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This workflow defines a repeatable platform procedure.
+- SUGGESTION: Verify step compliance by auditing agent execution logs for this specific workflow ID.

@@ -1,0 +1,27 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: workflow
+  id: wf_14ce6cfc09aef385
+  category: general
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:32
+  index_priority: medium
+
+---
+TITLE: WORKFLOW - client_onboarding
+CONTEXT: Procedural knowledge for Inner Animal Media operations.
+
+DESCRIPTION:
+Automated client setup with all necessary infrastructure
+
+LOGIC_STEPS:
+[]
+
+RETRIEVAL_TAGS:
+#workflow #operations #agentsam #general
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This workflow defines a repeatable platform procedure.
+- SUGGESTION: Verify step compliance by auditing agent execution logs for this specific workflow ID.

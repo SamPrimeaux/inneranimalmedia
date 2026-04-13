@@ -1,0 +1,116 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_sprint1_agent_sam_2026
+  status: in_progress
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Sprint 1 — Agent Sam Intelligence Layer
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Vault middleware (Phase 0)
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+getVaultSecrets() loads D1 env_secrets on every request. secret() helper: vault wins, wrangler fallback. AES-256-GCM encryption. 15 secrets migrated.
+---
+### STEP None: Icon strip + Settings sidebar redesign (v91-v102)
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Vertical icon strip right edge, SVG icons, toggle open/close. Settings panel grouped left sidebar nav. Mobile side drawer 85vw. iOS safe areas. 12 frontend deploys.
+---
+### STEP None: TOOL_CALL state emission — AnimatedStatusText live
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+chatWithToolsAnthropic emits pendingStateEvents during tool loop. flushPendingToolStates called in all 3 ReadableStream start handlers. [TOOL] Calling D1 database... types out in real time.
+---
+### STEP None: /run slash command — PTY execution from chat
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+cmd-run-terminal registered in agent_commands. terminal_execute builtin wired in /api/agent/commands/execute using runTerminalCommand. Agent Sam deployed its own worker from chat.
+---
+### STEP None: TerminalOutputCard + DeployStatusPill in chat (Build 2)
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+TerminalOutputCard: collapsible, command + output + status dot + View in Terminal + Copy. DeployStatusPill: deploying → success/fail inline. agentActivity in status bar. /run slash path injects card.
+---
+### STEP None: terminal_history logging fixed
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+INSERT now matches live schema: terminal_session_id FK lookup, tenant_id, sequence. Both primary and legacy fallback paths were broken against production schema. Now writes on every /run.
+---
+### STEP None: Playwright end-to-end — screenshots in Agent Sam
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Fixed: no_bundle=false bundles @cloudflare/playwright. Screenshots upload to Cloudflare Images (not R2). result_url is imagedelivery.net. Images attach to chat input. Pipeline: launch → goto → screenshot → CF Images → D1 completed.
+---
+### STEP None: DB audit + vault hardening
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+15 vault secrets migrated to env_secrets. 19 MCP services marked healthy. /run command registered. GEMINI tab char in key name noted. project_memory HYPERDRIVE confirmed configured.
+---
+### STEP None: Disk cleanup — 102GB Cursor snapshots recovered
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Identified 111GB Cursor Application Support (102GB snapshots). Freed ~114GB total. Machine went from 100% to 34% capacity. Deploys no longer fail with ENOSPC.
+---
+### STEP None: Sprint 1 Build 3 — Git action cards in chat
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Parse git command output (status/commit/push/pull) into structured cards in chat thread. Same pattern as TerminalOutputCard.
+---
+### STEP None: Screenshot UI fixes — attach flow + preview layout
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Images disappear from chat after agent replies (setAttachedImages clears on send). Screenshot should persist in message history. Preview layout cleanup. Double-fire useEffect fix.
+---
+### STEP None: MCP services full health verification
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+13 services still unverified (ide, services, meauxxx endpoints). Verify each endpoint or mark inactive. upsertMcpAgentSession SQL binding fix.
+---
+### STEP None: Tools fully wired — all providers
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+toolDefs:0 fixed. filterToolsByMode: ask mode gets tools. Anti-hallucination guard in system prompt. Double response fix. chatWithToolsAnthropic stream path properly returns. cloudflare_deployments purged from codebase.
+---
+### STEP None: Deploy infrastructure fully automated
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+deploy-with-record.sh: auto git commit+push, captures CLOUDFLARE_VERSION_ID, logs R2 uploads to dashboard_versions. post-deploy-record.sh: single deployments table. .cursorrules scope enforcement added.
+---
+### STEP None: GitHub sync + repo registry
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Code backed up: 348e1e3 (72 files, v64→v114). 6 repos mapped in github_repositories. dist/ gitignored. cicd_* tables dropped.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #in_progress
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

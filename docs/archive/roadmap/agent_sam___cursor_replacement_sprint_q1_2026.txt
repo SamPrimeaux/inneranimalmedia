@@ -1,0 +1,68 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_agent_sam_q1_2026
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - Agent Sam — Cursor Replacement Sprint Q1 2026
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Google Provider Full Stack
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Streaming + tool use + model parity
+---
+### STEP None: Excalidraw Headless Drawing
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Agent draws wireframes autonomously
+---
+### STEP None: OpenAI Provider Testing
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Confirm all OpenAI models respond and use tools
+---
+### STEP None: Workers AI Image Generation
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+FLUX models generate and display images in dashboard
+---
+### STEP None: Agent Messages Archive Pipeline
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Archive old messages to R2, keep D1 lean
+---
+### STEP None: Context Window Pruning
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Auto-summarize long conversations before 40k token limit
+---
+### STEP None: Broken Dashboard Pages Fix
+STATUS: todo
+TARGET: N/A
+DESCRIPTION:
+Repair billing, clients, tools, calendar, images, kanban, cms, mail pages
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #active
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.

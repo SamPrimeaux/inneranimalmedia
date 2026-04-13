@@ -1,0 +1,27 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: workflow
+  id: wf_iam_promote_prod
+  category: general
+  status: active
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:32
+  index_priority: medium
+
+---
+TITLE: WORKFLOW - Promote to Production
+CONTEXT: Procedural knowledge for Inner Animal Media operations.
+
+DESCRIPTION:
+Preflight approved_at; R2 promote explicit keys from workflow_artifacts; promote-to-prod.sh runs outside Worker; finalize workflow_runs status success; increment mcp_workflows.success_count.
+
+LOGIC_STEPS:
+[]
+
+RETRIEVAL_TAGS:
+#workflow #operations #agentsam #general
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This workflow defines a repeatable platform procedure.
+- SUGGESTION: Verify step compliance by auditing agent execution logs for this specific workflow ID.

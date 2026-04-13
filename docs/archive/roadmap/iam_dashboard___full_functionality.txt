@@ -1,0 +1,416 @@
+METADATA:
+  tenant: sam_primeaux
+  product: inneranimalmedia
+  doc_type: roadmap
+  plan_id: plan_iam_dashboard_v1
+  status: in_progress
+  version: 1.0.0
+  timestamp: 2026-04-13 00:04:06
+  index_priority: medium
+
+---
+TITLE: ROADMAP - IAM Dashboard — Full Functionality
+CONTEXT: Strategic roadmap and execution plan for Inner Animal Media.
+
+PLAN_DESCRIPTION:
+No description provided.
+
+EXECUTION_STEPS:
+
+### STEP None: Auth — Superadmin bypass for Sam emails
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+SUPERADMIN_EMAILS constant in worker.js. Both emails return full superadmin context without DB lookup. user_roles rows exist for both IDs 24 and 32.
+---
+### STEP None: Terminal — Live shell in dashboard
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+terminal.inneranimalmedia.com live. xterm.js wired. Run in terminal button sends to PTY. terminal_sessions and terminal_history logging. Mark complete/failed updates DB.
+---
+### STEP None: Agent Sam — Chat functional with real AI
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Chat works. Sessions stored in D1. Memory loads from agent_memory_index on every request. Knowledge base injected. AI gateway fix applied (both headers for Anthropic).
+---
+### STEP None: AI Providers — All wired direct (not gateway)
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+anthropic/openai/google/workers_ai all mapped to direct endpoints with own keys. use_gateway defaults false. Full provider map in worker including cursor/github/cloudconvert/meshy/resend/stripe.
+---
+### STEP None: Commands — 187 in D1, approval flow live
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+commands table has 187 rows with full schema. custom_commands table exists. agent_command_proposals table exists. list-commands queries D1. Run in terminal → logs to proposals + executions.
+---
+### STEP None: Agent/Model pickers — D1 live, no mocks
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+25 agents in agent_ai_sam, 23 models in ai_models, 24 MCP services. Mocks removed. Boot queries D1. Model key mapping resolves to gateway strings.
+---
+### STEP None: R2 DevOps API — 4 bound buckets
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+COMPLETED. R2 DevOps API live with GET/PUT/sync/upload/bulk-action endpoints. 4 bound buckets active (agent-sam, inneranimalmedia-assets, iam-platform, splineicons). cleanup_status + cleanup_notes columns confirmed present in r2_bucket_summary. 107 buckets inventoried in D1. object_key fix applied. Migration 118 confirmed done.
+---
+### STEP None: Overview — Deployments section
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+GET /api/overview/deployments returns cloudflare_deployments + cicd_runs. Two tables on Overview page. deployment_notes column included.
+---
+### STEP None: Playwright screenshots — queue wired, browser panel live, screenshots confirmed
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+POST /api/playwright/screenshot → playwright_jobs_v2 → MY_QUEUE. Frontend detects [SCREENSHOT:] tag, polls job, shows thumbnail. Queue consumer actually processing jobs not confirmed running.
+---
+### STEP None: MCP — 19 tools live, WAF cleared, routes verified
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+RESOLVED 2026-03-07 morning. Full chain confirmed: Agent Chat → /run slash command → /api/mcp/invoke → terminal_execute MCP tool → PTY /exec endpoint → wrangler d1 execute --remote → live D1 response. Tested with D1 table count query returning 450+ tables. Agent Sam can now do real infra work from chat.
+---
+### STEP None: Terminal — Exit code display inline
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+PTY does not send exit code over WebSocket. Needs terminal server protocol change to emit EXIT_CODE: N. UI not parsing or displaying green/red exit status.
+---
+### STEP None: R2 Manager UI panel
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Cloud/R2 UI page semi-functional — bucket grid loads from D1 r2_bucket_summary (107 rows). R2 CRUD ops working via S3-compatible API. AI Search/AutoRAG bound via iam-platform bucket, vectors being updated. Remaining: wire AutoRAG query endpoint into dashboard search UI so /dashboard/cloud can actually query the index live.
+---
+### STEP None: CI/CD — Completion wiring
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+cicd_runs table is GitHub Actions schema — not used for wrangler deploys. cloudflare_deployments used instead. Mark complete is manual. No automated completion callback.
+---
+### STEP None: Vertex AI — JWT exchange implementation
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+VERTEX_SA_KEY_JSON exists. Multi-step JWT exchange not implemented. Vertex calls not functional.
+---
+### STEP None: Memory — AutoRAG retrieval in chat
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+agent_memory_index and memory_retrieval_index populated. ai_compiled_context_cache not being used yet. No semantic search — just importance score filter.
+---
+### STEP None: Client dashboard — per-client status page
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+7 clients in DB. No per-client view built. No page showing worker/D1/R2/billing per client.
+---
+### STEP None: Billing — Stripe + invoicing wired
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+STRIPE_SECRET_KEY set. billing_accounts, iam_invoices tables exist. No billing UI. No automated invoice generation. No Stripe webhook processing confirmed.
+---
+### STEP None: SaaS — Multi-tenant productization
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Platform works for Sam only. No tenant onboarding flow. No self-serve signup. No isolated tenant routing. tenant_activation_status table empty.
+---
+### STEP None: Cost tracking — Per-session, per-deploy, per-provider
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+ai_usage_log and ai_provider_usage populated for Cursor today. Worker AI calls not yet logging cost per request. No cost dashboard UI.
+---
+### STEP None: Progress tracking — Build status UI
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+roadmap_plans and roadmap_steps now populated. No UI page reading these tables. No visual progress indicator in dashboard.
+---
+### STEP None: Daily digest email — 6pm CST via cron
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Sends AI-generated plain English summary of build progress, deployments, spend to meauxbility@gmail.com from sam@inneranimalmedia.com. Dedup guard in email_logs. Cron 0 0 * * *. Deployed version 677b780d.
+---
+### STEP None: Terminal Stability Checkpoint
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+RESOLVED 2026-03-07. Root cause: com.inneranimalmedia.terminal-server.plist was running ~/.local/iam-terminal-server/terminal.js on port 3099 — entirely different server, different path. Both launchd plists unloaded. Migrated to PM2 with ecosystem.config.cjs (token baked in). Files backed up to R2 remote: agent-sam/pty-server/. Restore block saved to Apple Notes. Hard rule still stands: no mid-session token rotations without local verification first.
+---
+### STEP None: Dashboard — Theme system across all pages
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+COMPLETED 2026-03-07. Phase 1: stripped hardcoded 3-theme CSS. Phase 2: replaced old broken loaders with correct v2 loader that derives --bg-nav/--text-nav/--text-nav-muted from actual theme config instead of hardcoding white. All 6 pages pushed to R2. Also added missing meaux-glass-blue, inneranimal-slate, meaux-mono slugs to cms_themes DB. Remaining: user-settings applyThemeToShell + dead tab removal.
+---
+### STEP None: user-settings — fix apply + remove dead tabs
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Pull dashboard/user-settings.html from R2. Fix applyThemeToShell to use setAttribute(data-theme,slug)+localStorage only. Remove Organizations/Teams/API/Audit Logs tabs. Push back. Do NOT use static/ key — user-settings lives only at dashboard/user-settings.html.
+---
+### STEP None: Time documentation — Fix timer (stops, user-aware, validity)
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Timer never stops / isn't user-aware / has little to no validity. Improve so time entries are accurate: auto-stop or clear visibility, user control, and validity (e.g. caps, review).
+---
+### STEP None: GCP — Vertex AI service account key + JWT exchange
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Vertex AI unblocked 2026-03-29. Local curl test passed via gcloud auth print-access-token + gemini-2.5-flash. Project: gen-lang-client-0684066529, location: us-central1. VERTEX_SA_KEY_JSON secret already set in worker. Next: implement JWT exchange inline in worker.js (Option B) or KV token cache via cron (Option A). Note: gemini-2.5-flash has thinkingBudget enabled by default on Vertex — add generationConfig.thinkingConfig.thinkingBudget=0 to suppress extra token cost.
+---
+### STEP None: Gemini 2.5 Flash — wired and verified
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+COMPLETED 2026-03-08. Fixed: (1) deprecated model gemini-2.0-flash-exp → gemini-2.5-flash, (2) auth moved from ?key= query param to x-goog-api-key header in both streamGoogle and non-streaming blocks. Worker version a2def1fe. Verified 200 response with real text content. GOOGLE_AI_API_KEY set in Worker secrets. D1 ai_integrations, ai_routing_rules, ai_models all updated.
+---
+### STEP None: Monaco Editor — syntax highlighting live
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Replaced CodeMirror with @monaco-editor/react. vs-dark theme, minimap, readOnly. Code + View tabs share file context.
+---
+### STEP None: Agent Sam — file context awareness
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Agent receives codeFilename + codeContent in every message. Knows what file is open without being asked.
+---
+### STEP None: Monaco edit mode + R2 save
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Toggle readOnly, save modified file back to R2. Completes in-browser edit loop — core of Cursor replacement vision.
+---
+### STEP None: Mission Control hub page
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Ever-living personal progress tracker. Reads roadmap_steps, tasks, projects, spend_ledger, terminal_history.
+---
+### STEP None: Client delivery pipeline — end to end
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Client requests change → agent executes → deploys → client sees it. Core product differentiator.
+---
+### STEP None: Cost accuracy — Fix output token rate + store pricing metadata
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+DIAGNOSIS 2026-03-10: spend_ledger and agent_telemetry are logging computed_cost_usd using $1.00/MTok for output tokens instead of the correct $4.00/MTok for claude-haiku-4-5-20251001. Input rate ($0.80/MTok) is correct. Fix: (1) Update RATES constant in worker.js cost calculation function — change haiku output from 1.0 to 4.0. Add full rate map for haiku/sonnet/opus. (2) Write input_rate_per_mtok and output_rate_per_mtok to agent_telemetry on every call so costs are auditable. (3) Set date column (YYYY-MM-DD) in spend_ledger on insert — currently NULL on all recent rows, breaking time-bucketed reports. (4) Consolidate ai_usage_log into spend_ledger — duplicate parallel logging system, 695 orphaned rows. Correct Haiku rates: input $0.80, output $4.00, cache_read $0.08, cache_write $1.00 per MTok. Sonnet: input $3.00, output $15.00. Historical rows cannot be backfilled without rate source. Impact: ~$0.24 undercount per ~80k output tokens across logged history.
+---
+### STEP None: Google Drive + GitHub integration — Files tab live
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Both Google Drive and GitHub file browsing working in agent Files tab. Routes moved to main worker router. React crash fixed (raw Google API error objects normalized to strings before setState). OAuth callbacks fixed to use sessionUser.id from getAuthUser instead of email lookup — tokens now persist correctly across logouts. user_oauth_tokens composite PK (user_id, provider) uses auth_users.id. Token refresh logic added for expired Google Drive tokens. Provider names: google_drive, github.
+---
+### STEP None: R2 bucket picker — + button in Files tab
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Planned: small + button next to bucket dropdown in Files tab. Opens popover listing available R2 buckets from /api/r2/buckets. User pins buckets to keep dropdown clean. Persists via user preferences. Bundle with next React build.
+---
+### STEP None: File preview proxy — GitHub + Google Drive View tab
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Planned: /api/integrations/github/raw and /api/integrations/gdrive/raw proxy routes. Worker fetches file using stored token, detects content-type from extension, streams back. FloatingPreviewPanel View tab uses proxy URL. No R2 copying needed. Before implementation ask Cursor how View tab is currently wired.
+---
+### STEP None: v9:30 -- emoji purge, active file highlight, R2 source +, git status panel, iPhone UI fixes
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+None
+---
+### STEP None: v9:45 deploy
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+ANSI bleed fix, xterm theme bridge from CSS vars, mobile header padding, non-passive touch resize, sidenav overlay
+---
+### STEP None: v10:00 deploy
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+PTY session persistence, tunnel_url write to D1, session resume endpoint, iam-pty GitHub repo
+---
+### STEP None: Memory management protocols
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Prioritize better memory management so we stop repeating the same questions and producing stale results. Eliminate inefficient workflows: session/context reuse, avoid re-asking, ensure RAG and agent_memory_index feed current context. High priority.
+---
+### STEP None: Agent page — solidify (no color flash, fully functional)
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Eliminate color flash on load; make agent page fully functional. Priority: cannot continue multi-week single-page builds. 100% solidify this page first. Despite removing hardcoded colors there is still a flash of color.
+---
+### STEP None: Time tracking — sync/background timers (session stop, no multi-day bleed)
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Fix background/synchronized timers so sessions stop correctly and never span multiple days (e.g. 115h single entry). Align with step_time_documentation.
+---
+### STEP None: App dev strategy — avoid multi-week single-page builds
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Define approach so we do not spend weeks finishing one non-functional page; better strategy for dashboard/app development.
+---
+### STEP None: Mar 23 sprint — terminal, Settings control plane, Agent polish
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+docs/plans/TOMORROW_2026-03-23_UI_SETTINGS_TERMINAL_PLAN.md. Blocks: terminal session before relying on shell state. SettingsPanel.jsx is primary file. agent.html v bump after R2 only.
+---
+### STEP None: Agent /dashboard/agent — first-load theme (no FOUC)
+STATUS: in_progress
+TARGET: N/A
+DESCRIPTION:
+Root cause addressed 2026-03-22: agent.html now loads styles_themes.css + shell.css in head; always fetch /api/settings/theme on load (not only when localStorage preset). Re-upload dashboard/agent.html to sandbox + prod R2 after edits. Verify inneranimal-dashboard.meauxbility.workers.dev/dashboard/agent cold load.
+---
+### STEP None: Sandbox agent UI to production — scripts and Agent workflow
+STATUS: complete
+TARGET: N/A
+DESCRIPTION:
+Sandbox: inneranimal-dashboard + R2 agent-sam-sandbox-cidi. Iterate with upload-repo-to-r2-sandbox.sh. Production agent bundle: PROMOTE_OK=1 ./scripts/promote-agent-dashboard-to-production.sh then Sam deploy approved if worker changes. Future: wire Agent /workflow or slash command to run promotion checklist (multistep CIDI) — document in agent_commands or recipes.
+---
+### STEP None: innerautodidact.com — domain + docs foundation
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Add innerautodidact.com as custom domain on iam-docs R2 bucket. Build course-skin index.html. Reuse existing docs structure for learning platform.
+---
+### STEP None: Resend CLI — integrate into IAM stack
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Install and configure the Resend CLI (resend-cli) for IAM stack. Use API key auth for agent-safe usage. Wire into CI/CD pipeline for transactional email ops (domain verification, API key creation, broadcast scheduling). Consider: resend emails send from Agent Sam terminal, JSON output mode for agent workflows, idempotency keys for safe retries, and domain-scoped API keys per client (Southern Pets, Pelican Peptides, etc). Install via: npm install -g resend-cli. Authenticate with: resend login --key re_xxx
+---
+### STEP None: MCP finish — pre-flight (D1 cdt_%, remote MCP, SUPABASE grep)
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Completed Mar 25 2026 session. All 5 MCP builtin groups confirmed live. CI/CD smoke suite deployed. local_file_read/write/tree via PTY. SSE /api/mcp/stream with CDT frame streaming. Screenshots render inline with Fullscreen/Download/Open in Draw. DB-driven system prompts per workspace — Auto model now invokes tools without hedging.
+---
+### STEP None: MCP finish — upload dashboard/mcp.html to prod R2 + UI smoke
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Completed Mar 25 2026 session. All 5 MCP builtin groups confirmed live. CI/CD smoke suite deployed. local_file_read/write/tree via PTY. SSE /api/mcp/stream with CDT frame streaming. Screenshots render inline with Fullscreen/Download/Open in Draw. DB-driven system prompts per workspace — Auto model now invokes tools without hedging.
+---
+### STEP None: MCP finish — builtin matrix (GitHub, Images, Gdrive, Resend, CDT)
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Completed Mar 25 2026 session. All 5 MCP builtin groups confirmed live. CI/CD smoke suite deployed. local_file_read/write/tree via PTY. SSE /api/mcp/stream with CDT frame streaming. Screenshots render inline with Fullscreen/Download/Open in Draw. DB-driven system prompts per workspace — Auto model now invokes tools without hedging.
+---
+### STEP None: MCP finish — Anthropic agent chat + workflow run
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Completed Mar 25 2026 session. All 5 MCP builtin groups confirmed live. CI/CD smoke suite deployed. local_file_read/write/tree via PTY. SSE /api/mcp/stream with CDT frame streaming. Screenshots render inline with Fullscreen/Download/Open in Draw. DB-driven system prompts per workspace — Auto model now invokes tools without hedging.
+---
+### STEP None: MCP finish — D1 closeout (steps completed, memory keys)
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Completed Mar 25 2026 session. All 5 MCP builtin groups confirmed live. CI/CD smoke suite deployed. local_file_read/write/tree via PTY. SSE /api/mcp/stream with CDT frame streaming. Screenshots render inline with Fullscreen/Download/Open in Draw. DB-driven system prompts per workspace — Auto model now invokes tools without hedging.
+---
+### STEP None: local_file_* builtins (read/write/tree)
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+Completed Mar 25 2026 session. All 5 MCP builtin groups confirmed live. CI/CD smoke suite deployed. local_file_read/write/tree via PTY. SSE /api/mcp/stream with CDT frame streaming. Screenshots render inline with Fullscreen/Download/Open in Draw. DB-driven system prompts per workspace — Auto model now invokes tools without hedging.
+---
+### STEP None: Electron native shell wrapper
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+Wrap inneranimalmedia.com/dashboard/agent in Electron BrowserWindow. Add ipcMain file system bridge, native menu bar, dock icon. Full Cursor replacement with local FS access.
+---
+### STEP None: PWA manifest + service worker activation
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+manifest.json in R2, link tag in dashboard shell, activate existing service worker. Installable to dock on Mac/iPhone before Electron ships.
+---
+### STEP None: SSE streaming for all tool groups
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+POST /api/mcp/stream SSE route. Unified event envelope for all tools. CDT frames as base64. Terminal line-by-line. Workflow step events. Frontend ReadableStream consumer in agent-dashboard.js.
+---
+### STEP None: Agent personality/character system
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+Refine DB-backed agent personality. Character traits, tone, memory integration, per-workspace personality config. Agent Sam feels like a real collaborator not a generic chatbot.
+---
+### STEP None: AutoRAG R2-primary knowledge search (fix D1 bloat)
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+knowledge_search currently returns source:d1 results instead of source:autorag R2 bucket. Fix dual-indexing conflict: when autorag returns results, do not fall back to D1. D1 knowledge rows are a growing maintenance burden — R2 autorag bucket is the intended corpus. Add retention policy to prevent D1 knowledge table bloat. Route all new knowledge writes to R2 autorag bucket only.
+---
+### STEP None: Add local_file_* to runToolLoop
+STATUS: planned
+TARGET: N/A
+DESCRIPTION:
+Port local_file_read/write/tree into runToolLoop so main agent chat can access local filesystem. Same pattern as GitHub OAuth fallback.
+---
+### STEP None: Multi-project semantic search
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Extend generate-worker-function-index.mjs to accept --repo and --output flags. Run against all active projects. Upload to AutoRAG under code/{project}-function-index.json. Agent Sam searches all projects from one interface.
+---
+### STEP None: Execution step transparency UI
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Show each tool call as a clickable step card during agent execution. Display tool name, params, status, and result inline. Click to expand. Uses existing AnimatedStatusText + ExecutionPlanCard + SSE stream. Matches Cursor play-by-play sidebar.
+---
+### STEP None: Migrate PTY server to VPS
+STATUS: not_started
+TARGET: N/A
+DESCRIPTION:
+Move iam-pty from iMac to a cloud VPS (Hetzner CX22 or DO Basic). Update Cloudflare Tunnel target. iMac no longer required for terminal functionality. Enables 24/7 terminal access independent of iMac uptime.
+---
+### STEP None: Agent chat: @filename / @file / @monaco + activeFile tool routing
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+ChatAssistant buildMentionContext: fileNameMentionedInMessage for picker labels (e.g. @cms.html); formatAgentToolRouting with r2_read/r2_write bucket+key; App passes activeFile to ChatAssistant. Worker: resolveAgentR2BucketBinding for r2_read/r2_write.
+---
+### STEP None: HTML Preview button → Browser tab (blob URL)
+STATUS: completed
+TARGET: N/A
+DESCRIPTION:
+App openHtmlPreview: Blob text/html; BrowserView accepts blob:/data: without https prefix; Preview in tab bar when .html/.htm open.
+---
+
+RETRIEVAL_TAGS:
+#roadmap #strategy #agentsam #sprint_plan #in_progress
+
+SUGGESTIVE_COMMENTS:
+- NOTE: This roadmap represents the ground-truth for current sprint objectives.
+- SUGGESTION: Cross-reference these steps with actual JIRA/deployment logs for velocity auditing.
