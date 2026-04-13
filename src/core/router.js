@@ -273,10 +273,11 @@ export async function handleRequest(request, env, ctx) {
     return serveStaticPage(env, 'source/public/auth-reset.html');
   }
 
-  if (path === '/dashboard/agent' || path === '/dashboard/agent.html') {
-    // Serve directly from the repo's static build output, bypassing R2.
+  // Handle all dashboard routes dynamically (overview, agent, etc.)
+  if (path.startsWith('/dashboard/')) {
+    const slug = path.split('/')[2] || 'agent';
     const assetUrl = new URL(url);
-    assetUrl.pathname = '/source/public/dashboard-agent.html';
+    assetUrl.pathname = `/source/public/dashboard-${slug}.html`;
     return env.STATIC_ASSETS.fetch(new Request(assetUrl, request));
   }
 

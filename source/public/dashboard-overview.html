@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overview | Agent Sam</title>
+    
+    <!-- Theme Bootstrap -->
+    <script>
+      (function () {
+        const K_CSS = 'inneranimalmedia_theme_css';
+        const K_DARK = 'inneranimalmedia_theme_is_dark';
+        try {
+          const dark = localStorage.getItem(K_DARK);
+          if (dark === '1' || dark === '0') {
+            document.documentElement.setAttribute('data-theme', dark === '1' ? 'dark' : 'light');
+          }
+          const raw = localStorage.getItem(K_CSS);
+          if (raw) {
+            const vars = JSON.parse(raw);
+            if (vars && typeof vars === 'object') {
+              const root = document.documentElement;
+              Object.entries(vars).forEach(([k, v]) => {
+                if (v != null) root.style.setProperty(k, String(v));
+              });
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --solar-base03: #00212b;
+            --solar-base02: #0a2d38;
+            --solar-base01: #4a7a87;
+            --solar-base00: #6e8d96;
+            --solar-base0:  #9cb5bc;
+            --solar-cyan:   #2dd4bf;
+            --solar-blue:   #3a9fe8;
+            --bg-app:       var(--solar-base03);
+            --bg-panel:     var(--solar-base02);
+            --border-subtle:rgba(45, 212, 191, 0.1);
+            --text-main:    var(--solar-base0);
+            --text-muted:   var(--solar-base01);
+            --text-heading: #fff;
+            --accent:       var(--solar-cyan);
+            --font-ui:      'Nunito', system-ui, sans-serif;
+            --font-mono:    'JetBrains Mono', monospace;
+            --rail-width: 64px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg-app); color: var(--text-main); font-family: var(--font-ui); height: 100vh; display: flex; overflow: hidden; }
+
+        /* RAILS & SHELL */
+        .rail { width: var(--rail-width); background: #001b22; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; padding: 20px 0; gap: 24px; }
+        .rail-logo img { width: 34px; height: 34px; border-radius: 8px; }
+        .rail-btn { color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; transition: 0.2s; }
+        .rail-btn:hover { background: rgba(45, 212, 191, 0.08); color: var(--accent); }
+        .rail-btn.active { background: rgba(45, 212, 191, 0.15); color: var(--accent); }
+
+        /* MAIN CONTENT */
+        .main { flex: 1; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg-app); }
+        .header { height: 52px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; padding: 0 24px; justify-content: space-between; }
+        .search-stub { flex: 1; max-width: 400px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 12px; font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
+
+        .content { padding: 32px; max-width: 1200px; margin: 0 auto; width: 100%; }
+
+        /* TELEMETRY CARDS */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .stat-card { background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 4px; }
+        .stat-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
+        .stat-value { font-size: 28px; font-weight: 700; color: var(--text-heading); }
+        .stat-meta { font-size: 12px; color: var(--solar-cyan); font-weight: 600; }
+
+        /* PROJECT CAROUSEL SECTION */
+        .section-title { font-size: 20px; font-weight: 700; color: var(--text-heading); margin-bottom: 24px; display: flex; align-items: center; gap: 10px; }
+        
+        .carousel { display: flex; gap: 24px; padding: 10px 0; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+        .card { 
+            flex: 0 0 340px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 20px; padding: 28px; 
+            scroll-snap-align: start; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s; cursor: pointer;
+            display: flex; flex-direction: column; gap: 16px;
+        }
+        .card:hover { transform: translateY(-8px); border-color: var(--accent); }
+        
+        .card-top { display: flex; align-items: center; gap: 14px; }
+        .card-icon { width: 44px; height: 44px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 15%, transparent); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+        .card-meta h3 { font-size: 16px; color: var(--text-heading); }
+        .card-meta p { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+        
+        .card-chart { height: 60px; display: flex; align-items: flex-end; gap: 4px; margin: 10px 0; }
+        .bar { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; opacity: 0.3; transition: 0.3s; }
+        .card:hover .bar { opacity: 0.8; }
+
+        .card-footer { border-top: 1px solid rgba(255,255,255,0.05); padding-top: 16px; display: flex; justify-content: space-between; font-size: 13px; }
+        .metric-val { color: var(--text-heading); font-weight: 700; }
+
+        /* AGENT PANEL STUB */
+        .agent-sam { width: 340px; border-left: 1px solid var(--border-subtle); display: flex; flex-direction: column; background: color-mix(in srgb, var(--bg-app) 95%, black); }
+        .agent-header { height: 52px; border-bottom: 1px solid var(--border-subtle); padding: 0 16px; display: flex; align-items: center; justify-content: space-between; }
+        .agent-title { font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--solar-blue); letter-spacing: 1.2px; }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        
+        .version-pill { background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 4px; color: var(--solar-cyan); font-family: var(--font-mono); font-size: 10px; }
+    </style>
+</head>
+<body>
+
+<nav class="rail">
+    <div class="rail-logo"><img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar" alt="IA"></div>
+    <div class="rail-btn active"><i data-lucide="layout-grid"></i></div>
+    <div class="rail-btn" onclick="location.href='/dashboard/agent'"><i data-lucide="layers"></i></div>
+    <div class="rail-btn"><i data-lucide="database"></i></div>
+    <div class="rail-btn"><i data-lucide="terminal"></i></div>
+    <div style="flex:1"></div>
+    <div class="rail-btn"><i data-lucide="settings"></i></div>
+</nav>
+
+<main class="main">
+    <header class="header">
+        <div class="search-stub"><i data-lucide="search" size="14"></i> Search infrastructure...</div>
+        <div style="display:flex; align-items:center; gap:16px">
+            <div id="version-pill" class="version-pill">v--</div>
+            <i data-lucide="bell" size="18" style="color:var(--text-muted)"></i>
+            <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar" style="width:32px; height:32px; border-radius:50%; border:1px solid var(--border-subtle)">
+        </div>
+    </header>
+
+    <div class="content">
+        <div class="section-title"><i data-lucide="activity"></i> System Overview</div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Active Deployments</div>
+                <div class="stat-value">124</div>
+                <div class="stat-meta">+12% from last week</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Global Traffic</div>
+                <div class="stat-value">22.4M</div>
+                <div class="stat-meta" style="color:var(--solar-blue)">Healthy · 99.98% uptime</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Avg Latency</div>
+                <div class="stat-value">42ms</div>
+                <div class="stat-meta">Edge Optimized</div>
+            </div>
+        </div>
+
+        <div class="section-title"><i data-lucide="rocket"></i> Active Projects</div>
+        
+        <div class="carousel">
+            <div class="card">
+                <div class="card-top">
+                    <div class="card-icon"><i data-lucide="cloud"></i></div>
+                    <div class="card-meta"><h3>Inner Animals</h3><p>Production · Edge</p></div>
+                </div>
+                <div class="card-chart" id="chart-inner"></div>
+                <div class="card-footer">
+                    <div>Status: <span class="metric-val" style="color:var(--solar-cyan)">Live</span></div>
+                    <div>Today: <span class="metric-val">12.4k req</span></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-top">
+                    <div class="card-icon" style="color:var(--solar-blue)"><i data-lucide="database"></i></div>
+                    <div class="card-meta"><h3>MeauxSQL</h3><p>D1 · Managed</p></div>
+                </div>
+                <div class="card-chart" id="chart-sql"></div>
+                <div class="card-footer">
+                    <div>Status: <span class="metric-val" style="color:var(--solar-cyan)">Live</span></div>
+                    <div>Queries: <span class="metric-val">842k</span></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-top">
+                    <div class="card-icon" style="color:var(--solar-magenta)"><i data-lucide="code"></i></div>
+                    <div class="card-meta"><h3>MeauxIDE</h3><p>Staging · Labs</p></div>
+                </div>
+                <div class="card-chart" id="chart-ide"></div>
+                <div class="card-footer">
+                    <div>Status: <span class="metric-val" style="color:var(--solar-blue)">Testing</span></div>
+                    <div>Builds: <span class="metric-val">48 today</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<aside class="agent-sam">
+    <div class="agent-header"><div class="agent-title">Agent Sam</div><i data-lucide="maximize-2" size="14" style="color:var(--text-muted)"></i></div>
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; text-align:center">
+        <i data-lucide="bot" size="48" style="color:var(--text-muted); opacity:0.3; margin-bottom:16px"></i>
+        <div style="font-size:14px; font-weight:600; color:var(--text-heading)">Welcome back.</div>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:8px">Ready to optimize your<br>infrastructure overview?</p>
+    </div>
+    <div style="padding:16px; border-top:1px solid var(--border-subtle)">
+        <div style="background:var(--bg-app); border:1px solid var(--border-subtle); border-radius:12px; padding:12px; display:flex; justify-content:space-between; align-items:center; color:var(--text-muted)">
+            <span style="font-size:13px">Ask Agent Sam...</span>
+            <i data-lucide="send" size="14"></i>
+        </div>
+    </div>
+</aside>
+
+<script>
+    lucide.createIcons();
+    
+    // Versioning
+    (function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const version = urlParams.get('v') || 'dev-local';
+        document.getElementById('version-pill').textContent = version;
+    })();
+
+    // Mock Charts
+    const generateChart = (id, count) => {
+        const el = document.getElementById(id);
+        for(let i=0; i<count; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+            bar.style.height = (Math.random() * 80 + 20) + '%';
+            el.appendChild(bar);
+        }
+    };
+    generateChart('chart-inner', 14);
+    generateChart('chart-sql', 14);
+    generateChart('chart-ide', 14);
+
+    // Theme Sync
+    async function syncActiveTheme() {
+        try {
+            const res = await fetch('/api/themes/active', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const payload = await res.json();
+            if (payload && payload.data) {
+                const root = document.documentElement;
+                Object.entries(payload.data).forEach(([k, v]) => {
+                    if (v != null) root.style.setProperty(k, String(v));
+                });
+                localStorage.setItem('inneranimalmedia_theme_css', JSON.stringify(payload.data));
+            }
+        } catch (err) {}
+    }
+    window.addEventListener('DOMContentLoaded', syncActiveTheme);
+</script>
+
+</body>
+</html>
