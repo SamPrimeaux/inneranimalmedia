@@ -1,12 +1,12 @@
 /**
- * Inner Animal Media — Dashboard Worker Configuration
+ * Inner Animal Media — Dashboard Worker Configuration (Sandbox)
  *
  * Bindings & Services:
  *   D1: inneranimalmedia-business (primary data store)
- *   R2: iam-platform, inneranimalmedia, autorag, iam-docs, tools, agent-sam
- *   KV: SESSION_CACHE (production-KV_SESSIONS), KV (general)
- *   Hyperdrive: Supabase postgres connection
- *   Vectorize: ai-search-inneranimalmedia-aisearch, ai-search-iam-autorag
+ *   R2: iam-platform, inneranimalmedia, inneranimalmedia-autorag, iam-docs, tools, agent-sam
+ *   KV: SESSION_CACHE (production-KV_SESSIONS), KV (MCP_TOKENS)
+ *   Hyperdrive: Supabase postgres connection (id: 08183bb9d2914e87ac8395d7e4ecff60)
+ *   Vectorize: ai-search-inneranimalmedia-autorag, ai-search-iam-autorag
  *   Durable Objects: AgentChatSqlV1, IAMCollaborationSession, ChessRoom
  *   AI: Cloudflare Workers AI binding
  *   Browser: Cloudflare Puppeteer binding
@@ -14,6 +14,7 @@
  * Secrets (wrangler secret put -c wrangler.jsonc):
  *   ANTHROPIC_API_KEY, GITHUB_TOKEN, OPENAI_API_KEY, GOOGLE_AI_API_KEY
  *   CLOUDFLARE_API_TOKEN, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+ *   AI_SEARCH_TOKEN, DEPLOY_TRACKING_TOKEN, GEMINI_API_KEY
  *   + all others from: wrangler secret list -c wrangler.jsonc
  *
  * Deploy: wrangler deploy -c wrangler.jsonc
@@ -32,6 +33,15 @@
   "build": {
     "command": ""
   },
+
+  /* ─── Routes ────────────────────────────────────────────────────── */
+  "routes": [
+    {
+      "pattern": "sandbox.inneranimalmedia.com",
+      "zone_name": "inneranimalmedia.com",
+      "custom_domain": true
+    }
+  ],
 
   /* ─── AI & Browser Bindings ─────────────────────────────────────── */
   "ai": {
@@ -62,7 +72,7 @@
     },
     {
       "binding": "AUTORAG_BUCKET",
-      "bucket_name": "autorag"
+      "bucket_name": "inneranimalmedia-autorag"
     },
     {
       "binding": "DOCS_BUCKET",
@@ -75,10 +85,6 @@
     {
       "binding": "TOOLS",
       "bucket_name": "tools"
-    },
-    {
-      "binding": "AGENT_SAM_BUCKET",
-      "bucket_name": "agent-sam"
     }
   ],
 
@@ -90,11 +96,11 @@
     }
   ],
 
-  /* ─── Vectorize (semantic search) ──────────────────────────────── */
+  /* ─── Vectorize ──────────────────────────────────────────────────── */
   "vectorize": [
     {
       "binding": "VECTORIZE",
-      "index_name": "ai-search-inneranimalmedia-aisearch"
+      "index_name": "ai-search-inneranimalmedia-autorag"
     },
     {
       "binding": "VECTORIZE_INDEX",
@@ -172,10 +178,11 @@
     "TENANT_ID": "tenant_sam_primeaux",
     "WORKSPACE_ID": "ws_sandbox",
     "DEPLOY_ENV": "sandbox",
+    "IAM_ORIGIN": "https://inneranimal-dashboard.meauxbility.workers.dev",
     "SANDBOX_SIGNIN_FALLBACK_URL": "https://pub-0d103dec19f84813ab2d58b17153a95f.r2.dev/static/auth-signin.html",
     "VITE_LOGO_URL": "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail",
     "VITE_PRODUCT_LABEL": "Inner Animal Media — Agent Sam",
-    "VITE_SHELL_VERSION": "v173",
+    "VITE_SHELL_VERSION": "v1",
     "VITE_API_BASE": "https://inneranimalmedia.com",
     "VITE_DASHBOARD_URL": "https://inneranimal-dashboard.meauxbility.workers.dev"
   },
