@@ -5,10 +5,10 @@
  *
  * Auth: X-Internal-Secret (INTERNAL_API_SECRET)
  */
-import { jsonResponse }              from '../core/responses.js';
-import { isIngestSecretAuthorized }  from '../core/auth.js';
+import { jsonResponse }             from '../core/responses.js';
+import { isIngestSecretAuthorized } from '../core/auth.js';
 
-export async function handlePostDeploy(request, env, ctx) {
+export async function handlePostDeployApi(request, env, ctx) {
   if (!isIngestSecretAuthorized(request, env)) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
@@ -16,15 +16,15 @@ export async function handlePostDeploy(request, env, ctx) {
   let body = {};
   try { body = await request.json(); } catch (_) {}
 
-  const environment   = body.environment        || 'sandbox';
-  const gitHash       = body.git_hash || body.gitHash || 'unknown';
+  const environment   = body.environment                        || 'sandbox';
+  const gitHash       = body.git_hash || body.gitHash           || 'unknown';
   const version       = body.version  || body.dashboard_version || 'unknown';
-  const workerVersion = body.worker_version_id  || 'unknown';
+  const workerVersion = body.worker_version_id                  || 'unknown';
 
   if (!env.KV) return jsonResponse({ ok: false, error: 'KV not bound' }, 503);
 
-  const now          = new Date().toISOString();
-  const keysToWrite  = [
+  const now         = new Date().toISOString();
+  const keysToWrite = [
     {
       key:   `agent_sam:deploy:latest:${environment}`,
       value: JSON.stringify({ environment, git_hash: gitHash, version, worker_version_id: workerVersion, deployed_at: now }),
@@ -56,8 +56,10 @@ export async function handlePostDeploy(request, env, ctx) {
         `INSERT OR IGNORE INTO cicd_events
          (source, event_type, git_commit_sha, raw_payload_json)
          VALUES ('post-deploy-handler', 'knowledge_sync', ?, ?)`
-      ).bind(gitHash, JSON.stringify({ environment, version, keys_written: keysWritten, synced_at: now }))
-       .run().catch(() => {})
+      ).bind(
+        gitHash,
+        JSON.stringify({ environment, version, keys_written: keysWritten, synced_at: now })
+      ).run().catch(() => {})
     );
   }
 
