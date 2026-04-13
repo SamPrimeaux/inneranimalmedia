@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up | InnerAnimal Media</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" nonce="MTcwMjY0ODIwOSwyMzIyNTU0NzI5"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #050508;
+      color: #e2e8f0;
+      font-family: "Inter", sans-serif;
+      min-height: 100vh;
+    }
+
+    /* Unified glassmorphic header synced with index-v2 */
+    .site-nav {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.65);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.03);
+    }
+
+    .nav-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 12px clamp(18px, 3.6vw, 42px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .logo-img {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      object-fit: cover;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      list-style: none;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .nav-links a {
+      color: #1E293B;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+
+    .nav-links a:hover {
+      color: #2563eb;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nav-signup {
+      background: rgba(37, 99, 235, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.2);
+      color: white;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    .nav-signup:hover {
+      background: rgba(37, 99, 235, 0.95);
+      transform: translateY(-1px);
+    }
+
+    .nav-signin {
+      padding: 10px 16px;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      border-radius: 8px;
+      text-decoration: none;
+      color: #1E293B;
+      font-weight: 500;
+      font-size: 14px;
+      transition: background 0.15s;
+    }
+
+    .nav-signin:hover {
+      background: rgba(0, 0, 0, 0.03);
+    }
+
+    .user-icon-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      overflow: hidden;
+      display: none;
+      /* hidden by default, shown by JS if logged in */
+      border: 2px solid rgba(37, 99, 235, 0.2);
+      transition: border-color 0.2s;
+    }
+
+    .user-icon-btn:hover {
+      border-color: rgba(37, 99, 235, 0.8);
+    }
+
+    .user-icon-btn img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    @media (max-width: 900px) {
+      .nav-links.desktop-only {
+        display: none;
+      }
+    }
+
+    .logo-img {
+      width: 81px;
+      height: 81px;
+    }
+
+    /* Background */
+    #globe-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    /* Same card as auth-signin (galaxy UI parity) */
+    .login-card {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 400px;
+      margin: 160px auto 40px;
+      padding: 48px 40px;
+      background: rgba(12, 12, 22, 0.28);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-top: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 32px;
+      box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .login-card:hover {
+      box-shadow: 0 0 50px rgba(0, 122, 255, 0.15);
+      border-color: rgba(0, 122, 255, 0.3);
+    }
+
+    .brand-logo {
+      width: 140px;
+      height: 140px;
+      border-radius: 0;
+      overflow: visible;
+      margin-bottom: 32px;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .brand-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.3));
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: white;
+      margin-bottom: 4px;
+      letter-spacing: -0.01em;
+    }
+
+    p.subtitle {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 32px;
+    }
+
+    .input-group {
+      width: 100%;
+      position: relative;
+      margin-bottom: 16px;
+    }
+
+    .input-field {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      padding: 14px 16px 14px 44px;
+      color: white;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .input-field:focus {
+      border-color: #007aff;
+      background: rgba(0, 0, 0, 0.4);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #64748b;
+      pointer-events: none;
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      margin-top: 8px;
+      border-radius: 14px;
+      font-weight: 600;
+      color: white;
+      background: #007aff;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+      box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+    }
+
+    .btn-primary:hover {
+      background: #0062cc;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 122, 255, 0.4);
+    }
+
+    .btn-oauth {
+      width: 100%;
+      padding: 12px;
+      border-radius: 14px;
+      font-weight: 500;
+      color: white;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .btn-oauth:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .footer {
+      margin-top: 32px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.3);
+      text-transform: uppercase;
+  </style>
+</head>
+
+<body>
+  <header>
+    <nav class="site-nav">
+      <div class="nav-container">
+        <a href="/" class="nav-logo">
+          <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar"
+            alt="Inner Animal Media Default Avatar" class="logo-img" loading="lazy" />
+        </a>
+        <ul class="nav-links desktop-only">
+          <li><a href="/">Home</a></li>
+          <li><a href="/work">Work</a></li>
+          <li><a href="/about">About</a></li>
+          <li><a href="/services">Services</a></li>
+          <li><a href="/contact">Contact</a></li>
+        </ul>
+        <div class="nav-actions desktop-only">
+          <a href="/auth/signup" class="nav-signup" id="nav-signup-btn">Sign Up</a>
+          <a href="/auth/signin" class="nav-signin" id="nav-signin-btn">Sign In</a>
+          <a href="/dashboard/overview" class="user-icon-btn" id="nav-profile-icon" aria-label="Dashboard">
+            <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar"
+              alt="User" loading="lazy" />
+          </a>
+        </div>
+        <button class="nav-toggle" id="navToggle" aria-label="Toggle Menu">
+          <span class="hamburger"></span>
+        </button>
+      </div>
+    </nav>
+    <!-- Mobile Sidebar -->
+    <div class="nav-sidebar" id="navSidebar">
+      <div class="sidebar-content">
+        <a href="/">Home</a>
+        <a href="/work">Work</a>
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/contact">Contact</a>
+        <div class="sidebar-auth">
+          <a href="/auth/signin" id="mobile-signin-btn">Sign In</a>
+          <a href="/auth/signup" id="mobile-signup-btn" style="color:#2563eb; font-weight:600;">Sign Up</a>
+          <a href="/dashboard/overview" id="mobile-profile-btn"
+            style="display:none; color:#2563eb; font-weight:600;">Dashboard</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <canvas id="globe-canvas"></canvas>
+
+  <div class="login-card">
+    <div class="brand-logo">
+      <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/17535395-1501-490a-ff3d-e43d7c16a000/avatar"
+        alt="InnerAnimal Logo" />
+    </div>
+
+    <h1 id="formTitle">Sign up</h1>
+    <p class="subtitle" id="formSubtitle">
+      Create your Inner Animal Media account
+    </p>
+
+    <form id="authForm" style="width: 100%">
+      <div class="input-group" id="nameGroup">
+        <input type="text" id="name" class="input-field" placeholder="Full name" required autocomplete="name" />
+        <span class="input-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </span>
+      </div>
+      <div class="input-group">
+        <input type="email" id="email" class="input-field" placeholder="Identity (email)" required
+          autocomplete="email" />
+        <span class="input-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+            <polyline points="22,6 12,13 2,6"></polyline>
+          </svg>
+        </span>
+      </div>
+      <div class="input-group">
+        <input type="password" id="password" class="input-field" placeholder="Access key (password)" required
+          autocomplete="new-password" />
+        <span class="input-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </span>
+      </div>
+      <button type="submit" id="authBtn" class="btn-primary">
+        Create account
+      </button>
+
+      <!-- OAuth Buttons -->
+      <div style="
+            margin-top: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+          ">
+        <button type="button" class="btn-oauth" onclick="window.location.href = '/api/auth/google/start'">
+          <svg viewBox="0 0 24 24" width="18" height="18">
+            <path
+              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              fill="#4285F4" />
+            <path
+              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              fill="#34A853" />
+            <path
+              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+              fill="#FBBC05" />
+            <path
+              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+              fill="#EA4335" />
+          </svg>
+          Continue with Google
+        </button>
+        <button type="button" class="btn-oauth" onclick="window.location.href = '/api/auth/github/start'">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path
+              d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+          </svg>
+          Continue with GitHub
+        </button>
+      </div>
+
+  </div>
+
+  <p class="signin-prompt" style="margin-top: 24px; font-size: 14px; color: #94a3b8">
+    <span id="toggleText">Already have an account?</span>
+    <a href="#" id="toggleAuthMode"
+      style="color: #007aff; font-weight: 600; text-decoration: none; margin-left: 4px;">Sign in</a>
+  </p>
+
+  <!-- Forgot Password Link -->
+  <a href="/auth-reset" class="forgot-password-link" id="forgotPasswordLink"
+    style="display: none; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; font-size: 13px; color: #94a3b8; text-decoration: none; transition: color 0.15s;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path
+        d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4">
+      </path>
+    </svg>
+    Forgot password?
+  </a>
+  </form>
+  <div class="footer">Protected System • Authorized Personnel Only</div>
+  </div>
+
+  <script nonce="MTcwMjY0ODIwOSwyMzIyNTU0NzI5">
+    (function () {
+      var canvas = document.getElementById("globe-canvas");
+      if (typeof THREE !== "undefined") {
+        var scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x030308, 0.0012);
+
+        var camera = new THREE.PerspectiveCamera(
+          50,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          2000,
+        );
+        camera.position.set(0, 0, 35);
+
+        var renderer = new THREE.WebGLRenderer({
+          canvas: canvas,
+          alpha: true,
+          antialias: true,
+          powerPreference: "high-performance",
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        var starGeo = new THREE.BufferGeometry();
+        var starCount = 4000;
+        var starPos = new Float32Array(starCount * 3);
+        for (var i = 0; i < starCount; i++) {
+          starPos[i * 3] = (Math.random() - 0.5) * 1200;
+          starPos[i * 3 + 1] = (Math.random() - 0.5) * 1200;
+          starPos[i * 3 + 2] = (Math.random() - 0.5) * 1200;
+        }
+        starGeo.setAttribute(
+          "position",
+          new THREE.BufferAttribute(starPos, 3),
+        );
+        var starMat = new THREE.PointsMaterial({
+          color: 0xffffff,
+          size: 0.8,
+          transparent: true,
+          opacity: 0.9,
+          sizeAttenuation: true,
+        });
+        var stars = new THREE.Points(starGeo, starMat);
+        scene.add(stars);
+
+        var globeGroup = new THREE.Group();
+        scene.add(globeGroup);
+
+        var glowGeo = new THREE.SphereGeometry(8.2, 48, 48);
+        var glowMat = new THREE.MeshBasicMaterial({
+          color: 0x0ea5e9,
+          transparent: true,
+          opacity: 0.12,
+        });
+        globeGroup.add(new THREE.Mesh(glowGeo, glowMat));
+
+        var wireGeo = new THREE.IcosahedronGeometry(8.5, 3);
+        var wireMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.35,
+        });
+        globeGroup.add(new THREE.Mesh(wireGeo, wireMat));
+
+        var pGeo = new THREE.BufferGeometry();
+        var pCount = 1200;
+        var pPos = new Float32Array(pCount * 3);
+        var rad = 9;
+        for (var i = 0; i < pCount; i++) {
+          var phi = Math.acos(-1 + (2 * i) / pCount);
+          var theta = Math.sqrt(pCount * Math.PI) * phi;
+          pPos[i * 3] = rad * Math.cos(theta) * Math.sin(phi);
+          pPos[i * 3 + 1] = rad * Math.sin(theta) * Math.sin(phi);
+          pPos[i * 3 + 2] = rad * Math.cos(phi);
+        }
+        pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+        var pMat = new THREE.PointsMaterial({
+          color: 0x7dd3fc,
+          size: 0.18,
+          transparent: true,
+          opacity: 0.95,
+        });
+        globeGroup.add(new THREE.Points(pGeo, pMat));
+
+        var ringMat = new THREE.MeshBasicMaterial({
+          color: 0x0ea5e9,
+          transparent: true,
+          opacity: 0.2,
+          side: THREE.DoubleSide,
+        });
+        var ring1 = new THREE.Mesh(
+          new THREE.TorusGeometry(12, 0.03, 8, 80),
+          ringMat,
+        );
+        ring1.rotation.x = Math.PI / 2.2;
+        globeGroup.add(ring1);
+        var ring2 = new THREE.Mesh(
+          new THREE.TorusGeometry(15, 0.025, 8, 80),
+          ringMat,
+        );
+        ring2.rotation.x = Math.PI / 2.8;
+        ring2.rotation.y = 0.3;
+        globeGroup.add(ring2);
+        var ring3 = new THREE.Mesh(
+          new THREE.TorusGeometry(18, 0.02, 8, 80),
+          ringMat,
+        );
+        ring3.rotation.x = Math.PI / 3.5;
+        ring3.rotation.y = -0.4;
+        globeGroup.add(ring3);
+
+        function animate() {
+          requestAnimationFrame(animate);
+          globeGroup.rotation.y += 0.002;
+          ring1.rotation.z -= 0.003;
+          ring2.rotation.z += 0.002;
+          ring3.rotation.z -= 0.0015;
+          stars.rotation.y += 0.0001;
+          renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener("resize", function () {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+      }
+
+      var isSignUp = true;
+
+      // Element references
+      const authForm = document.getElementById("authForm");
+      const nameGroup = document.getElementById("nameGroup");
+      const nameInput = document.getElementById("name");
+      const formTitle = document.getElementById("formTitle");
+      const formSubtitle = document.getElementById("formSubtitle");
+      const authBtn = document.getElementById("authBtn");
+      const toggleAuthMode = document.getElementById("toggleAuthMode");
+      const toggleText = document.getElementById("toggleText");
+      const forgotPasswordLink = document.getElementById("forgotPasswordLink");
+      const notification = document.getElementById("notification");
+
+      // Update the UI texts based on mode
+      function updateAuthUI() {
+        if (isSignUp) {
+          formTitle.textContent = "Access Granted";
+          formSubtitle.textContent = "Create your Inner Animal Media account";
+          authBtn.textContent = "Create account";
+          // We use the new language requested!
+          toggleText.textContent = "Already have an account?";
+          toggleAuthMode.textContent = "Sign in";
+          nameGroup.style.display = "block";
+          nameInput.setAttribute("required", "required");
+          forgotPasswordLink.style.display = "none";
+        } else {
+          formTitle.textContent = "Sign in";
+          formSubtitle.textContent = "Welcome back to Inner Animal Media";
+          authBtn.textContent = "Success"; // From earlier requested design
+          // Updated requested copy: "Start your journey. Sign Up"
+          toggleText.textContent = "Start your journey.";
+          toggleAuthMode.textContent = "Sign Up";
+          nameGroup.style.display = "none";
+          nameInput.removeAttribute("required");
+          forgotPasswordLink.style.display = "flex";
+        }
+      }
+
+      // Handle toggling between Sign In and Sign Up
+      document
+        .getElementById("toggleAuthMode")
+        .addEventListener("click", function (e) {
+          e.preventDefault();
+          isSignUp = !isSignUp;
+          updateAuthUI();
+        });
+
+      // Parse query params to auto-toggle if coming from a redirect
+      var urlParams = new URLSearchParams(window.location.search);
+      if (
+        urlParams.has("login") ||
+        window.location.pathname.includes("signin")
+      ) {
+        isSignUp = false; // Set to sign-in mode
+        updateAuthUI(); // Update UI
+      } else {
+        updateAuthUI(); // Initial UI setup for sign-up
+      }
+
+      document
+        .getElementById("authForm")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
+          var btn = document.getElementById("authBtn");
+          var name = document.getElementById("name").value.trim();
+          var email = document.getElementById("email").value.trim();
+          var password = document.getElementById("password").value;
+
+          if (isSignUp && (!name || !email || !password)) return;
+          if (!isSignUp && (!email || !password)) return;
+
+          btn.disabled = true;
+          btn.textContent = isSignUp
+            ? "Creating account..."
+            : "Signing in...";
+
+          try {
+            var origin = window.location.origin;
+            var endpoint = isSignUp ? "/api/auth/signup" : "/api/auth/login";
+
+            var payload = { email: email, password: password };
+            if (isSignUp) payload.name = name;
+
+            var res = await fetch(origin + endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+
+            var data = await res.json().catch(function () {
+              return {};
+            });
+
+            if (res.ok && (data.success || data.ok)) {
+              btn.textContent = isSignUp ? "Account created" : "Success";
+              if (isSignUp) {
+                alert("Account created! Please sign in.");
+                isSignUp = false; // Switch to sign-in mode
+                updateAuthUI(); // Update UI
+                document.getElementById("password").value = "";
+                btn.disabled = false;
+                return;
+              } else {
+                var to = data.redirect || "/dashboard";
+                window.location.href = to;
+                return;
+              }
+            }
+
+            // Handle the 409 error explicitly
+            if (res.status === 409 && isSignUp) {
+              alert(
+                "An account with this email already exists. Switching you to sign in.",
+              );
+              isSignUp = false; // Switch to sign-in mode
+              updateAuthUI(); // Update UI
+              btn.disabled = false;
+              return;
+            }
+
+            btn.disabled = false;
+            btn.textContent = isSignUp ? "Create account" : "Sign in";
+            alert(
+              data.error ||
+              (isSignUp ? "Sign up failed." : "Sign in failed.") +
+              " Try again.",
+            );
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = isSignUp ? "Create account" : "Sign in";
+            alert("Network error. Try again.");
+          }
+        });
+    })();
+
+    // Header UI auth state checking
+    document.addEventListener("DOMContentLoaded", async function () {
+      // Nav toggle for mobile
+      const navToggle = document.getElementById("navToggle");
+      const navSidebar = document.getElementById("navSidebar");
+      if (navToggle && navSidebar) {
+        navToggle.addEventListener("click", function () {
+          navToggle.classList.toggle("active");
+          navSidebar.classList.toggle("active");
+        });
+        document.querySelectorAll(".nav-sidebar a").forEach(function (link) {
+          link.addEventListener("click", function () {
+            navToggle.classList.remove("active");
+            navSidebar.classList.remove("active");
+          });
+        });
+      }
+
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          // User is logged in
+          const signupBtn = document.getElementById('nav-signup-btn');
+          const signinBtn = document.getElementById('nav-signin-btn');
+          const profileIcon = document.getElementById('nav-profile-icon');
+
+          const mobSignin = document.getElementById('mobile-signin-btn');
+          const mobSignup = document.getElementById('mobile-signup-btn');
+          const mobProfile = document.getElementById('mobile-profile-btn');
+
+          if (signupBtn) signupBtn.style.display = 'none';
+          if (signinBtn) signinBtn.style.display = 'none';
+          if (profileIcon) profileIcon.style.display = 'block';
+
+          if (mobSignin) mobSignin.style.display = 'none';
+          if (mobSignup) mobSignup.style.display = 'none';
+          if (mobProfile) mobProfile.style.display = 'block';
+        }
+      } catch (e) {
+        console.error("Auth check failed", e);
+      }
+    });
+  </script>
+</body>
+
+</html>
