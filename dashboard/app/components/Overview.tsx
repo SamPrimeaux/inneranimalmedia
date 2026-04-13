@@ -1,9 +1,4 @@
 import React, { useEffect, useState, useMemo } from 'react';
-    fetch("/api/overview", { credentials: "same-origin" })
-      .then(r => r.json())
-      .then(d => { console.log("OVERVIEW DATA:", d); setData(d); })
-      .catch(e => console.error("OVERVIEW ERROR:", e))
-      .finally(() => setLoading(false));
 
 import { 
   DollarSign, Zap, Cloud, Users, AlertOctagon, CheckCircle,
@@ -30,7 +25,7 @@ export const Overview: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/overview", { credentials: "same-origin" })
+    fetch("/api/overview/stats", { credentials: "same-origin" })
       .then(r => r.json())
       .then(d => { console.log("OVERVIEW DATA:", d); setData(d); })
       .catch(e => console.error("OVERVIEW ERROR:", e))
