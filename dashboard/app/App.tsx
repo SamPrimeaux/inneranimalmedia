@@ -585,6 +585,10 @@ const App: React.FC = () => {
     window.setTimeout(() => {
       terminalRef.current?.setActiveTab('problems');
       terminalRef.current?.writeToTerminal(
+        `\r\n==============================\r\n` +
+        `[DEBUG SESSION START]\r\n` +
+        `==============================\r\n` +
+
         `\r\n[DEBUG PROBLEM]\r\n` +
         `source: ${problem.source}\r\n` +
         `title: ${problem.title}\r\n` +
@@ -594,8 +598,14 @@ const App: React.FC = () => {
       );
       if (problem.suggestedCommand) {
         terminalRef.current?.writeToTerminal(
-          `[SUGGESTED COMMAND]\r\n${problem.suggestedCommand}\r\n\r\n`
+          `[SUGGESTED COMMAND]\r\n${problem.suggestedCommand}\r\n`
         );
+
+        // AUTO-LOAD into terminal input (Cursor-style)
+        terminalRef.current?.writeToTerminal(`\r\n$ ` + problem.suggestedCommand);
+
+        // OPTIONAL: auto-run (toggle later if needed)
+        // terminalRef.current?.runCommand(problem.suggestedCommand);
       }
       terminalRef.current?.focus();
     }, 50);
