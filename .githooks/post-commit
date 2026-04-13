@@ -1,5 +1,20 @@
 #!/bin/sh
-# Log the new HEAD commit to D1 cicd_events (non-blocking; safe if Cloudflare env missing).
+# Log the new HEAD commit to D1 cicd_events
+# Safe, non-blocking, and portable across environments
+
+# Resolve repo root
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-"$ROOT/scripts/log-repo-edit-to-cicd-events.sh" || true
+
+SCRIPT="$ROOT/scripts/log-repo-edit-to-cicd-events.sh"
+
+# If script doesn't exist, silently exit
+[ -f "$SCRIPT" ] || exit 0
+
+# If script is not executable, try to run via sh
+if [ -x "$SCRIPT" ]; then
+  "$SCRIPT" >/dev/null 2>&1 || true
+else
+  sh "$SCRIPT" >/dev/null 2>&1 || true
+fi
+
 exit 0
