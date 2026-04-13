@@ -8,31 +8,31 @@
 import { jsonResponse } from './responses.js';
 
 // ── API Handlers ──────────────────────────────────────────────────────────────
-import { handleAuthApi }         from '../api/auth.js';
-import { handlePostDeployApi }   from '../api/post-deploy.js';
-import { handleCicdEvent }       from '../api/cicd-event.js';
-import { handleCicdApi }         from '../api/cicd.js';
+import { handleAuthApi }             from '../api/auth.js';
+import { handlePostDeployApi }       from '../api/post-deploy.js';
+import { handleCicdEvent }           from '../api/cicd-event.js';
+import { handleCicdApi }             from '../api/cicd.js';
 import { handleIntegrationsRequest } from '../api/integrations.js';
-import { handleIntegrityApi }    from '../api/integrity.js';
-import { handleMcpApi }          from '../api/mcp.js';
-import { handleAgentApi }        from '../api/agent.js';
-import { handleAgentSamApi }     from '../api/agentsam.js';
-import { handleOverviewApi }     from '../api/overview.js';
-import { handleDeploymentsApi }  from '../api/deployments.js';
-import { handleDashboardApi }    from '../api/dashboard.js';
-import { handleR2Api }           from '../api/r2-api.js';
-import { handleRagApi }          from '../api/rag.js';
-import { handleTelemetryApi }    from '../api/telemetry.js';
-import { handleThemesApi }       from '../api/themes.js';
-import { handleSettingsApi }     from '../api/settings.js';
-import { handleFinanceApi }      from '../api/finance.js';
-import { handleVaultApi }        from '../api/vault.js';
-import { handleWorkspaceApi }    from '../api/workspace.js';
-import { handleHubApi }          from '../api/hub.js';
-import { handleHealthApi }       from '../api/health.js';
-import { handleDrawApi }         from '../api/draw.js';
-import { handleGitStatusApi }    from '../api/git-status.js';
-import { handleAdminApi }        from '../api/admin.js';
+import { handleIntegrityApi }        from '../api/integrity.js';
+import { handleMcpApi }              from '../api/mcp.js';
+import { handleAgentApi }            from '../api/agent.js';
+import { handleAgentSamApi }         from '../api/agentsam.js';
+import { handleOverviewApi }         from '../api/overview.js';
+import { handleDeploymentsApi }      from '../api/deployments.js';
+import { handleDashboardApi }        from '../api/dashboard.js';
+import { handleR2Api }               from '../api/r2-api.js';
+import { handleRagApi }              from '../api/rag.js';
+import { handleTelemetryApi }        from '../api/telemetry.js';
+import { handleThemesApi }           from '../api/themes.js';
+import { handleSettingsApi }         from '../api/settings.js';
+import { handleFinanceApi }          from '../api/finance.js';
+import { handleVaultApi }            from '../api/vault.js';
+import { handleWorkspaceApi }        from '../api/workspace.js';
+import { handleHubApi }              from '../api/hub.js';
+import { handleHealthApi }           from '../api/health.js';
+import { handleDrawApi }             from '../api/draw.js';
+import { handleGitStatusApi }        from '../api/git-status.js';
+import { handleAdminApi }            from '../api/admin.js';
 
 // ── CORS Headers ──────────────────────────────────────────────────────────────
 
@@ -46,17 +46,40 @@ function corsPreFlight() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
-// ── Main Router ───────────────────────────────────────────────────────────────
+// ── Static Page Server ────────────────────────────────────────────────────────
 
 /**
- * Route an incoming request to the appropriate handler.
- * Called from worker.js fetch() after bindings are resolved.
+ * Serve a static HTML file from the ASSETS R2 bucket.
+ * Key maps to source/public/ in the repo — upload files there,
+ * then sync to the ASSETS bucket with the same relative paths.
  *
- * @param {Request}         request
- * @param {object}          env
- * @param {ExecutionContext} ctx
- * @returns {Promise<Response>}
+ * Falls back to 404 HTML if the object is not found.
  */
+async function serveStaticPage(env, r2Key) {
+  if (!env.ASSETS) {
+    return new Response('Service unavailable', { status: 503 });
+  }
+  try {
+    const obj = await env.ASSETS.get(r2Key);
+    if (!obj) {
+      return new Response('<!DOCTYPE html><html><body><h1>404 Not Found</h1></body></html>', {
+        status: 404,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+    return new Response(obj.body, {
+      headers: {
+        'Content-Type':  'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=300',
+      },
+    });
+  } catch (e) {
+    return new Response('Internal Server Error', { status: 500 });
+  }
+}
+
+// ── Main Router ───────────────────────────────────────────────────────────────
+
 export async function handleRequest(request, env, ctx) {
   const url    = new URL(request.url);
   const path   = url.pathname;
@@ -65,7 +88,7 @@ export async function handleRequest(request, env, ctx) {
   // CORS preflight
   if (method === 'OPTIONS') return corsPreFlight();
 
-  // ── Internal / webhook routes (auth via secret header, not session) ────────
+  // ── Internal / webhook routes ─────────────────────────────────────────────
 
   if (path.startsWith('/api/internal/cicd') || path.startsWith('/api/cicd/event')) {
     return handleCicdEvent(request, url, env, ctx);
@@ -79,7 +102,6 @@ export async function handleRequest(request, env, ctx) {
     return handlePostDeployApi(request, url, env, ctx);
   }
 
-  // Inbound webhooks (BlueBubbles, Resend)
   if (path.startsWith('/api/integrations') || path.startsWith('/api/webhooks')) {
     return handleIntegrationsRequest(request, url, env, ctx);
   }
@@ -125,7 +147,7 @@ export async function handleRequest(request, env, ctx) {
     return handleIntegrityApi(request, url, env, ctx);
   }
 
-  if (path === '/health' || path === '/api/health' || path.startsWith('/api/health')) {
+  if (path === '/health' || path.startsWith('/api/health')) {
     return handleHealthApi(request, url, env, ctx);
   }
 
@@ -207,13 +229,12 @@ export async function handleRequest(request, env, ctx) {
     return handleAdminApi(request, url, env, ctx);
   }
 
-  // ── Dashboard (multi-model chat, terminal socket, browser, playwright) ────
-  // Broad handler — must stay last among /api/* routes
+  // ── Dashboard ─────────────────────────────────────────────────────────────
 
   if (
-    path.startsWith('/api/chat') ||
-    path.startsWith('/api/terminal') ||
-    path.startsWith('/api/browser') ||
+    path.startsWith('/api/chat')       ||
+    path.startsWith('/api/terminal')   ||
+    path.startsWith('/api/browser')    ||
     path.startsWith('/api/playwright') ||
     path.startsWith('/api/hyperdrive')
   ) {
@@ -223,7 +244,6 @@ export async function handleRequest(request, env, ctx) {
   // ── Gorilla XP ────────────────────────────────────────────────────────────
 
   if (path.startsWith('/api/gorilla')) {
-    // Handled inside agentsam or a dedicated gorilla route — forward to agentsam
     return handleAgentSamApi(request, url, env, ctx);
   }
 
@@ -233,7 +253,27 @@ export async function handleRequest(request, env, ctx) {
     return jsonResponse({ error: 'API route not found', path }, 404);
   }
 
-  // ── Non-API: serve R2 static assets or 404 ───────────────────────────────
+  // ── Public static pages (served from ASSETS R2 bucket) ───────────────────
+  // Files must be uploaded to the ASSETS bucket matching these keys.
+  // Repo source: source/public/
+
+  if (path === '/' || path === '/index.html') {
+    return serveStaticPage(env, 'source/public/index.html');
+  }
+
+  if (path === '/auth-signin' || path === '/auth-signin.html') {
+    return serveStaticPage(env, 'source/public/auth-signin.html');
+  }
+
+  if (path === '/auth-signup' || path === '/auth-signup.html') {
+    return serveStaticPage(env, 'source/public/auth-signup.html');
+  }
+
+  if (path === '/auth-reset' || path === '/auth-reset.html') {
+    return serveStaticPage(env, 'source/public/auth-reset.html');
+  }
+
+  // ── 404 ───────────────────────────────────────────────────────────────────
 
   return jsonResponse({ error: 'Not found', path }, 404);
 }
