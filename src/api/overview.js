@@ -223,6 +223,9 @@ async function commandCenter(env) {
     toolReliability,
     roadmapProgress,
     cicdHistory,
+    sparkSpend,
+    sparkErrors,
+    workerDeploys,
   ] = await Promise.all([
     // 30d AI Spend History
     safe(env.DB.prepare(
@@ -266,6 +269,31 @@ async function commandCenter(env) {
        WHERE triggered_at >= date('now', '-14 days')
        GROUP BY d, status ORDER BY d ASC`
     ).all()),
+
+    // 7d Sparkline Spend
+    safe(env.DB.prepare(
+      `SELECT date(created_at, 'unixepoch') AS d, SUM(computed_cost_usd) AS cost
+       FROM agent_telemetry
+       WHERE created_at >= unixepoch('now', '-7 days')
+       GROUP BY d ORDER BY d ASC`
+    ).all()),
+
+    // 7d Sparkline Errors
+    safe(env.DB.prepare(
+      `SELECT date(created_at, 'unixepoch') AS d, COUNT(*) AS count
+       FROM agentsam_agent_run
+       WHERE status = 'failed' AND created_at >= unixepoch('now', '-7 days')
+       GROUP BY d ORDER BY d ASC`
+    ).all()),
+
+    // Worker Deploys (Mockup Table)
+    safe(env.DB.prepare(
+      `SELECT id, version, status, environment, 
+              (SELECT COUNT(*) FROM quality_results WHERE run_id = (SELECT id FROM quality_runs WHERE deployment_id = d.id LIMIT 1) AND status = 'pass') * 100 / 
+              COALESCE((SELECT COUNT(*) FROM quality_results WHERE run_id = (SELECT id FROM quality_runs WHERE deployment_id = d.id LIMIT 1)), 1) AS reliability
+       FROM deployments d
+       ORDER BY timestamp DESC LIMIT 4`
+    ).all()),
   ]);
 
   return jsonResponse({
@@ -274,6 +302,10 @@ async function commandCenter(env) {
     tool_reliability: toolReliability?.results || [],
     roadmap: roadmapProgress?.results || [],
     cicd: cicdHistory?.results || [],
+    spark_spend: sparkSpend?.results || [],
+    spark_errors: sparkErrors?.results || [],
+    worker_deploys: workerDeploys?.results || [],
   });
 }
+
 
