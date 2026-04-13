@@ -17,7 +17,7 @@ import { GorillaModeShell, type GorillaModeHandle } from './components/GorillaMo
 import { MonacoEditorView, type EditorModelMeta } from './components/MonacoEditorView';
 import { LocalExplorer }      from './components/LocalExplorer';
 import { BrowserView }        from './components/BrowserView';
-import { SettingsPanel }      from './components/SettingsPanel';
+import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ToolLauncherBar }    from './components/ToolLauncherBar';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
 import { ExcalidrawView }     from './components/ExcalidrawView';
