@@ -1,4 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
+    fetch("/api/overview", { credentials: "same-origin" })
+      .then(r => r.json())
+      .then(d => { console.log("OVERVIEW DATA:", d); setData(d); })
+      .catch(e => console.error("OVERVIEW ERROR:", e))
+      .finally(() => setLoading(false));
+
 import { 
   DollarSign, Zap, Cloud, Users, AlertOctagon, CheckCircle,
   MoreVertical, ArrowUpRight, ArrowDownRight, Activity as ActivityIcon,
@@ -24,10 +30,12 @@ export const Overview: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/overview')
+    fetch("/api/overview", { credentials: "same-origin" })
       .then(r => r.json())
-      .then(d => setData(d))
+      .then(d => { console.log("OVERVIEW DATA:", d); setData(d); })
+      .catch(e => console.error("OVERVIEW ERROR:", e))
       .finally(() => setLoading(false));
+
   }, []);
 
   // Hybrid chart data mapping
@@ -40,7 +48,7 @@ export const Overview: React.FC = () => {
     }));
   }, [data]);
 
-  if (loading) return <div className="p-8 text-muted animate-pulse font-mono uppercase tracking-widest text-center mt-20">Syncing Telemetry...</div>;
+  if (loading) return <pre style={{color:"white"}}>LOADING</pre>;
 
   return (
     <div className="flex flex-col gap-5 p-6 h-full bg-app overflow-y-auto no-scrollbar font-sans text-white/90">
