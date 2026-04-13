@@ -11,7 +11,7 @@ import { CmdAllowlistTab, McpToolsTab, RoutingRulesTab } from "./PolicyTabs";
 import { IndexingDocsTab } from "./IndexingDocsTab";
 import { RulesSkillsSubagentsTab } from "./RulesSkillsTab";
 import { NetworkSettingsTab } from "./NetworkTab";
-import { ModelsSettingsTab } from "./ModelsTab";
+import { ModelsSettingsTab } from "./ModelsSettingsTab";
 import { AgentsTab } from "./AgentsTab";
 import { TabSettingsTab } from "./TabSettingsTab";
 import { DocsTab } from "./DocsTab";

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
-import { GoogleDriveExplorer } from './GoogleDriveExplorer';
+import { GoogleDriveExplorer } from './RemoteExplorer';
 
 const NATIVE_WS_DB_NAME = 'iam-agent-native-workspace-v1';
 const NATIVE_WS_STORE = 'handles';
