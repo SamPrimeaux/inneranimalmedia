@@ -9,7 +9,7 @@ import { StudioSidebar }      from './components/StudioSidebar';
 import { UIOverlay }          from './components/UIOverlay';
 import { ChatAssistant }      from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
-import { CommandCenter }      from './components/CommandCenter';
+import { Overview }      from './components/Overview';
 import { MCPPanel }           from './components/MCPPanel';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from './agentChatConstants';
 import { WorkspaceLauncher }  from './components/WorkspaceLauncher';
@@ -1314,7 +1314,7 @@ const App: React.FC = () => {
               )}
               {activeTab === 'browser'   && <div className="absolute inset-0 z-10 overflow-hidden"><BrowserView url={browserUrl} addressDisplay={browserAddressDisplay} /></div>}
               {activeTab === 'excalidraw' && <div className="absolute inset-0 z-10 flex flex-col"><ExcalidrawView /></div>}
-              {activeTab === 'overview'  && <div className="absolute inset-0 z-10 overflow-hidden"><CommandCenter /></div>}
+              {activeTab === 'overview'  && <div className="absolute inset-0 z-10 overflow-hidden"><Overview /></div>}
               {activeTab === 'database'  && (
                 <div className="absolute inset-0 z-10 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">
                   <DatabaseBrowser
