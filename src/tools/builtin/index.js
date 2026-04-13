@@ -21,6 +21,9 @@
  *   - R2 full-access is superadmin only — enforced per handler via ctx.role
  */
 
+
+import { chunkMarkdown } from '../api/rag.js';
+import { embed }         from '../integrations/workers-ai.js';
 // ─── Internal Fetch Helper ────────────────────────────────────────────────────
 
 async function selfFetch(env, path, method = 'POST', body = null) {
@@ -420,7 +423,6 @@ const CONTEXT_HANDLERS = {
 
   async context_chunk({ content, max_chars = 600, overlap = 80 }, env) {
     if (!content) return { error: 'content required' };
-    const { chunkMarkdown } = await import('../api/rag.js');
     const chunks = chunkMarkdown(String(content), max_chars, overlap);
     return { chunks, count: chunks.length };
   },
@@ -506,7 +508,6 @@ const AI_HANDLERS = {
   // Embedding — model key from params.model, fallback to env.DEFAULT_EMBED_MODEL
   async ai_embed({ text, model }, env) {
     if (!env.AI) return { error: 'Workers AI binding (env.AI) not configured' };
-    const { embed } = await import('../integrations/workers-ai.js');
     const modelKey  = model || env.DEFAULT_EMBED_MODEL || '@cf/baai/bge-base-en-v1.5';
     const vecs      = await embed(env, text, modelKey);
     return { embeddings: vecs };
