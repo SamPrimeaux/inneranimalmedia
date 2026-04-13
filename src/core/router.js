@@ -274,7 +274,10 @@ export async function handleRequest(request, env, ctx) {
   }
 
   if (path === '/dashboard/agent' || path === '/dashboard/agent.html') {
-    return serveStaticPage(env, 'source/public/dashboard-agent.html');
+    // Serve directly from the repo's static build output, bypassing R2.
+    const assetUrl = new URL(url);
+    assetUrl.pathname = '/source/public/dashboard-agent.html';
+    return env.STATIC_ASSETS.fetch(new Request(assetUrl, request));
   }
 
   // ── 404 ───────────────────────────────────────────────────────────────────
