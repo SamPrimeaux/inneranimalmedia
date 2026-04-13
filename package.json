@@ -12,7 +12,8 @@
     "postgres": "^3.4.5",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "lucide-react": "^0.383.0"
+    "lucide-react": "^0.383.0",
+    "three": "^0.160.1"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.0.4",
