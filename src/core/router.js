@@ -261,15 +261,15 @@ export async function handleRequest(request, env, ctx) {
     return serveStaticPage(env, 'source/public/index.html');
   }
 
-  if (path === '/auth-signin' || path === '/auth-signin.html') {
+  if (path === '/auth-signin' || path === '/auth-signin.html' || path === '/auth/signin') {
     return serveStaticPage(env, 'source/public/auth-signin.html');
   }
 
-  if (path === '/auth-signup' || path === '/auth-signup.html') {
+  if (path === '/auth-signup' || path === '/auth-signup.html' || path === '/auth/signup') {
     return serveStaticPage(env, 'source/public/auth-signup.html');
   }
 
-  if (path === '/auth-reset' || path === '/auth-reset.html') {
+  if (path === '/auth-reset' || path === '/auth-reset.html' || path === '/auth/reset') {
     return serveStaticPage(env, 'source/public/auth-reset.html');
   }
 
