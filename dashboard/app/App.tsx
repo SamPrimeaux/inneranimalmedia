@@ -25,11 +25,9 @@ import { DatabaseBrowser }    from './components/DatabaseBrowser';
 import { UnifiedSearchBar, type SearchNavigate } from './components/UnifiedSearchBar';
 import { GitHubExplorer }     from './components/GitHubExplorer';
 import { KnowledgeSearchPanel } from './components/KnowledgeSearchPanel';
-import { ProblemsDebugPanel } from './components/ProblemsDebugPanel';
+import { ProblemsDebugPanel, type DebugProblem } from './components/ProblemsDebugPanel';
 import { WorkspaceExplorerPanel } from './components/WorkspaceExplorerPanel';
-import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
-import { R2Explorer }         from './components/R2Explorer';
-import { PlaywrightConsole }  from './components/PlaywrightConsole';
+import { GoogleDriveExplorer, R2Explorer } from './components/RemoteExplorer';
 import { SourcePanel }        from './components/SourcePanel';
 import {
   ProjectType, AppState, GameEntity, GenerationConfig,
@@ -580,6 +578,28 @@ const App: React.FC = () => {
   const toggleActivity = (activity: typeof activeActivity extends null ? never : NonNullable<typeof activeActivity>) => {
     setActiveActivity(prev => prev === activity ? null : activity);
   };
+
+  const openDebugTerminalFromProblem = useCallback((problem: DebugProblem) => {
+    setIsTerminalOpen(true);
+    revealMainWorkspaceIfNarrow();
+    window.setTimeout(() => {
+      terminalRef.current?.setActiveTab('problems');
+      terminalRef.current?.writeToTerminal(
+        `\r\n[DEBUG PROBLEM]\r\n` +
+        `source: ${problem.source}\r\n` +
+        `title: ${problem.title}\r\n` +
+        `severity: ${problem.severity}\r\n` +
+        (problem.timestamp ? `timestamp: ${problem.timestamp}\r\n` : '') +
+        `summary: ${problem.summary}\r\n\r\n`
+      );
+      if (problem.suggestedCommand) {
+        terminalRef.current?.writeToTerminal(
+          `[SUGGESTED COMMAND]\r\n${problem.suggestedCommand}\r\n\r\n`
+        );
+      }
+      terminalRef.current?.focus();
+    }, 50);
+  }, [revealMainWorkspaceIfNarrow]);
 
   const openAgentThreadFromProblems = useCallback((sessionId: string) => {
     const id = sessionId.trim();
