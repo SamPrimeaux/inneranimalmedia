@@ -9,6 +9,7 @@ import { StudioSidebar }      from './components/StudioSidebar';
 import { UIOverlay }          from './components/UIOverlay';
 import { ChatAssistant }      from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
+import { CommandCenter }      from './components/CommandCenter';
 import { MCPPanel }           from './components/MCPPanel';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from './agentChatConstants';
 import { WorkspaceLauncher }  from './components/WorkspaceLauncher';
@@ -55,7 +56,7 @@ import {
   PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon,
   LayoutTemplate, Network, Layers, Monitor, Bug, Github,
   Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, Columns2,
-  Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2,
+  Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, LayoutGrid,
 } from 'lucide-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -135,7 +136,7 @@ const App: React.FC = () => {
   }, []);
 
   // ── IDE State ─────────────────────────────────────────────────────────────
-  type TabId = 'Workspace' | 'welcome' | 'engine' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'database';
+  type TabId = 'Workspace' | 'welcome' | 'engine' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'database' | 'overview';
 
   const [activeActivity, setActiveActivity] = useState<
     'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' |
@@ -309,8 +310,8 @@ const App: React.FC = () => {
   );
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
-  const [openTabs, setOpenTabs] = useState<TabId[]>(['welcome']);
-  const [activeTab, setActiveTab] = useState<TabId>('Workspace');
+  const [openTabs, setOpenTabs] = useState<TabId[]>(['overview', 'Workspace']);
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
 
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
   const { updateActiveFile } = useEditor();
@@ -1215,6 +1216,7 @@ const App: React.FC = () => {
             {openTabs.includes('engine')     && <Tab title="Studio"   icon={<Box size={13} />}       active={activeTab === 'engine'}    onClick={() => setActiveTab('engine')}    onClose={e => closeTab('engine', e)} />}
             {openTabs.includes('browser')    && <Tab title={browserTabTitle ?? 'Browser'} icon={<Globe size={13} />} active={activeTab === 'browser'}  onClick={() => setActiveTab('browser')}   onClose={e => closeTab('browser', e)} />}
             {openTabs.includes('excalidraw') && <Tab title="Draw"     icon={<PenTool size={13} />}   active={activeTab === 'excalidraw'} onClick={() => setActiveTab('excalidraw')} onClose={e => closeTab('excalidraw', e)} />}
+            {openTabs.includes('overview')   && <Tab title="Overview" icon={<LayoutGrid size={13} />} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} onClose={e => closeTab('overview', e)} />}
             {openTabs.includes('database')   && <Tab title="Database" icon={<Database size={13} />}  active={activeTab === 'database'}  onClick={() => setActiveTab('database')}  onClose={e => closeTab('database', e)} />}
             <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--border-subtle)] z-[-1]" />
           </div>
@@ -1282,6 +1284,7 @@ const App: React.FC = () => {
               )}
               {activeTab === 'browser'   && <div className="absolute inset-0 z-10 overflow-hidden"><BrowserView url={browserUrl} addressDisplay={browserAddressDisplay} /></div>}
               {activeTab === 'excalidraw' && <div className="absolute inset-0 z-10 flex flex-col"><ExcalidrawView /></div>}
+              {activeTab === 'overview'  && <div className="absolute inset-0 z-10 overflow-hidden"><CommandCenter /></div>}
               {activeTab === 'database'  && (
                 <div className="absolute inset-0 z-10 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">
                   <DatabaseBrowser
