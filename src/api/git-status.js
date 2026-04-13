@@ -4,17 +4,29 @@
  * for the IAM workspace repo. Used by the dashboard source control panel.
  *
  * Route: GET /api/internal/git-status
+ *
+ * Requires workspace_id query param or WORKSPACE_ID env var to resolve
+ * the workspace root from workspace_settings.
  */
 import { runTerminalCommand, resolveIamWorkspaceRoot } from '../core/terminal.js';
 import { jsonResponse } from '../core/responses.js';
 
-export async function handleGitStatusApi(request, env, ctx) {
-  const root = await resolveIamWorkspaceRoot(env);
+export async function handleGitStatusApi(request, url, env, ctx) {
+  const workspaceId = url.searchParams.get('workspace_id') || env.WORKSPACE_ID || null;
+  const root        = await resolveIamWorkspaceRoot(env, workspaceId);
+
+  if (!root) {
+    return jsonResponse({
+      error:       'workspace_root not configured',
+      workspace_id: workspaceId,
+      hint:        'Set workspace_root in workspace_settings.settings_json for this workspace_id',
+    }, 503);
+  }
 
   const [branchResult, statusResult, logResult] = await Promise.all([
-    runTerminalCommand(env, request, `git -C "${root}" branch --show-current`,                                  'git_status', ctx),
-    runTerminalCommand(env, request, `git -C "${root}" status --porcelain`,                                     'git_status', ctx),
-    runTerminalCommand(env, request, `git -C "${root}" log -n 10 --pretty=format:"%h|%an|%ar|%s"`,             'git_status', ctx),
+    runTerminalCommand(env, request, `git -C "${root}" branch --show-current`,                        'git_status'),
+    runTerminalCommand(env, request, `git -C "${root}" status --porcelain`,                            'git_status'),
+    runTerminalCommand(env, request, `git -C "${root}" log -n 10 --pretty=format:"%h|%an|%ar|%s"`,    'git_status'),
   ]);
 
   const branch = (branchResult.output || '').trim() || 'unknown';
@@ -45,6 +57,7 @@ export async function handleGitStatusApi(request, env, ctx) {
     unstaged,
     commits,
     root,
-    has_changes: staged.length > 0 || unstaged.length > 0,
+    workspace_id: workspaceId,
+    has_changes:  staged.length > 0 || unstaged.length > 0,
   });
 }
