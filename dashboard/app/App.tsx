@@ -1333,7 +1333,7 @@ const App: React.FC = () => {
               {activeTab === 'browser'   && <div className="absolute inset-0 z-10 overflow-hidden"><BrowserView url={browserUrl} addressDisplay={browserAddressDisplay} /></div>}
               {activeTab === 'excalidraw' && <div className="absolute inset-0 z-10 flex flex-col"><ExcalidrawView /></div>}
               {activeTab === 'overview'  && (
-                <div className="absolute inset-0 z-10 overflow-hidden">
+                <div style={{ position:'fixed', inset:0, zIndex:50, overflow:'hidden', background:'var(--bg-app,#11151b)' }}>
                   <OverviewBoundary>
                     <Overview />
                   </OverviewBoundary>
