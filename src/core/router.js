@@ -538,8 +538,16 @@ export async function handleRequest(request, env, ctx) {
   }
 
   // ── Final Fallback to Static Assets (Vite build folder) ────────────────────
-  if (env.ASSETS) {
-    return env.ASSETS.fetch(request);
+  // Extension-guarded to prevent infinite routing loops or worker exceptions.
+  const STATIC_EXTS = new Set(['.css', '.js', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.ico', '.woff2']);
+  const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+
+  if (env.ASSETS && STATIC_EXTS.has(ext)) {
+    try {
+      return await env.ASSETS.fetch(request);
+    } catch (e) {
+      console.error('[router] static asset fallback failed:', e.message);
+    }
   }
 
   return jsonResponse({ error: 'Not found', path }, 404);
