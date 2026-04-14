@@ -198,8 +198,15 @@ async function deployments(env) {
   ]);
 
   return jsonResponse({
-    deployments: deploys.results  || [],
-    cicd_runs:   cicdRuns.results || [],
+    deployments: (deploys.results || []).map(d => ({
+      ...d,
+      deployed_at: d.deployed_at ? new Date(d.deployed_at).toISOString() : null
+    })),
+    cicd_runs: (cicdRuns.results || []).map(r => ({
+      ...r,
+      started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
+      completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null
+    })),
   });
 }
 
@@ -228,11 +235,16 @@ async function stats(env) {
     ).first()),
   ]);
 
+  const healthStatus = (healthRow?.health_status || 'unknown').toUpperCase();
+  const normalizedHealth = healthStatus === 'YELLOW' ? 'DEGRADED' : 
+                          (healthStatus === 'GREEN' ? 'OK' : healthStatus);
+
   return jsonResponse({
     tasks_completed: num(tasks),
     deploys_total:   num(deploys),
     agent_calls_total: num(agentCalls),
-    platform_health: healthRow?.health_status || 'unknown',
+    platform_health: normalizedHealth,
+    snapshot_at: healthRow?.snapshot_at ? new Date(healthRow.snapshot_at).toISOString() : null
   });
 }
 

@@ -682,15 +682,38 @@ export async function handleAgentApi(request, url, env, ctx) {
     const wsId = decodeURIComponent(workspaceMatch[1] || '').trim();
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
+    // ── /api/agent/workspace/:id ────────────────────────────────────────────
     if (method === 'GET') {
       try {
-        const row = await env.DB.prepare(
+        const userId = String(authUser?.id || 'anonymous').trim();
+        const tid    = String(authUser?.tenant_id || tenantIdFromEnv(env) || 'system').trim();
+        const uwsId  = `uws:${tid}:${userId}:${wsId}`;
+
+        // Try global workspaces table first
+        let row = await env.DB.prepare(
           `SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`
         ).bind(wsId, wsId).first().catch(() => null);
         
-        if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
+        // If not found, try personal agent_workspace_state table
+        if (!row && env.DB) {
+          const wsState = await env.DB.prepare(
+            `SELECT state_json FROM agent_workspace_state WHERE id = ?`
+          ).bind(uwsId).first().catch(() => null);
+          
+          if (wsState) {
+            const rec = JSON.parse(wsState.state_json || '{}');
+            return jsonResponse({
+              id: wsId,
+              name: rec.folderName || 'Personal Workspace',
+              environment: 'local',
+              settings: {},
+              state: rec
+            });
+          }
+        }
         
-        // Return normalized workspace object
+        if (!row) return jsonResponse({ error: 'Workspace not found', wsId, uwsId }, 404);
+        
         return jsonResponse({
           id: row.id,
           name: row.name,
@@ -710,9 +733,17 @@ export async function handleAgentApi(request, url, env, ctx) {
         const state   = body.state || body.state_json;
         const stateStr = typeof state === 'string' ? state : JSON.stringify(state || {});
         
-        await env.DB.prepare(
-          `UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`
-        ).bind(stateStr, wsId).run();
+        const userId = String(authUser?.id || 'anonymous').trim();
+        const tid    = String(authUser?.tenant_id || tenantIdFromEnv(env) || 'system').trim();
+        const uwsId  = `uws:${tid}:${userId}:${wsId}`;
+
+        // Attempt update in both locations (idempotent for the relevant table)
+        await Promise.all([
+          env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`)
+            .bind(stateStr, wsId).run().catch(() => null),
+          env.DB.prepare(`UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`)
+            .bind(stateStr, uwsId).run().catch(() => null)
+        ]);
         
         return jsonResponse({ ok: true, id: wsId });
       } catch (e) { return jsonResponse({ error: e.message }, 500); }
