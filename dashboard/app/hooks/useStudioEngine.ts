@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { VoxelEngine } from '../services/VoxelEngine';
-import { ProjectType, AppState, ArtStyle, SceneConfig, GenerationConfig } from '../types';
+import { ProjectType, AppState, ArtStyle, SceneConfig, GenerationConfig, CADTool, CADPlane } from '../types';
+
 
 export function useStudioEngine() {
   const engineRef = useRef<VoxelEngine | null>(null);
@@ -13,7 +14,11 @@ export function useStudioEngine() {
     style: ArtStyle.CYBERPUNK,
     density: 5,
     usePhysics: true,
+    cadTool: CADTool.NONE,
+    cadPlane: CADPlane.XZ,
+    extrusion: 0,
   });
+
 
   const [sceneConfig, setSceneConfig] = useState<SceneConfig>({
     theme: 'grid',

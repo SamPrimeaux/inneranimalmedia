@@ -1,4 +1,4 @@
-name: Deploy Dashboard v2 to GitHub Pages
+name: Deploy Unified IAM Dashboard to GitHub Pages
 
 on:
   push:
@@ -25,18 +25,19 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd dashboard-v2
+          cd dashboard
           bun install
 
       - name: Build Dashboard
         run: |
-          cd dashboard-v2
-          GH_PAGES=true bun run build
+          cd dashboard
+          GH_PAGES=true bun run build:vite-only
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dashboard-v2/dist
+          path: dashboard/dist
+
 
       - name: Deploy to GitHub Pages
         id: deployment

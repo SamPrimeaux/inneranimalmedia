@@ -21,15 +21,23 @@ export enum ArtStyle {
 }
 
 export enum CADTool {
-  NONE     = 'none',
-  SELECT   = 'select',
-  BOX      = 'box',
-  SPHERE   = 'sphere',
-  CYLINDER = 'cylinder',
-  PLANE    = 'plane',
-  EXTRUDE  = 'extrude',
-  MEASURE  = 'measure',
+  NONE      = 'none',
+  SELECT    = 'select',
+  BOX       = 'box',
+  SPHERE    = 'sphere',
+  CYLINDER  = 'cylinder',
+  PLANE     = 'plane',
+  EXTRUDE   = 'extrude',
+  MEASURE   = 'measure',
+  VOXEL     = 'voxel',
+  PAINT     = 'paint',
+  LINE      = 'line',
+  RECTANGLE = 'rectangle',
+  CIRCLE    = 'circle',
+  CUBE      = 'cube',
+  CONE      = 'cone',
 }
+
 
 export enum CADPlane {
   XY = 'xy',
@@ -61,10 +69,12 @@ export interface ActiveFile {
 // ─── Scene / generation ───────────────────────────────────────────────────────
 
 export interface SceneConfig {
+  theme:            string;
   ambientIntensity: number;
-  sunColor:         string;
-  castShadows:      boolean;
-  showPhysicsDebug: boolean;
+  sunColor?:        string;
+  castShadows?:     boolean;
+  showPhysicsDebug?: boolean;
+  useGrid?:         boolean;
 }
 
 export interface GenerationConfig {

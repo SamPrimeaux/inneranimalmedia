@@ -3,7 +3,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 export type DashboardRoute = 
   | 'agent' | 'overview' | 'finance' | 'chats' | 'calendar' 
   | 'meet' | 'mail' | 'cloud' | 'mcp' | 'projects' 
-  | 'images' | 'time-tracking' | 'cms';
+  | 'images' | 'time-tracking' | 'cms' | 'database';
+
 
 export type LayoutMode = 'default' | 'focus' | 'split' | 'wide';
 

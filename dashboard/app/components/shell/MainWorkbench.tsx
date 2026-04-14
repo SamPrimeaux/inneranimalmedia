@@ -23,6 +23,7 @@ interface Tab {
 
 interface MainWorkbenchProps {
   activeRoute: DashboardRoute;
+  onNavigate: (route: DashboardRoute) => void;
   layoutMode: LayoutMode;
   isTerminalOpen: boolean;
   onTerminalToggle: () => void;
@@ -35,6 +36,7 @@ interface MainWorkbenchProps {
 
 export const MainWorkbench: React.FC<MainWorkbenchProps> = ({
   activeRoute,
+  onNavigate,
   layoutMode,
   isTerminalOpen,
   onTerminalToggle,
@@ -60,6 +62,9 @@ export const MainWorkbench: React.FC<MainWorkbenchProps> = ({
         return <div className="p-8 text-[var(--text-muted)]">Remote Explorer coming soon...</div>;
       case 'finance':
         return <div className="p-8 text-[var(--text-muted)]">Finance Dashboard coming soon...</div>;
+      case 'database':
+        return <DatabaseBrowser onClose={() => onNavigate('agent')} />;
+
       default:
         // Handle other routes or fallback
         return (

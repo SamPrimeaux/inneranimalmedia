@@ -74,3 +74,9 @@ code, kbd, pre, samp {
 .glow-cyan {
   box-shadow: 0 0 8px color-mix(in srgb, var(--solar-cyan) 25%, transparent);
 }
+.iam-left-sidebar {
+  width: 260px;
+  min-width: 220px;
+  max-width: 320px;
+  flex-shrink: 0;
+}
