@@ -735,6 +735,297 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [sessions, setSessions] = useState<AgentSessionRow[]>([]);
   const hydratedFromLsRef = useRef(false);
 
+  const handleSend = async (overrideMessage?: string) => {
+    const text = overrideMessage ?? input;
+    if ((!text && attachments.length === 0) || (isLoading && !overrideMessage) || !selectedModelKey) return;
+    
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
+    if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) return;
+
+    const userMessage = text || '(attachment)';
+    setPendingToolApproval(null);
+    setInput('');
+    requestAnimationFrame(() => {
+      syncComposerTextareaHeight(
+        textareaRef.current,
+        isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+      );
+    });
+    const attachmentPreviews: MessageAttachmentPreview[] = attachments.map((a) => ({
+      previewUrl: a.previewUrl,
+      type: a.type,
+      name: a.file.name,
+    }));
+    const newMessages: Message[] = [
+      ...messages,
+      {
+        role: 'user',
+        content: userMessage,
+        ...(attachmentPreviews.length ? { attachmentPreviews } : {}),
+      },
+    ];
+    setMessages(newMessages);
+    setIsLoading(true);
+    setMentionOpen(false);
+    setSlashOpen(false);
+
+    const attachContextFiles: Array<{ name: string; content: string }> = [];
+    for (const a of attachments) {
+      if (a.type !== 'file') continue;
+      const lower = a.file.name.toLowerCase();
+      if (lower.endsWith('.glb')) {
+        onGlbFileSelect?.(a.file);
+        continue;
+      }
+      if (isChatTextCodeFile(a.file)) {
+        try {
+          const text = await readFileAsText(a.file);
+          onFileSelect?.({ name: a.file.name, content: text, originalContent: text });
+          attachContextFiles.push({ name: a.file.name, content: text });
+        } catch {
+          /* skip unreadable */
+        }
+      }
+    }
+
+    const skipMentionContext =
+      userMessage.startsWith('/run ') || userMessage.startsWith('/claude ');
+    let messageForApi = skipMentionContext
+      ? userMessage
+      : await buildMentionContext(userMessage, {
+          activeFileName,
+          activeFileContent: activeFileContent ?? null,
+          activeFile: activeFile ?? null,
+          editorCursorLine,
+          editorCursorColumn,
+          attachContextFiles: attachContextFiles.length ? attachContextFiles : undefined,
+        });
+    const ghCtx = githubRepoContext?.trim();
+    if (ghCtx) {
+      messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as the active repo in the dashboard. Prefer \`github_file\` with repo="${ghCtx}" when reading files, and direct them to the Deploy/GitHub panel to browse or open files.`;
+    }
+
+    const effectiveConvId = conversationId || (() => { const id = crypto.randomUUID(); setConversationId(id); try { localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id); } catch (_) {} return id; })();
+    const form = new FormData();
+    form.append('message', messageForApi);
+    form.append('mode', mode);
+    form.append('model', selectedModelKey);
+    form.append('conversationId', effectiveConvId);
+    form.append('contextMode', String(activeProject));
+    attachments.forEach((a) => form.append('files', a.file));
+
+    const applyAssistantError = (msg: string) => {
+      setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
+    };
+
+    try {
+      const response = await fetch('/api/agent/chat', { method: 'POST', body: form });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        applyAssistantError(formatHttpErrorMessage(response.status, errText));
+        return;
+      }
+      if (!response.body) {
+        applyAssistantError('Empty response body from chat endpoint');
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = '';
+      let assistantStreamBuf = '';
+      let sseCarry = '';
+      let fileEchoSuppress = false;
+
+      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        sseCarry += decoder.decode(value, { stream: true });
+        const parts = sseCarry.split('\n\n');
+        sseCarry = parts.pop() || '';
+
+        for (const block of parts) {
+          for (const rawLine of block.split('\n')) {
+            const line = rawLine.trim();
+            if (!line.startsWith('data:')) continue;
+            const dataStr = line.slice(5).trim();
+            if (dataStr === '[DONE]') continue;
+            let data: unknown;
+            try {
+              data = JSON.parse(dataStr);
+            } catch {
+              continue;
+            }
+            if (isStreamErrorPayload(data)) {
+              const partsErr = [data.error, data.detail, data.provider, data.model].filter(Boolean);
+              throw new Error(partsErr.join(' — '));
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'tool_approval_request'
+            ) {
+              const t = data as { type: string; tool?: ToolApprovalPayload };
+              if (t.tool && typeof t.tool.name === 'string') {
+                setPendingToolApproval({ tool: t.tool });
+                setIsLoading(false);
+        abortControllerRef.current = null;
+        if (messageQueue.length > 0) {
+          const next = messageQueue[0];
+          setMessageQueue((prev) => prev.slice(1));
+          handleSend(next);
+        }
+              }
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'r2_file_updated' &&
+              typeof (data as { bucket?: string }).bucket === 'string' &&
+              typeof (data as { key?: string }).key === 'string'
+            ) {
+              const r2evt = data as { type: 'r2_file_updated'; bucket: string; key: string };
+              onR2FileUpdated?.(r2evt);
+              fileEchoSuppress = false;
+              assistantStreamBuf += `\n[FILE_CREATED:${r2evt.key}]\n`;
+              assistantContent = assistantStreamBuf;
+              setMessages((prev) => {
+                const last = [...prev];
+                last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                return last;
+              });
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'browser_navigate' &&
+              typeof (data as { url?: string }).url === 'string'
+            ) {
+              onBrowserNavigate?.(data as { type: 'browser_navigate'; url: string });
+            }
+            if (data && typeof data === 'object' && 'conversation_id' in data) {
+              const cid = (data as { conversation_id?: string }).conversation_id;
+              if (typeof cid === 'string' && cid) {
+                setConversationId(cid);
+                localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, cid);
+                void loadSessions();
+              }
+            }
+            const delta = extractSseAssistantDelta(data);
+            if (delta && !fileEchoSuppress) {
+              const trialBuf = assistantStreamBuf + delta;
+              const extracted = extractMonacoInvokesFromBuffer(trialBuf);
+              const nextBuf = extracted.text;
+              const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
+              if (looksLikeEmbeddedFileDumpStart(nextVisible)) {
+                fileEchoSuppress = true;
+              } else {
+                assistantStreamBuf = nextBuf;
+                for (const f of extracted.files) {
+                  try {
+                    onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
+                  } catch (e) {
+                    console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);
+                  }
+                }
+                assistantContent = nextVisible;
+                setMessages((prev) => {
+                  const last = [...prev];
+                  last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                  return last;
+                });
+              }
+            }
+            if (data && typeof data === 'object' && typeof (data as { text?: string }).text === 'string') {
+              const legacy = (data as { text: string }).text;
+              if (legacy && !delta && !fileEchoSuppress) {
+                const trialBuf = assistantStreamBuf + legacy;
+                const extracted = extractMonacoInvokesFromBuffer(trialBuf);
+                const nextBuf = extracted.text;
+                const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
+                if (looksLikeEmbeddedFileDumpStart(nextVisible)) {
+                  fileEchoSuppress = true;
+                } else {
+                  assistantStreamBuf = nextBuf;
+                  for (const f of extracted.files) {
+                    try {
+                      onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
+                    } catch (e) {
+                      console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);
+                    }
+                  }
+                  assistantContent = nextVisible;
+                  setMessages((prev) => {
+                    const last = [...prev];
+                    last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                    return last;
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      const codeBlockRegex2 = /```(\w+)?\n([\s\S]*?)\n```/g;
+      let firstMatch = codeBlockRegex2.exec(assistantContent);
+      if (firstMatch) {
+        const lang = firstMatch[1] || 'txt';
+        const code = firstMatch[2];
+        const isShell = ['sh', 'bash', 'zsh', 'shell'].includes(lang);
+        if (!isShell && (code.split('\n').length > 5 || code.length > 200) && onFileSelect) {
+          const { ext } = getLangMeta(lang);
+          onFileSelect({ name: `agent_output.${ext}`, content: code });
+        }
+      }
+    } catch (error) {
+      console.error('Chat request failed:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
+    } finally {
+      setIsLoading(false);
+      clearAttachments();
+      abortControllerRef.current = null;
+      if (messageQueue.length > 0) {
+        const next = messageQueue[0];
+        setMessageQueue((prev) => prev.slice(1));
+        void handleSend(next);
+      }
+    }
+  };
+
+  const renderMessageContent = (content: string, msgIndex: number) => {
+    let display = content
+      .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
+      .replace(/<antml:invoke[\s\S]*?<\/antml:invoke>/gi, '')
+      .replace(/<invoke[\s\S]*?<\/antml:invoke>/gi, '')
+      .replace(/<invoke[\s\S]*?<\/invoke>/gi, '')
+      .trim();
+    display = display.replace(
+      /\[FILE_CREATED:(.+?)\]/g,
+      (_, key: string) => `Created ${key} — opened in editor`
+    );
+
+    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)\n```/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+    let codeCount = 0;
+
+    while ((match = codeBlockRegex.exec(display)) !== null) {
+      if (match.index > lastIndex) {
+        const text = display.substring(lastIndex, match.index);
+        parts.push(
+          <span
   const loadSessions = useCallback(async () => {
     try {
       const r = await fetch('/api/agent/sessions', { credentials: 'same-origin' });
@@ -1177,297 +1468,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
   }, [setMessages]);
 
-  const handleSend = async (overrideMessage?: string) => {
-    const text = overrideMessage ?? input;
-    if ((!text && attachments.length === 0) || (isLoading && !overrideMessage) || !selectedModelKey) return;
-    
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-
-    if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) return;
-
-    const userMessage = text || '(attachment)';
-    setPendingToolApproval(null);
-    setInput('');
-    requestAnimationFrame(() => {
-      syncComposerTextareaHeight(
-        textareaRef.current,
-        isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
-      );
-    });
-    const attachmentPreviews: MessageAttachmentPreview[] = attachments.map((a) => ({
-      previewUrl: a.previewUrl,
-      type: a.type,
-      name: a.file.name,
-    }));
-    const newMessages: Message[] = [
-      ...messages,
-      {
-        role: 'user',
-        content: userMessage,
-        ...(attachmentPreviews.length ? { attachmentPreviews } : {}),
-      },
-    ];
-    setMessages(newMessages);
-    setIsLoading(true);
-    setMentionOpen(false);
-    setSlashOpen(false);
-
-    const attachContextFiles: Array<{ name: string; content: string }> = [];
-    for (const a of attachments) {
-      if (a.type !== 'file') continue;
-      const lower = a.file.name.toLowerCase();
-      if (lower.endsWith('.glb')) {
-        onGlbFileSelect?.(a.file);
-        continue;
-      }
-      if (isChatTextCodeFile(a.file)) {
-        try {
-          const text = await readFileAsText(a.file);
-          onFileSelect?.({ name: a.file.name, content: text, originalContent: text });
-          attachContextFiles.push({ name: a.file.name, content: text });
-        } catch {
-          /* skip unreadable */
-        }
-      }
-    }
-
-    const skipMentionContext =
-      userMessage.startsWith('/run ') || userMessage.startsWith('/claude ');
-    let messageForApi = skipMentionContext
-      ? userMessage
-      : await buildMentionContext(userMessage, {
-          activeFileName,
-          activeFileContent: activeFileContent ?? null,
-          activeFile: activeFile ?? null,
-          editorCursorLine,
-          editorCursorColumn,
-          attachContextFiles: attachContextFiles.length ? attachContextFiles : undefined,
-        });
-    const ghCtx = githubRepoContext?.trim();
-    if (ghCtx) {
-      messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as the active repo in the dashboard. Prefer \`github_file\` with repo="${ghCtx}" when reading files, and direct them to the Deploy/GitHub panel to browse or open files.`;
-    }
-
-    const effectiveConvId = conversationId || (() => { const id = crypto.randomUUID(); setConversationId(id); try { localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id); } catch (_) {} return id; })();
-    const form = new FormData();
-    form.append('message', messageForApi);
-    form.append('mode', mode);
-    form.append('model', selectedModelKey);
-    form.append('conversationId', effectiveConvId);
-    form.append('contextMode', String(activeProject));
-    attachments.forEach((a) => form.append('files', a.file));
-
-    const applyAssistantError = (msg: string) => {
-      setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
-    };
-
-    try {
-      const response = await fetch('/api/agent/chat', { method: 'POST', body: form });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        applyAssistantError(formatHttpErrorMessage(response.status, errText));
-        return;
-      }
-      if (!response.body) {
-        applyAssistantError('Empty response body from chat endpoint');
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantContent = '';
-      let assistantStreamBuf = '';
-      let sseCarry = '';
-      let fileEchoSuppress = false;
-
-      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        sseCarry += decoder.decode(value, { stream: true });
-        const parts = sseCarry.split('\n\n');
-        sseCarry = parts.pop() || '';
-
-        for (const block of parts) {
-          for (const rawLine of block.split('\n')) {
-            const line = rawLine.trim();
-            if (!line.startsWith('data:')) continue;
-            const dataStr = line.slice(5).trim();
-            if (dataStr === '[DONE]') continue;
-            let data: unknown;
-            try {
-              data = JSON.parse(dataStr);
-            } catch {
-              continue;
-            }
-            if (isStreamErrorPayload(data)) {
-              const partsErr = [data.error, data.detail, data.provider, data.model].filter(Boolean);
-              throw new Error(partsErr.join(' — '));
-            }
-            if (
-              data &&
-              typeof data === 'object' &&
-              (data as { type?: string }).type === 'tool_approval_request'
-            ) {
-              const t = data as { type: string; tool?: ToolApprovalPayload };
-              if (t.tool && typeof t.tool.name === 'string') {
-                setPendingToolApproval({ tool: t.tool });
-                setIsLoading(false);
-        abortControllerRef.current = null;
-        if (messageQueue.length > 0) {
-          const next = messageQueue[0];
-          setMessageQueue((prev) => prev.slice(1));
-          handleSend(next);
-        }
-              }
-              continue;
-            }
-            if (
-              data &&
-              typeof data === 'object' &&
-              (data as { type?: string }).type === 'r2_file_updated' &&
-              typeof (data as { bucket?: string }).bucket === 'string' &&
-              typeof (data as { key?: string }).key === 'string'
-            ) {
-              const r2evt = data as { type: 'r2_file_updated'; bucket: string; key: string };
-              onR2FileUpdated?.(r2evt);
-              fileEchoSuppress = false;
-              assistantStreamBuf += `\n[FILE_CREATED:${r2evt.key}]\n`;
-              assistantContent = assistantStreamBuf;
-              setMessages((prev) => {
-                const last = [...prev];
-                last[last.length - 1] = { role: 'assistant', content: assistantContent };
-                return last;
-              });
-              continue;
-            }
-            if (
-              data &&
-              typeof data === 'object' &&
-              (data as { type?: string }).type === 'browser_navigate' &&
-              typeof (data as { url?: string }).url === 'string'
-            ) {
-              onBrowserNavigate?.(data as { type: 'browser_navigate'; url: string });
-            }
-            if (data && typeof data === 'object' && 'conversation_id' in data) {
-              const cid = (data as { conversation_id?: string }).conversation_id;
-              if (typeof cid === 'string' && cid) {
-                setConversationId(cid);
-                localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, cid);
-                void loadSessions();
-              }
-            }
-            const delta = extractSseAssistantDelta(data);
-            if (delta && !fileEchoSuppress) {
-              const trialBuf = assistantStreamBuf + delta;
-              const extracted = extractMonacoInvokesFromBuffer(trialBuf);
-              const nextBuf = extracted.text;
-              const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
-              if (looksLikeEmbeddedFileDumpStart(nextVisible)) {
-                fileEchoSuppress = true;
-              } else {
-                assistantStreamBuf = nextBuf;
-                for (const f of extracted.files) {
-                  try {
-                    onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
-                  } catch (e) {
-                    console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);
-                  }
-                }
-                assistantContent = nextVisible;
-                setMessages((prev) => {
-                  const last = [...prev];
-                  last[last.length - 1] = { role: 'assistant', content: assistantContent };
-                  return last;
-                });
-              }
-            }
-            if (data && typeof data === 'object' && typeof (data as { text?: string }).text === 'string') {
-              const legacy = (data as { text: string }).text;
-              if (legacy && !delta && !fileEchoSuppress) {
-                const trialBuf = assistantStreamBuf + legacy;
-                const extracted = extractMonacoInvokesFromBuffer(trialBuf);
-                const nextBuf = extracted.text;
-                const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
-                if (looksLikeEmbeddedFileDumpStart(nextVisible)) {
-                  fileEchoSuppress = true;
-                } else {
-                  assistantStreamBuf = nextBuf;
-                  for (const f of extracted.files) {
-                    try {
-                      onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
-                    } catch (e) {
-                      console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);
-                    }
-                  }
-                  assistantContent = nextVisible;
-                  setMessages((prev) => {
-                    const last = [...prev];
-                    last[last.length - 1] = { role: 'assistant', content: assistantContent };
-                    return last;
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-
-      const codeBlockRegex2 = /```(\w+)?\n([\s\S]*?)\n```/g;
-      let firstMatch = codeBlockRegex2.exec(assistantContent);
-      if (firstMatch) {
-        const lang = firstMatch[1] || 'txt';
-        const code = firstMatch[2];
-        const isShell = ['sh', 'bash', 'zsh', 'shell'].includes(lang);
-        if (!isShell && (code.split('\n').length > 5 || code.length > 200) && onFileSelect) {
-          const { ext } = getLangMeta(lang);
-          onFileSelect({ name: `agent_output.${ext}`, content: code });
-        }
-      }
-    } catch (error) {
-      console.error('Chat request failed:', error);
-      const msg = error instanceof Error ? error.message : String(error);
-      setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
-    } finally {
-      setIsLoading(false);
-      clearAttachments();
-      abortControllerRef.current = null;
-      if (messageQueue.length > 0) {
-        const next = messageQueue[0];
-        setMessageQueue((prev) => prev.slice(1));
-        void handleSend(next);
-      }
-    }
-  };
-
-  const renderMessageContent = (content: string, msgIndex: number) => {
-    let display = content
-      .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
-      .replace(/<antml:invoke[\s\S]*?<\/antml:invoke>/gi, '')
-      .replace(/<invoke[\s\S]*?<\/antml:invoke>/gi, '')
-      .replace(/<invoke[\s\S]*?<\/invoke>/gi, '')
-      .trim();
-    display = display.replace(
-      /\[FILE_CREATED:(.+?)\]/g,
-      (_, key: string) => `Created ${key} — opened in editor`
-    );
-
-    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)\n```/g;
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match;
-    let codeCount = 0;
-
-    while ((match = codeBlockRegex.exec(display)) !== null) {
-      if (match.index > lastIndex) {
-        const text = display.substring(lastIndex, match.index);
-        parts.push(
-          <span
             key={`text-${lastIndex}`}
             className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full"
           >
