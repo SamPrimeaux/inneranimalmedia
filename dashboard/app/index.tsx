@@ -6,6 +6,7 @@
 // ─── Styles ───────────────────────────────────────────────────────────────────
 // index.css layers Tailwind utilities on top.
 import '../public/inneranimalmedia.css';
+import '@xterm/xterm/css/xterm.css';
 import './index.css';
 
 // ─── React ────────────────────────────────────────────────────────────────────
