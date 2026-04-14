@@ -84,7 +84,7 @@ const App: React.FC = () => {
             activeRoute={workbench.activeRoute}
             layoutMode={workbench.layoutMode}
             isTerminalOpen={workbench.isTerminalOpen}
-            onTerminalToggle={() => workbench.setIsTerminalOpen(false)}
+            onTerminalToggle={() => workbench.setIsTerminalOpen(!workbench.isTerminalOpen)}
             workspaceProps={{
               onOpenFolder: () => {},
               onConnectWorkspace: () => workbench.setWorkspaceLauncherOpen(true),
