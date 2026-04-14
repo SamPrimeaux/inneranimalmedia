@@ -77,7 +77,7 @@ export function renderShell({
     window.__USER_ID__       = window.__IAM__.userId;
   </script>
 
-  <link rel="stylesheet" href="/static/dashboard/agent/inneranimalmedia.css?v=${escAttr(version)}" />
+  <link rel="stylesheet" href="/static/dashboard/agent/index.css?v=${escAttr(version)}" />
 ${buildThemeBlock(themeVars)}
   <style>
     *, *::before, *::after { box-sizing: border-box; }

@@ -235,6 +235,5 @@ async function stats(env) {
     platform_health: healthRow || { health_status: 'unknown', health_notes: '', snapshot_at: null },
   });
 }
-}
 
 
