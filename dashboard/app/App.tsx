@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import './inneranimalmedia.css';
 import { useWorkbench } from './hooks/useWorkbench';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useStudioEngine } from './hooks/useStudioEngine';
