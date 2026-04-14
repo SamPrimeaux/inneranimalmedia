@@ -48,6 +48,7 @@ const App: React.FC = () => {
     return formatWorkspaceStatusLine(fileSystem.ideWorkspace);
   }, [workbench.activeWorkspace, fileSystem.ideWorkspace]);
 
+  const [messages, setMessages] = React.useState<any[]>([]);
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -117,6 +118,8 @@ const App: React.FC = () => {
               onSendMessage={handleSendMessage}
               conversationId={fileSystem.agentChatConversationId}
               onConversationChange={fileSystem.setAgentChatConversationId}
+              messages={messages}
+              setMessages={setMessages}
             />
           </div>
         )}

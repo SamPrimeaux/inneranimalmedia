@@ -12,6 +12,8 @@ interface AgentPanelProps {
   onSendMessage: (msg: string) => void;
   conversationId: string;
   onConversationChange: (id: string) => void;
+  messages: any[];
+  setMessages: React.Dispatch<React.SetStateAction<any[]>>;
 }
 
 export const AgentPanel: React.FC<AgentPanelProps> = ({
