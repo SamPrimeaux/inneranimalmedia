@@ -5,7 +5,7 @@
  * Workspace-scoped data is loaded separately and only when a workspace is active.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
