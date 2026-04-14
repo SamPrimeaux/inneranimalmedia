@@ -50,7 +50,7 @@ import {
   type RecentFileEntry,
 } from './src/ideWorkspace';
 import { useEditor } from './src/EditorContext';
-import { Sparkles, Files, Search, GitBranch, PlayCircle, Blocks, Box, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, Columns2, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package } from 'lucide-react';
+import { Sparkles, Files, Search, GitBranch, PlayCircle, Blocks, Box, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, Columns2, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Plane } from 'lucide-react';
 
 function escapeHtmlForPreview(s: string): string {
   return s
@@ -377,6 +377,9 @@ const App: React.FC = () => {
   const openTab = (tab: TabId) => {
     setOpenTabs(prev => prev.includes(tab) ? prev : [...prev, tab]);
     setActiveTab(tab);
+    if (tab === 'engine' && activeActivity !== 'cad') {
+      setActiveActivity('cad');
+    }
   };
 
   const closeTab = (tab: TabId, e: React.MouseEvent) => {
@@ -671,6 +674,9 @@ const App: React.FC = () => {
         setIsTerminalOpen(true);
         setTimeout(() => terminalRef.current?.setActiveTab('problems'), 50);
         return null; // Don't open a sidebar for debug anymore
+      }
+      if (activity === 'cad') {
+        openTab('engine');
       }
       return activity;
     });
@@ -1506,7 +1512,19 @@ const App: React.FC = () => {
               
               <div className="flex-1" />
               <ActivityIcon icon={FolderOpen} title="Projects" active={activeActivity === 'projects'} onClick={() => toggleActivity('projects')} />
-              <ActivityIcon icon={Plane} title="Studio Engine" active={activeActivity === 'cad'} onClick={() => { toggleActivity('cad'); if (activeActivity !== 'cad') openTab('engine'); }} />
+              <ActivityIcon 
+                icon={Plane} 
+                title="Studio Engine" 
+                active={activeActivity === 'cad'} 
+                onClick={() => {
+                  if (activeActivity === 'cad') {
+                    setActiveActivity(null);
+                  } else {
+                    toggleActivity('cad');
+                    openTab('engine');
+                  }
+                }} 
+              />
               <ActivityIcon icon={Settings} title="Settings" active={activeActivity === 'settings'} onClick={() => toggleActivity('settings')} />
           </div>
 
