@@ -12,13 +12,13 @@
  * env.SESSION_CACHE keyed by session_id between start/stop calls.
  */
 
-import puppeteer from '@cloudflare/puppeteer';
+import puppeteerLib from '@cloudflare/puppeteer';
 
 // ─── Session helper ───────────────────────────────────────────────────────────
 
 async function withPage(env, fn) {
   if (!env.MYBROWSER) throw new Error('MYBROWSER binding not configured');
-  const browser = await puppeteer.launch(env.MYBROWSER);
+  const browser = await puppeteerLib.launch(env.MYBROWSER);
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
