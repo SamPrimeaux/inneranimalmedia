@@ -116,7 +116,7 @@ export const SourcePanel: React.FC = () => {
     );
   }
 
-  const allChanges = (data?.staged.length || 0) + (data?.unstaged.length || 0);
+  const allChanges = (data?.staged?.length || 0) + (data?.unstaged?.length || 0);
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)] text-[var(--text-main)] overflow-hidden">
@@ -163,10 +163,10 @@ export const SourcePanel: React.FC = () => {
            </div>
 
            <div className="space-y-1">
-              {data?.staged.map((f, i) => (
+              {data?.staged?.map((f, i) => (
                 <FileItem key={`staged-${i}`} path={f.path} status={f.status} isStaged onAction={() => handleUnstage(f.path)} />
               ))}
-              {data?.unstaged.map((f, i) => (
+              {data?.unstaged?.map((f, i) => (
                 <FileItem key={`unstaged-${i}`} path={f.path} status={f.status} onAction={() => handleStage(f.path)} />
               ))}
               {allChanges === 0 && !loading && (
@@ -217,7 +217,7 @@ export const SourcePanel: React.FC = () => {
             />
             <button 
               onClick={handleCommit}
-              disabled={busy || !commitMsg.trim() || (data?.staged.length || 0) === 0}
+              disabled={busy || !commitMsg.trim() || (data?.staged?.length || 0) === 0}
               className="w-full py-2 bg-[var(--solar-cyan)]/10 hover:bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] disabled:opacity-30 disabled:cursor-not-allowed border border-[var(--solar-cyan)]/30 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2"
             >
               <GitCommit size={14} />
