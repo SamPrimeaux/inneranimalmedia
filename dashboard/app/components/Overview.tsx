@@ -35,7 +35,7 @@ export const Overview: React.FC = () => {
 
   // Hybrid chart data mapping
   const hybridData = useMemo(() => {
-    if (!data) return [];
+    if (!data || !Array.isArray(data.spend_history)) return [];
     return data.spend_history.map(day => ({
       d: day.d,
       total: day.cost * 1.4, // Total = AI + estimated Infra
@@ -138,7 +138,7 @@ export const Overview: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {data?.worker_deploys.map((dep, i) => (
+              {(data?.worker_deploys || []).map((dep, i) => (
                 <tr key={i} className="border-b border-white/2 hover:bg-white/2 transition-colors">
                   <td className="py-3 flex items-center gap-2">
                     <Server size={12} className="text-cyan-500" />
