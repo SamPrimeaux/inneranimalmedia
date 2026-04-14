@@ -4,9 +4,7 @@
  */
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-// inneranimalmedia.css must load first — defines :root tokens before React mounts.
 // index.css layers Tailwind utilities on top.
-import './inneranimalmedia.css';
 import './index.css';
 
 // ─── React ────────────────────────────────────────────────────────────────────
