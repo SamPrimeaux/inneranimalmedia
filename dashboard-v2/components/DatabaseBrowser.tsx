@@ -14,9 +14,9 @@ import {
   Check,
 } from 'lucide-react';
 import { SQLConsole, SqlDialect } from './SQLConsole';
-import { DatabaseAgentChat } from './DatabaseAgentChat';
+// import { DatabaseAgentChat } from './DatabaseAgentChat';
 
-type DBView = 'console' | 'agent' | 'settings';
+type DBView = 'console' | 'settings';
 type DBTarget = 'd1' | 'hyperdrive';
 
 const KNOWN_CONNECTIONS: Record<DBTarget, { name: string; label: string }> = {
@@ -356,15 +356,7 @@ export const DatabaseBrowser: React.FC<{
           >
             <Terminal size={12} /> Console
           </button>
-          <button
-            type="button"
-            onClick={() => setView('agent')}
-            className={`p-1 px-2 rounded text-[0.6875rem] flex items-center gap-1.5 transition-all ${
-              view === 'agent' ? 'bg-[var(--solar-magenta)]/20 text-[var(--solar-magenta)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-muted)]'
-            }`}
-          >
-            <MessageSquare size={12} /> Agent
-          </button>
+{/* Agent tab removed to consolidate with global Sam assistant */}
           <button
             type="button"
             onClick={() => setView('settings')}
@@ -576,13 +568,7 @@ export const DatabaseBrowser: React.FC<{
             />
           )}
 
-          {view === 'agent' && (
-            <DatabaseAgentChat
-              runSQL={runSQL}
-              dialect={sqlDialect}
-              dbLabel={`${KNOWN_CONNECTIONS[dbTarget].name} — ${KNOWN_CONNECTIONS[dbTarget].label}`}
-            />
-          )}
+{/* DatabaseAgentChat removed */}
 
           {view === 'settings' && (
             <div className="p-6 overflow-y-auto h-full">

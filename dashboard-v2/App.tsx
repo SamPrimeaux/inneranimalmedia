@@ -125,7 +125,7 @@ const App: React.FC = () => {
   const [redoStack, setRedoStack] = useState<GameEntity[]>([]);
 
   // IDE State
-  type TabId = 'Workspace' | 'welcome' | 'engine' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'database';
+  type TabId = 'Workspace' | 'welcome' | 'engine' | 'code' | 'browser' | 'glb' | 'excalidraw';
   const [activeActivity, setActiveActivity] = useState<'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'settings' | 'drive' | 'playwright' | null>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? null : 'files',
   );
@@ -667,7 +667,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const toggleActivity = (activity: 'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'settings' | 'drive' | 'playwright') => {
+  const toggleActivity = (activity: 'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'settings' | 'drive' | 'playwright' | 'database') => {
     setActiveActivity((prev) => {
       if (prev === activity) return null;
       if (activity === 'debug') {
@@ -698,9 +698,8 @@ const App: React.FC = () => {
   const handleUnifiedNavigate = useCallback(
     (nav: UnifiedSearchNavigate) => {
       if (nav.kind === 'table') {
-        setOpenTabs((prev) => (prev.includes('database') ? prev : [...prev, 'database']));
-        setActiveTab('database');
         setDbExplorerJump({ token: Date.now(), table: nav.name, dbTarget: 'd1' });
+        setActiveActivity('database');
         return;
       }
       if (nav.kind === 'conversation') {
@@ -724,9 +723,8 @@ const App: React.FC = () => {
       if (nav.kind === 'sql' || nav.kind === 'column') {
         const sql = nav.sql?.trim();
         if (!sql) return;
-        setOpenTabs((prev) => (prev.includes('database') ? prev : [...prev, 'database']));
-        setActiveTab('database');
         setDbExplorerJump({ token: Date.now(), querySql: sql, dbTarget: 'd1' });
+        setActiveActivity('database');
         return;
       }
       if (nav.kind === 'deployment') {
@@ -1501,11 +1499,8 @@ const App: React.FC = () => {
               <ActivityIcon
                   icon={Database}
                   title="D1 Explorer"
-                  active={openTabs.includes('database')}
-                  onClick={() => {
-                    openTab('database');
-                    setActiveActivity(null);
-                  }}
+                  active={activeActivity === 'database'}
+                  onClick={() => toggleActivity('database')}
               />
               <ActivityIcon icon={Cloud} title="Cloud Sync" active={activeActivity === 'drive'} onClick={() => toggleActivity('drive')} />
               <ActivityIcon icon={Monitor} title="Playwright Jobs" active={activeActivity === 'playwright'} onClick={() => toggleActivity('playwright')} />
@@ -1713,6 +1708,12 @@ const App: React.FC = () => {
                           setIdeWorkspace({ source: 'pinned', name, pathHint: path });
                         }}
                       />
+                  ) : activeActivity === 'database' ? (
+                      <DatabaseBrowser
+                          explorerJump={dbExplorerJump}
+                          onExplorerJumpConsumed={() => setDbExplorerJump(null)}
+                          onClose={() => setActiveActivity(null)}
+                      />
                   ) : (
                       <div className="p-4 text-xs text-[var(--text-muted)]">Panel empty.</div>
                   )}
@@ -1817,20 +1818,10 @@ const App: React.FC = () => {
                           onClose={(e) => closeTab('excalidraw', e)}
                       />
                   )}
-                  {openTabs.includes('database') && (
-                      <Tab
-                          title="Database"
-                          icon={<Database size={13} className="text-[var(--solar-blue)]"/>}
-                          active={activeTab === 'database'}
-                          onClick={() => setActiveTab('database')}
-                          onClose={(e) => closeTab('database', e)}
-                      />
-                  )}
 
                   {/* Quick-open buttons for closed panels */}
                   <div className="ml-auto flex items-center gap-0.5 pr-2 shrink-0">
                       {!openTabs.includes('browser') && <QuickOpen label="Browser" onClick={() => openTab('browser')} />}
-                      {!openTabs.includes('database') && <QuickOpen label="Database" onClick={() => openTab('database')} />}
                   </div>
 
                   {/* Decorative line below tabs */}
@@ -1905,21 +1896,6 @@ const App: React.FC = () => {
                   {activeTab === 'excalidraw' && (
                       <div className="absolute inset-0 z-10 flex flex-col">
                           <ExcalidrawView />
-                      </div>
-                  )}
-                  {activeTab === 'database' && (
-                      <div className="absolute inset-0 z-10 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">
-                          <DatabaseBrowser
-                              explorerJump={dbExplorerJump}
-                              onExplorerJumpConsumed={() => setDbExplorerJump(null)}
-                              onClose={() => {
-                                const next = openTabs.filter((t) => t !== 'database');
-                                setOpenTabs(next);
-                                if (activeTab === 'database') {
-                                  setActiveTab(next.length > 0 ? next[next.length - 1] : 'Workspace');
-                                }
-                              }}
-                          />
                       </div>
                   )}
                   </div>
@@ -2034,11 +2010,8 @@ const App: React.FC = () => {
         </button>
         <button
           type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${openTabs.includes('database') ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => {
-            openTab('database');
-            setActiveActivity(null);
-          }}
+          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${activeActivity === 'database' ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
+          onClick={() => toggleActivity('database')}
         >
           <Database size={24} strokeWidth={1.5} aria-hidden />
           <span>Database</span>
