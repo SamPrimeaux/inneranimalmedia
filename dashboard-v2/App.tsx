@@ -27,7 +27,7 @@ import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/Unifi
 import { GitHubActionsPanel } from './components/GitHubActionsPanel';
 import { GitHubExplorer } from './components/GitHubExplorer';
 import { KnowledgeSearchPanel } from './components/KnowledgeSearchPanel';
-import { ProblemsDebugPanel } from './components/ProblemsDebugPanel';
+// import { ProblemsDebugPanel } from './components/ProblemsDebugPanel';
 import { WorkspaceExplorerPanel } from './components/WorkspaceExplorerPanel';
 import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
 import { R2Explorer } from './components/R2Explorer';
@@ -147,6 +147,7 @@ const App: React.FC = () => {
   const [dbExplorerJump, setDbExplorerJump] = useState<DatabaseExplorerJump | null>(null);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
+  const [systemProblems, setSystemProblems] = useState<any>(null);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [tunnelHealthy, setTunnelHealthy] = useState<boolean | null>(null);
   const [tunnelLabel, setTunnelLabel] = useState<string | null>(null);
@@ -666,6 +667,11 @@ const App: React.FC = () => {
   const toggleActivity = (activity: 'cad' | 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'settings' | 'drive' | 'playwright') => {
     setActiveActivity((prev) => {
       if (prev === activity) return null;
+      if (activity === 'debug') {
+        setIsTerminalOpen(true);
+        setTimeout(() => terminalRef.current?.setActiveTab('problems'), 50);
+        return null; // Don't open a sidebar for debug anymore
+      }
       return activity;
     });
   };
@@ -751,6 +757,7 @@ const App: React.FC = () => {
       const probRes = await fetch('/api/agent/problems', cred);
       const probData = await probRes.json().catch(() => ({}));
       if (probRes.ok && probData && typeof probData === 'object') {
+        setSystemProblems(probData);
         const mcp = Array.isArray(probData.mcp_tool_errors) ? probData.mcp_tool_errors.length : 0;
         const audits = Array.isArray(probData.audit_failures) ? probData.audit_failures : [];
         const wx = Array.isArray(probData.worker_errors) ? probData.worker_errors.length : 0;
@@ -1652,11 +1659,7 @@ const App: React.FC = () => {
                   ) : activeActivity === 'playwright' ? (
                       <PlaywrightConsole />
                   ) : activeActivity === 'debug' ? (
-                      <ProblemsDebugPanel
-                        onClose={() => setActiveActivity(null)}
-                        onNavigateToAgentThread={openAgentThreadFromProblems}
-                        onOpenMcpPanel={() => setActiveActivity('mcps')}
-                      />
+                      <div className="p-4 text-xs text-[var(--text-muted)]">Redirecting to terminal problems...</div>
                   ) : activeActivity === 'git' ? (
                       <SourcePanel />
                   ) : activeActivity === 'projects' ? (
@@ -1907,6 +1910,7 @@ const App: React.FC = () => {
                       <XTermShell
                           ref={terminalRef}
                           onClose={() => setIsTerminalOpen(false)}
+                          problems={systemProblems}
                           iamOrigin={typeof window !== 'undefined' ? window.location.origin : 'https://inneranimalmedia.com'}
                           workspaceCdCommand="cd ~/Downloads/inneranimalmedia/inneranimalmedia-agentsam-dashboard"
                           workspaceLabel={workspaceDisplayName}
