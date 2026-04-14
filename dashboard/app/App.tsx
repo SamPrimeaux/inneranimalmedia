@@ -122,7 +122,6 @@ const App: React.FC = () => {
   }, [workbench]);
 
   const handleFileOpen = async (path: string) => {
-
     // Basic wiring: fetch file content then open in editor
     try {
       const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`);
@@ -132,6 +131,24 @@ const App: React.FC = () => {
       }
     } catch (err) {
       console.error('[App] Failed to open file:', path, err);
+    }
+  };
+
+  // ── Static Mock Detection ────────────────────────────────────────────────
+  const isStatic = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+
+  /**
+   * Safe fetch wrapper for static environments (GitHub Pages)
+   */
+  const safeFetch = async (url: string, options: RequestInit = {}, fallback: any = []) => {
+    if (isStatic) return fallback;
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.warn(`[App] SafeFetch failed for ${url}, returning fallback.`, err);
+      return fallback;
     }
   };
 
@@ -157,14 +174,14 @@ const App: React.FC = () => {
 
           onFileOpen={handleFileOpen}
 
-          fetchFileTree={() => fetch('/api/workspace/files').then(r => r.json())}
-          fetchGitStatus={() => fetch('/api/agent/git/status').then(r => r.json())}
-          fetchCommits={() => fetch('/api/agent/git/log').then(r => r.json())}
-          fetchOutline={(file) => fetch(`/api/workspace/outline?file=${encodeURIComponent(file)}`).then(r => r.json())}
-          fetchTimeline={(file) => fetch(`/api/workspace/timeline?file=${encodeURIComponent(file)}`).then(r => r.json())}
-          fetchDebugConfigs={() => fetch('/api/workspace/debug/configs').then(r => r.json())}
-          fetchSshTargets={() => fetch('/api/ssh/targets').then(r => r.json())}
-          fetchWorkflowRuns={() => fetch('/api/agent/cicd').then(r => r.json())}
+          fetchFileTree={() => safeFetch('/api/workspace/files')}
+          fetchGitStatus={() => safeFetch('/api/agent/git/status', {}, { success: true, changes: [] })}
+          fetchCommits={() => safeFetch('/api/agent/git/log', {}, [])}
+          fetchOutline={(file) => safeFetch(`/api/workspace/outline?file=${encodeURIComponent(file)}`, {}, [])}
+          fetchTimeline={(file) => safeFetch(`/api/workspace/timeline?file=${encodeURIComponent(file)}`, {}, [])}
+          fetchDebugConfigs={() => safeFetch('/api/workspace/debug/configs', {}, [])}
+          fetchSshTargets={() => safeFetch('/api/ssh/targets', {}, [])}
+          fetchWorkflowRuns={() => safeFetch('/api/agent/cicd', {}, [])}
 
           onSearch={(params: any) => fetch('/api/workspace/search', {
             method: 'POST',

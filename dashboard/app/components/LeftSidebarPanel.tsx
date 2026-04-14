@@ -1487,10 +1487,10 @@ interface ActivityBarProps {
   onChange: (id: PanelId) => void;
   gitChangesCount: number;
   onNavigate?: (route: any) => void;
+  isCollapsed?: boolean;
 }
 
-function ActivityBar({ active, onChange, gitChangesCount, onNavigate }: ActivityBarProps) {
-
+function ActivityBar({ active, onChange, gitChangesCount, onNavigate, isCollapsed }: ActivityBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -1503,21 +1503,29 @@ function ActivityBar({ active, onChange, gitChangesCount, onNavigate }: Activity
   }, []);
 
   const mainButtons: { id: string; icon: React.ReactNode; label: string; badge?: number; type?: 'route' | 'panel' }[] = [
-    { id: 'explorer',       icon: <Icon.Explorer/>,      label: 'Explorer', type: 'panel' },
-    { id: 'search',         icon: <Icon.Search/>,         label: 'Search', type: 'panel' },
-    { id: 'source-control', icon: <Icon.SourceControl/>, label: 'Source Control', badge: gitChangesCount, type: 'panel' },
-    { id: 'run-debug',      icon: <Icon.RunDebug/>,       label: 'Run and Debug', type: 'panel' },
-    { id: 'database',       icon: <Icon.Database/>,       label: 'Database Explorer', type: 'route' },
+    { id: 'explorer',       icon: <Icon.Files size={18}/>,      label: 'Explorer', type: 'panel' },
+    { id: 'search',         icon: <Icon.Search size={18}/>,     label: 'Search', type: 'panel' },
+    { id: 'source-control', icon: <Icon.GitBranch size={18}/>, label: 'Source Control', badge: gitChangesCount, type: 'panel' },
+    { id: 'database',       icon: <Icon.Database size={18}/>,  label: 'Database Explorer', type: 'route' },
+    { id: 'cad',            icon: <Icon.Jet size={18}/>,       label: 'Design', type: 'panel' },
   ];
 
-
   const moreItems: { id: PanelId; icon: React.ReactNode; label: string }[] = [
-    { id: 'remote-explorer', icon: <Icon.Remote/>, label: 'Remote Explorer' },
-    { id: 'github-actions',  icon: <Icon.GitHub/>, label: 'GitHub Actions' },
+    { id: 'run-debug',       label: 'Run and Debug',  icon: <Icon.Bug/> },
+    { id: 'remote-explorer', label: 'Remote Explorer',icon: <Icon.Globe/> },
+    { id: 'github-actions',  label: 'GitHub Actions', icon: <Icon.Github/> },
+    { id: 'playwright',      label: 'Playwright',     icon: <Icon.Camera/> },
+    { id: 'projects',        label: 'Projects',       icon: <Icon.SquareStack/> },
+    { id: 'drive',           label: 'Google Drive',   icon: <Icon.Cloud/> },
   ];
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 1, padding: '4px 6px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+      padding: '12px 0', width: 56, background: 'var(--bg-panel)',
+      borderRight: '1px solid var(--border)', flexShrink: 0,
+      height: '100%'
+    }}>
       {mainButtons.map(btn => (
         <button
           key={btn.id} 
@@ -1543,10 +1551,11 @@ function ActivityBar({ active, onChange, gitChangesCount, onNavigate }: Activity
           {btn.icon}
           {btn.badge !== undefined && btn.badge > 0 && (
             <span style={{
-              position: 'absolute', top: 2, right: 2,
+              position: 'absolute', top: 4, right: 4,
               background: 'var(--color-primary)', color: '#fff', borderRadius: 8,
-              fontSize: 9, fontWeight: 700, minWidth: 14, height: 14, lineHeight: '14px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px',
+              fontSize: 8, fontWeight: 800, minWidth: 14, height: 14, lineHeight: '14px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px',
+              boxShadow: '0 0 0 2px var(--bg-panel)'
             }}>
               {btn.badge}
             </span>
@@ -1564,20 +1573,19 @@ function ActivityBar({ active, onChange, gitChangesCount, onNavigate }: Activity
           style={{
             background: moreOpen ? 'var(--bg-elevated)' : 'transparent',
             border: 'none', color: 'var(--text-secondary)',
-            padding: '5px 6px', borderRadius: 4, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 2,
+            padding: '8px', borderRadius: 4, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
           }}
         >
-          <Icon.More/>
-          <Icon.ChevronDown size={10}/>
+          <Icon.More size={20}/>
         </button>
 
         {moreOpen && (
           <div style={{
-            position: 'absolute', top: 'calc(100% + 2px)', right: 0, zIndex: 200,
+            position: 'absolute', bottom: 0, left: 'calc(100% + 4px)', zIndex: 200,
             background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-            borderRadius: 6, padding: '4px 0', minWidth: 190,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            borderRadius: 8, padding: '6px 0', minWidth: 200,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
           }}>
             {moreItems.map(item => (
               <button
@@ -1627,13 +1635,20 @@ export default function LeftSidebarPanel(props: LeftSidebarPanelProps) {
   return (
     <div
       className={props.className}
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-panel)', borderRight: '1px solid var(--border)', overflow: 'hidden' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'row',
+        height: '100%',
+        background: 'var(--bg-panel)',
+        overflow: 'hidden'
+      }}
     >
-      <ActivityBar 
-        active={activePanel} 
-        onChange={setActivePanel} 
+      <ActivityBar
+        active={activePanel}
+        onChange={setActivePanel}
         gitChangesCount={unstagedCount}
         onNavigate={props.onNavigate}
+        isCollapsed={props.isCollapsed}
       />
 
       {!props.isCollapsed && (
