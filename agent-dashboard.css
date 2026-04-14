@@ -154,6 +154,154 @@
   background: var(--bg-app);
 }
 
+/*
+ * Inner Animal Media — global design tokens and chrome styles
+ *
+ * Defaults below load before JavaScript. They are overridden at runtime when
+ * GET /api/themes/active returns theme variables from the cms_themes table
+ * (workspace-scoped). applyCmsThemeToDocument() sets matching custom
+ * properties on document.documentElement so the UI tracks DB-driven theme
+ * changes without a full reload.
+ *
+ * Expected shape from API: { slug?, name?, is_dark?, data?: { "--token-name": "value", ... } }
+ * Cached for first paint: localStorage keys inneranimalmedia_theme_css,
+ * inneranimalmedia_theme_is_dark (see src/applyCmsTheme.ts).
+ */
+
+:root {
+  /* Base palette (Solarized-dark–inspired; safe offline default) */
+  --solar-base03:  #00212b;
+  --solar-base02:  #0a2d38;
+  --solar-base01:  #4a7a87;
+  --solar-base00:  #6e8d96;
+  --solar-base0:   #9cb5bc;
+  --solar-base1:   #b0ccd2;
+
+  --solar-yellow:  #e6ac00;
+  --solar-orange:  #d95f1c;
+  --solar-red:     #e63333;
+  --solar-magenta: #d33682;
+  --solar-violet:  #7c83d4;
+  --solar-blue:    #3a9fe8;
+  --solar-cyan:    #2dd4bf;
+  --solar-green:   #a3b800;
+
+  /* Semantic layout (override via cms_themes.data) */
+  --bg-app:        var(--solar-base03);
+  --bg-panel:      var(--solar-base02);
+  --bg-hover:      rgba(42, 161, 152, 0.08);
+  --border-subtle: #1e3e4a;
+  --border-focus:  var(--solar-cyan);
+
+  --text-main:     var(--solar-base0);
+  --text-primary:  var(--text-main);
+  --text-muted:    #7a9aaa;
+  --text-heading:  var(--solar-base1);
+
+  --bg-elevated:   color-mix(in srgb, var(--bg-panel) 88%, var(--solar-cyan) 12%);
+
+  --scene-bg:      #060e14;
+
+  --terminal-chrome:   var(--solar-base02);
+  --terminal-surface:  #05080c;
+  --terminal-tab-muted: var(--text-muted);
+
+  --bg-code-pre:             #030a0d;
+  --text-placeholder-strong: #2e5464;
+  --text-chrome-muted:       #2a4d58;
+  --bg-disabled:             #0a1c22;
+  --toggle-knob:             var(--solar-base1);
+
+  --editor-selection-bg:     color-mix(in srgb, var(--solar-cyan) 24%, transparent);
+  --monaco-scrollbar-thumb:  color-mix(in srgb, var(--border-subtle) 50%, transparent);
+  --monaco-scrollbar-hover:  color-mix(in srgb, var(--solar-cyan) 25%, transparent);
+
+  --accent-primary:   var(--solar-blue);
+  --color-primary:    var(--solar-blue);
+  --accent-secondary: var(--solar-cyan);
+  --accent-warning:   var(--solar-yellow);
+  --accent-danger:    var(--solar-red);
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text-main);
+  margin: 0;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--solar-cyan) 20%, transparent);
+  color: var(--solar-cyan);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-panel);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-subtle);
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes pulse-dirty {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.animate-pulse-dirty {
+  animation: pulse-dirty 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.glass-panel {
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glow-border {
+  position: relative;
+}
+.glow-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: 0 0 0 0 transparent;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+  pointer-events: none;
+}
+.glow-border:hover::after, .glow-border:active::after {
+  box-shadow: 0 0 10px var(--solar-cyan);
+  background-color: color-mix(in srgb, var(--solar-cyan) 50%, transparent);
+}
+
+@keyframes slide-up {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.xterm-shell-viewport .xterm {
+  padding: 8px 12px 12px;
+}
+.xterm-shell-viewport .xterm-viewport {
+  overflow-y: auto !important;
+}
+.xterm-shell-viewport:focus-within .xterm-focus .xterm-cursor-layer {
+  z-index: 2;
+}
 /**
  * Copyright (c) 2014 The xterm.js authors. All rights reserved.
  * Copyright (c) 2012-2013, Christopher Jeffrey (MIT License)
