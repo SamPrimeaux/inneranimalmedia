@@ -104,6 +104,24 @@ function buildAgentSamGreeting(workspaceDisplayLine: string): string {
 // ─── LucideLike type ──────────────────────────────────────────────────────────
 type LucideLike = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
+class OverviewBoundary extends React.Component<
+  { children: React.ReactNode },
+  { err: boolean }
+> {
+  constructor(props: any) { super(props); this.state = { err: false }; }
+  static getDerivedStateFromError() { return { err: true }; }
+  render() {
+    if (this.state.err) return (
+      <div className="flex items-center justify-center h-full">
+        <span className="text-[11px] font-mono text-[var(--text-muted)]">
+          Overview unavailable
+        </span>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
@@ -1314,7 +1332,13 @@ const App: React.FC = () => {
               )}
               {activeTab === 'browser'   && <div className="absolute inset-0 z-10 overflow-hidden"><BrowserView url={browserUrl} addressDisplay={browserAddressDisplay} /></div>}
               {activeTab === 'excalidraw' && <div className="absolute inset-0 z-10 flex flex-col"><ExcalidrawView /></div>}
-              {activeTab === 'overview'  && <div className="absolute inset-0 z-10 overflow-hidden"><Overview /></div>}
+              {activeTab === 'overview'  && (
+                <div className="absolute inset-0 z-10 overflow-hidden">
+                  <OverviewBoundary>
+                    <Overview />
+                  </OverviewBoundary>
+                </div>
+              )}
               {activeTab === 'database'  && (
                 <div className="absolute inset-0 z-10 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-app)]">
                   <DatabaseBrowser
