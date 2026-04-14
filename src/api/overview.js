@@ -197,15 +197,27 @@ async function deployments(env) {
     ).all(),
   ]);
 
+  const parseDate = (val) => {
+    if (!val) return null;
+    let d = new Date(val);
+    if (!isNaN(d.getTime())) return d.toISOString();
+    // Try numeric (seconds)
+    if (!isNaN(Number(val))) {
+      d = new Date(Number(val) * 1000);
+      if (!isNaN(d.getTime())) return d.toISOString();
+    }
+    return null;
+  };
+
   return jsonResponse({
     deployments: (deploys.results || []).map(d => ({
       ...d,
-      deployed_at: d.deployed_at ? new Date(d.deployed_at).toISOString() : null
+      deployed_at: parseDate(d.deployed_at || d.timestamp)
     })),
     cicd_runs: (cicdRuns.results || []).map(r => ({
       ...r,
-      started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
-      completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null
+      started_at: parseDate(r.triggered_at || r.started_at),
+      completed_at: parseDate(r.completed_at)
     })),
   });
 }

@@ -738,15 +738,25 @@ export async function handleAgentApi(request, url, env, ctx) {
         const uwsId  = `uws:${tid}:${userId}:${wsId}`;
 
         // Attempt update in both locations (idempotent for the relevant table)
-        await Promise.all([
-          env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`)
-            .bind(stateStr, wsId).run().catch(() => null),
-          env.DB.prepare(`UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`)
-            .bind(stateStr, uwsId).run().catch(() => null)
-        ]);
+        try {
+          if (env.DB) {
+            const results = await Promise.allSettled([
+              env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`)
+                .bind(stateStr, wsId).run(),
+              env.DB.prepare(`UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`)
+                .bind(stateStr, uwsId).run()
+            ]);
+            console.log('[agent] workspace update results:', results.map(r => r.status));
+          }
+        } catch (dbErr) {
+          console.warn('[agent] non-critical workspace update failure:', dbErr.message);
+        }
         
         return jsonResponse({ ok: true, id: wsId });
-      } catch (e) { return jsonResponse({ error: e.message }, 500); }
+      } catch (e) { 
+        console.error('[agent] workspace PUT error:', e.stack);
+        return jsonResponse({ error: e.message }, 500); 
+      }
     }
   }
 

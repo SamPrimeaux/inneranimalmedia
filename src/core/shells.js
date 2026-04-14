@@ -78,6 +78,8 @@ export function renderShell({
   </script>
 
   <link rel="stylesheet" href="/static/dashboard/agent/index.css?v=${escAttr(version)}" />
+  <link rel="stylesheet" href="/index.css" />
+  <link rel="stylesheet" href="/inneranimalmedia.css" />
 ${buildThemeBlock(themeVars)}
   <style>
     *, *::before, *::after { box-sizing: border-box; }
