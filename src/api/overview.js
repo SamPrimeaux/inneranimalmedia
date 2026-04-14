@@ -232,7 +232,7 @@ async function stats(env) {
     tasks_completed: num(tasks),
     deploys_total:   num(deploys),
     agent_calls_total: num(agentCalls),
-    platform_health: healthRow || { health_status: 'unknown', health_notes: '', snapshot_at: null },
+    platform_health: healthRow?.health_status || 'unknown',
   });
 }
 
