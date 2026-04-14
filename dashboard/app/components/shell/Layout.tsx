@@ -11,7 +11,7 @@ export const Layout: React.FC<LayoutProps> = ({ layoutMode, children }) => {
   const modeClass = `layout-${layoutMode}`;
 
   return (
-    <div className={`w-full h-full flex flex-col bg-[var(--bg-app)] text-[var(--text-main)] overflow-hidden font-[var(--font-ui)] ${modeClass}`}>
+    <div className={`layout-container ${modeClass}`}>
       {children}
     </div>
   );

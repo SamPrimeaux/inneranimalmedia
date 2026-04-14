@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import './inneranimalmedia.css';
 import { useWorkbench } from './hooks/useWorkbench';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useStudioEngine } from './hooks/useStudioEngine';
@@ -71,41 +72,43 @@ const App: React.FC = () => {
         tunnelLabel="Tunnel Active"
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="shell-main">
         <ActivityBar 
-          activeRoute={workbench.activeRoute}
+          activeRoute={workbench.activeRoute} 
           onNavigate={workbench.navigate}
-          onSearchToggle={() => setIsSearchOpen(true)}
+          onSearchToggle={() => {}} 
           onSettingsToggle={() => workbench.navigate('cms')}
         />
 
-        <MainWorkbench 
-          activeRoute={workbench.activeRoute}
-          layoutMode={workbench.layoutMode}
-          isTerminalOpen={workbench.isTerminalOpen}
-          onTerminalToggle={() => workbench.setIsTerminalOpen(false)}
-          workspaceProps={{
-            onOpenFolder: () => {},
-            onConnectWorkspace: () => workbench.setWorkspaceLauncherOpen(true),
-            onGithubSync: () => {},
-            recentFiles: fileSystem.recentFiles,
-            workspaceRows: workbench.workspaceRows,
-            authWorkspaceId: workbench.authWorkspaceId,
-            onSwitchWorkspace: workbench.setAuthWorkspaceId,
-            onSendMessage: handleSendMessage,
-            logoUrl: '', 
-            productLabel: PRODUCT_NAME
-          }}
-          editorProps={{}}
-          browserProps={{}}
-          terminalProps={{
-            workspaceLabel: workspaceDisplayName,
-            workspaceId: workbench.authWorkspaceId || '',
-            productLabel: PRODUCT_NAME,
-            showWelcomeBar: false,
-            outputLines: []
-          }}
-        />
+        <div className="workbench-wrapper">
+          <MainWorkbench 
+            activeRoute={workbench.activeRoute}
+            layoutMode={workbench.layoutMode}
+            isTerminalOpen={workbench.isTerminalOpen}
+            onTerminalToggle={() => workbench.setIsTerminalOpen(false)}
+            workspaceProps={{
+              onOpenFolder: () => {},
+              onConnectWorkspace: () => workbench.setWorkspaceLauncherOpen(true),
+              onGithubSync: () => {},
+              recentFiles: fileSystem.recentFiles,
+              workspaceRows: workbench.workspaceRows,
+              authWorkspaceId: workbench.authWorkspaceId,
+              onSwitchWorkspace: workbench.setAuthWorkspaceId,
+              onSendMessage: handleSendMessage,
+              logoUrl: '', 
+              productLabel: PRODUCT_NAME
+            }}
+            editorProps={{}}
+            browserProps={{}}
+            terminalProps={{
+              workspaceLabel: workspaceDisplayName,
+              workspaceId: workbench.authWorkspaceId || '',
+              productLabel: PRODUCT_NAME,
+              showWelcomeBar: false,
+              outputLines: []
+            }}
+          />
+        </div>
 
         {workbench.agentPosition !== 'off' && (
           <div className="w-[320px] shrink-0 h-full">

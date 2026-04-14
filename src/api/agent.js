@@ -666,16 +666,33 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/workspace/:id ──────────────────────────────────────────────
   const workspaceMatch = path.match(/^\/api\/agent\/workspace\/([^/]+)$/);
-  if (workspaceMatch && method === 'GET') {
+  if (workspaceMatch) {
     const wsId = decodeURIComponent(workspaceMatch[1] || '').trim();
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    try {
-      const row = await env.DB.prepare(
-        `SELECT id, name, environment, settings_json FROM workspaces WHERE id = ? LIMIT 1`
-      ).bind(wsId).first().catch(() => null);
-      if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
-      return jsonResponse(row);
-    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+
+    if (method === 'GET') {
+      try {
+        const row = await env.DB.prepare(
+          `SELECT id, name, environment, settings_json, state_json FROM workspaces WHERE id = ? LIMIT 1`
+        ).bind(wsId).first().catch(() => null);
+        if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
+        return jsonResponse(row);
+      } catch (e) { return jsonResponse({ error: e.message }, 500); }
+    }
+
+    if (method === 'PUT') {
+      try {
+        const body    = await request.json().catch(() => ({}));
+        const state   = body.state || body.state_json;
+        const stateStr = typeof state === 'string' ? state : JSON.stringify(state || {});
+        
+        await env.DB.prepare(
+          `UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`
+        ).bind(stateStr, wsId).run();
+        
+        return jsonResponse({ ok: true, id: wsId });
+      } catch (e) { return jsonResponse({ error: e.message }, 500); }
+    }
   }
 
   // ── /api/agent/terminal/config-status ────────────────────────────────────
