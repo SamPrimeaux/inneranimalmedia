@@ -42,7 +42,7 @@
     <link rel="preconnect" href="https://inneranimalmedia.com" crossorigin />
     <link rel="dns-prefetch" href="https://inneranimalmedia.com" />
     <!-- Inner Animal Media dashboard shell (layout vars; safe alongside app CSS) -->
-    <link rel="stylesheet" href="/static/dashboard/shell.css" />
+    <!-- Inner Animal Media dashboard shell - removed in favor of bundled app CSS for standalone SPA -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -50,15 +50,13 @@
         margin: 0;
         overflow: hidden;
         font-family: system-ui, -apple-system, sans-serif;
-        background-color: var(--bg-app);
-        color: var(--text-main);
+        background-color: #001a21; /* Fallback for Solarized Base03 */
+        color: #839496; /* Fallback for Solarized Base0 */
       }
     </style>
-    <!-- No importmap: bare-specifier maps to CDN caused a second React copy at runtime (minified error #525) alongside the Vite bundle. -->
-<link rel="stylesheet" href="/index.css?v=1.2.0-1775750920551">
 </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx?v=1.2.0-1775750920551"></script>
+  <script type="module" src="./index.tsx"></script>
 </body>
 </html>
