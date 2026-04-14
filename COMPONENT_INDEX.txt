@@ -1,0 +1,134 @@
+dashboard/app/components/BrowserView.tsx:508:export const BrowserView: React.FC<BrowserViewProps> = ({
+dashboard/app/components/ExcalidrawView.tsx:17:export const ExcalidrawView: React.FC = () => {
+dashboard/app/components/CommandCenter.tsx:22:export const CommandCenter: React.FC = () => {
+dashboard/app/components/settings/DocsTab.tsx:135:export function DocsTab() {
+dashboard/app/components/settings/EnvironmentTab.tsx:51:export function EnvironmentTab({ runCommandRunnerRef }: EnvironmentTabProps) {
+dashboard/app/components/settings/RulesSkillsTab.tsx:43:export function RulesSkillsSubagentsTab() {
+dashboard/app/components/settings/GeneralTab.tsx:7:export function GeneralTab() {
+dashboard/app/components/settings/IndexingDocsTab.tsx:177:export function IndexingDocsTab() {
+dashboard/app/components/settings/utils.ts:3:export function timeAgo(dateStr: string | null | undefined): string {
+dashboard/app/components/settings/utils.ts:14:export function formatLastRanUnix(unixSec: number | string | null | undefined): string | null {
+dashboard/app/components/settings/utils.ts:27:export function relativeTime(ts: number | string | null | undefined): string | null {
+dashboard/app/components/settings/utils.ts:46:export function formatUsd2(n: number | string | null | undefined): string {
+dashboard/app/components/settings/utils.ts:54:export function formatTokensK(n: number | string | null | undefined): string {
+dashboard/app/components/settings/utils.ts:60:export function formatDayLabel(yyyyMmDd: string | null | undefined): string {
+dashboard/app/components/settings/utils.ts:69:export function formatSuccessRatePct(v: number | string | null | undefined): string | null {
+dashboard/app/components/settings/utils.ts:77:export function formatR2Bytes(n: number | string | null | undefined): string {
+dashboard/app/components/settings/utils.ts:87:export function agentsamWorkspaceQueryString(): string {
+dashboard/app/components/settings/utils.ts:91:export function agentsamWorkspaceIdForNewRule(filter: string): string | null {
+dashboard/app/components/settings/utils.ts:105:export function ruleMatchesFilter(rule: WithWorkspace, filter: string): boolean {
+dashboard/app/components/settings/utils.ts:112:export function subagentMatchesFilter(s: WithWorkspace, filter: string): boolean {
+dashboard/app/components/settings/utils.ts:116:export function skillMatchesFilter(skill: WithWorkspace, filter: string): boolean {
+dashboard/app/components/settings/utils.ts:122:export function pillStyle(active: boolean): React.CSSProperties {
+dashboard/app/components/settings/utils.ts:136:export function runCmd(
+dashboard/app/components/settings/ToolsMcpTab.tsx:4:export function ToolsMcpTab() {
+dashboard/app/components/settings/constants.ts:3:export const SETTINGS_TAB_STORAGE_KEY = "iam-settings-tab";
+dashboard/app/components/settings/constants.ts:4:export const TAB_COMPOSER_PREFS_KEY   = "iam_tab_composer_prefs";
+dashboard/app/components/settings/constants.ts:9:export const AGENTSAM_WORKSPACE_QUERY = "";
+dashboard/app/components/settings/constants.ts:13:export const AGENT_SETTINGS_TABS = [
+dashboard/app/components/settings/constants.ts:37:export const SETTINGS_TAB_IDS = new Set<string>(AGENT_SETTINGS_TABS.map((t) => t.id));
+dashboard/app/components/settings/constants.ts:41:export const HOOK_TRIGGERS = [
+dashboard/app/components/settings/constants.ts:45:export const ROUTING_MATCH_TYPES = [
+dashboard/app/components/settings/constants.ts:49:export const WORKSPACE_ENFORCEMENT = [
+dashboard/app/components/settings/constants.ts:77:export function readTabComposerPrefs(): TabComposerPrefs {
+dashboard/app/components/settings/constants.ts:93:export function writeTabComposerPrefs(prefs: TabComposerPrefs): void {
+dashboard/app/components/settings/constants.ts:101:export function readStoredSettingsTab(): string {
+dashboard/app/components/settings/constants.ts:111:export function writeStoredSettingsTab(id: string): void {
+dashboard/app/components/settings/PolicyTabs.tsx:8:export function CmdAllowlistTab() {
+dashboard/app/components/settings/PolicyTabs.tsx:107:export function McpToolsTab() {
+dashboard/app/components/settings/PolicyTabs.tsx:247:export function RoutingRulesTab() {
+dashboard/app/components/settings/IntegrationsTab.tsx:91:export function IntegrationsTab({ connectedIntegrations }: IntegrationsTabProps) {
+dashboard/app/components/settings/IntegrationsTab.tsx:145:export function ProvidersTab() {
+dashboard/app/components/settings/DeployTab.tsx:363:export function DeployBetaTab({ runCommandRunnerRef, onDeployStart, onDeployComplete }: DeployBetaTabProps) {
+dashboard/app/components/settings/atoms.tsx:11:export function SettingsRow({ label, description, control }: SettingsRowProps) {
+dashboard/app/components/settings/atoms.tsx:36:export function ControlledSwitch({ checked, onChange, disabled = false }: ControlledSwitchProps) {
+dashboard/app/components/settings/atoms.tsx:79:export function Btn({ onClick, variant = "ghost", size = "sm", disabled, children, style }: BtnProps) {
+dashboard/app/components/settings/atoms.tsx:107:export function StatusDot({ status }: { status: DotStatus | string }) {
+dashboard/app/components/settings/atoms.tsx:125:export function SectionLabel({ children }: { children: React.ReactNode }) {
+dashboard/app/components/settings/atoms.tsx:149:export function Input({ value, onChange, placeholder, type = "text", style, disabled, onKeyDown }: InputProps) {
+dashboard/app/components/settings/atoms.tsx:177:export function Modal({ open, onClose, title, children }: ModalProps) {
+dashboard/app/components/settings/atoms.tsx:219:export function WideModal({ open, onClose, title, children }: WideModalProps) {
+dashboard/app/components/settings/AgentsTab.tsx:12:export function AgentsTab() {
+dashboard/app/components/settings/MarketplaceTab.tsx:18:export function MarketplaceSettingsTab({ onOpenGeneral }: MarketplaceSettingsTabProps) {
+dashboard/app/components/settings/NetworkTab.tsx:8:export function NetworkSettingsTab({ onOpenGeneral }: NetworkSettingsTabProps) {
+dashboard/app/components/settings/TabSettingsTab.tsx:5:export function TabSettingsTab() {
+dashboard/app/components/settings/SpendTab.tsx:5:export function SpendTab() {
+dashboard/app/components/settings/HooksTab.tsx:6:export function HooksTab() {
+dashboard/app/components/settings/ModelsSettingsTab.tsx:5:export function ModelsSettingsTab() {
+dashboard/app/components/WorkspaceExplorerPanel.tsx:82:export const WorkspaceExplorerPanel: React.FC<{
+dashboard/app/components/GitHubExplorer.tsx:30:export const GitHubExplorer: React.FC<{
+dashboard/app/components/UnifiedSearchBar.tsx:454:export const UnifiedSearchBar: React.FC<UnifiedSearchBarProps> = ({
+dashboard/app/components/ToolLauncherBar.tsx:23:export const TOOL_EVENTS = {
+dashboard/app/components/ToolLauncherBar.tsx:105:export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({
+dashboard/app/components/ChatAssistant.tsx:606:export const ChatAssistant: React.FC<ChatAssistantProps> = ({
+dashboard/app/components/MonacoEditorView.tsx:356:export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
+dashboard/app/components/LocalExplorer.tsx:234:export const LocalExplorer: React.FC<{
+dashboard/app/components/WorkspaceLauncher.tsx:86:export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
+dashboard/app/components/UIOverlay.tsx:30:export const UIOverlay: React.FC<UIOverlayProps> = ({
+dashboard/app/components/SourcePanel.tsx:69:export const SourcePanel: React.FC = () => {
+dashboard/app/components/GorillaModeShell.tsx:212:export const GorillaModeShell = forwardRef<GorillaModeHandle, GorillaModeShellProps>(
+dashboard/app/components/DashboardCharts.tsx:11:export const Sparkline: React.FC<SparklineProps> = ({ data, color = '#2dd4bf', width = 100, height = 30 }) => {
+dashboard/app/components/DashboardCharts.tsx:38:export const CircularGauge: React.FC<CircularGaugeProps> = ({ percent, size = 60, strokeWidth = 4, color = '#2dd4bf', label }) => {
+dashboard/app/components/DashboardCharts.tsx:67:export const HybridBarLineChart: React.FC<HybridChartProps> = ({ data }) => {
+dashboard/app/components/DashboardCharts.tsx:127:export const DonutChart: React.FC<{ items: { label: string; value: number; color: string }[] }> = ({ items }) => {
+dashboard/app/components/ProblemsDebugPanel.tsx:169:export const ProblemsDebugPanel: React.FC<{
+dashboard/app/components/DatabaseBrowser.tsx:242:export const DatabaseBrowser: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
+dashboard/app/components/MCPPanel.tsx:119:export const MCPPanel: React.FC = () => {
+dashboard/app/components/GLBViewer.tsx:25:export const GLBViewer: React.FC<{ url: string; filename?: string }> = ({
+dashboard/app/components/RemoteExplorer.tsx:113:export const RemoteExplorer: React.FC<RemoteExplorerProps> = ({
+dashboard/app/components/RemoteExplorer.tsx:165:export const GitHubExplorer: React.FC<{
+dashboard/app/components/RemoteExplorer.tsx:171:export const GoogleDriveExplorer: React.FC<{
+dashboard/app/components/RemoteExplorer.tsx:175:export const R2Explorer: React.FC<{
+dashboard/app/components/PromptModal.tsx:94:export const PROVIDERS: ProviderConfig[] = [
+dashboard/app/components/PromptModal.tsx:325:export const PromptModal: React.FC<PromptModalProps> = ({
+dashboard/app/components/StatusBar.tsx:14:export function resolveWorkerDisplayName(): string {
+dashboard/app/components/StatusBar.tsx:98:export const StatusBar: React.FC<StatusBarProps> = ({
+dashboard/app/components/StudioSidebar.tsx:84:export const StudioSidebar: React.FC<SidebarProps> = ({
+dashboard/app/components/WorkspaceDashboard.tsx:106:export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
+dashboard/app/components/KnowledgeSearchPanel.tsx:39:export const KnowledgeSearchPanel: React.FC<{
+dashboard/app/agentSessionsCatalog.ts:11:export function sessionStartedAtMs(s: AgentSessionRow): number {
+dashboard/app/agentSessionsCatalog.ts:23:export function relativeSessionTime(s: AgentSessionRow): string {
+dashboard/app/agentSessionsCatalog.ts:74:export function groupSessionsByBucket(rows: AgentSessionRow[]): { label: string; items: AgentSessionRow[] }[] {
+dashboard/app/agentChatConstants.ts:2:export const LS_AGENT_CHAT_CONVERSATION_ID = 'iam-agent-chat-conversation-id';
+dashboard/app/agentChatConstants.ts:5:export const IAM_AGENT_CHAT_CONVERSATION_CHANGE = 'iam-agent-chat-conversation-change';
+dashboard/app/agentChatConstants.ts:8:export const LS_GH_REPO = 'iam-chat-github-repo-context';
+dashboard/app/src/applyCmsTheme.ts:13:export const INNERANIMALMEDIA_LS_THEME_CSS    = 'inneranimalmedia_theme_css';
+dashboard/app/src/applyCmsTheme.ts:14:export const INNERANIMALMEDIA_LS_THEME_SLUG   = 'inneranimalmedia_theme_slug';
+dashboard/app/src/applyCmsTheme.ts:15:export const INNERANIMALMEDIA_LS_THEME_IS_DARK = 'inneranimalmedia_theme_is_dark';
+dashboard/app/src/applyCmsTheme.ts:28:export function migrateLegacyThemeLocalStorage(): void {}
+dashboard/app/src/applyCmsTheme.ts:36:export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean {
+dashboard/app/src/applyCmsTheme.ts:117:export function applyCachedCmsThemeFallback(): boolean {
+dashboard/app/src/ideWorkspace.ts:47:export const IDE_PERSIST_VERSION = 1;
+dashboard/app/src/ideWorkspace.ts:48:export const MAX_RECENT_FILES    = 24;
+dashboard/app/src/ideWorkspace.ts:53:export function defaultIdeBundle(): IdePersistedBundle {
+dashboard/app/src/ideWorkspace.ts:116:export function parsePersistedBundle(raw: unknown): IdePersistedBundle | null {
+dashboard/app/src/ideWorkspace.ts:136:export function workspaceFetchHeaders(sessionId?: string | null): HeadersInit {
+dashboard/app/src/ideWorkspace.ts:205:export function buildRecentEntryFromActiveFile(file: ActiveFile): RecentFileEntry {
+dashboard/app/src/ideWorkspace.ts:226:export function mergeRecentFromActiveFile(
+dashboard/app/src/ideWorkspace.ts:236:export function diffLineStats(a: string, b: string): { added: number; removed: number } {
+dashboard/app/src/ideWorkspace.ts:249:export function formatWorkspaceStatusLine(ws: IdeWorkspaceSnapshot): string {
+dashboard/app/src/iamDashboardFeeds.ts:144:export function truncateOneLine(s: string, max: number): string {
+dashboard/app/src/iamDashboardFeeds.ts:150:export function firstLinesOfMarkdown(markdown: string, lines: number, maxChars: number): string {
+dashboard/app/src/iamDashboardFeeds.ts:157:export function problemTotal(problems: AgentProblemsPayload | null): number {
+dashboard/app/src/shellVersion.ts:8:export const SHELL_VERSION = import.meta.env.VITE_SHELL_VERSION ?? 'dev-local';
+dashboard/app/src/EditorContext.tsx:55:export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+dashboard/app/src/EditorContext.tsx:162:export const useEditor = () => {
+dashboard/app/components/BrowserView.tsx:9: *   </> — page console / source viewer
+dashboard/app/components/BrowserView.tsx:147:  const [pageSource, setPageSource] = useState<string | null>(null);
+dashboard/app/components/BrowserView.tsx:199:    setPageSource(null);
+dashboard/app/components/BrowserView.tsx:241:    if (pageSource) return;
+dashboard/app/components/BrowserView.tsx:245:      setPageSource(txt);
+dashboard/app/components/BrowserView.tsx:247:      setPageSource('Could not fetch page source (CORS or network error)');
+dashboard/app/components/BrowserView.tsx:469:              <span className="text-[11px] font-semibold text-[var(--text-main)]">Page Source</span>
+dashboard/app/components/BrowserView.tsx:489:              {pageSource === null
+dashboard/app/components/BrowserView.tsx:491:                : <pre className="text-[10px] font-mono text-[var(--text-main)] whitespace-pre-wrap break-all">{pageSource}</pre>
+dashboard/app/components/GorillaModeShell.tsx:467:            term.writeln(`\x1b[32m[GORILLA]\x1b[0m Theme switched to \x1b[33m${slug}\x1b[0m — reload page to apply.`);
+dashboard/app/components/WorkspaceDashboard.tsx:168:  const handleStopAgent = () => {
+dashboard/app/components/WorkspaceDashboard.tsx:250:                    if (isAgentRunning) handleStopAgent();
+dashboard/app/components/WorkspaceDashboard.tsx:341:                  onClick={isAgentRunning ? handleStopAgent : handleSendMessage}
+dashboard/app/App.tsx:1498:export default App;
+dashboard/app/components/BrowserView.tsx:558:export default BrowserView;
+dashboard/app/components/settings/SettingsPanel.tsx:120:export default function SettingsPanel({
+dashboard/app/components/GorillaModeShell.tsx:1009:export default GorillaModeShell;
+dashboard/app/components/RemoteExplorer.tsx:561:export default RemoteExplorer;
+dashboard/app/components/PromptModal.tsx:707:export default PromptModal;

@@ -1,0 +1,191 @@
+dashboard/app/components/BrowserView.tsx:173:    return () => document.removeEventListener('mousedown', h);
+dashboard/app/components/BrowserView.tsx:187:    return () => window.removeEventListener('message', h);
+dashboard/app/components/BrowserView.tsx:268:  return (
+dashboard/app/components/BrowserView.tsx:524:    return () => {
+dashboard/app/components/BrowserView.tsx:530:  return (
+dashboard/app/components/ExcalidrawView.tsx:48:        return () => window.removeEventListener(CANVAS_UPDATE_EVENT, handler);
+dashboard/app/components/ExcalidrawView.tsx:53:        return () => {
+dashboard/app/components/ExcalidrawView.tsx:81:    return (
+dashboard/app/components/CommandCenter.tsx:45:  return (
+dashboard/app/components/settings/DocsTab.tsx:166:    return (
+dashboard/app/components/settings/DocsTab.tsx:207:  return (
+dashboard/app/components/settings/DocsTab.tsx:242:          return (
+dashboard/app/components/settings/EnvironmentTab.tsx:25:  return (
+dashboard/app/components/settings/EnvironmentTab.tsx:148:  return (
+dashboard/app/components/settings/EnvironmentTab.tsx:241:                return (
+dashboard/app/components/settings/RulesSkillsTab.tsx:19:  return (
+dashboard/app/components/settings/RulesSkillsTab.tsx:93:    return () => clearTimeout(t);
+dashboard/app/components/settings/RulesSkillsTab.tsx:107:    return () => window.removeEventListener("keydown", onKey);
+dashboard/app/components/settings/RulesSkillsTab.tsx:244:    return (
+dashboard/app/components/settings/RulesSkillsTab.tsx:257:  return (
+dashboard/app/components/settings/GeneralTab.tsx:52:    return () => { cancelled = true; };
+dashboard/app/components/settings/GeneralTab.tsx:103:  return (
+dashboard/app/components/settings/IndexingDocsTab.tsx:104:  return (
+dashboard/app/components/settings/IndexingDocsTab.tsx:124:            return (
+dashboard/app/components/settings/IndexingDocsTab.tsx:305:  return (
+dashboard/app/components/settings/IndexingDocsTab.tsx:374:          return (
+dashboard/app/components/settings/IndexingDocsTab.tsx:384:                  return (
+dashboard/app/components/settings/IndexingDocsTab.tsx:424:            return (
+dashboard/app/components/settings/ToolsMcpTab.tsx:25:    return () => { cancelled = true; };
+dashboard/app/components/settings/ToolsMcpTab.tsx:28:  return (
+dashboard/app/components/settings/SettingsPanel.tsx:24:  return (
+dashboard/app/components/settings/SettingsPanel.tsx:35:  return (
+dashboard/app/components/settings/SettingsPanel.tsx:68:    return () => { cancelled = true; };
+dashboard/app/components/settings/SettingsPanel.tsx:71:  return (
+dashboard/app/components/settings/SettingsPanel.tsx:143:    return () => window.removeEventListener("iam-settings-goto-tab", onGo as EventListener);
+dashboard/app/components/settings/SettingsPanel.tsx:176:  return (
+dashboard/app/components/settings/PolicyTabs.tsx:66:  return (
+dashboard/app/components/settings/PolicyTabs.tsx:183:  return (
+dashboard/app/components/settings/PolicyTabs.tsx:206:          return (
+dashboard/app/components/settings/PolicyTabs.tsx:222:                    return (
+dashboard/app/components/settings/PolicyTabs.tsx:281:    return () => window.removeEventListener("keydown", onKey);
+dashboard/app/components/settings/PolicyTabs.tsx:364:  return (
+dashboard/app/components/settings/IntegrationsTab.tsx:27:    return () => clearInterval(id);
+dashboard/app/components/settings/IntegrationsTab.tsx:45:  return (
+dashboard/app/components/settings/IntegrationsTab.tsx:62:        return (
+dashboard/app/components/settings/IntegrationsTab.tsx:108:    return () => { cancelled = true; };
+dashboard/app/components/settings/IntegrationsTab.tsx:117:  return (
+dashboard/app/components/settings/IntegrationsTab.tsx:123:        return (
+dashboard/app/components/settings/IntegrationsTab.tsx:155:    return () => { cancelled = true; };
+dashboard/app/components/settings/IntegrationsTab.tsx:164:    return () => { cancelled = true; };
+dashboard/app/components/settings/IntegrationsTab.tsx:180:    return () => { cancelled = true; };
+dashboard/app/components/settings/IntegrationsTab.tsx:201:  return (
+dashboard/app/components/settings/IntegrationsTab.tsx:208:        return (
+dashboard/app/components/settings/DeployTab.tsx:32:    return () => { cancelled = true; };
+dashboard/app/components/settings/DeployTab.tsx:42:    return () => { cancelled = true; };
+dashboard/app/components/settings/DeployTab.tsx:98:  return (
+dashboard/app/components/settings/DeployTab.tsx:151:                return (
+dashboard/app/components/settings/DeployTab.tsx:230:  return (
+dashboard/app/components/settings/DeployTab.tsx:298:  return (
+dashboard/app/components/settings/DeployTab.tsx:373:  return (
+dashboard/app/components/settings/atoms.tsx:12:  return (
+dashboard/app/components/settings/atoms.tsx:37:  return (
+dashboard/app/components/settings/atoms.tsx:96:  return (
+dashboard/app/components/settings/atoms.tsx:114:  return (
+dashboard/app/components/settings/atoms.tsx:126:  return (
+dashboard/app/components/settings/atoms.tsx:150:  return (
+dashboard/app/components/settings/atoms.tsx:179:  return (
+dashboard/app/components/settings/atoms.tsx:221:  return (
+dashboard/app/components/settings/AgentsTab.tsx:36:    return () => { cancelled = true; };
+dashboard/app/components/settings/AgentsTab.tsx:39:  return (
+dashboard/app/components/settings/AgentsTab.tsx:58:          return (
+dashboard/app/components/settings/MarketplaceTab.tsx:39:    return () => { cancelled = true; };
+dashboard/app/components/settings/MarketplaceTab.tsx:50:  return (
+dashboard/app/components/settings/MarketplaceTab.tsx:67:              return (
+dashboard/app/components/settings/NetworkTab.tsx:37:    return () => { cancelled = true; };
+dashboard/app/components/settings/NetworkTab.tsx:43:    return () => clearInterval(id);
+dashboard/app/components/settings/NetworkTab.tsx:71:  return (
+dashboard/app/components/settings/TabSettingsTab.tsx:34:    return () => { cancelled = true; };
+dashboard/app/components/settings/TabSettingsTab.tsx:68:  return (
+dashboard/app/components/settings/SpendTab.tsx:35:  return (
+dashboard/app/components/settings/HooksTab.tsx:38:    return () => window.removeEventListener("keydown", onKey);
+dashboard/app/components/settings/HooksTab.tsx:96:  return (
+dashboard/app/components/settings/HooksTab.tsx:111:            return (
+dashboard/app/components/settings/ModelsSettingsTab.tsx:83:  return (
+dashboard/app/components/WorkspaceExplorerPanel.tsx:259:  return (
+dashboard/app/components/WorkspaceExplorerPanel.tsx:371:              return (
+dashboard/app/components/WorkspaceExplorerPanel.tsx:593:          return (
+dashboard/app/components/GitHubExplorer.tsx:283:    return (
+dashboard/app/components/GitHubExplorer.tsx:306:  return (
+dashboard/app/components/GitHubExplorer.tsx:354:            return (
+dashboard/app/components/UnifiedSearchBar.tsx:223:    return () => { if (debRef.current) clearTimeout(debRef.current); };
+dashboard/app/components/UnifiedSearchBar.tsx:237:  return (
+dashboard/app/components/UnifiedSearchBar.tsx:319:            return (
+dashboard/app/components/UnifiedSearchBar.tsx:391:    return (
+dashboard/app/components/UnifiedSearchBar.tsx:402:  return (
+dashboard/app/components/UnifiedSearchBar.tsx:561:    return () => { if (debRef.current) clearTimeout(debRef.current); };
+dashboard/app/components/UnifiedSearchBar.tsx:586:    return () => window.removeEventListener('keydown', h);
+dashboard/app/components/UnifiedSearchBar.tsx:597:    return () => document.removeEventListener('mousedown', h);
+dashboard/app/components/UnifiedSearchBar.tsx:677:    return () => {
+dashboard/app/components/UnifiedSearchBar.tsx:685:  return (
+dashboard/app/components/ToolLauncherBar.tsx:178:    return () => {
+dashboard/app/components/ToolLauncherBar.tsx:183:  return (
+dashboard/app/components/ChatAssistant.tsx:707:    return () => mq.removeEventListener('change', fn);
+dashboard/app/components/ChatAssistant.tsx:777:    return () => el.removeEventListener('scroll', onScroll);
+dashboard/app/components/ChatAssistant.tsx:849:    return () => { window.removeEventListener('resize', h); window.removeEventListener('scroll', h, true); };
+dashboard/app/components/ChatAssistant.tsx:858:    return () => { window.removeEventListener('resize', h); window.removeEventListener('scroll', h, true); };
+dashboard/app/components/ChatAssistant.tsx:874:    return () => { window.removeEventListener('resize', h); window.removeEventListener('scroll', h, true); };
+dashboard/app/components/ChatAssistant.tsx:1272:    return () => {
+dashboard/app/components/ChatAssistant.tsx:1449:  return (
+dashboard/app/components/ChatAssistant.tsx:1805:                  return (
+dashboard/app/components/ChatAssistant.tsx:1837:            return (
+dashboard/app/components/ChatAssistant.tsx:1887:            return (
+dashboard/app/components/ChatAssistant.tsx:1915:            return (
+dashboard/app/components/MonacoEditorView.tsx:250:      return (
+dashboard/app/components/MonacoEditorView.tsx:315:    return () => document.removeEventListener('mousedown', h);
+dashboard/app/components/MonacoEditorView.tsx:320:  return (
+dashboard/app/components/MonacoEditorView.tsx:409:    return () => window.removeEventListener(EVENT_THEME_CHANGED, h);
+dashboard/app/components/MonacoEditorView.tsx:452:    return () => window.removeEventListener(EVENT_FORMAT, h);
+dashboard/app/components/MonacoEditorView.tsx:464:    return () => window.removeEventListener('keydown', h);
+dashboard/app/components/MonacoEditorView.tsx:483:    return () => d?.dispose();
+dashboard/app/components/MonacoEditorView.tsx:530:    return () => d.dispose();
+dashboard/app/components/MonacoEditorView.tsx:613:    return (
+dashboard/app/components/MonacoEditorView.tsx:632:      return (
+dashboard/app/components/MonacoEditorView.tsx:645:      return (
+dashboard/app/components/MonacoEditorView.tsx:656:    return (
+dashboard/app/components/MonacoEditorView.tsx:681:  return (
+dashboard/app/components/LocalExplorer.tsx:745:        return (
+dashboard/app/components/LocalExplorer.tsx:775:    return (
+dashboard/app/components/LocalExplorer.tsx:918:                                  return (
+dashboard/app/components/WorkspaceLauncher.tsx:51:  return (
+dashboard/app/components/WorkspaceLauncher.tsx:139:    return (['local', 'github', 'r2', 'ssh', 'unknown'] as WorkspaceType[]).filter(t => seen.has(t));
+dashboard/app/components/WorkspaceLauncher.tsx:157:  return (
+dashboard/app/components/WorkspaceLauncher.tsx:207:              return (
+dashboard/app/components/WorkspaceLauncher.tsx:303:                    return (
+dashboard/app/components/UIOverlay.tsx:72:  return (
+dashboard/app/components/SourcePanel.tsx:46:  return (
+dashboard/app/components/SourcePanel.tsx:91:    return () => clearInterval(id);
+dashboard/app/components/SourcePanel.tsx:95:    return (
+dashboard/app/components/SourcePanel.tsx:111:  return (
+dashboard/app/components/GorillaModeShell.tsx:135:  return (
+dashboard/app/components/GorillaModeShell.tsx:265:      return () => clearInterval(t);
+dashboard/app/components/GorillaModeShell.tsx:271:      return () => clearInterval(t);
+dashboard/app/components/GorillaModeShell.tsx:278:        return () => clearTimeout(t);
+dashboard/app/components/GorillaModeShell.tsx:372:      return () => {
+dashboard/app/components/GorillaModeShell.tsx:601:      return () => window.removeEventListener('keydown', handler);
+dashboard/app/components/GorillaModeShell.tsx:641:      return (
+dashboard/app/components/GorillaModeShell.tsx:664:    return (
+dashboard/app/components/DashboardCharts.tsx:22:  return (
+dashboard/app/components/DashboardCharts.tsx:43:  return (
+dashboard/app/components/DashboardCharts.tsx:82:  return (
+dashboard/app/components/DashboardCharts.tsx:96:          return (
+dashboard/app/components/DashboardCharts.tsx:134:  return (
+dashboard/app/components/DashboardCharts.tsx:141:          return (
+dashboard/app/components/ProblemsDebugPanel.tsx:220:  return (
+dashboard/app/components/DatabaseBrowser.tsx:99:  if (!data.length) return (
+dashboard/app/components/DatabaseBrowser.tsx:109:  return (
+dashboard/app/components/DatabaseBrowser.tsx:143:                return (
+dashboard/app/components/DatabaseBrowser.tsx:170:  return (
+dashboard/app/components/DatabaseBrowser.tsx:464:            return (
+dashboard/app/components/DatabaseBrowser.tsx:627:            return (
+dashboard/app/components/DatabaseBrowser.tsx:671:  return (
+dashboard/app/components/MCPPanel.tsx:75:  return (
+dashboard/app/components/MCPPanel.tsx:193:    return () => clearInterval(id);
+dashboard/app/components/MCPPanel.tsx:300:  return (
+dashboard/app/components/MCPPanel.tsx:346:            return (
+dashboard/app/components/MCPPanel.tsx:376:                      return (
+dashboard/app/components/GLBViewer.tsx:48:    return () => {
+dashboard/app/components/GLBViewer.tsx:61:  return (
+dashboard/app/components/RemoteExplorer.tsx:121:  return (
+dashboard/app/components/RemoteExplorer.tsx:291:      return (
+dashboard/app/components/RemoteExplorer.tsx:326:  return (
+dashboard/app/components/RemoteExplorer.tsx:415:  return (
+dashboard/app/components/RemoteExplorer.tsx:508:  return (
+dashboard/app/components/PromptModal.tsx:132:  return (
+dashboard/app/components/PromptModal.tsx:158:  return (
+dashboard/app/components/PromptModal.tsx:215:    return () => document.removeEventListener('mousedown', outside);
+dashboard/app/components/PromptModal.tsx:218:  return (
+dashboard/app/components/PromptModal.tsx:281:            return (
+dashboard/app/components/PromptModal.tsx:374:    return () => document.removeEventListener('keydown', onKey);
+dashboard/app/components/PromptModal.tsx:414:  return (
+dashboard/app/components/StatusBar.tsx:169:    return () => window.removeEventListener(EVENT_CHAT_MODE, h as EventListener);
+dashboard/app/components/StatusBar.tsx:185:    return () => {
+dashboard/app/components/StatusBar.tsx:219:  return (
+dashboard/app/components/StudioSidebar.tsx:113:    return () => { cancelled = true; };
+dashboard/app/components/StudioSidebar.tsx:144:  return (
+dashboard/app/components/WorkspaceDashboard.tsx:159:    return () => document.removeEventListener('mousedown', handler);
+dashboard/app/components/WorkspaceDashboard.tsx:179:  return (
+dashboard/app/components/WorkspaceDashboard.tsx:213:              return (
+dashboard/app/components/KnowledgeSearchPanel.tsx:229:    return (
+dashboard/app/components/KnowledgeSearchPanel.tsx:259:    return (
+dashboard/app/components/KnowledgeSearchPanel.tsx:273:  return (
