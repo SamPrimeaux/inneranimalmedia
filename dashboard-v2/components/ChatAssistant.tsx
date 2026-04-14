@@ -1002,30 +1002,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
     }
   };
-
-  const renderMessageContent = (content: string, msgIndex: number) => {
-    let display = content
-      .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
-      .replace(/<antml:invoke[\s\S]*?<\/antml:invoke>/gi, '')
-      .replace(/<invoke[\s\S]*?<\/antml:invoke>/gi, '')
-      .replace(/<invoke[\s\S]*?<\/invoke>/gi, '')
-      .trim();
-    display = display.replace(
-      /\[FILE_CREATED:(.+?)\]/g,
-      (_, key: string) => `Created ${key} — opened in editor`
-    );
-
-    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)\n```/g;
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match;
-    let codeCount = 0;
-
-    while ((match = codeBlockRegex.exec(display)) !== null) {
-      if (match.index > lastIndex) {
-        const text = display.substring(lastIndex, match.index);
-        parts.push(
-          <span
   const loadSessions = useCallback(async () => {
     try {
       const r = await fetch('/api/agent/sessions', { credentials: 'same-origin' });
@@ -1468,6 +1444,30 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
   }, [setMessages]);
 
+
+  const renderMessageContent = (content: string, msgIndex: number) => {
+    let display = content
+      .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
+      .replace(/<antml:invoke[\s\S]*?<\/antml:invoke>/gi, '')
+      .replace(/<invoke[\s\S]*?<\/antml:invoke>/gi, '')
+      .replace(/<invoke[\s\S]*?<\/invoke>/gi, '')
+      .trim();
+    display = display.replace(
+      /\[FILE_CREATED:(.+?)\]/g,
+      (_, key: string) => `Created ${key} — opened in editor`
+    );
+
+    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)\n```/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+    let codeCount = 0;
+
+    while ((match = codeBlockRegex.exec(display)) !== null) {
+      if (match.index > lastIndex) {
+        const text = display.substring(lastIndex, match.index);
+        parts.push(
+          <span
             key={`text-${lastIndex}`}
             className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full"
           >
