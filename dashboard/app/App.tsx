@@ -1271,7 +1271,7 @@ const App: React.FC = () => {
 
           {/* Editor body */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-            <div className="flex-1 min-h-0 relative flex flex-col">
+            <div className="flex-1 min-h-0 relative flex flex-col h-full">
               <div ref={containerRef} className={`absolute inset-0 z-0 transition-opacity duration-300 ${activeTab === 'engine' ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} style={{ background: 'var(--scene-bg)' }} />
               {activeTab === 'Workspace'  && (
                 <div className="absolute inset-0 z-10">
