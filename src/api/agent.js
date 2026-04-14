@@ -713,13 +713,20 @@ export async function handleAgentApi(request, url, env, ctx) {
         }
         
         if (!row) return jsonResponse({ error: 'Workspace not found', wsId, uwsId }, 404);
-        
+
+        const cleanJson = (val) => {
+          if (!val) return {};
+          try { return typeof val === 'string' ? JSON.parse(val) : val; }
+          catch (e) { return {}; }
+        };
+
         return jsonResponse({
           id: row.id,
           name: row.name,
           environment: row.environment || 'production',
-          settings: typeof row.settings_json === 'string' ? JSON.parse(row.settings_json) : (row.settings_json || {}),
-          state:    typeof row.state_json === 'string' ? JSON.parse(row.state_json) : (row.state_json || {})
+          status: row.status || 'active',
+          settings: cleanJson(row.settings_json),
+          state:    cleanJson(row.state_json)
         });
       } catch (e) { 
         console.error('[agent] workspace fetch error:', e.message);

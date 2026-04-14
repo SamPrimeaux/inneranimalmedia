@@ -80,6 +80,12 @@ export function renderShell({
   <link rel="stylesheet" href="/static/dashboard/agent/index.css?v=${escAttr(version)}" />
   <link rel="stylesheet" href="/index.css" />
   <link rel="stylesheet" href="/inneranimalmedia.css" />
+  <style id="shell-fallback-css">
+    /* High-resilience layout recovery */
+    .layout-container { display: flex; height: 100vh; width: 100vw; background: #002b36; color: #839496; overflow: hidden; font-family: sans-serif; }
+    .shell-main { flex: 1; display: flex; flex-direction: row; overflow: hidden; }
+    .workbench-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+  </style>
 ${buildThemeBlock(themeVars)}
   <style>
     *, *::before, *::after { box-sizing: border-box; }
