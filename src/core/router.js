@@ -235,6 +235,11 @@ export async function handleRequest(request, env, ctx) {
       }
     }
 
+    // Fallback to native Workers Assets (Vite build artifacts)
+    if (!response && env.ASSETS) {
+      return env.ASSETS.fetch(request);
+    }
+
     return response || new Response('Not Found', { status: 404 });
   }
 
