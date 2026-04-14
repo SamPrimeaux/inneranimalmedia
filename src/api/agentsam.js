@@ -425,6 +425,32 @@ export async function handleAgentSamApi(request, url, env, ctx) {
       return jsonResponse({ ok: true, xp_awarded });
     }
 
+    // ── /api/agentsam/browser/trust ───────────────────────────────────────────
+    if (path === '/api/agentsam/browser/trust' && method === 'GET') {
+      const origin = url.searchParams.get('origin') || '';
+      if (!env.DB || !origin) return jsonResponse({ trusted: true });
+      const tenantId = tenantIdFromEnv(env);
+      const row = await env.DB.prepare(
+        `SELECT trust_scope FROM agentsam_browser_trusted_origin
+         WHERE origin = ? AND user_id = ? LIMIT 1`
+      ).bind(origin, tenantId).first().catch(() => null);
+      return jsonResponse({ trusted: !!row, scope: row?.trust_scope || null });
+    }
+
+    if (path === '/api/agentsam/browser/trust' && method === 'POST') {
+      const body   = await request.json().catch(() => ({}));
+      const origin = String(body.origin || '').trim();
+      const scope  = String(body.scope  || 'session').trim();
+      if (!env.DB || !origin) return jsonResponse({ ok: false, error: 'origin required' });
+      const tenantId = tenantIdFromEnv(env);
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO agentsam_browser_trusted_origin
+         (user_id, origin, trust_scope, created_at)
+         VALUES (?, ?, ?, datetime('now'))`
+      ).bind(tenantId, origin, scope).run().catch(() => {});
+      return jsonResponse({ ok: true, origin, scope });
+    }
+
     return jsonResponse({ error: 'Agent Sam route not found', path }, 404);
 
   } catch (e) {

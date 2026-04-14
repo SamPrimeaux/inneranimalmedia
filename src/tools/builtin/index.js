@@ -24,6 +24,7 @@
 
 import { chunkMarkdown } from '../../api/rag.js';
 import { embed }         from '../../integrations/workers-ai.js';
+import { handlers }      from '../integrations/puppeteer-handlers.js';
 // ─── Internal Fetch Helper ────────────────────────────────────────────────────
 
 async function selfFetch(env, path, method = 'POST', body = null) {
@@ -758,6 +759,19 @@ const ALL_HANDLERS = {
  * @returns {Promise<any>}
  */
 export async function dispatchToolCall(env, toolName, args = {}, context = {}) {
+  // ── CDT / Puppeteer tools ─────────────────────────────────────────────────
+  if (toolName.startsWith('cdt_')) {
+    if (typeof handlers?.puppeteer?.[toolName] !== 'function') {
+      return JSON.stringify({ ok: false, error: `CDT tool not implemented: ${toolName}` });
+    }
+    try {
+      const result = await handlers.puppeteer[toolName](args, env);
+      return typeof result === 'string' ? result : JSON.stringify(result);
+    } catch (e) {
+      return JSON.stringify({ ok: false, error: e.message, tool: toolName });
+    }
+  }
+
   const handler = ALL_HANDLERS[toolName];
   if (!handler) {
     return { error: `Tool not implemented: ${toolName}. Check mcp_registered_tools.handler_type.` };
