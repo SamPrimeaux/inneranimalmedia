@@ -24,7 +24,7 @@
 
 import { chunkMarkdown } from '../../api/rag.js';
 import { embed }         from '../../integrations/workers-ai.js';
-import { handlers }      from '../integrations/puppeteer-handlers.js';
+import { handlers }      from '../../integrations/puppeteer-handlers.js';
 // ─── Internal Fetch Helper ────────────────────────────────────────────────────
 
 async function selfFetch(env, path, method = 'POST', body = null) {
