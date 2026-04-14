@@ -8,6 +8,23 @@ interface OverviewData {
   platform_health:   Record<string, unknown>;
 }
 
+const StatCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: number | string;
+  color: string;
+}> = ({ icon, label, value, color }) => (
+  <div className="bg-[var(--bg-panel)]/50 border border-white/5 rounded-xl p-5 flex flex-col gap-3">
+    <div className="flex items-center gap-2" style={{ color }}>
+      {icon}
+      <span className="text-[9px] font-mono uppercase tracking-widest opacity-70">{label}</span>
+    </div>
+    <span className="text-3xl font-black italic tracking-tighter">
+      {typeof value === 'number' ? value.toLocaleString() : value}
+    </span>
+  </div>
+);
+
 export const Overview: React.FC = () => {
   const [data,    setData]    = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,61 +52,17 @@ export const Overview: React.FC = () => {
   return (
     <div className="flex flex-col gap-5 p-6 h-full bg-[var(--bg-app)] overflow-y-auto text-[var(--text-main)]">
       <div className="flex flex-col gap-1 mb-2">
-        <h1 className="text-xl font-black italic tracking-tighter uppercase text-white">
-          Overview
-        </h1>
-        <span className="text-[10px] font-mono opacity-50 uppercase tracking-widest">
-          Platform Analytics
-        </span>
+        <h1 className="text-xl font-black italic tracking-tighter uppercase text-white">Overview</h1>
+        <span className="text-[10px] font-mono opacity-50 uppercase tracking-widest">Platform Analytics</span>
       </div>
-
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          icon={<CheckCircle size={16} />}
-          label="Tasks Completed"
-          value={data?.tasks_completed ?? 0}
-          color="#2dd4bf"
-        />
-        <StatCard
-          icon={<GitBranch size={16} />}
-          label="Total Deploys"
-          value={data?.deploys_total ?? 0}
-          color="#3a9fe8"
-        />
-        <StatCard
-          icon={<Zap size={16} />}
-          label="Agent Calls"
-          value={data?.agent_calls_total ?? 0}
-          color="#a3b800"
-        />
-        <StatCard
-          icon={<Activity size={16} />}
-          label="Platform Health"
-          value={Object.keys(data?.platform_health ?? {}).length > 0 ? 'OK' : '—'}
-          color="#e6ac00"
-          isText
-        />
+        <StatCard icon={<CheckCircle size={16} />} label="Tasks Completed" value={data?.tasks_completed   ?? 0} color="#2dd4bf" />
+        <StatCard icon={<GitBranch  size={16} />} label="Total Deploys"    value={data?.deploys_total     ?? 0} color="#3a9fe8" />
+        <StatCard icon={<Zap        size={16} />} label="Agent Calls"      value={data?.agent_calls_total ?? 0} color="#a3b800" />
+        <StatCard icon={<Activity   size={16} />} label="Platform Health"  value="OK"                         color="#e6ac00" />
       </div>
     </div>
   );
 };
-
-const StatCard: React.FC<{
-  icon:    React.ReactNode;
-  label:   string;
-  value:   number | string;
-  color:   string;
-  isText?: boolean;
-}> = ({ icon, label, value, color, isText }) => (
-  <div className="bg-[var(--bg-panel)]/50 border border-white/5 rounded-xl p-5 flex flex-col gap-3">
-    <div className="flex items-center gap-2" style={{ color }}>
-      {icon}
-      <span className="text-[9px] font-mono uppercase tracking-widest opacity-70">{label}</span>
-    </div>
-    <span className={`font-black italic tracking-tighter ${isText ? 'text-lg' : 'text-3xl'}`}>
-      {typeof value === 'number' ? value.toLocaleString() : value}
-    </span>
-  </div>
-);
 
 export default Overview;
