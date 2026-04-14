@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => {
     build: {
       minify:    false,
       sourcemap: true,
-      outDir:    'dist',
+      outDir:    'dist/static/dashboard/agent',
       rollupOptions: {
         input: path.resolve(__dirname, 'app/index.tsx'),
         output: {
