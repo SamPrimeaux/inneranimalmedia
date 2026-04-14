@@ -147,7 +147,7 @@ const App: React.FC = () => {
   const [dbExplorerJump, setDbExplorerJump] = useState<DatabaseExplorerJump | null>(null);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
-  const [systemProblems, setSystemProblems] = useState<any>(null);
+  const [systemProblems, setSystemProblems] = useState<any>([]);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [tunnelHealthy, setTunnelHealthy] = useState<boolean | null>(null);
   const [tunnelLabel, setTunnelLabel] = useState<string | null>(null);
