@@ -124,7 +124,7 @@
     "SANDBOX_SIGNIN_FALLBACK_URL":    "https://pub-0d103dec19f84813ab2d58b17153a95f.r2.dev/static/auth-signin.html",
     "VITE_LOGO_URL":                  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail",
     "VITE_PRODUCT_LABEL":             "Inner Animal Media — Agent Sam",
-    "VITE_SHELL_VERSION":             "v1.21-modular-shell",
+    "VITE_SHELL_VERSION":             "v1.22-modular-shell",
     "VITE_API_BASE":                  "https://inneranimalmedia.com",
     "VITE_DASHBOARD_URL":             "https://inneranimal-dashboard.meauxbility.workers.dev"
   },

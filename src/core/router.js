@@ -206,31 +206,51 @@ export async function handleRequest(request, env, ctx) {
     path = path.slice(0, -1);
   }
 
-  // ── Static Assets (R2-backed, cache-busted by version query param) ─────────
+  // ── Static Assets (R2-backed, fallback to Workers Assets) ───────────────────
   if (path.startsWith('/static/')) {
-    if (!env.DASHBOARD) return new Response('Storage unavailable', { status: 503 });
-    const key = path.substring(1).split('?')[0];
-    try {
-      const obj = await env.DASHBOARD.get(key);
-      if (obj) {
-        const ct = path.endsWith('.js')   ? 'application/javascript'
-                 : path.endsWith('.css')  ? 'text/css'
-                 : path.endsWith('.svg')  ? 'image/svg+xml'
-                 : path.endsWith('.png')  ? 'image/png'
-                 : path.endsWith('.html') ? 'text/html'
-                 : 'application/octet-stream';
-        return new Response(obj.body, {
-          headers: {
-            'Content-Type':                ct,
-            'Cache-Control':               'public, max-age=3600',
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
+    let response = null;
+    
+    // Attempt R2 fetch (Legacy/External Assets)
+    if (env.DASHBOARD) {
+      const key = path.substring(1).split('?')[0];
+      try {
+        const obj = await env.DASHBOARD.get(key);
+        if (obj) {
+          const ct = path.endsWith('.js')   ? 'application/javascript'
+                   : path.endsWith('.css')  ? 'text/css'
+                   : path.endsWith('.svg')  ? 'image/svg+xml'
+                   : path.endsWith('.png')  ? 'image/png'
+                   : path.endsWith('.html') ? 'text/html'
+                   : 'application/octet-stream';
+          response = new Response(obj.body, {
+            headers: {
+              'Content-Type':                ct,
+              'Cache-Control':               'public, max-age=3600',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      } catch (e) {
+        console.error('[router] R2 asset error:', e?.message);
       }
-    } catch (e) {
-      console.error('[router] static asset error:', e?.message);
     }
-    return new Response('Not Found', { status: 404 });
+
+    // Fallback to native Workers Assets (Vite build artifacts)
+    if (!response && env.ASSETS) {
+      return env.ASSETS.fetch(request);
+    }
+
+    return response || new Response('Not Found', { status: 404 });
+  }
+
+  // ── Unified Search (Recent Activity) ───────────────────────────────────────
+  if (path === '/api/unified-search/recent') {
+    return jsonResponse({
+      items: [
+        { id: '1', type: 'file', label: 'App.tsx', sublabel: 'dashboard/app', timestamp: new Date().toISOString() },
+        { id: '2', type: 'route', label: 'Agent Dashboard', sublabel: '/dashboard/agent', timestamp: new Date().toISOString() }
+      ]
+    });
   }
 
   // ── CORS Preflight ─────────────────────────────────────────────────────────

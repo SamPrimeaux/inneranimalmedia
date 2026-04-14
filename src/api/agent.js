@@ -273,7 +273,19 @@ async function runAgentToolLoop(env, ctx, emit, params) {
 // ─── SSE Chat Handler ─────────────────────────────────────────────────────────
 
 export async function agentChatSseHandler(env, request, ctx, session) {
-  const body = await request.json().catch(() => ({}));
+  const contentType = request.headers.get('content-type') || '';
+  let body = {};
+  
+  if (contentType.includes('multipart/form-data')) {
+    const formData = await request.formData();
+    body = Object.fromEntries(formData.entries());
+    // Attach files if any
+    const files = formData.getAll('files');
+    if (files.length) body.files = files;
+  } else {
+    body = await request.json().catch(() => ({}));
+  }
+
   const message = (body.message || '').trim();
   if (!message) return jsonResponse({ error: 'message required' }, 400);
 
@@ -673,11 +685,23 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (method === 'GET') {
       try {
         const row = await env.DB.prepare(
-          `SELECT id, name, environment, settings_json, state_json FROM workspaces WHERE id = ? LIMIT 1`
-        ).bind(wsId).first().catch(() => null);
+          `SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`
+        ).bind(wsId, wsId).first().catch(() => null);
+        
         if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
-        return jsonResponse(row);
-      } catch (e) { return jsonResponse({ error: e.message }, 500); }
+        
+        // Return normalized workspace object
+        return jsonResponse({
+          id: row.id,
+          name: row.name,
+          environment: row.environment || 'production',
+          settings: typeof row.settings_json === 'string' ? JSON.parse(row.settings_json) : (row.settings_json || {}),
+          state:    typeof row.state_json === 'string' ? JSON.parse(row.state_json) : (row.state_json || {})
+        });
+      } catch (e) { 
+        console.error('[agent] workspace fetch error:', e.message);
+        return jsonResponse({ error: e.message }, 500); 
+      }
     }
 
     if (method === 'PUT') {
