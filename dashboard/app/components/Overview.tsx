@@ -40,7 +40,7 @@ type LoadState = 'idle' | 'loading' | 'ok' | 'error';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function Overview() {
+export function Overview() {
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [error, setError] = useState<string | null>(null);
