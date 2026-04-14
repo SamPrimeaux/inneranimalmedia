@@ -864,31 +864,78 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
                 {/* Problems tab */}
                 {activeTab === 'problems' && (
-                  <div className="h-full overflow-y-auto custom-scrollbar p-4 space-y-2 bg-[var(--terminal-surface)]">
-                    {problems.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] opacity-40 gap-2">
-                        <CircleCheck size={28} />
-                        <p className="text-xs font-mono">No problems detected</p>
+                  <div className="h-full overflow-y-auto custom-scrollbar p-1 pb-6 bg-[var(--terminal-surface)]">
+                    {/* Header Summary */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--terminal-chrome)] sticky top-0 z-10">
+                      <div className="flex items-center gap-2">
+                         <span className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">Diagnostic Summary</span>
                       </div>
-                    ) : (
-                      problems.map((p, i) => (
-                        <div
-                          key={i}
-                          className={`flex items-start gap-2 p-2 rounded bg-[var(--bg-panel)] border-l-2 ${
-                            p.severity === 'error' ? 'border-[var(--solar-red)]' : 'border-[var(--solar-yellow)]'
-                          }`}
-                        >
-                          <TriangleAlert
-                            size={13}
-                            className={p.severity === 'error' ? 'text-[var(--solar-red)]' : 'text-[var(--solar-yellow)]'}
-                          />
-                          <div className="min-w-0">
-                            <div className="text-[11px] font-medium text-[var(--text-main)] font-mono">{p.msg}</div>
-                            <div className="text-[10px] text-[var(--text-muted)] font-mono">{p.file}:{p.line}</div>
-                          </div>
+                      <div className="flex gap-4">
+                        <span className="text-[10px] font-mono text-[var(--solar-red)]">MCP: {problems?.mcp_tool_errors?.length ?? 0}</span>
+                        <span className="text-[10px] font-mono text-[var(--solar-yellow)]">Worker: {problems?.worker_errors?.length ?? 0}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-6">
+                      {/* MCP Errors */}
+                      {problems?.mcp_tool_errors && problems.mcp_tool_errors.length > 0 && (
+                        <div className="space-y-2">
+                           <p className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] px-1">MCP Tool Failures</p>
+                           {problems.mcp_tool_errors.map((err: any, i: number) => (
+                             <div key={i} className="flex flex-col gap-1 p-3 rounded-lg bg-[var(--bg-panel)] border-l-2 border-[var(--solar-red)] shadow-sm">
+                               <div className="flex items-start gap-2">
+                                 <TriangleAlert size={14} className="text-[var(--solar-red)] shrink-0 mt-0.5" />
+                                 <div className="min-w-0 flex-1">
+                                   <p className="text-[11px] font-bold text-white truncate">{err.tool_name || 'Generic Tool Error'}</p>
+                                   <p className="text-[10px] text-[var(--text-muted)] mt-1 font-mono break-words">{err.error_message || err.error || String(err)}</p>
+                                 </div>
+                               </div>
+                               {err.at && <p className="text-[8px] text-white/10 text-right uppercase font-mono">{err.at}</p>}
+                             </div>
+                           ))}
                         </div>
-                      ))
-                    )}
+                      )}
+
+                      {/* Worker Errors */}
+                      {problems?.worker_errors && problems.worker_errors.length > 0 && (
+                        <div className="space-y-2">
+                           <p className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] px-1">Worker Runtime Errors</p>
+                           {problems.worker_errors.map((err: any, i: number) => (
+                             <div key={i} className="flex items-start gap-2 p-3 rounded-lg bg-[var(--bg-panel)] border-l-2 border-[var(--solar-yellow)]">
+                               <AlertTriangle size={14} className="text-[var(--solar-yellow)] shrink-0 mt-0.5" />
+                               <div className="min-w-0 flex-1">
+                                 <p className="text-[11px] font-medium text-white break-words font-mono line-clamp-2">{err.message || String(err)}</p>
+                                 <p className="text-[9px] text-[var(--text-muted)] mt-1 font-mono opacity-60">Path: {err.path || '/'} · {err.at || 'recent'}</p>
+                               </div>
+                             </div>
+                           ))}
+                        </div>
+                      )}
+
+                      {/* Audit Failures */}
+                      {problems?.audit_failures && problems.audit_failures.length > 0 && (
+                        <div className="space-y-2">
+                           <p className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] px-1">Security Audit Flags</p>
+                           {problems.audit_failures.map((err: any, i: number) => (
+                             <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-panel)] border-l-2 border-violet-500/50">
+                               <Shield size={14} className="text-violet-400 shrink-0" />
+                               <div className="min-w-0">
+                                 <p className="text-[10px] font-bold text-white uppercase tracking-wider">{err.type || 'Policy Breach'}</p>
+                                 <p className="text-[10px] text-[var(--text-muted)] font-mono">{err.details || String(err)}</p>
+                               </div>
+                             </div>
+                           ))}
+                        </div>
+                      )}
+
+                      {/* Empty State */}
+                      {(!problems || (problems.mcp_tool_errors?.length === 0 && problems.worker_errors?.length === 0 && problems.audit_failures?.length === 0)) && (
+                        <div className="flex flex-col items-center justify-center py-20 text-[var(--text-muted)] opacity-30 gap-3">
+                          <CircleCheck size={32} strokeWidth={1.5} />
+                          <p className="text-xs font-black uppercase tracking-[0.2em]">Zero System Faults</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
