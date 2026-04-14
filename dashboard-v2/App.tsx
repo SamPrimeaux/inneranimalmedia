@@ -1919,7 +1919,7 @@ const App: React.FC = () => {
                       />
                   )}
               </div>
-          </div>
+          </main>
 
           {/* 6. Optional Right Agent Panel */}
           {agentPosition === 'right' && (
