@@ -1797,7 +1797,6 @@ const App: React.FC = () => {
                   <div className="ml-auto flex items-center gap-0.5 pr-2 shrink-0">
                       {!openTabs.includes('engine') && <QuickOpen label="Voxel" onClick={() => openTab('engine')} />}
                       {!openTabs.includes('browser') && <QuickOpen label="Browser" onClick={() => openTab('browser')} />}
-                      {!openTabs.includes('excalidraw') && <QuickOpen label="Draw" onClick={() => openTab('excalidraw')} />}
                       {!openTabs.includes('database') && <QuickOpen label="Database" onClick={() => openTab('database')} />}
                   </div>
 
@@ -2060,18 +2059,6 @@ const App: React.FC = () => {
               </button>
             </div>
             <div className="overflow-y-auto p-2 flex flex-col gap-0.5">
-              <MobileMoreRow
-                  icon={PenTool}
-                  label="Draw"
-                  onClick={() => {
-                    setMobileMoreOpen(false);
-                    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-                      setActiveActivity(null);
-                      setAgentPosition('off');
-                    }
-                    openTab('excalidraw');
-                  }}
-              />
               <MobileMoreRow icon={Search} label="Search" onClick={() => { setMobileMoreOpen(false); toggleActivity('search'); }} />
               <MobileMoreRow icon={GitBranch} label="Source Control" onClick={() => { setMobileMoreOpen(false); toggleActivity('git'); }} />
               <MobileMoreRow icon={Bug} label="Run & Debug" onClick={() => { setMobileMoreOpen(false); toggleActivity('debug'); }} />

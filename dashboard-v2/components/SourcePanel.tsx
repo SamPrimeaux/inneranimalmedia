@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Github, 
   GitBranch, 
@@ -8,6 +8,9 @@ import {
   CheckCircle2, 
   Clock, 
   RefreshCcw,
+  Plus,
+  Minus,
+  Sparkles,
   ArrowRight
 } from 'lucide-react';
 
@@ -27,11 +30,13 @@ export const SourcePanel: React.FC = () => {
   const [data, setData] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [commitMsg, setCommitMsg] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/internal/git-status');
+      const res = await fetch('/api/agent/git/status', { credentials: 'same-origin' });
       if (!res.ok) throw new Error('Failed to fetch git status');
       const json = await res.json();
       setData(json);
@@ -41,14 +46,58 @@ export const SourcePanel: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchStatus();
     // Refresh every 30s
     const timer = setInterval(fetchStatus, 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [fetchStatus]);
+
+  const handleCommit = async () => {
+    if (!commitMsg.trim() || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/agent/git/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: commitMsg }),
+        credentials: 'same-origin',
+      });
+      if (!res.ok) throw new Error('Commit failed');
+      setCommitMsg('');
+      await fetchStatus();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStage = async (path: string) => {
+    try {
+      const res = await fetch('/api/agent/git/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+        credentials: 'same-origin',
+      });
+      if (res.ok) await fetchStatus();
+    } catch (e) { console.error(e); }
+  };
+
+  const handleUnstage = async (path: string) => {
+    try {
+      const res = await fetch('/api/agent/git/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+        credentials: 'same-origin',
+      });
+      if (res.ok) await fetchStatus();
+    } catch (e) { console.error(e); }
+  };
 
   const mono = "'Menlo', 'Monaco', 'Courier New', monospace";
 
@@ -66,6 +115,8 @@ export const SourcePanel: React.FC = () => {
       </div>
     );
   }
+
+  const allChanges = (data?.staged.length || 0) + (data?.unstaged.length || 0);
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)] text-[var(--text-main)] overflow-hidden">
@@ -107,18 +158,18 @@ export const SourcePanel: React.FC = () => {
               <Sparkles size={12} className="text-[var(--solar-cyan)]" />
               <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Changes</h3>
               <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-panel)] text-[var(--text-muted)]" style={{ fontFamily: mono }}>
-                {(data?.staged.length || 0) + (data?.unstaged.length || 0)}
+                {allChanges}
               </span>
            </div>
 
            <div className="space-y-1">
               {data?.staged.map((f, i) => (
-                <FileItem key={`staged-${i}`} path={f.path} status={f.status} isStaged />
+                <FileItem key={`staged-${i}`} path={f.path} status={f.status} isStaged onAction={() => handleUnstage(f.path)} />
               ))}
               {data?.unstaged.map((f, i) => (
-                <FileItem key={`unstaged-${i}`} path={f.path} status={f.status} />
+                <FileItem key={`unstaged-${i}`} path={f.path} status={f.status} onAction={() => handleStage(f.path)} />
               ))}
-              {!data?.staged.length && !data?.unstaged.length && (
+              {allChanges === 0 && !loading && (
                 <div className="py-8 text-center border-2 border-dashed border-[var(--border-subtle)]/30 rounded-xl">
                    <CheckCircle2 size={24} className="mx-auto mb-2 text-[var(--solar-green)] opacity-20" />
                    <p className="text-[11px] text-[var(--text-muted)]">Working directory clean</p>
@@ -128,41 +179,49 @@ export const SourcePanel: React.FC = () => {
         </div>
 
         {/* History Section */}
-        <div className="p-4 pt-0">
-           <div className="flex items-center gap-2 mb-3">
-              <Clock size={12} className="text-[var(--text-muted)]" />
-              <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Recent History</h3>
-           </div>
-           
-           <div className="bg-[var(--bg-panel)]/30 rounded-xl border border-[var(--border-subtle)]/30 overflow-hidden divide-y divide-[var(--border-subtle)]/20">
-              {data?.commits.map((c, i) => (
-                <div key={i} className="p-3 hover:bg-[var(--bg-panel)]/50 transition-colors cursor-pointer group">
-                   <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-[var(--solar-cyan)] font-mono" style={{ fontFamily: mono }}>{c.hash}</span>
-                      <span className="text-[10px] text-[var(--text-muted)] opacity-60">{c.date}</span>
-                   </div>
-                   <div className="text-[12px] font-medium text-[var(--text-main)] line-clamp-1 group-hover:text-[var(--solar-cyan)] transition-colors">{c.msg}</div>
-                   <div className="text-[10px] text-[var(--text-muted)] mt-1 flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-30" />
-                      {c.author}
-                   </div>
-                </div>
-              ))}
-           </div>
-        </div>
+        {data?.commits && data.commits.length > 0 && (
+          <div className="p-4 pt-0">
+             <div className="flex items-center gap-2 mb-3">
+                <Clock size={12} className="text-[var(--text-muted)]" />
+                <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Recent History</h3>
+             </div>
+             
+             <div className="bg-[var(--bg-panel)]/30 rounded-xl border border-[var(--border-subtle)]/30 overflow-hidden divide-y divide-[var(--border-subtle)]/20">
+                {data.commits.map((c, i) => (
+                  <div key={i} className="p-3 hover:bg-[var(--bg-panel)]/50 transition-colors cursor-pointer group">
+                     <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-[var(--solar-cyan)] font-mono" style={{ fontFamily: mono }}>{c.hash.slice(0, 7)}</span>
+                        <span className="text-[10px] text-[var(--text-muted)] opacity-60">{c.date}</span>
+                     </div>
+                     <div className="text-[12px] font-medium text-[var(--text-main)] line-clamp-1 group-hover:text-[var(--solar-cyan)] transition-colors">{c.msg}</div>
+                     <div className="text-[10px] text-[var(--text-muted)] mt-1 flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-30" />
+                        {c.author}
+                     </div>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
       </div>
 
       {/* Footer / Action */}
-      <div className="p-4 border-top border-[var(--border-subtle)] bg-[var(--bg-panel)]/50">
+      <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)]/50">
          <div className="flex flex-col gap-2">
             <input 
               type="text"
-              placeholder="Post-reversion commit message..."
+              value={commitMsg}
+              onChange={(e) => setCommitMsg(e.target.value)}
+              placeholder="Commit message..."
               className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-[var(--solar-cyan)] outline-none"
             />
-            <button className="w-full py-2 bg-[var(--solar-cyan)]/10 hover:bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
+            <button 
+              onClick={handleCommit}
+              disabled={busy || !commitMsg.trim() || (data?.staged.length || 0) === 0}
+              className="w-full py-2 bg-[var(--solar-cyan)]/10 hover:bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] disabled:opacity-30 disabled:cursor-not-allowed border border-[var(--solar-cyan)]/30 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2"
+            >
               <GitCommit size={14} />
-              Commit Changes
+              {busy ? 'Committing...' : 'Commit Staged Changes'}
             </button>
          </div>
       </div>
@@ -170,7 +229,7 @@ export const SourcePanel: React.FC = () => {
   );
 };
 
-const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean }> = ({ path, status, isStaged }) => {
+const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean; onAction: () => void }> = ({ path, status, isStaged, onAction }) => {
   const parts = path.split('/');
   const name = parts.pop();
   const dir = parts.join('/');
@@ -184,23 +243,26 @@ const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean }> =
   };
 
   return (
-    <div className="flex items-center gap-3 p-2 hover:bg-[var(--bg-panel)]/50 rounded-lg transition-colors cursor-pointer group">
+    <div className="flex items-center gap-3 p-2 hover:bg-[var(--bg-panel)]/50 rounded-lg transition-colors group">
        <div className={`text-[10px] w-4 text-center font-bold ${getStatusColor()}`} style={{ fontFamily: mono }}>
          {status.includes('?') ? 'U' : status[0]}
        </div>
        <div className="p-1 px-1.5 rounded bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-subtle)] group-hover:border-[var(--solar-cyan)]/30 transition-colors">
           <FileCode size={12} />
        </div>
-       <div className="min-w-0">
+       <div className="min-w-0 flex-1">
           <div className="text-[12px] font-medium text-[var(--text-main)] truncate" style={{ fontFamily: mono }}>{name}</div>
           {dir && <div className="text-[9px] text-[var(--text-muted)] truncate opacity-50">{dir}</div>}
        </div>
-       {isStaged && (
-         <div className="ml-auto flex items-center gap-1 text-[9px] text-[var(--solar-cyan)] opacity-60">
-            <Sparkles size={8} />
-            STAGED
-         </div>
-       )}
+       
+       <button 
+          onClick={(e) => { e.stopPropagation(); onAction(); }}
+          className="p-1.5 rounded bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] opacity-0 group-hover:opacity-100 transition-all"
+          title={isStaged ? 'Unstage' : 'Stage'}
+       >
+          {isStaged ? <Minus size={12} /> : <Plus size={12} />}
+       </button>
     </div>
   );
 };
+
