@@ -26,6 +26,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * @param {string|null} opts.tenantId
  * @param {string|null} opts.userId
  * @param {string} [opts.theme]        - 'dark' | 'light', default 'dark'
+ * @param {object} [opts.themeVars]   - CSS custom property map { '--bg-app': '#0d1117', ... }
  * @param {string|null} [opts.nonce]   - CSP nonce if configured
  */
 export function renderShell({
@@ -35,6 +36,7 @@ export function renderShell({
   tenantId = null,
   userId = null,
   theme = 'dark',
+  themeVars = {},
   nonce = null,
 } = {}) {
   if (!version) throw new Error('renderShell: version is required');
@@ -76,7 +78,7 @@ export function renderShell({
   </script>
 
   <link rel="stylesheet" href="/static/dashboard/agent/index.css?v=${escAttr(version)}" />
-
+${buildThemeBlock(themeVars)}
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body, #root {
@@ -122,4 +124,11 @@ function escHtml(str) {
 
 function escAttr(str) {
   return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function buildThemeBlock(themeVars) {
+  if (!themeVars || !Object.keys(themeVars).length) return '';
+  const props = Object.entries(themeVars)
+    .map(([k, v]) => `    ${k}: ${v};`)
+    .join('\n');
+  return `  <style>:root {\n${props}\n  }</style>`;
 }
