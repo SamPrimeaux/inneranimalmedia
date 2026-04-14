@@ -200,19 +200,18 @@ async function deployments(env) {
   const parseDate = (val) => {
     if (!val) return null;
     let d = new Date(val);
-    if (!isNaN(d.getTime())) return d.toISOString();
-    // Try numeric (seconds)
-    if (!isNaN(Number(val))) {
-      d = new Date(Number(val) * 1000);
-      if (!isNaN(d.getTime())) return d.toISOString();
+    if (isNaN(d.getTime()) && !isNaN(Number(val))) {
+      // Try numeric (seconds vs millis)
+      const num = Number(val);
+      d = new Date(num > 10000000000 ? num : num * 1000);
     }
-    return null;
+    return !isNaN(d.getTime()) ? d.getTime() : null;
   };
 
   return jsonResponse({
     deployments: (deploys.results || []).map(d => ({
       ...d,
-      deployed_at: parseDate(d.deployed_at || d.timestamp)
+      timestamp: parseDate(d.deployed_at || d.timestamp)
     })),
     cicd_runs: (cicdRuns.results || []).map(r => ({
       ...r,

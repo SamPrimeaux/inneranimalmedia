@@ -683,54 +683,38 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
     // ── /api/agent/workspace/:id ────────────────────────────────────────────
+    // ── /api/agent/workspace/:id ────────────────────────────────────────────
     if (method === 'GET') {
       try {
         const userId = String(authUser?.id || 'anonymous').trim();
         const tid    = String(authUser?.tenant_id || tenantIdFromEnv(env) || 'system').trim();
         const uwsId  = `uws:${tid}:${userId}:${wsId}`;
 
-        // Try global workspaces table first
-        let row = await env.DB.prepare(
-          `SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`
-        ).bind(wsId, wsId).first().catch(() => null);
+        // Attempt retrieval from both tables
+        const [globalWs, personalWs] = await Promise.all([
+          env.DB.prepare(`SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`).bind(wsId, wsId).first().catch(() => null),
+          env.DB.prepare(`SELECT state_json FROM agent_workspace_state WHERE id = ?`).bind(uwsId).first().catch(() => null)
+        ]);
         
-        // If not found, try personal agent_workspace_state table
-        if (!row && env.DB) {
-          const wsState = await env.DB.prepare(
-            `SELECT state_json FROM agent_workspace_state WHERE id = ?`
-          ).bind(uwsId).first().catch(() => null);
-          
-          if (wsState) {
-            const rec = JSON.parse(wsState.state_json || '{}');
-            return jsonResponse({
-              id: wsId,
-              name: rec.folderName || 'Personal Workspace',
-              environment: 'local',
-              settings: {},
-              state: rec
-            });
-          }
-        }
+        const row = globalWs || (personalWs ? { id: wsId, state_json: personalWs.state_json, name: 'Personal' } : null);
+        if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
         
-        if (!row) return jsonResponse({ error: 'Workspace not found', wsId, uwsId }, 404);
-
-        const cleanJson = (val) => {
-          if (!val) return {};
-          try { return typeof val === 'string' ? JSON.parse(val) : val; }
-          catch (e) { return {}; }
+        const safeJson = (v) => { 
+          if (!v) return {}; 
+          if (typeof v === 'object' && v !== null) return v;
+          try { return JSON.parse(v); } catch(e) { return {}; }
         };
 
         return jsonResponse({
           id: row.id,
-          name: row.name,
-          environment: row.environment || 'production',
+          name: row.name || 'Workspace',
+          environment: row.environment || 'local',
           status: row.status || 'active',
-          settings: cleanJson(row.settings_json),
-          state:    cleanJson(row.state_json)
+          settings: safeJson(row.settings_json),
+          state:    safeJson(row.state_json)
         });
       } catch (e) { 
-        console.error('[agent] workspace fetch error:', e.message);
-        return jsonResponse({ error: e.message }, 500); 
+        return jsonResponse({ error: `Fetch error: ${e.message}` }, 500); 
       }
     }
 

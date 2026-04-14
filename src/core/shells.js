@@ -77,15 +77,23 @@ export function renderShell({
     window.__USER_ID__       = window.__IAM__.userId;
   </script>
 
+  <style id="shell-core-styles">
+    :root { 
+      --bg-base: #002b36; --bg-surface: #073642; --fg-base: #839496; 
+      --accent: #268bd2; --border: #586e75; --cyan: #2aa198;
+    }
+    html, body { 
+      margin: 0; padding: 0; background: var(--bg-base); color: var(--fg-base); 
+      height: 100vh; width: 100vw; overflow: hidden; font-family: -apple-system, sans-serif; 
+    }
+    #root, .layout-container { display: flex; height: 100vh; width: 100vw; overflow: hidden; background: var(--bg-base); }
+    .shell-main { flex: 1; display: flex; overflow: hidden; background: var(--bg-base); }
+    .activity-bar { width: 48px; background: #00212b; border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+    .workbench-wrapper { flex: 1; display: flex; overflow: hidden; position: relative; background: var(--bg-base); }
+  </style>
   <link rel="stylesheet" href="/static/dashboard/agent/index.css?v=${escAttr(version)}" />
   <link rel="stylesheet" href="/index.css" />
   <link rel="stylesheet" href="/inneranimalmedia.css" />
-  <style id="shell-fallback-css">
-    /* High-resilience layout recovery */
-    .layout-container { display: flex; height: 100vh; width: 100vw; background: #002b36; color: #839496; overflow: hidden; font-family: sans-serif; }
-    .shell-main { flex: 1; display: flex; flex-direction: row; overflow: hidden; }
-    .workbench-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
-  </style>
 ${buildThemeBlock(themeVars)}
   <style>
     *, *::before, *::after { box-sizing: border-box; }
