@@ -96,7 +96,7 @@
      ============================================================ */
 
   /* Primary action — tabs, focus rings, active indicators */
-  --color-primary:       var(--solar-cyan);
+  --color-primary:       var(--solar-blue);
   --color-primary-hover: color-mix(in srgb, var(--solar-cyan) 80%, #fff 20%);
   --color-primary-muted: color-mix(in srgb, var(--solar-cyan) 15%, transparent);
 
