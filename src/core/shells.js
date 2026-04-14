@@ -65,6 +65,7 @@ export function renderShell({
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
   <title>${escHtml(title)}</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' https: data:; frame-src 'self' https:;" />
 
   <!-- Bootstrap: single serialized object, no individual globals -->
   <script${nonceAttr}>
@@ -91,9 +92,8 @@ export function renderShell({
     .activity-bar { width: 48px; background: #00212b; border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
     .workbench-wrapper { flex: 1; display: flex; overflow: hidden; position: relative; background: var(--bg-base); }
   </style>
-  <link rel="stylesheet" href="/static/dashboard/agent/index.css?v=${escAttr(version)}" />
-  <link rel="stylesheet" href="/index.css" />
-  <link rel="stylesheet" href="/inneranimalmedia.css" />
+  <link rel="stylesheet" href="/index.css?v=${escAttr(version)}" />
+  <link rel="stylesheet" href="/inneranimalmedia.css?v=${escAttr(version)}" />
 ${buildThemeBlock(themeVars)}
   <style>
     *, *::before, *::after { box-sizing: border-box; }

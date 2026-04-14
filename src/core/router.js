@@ -235,11 +235,6 @@ export async function handleRequest(request, env, ctx) {
       }
     }
 
-    // Fallback to native Workers Assets (Vite build artifacts)
-    if (!response && env.ASSETS) {
-      return env.ASSETS.fetch(request);
-    }
-
     return response || new Response('Not Found', { status: 404 });
   }
 
@@ -542,6 +537,10 @@ export async function handleRequest(request, env, ctx) {
     return serveStaticPage(env, 'source/public/auth-reset.html');
   }
 
-  // ── Final 404 ──────────────────────────────────────────────────────────────
+  // ── Final Fallback to Static Assets (Vite build folder) ────────────────────
+  if (env.ASSETS) {
+    return env.ASSETS.fetch(request);
+  }
+
   return jsonResponse({ error: 'Not found', path }, 404);
 }

@@ -760,6 +760,8 @@ const BrowserPane: React.FC<PaneProps> = ({
 
         <input
           ref={inputRef}
+          id="iam-browser-url"
+          name="url"
           type="text"
           value={inputVal}
           onChange={e => setInputVal(e.target.value)}
