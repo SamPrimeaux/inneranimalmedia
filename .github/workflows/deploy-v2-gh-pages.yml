@@ -1,0 +1,37 @@
+name: Deploy Dashboard v2 to GitHub Pages
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'dashboard-v2/**'
+      - '.github/workflows/deploy-v2-gh-pages.yml'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          cd dashboard-v2
+          bun install
+
+      - name: Build Dashboard
+        run: |
+          cd dashboard-v2
+          GH_PAGES=true bun run build
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dashboard-v2/dist
+          branch: gh-pages
+          clean: true

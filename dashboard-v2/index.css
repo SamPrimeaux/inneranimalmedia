@@ -1,0 +1,64 @@
+@import './inneranimalmedia.css';
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: system-ui, -apple-system, sans-serif;
+  --font-mono: Menlo, Monaco, 'Courier New', monospace;
+}
+
+body {
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
+  line-height: 1.5;
+}
+
+code, kbd, pre, samp {
+  font-family: var(--font-mono) !important;
+  letter-spacing: -0.02em;
+}
+
+.terminal-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  flex: 1 1 0% !important;
+}
+
+.xterm-shell-viewport {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+.nav-search-container {
+  position: relative;
+}
+
+.nav-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  width: 100%;
+  max-width: 500px;
+  z-index: 50;
+}
+
+/* Split Editor Layout */
+[data-editor-split="true"] {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-subtle);
+}
+
+[data-editor-split="true"] > * {
+  background: var(--bg-app);
+}
+
