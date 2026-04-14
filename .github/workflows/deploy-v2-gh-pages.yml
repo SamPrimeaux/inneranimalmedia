@@ -3,9 +3,6 @@ name: Deploy Dashboard v2 to GitHub Pages
 on:
   push:
     branches: [dev, main]
-    paths:
-      - 'dashboard-v2/**'
-      - '.github/workflows/deploy-v2-gh-pages.yml'
 
 jobs:
   build-and-deploy:
