@@ -440,7 +440,7 @@ async function buildSuperadminContext(env, sessionId, sessionUserKey) {
     (userProfile && userProfile.display_name) || authRow.name || 'User';
   const role = (userProfile && userProfile.role) || 'superadmin';
   const workspaceId =
-    (userProfile && userProfile.default_workspace_id) || 'ws_default';
+    (userProfile && userProfile.default_workspace_id) || 'ws_inneranimalmedia';
   return {
     id: sessionId,
     email: loginEmail,
@@ -783,7 +783,7 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
       console.warn('[Auto Mode] Model not found in DB:', autoModel, '- falling back to Haiku');
       model = await env.DB.prepare(
         'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
-      ).bind('gpt-4.1-nano').first();
+      ).bind('gpt-5.4-nano').first();
     }
 
     if (returnIntent) return { model, intent, taskType };
@@ -793,7 +793,7 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
     console.error('[Auto Mode] Selection failed:', error);
     return await env.DB.prepare(
       'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
-    ).bind('gpt-4.1-nano').first();
+    ).bind('gpt-5.4-nano').first();
   }
 }
 
@@ -1768,7 +1768,7 @@ async function runWriteD1MapInsert(env, cfg, ctx) {
   if (!map) return { ok: false, error: 'write_d1: map required for table insert' };
   let parsed = {};
   try {
-    parsed = JSON.parse(ctx.rawBody || '{}');
+    parsed = JSON.parse((ctx.rawBody || ctx.webhookBody || ctx.body || "{}"));
   } catch {
     parsed = {};
   }
@@ -1820,7 +1820,7 @@ async function runWriteD1GithubRaw(env, cfg, ctx) {
   if (table !== 'github_webhook_events') return { ok: false, error: 'write_d1: raw only supported for github_webhook_events' };
   let parsed = {};
   try {
-    parsed = JSON.parse(ctx.rawBody || '{}');
+    parsed = JSON.parse((ctx.rawBody || ctx.webhookBody || ctx.body || "{}"));
   } catch {
     parsed = {};
   }
@@ -1828,7 +1828,7 @@ async function runWriteD1GithubRaw(env, cfg, ctx) {
   try {
     await env.DB.prepare(
       `INSERT INTO github_webhook_events (event_type, repo_full_name, payload_json) VALUES (?, ?, ?)`
-    ).bind(ctx.eventType, repo, ctx.rawBody).run();
+    ).bind(ctx.eventType || ctx.webhookEventType || "unknown", repo, ctx.rawBody || ctx.webhookBody || ctx.body || "{}").run();
     return { ok: true, result: { inserted: true } };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
@@ -1908,7 +1908,7 @@ async function executeHookSubscriptionAction(env, actionType, actionConfigJson, 
     if (field && cfg.value !== undefined && matchBy && fromPath && CIDI_MATCH_COLUMNS.has(matchBy) && CIDI_WEBHOOK_PATCH_KEYS.has(field)) {
       let parsed = {};
       try {
-        parsed = JSON.parse(ctx.rawBody || '{}');
+        parsed = JSON.parse((ctx.rawBody || ctx.webhookBody || ctx.body || "{}"));
       } catch {
         parsed = {};
       }
@@ -2791,7 +2791,13 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
 
 const worker = {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(generateDailySummaryEmail(env));
+    ctx.waitUntil(Promise.allSettled([
+      generateDailySummaryEmail(env),
+      sweepStaleTerminalSessions(env),
+      runAgentMemoryDecay(env),
+      runFinancialCommandCron(env, ctx),
+      updateRoutingPerformanceScores(env),
+    ]));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -5339,7 +5345,7 @@ const worker = {
         };
         const stateJson = JSON.stringify(record);
         await env.DB.prepare(
-          `INSERT INTO agent_workspace_state (id, state_json, updated_at) VALUES (?, ?, unixepoch())
+          `INSERT INTO agent_workspace_state (id, conversation_id, workspace_type, state_json, created_at, updated_at) VALUES (?, '', 'ide', ?, unixepoch(), unixepoch())
            ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`
         )
           .bind(rowId, stateJson)
@@ -5718,7 +5724,8 @@ const worker = {
       // Dashboard pages (DASHBOARD bucket) -- serve HTML from R2 only; no in-worker HTML rewrite
       if (pathLower.startsWith('/dashboard/')) {
         const segment = pathLower.slice('/dashboard/'.length).split('/')[0] || 'overview';
-        const key = `static/dashboard/${segment}.html`;
+        const SPA_ROUTES = new Set(["calendar", "mcp", "overview"]);
+        const key = SPA_ROUTES.has(segment) ? "static/dashboard/agent.html" : `static/dashboard/${segment}.html`;
         const altKey = `dashboard/${segment}.html`;
         const obj = await env.DASHBOARD.get(key) ?? await env.DASHBOARD.get(altKey);
         if (obj) return respondWithDashboardHtml(obj, url, { noCache: true }, env);
@@ -6578,10 +6585,26 @@ async function persistAgentMemoryHyperdrive(env, { sessionId, userText, assistan
   const client = new Client({ connectionString: env.HYPERDRIVE.connectionString });
   await client.connect();
   try {
-    await client.query(
-      `INSERT INTO agent_memory (session_id, agent_id, role, content, metadata) VALUES ($1, $2, 'user', $3, $4::jsonb)`,
-      [sid, 'agent-sam', u, metaUser]
-    );
+    let userVecLiteral = null;
+    if (env.AI && u) {
+      try {
+        const _uResp = await env.AI.run('@cf/baai/bge-large-en-v1.5', { text: [u] });
+        const _uRaw = _uResp?.data ?? _uResp;
+        const _uVec = (Array.isArray(_uRaw) ? _uRaw : _uRaw?.data)?.[0];
+        if (_uVec && Array.isArray(_uVec)) userVecLiteral = '[' + _uVec.join(',') + ']';
+      } catch (e) { console.warn('[agent_memory] user embed failed', e?.message ?? e); }
+    }
+    if (userVecLiteral) {
+      await client.query(
+        `INSERT INTO agent_memory (session_id, agent_id, role, content, metadata, embedding) VALUES ($1, $2, 'user', $3, $4::jsonb, $5::vector)`,
+        [sid, 'agent-sam', u, metaUser, userVecLiteral]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO agent_memory (session_id, agent_id, role, content, metadata) VALUES ($1, $2, 'user', $3, $4::jsonb)`,
+        [sid, 'agent-sam', u, metaUser]
+      );
+    }
     let vecLiteral = null;
     if (env.AI && a) {
       try {
@@ -6616,35 +6639,75 @@ async function persistAgentMemoryHyperdrive(env, { sessionId, userText, assistan
  * Rapid, low-token intent and tier detection.
  */
 async function preflightClassify(message, env) {
-  if (!env.GEMINI_API_KEY) return { tier: 'moderate', intent: 'mixed', needsTools: true };
-  const systemPrompt = `Classify the user message. Respond with JSON only:
+  const SYSTEM = `Classify the user message. Respond with JSON only, no markdown:
 {"tier":"fast|moderate|complex","intent":"mixed","needs_tools":true|false}
 fast=greeting/status/factual, moderate=lookup/explain/single-tool, complex=multi-step/build/agent`;
 
-  try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-preview-02-05:generateContent?key=${env.GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: `System: ${systemPrompt}\nUser: ${message}` }] }],
-        generationConfig: { response_mime_type: 'application/json', max_output_tokens: 100 }
-      })
-    });
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const startIdx = text.indexOf('{');
-    const endIdx = text.lastIndexOf('}');
-    if (startIdx === -1 || endIdx === -1) throw new Error('Invalid JSON response');
-    const parsed = JSON.parse(text.slice(startIdx, endIdx + 1));
-    return {
-      tier: parsed.tier || 'moderate',
-      intent: parsed.intent || 'mixed',
-      needsTools: parsed.needs_tools ?? true
-    };
-  } catch (e) {
-    console.error('[preflightClassify] failed:', e.message);
-    return { tier: 'moderate', intent: 'mixed', needsTools: true };
+  function parseClassify(text) {
+    const s = text.indexOf('{'), e = text.lastIndexOf('}');
+    if (s === -1 || e === -1) throw new Error('no JSON braces');
+    const p = JSON.parse(text.slice(s, e + 1));
+    return { tier: p.tier || 'moderate', intent: p.intent || 'mixed', needsTools: p.needs_tools ?? true };
   }
+
+  // Priority 1: Gemini Flash — $0.000004/call
+  const geminiKey = env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: SYSTEM }] },
+            contents: [{ role: 'user', parts: [{ text: message.slice(0, 500) }] }],
+            generationConfig: { maxOutputTokens: 100, temperature: 0 },
+          })
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        return parseClassify(text);
+      }
+    } catch (_) {}
+  }
+
+  // Priority 2: Workers AI — free tier
+  if (env.AI) {
+    try {
+      const res = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: message.slice(0, 500) }],
+        max_tokens: 100,
+      });
+      return parseClassify(res?.response || '');
+    } catch (_) {}
+  }
+
+  // Priority 3: OpenAI gpt-5.4-nano via Responses API
+  if (env.OPENAI_API_KEY) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model: 'gpt-5.4-nano',
+          input: [{ role: 'system', content: SYSTEM }, { role: 'user', content: message.slice(0, 500) }],
+          reasoning: { effort: 'none' },
+          text: { verbosity: 'low' },
+          max_output_tokens: 100,
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return parseClassify(data.output_text || '');
+      }
+    } catch (_) {}
+  }
+
+  console.warn('[preflightClassify] all providers failed, using default');
+  return { tier: 'moderate', intent: 'mixed', needsTools: true };
 }
 
 /**
@@ -8301,9 +8364,11 @@ async function filterToolsByIntent(env, tenantId, intent, message, toolDefinitio
   const msg = (message || '').toLowerCase();
   const INTENT_MAP = {
     shell: ['terminal_execute', 'workspace_read_file', 'workspace_list_files', 'workspace_search'],
-    sql: ['d1_query', 'd1_write', 'platform_info'],
-    question: ['context_search', 'knowledge_search', 'platform_info', 'd1_query', 'human_context_list'],
+    sql: ['d1_query', 'd1_write', 'platform_info', 'supabase_query', 'supabase_write', 'hyperdrive_query', 'vector_search', 'vector_upsert'],
+    question: ['context_search', 'knowledge_search', 'platform_info', 'd1_query', 'human_context_list', 'supabase_query', 'vector_search'],
     plan: ['generate_execution_plan', 'context_search', 'knowledge_search', 'd1_query', 'platform_info'],
+    mixed: ['d1_query', 'd1_write', 'context_search', 'knowledge_search', 'platform_info', 'terminal_execute', 'r2_read', 'r2_write', 'human_context_list', 'workspace_read_file', 'workspace_write_file', 'supabase_query', 'vector_search'],
+    auto: ['d1_query', 'd1_write', 'context_search', 'knowledge_search', 'platform_info', 'terminal_execute', 'r2_read', 'r2_write', 'human_context_list', 'workspace_read_file', 'workspace_write_file', 'supabase_query', 'vector_search'],
   };
   let keywordGroups = await loadIntentKeywordGroupsFromD1(env, tenantId);
   if (keywordGroups == null) {
@@ -8543,7 +8608,7 @@ async function classifyIntent(env, lastMessageText) {
     try {
       const geminiKey = env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY;
       const classifyRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -8572,8 +8637,63 @@ Reply ONLY with JSON: {"intent":"sql"|"shell"|"question"|"mixed"}` }]
       }
     } catch (_) { }
   }
-  if (!env.ANTHROPIC_API_KEY) return null;
-  const haikuKey = resolveAnthropicModelKey('claude_haiku_4_5');
+  let _classifyText = '';
+  // Priority 1: Gemini Flash — $0.000004/call, fastest classify
+  if (!_classifyText && (env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY)) {
+    try {
+      const _gKey = env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY;
+      const _gResp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${_gKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: 'user', parts: [{ text: lastMessageText.slice(0, 8000) }] }],
+            generationConfig: { maxOutputTokens: 256, temperature: 0 },
+          }),
+        }
+      );
+      if (_gResp.ok) {
+        const _gData = await _gResp.json();
+        _classifyText = _gData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+      }
+    } catch (_) {}
+  }
+  // Priority 2: Workers AI — free tier, edge-local
+  if (!_classifyText && env.AI) {
+    try {
+      const _wResp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: lastMessageText.slice(0, 4000) }
+        ],
+        max_tokens: 256,
+      });
+      _classifyText = _wResp?.response?.trim() || '';
+    } catch (_) {}
+  }
+  // Priority 3: OpenAI gpt-5.4-nano via Responses API
+  if (!_classifyText && env.OPENAI_API_KEY) {
+    try {
+      const _oResp = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model: 'gpt-5.4-nano',
+          input: [{ role: 'system', content: system }, { role: 'user', content: lastMessageText.slice(0, 8000) }],
+          reasoning: { effort: 'none' },
+          text: { verbosity: 'low' },
+          max_output_tokens: 256,
+        }),
+      });
+      if (_oResp.ok) {
+        const _oData = await _oResp.json();
+        _classifyText = _oData.output_text?.trim() || '';
+      }
+    } catch (_) {}
+  }
+  if (!_classifyText) return null;
   const system = `You classify the user message into a single intent. Reply with JSON only, no markdown.
 - "sql" = user wants to run a SQL query (SELECT, INSERT, UPDATE, DELETE, CREATE, DROP VIEW, ALTER TABLE, or any database operation).
 - "write" is not a separate intent — all DB operations including writes are classified as "sql".
@@ -8591,25 +8711,7 @@ Always use exact column names from these schemas.
 For large queries spanning many tables, break into multiple sequential d1_query calls of max 5 tables each.
 Reply with only the JSON object.`;
 
-  const body = {
-    model: haikuKey,
-    max_tokens: 512,
-    system,
-    messages: [{ role: 'user', content: lastMessageText.slice(0, 8000) }],
-  };
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await resp.json();
-  const content = data.content?.[0];
-  const text = content?.type === 'text' ? content.text?.trim() : '';
-  if (!text) return null;
+  const text = _classifyText;
   try {
     const parsed = JSON.parse(text.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1'));
     if (parsed && typeof parsed.intent === 'string') {
@@ -11001,7 +11103,7 @@ async function chatWithToolsGoogle(env, systemWithBlurb, apiMessages, modelRow, 
       (env.TENANT_ID ? String(env.TENANT_ID).trim() : null) ||
       null;
     const lastUserForIntent = getLastUserMessageText(apiMessages) || '';
-    const intentForFilter = opts._intent || 'mixed';
+    const intentForFilter = opts._intent || 'auto';
     let intentFiltered = modeFiltered;
     try {
       intentFiltered = await filterToolsByIntent(env, tenantForIntent, intentForFilter, lastUserForIntent, modeFiltered);
@@ -11578,7 +11680,7 @@ async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conv
   // Fire the AI call in background — return stream immediately to avoid runtime hang
   (async () => {
     try {
-      const WAI_TIMEOUT_MS = 25000;
+      const WAI_TIMEOUT_MS = 60000;
       let result;
       const modelSupportsTools = modelRow?.supports_tools === 1;
       const toolsToSend = modelSupportsTools && toolDefinitions.length > 0
@@ -11589,7 +11691,7 @@ async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conv
           }))
         : [];
 
-      const aiInput = { messages, stream: true };
+      const aiInput = { messages, stream: false };
       if (toolsToSend.length > 0) aiInput.tools = toolsToSend;
 
       try {
@@ -11625,7 +11727,10 @@ async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conv
         ?? '';
 
       if (fullText) {
-        await emit({ type: 'text', text: fullText });
+        const chunkSize = 1000;
+      for (let i = 0; i < fullText.length; i += chunkSize) {
+        await emit({ type: 'content_block_delta', delta: { type: 'text_delta', text: fullText.slice(i, i + chunkSize) } });
+      }
       }
 
       const inputTokens = Math.round(inputCharCount / 4);
@@ -11898,6 +12003,57 @@ async function runSseTelemetrySideBranch(apiPlatform, branch2, modelRow, env, co
   let cacheReadTok = acc.cacheRead || 0;
   let cacheWriteTok = acc.cacheWrite || 0;
   if (apiPlatform === 'workers_ai') {
+
+    // ── OLLAMA (local) ──────────────────────────────────────────────────────
+    if (apiPlatform === 'ollama') {
+      const ollamaUrl = 'https://ollama.inneranimalmedia.com/api/chat';
+      const ollamaBody = {
+        model: modelKey,
+        messages: messages,
+        stream: true,
+      };
+      const ollamaRes = await fetch(ollamaUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CF-Access-Client-Id': env.OLLAMA_CLIENT_ID || '',
+          'CF-Access-Client-Secret': env.OLLAMA_CLIENT_SECRET || '',
+        },
+        body: JSON.stringify(ollamaBody),
+      });
+      if (!ollamaRes.ok) {
+        const errText = await ollamaRes.text().catch(() => 'unknown error');
+        return jsonResponse({ error: 'Ollama error: ' + errText }, 502);
+      }
+      const reader = ollamaRes.body.getReader();
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = new TextDecoder().decode(value);
+              const lines = chunk.split('\n').filter(l => l.trim());
+              for (const line of lines) {
+                try {
+                  const json = JSON.parse(line);
+                  const content = json?.message?.content || '';
+                  if (content) {
+                    controller.enqueue(encoder.encode('data: ' + JSON.stringify({ content }) + '\n\n'));
+                  }
+                } catch (_) {}
+              }
+            }
+          } finally {
+            controller.close();
+          }
+        }
+      });
+      return new Response(stream, {
+        headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' }
+      });
+    }
     inputTok = 0;
     outputTok = 0;
   }
@@ -12037,21 +12193,12 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   const { tier, intent, needsTools } = preflight;
 
   const messageForSlash = String(message).trimStart();
-  if (messageForSlash.startsWith('/claude ')) {
-    const claudePrompt = messageForSlash.slice('/claude '.length).trim();
-    if (!claudePrompt) {
-      return jsonResponse(
-        { error: 'Usage: /claude <instruction> — runs Claude Code on the PTY host (iam-pty) in the Agent Sam repo workspace.' },
-        400
-      );
-    }
-    return handleAgentChatClaudeDelegate(env, request, ctx, { prompt: claudePrompt, conversationId: conversationId || null });
-  }
+
   const hasMedia = hasChatMedia(jsonImages, chatAttachments);
   if (!modelParam) return jsonResponse({ error: 'model required' }, 400);
   const mode = modeRaw || 'agent';
-  if (!['ask', 'agent', 'plan', 'debug'].includes(mode)) {
-    return jsonResponse({ error: 'Invalid mode', allowed: ['ask', 'agent', 'plan', 'debug'] }, 400);
+  if (!['ask', 'agent', 'plan', 'debug', 'auto'].includes(mode)) {
+    return jsonResponse({ error: 'Invalid mode', allowed: ['ask', 'agent', 'plan', 'debug', 'auto'] }, 400);
   }
 
   let modelRow;
@@ -12089,6 +12236,7 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   const apiPlatform = String(modelRow.api_platform || '').trim();
   const modelKey = String(modelRow.model_key || modelParam);
   const providerLabel = String(modelRow.provider || apiPlatform || 'unknown');
+  const provider = modelRow.provider || apiPlatform || 'unknown';
 
   const sseSupportedPlatforms = new Set(['anthropic_api', 'gemini_api', 'vertex_ai', 'openai', 'cursor', 'workers_ai']);
   if (!sseSupportedPlatforms.has(apiPlatform)) {
@@ -12115,7 +12263,7 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
          FROM agentsam_skill
          WHERE is_active = 1 AND scope = 'workspace' AND workspace_id = ?
          ORDER BY sort_order`
-        : `SELECT name, description, slash_trigger
+        : `SELECT name, description, content_markdown, slash_trigger
          FROM agentsam_skill
          WHERE is_active = 1 AND scope = 'workspace' AND workspace_id = ?
          ORDER BY sort_order`;
@@ -12153,7 +12301,7 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
           const trigRaw = s.slash_trigger != null ? String(s.slash_trigger).replace(/^\//, '') : '';
           const trigPart = trigRaw ? ` (\`/${promptLine(trigRaw)}\`)` : '';
           let line = `- **${promptLine(s.name)}**${trigPart}: ${promptLine(s.description)}`;
-          if (message.includes('/') && s.content_markdown != null && String(s.content_markdown).trim() !== '') {
+          if ((s.sort_order <= -10 || message.includes("/")) && s.content_markdown != null && String(s.content_markdown).trim() !== '') {
             line += `\n  ${String(s.content_markdown).trim()}`;
           }
           return line;
@@ -12300,7 +12448,19 @@ You can delegate tasks directly to Claude Code running on the host machine by st
   };
 
   const toolLoopModes = new Set(['agent', 'debug', 'plan', 'ask']);
-  const toolLoopPlatforms = new Set(['anthropic_api', 'openai', 'gemini_api', 'vertex_ai']);
+  const toolLoopPlatforms = new Set(['anthropic_api', 'openai', 'gemini_api', 'vertex_ai', 'google_ai', 'cursor', 'workers_ai']);
+  const sseToolOpts = {
+    stream: true,
+    mode: mode ?? 'agent',
+    oauthUserId: oauthPersonaUid,
+    routingOpts: { tenantId: tenantIdChatSse },
+    agentsamAgentRunId: chatSseRunId,
+    modelRates: modelRatesMap,
+    subagent_id: subagentProfileKeySse,
+    agent_id: agentAiIdSse,
+    _intent: 'mixed',
+    persistConversationUserId: ingestBypass ? null : chatSseSession?.user_id ?? null,
+  };
   if (toolLoopModes.has(mode) && toolLoopPlatforms.has(apiPlatform)) {
     let apiMessagesForTools = [];
     if (apiPlatform === 'anthropic_api') {
@@ -12314,18 +12474,6 @@ You can delegate tasks directly to Claude Code running on the host machine by st
     } else {
       apiMessagesForTools = [{ role: 'user', content: message }];
     }
-    const sseToolOpts = {
-      stream: true,
-      mode,
-      oauthUserId: oauthPersonaUid,
-      routingOpts: { tenantId: tenantIdChatSse },
-      agentsamAgentRunId: chatSseRunId,
-      modelRates: modelRatesMap,
-      subagent_id: subagentProfileKeySse,
-      agent_id: agentAiIdSse,
-      _intent: 'mixed',
-      persistConversationUserId: ingestBypass ? null : chatSseSession?.user_id ?? null,
-    };
     if (hasMedia && (apiPlatform === 'gemini_api' || apiPlatform === 'vertex_ai')) {
       sseToolOpts.googleUserParts = buildGoogleParts(message, jsonImages, chatAttachments);
     }
@@ -12446,7 +12594,8 @@ You can delegate tasks directly to Claude Code running on the host machine by st
   }
 
   if (apiPlatform === 'workers_ai') {
-    return streamObserversWorkersAI(env, chatSseSystemPrompt, messages, modelRow, conversationId, agentAiIdSse, ctx, chatSseRunId, { tenantId: tenantIdChatSse }, lastLoadedToolsSse);
+    const messages = [{ role: 'user', content: hasMedia ? flattenUserContentForWorkersAi(message, jsonImages, chatAttachments) : message }];
+  return streamWorkersAI(env, chatSseSystemPrompt, messages, modelRow, conversationId, agentAiIdSse, ctx, chatSseRunId, { tenantId: tenantIdChatSse }, lastLoadedToolsSse);
   }
 }
 
@@ -14901,7 +15050,25 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
       try {
         const { results } = await env.DB.prepare(
-          `SELECT slug, display_name AS label, description, color_hex AS color, icon
+          `SELECT
+             slug,
+             display_name,
+             display_name AS label,
+             description,
+             color_hex,
+             color_hex AS color,
+             color_hex_dark,
+             icon,
+             model_preference,
+             temperature,
+             auto_run,
+             max_tool_calls,
+             context_strategy,
+             tool_policy_json,
+             metadata_json,
+             gate_model,
+             escalation_model,
+             escalation_threshold
            FROM agent_mode_configs
            WHERE is_active = 1
            ORDER BY sort_order`
@@ -15366,7 +15533,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const batch = await env.DB.batch([
           env.DB.prepare("SELECT id, name, role_name, mode FROM agentsam_ai WHERE status='active' ORDER BY CASE id WHEN 'ai_sam_v1' THEN 0 ELSE 1 END, name"),
           env.DB.prepare("SELECT id, service_name, service_type, endpoint_url, authentication_type, token_secret_name, is_active, health_status FROM mcp_services WHERE is_active=1 ORDER BY service_name"),
-          env.DB.prepare("SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens FROM ai_models WHERE is_active=1 AND show_in_picker=1 ORDER BY CASE provider WHEN 'anthropic' THEN 1 WHEN 'google' THEN 2 WHEN 'openai' THEN 3 WHEN 'workers_ai' THEN 4 ELSE 5 END, input_rate_per_mtok ASC"),
+          env.DB.prepare("SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens FROM ai_models WHERE is_active=1 AND show_in_picker=1 ORDER BY sort_order ASC, input_rate_per_mtok ASC"),
           env.DB.prepare("SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20"),
           env.DB.prepare("SELECT id, role, content, variant, ab_weight, agent_id FROM iam_agent_sam_prompts WHERE is_active=1"),
         ]);
@@ -15797,6 +15964,46 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       return jsonResponse({ text });
     }
 
+    // GET /api/terminal/agents — sub-agent list for /agents slash command
+    if (pathLower === '/api/terminal/agents' && method === 'GET') {
+      const auth  = request.headers.get('Authorization') || '';
+      const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : auth.trim();
+      if (!token || token !== (env.PTY_AUTH_TOKEN || '')) {
+        return jsonResponse({ error: 'unauthorized' }, 401);
+      }
+      try {
+        const rows = await env.DB.prepare(
+          `SELECT slug, display_name, description, icon, agent_type, is_active
+           FROM agentsam_subagent_profile
+           WHERE is_active = 1
+           ORDER BY sort_order ASC
+           LIMIT 20`
+        ).all();
+        return jsonResponse({ agents: rows.results || [] });
+      } catch (e) {
+        return jsonResponse({ agents: [], error: e.message });
+      }
+    }
+
+    // GET /api/terminal/commands?q=prefix — slash command autocomplete for XTermShell
+    if (pathLower === '/api/terminal/commands' && method === 'GET') {
+      const q    = (url.searchParams.get('q') || '').toLowerCase().replace(/^\//, '');
+      const mode = url.searchParams.get('mode') || 'auto';
+      try {
+        const rows = await env.DB.prepare(
+          `SELECT slug, display_name, description, usage_hint, risk_level
+           FROM agentsam_slash_commands
+           WHERE is_active = 1
+             AND (? = '' OR slug LIKE ? OR display_name LIKE ?)
+           ORDER BY sort_order
+           LIMIT 12`
+        ).bind(q, q + '%', q + '%').all();
+        return jsonResponse({ commands: rows.results || [] });
+      } catch (e) {
+        return jsonResponse({ commands: [], error: e.message });
+      }
+    }
+
     if (pathLower === '/api/monaco/complete' && method === 'POST') {
       const authUser = await getAuthUser(request, env);
       if (!authUser) {
@@ -16078,7 +16285,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const stateJson = typeof payload === 'string' ? payload : JSON.stringify(payload ?? {});
         try {
           await env.DB.prepare(
-            `INSERT INTO agent_workspace_state (id, state_json, updated_at) VALUES (?, ?, unixepoch())
+            `INSERT INTO agent_workspace_state (id, conversation_id, workspace_type, state_json, created_at, updated_at) VALUES (?, '', 'ide', ?, unixepoch(), unixepoch())
              ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`
           )
             .bind(rowId, stateJson)
@@ -16106,13 +16313,14 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       const showInPicker = url.searchParams.get('show_in_picker') === '1';
       try {
         const { results } = await env.DB.prepare(
-          `SELECT id, display_name AS name, provider, model_key, api_platform, show_in_picker
+          `SELECT id, display_name AS name, provider, model_key, api_platform, show_in_picker,
+                  input_rate_per_mtok, output_rate_per_mtok, sort_order, context_max_tokens
            FROM ai_models
            WHERE COALESCE(is_active, 0) = 1
              AND (size_class IS NULL OR size_class NOT IN ('image', 'audio', 'embedding'))
-             AND api_platform IN ('anthropic_api', 'gemini_api', 'vertex_ai', 'openai', 'workers_ai', 'cursor')
+             AND api_platform IN ('anthropic_api', 'gemini_api', 'vertex_ai', 'openai', 'workers_ai', 'cursor', 'ollama')
              ${showInPicker ? 'AND show_in_picker = 1' : ''}
-           ORDER BY provider, display_name`
+           ORDER BY sort_order ASC, display_name ASC`
         ).all();
         return jsonResponse(results || []);
       } catch (e) {
@@ -17164,15 +17372,24 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
           } catch (_) { }
         }
         const bootTidTodo = tenantIdFromEnv(env);
-        if (!todayTodo && env.DB && bootTidTodo) {
-          const row = await env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'today_todo' AND tenant_id = ?").bind(bootTidTodo).first();
-          if (row?.value) todayTodo = String(row.value);
+        let codebaseManifest = null, workspaceIndexStatus = null;
+        if (env.DB && bootTidTodo) {
+          const [todoRow, manifestRow, wsRow] = await Promise.all([
+            !todayTodo ? env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'today_todo' AND tenant_id = ?").bind(bootTidTodo).first() : Promise.resolve(null),
+            env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'codebase_asset_manifest' AND tenant_id = ?").bind(bootTidTodo).first(),
+            env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'workspace_index_status' AND tenant_id = ?").bind(bootTidTodo).first(),
+          ]);
+          if (todoRow?.value) todayTodo = String(todoRow.value);
+          if (manifestRow?.value) codebaseManifest = String(manifestRow.value);
+          if (wsRow?.value) workspaceIndexStatus = String(wsRow.value);
         }
         const context = {
           daily_log: dailyLog || null,
           yesterday_log: yesterdayLog || null,
           schema_and_records_memory: schemaAndRecordsMemory || null,
           today_todo: todayTodo || null,
+          codebase_asset_manifest: codebaseManifest || null,
+          workspace_index_status: workspaceIndexStatus || null,
           date: today,
           hint: 'AI Search indexes from R2 automatically. Store daily logs in R2 at memory/daily/YYYY-MM-DD.md. Store schema/records memory at memory/schema-and-records.md. Store today\'s to-do at memory/today-todo.md or agent_memory_index key today_todo.',
         };
@@ -20070,9 +20287,34 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
     }
     const max_results = Math.min(Math.max(1, Number(params.max_results) || 5), 10);
     try {
-      console.log('[knowledge_search] D1 ai_knowledge_base + AI Search (parallel)', { query, max_results });
-      const { merged, answer, query: q } = await runKnowledgeSearchMerged(env, query, max_results);
-      const results = merged;
+      console.log('[knowledge_search] D1 + AI Search + Supabase pgvector (parallel)', { query, max_results });
+      const [{ merged, answer, query: q }, pgDocs] = await Promise.all([
+        runKnowledgeSearchMerged(env, query, max_results),
+        (async () => {
+          if (!env.HYPERDRIVE?.connectionString || !env.AI) return [];
+          try {
+            const _emb = await env.AI.run('@cf/baai/bge-large-en-v1.5', { text: [query] });
+            const _raw = _emb?.data ?? _emb;
+            const _vec = (Array.isArray(_raw) ? _raw : _raw?.data)?.[0];
+            if (!_vec || !Array.isArray(_vec)) return [];
+            const _vecLit = '[' + _vec.join(',') + ']';
+            const { Client } = await import('pg');
+            const _pg = new Client({ connectionString: env.HYPERDRIVE.connectionString });
+            await _pg.connect();
+            try {
+              const _r = await _pg.query(
+                `SELECT title, content, source, similarity FROM match_documents($1::vector, 0.65, $2)`,
+                [_vecLit, max_results]
+              );
+              return (_r.rows || []).map(row => ({
+                content: row.content, title: row.title, source: row.source,
+                score: row.similarity, sourceTag: 'supabase:' + (row.source || 'documents'),
+              }));
+            } finally { await _pg.end().catch(() => {}); }
+          } catch (e) { console.warn('[knowledge_search] supabase arm failed', e?.message ?? e); return []; }
+        })(),
+      ]);
+      const results = [...merged, ...pgDocs].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, max_results);
       if (env.DB) {
         const _mcpKsTid = tenantIdFromEnv(env);
         try {
@@ -20876,11 +21118,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
   }
 
   if (tool_name === 'generate_daily_summary_email' && env.DB && env.RESEND_API_KEY) {
-    if (!env.ANTHROPIC_API_KEY) {
-      const errMsg = 'ANTHROPIC_API_KEY not configured';
-      await rec({ conversationId, toolName: tool_name, toolCategory: 'builtin', toolInput: params, result: null, error: errMsg, serviceName: 'builtin' });
-      return { error: errMsg };
-    }
+    // Model cascade: Gemini Flash → Workers AI → gpt-5.4-nano (never hard-fail on missing key)
     const to = params.to != null && String(params.to).trim() ? String(params.to).trim() : 'meauxbility@gmail.com';
     const from = params.from != null && String(params.from).trim() ? String(params.from).trim() : 'sam@inneranimalmedia.com';
     const today = new Date().toISOString().slice(0, 10);
@@ -20921,15 +21159,12 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
       ),
       safeAll(
         env.DB.prepare(
-          `SELECT worker_name AS workflow_name, environment AS client_name, status AS implementation_status, 0 AS priority
-           FROM cicd_runs
-           WHERE status IN ('queued','building','testing','deploying','verifying')
-           ORDER BY queued_at DESC LIMIT 10`
+          `SELECT name, status, priority FROM projects WHERE status NOT IN ('archived') ORDER BY priority DESC LIMIT 8`
         ).all()
       ),
       safeAll(
         env.DB.prepare(
-          `SELECT title, status FROM roadmap_steps WHERE plan_id = 'plan_sprint1_agent_sam_2026' ORDER BY order_index`
+          `SELECT plan_id, title, status FROM roadmap_steps WHERE plan_id IN ('plan_iam_dashboard_v1','plan_april14_2026','plan_agent_sam_endgame') AND status NOT IN ('complete','completed','done') ORDER BY plan_id, order_index LIMIT 20`
         ).all()
       ),
     ]);
@@ -20967,29 +21202,35 @@ Write a clean, informative HTML email. Style: dark background #0a0a0a, text #e0e
 
 Return ONLY the HTML email body (no doctype/html/head tags). Keep it tight — readable in 60 seconds.`;
     let emailHtml = '';
-    try {
-      const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 2000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      const aiData = await aiResp.json().catch(() => ({}));
-      if (!aiResp.ok) {
-        emailHtml = `<p>Error from Claude API: ${String(aiData?.error?.message || JSON.stringify(aiData)).slice(0, 500)}</p>`;
-      } else {
-        emailHtml = aiData.content?.[0]?.text || '';
-      }
-    } catch (e) {
-      emailHtml = '<p>Error generating AI summary</p>';
+    // Model cascade: try cheapest first, fall back up
+    const emailModelCascade = [
+      async () => {
+        if (!env.GEMINI_API_KEY && !env.GOOGLE_AI_API_KEY) return null;
+        const key = env.GEMINI_API_KEY || env.GOOGLE_AI_API_KEY;
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 2000 } }),
+        });
+        if (!r.ok) return null;
+        const d = await r.json().catch(() => ({}));
+        return d?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+      },
+      async () => {
+        if (!env.ANTHROPIC_API_KEY) return null;
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (!r.ok) return null;
+        const d = await r.json().catch(() => ({}));
+        return d?.content?.[0]?.text || null;
+      },
+    ];
+    for (const attempt of emailModelCascade) {
+      try { const result = await attempt(); if (result) { emailHtml = result; break; } } catch (_) {}
     }
+    if (!emailHtml) emailHtml = '<p>All AI providers unavailable — raw stats in subject line.</p>';
     if (!emailHtml || !String(emailHtml).trim()) {
       emailHtml = '<p>(No AI body generated)</p>';
     }
@@ -23613,7 +23854,7 @@ async function chatWithToolsOpenAI(env, systemWithBlurb, apiMessages, model, con
           (env.TENANT_ID ? String(env.TENANT_ID).trim() : null) ||
           null;
         const lastUserForIntent = getLastUserMessageText(apiMessages) || '';
-        const intentForFilter = opts._intent || 'mixed';
+        const intentForFilter = opts._intent || 'auto';
         tools = await filterToolsByIntent(env, tenantForIntent, intentForFilter, lastUserForIntent, tools);
       } catch (e) {
         console.warn('[chatWithToolsOpenAI] filterToolsByIntent', e?.message ?? e);
@@ -23720,7 +23961,7 @@ async function chatWithToolsOpenAI(env, systemWithBlurb, apiMessages, model, con
         },
         body: JSON.stringify({
           model: model.model_key,
-          max_tokens: 8192,
+          ...(model.model_key.startsWith("gpt-5") || model.model_key.startsWith("o") ? { max_completion_tokens: 8192 } : { max_tokens: 8192 }),
           messages,
           tools: openaiTools,
           tool_choice: 'auto',
@@ -24262,7 +24503,7 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
           (env.TENANT_ID ? String(env.TENANT_ID).trim() : null) ||
           null;
         const lastUserForIntent = getLastUserMessageText(apiMessages) || '';
-        const intentForFilter = opts._intent || 'mixed';
+        const intentForFilter = opts._intent || 'auto';
         tools = await filterToolsByIntent(env, tenantForIntent, intentForFilter, lastUserForIntent, tools);
       } catch (e) {
         console.warn('[chatWithToolsAnthropic] filterToolsByIntent', e?.message ?? e);
@@ -24380,8 +24621,7 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
       const _isAdaptive = resolvedModelKey.includes('opus-4-6') || resolvedModelKey.includes('sonnet-4-6');
       const _isSimpleIntent = opts._intent === 'sql' || opts._intent === 'question' || opts._intent === 'shell';
       const _thinkingConfig = _isAdaptive ? {
-        thinking: { type: 'adaptive' },
-        output_config: { effort: _isSimpleIntent ? 'low' : 'medium' },
+        thinking: { type: 'adaptive', effort: _isSimpleIntent ? 'low' : 'medium' },
       } : {};
       // display:omitted skips streaming thinking tokens → faster first text token for pipelines
       if (_isAdaptive && !wantStream) _thinkingConfig.thinking = { type: 'adaptive', display: 'omitted' };
@@ -24426,6 +24666,7 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
       console.log('[chatWithToolsAnthropic] Claude API response', { status: res.status, ok: res.ok });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        console.error('[chatWithToolsAnthropic] Anthropic error', JSON.stringify(err));
         return jsonResponse({ error: err.error?.message || res.statusText, stream: false }, res.status);
       }
       const data = await res.json();
@@ -24840,6 +25081,37 @@ async function processQueues(env) {
     }
   } catch (e) {
     console.warn('[processQueues]', e?.message || e);
+  }
+}
+
+/** Nightly: update model_routing_rules performance scores from routing_decisions telemetry. */
+async function updateRoutingPerformanceScores(env) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(`
+      UPDATE model_routing_rules
+      SET
+        performance_score = (
+          SELECT ROUND(AVG(CASE WHEN had_error = 0 THEN 100.0 ELSE 0.0 END), 2)
+          FROM routing_decisions
+          WHERE task_type = model_routing_rules.task_type
+            AND created_at > unixepoch('now', '-7 days')
+        ),
+        avg_latency_ms = (
+          SELECT ROUND(AVG(latency_ms), 0)
+          FROM routing_decisions
+          WHERE task_type = model_routing_rules.task_type
+            AND latency_ms IS NOT NULL
+            AND created_at > unixepoch('now', '-7 days')
+        )
+      WHERE task_type IN (
+        SELECT DISTINCT task_type FROM routing_decisions
+        WHERE created_at > unixepoch('now', '-7 days')
+      )
+    `).run();
+    console.log('[cron] routing performance scores updated');
+  } catch (e) {
+    console.warn('[cron] updateRoutingPerformanceScores', e?.message ?? e);
   }
 }
 
@@ -28356,7 +28628,7 @@ async function sendDailyPlanEmail(env) {
   }
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
   try {
-    const [tasks, cicdPipelines, sprintMemory, deployments, velocity, projects, memory, proposals, overnightSuite, telemetryToday] = await Promise.all([
+    const [tasks, cicdPipelines, sprintMemory, deployments, velocity, projects, memory, proposals, overnightSuite, telemetryToday, todayPlan, blockedProviders] = await Promise.all([
       env.DB.prepare(`SELECT title, description, priority, status, tags FROM tasks
         WHERE tenant_id=? AND status IN ('todo','in_progress','blocked')
         ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, updated_at DESC LIMIT 10`).bind(planTid).all(),
@@ -28393,11 +28665,33 @@ async function sendDailyPlanEmail(env) {
          FROM agent_telemetry
          WHERE created_at >= unixepoch('now', 'start of day')`
       ).first()),
+      // Today's plan from agentsam_plans + tasks
+      safe(env.DB.prepare(
+        `SELECT p.title, p.morning_brief, p.default_model, p.blocked_providers,
+                COUNT(t.id) AS tasks_total,
+                SUM(CASE WHEN t.status='done' THEN 1 ELSE 0 END) AS tasks_done,
+                SUM(CASE WHEN t.status='blocked' THEN 1 ELSE 0 END) AS tasks_blocked
+         FROM agentsam_plans p
+         LEFT JOIN agentsam_plan_tasks t ON t.plan_id = p.id
+         WHERE p.plan_date = date('now')
+         GROUP BY p.id
+         LIMIT 1`
+      ).first()),
+      // Blocked providers from model_routing_rules
+      safe(env.DB.prepare(
+        `SELECT GROUP_CONCAT(DISTINCT provider) AS blocked
+         FROM model_routing_rules
+         WHERE is_active = 0
+         GROUP BY 1`
+      ).first()),
     ]);
     console.log('[daily-plan] D1 queries complete — tasks:', tasks?.results?.length, 'cicd:', cicdPipelines?.results?.length, 'sprintMem:', sprintMemory?.results?.length);
 
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    const prompt = `You are Agent Sam writing Sam Primeaux's daily morning briefing. Today is ${today}.
+    const planCtx = todayPlan ? `\nTODAY'S PLAN (from agentsam_plans):\nTitle: ${todayPlan.title}\nTasks: ${todayPlan.tasks_total} total | ${todayPlan.tasks_done} done | ${todayPlan.tasks_blocked} blocked\nMorning Brief: ${todayPlan.morning_brief?.slice(0, 400) || 'none'}\nBlocked providers: ${todayPlan.blocked_providers || '[]'}` : '';
+    const budgetCtx = `\nPROVIDER BUDGET STATUS:\nOpenAI: ~$36 remaining (ACTIVE)\nGoogle/Gemini: ACTIVE (near-free)\nWorkers AI: ACTIVE (free tier)\nAnthropic: DISABLED (zero budget)\nCursor: DISABLED (zero budget)`;
+
+    const prompt = `You are Agent Sam writing Sam Primeaux's daily morning briefing. Today is ${today}.${planCtx}${budgetCtx}
 
 OPEN TASKS (live from D1, ordered by priority):
 ${JSON.stringify(tasks.results)}
@@ -28455,22 +28749,87 @@ OVERNIGHT METRICS
 Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam like a technical founder with limited time and limited AI spend this week.`;
 
     let emailBody = '';
-    if (env.ANTHROPIC_API_KEY) {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, messages: [{ role: 'user', content: prompt }] })
-      });
-      const data = await res.json();
-      emailBody = data?.content?.[0]?.text?.trim() || '';
+
+    // Priority 1: Gemini Flash — $0.000004/call (750x cheaper than Haiku)
+    const geminiKey = env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY;
+    if (!emailBody && geminiKey) {
+      try {
+        const gRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: 'You are Agent Sam writing a concise daily morning briefing. Plain text only. Under 450 words. No fluff. No emojis. Direct and actionable.' }] },
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: 900, temperature: 0.3 },
+            })
+          }
+        );
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          emailBody = gData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+          if (emailBody) console.log('[daily-plan] generated via Gemini Flash');
+        }
+      } catch (e) { console.warn('[daily-plan] Gemini Flash failed:', e?.message); }
     }
+
+    // Priority 2: OpenAI gpt-5.4-nano via Responses API
+    if (!emailBody && env.OPENAI_API_KEY) {
+      try {
+        const oRes = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },
+          body: JSON.stringify({
+            model: 'gpt-5.4-nano',
+            input: [
+              { role: 'system', content: 'You are Agent Sam writing a concise daily morning briefing. Plain text only. Under 450 words. No fluff. Direct and actionable.' },
+              { role: 'user', content: prompt }
+            ],
+            reasoning: { effort: 'low' },
+            text: { verbosity: 'low' },
+            max_output_tokens: 900,
+          })
+        });
+        if (oRes.ok) {
+          const oData = await oRes.json();
+          emailBody = oData?.output_text?.trim() || '';
+          if (emailBody) console.log('[daily-plan] generated via gpt-5.4-nano');
+        }
+      } catch (e) { console.warn('[daily-plan] OpenAI fallback failed:', e?.message); }
+    }
+
+    // Priority 3: Workers AI — free, no external budget needed
     if (!emailBody) {
-      const ai = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages: [{ role: 'user', content: prompt }], max_tokens: 800 });
-      emailBody = (ai?.result?.response ?? ai?.response ?? '').trim() || 'Daily plan could not be generated.';
+      try {
+        const ai = await env.AI.run('@cf/meta/llama-4-scout-17b-16e-instruct', {
+          messages: [{ role: 'system', content: 'Write a concise daily briefing. Plain text. Under 450 words. No emojis.' }, { role: 'user', content: prompt }],
+          max_tokens: 900,
+        });
+        emailBody = (ai?.result?.response ?? ai?.response ?? '').trim();
+        if (emailBody) console.log('[daily-plan] generated via Workers AI Llama 4 Scout (free)');
+      } catch (e) { console.warn('[daily-plan] Workers AI failed:', e?.message); }
     }
+
+    if (!emailBody) emailBody = 'Daily plan could not be generated. Check provider budgets.';
     console.log('[daily-plan] email body length', emailBody.length);
 
     const subject = `IAM Daily Plan — ${today}`;
+    // Wrap plain text in minimal HTML for better email client rendering
+    const htmlBody = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',monospace;background:#0a0a0f;color:#f4f4f5;padding:40px 20px;line-height:1.7}
+      .wrap{max-width:680px;margin:0 auto;background:#111;border:1px solid rgba(255,107,0,0.2);border-radius:12px;padding:40px}
+      .header{border-bottom:2px solid rgba(255,107,0,0.3);padding-bottom:20px;margin-bottom:28px}
+      h1{color:#ff6b00;font-size:22px;margin:0}
+      .date{color:rgba(244,244,245,0.5);font-size:13px;margin-top:6px}
+      pre{white-space:pre-wrap;word-wrap:break-word;font-family:inherit;font-size:14px;color:#f4f4f5;margin:0}
+      .footer{margin-top:32px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.1);font-size:12px;color:rgba(244,244,245,0.4);text-align:center}
+    </style></head><body><div class="wrap">
+      <div class="header"><h1>Agent Sam</h1><div class="date">${subject}</div></div>
+      <pre>${emailBody.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+      <div class="footer">inneranimalmedia.com &bull; Generated by Gemini Flash &bull; $0.000004</div>
+    </div></body></html>`;
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -28478,7 +28837,8 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
         from: 'Agent Sam <agent@inneranimalmedia.com>',
         to: ['sam@inneranimalmedia.com'],
         subject,
-        text: emailBody
+        text: emailBody,
+        html: htmlBody,
       })
     });
     console.log('[daily-plan] Resend status', res.status);
@@ -28822,29 +29182,45 @@ async function handleOverviewDeployments(request, url, env) {
     let cicd_runs = [];
     try {
       const cicdRows = await env.DB.prepare(
-        `SELECT run_id, workflow_name, branch, status, conclusion, started_at, completed_at FROM cicd_runs ORDER BY started_at DESC LIMIT 10`
+        `SELECT p.run_id, p.env AS environment, p.status, p.branch,
+                p.triggered_at AS started_at, p.completed_at, p.notes,
+                g.workflow_name, g.commit_message, g.duration_ms,
+                COUNT(CASE WHEN s.status = 'pass' THEN 1 END) AS steps_passed,
+                COUNT(CASE WHEN s.status = 'fail' THEN 1 END) AS steps_failed,
+                COUNT(s.id) AS steps_total
+         FROM cicd_pipeline_runs p
+         LEFT JOIN cicd_github_runs g ON g.run_id = 'gh_' || substr(p.run_id, 6)
+         LEFT JOIN cicd_run_steps s ON s.run_id = p.run_id
+         GROUP BY p.run_id
+         ORDER BY p.rowid DESC LIMIT 10`
       ).all();
       cicd_runs = (cicdRows?.results ?? cicdRows ?? []).map((r) => ({
         run_id: r.run_id,
-        workflow_name: r.workflow_name,
+        workflow_name: r.workflow_name || r.run_id,
         branch: r.branch,
+        environment: r.environment,
         status: r.status,
-        conclusion: r.conclusion,
+        conclusion: r.status,
         started_at: r.started_at,
         completed_at: r.completed_at,
+        duration_ms: r.duration_ms,
+        commit_message: r.commit_message,
+        steps_passed: r.steps_passed,
+        steps_failed: r.steps_failed,
+        steps_total: r.steps_total,
       }));
     } catch (_) {
-      // cicd_runs table may not exist; fall back to ci_di_workflow_runs
+      // fallback no-op
       try {
         const altRows = await env.DB.prepare(
-          `SELECT run_id, workflow_name, branch, status, conclusion, started_at, completed_at FROM ci_di_workflow_runs ORDER BY started_at DESC LIMIT 10`
+          `SELECT run_id, workflow_name, branch, status, conclusion, started_at, completed_at FROM cicd_pipeline_runs ORDER BY rowid DESC LIMIT 10`
         ).all();
         cicd_runs = (altRows?.results ?? altRows ?? []).map((r) => ({
           run_id: r.run_id,
           workflow_name: r.workflow_name,
           branch: r.branch,
           status: r.status,
-          conclusion: r.conclusion,
+          conclusion: r.status,
           started_at: r.started_at,
           completed_at: r.completed_at,
         }));
@@ -30612,4 +30988,5 @@ async function emitSessionEvent(env, sessionId, event) {
 }
 // Build Trigger: 2026-04-09-00-43
 
-export { IAMCollaborationSession, AgentChatSqlV1, ChessRoom } from './src/core/durable_objects.js';
+export { IAMCollaborationSession, AgentChatSqlV1, ChessRoom, IAMSession, IAMAgentSession, MeauxSession } from "./src/core/durable_objects.js";
+// build trigger Tue Apr 14 11:21:16 CDT 2026
