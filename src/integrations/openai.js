@@ -100,11 +100,16 @@ export async function chatWithToolsOpenAI(env, request, params) {
   const oaiMessages = buildOpenAIMessages(systemPrompt, messages);
   const oaiTools    = toOpenAITools(tools);
 
+  const reasoningEffort = params.reasoningEffort || null;
+  const verbosity       = params.verbosity       || null;
+
   const body = {
-    model:  modelKey,
+    model:    modelKey,
     messages: oaiMessages,
-    stream: true,
-    ...(oaiTools?.length ? { tools: oaiTools } : {}),
+    stream:   true,
+    ...(oaiTools?.length   ? { tools:     oaiTools                   } : {}),
+    ...(reasoningEffort    ? { reasoning: { effort: reasoningEffort } } : {}),
+    ...(verbosity          ? { text:      { verbosity }               } : {}),
   };
 
   let upstream;

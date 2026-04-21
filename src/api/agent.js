@@ -11,6 +11,7 @@
  *  - Tool execution delegated to src/tools/builtin/index.js
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
+import { dispatchStream }                              from '../core/provider.js';
 import { unifiedRagSearch }                             from './rag.js';
 import { writeTelemetry }                               from './telemetry.js';
 import { jsonResponse }                                 from '../core/responses.js';
@@ -42,7 +43,9 @@ async function loadModeConfig(env, modeSlug) {
   try {
     const row = await env.DB.prepare(
       `SELECT slug, display_name, temperature, auto_run, max_tool_calls,
-              system_prompt_fragment, context_strategy, tool_policy_json, model_preference
+              system_prompt_fragment, context_strategy, tool_policy_json,
+              model_preference, gate_model, gate_reasoning_effort,
+              escalation_model, escalation_threshold
        FROM agent_mode_configs WHERE slug = ? AND is_active = 1 LIMIT 1`
     ).bind(slug).first();
     const config = row || defaults;
@@ -151,7 +154,15 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     turnCount++;
     let stream;
     try {
-      stream = await chatWithAnthropic({ messages: conversationMessages, tools, env, options: { model: modelKey, systemPrompt, temperature } });
+      // Provider resolved from ai_models.api_platform — no hardcoding
+      stream = await dispatchStream(env, null, {
+        modelKey,
+        systemPrompt,
+        messages:        conversationMessages,
+        tools,
+        reasoningEffort: modeConfig?.gate_reasoning_effort || null,
+        temperature,
+      });
     } catch (e) {
       emit('error', { message: 'Model call failed', detail: e.message });
       break;
