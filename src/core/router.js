@@ -38,6 +38,7 @@ import { handleHealthApi }           from '../api/health.js';
 import { handleDrawApi }             from '../api/draw.js';
 import { handleGitStatusApi }        from '../api/git-status.js';
 import { handleAdminApi }            from '../api/admin.js';
+import { handleTerminalApi }         from '../api/terminal.js';
 import { handleGithubApi }           from '../api/github.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -507,10 +508,14 @@ export async function handleRequest(request, env, ctx) {
     return handleAdminApi(request, url, env, ctx);
   }
 
-  // ── Dashboard (terminal, chat, browser, playwright, hyperdrive) ────────────
+  // ── Terminal API (assist, session validate, register) ────────────────────
+  if (path.startsWith('/api/terminal')) {
+    return handleTerminalApi(request, url, env, ctx);
+  }
+
+  // ── Dashboard (chat, browser, playwright, hyperdrive) ─────────────────────
   if (
     path.startsWith('/api/chat')       ||
-    path.startsWith('/api/terminal')   ||
     path.startsWith('/api/browser')    ||
     path.startsWith('/api/playwright') ||
     path.startsWith('/api/hyperdrive')
