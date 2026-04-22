@@ -14,6 +14,222 @@ import type { ActiveFile } from '../types';
 import { useEditor } from '../src/EditorContext';
 import { X } from 'lucide-react';
 
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+// ─── GLB/GLTF Viewer ─────────────────────────────────────────────────────────
+
+const GLBViewer: React.FC<{ url: string; name: string }> = ({ url, name }) => {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  useEffect(() => {
+    const el = mountRef.current;
+    if (!el) return;
+
+    const w = el.clientWidth || 800;
+    const h = el.clientHeight || 600;
+
+    // Scene
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f172a);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+    dir.position.set(5, 10, 7);
+    scene.add(dir);
+    const fill = new THREE.DirectionalLight(0x88ccff, 0.4);
+    fill.position.set(-5, -5, -5);
+    scene.add(fill);
+
+    // Grid
+    const grid = new THREE.GridHelper(10, 20, 0x334155, 0x1e293b);
+    scene.add(grid);
+
+    // Camera
+    const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 1000);
+    camera.position.set(0, 2, 5);
+
+    // Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    el.appendChild(renderer.domElement);
+
+    // Controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance = 0.5;
+    controls.maxDistance = 50;
+
+    // Load GLB
+    const loader = new GLTFLoader();
+    loader.load(
+      url,
+      (gltf) => {
+        const model = gltf.scene;
+        // Auto-center and scale
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 3 / maxDim;
+        model.scale.setScalar(scale);
+        model.position.sub(center.multiplyScalar(scale));
+        scene.add(model);
+        camera.position.set(0, size.y * scale, maxDim * scale * 2);
+        controls.target.set(0, 0, 0);
+        controls.update();
+        setLoading(false);
+      },
+      undefined,
+      (err) => {
+        setError(String(err));
+        setLoading(false);
+      }
+    );
+
+    // Resize observer
+    const ro = new ResizeObserver(() => {
+      const nw = el.clientWidth;
+      const nh = el.clientHeight;
+      camera.aspect = nw / nh;
+      camera.updateProjectionMatrix();
+      renderer.setSize(nw, nh);
+    });
+    ro.observe(el);
+
+    // Animation loop
+    let animId: number;
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      cancelAnimationFrame(animId);
+      ro.disconnect();
+      controls.dispose();
+      renderer.dispose();
+      if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+    };
+  }, [url]);
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 bg-[#0f172a] relative overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-panel)] border-b border-[var(--border-subtle)] shrink-0">
+        <span className="text-[10px] font-mono text-[var(--color-primary)] uppercase tracking-widest">3D Viewer</span>
+        <span className="text-[10px] text-[var(--text-muted)] font-mono truncate">{name}</span>
+        <span className="ml-auto text-[9px] text-[var(--text-muted)]">scroll to zoom · drag to orbit · right-drag to pan</span>
+      </div>
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 bg-[#0f172a]/80">
+          <div className="text-center space-y-2">
+            <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-[11px] text-[var(--color-primary)] font-mono">Loading GLB...</p>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="text-center space-y-2 p-4">
+            <p className="text-[12px] text-red-400 font-semibold">Failed to load model</p>
+            <p className="text-[10px] text-[var(--text-muted)] font-mono">{error}</p>
+          </div>
+        </div>
+      )}
+      <div ref={mountRef} className="flex-1 min-h-0" />
+    </div>
+  );
+};
+
+const GLB_EXTS = ['.glb', '.gltf', '.obj'];
+const isGlbFile = (name: string) => GLB_EXTS.some(e => name.toLowerCase().endsWith(e));
+// ─── Image Viewer ─────────────────────────────────────────────────────────────
+
+const ImageViewer: React.FC<{ url: string; name: string; onDelete?: () => void }> = ({ url, name, onDelete }) => {
+  const [zoom, setZoom] = React.useState(1);
+  const [copied, setCopied] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleted, setDeleted] = React.useState(false);
+
+  const copyUrl = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    setDeleting(true);
+    try { onDelete(); setDeleted(true); } catch {} finally { setDeleting(false); }
+  };
+
+  if (deleted) return (
+    <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-[12px]">
+      File deleted.
+    </div>
+  );
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg-app)] overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-panel)] border-b border-[var(--border-subtle)] shrink-0">
+        <span className="text-[10px] font-mono text-[var(--color-primary)] uppercase tracking-widest">Image</span>
+        <span className="text-[10px] text-[var(--text-muted)] font-mono truncate flex-1">{name}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={() => setZoom(z => Math.max(0.1, z - 0.25))}
+            className="px-2 py-0.5 text-[10px] rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">−</button>
+          <span className="text-[10px] font-mono text-[var(--text-muted)] w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom(z => Math.min(4, z + 0.25))}
+            className="px-2 py-0.5 text-[10px] rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">+</button>
+          <button onClick={() => setZoom(1)}
+            className="px-2 py-0.5 text-[10px] rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">1:1</button>
+          <button onClick={() => setZoom(0.5)}
+            className="px-2 py-0.5 text-[10px] rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">fit</button>
+          <div className="w-px h-4 bg-[var(--border-subtle)] mx-1" />
+          <button onClick={copyUrl}
+            className="px-2 py-0.5 text-[10px] rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--color-primary)]">
+            {copied ? '✓ Copied' : 'Copy URL'}
+          </button>
+          <a href={url} download={name} target="_blank" rel="noopener noreferrer"
+            className="px-2 py-0.5 text-[10px] rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">
+            Download
+          </a>
+          {onDelete && (
+            <button onClick={handleDelete} disabled={deleting}
+              className="px-2 py-0.5 text-[10px] rounded border border-red-500/30 hover:bg-red-500/10 text-red-400 disabled:opacity-50">
+              {deleting ? '...' : 'Delete'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Image */}
+      <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center bg-[var(--bg-app)] p-4"
+        style={{ backgroundImage: 'radial-gradient(var(--border-subtle) 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+        <img
+          src={url}
+          alt={name}
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'center', transition: 'transform 0.15s ease', maxWidth: '100%', imageRendering: zoom > 2 ? 'pixelated' : 'auto' }}
+          className="rounded shadow-2xl"
+        />
+      </div>
+    </div>
+  );
+};
+
+const IMG_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.bmp', '.ico', '.svg'];
+const isImageFile = (name: string) => IMG_EXTS.some(e => name.toLowerCase().endsWith(e));
+
+
+
+
 type FileData = ActiveFile;
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif'];
@@ -165,6 +381,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   const editorRef = useRef<any>(null);
   const isThemeReady = useRef(false);
   const [showDiff, setShowDiff] = useState(false);
+  const [forceLoadLargeFile, setForceLoadLargeFile] = useState(false);
   const [copied, setCopied] = useState(false);
   const [gitActionHint, setGitActionHint] = useState<string | null>(null);
 
@@ -185,7 +402,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     if (!monaco || !editorRef.current) return;
     const editor = editorRef.current;
     
-    const disposable = editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI, () => {
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI, () => {
       const selection = editor.getSelection();
       if (!selection || !activeFile) return;
       const selectedText = editor.getModel()?.getValueInRange(selection);
@@ -201,7 +418,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       }));
     });
 
-    return () => disposable.dispose();
+    return () => {};
   }, [monaco, activeFile]);
 
   const pushModelMeta = useCallback(
@@ -301,7 +518,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
         }
       },
     });
-    return () => disposable.dispose();
+    return () => {};
   }, [monaco, activeFile?.id]);
 
   const handleCopy = useCallback(() => {
@@ -427,6 +644,34 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       </div>
 
       {/* ── Editor Body ── */}
+      {activeFile && isImageFile(activeFile.name || '') && (activeFile.r2Url || activeFile.r2Key) ? (
+        <ImageViewer
+          url={activeFile.r2Url || `https://assets.inneranimalmedia.com/${activeFile.r2Key}`}
+          name={activeFile.name || 'image'}
+        />
+      ) : activeFile && isGlbFile(activeFile.name || '') && (activeFile.r2Url || activeFile.r2Key) ? (
+        <GLBViewer url={activeFile.r2Url || `https://assets.inneranimalmedia.com/${activeFile.r2Key}`} name={activeFile.name || 'model.glb'} />
+      ) : activeFile && activeFile.content && activeFile.content.length > 150000 && !forceLoadLargeFile ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-[var(--bg-app)] text-[var(--text-muted)]">
+          <div className="text-center space-y-2">
+            <p className="text-[13px] font-semibold text-[var(--text-main)]">Large file — {(activeFile.content.length / 1024).toFixed(0)}KB</p>
+            <p className="text-[11px]">{activeFile.content.split('\n').length.toLocaleString()} lines · Loading may freeze the editor</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setForceLoadLargeFile(true)}
+              className="px-4 py-2 rounded bg-[var(--color-primary)] text-black text-[12px] font-bold hover:opacity-90"
+            >Load Full File</button>
+            <button
+              onClick={() => setForceLoadLargeFile(true)}
+              className="px-4 py-2 rounded border border-[var(--border-subtle)] text-[12px] hover:bg-[var(--bg-hover)]"
+            >Load Anyway</button>
+          </div>
+          <pre className="text-[10px] font-mono text-[var(--text-muted)] bg-[var(--bg-panel)] rounded p-3 max-h-48 overflow-auto w-full max-w-lg">
+            {activeFile.content.slice(0, 2000)}...
+          </pre>
+        </div>
+      ) : (
       <div className="flex-1 overflow-hidden">
         {showDiff && hasDiffData ? (
           <DiffEditor
@@ -457,6 +702,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
           />
         )}
       </div>
+      )}
     </div>
   );
 };

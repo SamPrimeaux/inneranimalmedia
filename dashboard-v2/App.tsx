@@ -5,6 +5,7 @@
 */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useLocation, Routes, Route, Navigate } from 'react-router-dom';
 import { VoxelEngine } from './services/VoxelEngine';
 import { StudioSidebar } from './components/StudioSidebar';
 import { UIOverlay } from './components/UIOverlay';
@@ -50,6 +51,7 @@ import {
   type RecentFileEntry,
 } from './src/ideWorkspace';
 import { useEditor } from './src/EditorContext';
+import { CalendarPage } from './components/CalendarPage';
 import { Sparkles, Files, Search, GitBranch, PlayCircle, Blocks, Box, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, Columns2, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Plane } from 'lucide-react';
 
 function escapeHtmlForPreview(s: string): string {
@@ -109,6 +111,7 @@ const QUICK_COMMANDS = [
 
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
+  const location = useLocation();
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<VoxelEngine | null>(null);
   const terminalRef = useRef<XTermShellHandle>(null);
@@ -761,7 +764,7 @@ const App: React.FC = () => {
       const probRes = await fetch('/api/agent/problems', cred);
       const probData = await probRes.json().catch(() => ({}));
       if (probRes.ok && probData && typeof probData === 'object') {
-        setSystemProblems(probData);
+        setSystemProblems([]);
         const mcp = Array.isArray(probData.mcp_tool_errors) ? probData.mcp_tool_errors.length : 0;
         const audits = Array.isArray(probData.audit_failures) ? probData.audit_failures : [];
         const wx = Array.isArray(probData.worker_errors) ? probData.worker_errors.length : 0;
@@ -1729,6 +1732,15 @@ const App: React.FC = () => {
           )}
 
           {/* 4. MAIN EDITOR AREA */}
+              {/* Dashboard page routes rendered in center slot */}
+              {location.pathname !== '/dashboard/agent' && (
+                <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+                  <Routes>
+                    <Route path="/dashboard/calendar" element={<CalendarPage />} />
+                    <Route path="/dashboard/agent" element={<></>} />
+                  </Routes>
+                </div>
+              )}
           <main 
               className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--bg-app)] relative ${narrowBlocksCenter ? 'max-md:hidden' : ''}`}
               onDrop={handleFileDrop}
@@ -1904,9 +1916,9 @@ const App: React.FC = () => {
                       <XTermShell
                           ref={terminalRef}
                           onClose={() => setIsTerminalOpen(false)}
-                          problems={systemProblems}
+                          problems={systemProblems ?? []}
                           iamOrigin={typeof window !== 'undefined' ? window.location.origin : 'https://inneranimalmedia.com'}
-                          workspaceCdCommand="cd ~/Downloads/inneranimalmedia/inneranimalmedia-agentsam-dashboard"
+                          workspaceCdCommand="cd /Users/samprimeaux/inneranimalmedia"
                           workspaceLabel={workspaceDisplayName}
                           workspaceId={authWorkspaceId || undefined}
                           productLabel={PRODUCT_NAME}

@@ -118,6 +118,25 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
 
   const activeWorkspace = (workspaceRows || []).find(w => w.id === authWorkspaceId) || { name: 'Home', id: 'default' };
 
+
+  // ── Browser screenshot → chat input ──────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ url: string; source?: string }>).detail;
+      if (!detail?.url) return;
+      const msg = detail.source
+        ? `Screenshot of ${detail.source}:\n${detail.url}`
+        : detail.url;
+      setChatInput(msg);
+      // Focus the chat textarea
+      setTimeout(() => {
+        const ta = document.querySelector('textarea[data-chat-input]') as HTMLTextAreaElement | null;
+        ta?.focus();
+      }, 100);
+    };
+    window.addEventListener('iam-browser-screenshot-attach', handler);
+    return () => window.removeEventListener('iam-browser-screenshot-attach', handler);
+  }, []);
   return (
     <div className="flex-1 flex flex-col items-center justify-start bg-[var(--scene-bg)] overflow-y-auto py-12 px-6 no-scrollbar h-full">
       
