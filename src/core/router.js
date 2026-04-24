@@ -40,6 +40,7 @@ import { handleGitStatusApi }        from '../api/git-status.js';
 import { handleAdminApi }            from '../api/admin.js';
 import { handleTerminalApi }         from '../api/terminal.js';
 import { handleGithubApi }           from '../api/github.js';
+import { handleMeetApi }            from '../api/meet.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -527,6 +528,8 @@ export async function handleRequest(request, env, ctx) {
   if (path.startsWith('/api/gorilla')) {
     return handleAgentSamApi(request, url, env, ctx);
   }
+
+  if (url.pathname.startsWith('/api/meet')) return handleMeetApi(request, env, ctx);
 
   // ── Unmatched /api/* ───────────────────────────────────────────────────────
   if (path.startsWith('/api/')) {
