@@ -1,89 +1,133 @@
 # InnerAnimalMedia Platform
 
-Cloudflare-native SaaS platform and AI agent infrastructure. 
+Cloudflare-native SaaS platform and AI agent infrastructure.
 Built and operated by Sam Primeaux — Lafayette, Louisiana.
 
 ---
 
 ## Current State — April 2026
 
-The platform is mid-migration from a 30,000-line monolithic `worker.js` into a clean modular architecture. The new repo structure is live and building on Cloudflare. The dashboard React/Vite app is wired into the CF autobuild pipeline and receiving active development.
+The platform is mid-migration from a 30,000-line monolithic `worker.js` into a clean modular architecture. The new modular `src/` structure is live and running on Cloudflare Workers. The dashboard is a React/Vite app deployed via Cloudflare build pipelines and served from the worker.
 
 ### What is working
-- `src/` modular worker is deployed to sandbox (`sandbox.inneranimalmedia.com`)
-- Vite build pipeline is wired: CF autobuild runs `cd dashboard && vite build` on every push to `main`
-- `dashboard/app/` React shell is mounted and rendering — CSS token system, theme bootstrap, and `--color-primary` alias layer are complete
-- `src/core/shells.js` serves the HTML shell at all `/dashboard/*` routes
-- D1, R2, KV, Durable Objects, AI bindings all active on sandbox worker
-- MCP server live at `mcp.inneranimalmedia.com` — 97 tools, bearer auth
+- `src/` modular worker running on production and sandbox
+- Agent Sam `/api/agent/*` live with SSE streaming, tool loop, and D1-backed configuration
+- D1, R2, KV, Durable Objects, AI bindings active
+- MCP server live and auto-deploying on push to `main`
 - PTY terminal bridge active at `terminal.inneranimalmedia.com`
+- Local Ollama available behind Cloudflare Access at `ollama.inneranimalmedia.com`
 
 ### What is in progress
-- CF autobuild: Vite build succeeding, currently resolving remaining component import errors
-- `dashboard/app/services/VoxelEngine.ts` — written, committed, wiring to build
-- `dashboard/app/types.ts` — rewritten to match App.tsx actual usage
-- `src/core/shells.js` — needs Vite asset tags added once build produces stable output
-- Login redirect on sandbox — session/cookie domain issue, fix pending
+- Final cleanup of remaining legacy dashboard/static routes as pages migrate into the React app
+- Continuous refinement of Agent Sam tool policies, approvals, and observability
 
 ### What is not yet done
-- `shells.js` loading the built Vite bundle (blocked on clean build)
-- Tailwind config (`tailwind.config.js`, `postcss.config.js`) for `dashboard/`
-- Deploy scripts (`deploy-sandbox.sh`, `promote-to-prod.sh`) not yet in new repo
-- `.github/workflows/` CI/CD not yet wired
-- Several dashboard pages still served as legacy static HTML
+- Full parity replacement of every legacy HTML page in `source/public/` with React pages
+- Complete automation of promote/rollback workflows (human-driven promote is still enforced)
+
+---
+
+## Repo Info
+
+| Item | Value |
+|---|---|
+| Repo root | `/Users/samprimeaux/inneranimalmedia` |
+| Cloudflare tunnel | `inneranimalmedia` (2 replicas — iMac + GCP) |
+| GCP tunnel VPS | `iam-tunnel` (us-central1, e2-micro, 24/7) |
+
+---
+
+## Infrastructure
+
+### Workers
+- `inneranimalmedia` (prod)
+- `inneranimal-dashboard` (sandbox)
+- `inneranimalmedia-mcp-server` (MCP, auto-deploys on push to `main`)
+
+### R2 Buckets (bindings)
+- `ASSETS` → `inneranimalmedia-assets` (public marketing)
+- `DASHBOARD` → `agent-sam` (dashboard HTML + Vite bundles)
+- `R2` → `iam-platform` (memory, docs, agent sessions)
+- `AUTORAG_BUCKET` → `autorag` (RAG source docs)
+- `DOCS_BUCKET` → `iam-docs` (screenshots, draw exports)
+- `TOOLS` → `tools` (MCP tool outputs)
+
+### KV Namespaces
+- `KV` → `MCP_TOKENS` (MCP auth tokens + Vertex cache only)
+- `SESSION_CACHE` → `production-KV_SESSIONS` (user sessions)
+
+### Durable Objects
+- `AGENT_SESSION` → `AgentChatSqlV1` (chat + SQLite per session)
+- `IAM_COLLAB` → `IAMCollaborationSession` (real-time canvas/theme)
+- `CHESS_SESSION` → `ChessRoom`
+
+### Other bindings
+- `AI` → Workers AI Catalog
+- `HYPERDRIVE` → `inneranimalmedia-supabase-hyperdrive`
+- `VECTORIZE` → `ai-search-inneranimalmedia-autorag`
+- `MY_QUEUE` → Queue
+- `PTY_SERVICE` → VPC localhost:3099 (iam-pty terminal)
+- `MYBROWSER` → Browser Run
+
+---
+
+## Deploy Rules
+
+- CI/CD auto-deploys on push to `production` branch (main repo)
+- MCP auto-deploys on push to `main` branch
+- Never use `npx wrangler deploy` directly
+- Sandbox:
+  - `cd agent-dashboard && npm run build:vite-only && cd .. && ./scripts/deploy-sandbox.sh`
+- Promote:
+  - `./scripts/promote-to-prod.sh`
+
+---
+
+## Tunnel
+
+- `cloudflared` is installed as a macOS system service (auto-starts on boot)
+- GCP `e2-micro` replica provides 24/7 uptime independent of the iMac
+- Routes:
+  - `terminal.inneranimalmedia.com` → localhost:3099
+  - `ollama.inneranimalmedia.com` → localhost:11434
+  - `iam-vpc` → Workers VPC localhost:3099
+- Ollama CF Access:
+  - Service token auth via `OLLAMA_CF_CLIENT_ID` / `OLLAMA_CF_CLIENT_SECRET`
 
 ---
 
 ## Platform Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        CLOUDFLARE EDGE                              │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │              inneranimalmedia (Worker — src/)                │   │
-│  │                                                              │   │
-│  │   src/                                                       │   │
-│  │   ├── index.js          Entry point + router                 │   │
-│  │   ├── api/              HTTP route handlers (one per group)  │   │
-│  │   ├── tools/            Agent tool implementations (97)      │   │
-│  │   │   └── builtin/      browser, storage, deploy, context    │   │
-│  │   ├── core/             Auth, responses, shells, terminal    │   │
-│  │   └── integrations/     Anthropic, OpenAI, GitHub, Resend    │   │
-│  │                                                              │   │
-│  │   Bindings:                                                  │   │
-│  │   ├── DB        → D1 (inneranimalmedia-business, 547 tables) │   │
-│  │   ├── DASHBOARD → R2 (inneranimalmedia bucket)               │   │
-│  │   ├── KV        → KV (session state, context cache)         │   │
-│  │   └── DO        → Durable Objects (real-time connections)   │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                               │                                     │
-│           ┌───────────────────┼───────────────────┐                 │
-│           │                   │                   │                 │
-│  ┌────────▼───────┐  ┌────────▼──────┐  ┌────────▼───────┐         │
-│  │   MCP Server   │  │  R2 Buckets   │  │   D1 Database  │         │
-│  │                │  │               │  │                │         │
-│  │ mcp.innerani.. │  │ inneranim..   │  │ 547 tables     │         │
-│  │ Bearer auth    │  │ iam-platform  │  │ AI, CICD,      │         │
-│  │ 97 tools       │  │ iam-docs      │  │ deployments,   │         │
-│  │ 16 categories  │  │ tools         │  │ agent memory,  │         │
-│  └────────────────┘  └───────────────┘  │ cost tracking  │         │
-│                                         └────────────────┘         │
-└─────────────────────────────────────────────────────────────────────┘
-         │                                          │
-         │ PTY tunnel (iam-pty)                     │ Dashboard UI
-         │                                          │
-┌────────▼───────┐                       ┌──────────▼──────────┐
-│  Local Mac     │                       │  React/Vite SPA     │
-│  (Sam's iMac   │                       │                     │
-│   Lafayette)   │                       │  dashboard/app/     │
-│                │                       │  Built by CF auto-  │
-│  Terminal      │                       │  build on push to   │
-│  execution     │                       │  main. Assets       │
-│  via PTY       │                       │  bundled into       │
-│  WebSocket     │                       │  worker deployment. │
-│  bridge        │                       │                     │
-└────────────────┘                       └─────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                             CLOUDFLARE EDGE                              │
+│                                                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐   │
+│  │                 inneranimalmedia (Worker — prod)                  │   │
+│  │                                                                   │   │
+│  │  src/                                                             │   │
+│  │  ├── index.js          Entry point + router                        │   │
+│  │  ├── api/              HTTP route handlers                          │   │
+│  │  ├── tools/            Agent tool implementations                    │   │
+│  │  ├── core/             Auth, responses, shells, terminal, provider  │   │
+│  │  └── integrations/     OpenAI, Workers AI, Ollama, GitHub, Resend   │   │
+│  │                                                                   │   │
+│  │  Storage + state: D1, R2, KV, Durable Objects, Vectorize           │   │
+│  └───────────────────────────────────────────────────────────────────┘   │
+│                    │                          │                           │
+│                    │                          │                           │
+│     ┌──────────────▼──────────────┐  ┌────────▼──────────────┐           │
+│     │ inneranimalmedia-mcp-server  │  │  Dashboard (React/Vite) │          │
+│     │ MCP tools + bearer/OAuth     │  │  Served via worker + R2 │          │
+│     └─────────────────────────────┘  └─────────────────────────┘          │
+└──────────────────────────────────────────────────────────────────────────┘
+                 │                           │
+                 │ PTY via Cloudflare Tunnel │ Ollama via CF Access Tunnel
+                 │                           │
+        ┌────────▼────────┐          ┌───────▼─────────┐
+        │ Local iMac + GCP │          │ Ollama (local)  │
+        │ terminal bridge  │          │ qwen2.5-coder:7b│
+        └──────────────────┘          └─────────────────┘
 ```
 
 ---
@@ -120,60 +164,61 @@ inneranimalmedia/
 │   │   ├── session.js            # Session management
 │   │   ├── shells.js             # HTML shell renderer for /dashboard/* routes
 │   │   ├── terminal.js           # PTY bridge utilities
-│   │   └── themes.js             # CMS theme resolution from D1
+│   │   ├── themes.js             # CMS theme resolution from D1
+│   │   └── provider.js           # Unified provider dispatch (OpenAI/Workers AI/Ollama/etc.)
 │   ├── integrations/
-│   │   ├── anthropic.js          # Claude API (Sonnet/Opus/Haiku)
+│   │   ├── anthropic.js          # Claude API
 │   │   ├── gemini.js             # Google Gemini
-│   │   ├── openai.js             # OpenAI (GPT-5.4, o4-mini)
+│   │   ├── openai.js             # OpenAI
+│   │   ├── ollama.js             # Ollama helper(s)
 │   │   ├── github.js             # GitHub API
 │   │   ├── resend.js             # Email via Resend
 │   │   ├── workers-ai.js         # Cloudflare Workers AI
 │   │   └── hyperdrive.js         # Hyperdrive (Postgres/Supabase)
 │   └── tools/
 │       └── builtin/
-│           └── index.js          # 97 tool implementations
+│           └── index.js          # Builtin tool implementations
 │
 ├── dashboard/                    # React/Vite frontend SPA
 │   ├── app/                      # React source
-│   │   ├── App.tsx               # Main shell — layout, routing, state
-│   │   ├── index.tsx             # React root — imports CSS, mounts app
-│   │   ├── index.css             # Tailwind utilities
-│   │   ├── inneranimalmedia.css  # Design token system (:root CSS vars)
-│   │   ├── types.ts              # Shared TypeScript types
-│   │   ├── types.ts              # Shared TypeScript types
-│   │   ├── components/           # All UI components
-│   │   │   ├── ChatAssistant.tsx
-│   │   │   ├── CommandCenter.tsx
-│   │   │   ├── DatabaseBrowser.tsx
-│   │   │   ├── MonacoEditorView.tsx
-│   │   │   ├── StatusBar.tsx
-│   │   │   ├── WorkspaceDashboard.tsx
-│   │   │   ├── settings/         # Settings panel tabs
-│   │   │   └── ...               # 20+ components
-│   │   └── services/
-│   │       └── VoxelEngine.ts    # Three.js 3D engine (Studio tab)
 │   ├── index.html                # Entry HTML — theme bootstrap, font preloads
-│   ├── vite.config.ts            # Vite config — base: /static/dashboard/agent/
-│   └── package.json              # Dashboard-scoped deps (unused — see root)
+│   ├── vite.config.ts            # Vite config — base assets path
+│   └── package.json              # Dashboard-scoped deps (root is canonical)
 │
 ├── source/
 │   └── public/                   # Legacy static HTML pages (being replaced)
-│       ├── index.html            # Landing page
-│       ├── auth-signin.html
-│       ├── auth-signup.html
-│       ├── dashboard-agent.html  # Legacy shell (being replaced by Vite SPA)
-│       └── dashboard-overview.html
 │
 ├── docs/
 │   ├── archive/                  # Recipes, roadmaps, workflows (D1-synced)
 │   └── skills/                   # Agent Sam skill definitions
 │
 ├── worker.js                     # Legacy monolith (30k lines) — do not edit
-│                                 # Being extracted into src/ incrementally
 ├── wrangler.jsonc                # Sandbox worker config
 ├── wrangler.production.toml      # Production worker config
-└── package.json                  # Root — all deps including vite, react, three
+└── package.json                  # Root deps + build tooling
 ```
+
+---
+
+## Dashboard Pages
+
+overview, finance, chats, mcp, cloud, time-tracking, agent,
+billing, clients, tools, calendar, images, draw, meet, kanban,
+cms, mail, pipelines, onboarding, user-settings, settings
+
+---
+
+## AI Model Tiers
+
+- Tier 0: GPT-5.4 Nano (gate/rewriter, OpenAI)
+- Tier 1: Kimi K2.6 (Workers AI edge, free)
+- Tier 2: GPT-5.4 Nano (OpenAI, low cost)
+- Tier 3: GPT-5.4 Mini (OpenAI, standard)
+- Tier 4: GPT-5.4 (OpenAI, full power)
+
+All tiers live in D1: `agentsam_model_tier`.
+
+Local: Ollama `qwen2.5-coder:7b` via `ollama.inneranimalmedia.com`.
 
 ---
 
@@ -191,38 +236,13 @@ Rule: never hardcode hex values below the `--solar-*` layer. All components refe
 
 ## CF Autobuild Pipeline
 
-Every push to `main` triggers:
-
-```
-bun install (root package.json)
-    │
-    ▼
-cd dashboard && ../node_modules/.bin/vite build
-    │
-    ▼
-dashboard/dist/ bundled into worker deployment via wrangler.jsonc assets binding
-    │
-    ▼
-npx wrangler deploy → sandbox.inneranimalmedia.com
-```
-
-Build command: `cd dashboard && ../node_modules/.bin/vite build`
-Deploy command: `npx wrangler deploy`
-Assets binding: `"assets": { "directory": "./dashboard/dist" }`
+Build and deployment are automated via CI/CD and deploy scripts. Direct manual deploy commands are intentionally disallowed.
 
 ---
 
 ## AI Provider Routing
 
-```
-T0   Workers AI (env.AI)   → free, embeddings, lightweight inference
-T1   Gemini Flash-Lite     → 10x cheaper than Haiku, paid tasks
-T1.5 Claude Haiku          → conversational tasks
-T2   Claude Sonnet 4.6     → complex reasoning
-T3   Claude Opus 4.6       → maximum capability
-```
-
-Routing managed via `ai_routing_rules` and `agentsam_ai` D1 tables. `classifyIntent()` routes by keyword at request time. `filterToolsByIntent()` reduces tool payload per request.
+Provider selection is resolved at runtime from D1 (`ai_models.api_platform`) and routed through unified dispatch (Workers AI, OpenAI, Ollama, etc.). Tool policy and allow/deny behavior is governed by D1 mode configs.
 
 ---
 
@@ -241,19 +261,21 @@ Routing managed via `ai_routing_rules` and `agentsam_ai` D1 tables. `classifyInt
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 via S3 Sig V4 |
 | `INTERNAL_API_SECRET` | Guards `/api/internal/*` |
 | `DEPLOY_TRACKING_TOKEN` | Deploy pipeline telemetry |
+| `OLLAMA_CF_CLIENT_ID` | Cloudflare Access service token (Ollama) |
+| `OLLAMA_CF_CLIENT_SECRET` | Cloudflare Access service token (Ollama) |
 
-All three workers (sandbox, production, MCP) share the same secret values per type.
-Rotation: `openssl rand -hex 32` → `wrangler secret put` on all three.
+All workers share the same secret values per type.
+Rotation: `openssl rand -hex 32` → `wrangler secret put` on all relevant workers.
 
 ---
 
 ## Rules
 
-- **Never deploy to production autonomously.** `promote-to-prod.sh` requires explicit human execution. No exceptions.
-- **Never hardcode values.** Zero hardcoded hex, slugs, workspace IDs, or URLs below the token layer. Everything resolves from Git, D1, env vars, or CSS custom properties.
-- **No emoji** in code, output, or interfaces.
-- **No `npm run deploy` alone** — skips frontend. Use deploy scripts when available.
+- **Never use `npx wrangler deploy` directly.** Deploy through CI/CD or scripted paths only.
 - **Sandbox first, always.** Build → sandbox → benchmark → promote. Never skip.
+- **Promote requires explicit action.** Use `./scripts/promote-to-prod.sh`.
+- **Never hardcode values.** Zero hardcoded hex, slugs, workspace IDs, or URLs below the token layer.
+- **No emoji** in code, output, or interfaces.
 - **`worker.js` is read-only.** Extract into `src/` incrementally. Never edit the monolith directly.
 
 ---
@@ -262,10 +284,10 @@ Rotation: `openssl rand -hex 32` → `wrangler secret put` on all three.
 
 | Phase | Goal | Status |
 |---|---|---|
-| 0 — Build pipeline | CF autobuild + Vite wired, assets serving | In progress |
-| 1 — CI/CD system | Agent Sam can deploy, promote, rollback autonomously | Planned |
-| 2 — Agent Sam refinement | Streaming, tool visualization, decision matrix | Planned |
-| 3 — Public pages | All `inneranimalmedia.com` pages rebuilt + CMS connected | Planned |
+| 0 — Build pipeline | CI/CD + scripts, assets serving | Active |
+| 1 — CI/CD system | Promote + rollback workflows | In progress |
+| 2 — Agent Sam refinement | Streaming, tool visualization, policy tuning | In progress |
+| 3 — Public pages | Rebuild `inneranimalmedia.com` pages + CMS | Planned |
 | 4 — Other apps | Meauxbility, Inner Animals, iAutodidact scaffolded | Planned |
 
 ---
@@ -285,5 +307,3 @@ All client projects are candidates for migration to the IAM platform stack post-
 ---
 
 *InnerAnimalMedia — built at the edge, one deploy at a time.*
-*InnerAnimalMedia — built at the edge, one deploy at a time.*
-  
