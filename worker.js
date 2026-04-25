@@ -3892,6 +3892,7 @@ const worker = {
           if (!command) {
             return jsonResponse({ success: false, error: 'Command not found' }, 404);
           }
+          const startedMs = Date.now();
           let result = { output: command.command_text || `Command /${commandName} registered.` };
           if (command.implementation_type === 'builtin' && command.implementation_ref) {
             const builtins = {
@@ -3953,6 +3954,30 @@ const worker = {
             const fn = builtins[command.implementation_ref];
             if (fn) result = await fn();
           }
+          // fire-and-forget: agentsam_command_run
+          try {
+            const userInputRaw = `/${commandName}${(parameters && parameters.raw) ? ' ' + String(parameters.raw).trim() : ''}`.trim();
+            const outputText = String(result?.output ?? '').slice(0, 2048);
+            env.DB.prepare(
+              `INSERT INTO agentsam_command_run
+                (workspace_id, session_id, conversation_id, user_input, model_id,
+                 commands_json, result_json, output_text, success, duration_ms,
+                 input_tokens, output_tokens, cost_usd, error_message)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)`
+            ).bind(
+              tenantId,
+              body.session_id ?? null,
+              body.session_id ?? null,
+              userInputRaw,
+              null,
+              JSON.stringify([{ id: command.id, name: command.name, slug: command.slug }]),
+              JSON.stringify(result ?? {}),
+              outputText,
+              1,
+              Date.now() - startedMs,
+              null
+            ).run().catch(() => {});
+          } catch (_) {}
           return jsonResponse({ success: true, result });
         } catch (e) {
           return jsonResponse({ success: false, error: e?.message ?? String(e) }, 500);
@@ -23473,6 +23498,34 @@ function enqueueAgentTelemetryFinalLlmCall(env, ctx, {
         'chat',
         'info',
       ).run();
+
+      // fire-and-forget: agent_cost_ledger daily accumulation
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        env.DB.prepare(`
+          INSERT INTO agent_cost_ledger
+            (workspace_id, period_date, provider, model,
+             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (workspace_id, period_date, provider, model) DO UPDATE SET
+            input_tokens       = input_tokens       + excluded.input_tokens,
+            output_tokens      = output_tokens      + excluded.output_tokens,
+            cache_read_tokens  = cache_read_tokens  + excluded.cache_read_tokens,
+            cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
+            cost_usd           = cost_usd           + excluded.cost_usd,
+            updated_at         = unixepoch()
+        `).bind(
+          tenantId,
+          today,
+          String(provider || 'unknown'),
+          mk,
+          tin,
+          tout,
+          crd,
+          cwd,
+          Number.isFinite(Number(computedCostUsd)) ? Number(computedCostUsd) : 0
+        ).run().catch(() => {});
+      } catch (_) {}
     } catch (e) {
       console.warn('[enqueueAgentTelemetryFinalLlmCall]', e?.message ?? e);
     }
