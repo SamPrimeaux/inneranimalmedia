@@ -5,3 +5,15 @@ dist
 .env
 .DS_Store
 *.log
+
+# Dashboard / local scratch (do not track artifacts or investigation dumps)
+dist-dashboard/
+**/dist-dashboard/
+.tmp_dashboard_manifests/
+local/
+_PHASE*
+_GREP*
+_DUMP*
+_FULL_TREE*
+*.backup.*
+*.backup.*.js
