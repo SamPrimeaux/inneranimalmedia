@@ -705,16 +705,85 @@ function intentToModelRoutingTaskType(intent) {
 }
 
 /**
+ * Resolve default model_key from D1 (model_routing_rules + ai_models). No literal model IDs.
+ * @returns {Promise<string|null>}
+ */
+async function getDefaultModelForTask(env, task_type) {
+  if (!env?.DB || !task_type) return null;
+  try {
+    const routingRule = await env.DB.prepare(
+      `SELECT primary_model AS target_model_key, fallback_model AS fallback_model_key
+       FROM model_routing_rules
+       WHERE task_type = ? AND is_active = 1
+       LIMIT 1`
+    ).bind(task_type).first();
+
+    const keys = [routingRule?.target_model_key, routingRule?.fallback_model_key].filter(Boolean);
+    for (const key of keys) {
+      const row = await env.DB.prepare(
+        `SELECT model_key FROM ai_models WHERE model_key = ? AND is_active = 1 LIMIT 1`
+      ).bind(key).first();
+      if (row?.model_key) return row.model_key;
+    }
+
+    const cheapest = await env.DB.prepare(
+      `SELECT model_key FROM ai_models
+       WHERE is_active = 1 AND show_in_picker = 1 AND supports_tools = 1
+       ORDER BY COALESCE(input_rate_per_mtok, 1000000000) ASC
+       LIMIT 1`
+    ).first();
+    if (cheapest?.model_key) return cheapest.model_key;
+
+    const anyActive = await env.DB.prepare(
+      `SELECT model_key FROM ai_models
+       WHERE is_active = 1
+       ORDER BY COALESCE(input_rate_per_mtok, 1000000000) ASC
+       LIMIT 1`
+    ).first();
+    return anyActive?.model_key ?? null;
+  } catch (e) {
+    console.warn('[getDefaultModelForTask]', task_type, e?.message ?? e);
+    return null;
+  }
+}
+
+/** Full ai_models row for a task’s default key, or null. */
+async function getDefaultModelRowForTask(env, task_type) {
+  const key = await getDefaultModelForTask(env, task_type);
+  if (!key || !env.DB) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1 LIMIT 1`
+    ).bind(key).first();
+  } catch {
+    return null;
+  }
+}
+
+/** When modelRow has no model_key, load the default row for task_type or throw. */
+async function ensureModelRowForTask(env, modelRow, task_type) {
+  if (modelRow?.model_key) return modelRow;
+  return getDefaultModelRowForTask(env, task_type).then((row) => {
+    if (!row?.model_key) {
+      throw new Error(`No default model configured for task_type=${task_type} (model_routing_rules / ai_models)`);
+    }
+    return row;
+  });
+}
+
+/**
  * Select model for Auto mode: classify intent, then model_routing_rules by task_type.
  */
 async function selectAutoModel(env, lastUserContent, returnIntent = false) {
+  let intent = 'mixed';
+  let taskType = 'chat_simple';
   try {
     const classification = await classifyIntent(env, lastUserContent);
-    const intent = classification?.intent || 'mixed';
+    intent = classification?.intent || 'mixed';
 
     console.log('[Auto Mode] Intent classified as:', intent);
 
-    const taskType = intentToModelRoutingTaskType(intent);
+    taskType = intentToModelRoutingTaskType(intent);
 
     let routingRule = null;
     if (env.DB) {
@@ -752,12 +821,20 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
       autoModel = routingRule.perf_override_model;
       autoProvider = routingRule.perf_override_provider
         ?? routingRule.target_provider
-        ?? 'google';
+        ?? null;
+    } else if (routingRule?.target_model_key) {
+      autoModel = routingRule.target_model_key;
+      autoProvider = routingRule?.target_provider ?? null;
     } else {
-      autoModel = routingRule?.target_model_key
-        ?? 'gemini-2.5-flash';
-      autoProvider = routingRule?.target_provider
-        ?? 'google';
+      const resolvedKey = await getDefaultModelForTask(env, taskType);
+      if (!resolvedKey) {
+        throw new Error(`[Auto Mode] No default model configured for task_type=${taskType} (model_routing_rules / ai_models)`);
+      }
+      autoModel = resolvedKey;
+      const prow = await env.DB.prepare(
+        `SELECT provider FROM ai_models WHERE model_key = ? AND is_active = 1 LIMIT 1`
+      ).bind(autoModel).first();
+      autoProvider = prow?.provider ?? null;
     }
 
     console.log(
@@ -768,9 +845,12 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
       'score:', routingRule?.performance_score ?? 'n/a'
     );
 
-    let model = await env.DB.prepare(
-      'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
-    ).bind(autoModel).first();
+    let model = null;
+    if (env.DB && autoModel) {
+      model = await env.DB.prepare(
+        'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
+      ).bind(autoModel).first();
+    }
 
     if (!model && routingRule?.fallback_model_key) {
       console.log('[Auto Mode] primary model missing in DB, trying fallback:', routingRule.fallback_model_key);
@@ -780,10 +860,17 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
     }
 
     if (!model) {
-      console.warn('[Auto Mode] Model not found in DB:', autoModel, '- falling back to Haiku');
+      console.warn('[Auto Mode] Model not found in DB:', autoModel, '- resolving default by task');
+      const fbKey = await getDefaultModelForTask(env, taskType);
+      if (!fbKey) {
+        throw new Error(`[Auto Mode] No fallback model for task_type=${taskType}`);
+      }
       model = await env.DB.prepare(
         'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
-      ).bind('gpt-4.1-nano').first();
+      ).bind(fbKey).first();
+      if (!model) {
+        throw new Error(`[Auto Mode] ai_models row missing for resolved key ${fbKey}`);
+      }
     }
 
     if (returnIntent) return { model, intent, taskType };
@@ -791,9 +878,20 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
 
   } catch (error) {
     console.error('[Auto Mode] Selection failed:', error);
-    return await env.DB.prepare(
-      'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
-    ).bind('gpt-4.1-nano').first();
+    const fbKey = await getDefaultModelForTask(env, 'chat_simple');
+    if (!fbKey) {
+      throw new Error('[Auto Mode] Recovery failed: no default model for task_type=chat_simple');
+    }
+    const model = env.DB
+      ? await env.DB.prepare(
+        'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
+      ).bind(fbKey).first()
+      : null;
+    if (!model) {
+      throw new Error(`[Auto Mode] Recovery failed: ai_models missing for ${fbKey}`);
+    }
+    if (returnIntent) return { model, intent, taskType };
+    return model;
   }
 }
 
@@ -6062,13 +6160,19 @@ async function handleBrowserRequest(request, url, env) {
   }
 }
 
-function resolveAnthropicModelKey(modelKey) {
+async function resolveAnthropicModelKey(env, modelKey, taskType = 'agent_chat') {
   const MODEL_MAP = {
     claude_sonnet_4_5: 'claude-sonnet-4-20250514',
     claude_opus_4_6: 'claude-opus-4-6',
     claude_haiku_4_5: 'claude-haiku-4-5-20251001',
   };
-  return MODEL_MAP[modelKey] || modelKey || 'claude-sonnet-4-20250514';
+  if (modelKey != null && MODEL_MAP[modelKey]) return MODEL_MAP[modelKey];
+  if (modelKey != null && String(modelKey).trim() !== '') return String(modelKey).trim();
+  const fallback = await getDefaultModelForTask(env, taskType);
+  if (!fallback) {
+    throw new Error(`No default Anthropic model configured for task_type=${taskType}`);
+  }
+  return fallback;
 }
 
 /** Compute cost from ai_models row (D1). Never use a hardcoded map. */
@@ -6078,10 +6182,27 @@ function calculateCost(model, inputTokens, outputTokens, cacheReadTokens = 0, ca
 }
 
 /** AI Gateway compat: model string for gateway (provider/model). Used only when AI_GATEWAY_BASE_URL is set. */
-function getGatewayModel(provider, modelKey) {
-  if (provider === 'openai') return `openai/${modelKey || 'gpt-4o'}`;
-  if (provider === 'anthropic') return `anthropic/${resolveAnthropicModelKey(modelKey)}`;
-  if (provider === 'google') return `google/${modelKey || 'gemini-2.5-flash'}`;
+async function getGatewayModel(env, provider, modelKey, taskType = 'agent_chat') {
+  if (provider === 'openai') {
+    let k = modelKey;
+    if (!k) {
+      k = await getDefaultModelForTask(env, taskType);
+      if (!k) throw new Error(`No default OpenAI model for task_type=${taskType}`);
+    }
+    return `openai/${k}`;
+  }
+  if (provider === 'anthropic') {
+    const resolved = await resolveAnthropicModelKey(env, modelKey, taskType);
+    return `anthropic/${resolved}`;
+  }
+  if (provider === 'google') {
+    let k = modelKey;
+    if (!k) {
+      k = await getDefaultModelForTask(env, taskType);
+      if (!k) throw new Error(`No default Google model for task_type=${taskType}`);
+    }
+    return `google/${k}`;
+  }
   return null;
 }
 
@@ -6575,7 +6696,9 @@ async function generateConversationName(env, conversationId, firstUserMessage) {
   const text = firstUserMessage.trim().slice(0, 500);
   if (!text) return;
   try {
-    const out = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const titleModel = await getDefaultModelForTask(env, 'conversation_title');
+    if (!titleModel) throw new Error('No default model for task_type=conversation_title (model_routing_rules / ai_models)');
+    const out = await env.AI.run(titleModel, {
       messages: [{ role: 'user', content: `Summarize this message as a short chat title, max 6 words, no quotes: ${text}` }],
       max_tokens: 20,
     });
@@ -8598,7 +8721,7 @@ Reply ONLY with JSON: {"intent":"sql"|"shell"|"question"|"mixed"}` }]
     } catch (_) { }
   }
   if (!env.ANTHROPIC_API_KEY) return null;
-  const haikuKey = resolveAnthropicModelKey('claude_haiku_4_5');
+  const haikuKey = await resolveAnthropicModelKey(env, 'claude_haiku_4_5', 'intent_classification');
   const system = `You classify the user message into a single intent. Reply with JSON only, no markdown.
 - "sql" = user wants to run a SQL query (SELECT, INSERT, UPDATE, DELETE, CREATE, DROP VIEW, ALTER TABLE, or any database operation).
 - "write" is not a separate intent — all DB operations including writes are classified as "sql".
@@ -8907,7 +9030,7 @@ async function invokeTerminalAssistCompletion(env, rule, systemPrompt, userMessa
     if (!modelKey) return { ok: false, text: '' };
     if (provider === 'anthropic') {
       if (!env.ANTHROPIC_API_KEY) return { ok: false, text: '' };
-      const mk = resolveAnthropicModelKey(modelKey);
+      const mk = await resolveAnthropicModelKey(env, modelKey, 'terminal_assist');
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -9029,7 +9152,7 @@ async function runMixedTasks(env, request, provider, modelKey, systemWithBlurb, 
         }
       }
     } else {
-      resultText = await singleRoundNoTools(env, 'anthropic', resolveAnthropicModelKey('claude_haiku_4_5'), 'Answer briefly.', [{ role: 'user', content }]);
+      resultText = await singleRoundNoTools(env, 'anthropic', await resolveAnthropicModelKey(env, 'claude_haiku_4_5', 'chat_simple'), 'Answer briefly.', [{ role: 'user', content }]);
     }
     console.log(`[runMixedTasks] task ${i + 1} result: ${resultText?.slice(0, 100)}`);
     results.push({ type, content: content.slice(0, 80), result: resultText.slice(0, 2000) });
@@ -10569,7 +10692,8 @@ function intentToVerbosity(intent) {
   return 'medium';
 }
 async function streamOpenAIResponses(env, systemWithBlurb, apiMessages, modelRow, images, conversationId, agent_id, ctx, toolDefinitions = [], _agentIntentFinal = 'mixed', agentsamAgentRunId = null, routingOpts = null) {
-  const modelKey = modelRow.model_key || 'gpt-5.4-mini';
+  const modelRowResolved = await ensureModelRowForTask(env, modelRow, 'agent_chat');
+  const modelKey = modelRowResolved.model_key;
   // Build input array: system as developer message + user/assistant turns
   const inputMsgs = [
     { role: 'developer', content: systemWithBlurb },
@@ -10723,8 +10847,8 @@ async function streamOpenAIResponses(env, systemWithBlurb, apiMessages, modelRow
         // Build next round input: prior input + this round's output items + tool results
         currentInputMsgs = [...currentInputMsgs, ...outputItems, ...toolOutputItems];
       }
-      const costUsd = calculateCost(modelRow, inputTokens, outputTokens);
-      await streamDoneDbWrites(env, conversationId, modelRow, fullText, inputTokens, outputTokens, costUsd, agent_id, ctx, getLastUserMessageText(apiMessages), agentsamAgentRunId, routingOpts);
+      const costUsd = calculateCost(modelRowResolved, inputTokens, outputTokens);
+      await streamDoneDbWrites(env, conversationId, modelRowResolved, fullText, inputTokens, outputTokens, costUsd, agent_id, ctx, getLastUserMessageText(apiMessages), agentsamAgentRunId, routingOpts);
       await logAssistantCodeArtifactIfPresent(env, {
         fullText,
         modelKey,
@@ -10746,7 +10870,8 @@ async function streamOpenAIResponses(env, systemWithBlurb, apiMessages, modelRow
  * POST to chat/completions with stream: true, stream_options: { include_usage: true }.
  */
 async function streamOpenAI(env, systemWithBlurb, apiMessages, modelRow, images, conversationId, agent_id, ctx, agentsamAgentRunId = null, routingOpts = null) {
-  const modelKey = modelRow.model_key || 'gpt-4o';
+  const modelRowResolved = await ensureModelRowForTask(env, modelRow, 'agent_chat');
+  const modelKey = modelRowResolved.model_key;
   const openAiMessages = apiMessages.map((m, i) => {
     const isLastUser = i === apiMessages.length - 1 && m.role === 'user' && images.length > 0;
     const content = isLastUser ? buildOpenAIContent(m.content, images) : m.content;
@@ -10820,8 +10945,8 @@ async function streamOpenAI(env, systemWithBlurb, apiMessages, modelRow, images,
             } catch (_) { }
           }
         }
-        const costUsd = calculateCost(modelRow, inputTokens, outputTokens);
-        await streamDoneDbWrites(env, conversationId, modelRow, fullText, inputTokens, outputTokens, costUsd, agent_id, ctx, getLastUserMessageText(apiMessages), agentsamAgentRunId, routingOpts);
+        const costUsd = calculateCost(modelRowResolved, inputTokens, outputTokens);
+        await streamDoneDbWrites(env, conversationId, modelRowResolved, fullText, inputTokens, outputTokens, costUsd, agent_id, ctx, getLastUserMessageText(apiMessages), agentsamAgentRunId, routingOpts);
         await logAssistantCodeArtifactIfPresent(env, {
           fullText,
           modelKey,
@@ -10832,7 +10957,7 @@ async function streamOpenAI(env, systemWithBlurb, apiMessages, modelRow, images,
           computedCostUsd: costUsd,
         });
         emitCodeBlocksFromText(fullText, (obj) => controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(obj) + '\n\n')));
-        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: costUsd, conversation_id: conversationId, model_used: modelRow.model_key, model_display_name: modelRow.display_name })}\n\n`));
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: costUsd, conversation_id: conversationId, model_used: modelRowResolved.model_key, model_display_name: modelRowResolved.display_name })}\n\n`));
       } catch (e) {
         controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: e?.message ?? String(e) })}\n\n`));
       } finally {
@@ -10893,7 +11018,11 @@ async function runCursorCloudAgentBuiltinTool(env, toolName, params, opts = {}) 
   if (toolName === 'agentsam_run_agent') {
     const prompt = String(params?.prompt ?? '').trim();
     if (!prompt) return { error: 'prompt required' };
-    const model = String(params?.model ?? 'claude-4.6-opus-high-thinking').trim();
+    let model = String(params?.model ?? '').trim();
+    if (!model) {
+      model = await getDefaultModelForTask(env, 'cursor_cloud_agent');
+      if (!model) throw new Error('No default model for task_type=cursor_cloud_agent (model_routing_rules / ai_models)');
+    }
     const repository = String(params?.repo ?? params?.repository ?? CURSOR_CLOUD_AGENTS_DEFAULT_REPO).trim();
     const ref = String(params?.ref ?? 'main').trim();
     const oauthUserId = String(opts.oauthUserId || params?.user_id || '').trim() || null;
@@ -10989,9 +11118,10 @@ function toolApprovalPreview(toolName, params) {
  * Google (Gemini) streaming: streamGenerateContent, same SSE contract.
  */
 async function chatWithToolsGoogle(env, systemWithBlurb, apiMessages, modelRow, conversationId, agent_id, ctx, opts = {}) {
+  const modelRowResolved = await ensureModelRowForTask(env, modelRow, 'agent_chat');
   const mode = opts.mode || 'agent';
   const agentsamAgentRunId = opts.agentsamAgentRunId || null;
-  const modelKey = modelRow.model_key || 'gemini-2.5-flash';
+  const modelKey = modelRowResolved.model_key;
   const enc = new TextEncoder();
 
   let resolvedAllowedToolGlobs = opts.allowed_tool_globs;
@@ -11161,7 +11291,7 @@ async function chatWithToolsGoogle(env, systemWithBlurb, apiMessages, modelRow, 
   const writer = writable.getWriter();
 
   (async () => {
-    const effectiveModelRow = await resolveGoogleModelRowForVertexAi(env, modelRow);
+    const effectiveModelRow = await resolveGoogleModelRowForVertexAi(env, modelRowResolved);
     let fullText = '';
     let inputTokens = 0;
     let outputTokens = 0;
@@ -11442,7 +11572,8 @@ async function chatWithToolsGoogle(env, systemWithBlurb, apiMessages, modelRow, 
 
 
 async function streamGoogle(env, systemWithBlurb, apiMessages, modelRow, images, conversationId, agent_id, ctx, agentsamAgentRunId = null, routingOpts = null) {
-  const modelKey = modelRow.model_key || 'gemini-2.5-flash';
+  const modelRowResolved = await ensureModelRowForTask(env, modelRow, 'agent_chat');
+  const modelKey = modelRowResolved.model_key;
   const googleContents = apiMessages.map((m, i) => {
     const isLastUser = i === apiMessages.length - 1 && m.role === 'user' && images.length > 0;
     const parts = isLastUser ? buildGoogleParts(m.content, images) : [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }];
@@ -11460,7 +11591,7 @@ async function streamGoogle(env, systemWithBlurb, apiMessages, modelRow, images,
     contents: googleContents,
     toolConfig: { functionCallingConfig: { mode: "NONE" } },
   };
-  const effectiveModelRow = await resolveGoogleModelRowForVertexAi(env, modelRow);
+  const effectiveModelRow = await resolveGoogleModelRowForVertexAi(env, modelRowResolved);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelKey}:streamGenerateContent?alt=sse`;
   const useVertex = shouldUseVertexForGoogleModel(env, modelKey);
   if (useVertex) {
@@ -11591,8 +11722,9 @@ async function streamGoogle(env, systemWithBlurb, apiMessages, modelRow, images,
  * Same SSE contract; cost_usd: 0 (neurons). Handle all chunk shapes; null-coerce before D1.
  */
 async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conversationId, agent_id, ctx, agentsamAgentRunId = null, routingOpts = null, toolDefinitions = []) {
+  const modelRowResolved = await ensureModelRowForTask(env, modelRow, 'workers_ai');
+  const modelKey = modelRowResolved.model_key;
   const messages = [{ role: 'system', content: systemWithBlurb }, ...apiMessages];
-  const modelKey = (modelRow && modelRow.model_key) ? modelRow.model_key : '@cf/meta/llama-3.1-8b-instruct';
   const inputCharCount = messages.reduce((acc, m) => acc + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content || '').length), 0);
 
   const { readable, writable } = new TransformStream();
@@ -11605,7 +11737,7 @@ async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conv
     try {
       const WAI_TIMEOUT_MS = 25000;
       let result;
-      const modelSupportsTools = modelRow?.supports_tools === 1;
+      const modelSupportsTools = modelRowResolved?.supports_tools === 1;
       const toolsToSend = modelSupportsTools && toolDefinitions.length > 0
         ? toolDefinitions.map(t => ({
             name: t.tool_name,
@@ -11657,8 +11789,8 @@ async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conv
       const outputTokens = Math.round(fullText.length / 4);
       const costUsd = 0;
 
-      const safeModel = (modelRow && modelRow.model_key != null) ? modelRow.model_key : 'unknown';
-      const safeRow = { ...(modelRow || {}), model_key: safeModel, provider: (modelRow && modelRow.provider != null) ? modelRow.provider : 'workers_ai' };
+      const safeModel = modelRowResolved.model_key != null ? modelRowResolved.model_key : 'unknown';
+      const safeRow = { ...modelRowResolved, model_key: safeModel, provider: modelRowResolved.provider != null ? modelRowResolved.provider : 'workers_ai' };
 
       await streamDoneDbWrites(env, conversationId, safeRow, fullText, inputTokens, outputTokens, costUsd, agent_id, ctx, getLastUserMessageText(apiMessages), agentsamAgentRunId, routingOpts);
       await logAssistantCodeArtifactIfPresent(env, {
@@ -20993,6 +21125,11 @@ Write a clean, informative HTML email. Style: dark background #0a0a0a, text #e0e
 Return ONLY the HTML email body (no doctype/html/head tags). Keep it tight — readable in 60 seconds.`;
     let emailHtml = '';
     try {
+      const opsRow = await getDefaultModelRowForTask(env, 'ops_email_html');
+      if (!opsRow?.model_key || opsRow.provider !== 'anthropic') {
+        throw new Error('ops_email_html must resolve to an active anthropic model in ai_models');
+      }
+      const opsModel = await resolveAnthropicModelKey(env, opsRow.model_key, 'ops_email_html');
       const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -21001,7 +21138,7 @@ Return ONLY the HTML email body (no doctype/html/head tags). Keep it tight — r
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
+          model: opsModel,
           max_tokens: 2000,
           messages: [{ role: 'user', content: prompt }],
         }),
@@ -24348,7 +24485,8 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
   const systemWithWorkspaceHint = hasWorkspaceTools
     ? `${systemWithBlurb}\n\n## Workspace (PTY host repo)\nUse workspace_read_file to read any file by path when the user references a file not already in context. Use workspace_list_files to explore the repo. Use workspace_search to find symbol definitions, usages, or patterns across the codebase.`
     : systemWithBlurb;
-  const resolvedModelKey = resolveAnthropicModelKey(model.model_key);
+  const taskForAnthropic = intentToModelRoutingTaskType(intentForLoop);
+  const resolvedModelKey = await resolveAnthropicModelKey(env, model.model_key, taskForAnthropic);
   const allToolCalls = [];
   let messages = apiMessages.map((m) => ({ role: m.role, content: m.content }));
   let iter = 0;
@@ -24455,7 +24593,7 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
       }
 
       const body = {
-        model: modelKey,
+        model: resolvedModelKey,
         max_tokens: _isAdaptive ? 16000 : 8192,
         system: [{ type: 'text', text: systemWithWorkspaceHint, cache_control: { type: 'ephemeral' } }],
         messages,
@@ -24463,7 +24601,7 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
         ..._thinkingConfig,
       };
       console.log('[chatWithToolsAnthropic] Sending request to Claude', {
-        model: modelKey,
+        model: resolvedModelKey,
         tools_count: tools.length,
         has_tools_in_body: !!tools && tools.length > 0,
       });
@@ -24742,7 +24880,7 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
           'anthropic-beta': 'prompt-caching-2024-07-31',
         },
         body: JSON.stringify({
-          model: modelKey,
+          model: resolvedModelKey,
           max_tokens: 4096,
           system: [{ type: 'text', text: finalSystem, cache_control: { type: 'ephemeral' } }],
           messages,
@@ -27598,6 +27736,11 @@ async function compactConversationToKnowledge(env, conversationId) {
   let summary = '';
   if (env.ANTHROPIC_API_KEY && blob.length > 100) {
     try {
+      const summaryRow = await getDefaultModelRowForTask(env, 'conversation_summary');
+      if (!summaryRow?.model_key || summaryRow.provider !== 'anthropic') {
+        console.warn('[compactConversation] skip Anthropic summary: conversation_summary is not an active anthropic model');
+      } else {
+      const compactAnthropicModel = await resolveAnthropicModelKey(env, summaryRow.model_key, 'conversation_summary');
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -27606,7 +27749,7 @@ async function compactConversationToKnowledge(env, conversationId) {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-3-5-haiku-20241022',
+          model: compactAnthropicModel,
           max_tokens: 1024,
           messages: [{ role: 'user', content: `Summarize this conversation in 1-2 paragraphs: key topics, decisions, and outcomes. Be concise.\n\n${blob.slice(0, 30000)}` }],
         }),
@@ -27616,13 +27759,16 @@ async function compactConversationToKnowledge(env, conversationId) {
         const text = data.content?.find(c => c.type === 'text')?.text;
         if (text) summary = text.trim();
       }
+      }
     } catch (e) {
       console.warn('[compactConversation] Claude summary failed', e?.message);
     }
   }
   if (!summary && env.AI && blob.length > 100) {
     try {
-      const out = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const wk = await getDefaultModelForTask(env, 'workers_ai');
+      if (!wk) throw new Error('No default model for task_type=workers_ai (model_routing_rules / ai_models)');
+      const out = await env.AI.run(wk, {
         messages: [{ role: 'user', content: `Summarize this conversation in 1-2 paragraphs: key topics, decisions, outcomes.\n\n${blob.slice(0, 8000)}` }],
         max_tokens: 512,
       });
@@ -27695,7 +27841,9 @@ async function compactAgentChatsToR2(env) {
       const blob = messages.map((m) => `${m.role}: ${m.text}`).join('\n');
       if (blob.length < 20) continue;
       try {
-        const out = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        const wk = await getDefaultModelForTask(env, 'workers_ai');
+        if (!wk) throw new Error('No default model for task_type=workers_ai (model_routing_rules / ai_models)');
+        const out = await env.AI.run(wk, {
           messages: [{ role: 'user', content: `Summarize this conversation in 1-2 sentences for search. Be specific about topics and decisions.\n\n${blob.slice(0, 4000)}` }],
           max_tokens: 120,
         });
@@ -28224,29 +28372,33 @@ async function sendDailyDigest(env) {
   let digestText = 'IAM daily digest (live metrics in HTML).';
   if (env.ANTHROPIC_API_KEY) {
     try {
-      const aiSummary = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 800,
-          messages: [{
-            role: 'user',
-            content: `You are writing a short nightly digest blurb for Sam Primeaux (Inner Animal Media). Plain english, no emojis.
+      const digestRow = await getDefaultModelRowForTask(env, 'daily_digest');
+      if (digestRow?.provider === 'anthropic' && digestRow.model_key) {
+        const digestModel = await resolveAnthropicModelKey(env, digestRow.model_key, 'daily_digest');
+        const aiSummary = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: digestModel,
+            max_tokens: 800,
+            messages: [{
+              role: 'user',
+              content: `You are writing a short nightly digest blurb for Sam Primeaux (Inner Animal Media). Plain english, no emojis.
 
 Live data (today, UTC window for telemetry = start of day):
 ${liveJson}
 
 Write 3-5 sentences: AI spend and deploy activity, then one sentence on what to watch tomorrow. Under 120 words.`,
-          }],
-        }),
-      });
-      const aiResult = await aiSummary.json();
-      digestText = aiResult.content?.[0]?.text ?? digestText;
+            }],
+          }),
+        });
+        const aiResult = await aiSummary.json();
+        digestText = aiResult.content?.[0]?.text ?? digestText;
+      }
     } catch (e) {
       digestText = `Digest narrative failed: ${e?.message ?? e}.`;
     }
@@ -28509,16 +28661,22 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
 
     let emailBody = '';
     if (env.ANTHROPIC_API_KEY) {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, messages: [{ role: 'user', content: prompt }] })
-      });
-      const data = await res.json();
-      emailBody = data?.content?.[0]?.text?.trim() || '';
+      const planRow = await getDefaultModelRowForTask(env, 'daily_plan');
+      if (planRow?.provider === 'anthropic' && planRow.model_key) {
+        const planModel = await resolveAnthropicModelKey(env, planRow.model_key, 'daily_plan');
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: planModel, max_tokens: 800, messages: [{ role: 'user', content: prompt }] })
+        });
+        const data = await res.json();
+        emailBody = data?.content?.[0]?.text?.trim() || '';
+      }
     }
     if (!emailBody) {
-      const ai = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages: [{ role: 'user', content: prompt }], max_tokens: 800 });
+      const wk = await getDefaultModelForTask(env, 'workers_ai');
+      if (!wk) throw new Error('No default model for task_type=workers_ai (model_routing_rules / ai_models)');
+      const ai = await env.AI.run(wk, { messages: [{ role: 'user', content: prompt }], max_tokens: 800 });
       emailBody = (ai?.result?.response ?? ai?.response ?? '').trim() || 'Daily plan could not be generated.';
     }
     console.log('[daily-plan] email body length', emailBody.length);
