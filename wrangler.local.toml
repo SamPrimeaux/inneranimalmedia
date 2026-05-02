@@ -1,0 +1,30 @@
+name = "inneranimalmedia-local"
+main = "src/index.js"
+compatibility_date = "2026-01-20"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = ""
+
+[[d1_databases]]
+binding = "DB"
+database_name = "inneranimalmedia-business"
+database_id = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "09438d5e4f664bf78467a15af7743c44"
+
+[[kv_namespaces]]
+binding = "SESSION_CACHE"
+id = "dc87920b0a9247979a213c09df9a0234"
+
+[vars]
+CLOUDFLARE_ACCOUNT_ID = "ede6590ac0d2fb7daf155b35653457b2"
+TENANT_ID = "tenant_sam_primeaux"
+WORKSPACE_ID = "ws_inneranimalmedia"
+DEPLOY_ENV = "local"
+AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com"
+
+[alias]
+"@cloudflare/puppeteer" = "./src/integrations/puppeteer-stub.js"

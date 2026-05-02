@@ -472,7 +472,6 @@ async function buildSuperadminContext(env, sessionId, sessionUserKey) {
 
 async function resolveAgentsamUserKey(env, authUser) {
   if (!authUser?.id) return null;
-  if (authUser.id === 'sam_primeaux') return 'sam_primeaux';
   if (!env?.DB) return authUser.id;
   try {
     const row = await env.DB.prepare(
@@ -495,7 +494,6 @@ async function resolveAgentsamUserKey(env, authUser) {
 /** Zero Trust / mac tunnel — only superadmin-group users may restart connections (POST /api/tunnel/restart). */
 async function isSamOnlyUser(env, authUser) {
   if (!authUser) return false;
-  if (authUser.id === 'sam_primeaux') return true;
   if (!env?.DB) return false;
   const email = String(authUser.email || '').toLowerCase();
   if (email && (await isSuperadminEmail(env, email))) return true;
@@ -1035,7 +1033,7 @@ async function handleDeploymentLog(request, env, ctx, secretFn) {
               `INSERT INTO deployment_changes (id, deployment_id, file_path, change_type, created_at) VALUES (?, ?, ?, ?, unixepoch())`
             ).bind(changeId, id, filePath || null, changeType || null).run();
           }
-          await ensureWorkSessionAndSignal(env, 'sam_primeaux', 'ws_inneranimal', 'deploy', 'deploy-log', {
+          await ensureWorkSessionAndSignal(env, tenantIdFromEnv(env) || 'system', env.WORKSPACE_ID || 'ws_default', 'deploy', 'deploy-log', {
             deployment_id: id,
             version,
             status,
@@ -1072,7 +1070,7 @@ async function handleDeploymentLog(request, env, ctx, secretFn) {
           `INSERT INTO deployment_changes (id, deployment_id, file_path, change_type, created_at) VALUES (?, ?, ?, ?, unixepoch())`
         ).bind(changeId, id, filePath || null, changeType || null).run();
       }
-      await ensureWorkSessionAndSignal(env, 'sam_primeaux', 'ws_inneranimal', 'deploy', 'deploy-log', {
+      await ensureWorkSessionAndSignal(env, tenantIdFromEnv(env) || 'system', env.WORKSPACE_ID || 'ws_default', 'deploy', 'deploy-log', {
         deployment_id: id,
         version,
         status,
@@ -3761,7 +3759,7 @@ const worker = {
           const pipeline = await env.DB.prepare('SELECT * FROM ai_workflow_pipelines WHERE id = ? LIMIT 1').bind(pipeline_id).first();
           if (!pipeline) return jsonResponse({ error: 'pipeline not found' }, 404);
           const execId = 'wfexec_' + Date.now();
-          const tenantId = pipeline.tenant_id || 'tenant_sam_primeaux';
+          const tenantId = pipeline.tenant_id || null;
           let stages = [];
           try {
             stages = JSON.parse(pipeline.stages_json || '[]');
@@ -4512,10 +4510,29 @@ const worker = {
           );
           return new TextDecoder().decode(plain);
         }
-        async function _vaultAudit(db, keyName, action, note) {
-          await db.prepare(
-            'INSERT INTO env_audit_log (key_name, action, note) VALUES (?, ?, ?)'
-          ).bind(keyName, action, note || null).run();
+        async function _vaultAudit(db, keyName, action, note, context = {}) {
+          try {
+            const row = await db.prepare(
+              'SELECT id, tenant_id FROM env_secrets WHERE key_name = ? LIMIT 1'
+            ).bind(keyName).first();
+            if (!row) return;
+            const id = 'saudit_' + Math.random().toString(36).slice(2, 14);
+            await db.prepare(
+              `INSERT INTO secret_audit_log
+                (id, secret_id, tenant_id, user_id, event_type, triggered_by, notes, ip_address, user_agent, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+            ).bind(
+              id,
+              row.id,
+              context.tenant_id || row.tenant_id || tenantIdFromEnv(env) || 'system',
+              context.user_id || null,
+              action,
+              context.triggered_by || 'vault_api',
+              note || null,
+              context.ip || null,
+              context.ua || null
+            ).run();
+          } catch (_) {}
         }
 
         // ── VAULT_KEY guard ──
@@ -4540,10 +4557,10 @@ const worker = {
           const keyFilter = url.searchParams.get('key_name');
           const { results } = keyFilter
             ? await env.DB.prepare(
-              'SELECT * FROM env_audit_log WHERE key_name = ? ORDER BY ts DESC LIMIT ?'
+              'SELECT sal.*, es.key_name FROM secret_audit_log sal LEFT JOIN env_secrets es ON sal.secret_id = es.id WHERE es.key_name = ? ORDER BY sal.created_at DESC LIMIT ?'
             ).bind(keyFilter, limit).all()
             : await env.DB.prepare(
-              'SELECT * FROM env_audit_log ORDER BY ts DESC LIMIT ?'
+              'SELECT sal.*, es.key_name FROM secret_audit_log sal LEFT JOIN env_secrets es ON sal.secret_id = es.id ORDER BY sal.created_at DESC LIMIT ?'
             ).bind(limit).all();
           return jsonResponse({ log: results });
         }
@@ -7018,7 +7035,7 @@ function computeUsdFromModelRatesRow(modelKey, ratesRow, inputTokens, outputToke
 }
 
 /** If tool name matches a skill row, log invocation (PRAGMA-aligned columns). */
-async function maybeInsertSkillInvocationForTool(env, { toolName, tenantId, sessionId, inputTokens, outputTokens, latencyMs, success }) {
+async function maybeInsertSkillInvocationForTool(env, { toolName, tenantId, sessionId, inputTokens, outputTokens, latencyMs, success, userId }) {
   if (!env?.DB || !toolName) return;
   const tn = String(toolName).trim();
   if (!tn) return;
@@ -7029,7 +7046,7 @@ async function maybeInsertSkillInvocationForTool(env, { toolName, tenantId, sess
       ) LIMIT 1`
     ).bind(tn, tn, '/' + tn.replace(/^\//, '')).first();
     if (!row?.id) return;
-    const uid = 'sam_primeaux';
+    const uid = userId || tenantId || null;
     await env.DB.prepare(
       `INSERT INTO agentsam_skill_invocation (
         skill_id, user_id, workspace_id, conversation_id, trigger_method, input_summary,
@@ -7694,7 +7711,7 @@ async function ensureAgentChatPersistenceParents(env, conversationId, chatUserId
   const uid =
     chatUserId != null && String(chatUserId).trim() !== ''
       ? String(chatUserId).trim()
-      : 'sam_primeaux';
+      : null;
   const now = Math.floor(Date.now() / 1000);
   const tenant = (env.TENANT_ID && String(env.TENANT_ID).trim()) || 'system';
   try {
@@ -14625,7 +14642,7 @@ async function handleDrawApi(request, url, env) {
 
     // ── GET /api/draw/load ───────────────────────────────────────────
     if (pathLower === '/api/draw/load' && method === 'GET') {
-      const uid = authUser?.id || authUser?.user_id || 'sam_primeaux';
+      const uid = authUser?.id || authUser?.user_id || null;
       const sceneRow = await env.DB.prepare(
         `SELECT r2_key FROM project_draws
          WHERE project_id = ? AND generation_type = 'json_scene'
@@ -14646,7 +14663,7 @@ async function handleDrawApi(request, url, env) {
       if (!scene || typeof scene !== 'object') {
         return jsonResponse({ error: 'scene or canvasData required' }, 400);
       }
-      const uid2 = authUser?.id || authUser?.user_id || 'sam_primeaux';
+      const uid2 = authUser?.id || authUser?.user_id || null;
       const sceneKey = crypto.randomUUID();
       const r2Key2 = `draw/scenes/${uid2}/${sceneKey}.json`;
       await env.DASHBOARD.put(r2Key2, JSON.stringify(scene), {
@@ -20019,7 +20036,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
       (o.tenantId != null && String(o.tenantId).trim()) || defaultTenantForMcp;
     await recordMcpToolCall(env, { ...o, tenantId: tid });
   };
-  const cmdAuditUserId = String(opts.userId || opts.oauthUserId || params?.user_id || 'sam_primeaux');
+  const cmdAuditUserId = opts.userId || opts.oauthUserId || params?.user_id || null;
   const cmdAuditWorkspaceId = String(opts.workspaceId || params?.workspace_id || 'ws_inneranimalmedia');
   const INTERNAL_PLAYWRIGHT_TOOLS = ['playwright_screenshot', 'browser_screenshot', 'browser_navigate', 'browser_content'];
   const needsScreenshotBucket = tool_name === 'playwright_screenshot' || tool_name === 'browser_screenshot';
@@ -21610,7 +21627,7 @@ Return ONLY the HTML email body (no doctype/html/head tags). Keep it tight — r
       query,
       search_engine: 'perplexity'
     });
-    const tid = (opts.tenantId != null && String(opts.tenantId).trim()) || (env.TENANT_ID && String(env.TENANT_ID).trim()) || 'tenant_sam_primeaux';
+    const tid = (opts.tenantId != null && String(opts.tenantId).trim()) || (env.TENANT_ID && String(env.TENANT_ID).trim()) || null;
     
     await env.DB.prepare(`
         INSERT INTO playwright_jobs
@@ -26750,7 +26767,7 @@ async function resolveTenantIdForThemeApi(request, env) {
 }
 
 // ----- API Vault (AES-256-GCM, merge from vault-worker; all routes require auth) -----
-const VAULT_USER_ID = 'sam_primeaux';
+// VAULT_USER_ID removed — use getAuthUser(request, env) for multi-tenant context
 
 async function vaultGetKey(masterKeyB64) {
   const raw = Uint8Array.from(atob(masterKeyB64), (c) => c.charCodeAt(0));
@@ -26790,9 +26807,9 @@ async function vaultWriteAudit(db, { secret_id, event_type, triggered_by, previo
   const ip = request?.headers?.get('CF-Connecting-IP') || null;
   const ua = request?.headers?.get('User-Agent')?.slice(0, 200) || null;
   await db.prepare(
-    `INSERT INTO secret_audit_log (id, secret_id, event_type, triggered_by, previous_last4, new_last4, notes, ip_address, user_agent, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
-  ).bind(id, secret_id, event_type, triggered_by || VAULT_USER_ID, previous_last4 || null, new_last4 || null, notes || null, ip, ua).run();
+    `INSERT INTO secret_audit_log (id, secret_id, tenant_id, user_id, event_type, triggered_by, previous_last4, new_last4, notes, ip_address, user_agent, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+  ).bind(id, secret_id, context?.tenant_id || null, context?.user_id || null, event_type, triggered_by || null, previous_last4 || null, new_last4 || null, notes || null, ip, ua).run();
 }
 
 function vaultJson(data, status = 200) {
@@ -26816,7 +26833,7 @@ async function vaultCreateSecret(request, env) {
   await env.DB.prepare(
     `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
-  ).bind(id, VAULT_USER_ID, tid, secret_name, encrypted, service_name || null, description || null, project_label || null, project_id || null, tags || null, scopes_json ? JSON.stringify(scopes_json) : '[]', metadata, expires_at || null).run();
+  ).bind(id, context?.user_id || null, tid, secret_name, encrypted, service_name || null, description || null, project_label || null, project_id || null, tags || null, scopes_json ? JSON.stringify(scopes_json) : '[]', metadata, expires_at || null).run();
   await vaultWriteAudit(env.DB, { secret_id: id, event_type: 'created', new_last4: last4val, notes: `Created for service: ${service_name || 'unspecified'}`, request });
   return vaultJson({ success: true, id, last4: last4val });
 }
@@ -26825,7 +26842,9 @@ async function vaultListSecrets(request, env) {
   const url = new URL(request.url);
   const project = url.searchParams.get('project');
   let query = `SELECT id, secret_name, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, is_active, expires_at, last_used_at, usage_count, created_at, updated_at FROM user_secrets WHERE user_id = ?`;
-  const params = [VAULT_USER_ID];
+  const vaultUser = await getAuthUser(request, env);
+  if (!vaultUser) return vaultErr('Unauthorized', 401);
+  const params = [vaultUser.id];
   if (project) { query += ` AND project_label = ?`; params.push(project); }
   query += ` ORDER BY project_label ASC, service_name ASC, secret_name ASC`;
   const result = params.length === 1 ? await env.DB.prepare(query).bind(...params).all() : await env.DB.prepare(query).bind(...params).all();
@@ -26835,13 +26854,13 @@ async function vaultListSecrets(request, env) {
 async function vaultGetSecret(id, env) {
   const row = await env.DB.prepare(
     `SELECT id, secret_name, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, is_active, expires_at, last_used_at, usage_count, created_at, updated_at FROM user_secrets WHERE id = ? AND user_id = ?`
-  ).bind(id, VAULT_USER_ID).first();
+  ).bind(id, context?.user_id || null).first();
   if (!row) return vaultErr('Secret not found', 404);
   return vaultJson(row);
 }
 
 async function vaultRevealSecret(id, eventType, request, env) {
-  const row = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ? AND is_active = 1`).bind(id, VAULT_USER_ID).first();
+  const row = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ? AND is_active = 1`).bind(id, (await getAuthUser(request, env))?.id).first();
   if (!row) return vaultErr('Secret not found or inactive', 404);
   let plaintext;
   try {
@@ -26857,7 +26876,7 @@ async function vaultRevealSecret(id, eventType, request, env) {
 async function vaultEditSecret(id, request, env) {
   const body = await request.json();
   const { secret_name, description, project_label, project_id, tags, scopes_json, expires_at } = body;
-  const existing = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, VAULT_USER_ID).first();
+  const existing = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, (await getAuthUser(request, env))?.id).first();
   if (!existing) return vaultErr('Secret not found', 404);
   await env.DB.prepare(
     `UPDATE user_secrets SET secret_name = COALESCE(?, secret_name), description = COALESCE(?, description), project_label = COALESCE(?, project_label), project_id = COALESCE(?, project_id), tags = COALESCE(?, tags), scopes_json = COALESCE(?, scopes_json), expires_at = COALESCE(?, expires_at), updated_at = unixepoch() WHERE id = ?`
@@ -26870,7 +26889,7 @@ async function vaultRotateSecret(id, request, env) {
   const body = await request.json();
   const { new_value } = body;
   if (!new_value) return vaultErr('new_value is required');
-  const existing = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, VAULT_USER_ID).first();
+  const existing = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, (await getAuthUser(request, env))?.id).first();
   if (!existing) return vaultErr('Secret not found', 404);
   let oldLast4 = '????';
   try {
@@ -26886,7 +26905,7 @@ async function vaultRotateSecret(id, request, env) {
 }
 
 async function vaultRevokeSecret(id, env, request) {
-  const existing = await env.DB.prepare(`SELECT id FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, VAULT_USER_ID).first();
+  const existing = await env.DB.prepare(`SELECT id FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, (await getAuthUser(request, env))?.id).first();
   if (!existing) return vaultErr('Secret not found', 404);
   await env.DB.prepare(`UPDATE user_secrets SET is_active = 0, updated_at = unixepoch() WHERE id = ?`).bind(id).run();
   await vaultWriteAudit(env.DB, { secret_id: id, event_type: 'revoked', notes: 'Secret revoked', request });
@@ -26901,7 +26920,7 @@ async function vaultGetSecretAudit(id, env) {
 async function vaultListProjects(env) {
   const rows = await env.DB.prepare(
     `SELECT DISTINCT project_label, project_id, COUNT(*) as secret_count FROM user_secrets WHERE user_id = ? AND project_label IS NOT NULL AND is_active = 1 GROUP BY project_label ORDER BY project_label ASC`
-  ).bind(VAULT_USER_ID).all();
+  ).bind(context?.user_id || null).all();
   return vaultJson({ projects: rows.results });
 }
 
@@ -26914,7 +26933,9 @@ async function vaultFullAudit(request, env) {
      FROM secret_audit_log sal
      LEFT JOIN user_secrets us ON sal.secret_id = us.id
      WHERE us.user_id = ?`;
-  const params = [VAULT_USER_ID];
+  const vaultAuditUser = await getAuthUser(request, env);
+  if (!vaultAuditUser) return vaultErr('Unauthorized', 401);
+  const params = [vaultAuditUser.id];
   if (eventType && ['created', 'viewed', 'copied', 'edited', 'rotated', 'revoked'].includes(eventType)) {
     query += ` AND sal.event_type = ?`;
     params.push(eventType);
@@ -29476,7 +29497,9 @@ async function handleTimeTrackManual(request, env) {
 }
 
 async function handleTimeTrackHeartbeat(request, env) {
-  const USER_IDS = ['sam_primeaux', 'user_sam_primeaux'];
+  const ttUser = await getAuthUser(request, env);
+  if (!ttUser?.id) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  const USER_IDS = [ttUser.id];
   const userList = USER_IDS.map(() => '?').join(',');
 
   const activeEntry = await env.DB.prepare(
