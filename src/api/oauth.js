@@ -2,7 +2,7 @@
  * OAuth + API Key connection endpoints
  *
  * Pattern:
- *  - GET  /api/oauth/:provider/start    (auth required) -> { redirect_url }
+ *  - GET  /api/oauth/:provider/start    -> 302 to provider (login flows when unauthenticated for google/github match worker.js)
  *  - GET  /api/oauth/:provider/callback (provider redirect) -> 302 back to return_to (default: Settings > Integrations)
  *  - POST /api/oauth/apikey/:provider   (auth required) -> validate + store encrypted
  *
@@ -11,6 +11,10 @@
  *  - Persists tokens in D1 `user_oauth_tokens` with forward-compatible encrypted columns.
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import {
+  handleGoogleLoginOAuthCallback,
+  handleGitHubLoginOAuthCallback,
+} from './oauth-login-callbacks.js';
 import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/crypto-vault.js';
 import { syncProviderModels } from './integrations/model-sync.js';
 
@@ -34,6 +38,81 @@ function safeReturnTo(url) {
   if (!raw) return DEFAULT_OAUTH_RETURN;
   if (raw.startsWith('/dashboard/')) return raw;
   return DEFAULT_OAUTH_RETURN;
+}
+
+/** Request origin for OAuth redirect_uri (matches worker.js `origin(url)`). */
+function oauthLoginOrigin(url) {
+  return url.origin || 'https://inneranimalmedia.com';
+}
+
+/**
+ * Unauthenticated Google login/start — state + redirect_uri must match handleGoogleOAuthCallback in worker.js.
+ */
+async function loginGoogleOAuthStart(_request, url, env) {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET || !env.SESSION_CACHE) {
+    return jsonResponse({ error: 'OAuth not configured' }, 503);
+  }
+  const returnTo = url.searchParams.get('return_to') || url.searchParams.get('next') || '';
+  const connectDrive =
+    url.searchParams.get('connect') === 'drive' || (returnTo && returnTo.includes('agent'));
+  const safeReturn =
+    returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
+      ? returnTo
+      : '/dashboard/overview';
+  const state = crypto.randomUUID();
+  const redirectUri = `${oauthLoginOrigin(url)}/auth/callback/google`;
+  const scope = connectDrive
+    ? 'openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file'
+    : 'openid email profile';
+  const statePayload = JSON.stringify({
+    redirectUri,
+    returnTo: safeReturn,
+    connectDrive: !!connectDrive,
+  });
+  await env.SESSION_CACHE.put(`oauth_state_${state}`, statePayload, {
+    expirationTtl: OAUTH_STATE_TTL_SECONDS,
+  });
+  const params = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope,
+    state,
+    access_type: 'offline',
+    prompt: connectDrive ? 'consent' : 'select_account',
+  });
+  return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`, 302);
+}
+
+/**
+ * Unauthenticated GitHub login/start — state key + redirect_uri must match handleGitHubOAuthCallback in worker.js.
+ */
+async function loginGitHubOAuthStart(_request, url, env) {
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.SESSION_CACHE) {
+    return jsonResponse({ error: 'OAuth not configured' }, 503);
+  }
+  const returnTo = url.searchParams.get('return_to') || url.searchParams.get('next') || '';
+  const safeReturn =
+    returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
+      ? returnTo
+      : '/dashboard/overview';
+  const state = crypto.randomUUID();
+  const redirectUri = `${oauthLoginOrigin(url)}/api/oauth/github/callback`;
+  const statePayload = JSON.stringify({
+    redirectUri,
+    returnTo: safeReturn,
+    connectGitHub: safeReturn === '/dashboard/agent' || returnTo === '/dashboard/agent',
+  });
+  await env.SESSION_CACHE.put(`oauth_state_github_${state}`, statePayload, {
+    expirationTtl: OAUTH_STATE_TTL_SECONDS,
+  });
+  const params = new URLSearchParams({
+    client_id: env.GITHUB_CLIENT_ID,
+    redirect_uri: redirectUri,
+    scope: 'repo user:email read:user',
+    state,
+  });
+  return Response.redirect(`https://github.com/login/oauth/authorize?${params}`, 302);
 }
 
 async function kvPutState(env, state, payload) {
@@ -593,10 +672,13 @@ export async function handleOAuthApi(request, env, ctx) {
     if (!PROVIDERS.has(provider)) return jsonResponse({ error: 'unsupported_provider' }, 400);
 
     const authUser = await getAuthUser(request, env);
-    // Login/sign-up OAuth is handled by the legacy worker (session creation on callback).
-    // Return 404 so src/index.js delegates to legacyWorker.fetch for the same URL.
-    if (!authUser && (provider === 'google' || provider === 'github')) {
-      return jsonResponse({ error: 'not_found' }, 404);
+    // Login/sign-up OAuth (no session): same behavior as worker.js handleGoogleOAuthStart / handleGitHubOAuthStart.
+    // Callbacks: oauth-login-callbacks.js + integration branch below (/api/oauth/*/callback).
+    if (!authUser && provider === 'google') {
+      return loginGoogleOAuthStart(request, url, env);
+    }
+    if (!authUser && provider === 'github') {
+      return loginGitHubOAuthStart(request, url, env);
     }
     // Dashboard Cloudflare OAuth requires a session; browser navigations get a login redirect
     // instead of a bare 401 JSON so the marketing auth page can show a clear path.
@@ -655,9 +737,45 @@ export async function handleOAuthApi(request, env, ctx) {
 
     const state = url.searchParams.get('state') || '';
     const code = url.searchParams.get('code') || '';
-    if (!state || !code) return Response.redirect(`${new URL(request.url).origin}/dashboard/settings?section=Integrations&error=missing_params`, 302);
+    const origin = new URL(request.url).origin;
+    if (!state || !code) {
+      if (provider === 'google' || provider === 'github') {
+        return Response.redirect(`${origin}/auth/login?error=missing`, 302);
+      }
+      return Response.redirect(`${origin}/dashboard/settings?section=Integrations&error=missing_params`, 302);
+    }
 
-    const stored = await kvGetState(env, state);
+    // GitHub: login flow uses oauth_state_github_* — must run before integration (oauth_state_*).
+    if (provider === 'github') {
+      const rawGh = await env.SESSION_CACHE.get(`oauth_state_github_${state}`);
+      if (rawGh) {
+        await env.SESSION_CACHE.delete(`oauth_state_github_${state}`);
+        return handleGitHubLoginOAuthCallback(request, url, env, { cachedRedirect: rawGh });
+      }
+    }
+
+    /** @type {object | null} */
+    let stored = null;
+
+    // Google: integration KV payload has user_id; login payload has redirectUri (same key prefix oauth_state_*).
+    if (provider === 'google') {
+      const raw = await env.SESSION_CACHE.get(oauthStateKey(state));
+      if (!raw) return new Response(null, { status: 404 });
+      try {
+        const p = JSON.parse(raw);
+        if (p && p.user_id) stored = p;
+      } catch (_) {
+        /* non-JSON legacy string — login path */
+      }
+      if (!stored) {
+        await env.SESSION_CACHE.delete(oauthStateKey(state));
+        return handleGoogleLoginOAuthCallback(request, url, env, { cachedRedirect: raw });
+      }
+    }
+
+    if (!stored) {
+      stored = await kvGetState(env, state);
+    }
     if (!stored) return new Response(null, { status: 404 });
 
     const userId = stored.user_id;

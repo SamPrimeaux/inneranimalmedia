@@ -57,6 +57,10 @@ import {
   rollupExecutionPerformanceMetrics,
 } from './core/memory.js';
 import { handleCatalogApi } from './api/catalog.js';
+import {
+  handleGoogleLoginOAuthCallback,
+  handleGitHubLoginOAuthCallback,
+} from './api/oauth-login-callbacks.js';
 
 // --- Durable Objects (ACTIVE: 3 production classes only) ---
 export { IAMCollaborationSession } from './do/Collaboration.js';
@@ -313,19 +317,15 @@ export default {
 
       // /auth/login, /auth/signup, /auth/reset are ASSET_ROUTES (R2) above — not legacy.
       // /auth/callback/supabase is modular (handleSupabaseOAuthCallback) above.
-      // Google/GitHub OAuth redirect_uri callbacks still live in worker.js.
+      // Google/GitHub login OAuth (same handlers as /api/oauth/{google,github}/callback — see oauth.js dispatch).
       if (pathLower === '/auth/callback/google') {
-        return annotateLegacyWorkerResponse(
-          await legacyWorker.fetch(request, env, ctx),
-          request,
-          'auth-callback-google',
+        return withSessionHealing(
+          await handleGoogleLoginOAuthCallback(request, new URL(request.url), env),
         );
       }
       if (pathLower === '/auth/callback/github') {
-        return annotateLegacyWorkerResponse(
-          await legacyWorker.fetch(request, env, ctx),
-          request,
-          'auth-callback-github',
+        return withSessionHealing(
+          await handleGitHubLoginOAuthCallback(request, new URL(request.url), env),
         );
       }
 
