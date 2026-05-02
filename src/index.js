@@ -289,7 +289,7 @@ export default {
         );
       }
 
-      // Supabase login OAuth (must be above legacyWorker /auth/ passthrough)
+      // Supabase login OAuth (must be above legacy /auth/callback/* handling)
       if (request.method === 'GET' && pathLower === '/api/auth/supabase/start') {
         return handleSupabaseOAuthStart(request, env);
       }
@@ -311,11 +311,29 @@ export default {
         return handleOAuthConsentPage(request, env);
       }
 
-      if (pathLower.startsWith('/auth/')) {
+      // /auth/login, /auth/signup, /auth/reset are ASSET_ROUTES (R2) above — not legacy.
+      // /auth/callback/supabase is modular (handleSupabaseOAuthCallback) above.
+      // Google/GitHub OAuth redirect_uri callbacks still live in worker.js.
+      if (pathLower === '/auth/callback/google') {
         return annotateLegacyWorkerResponse(
           await legacyWorker.fetch(request, env, ctx),
           request,
-          'auth-html-passthrough',
+          'auth-callback-google',
+        );
+      }
+      if (pathLower === '/auth/callback/github') {
+        return annotateLegacyWorkerResponse(
+          await legacyWorker.fetch(request, env, ctx),
+          request,
+          'auth-callback-github',
+        );
+      }
+
+      if (pathLower.startsWith('/auth/')) {
+        const { globeErrorPage } = await import('./core/error-pages');
+        return new Response(
+          globeErrorPage({ status: 404, title: 'Page not found', url: url.pathname }),
+          { status: 404, headers: { 'Content-Type': 'text/html;charset=UTF-8' } },
         );
       }
 
