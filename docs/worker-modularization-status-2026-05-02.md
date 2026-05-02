@@ -83,7 +83,7 @@ Use logs / headers to prove **zero** legacy traffic before removing each row.
 
 ```bash
 cd dashboard && npm run build:analyze
-open dist/stats.html   # treemap of Rollup output
+open dist/bundle-stats.html   # treemap of Rollup output
 ```
 
 Config: `dashboard/vite.config.ts`. **No lazy-loading changes** in this pass per project direction.
@@ -118,5 +118,5 @@ npm run lint 2>/dev/null || true
 curl -sI "https://inneranimalmedia.com/api/<legacy-only-route>" | rg -i 'x-iam-route-source|x-iam-legacy-fallback'
 
 # Bundle analysis
-cd dashboard && npm run build:analyze && ls -la dist/stats.html dist/agent-dashboard.js
+cd dashboard && npm run build:analyze && ls -la dist/bundle-stats.html dist/agent-dashboard.js
 ```
