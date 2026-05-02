@@ -1,0 +1,567 @@
+[
+  {
+    "name": "looksLikeShellCommandText",
+    "line": 21,
+    "project": "agent-dashboard",
+    "purpose": "True if string looks like a shell one-liner (for slash-picker instant /run).",
+    "params": [
+      "text"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "langToExt",
+    "line": 164,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "lang"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "extractLargestCodeBlock",
+    "line": 179,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "text"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "parseFencedParts",
+    "line": 193,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "text"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "toolOutputSummaryLine",
+    "line": 216,
+    "project": "agent-dashboard",
+    "purpose": "Heuristic: fenced blocks that look like MCP / tool JSON or shell tool output — render collapsed like Claude tool rows.",
+    "params": [
+      "lang",
+      "code"
+    ],
+    "calls": [],
+    "tags": [
+      "mcp"
+    ]
+  },
+  {
+    "name": "splitTextWithImageUrls",
+    "line": 245,
+    "project": "agent-dashboard",
+    "purpose": "Split plain text into alternating text and image URL segments for inline chat rendering.",
+    "params": [
+      "text"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "isAgentThemeDark",
+    "line": 352,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "resolveAgentModeCssValue",
+    "line": 360,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "row",
+      "isDark"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "applyAgentModeVarsToDocument",
+    "line": 369,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "rows"
+    ],
+    "calls": [
+      "isAgentThemeDark",
+      "resolveAgentModeCssValue"
+    ],
+    "tags": []
+  },
+  {
+    "name": "DiffProposalCard",
+    "line": 389,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "?"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "TerminalOutputCard",
+    "line": 434,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "?"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "normalizeTerminalCommand",
+    "line": 582,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "raw"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "classifyGitTerminalCommand",
+    "line": 591,
+    "project": "agent-dashboard",
+    "purpose": "Classify a shell command string as a git action, or null.",
+    "params": [
+      "rawCommand"
+    ],
+    "calls": [
+      "normalizeTerminalCommand"
+    ],
+    "tags": []
+  },
+  {
+    "name": "resolveGitActionType",
+    "line": 602,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "msg"
+    ],
+    "calls": [
+      "classifyGitTerminalCommand"
+    ],
+    "tags": []
+  },
+  {
+    "name": "parseGitOutputSummary",
+    "line": 610,
+    "project": "agent-dashboard",
+    "purpose": "One-line summary from git stdout/stderr for card header (terminal_execute / local terminal).",
+    "params": [
+      "gitType",
+      "output",
+      "command"
+    ],
+    "calls": [
+      "normalizeTerminalCommand"
+    ],
+    "tags": []
+  },
+  {
+    "name": "GitActionCard",
+    "line": 653,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "?"
+    ],
+    "calls": [
+      "parseGitOutputSummary"
+    ],
+    "tags": []
+  },
+  {
+    "name": "DeployStatusPill",
+    "line": 791,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "?"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "AssistantFencedContent",
+    "line": 836,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "?"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "AgentDashboard",
+    "line": 1096,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": [
+      "auth",
+      "cron",
+      "mcp",
+      "r2",
+      "streaming",
+      "workers-ai"
+    ]
+  },
+  {
+    "name": "fn",
+    "line": 1384,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onMessage",
+    "line": 1435,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "event"
+    ],
+    "calls": [],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "postLoadImageToDrawFrame",
+    "line": 1454,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "url",
+      "attempt"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onIamDrawMessage",
+    "line": 1472,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "event"
+    ],
+    "calls": [
+      "fn",
+      "postLoadImageToDrawFrame"
+    ],
+    "tags": []
+  },
+  {
+    "name": "handleShellNav",
+    "line": 1498,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onDocClick",
+    "line": 1725,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "handleKeyboardShortcut",
+    "line": 1779,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": [
+      "streaming"
+    ]
+  },
+  {
+    "name": "onDocDown",
+    "line": 1930,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": [
+      "streaming"
+    ]
+  },
+  {
+    "name": "onMove",
+    "line": 1947,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onUp",
+    "line": 1955,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onMove",
+    "line": 1981,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e2"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onUp",
+    "line": 1987,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onMove",
+    "line": 2008,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e2"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onUp",
+    "line": 2014,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "toggleMic",
+    "line": 2073,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "sendMessage",
+    "line": 2096,
+    "project": "agent-dashboard",
+    "purpose": "── Send message ──────────────────────────────────────────────────────────",
+    "params": [
+      "textOverride"
+    ],
+    "calls": [
+      "extractLargestCodeBlock",
+      "sendMessage"
+    ],
+    "tags": [
+      "auth",
+      "streaming"
+    ]
+  },
+  {
+    "name": "applySlashCommandSelection",
+    "line": 2521,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "cmd"
+    ],
+    "calls": [
+      "buildSendLine",
+      "looksLikeShellCommandText",
+      "sendMessage"
+    ],
+    "tags": [
+      "streaming"
+    ]
+  },
+  {
+    "name": "buildSendLine",
+    "line": 2551,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "stopGeneration",
+    "line": 2568,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "scrollVault",
+    "line": 2850,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "isImageFile",
+    "line": 2861,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "file"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "isTextFile",
+    "line": 2866,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "file"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "arrayBufferToBase64",
+    "line": 2871,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "buffer"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onImageSelect",
+    "line": 2878,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onFileSelect",
+    "line": 2898,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onDropFiles",
+    "line": 2927,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onDragOverFiles",
+    "line": 2983,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onDragEnterFiles",
+    "line": 2988,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "onDragLeaveFiles",
+    "line": 2991,
+    "project": "agent-dashboard",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "e"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "providerBorderColor",
+    "line": 3023,
+    "project": "agent-dashboard",
+    "purpose": "── Provider bubble color ─────────────────────────────────────────────────",
+    "params": [
+      "provider"
+    ],
+    "calls": [],
+    "tags": []
+  }
+]

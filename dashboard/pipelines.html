@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="meaux-glass-blue">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipelines — Inner Animal Media</title>
+    <!-- CRITICAL: Theme must load BEFORE any visible content -->
+    <script>
+    (function() {
+        const saved = localStorage.getItem('dashboard-theme');
+        if (saved) {
+            document.documentElement.setAttribute('data-theme', saved);
+        }
+        // Preload theme CSS vars to prevent flash
+        const savedVars = localStorage.getItem('dashboard-theme-vars');
+        if (savedVars) {
+            const style = document.createElement('style');
+            style.id = 'theme-preload-inject';
+            style.textContent = savedVars;
+            document.head.appendChild(style);
+        }
+    })();
+    </script>
+    <script>
+        (function() {
+            function applyShellTheme(slug, config, apiVariables) {
+                if (!slug) return;
+                document.documentElement.setAttribute('data-theme', slug);
+                var cssVars = (config && (config.cssVars || config.css_vars)) || {};
+                if (apiVariables && typeof apiVariables === 'object' && Object.keys(apiVariables).length) {
+                    cssVars = apiVariables;
+                } else if (config && typeof config === 'object' && !config.cssVars && !config.css_vars) {
+                    var c = config;
+                    cssVars['--bg-nav'] = c.nav || c.bg || c.surface || '#1e293b';
+                    cssVars['--text-nav'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-primary'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-secondary'] = c.textSecondary || c.text || '#94a3b8';
+                    cssVars['--color-border'] = c.border || '#334155';
+                    cssVars['--border-nav'] = c.border || '#334155';
+                    cssVars['--accent'] = c.primary || '#3b82f6';
+                    cssVars['--color-primary'] = c.primary || '#3b82f6';
+                    if (!c.bg && !c.surface) { cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b'; } else { if (c.bg) cssVars['--bg-canvas'] = c.bg; if (c.surface) cssVars['--bg-elevated'] = c.surface; }
+                }
+                if (Object.keys(cssVars).length === 0) {
+                    cssVars['--bg-nav'] = '#1e293b'; cssVars['--text-nav'] = '#f1f5f9'; cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b';
+                }
+                var cssText = ':root[data-theme="' + String(slug).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"] {';
+                for (var k in cssVars) if (Object.prototype.hasOwnProperty.call(cssVars, k)) {
+                    var key = String(k).indexOf('--') === 0 ? k : '--' + k;
+                    cssText += key + ':' + cssVars[k] + ';';
+                }
+                cssText += '}';
+                try { localStorage.setItem('dashboard-theme', slug); localStorage.setItem('dashboard-theme-vars', cssText); } catch (e) {}
+                var styleEl = document.getElementById('theme-dynamic-inject');
+                if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'theme-dynamic-inject'; document.head.appendChild(styleEl); }
+                styleEl.textContent = cssText;
+            }
+            fetch('/api/settings/theme', { credentials: 'same-origin' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(d) {
+                    var slug = (d && d.theme) ? d.theme.trim() : null;
+                    if (!slug) {
+                        try { slug = localStorage.getItem('dashboard-theme'); } catch (e) {}
+                        if (!slug) return;
+                    }
+                    if (d && d.variables && typeof d.variables === 'object' && Object.keys(d.variables).length) {
+                        applyShellTheme(slug, {}, d.variables);
+                        return;
+                    }
+                    fetch('/api/themes', { credentials: 'same-origin' })
+                        .then(function(r2) { return r2.json(); })
+                        .then(function(data) {
+                            var themes = data.themes || [];
+                            var applied = false;
+                            for (var i = 0; i < themes.length; i++) {
+                                var t = themes[i];
+                                var s = (t.slug || t.name || '').toLowerCase();
+                                if (s === slug.toLowerCase()) {
+                                    var cfg = t.config;
+                                    if (typeof cfg === 'string') try { cfg = JSON.parse(cfg); } catch (e) { cfg = {}; }
+                                    applyShellTheme(slug, cfg || {});
+                                    applied = true;
+                                    break;
+                                }
+                            }
+                            if (!applied) applyShellTheme(slug, {});
+                        })
+                        .catch(function() { applyShellTheme(slug, {}); });
+                })
+                .catch(function() {
+                    try {
+                        var local = localStorage.getItem('dashboard-theme');
+                        if (local) applyShellTheme(local, {});
+                    } catch (e) {}
+                });
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://pub-b845a8f899834f0faf95dc83eda3c505.r2.dev/static/dashboard/styles_themes.css">
+    <link rel="stylesheet" href="/static/dashboard/shell.css">
+    <style>
+        /* === THEME SYSTEM (same as agent.html) === */
+        :root {
+            --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --safe-area-top: env(safe-area-inset-top, 0);
+            --safe-area-bottom: env(safe-area-inset-bottom, 0);
+            --safe-area-left: env(safe-area-inset-left, 0);
+            --safe-area-right: env(safe-area-inset-right, 0);
+            --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+            --logo-dark: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/thumbnail');
+            --logo-light: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail');
+            --bg-surface: #0a1929;
+            --bg-panel: #132f4c;
+            --bg-base: var(--bg-surface);
+            --color-text: #e0f2fe;
+            --color-muted: #94a3b8;
+            --color-primary: #00b4d8;
+            --color-border: rgba(0,180,216,0.2);
+            --bg-elevated: color-mix(in srgb, var(--bg-panel) 85%, white 15%);
+            --bg-hover: color-mix(in srgb, var(--bg-panel) 90%, white 10%);
+            --bg-canvas: var(--bg-surface);
+            --bg-nav: var(--bg-surface);
+            --accent: var(--color-primary);
+            --text-primary: var(--color-text);
+            --text-secondary: var(--color-muted);
+            --text-nav: var(--color-muted);
+            --border: var(--color-border);
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { height: 100%; overflow-x: hidden; }
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-canvas);
+            color: var(--text-primary);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            max-width: 100vw;
+        }
+        :root { --dashboard-sidenav-width: 260px; }
+        .app-container { display: flex; flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; max-width: 100%; }
+        .topbar {
+            background: var(--bg-nav);
+            border-bottom: 1px solid var(--border-nav);
+            height: 60px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 20px;
+            min-width: 0;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 12px; color: var(--text-nav); }
+        .topbar-center { flex: 1; display: flex; justify-content: center; }
+        .topbar-right { display: flex; align-items: center; gap: 16px; color: var(--text-nav); }
+        .hamburger { width: 40px; height: 40px; border: none; background: transparent; cursor: pointer; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; transition: var(--transition); }
+        .hamburger span { width: 20px; height: 2px; background: var(--text-nav); transition: var(--transition); }
+        .hamburger.open span:nth-child(1) { transform: rotate(45deg) translateY(7px); }
+        .hamburger.open span:nth-child(2) { opacity: 0; }
+        .hamburger.open span:nth-child(3) { transform: rotate(-45deg) translateY(-7px); }
+        .app-logo { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
+        .search-wrap { position: relative; flex: 1; max-width: 360px; display: flex; align-items: center; }
+        .search-wrap .search-input { width: 100%; padding: 8px 12px 8px 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-nav); font-size: 14px; outline: none; }
+        .search-wrap .search-input::placeholder { color: var(--text-nav-muted); }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-nav-muted); pointer-events: none; }
+        .search-dropdown { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; max-height: 280px; overflow-y: auto; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 10001; display: none; }
+        .search-dropdown.open { display: block; }
+        .search-dropdown .item { padding: 10px 12px; font-size: 13px; color: var(--text-primary); cursor: pointer; border-bottom: 1px solid var(--border); }
+        .search-dropdown .item:hover { background: var(--bg-canvas); }
+        .search-mobile-btn { display: none; border: none; background: transparent; cursor: pointer; padding: 8px; color: var(--text-nav); border-radius: 8px; }
+        .profile-dropdown { position: absolute; right: 0; top: 100%; margin-top: 8px; min-width: 200px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.12); z-index: 10001; display: none; padding: 6px 0; }
+        .profile-dropdown.open { display: block; }
+        .profile-dropdown a, .profile-dropdown button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; font-size: 14px; color: var(--text-primary); background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; }
+        .profile-dropdown a:hover, .profile-dropdown button:hover { background: var(--bg-canvas); }
+        .nav-icon-btn { color: var(--text-nav); }
+        .nav-icon-btn:hover { color: #fff; background: rgba(255,255,255,0.08); }
+        .workspace-switcher { padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; background: rgba(15,23,42,0.4); color: var(--text-nav); font-size: 14px; font-weight: 500; cursor: pointer; }
+        .agent-sam-avatar { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; border: 2px solid rgba(255,255,255,0.3); cursor: pointer; }
+        .agent-drawer-backdrop { position: fixed; inset: 0; background: var(--bg-overlay); z-index: 200; opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s; }
+        .agent-drawer-backdrop.open { opacity: 1; visibility: visible; }
+        .agent-drawer { position: fixed; top: 0; right: 0; width: 380px; max-width: 100vw; height: 100vh; background: var(--bg-elevated); border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,0.12); z-index: 201; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.25s ease; }
+        .agent-drawer.open { transform: translateX(0); }
+        .agent-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--bg-nav); color: var(--text-nav); }
+        .agent-drawer-header h3 { font-size: 15px; font-weight: 600; margin: 0; }
+        .agent-drawer-close { width: 32px; height: 32px; border: none; background: transparent; color: inherit; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+        .agent-drawer-close:hover { background: rgba(255,255,255,0.15); }
+        .agent-drawer-messages { flex: 1; overflow-y: auto; padding: 12px; }
+        .agent-drawer-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+        .agent-drawer-msg.assistant { background: var(--bg-canvas); border: 1px solid var(--border); color: var(--text-primary); }
+        .sidenav { width: 260px; background: var(--bg-nav); color: var(--text-nav); display: flex; flex-direction: column; border-right: 1px solid var(--border-nav); transition: width var(--transition); }
+        .sidenav.collapsed { width: 56px; min-width: 56px; }
+        .sidenav.collapsed .sidenav-header h2, .sidenav.collapsed .nav-group-title, .sidenav.collapsed .nav-item span { display: none; }
+        .sidenav.collapsed .nav-item { justify-content: center; padding: 10px; }
+        .sidenav-header { padding: 20px; border-bottom: 1px solid var(--border-nav); display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
+        .sidenav-header h2 { margin: 0; order: 2; font-size: 16px; font-weight: 600; }
+        .sidenav-toggle { order: 1; border: none; background: transparent; color: var(--text-nav-muted); cursor: pointer; padding: 6px; border-radius: 6px; }
+        .sidenav-toggle:hover { color: var(--text-nav); background: rgba(255,255,255,0.1); }
+        .sidenav-toggle .hamburger-bars { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; }
+        .sidenav-toggle .hamburger-bars span { width: 18px; height: 2px; background: currentColor; border-radius: 1px; }
+        .sidenav-nav { flex: 1; overflow-y: auto; padding: 12px; }
+        .nav-group { margin-bottom: 20px; }
+        .nav-group-title { font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; color: var(--text-nav-muted); padding: 8px 12px; margin-bottom: 4px; }
+        .nav-group-title-link { display: flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; color: var(--text-nav-muted); padding: 8px 12px; margin-bottom: 4px; text-decoration: none; cursor: pointer; border-radius: 6px; transition: var(--transition); }
+        .nav-group-title-link:hover { color: var(--accent); }
+        .nav-group-title-link .nav-icon { width: 16px; height: 16px; }
+        .nav-group-title-link.active { color: var(--text-nav); background: rgba(255,255,255,0.15); }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; color: var(--text-nav-muted); text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 500; transition: var(--transition); margin-bottom: 2px; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); color: var(--text-nav); }
+        .nav-item.active { color: var(--text-nav); background: rgba(255,255,255,0.15); }
+        .nav-icon { width: 20px; height: 20px; opacity: 0.8; }
+        .main-content { flex: 1; overflow-x: hidden; overflow-y: auto; padding: 24px; min-height: 0; min-width: 0; max-width: 100%; background: var(--bg-canvas); }
+        .overlay { position: fixed; inset: 0; background: var(--bg-overlay); z-index: 90; display: none; }
+        .overlay.active { display: block; }
+        .dashboard-mobile-footer { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; height: calc(12px + var(--safe-area-bottom, 0px)); min-height: 12px; background: var(--bg-nav); border-top: 1px solid var(--border-nav); }
+        @media (max-width: 768px) {
+            .dashboard-mobile-footer { display: block; }
+            body { padding-bottom: calc(12px + var(--safe-area-bottom, 0px)); }
+            .main-content { padding: 16px 12px; }
+            .hamburger { display: flex; }
+            .sidenav { position: fixed; top: 0; left: 0; bottom: 0; width: 75vw; z-index: 95; transform: translateX(-100%); }
+            .sidenav.open { transform: translateX(0); }
+            .workspace-switcher { display: none; }
+        }
+        @media (min-width: 769px) { .hamburger { display: none; } }
+
+    </style>
+</head>
+
+<body>
+<body>
+    <header class="topbar">
+        <div class="topbar-left">
+            <button class="hamburger" id="hamburger" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+            <img id="ia-logo" class="app-logo" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail" alt="Inner Animal Media">
+        </div>
+        <div class="topbar-center" style="display: flex; align-items: center; gap: 16px;">
+            <div class="search-wrap" id="searchWrap">
+                <button type="button" class="search-mobile-btn" id="searchMobileBtn" aria-label="Search"><svg class="nav-icon-btn" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
+                <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" class="search-input" id="searchInput" placeholder="Search or type a command..." autocomplete="off">
+                <div class="search-dropdown" id="searchDropdown">
+                    <div class="item" data-url="/dashboard/overview">Overview</div>
+                    <div class="item" data-url="/dashboard/cloud">Cloud</div>
+                    <div class="item" data-url="/dashboard/agent">Agent</div>
+                </div>
+            </div>
+            <select class="workspace-switcher" id="workspaceSelect"><option value="ws_samprimeaux">Sam Primeaux Workspace</option></select>
+        </div>
+        <div class="topbar-right">
+            <button type="button" id="agent-drawer-btn" class="nav-icon-btn" aria-label="Open agent_sam" title="agent_sam chat" style="border: none; background: transparent; cursor: pointer; padding: 6px; border-radius: 999px;">?</button>
+            <button id="notifications-btn" class="nav-icon-btn" aria-label="Notifications" style="border: none; background: transparent; cursor: pointer; padding: 6px; border-radius: 999px; color: inherit;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.172V11a6 6 0 1 0-12 0v3.172a2 2 0 0 1-.586 1.414L4 17h5"/><path d="M9 21a3 3 0 0 0 6 0"/></svg></button>
+            <div class="profile-wrap">
+                <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail" alt="Agent Sam" class="agent-sam-avatar" id="profileAvatar">
+                <div class="profile-dropdown" id="profileDropdown">
+                    <button type="button" id="profileSwitchAccount">Switch account</button>
+                    <button type="button" id="profileChangePhoto">Change profile picture</button>
+                    <button type="button" id="logoutBtn">Sign out</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="agent-drawer-backdrop" id="agentDrawerBackdrop"></div>
+    <div class="agent-drawer" id="agentDrawer" role="dialog" aria-label="agent_sam chat">
+        <div class="agent-drawer-header">
+            <h3>agent_sam</h3>
+            <button type="button" class="agent-drawer-close" id="agentDrawerClose" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div class="agent-drawer-messages">
+            <div class="agent-drawer-msg assistant">Hi. I'm agent_sam. Open me from any dashboard page to chat.</div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <aside class="sidenav" id="sidenav">
+            <div class="sidenav-header">
+                <button type="button" class="sidenav-toggle" id="sidenavToggle" aria-label="Collapse sidebar"><span class="hamburger-bars"><span></span><span></span><span></span></span></button>
+                <h2>Dashboard</h2>
+            </div>
+            <nav class="sidenav-nav">
+                <div class="nav-group">
+                    <a href="/dashboard/overview" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg><span>Overview</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Operations</div>
+                    <a href="/dashboard/finance" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Finance</span></a>
+                    <a href="/dashboard/billing" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><span>Billing</span></a>
+                    <a href="/dashboard/clients" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg><span>Clients</span></a>
+                    <a href="/dashboard/pipelines" class="nav-item active"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Pipelines</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Tools</div>
+                    <a href="/dashboard/agent" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><span>Agent</span></a>
+                    <a href="/dashboard/chats" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg><span>Chats</span></a>
+                    <a href="/dashboard/tools" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span>Dev Tools</span></a>
+                    <a href="/dashboard/hub" class="nav-item "><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 12m-2 0a2 2 0 1 1 4 0a2 2 0 1 1 -4 0"/></svg><span>Hub</span></a>
+                    <a href="/dashboard/calendar" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>Calendar</span></a>
+                    <a href="/dashboard/mcp" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>MCP</span></a>
+                    <a href="/dashboard/cloud" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg><span>Cloud</span></a>
+                    <a href="/dashboard/images" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>Images</span></a>
+                    <a href="/dashboard/draw" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg><span>Draw</span></a>
+                    <a href="/dashboard/meet" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg><span>Meet</span></a>
+                    <a href="/dashboard/mail" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg><span>Mail</span></a>
+                </div>
+                <div class="nav-group">
+                    <a href="/dashboard/projects" class="nav-group-title-link">
+                        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+                        <span>Projects</span>
+                    </a>
+                    <a href="/dashboard/kanban" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg><span>Kanban</span></a>
+                    <a href="/dashboard/time-tracking" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Time Tracking</span></a>
+                    <a href="/dashboard/cms" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg><span>CMS</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Settings</div>
+                    <a href="/dashboard/user-settings" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg><span>User Settings</span></a>
+                    <a href="/dashboard/onboarding" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg><span>Onboarding</span></a>
+                </div>
+            </nav>
+        </aside>
+        <main class="main-content">
+
+<div id="pipelines-list-panel">
+  <div class="page-header pipelines-page-header">
+    <div>
+      <h1 class="page-title">Pipelines</h1>
+      <p class="page-subtitle">Build, test, and deploy workflows. Run on push, schedule, or manually.</p>
+    </div>
+    <button type="button" class="btn btn-primary" id="pipelines-new">+ New Pipeline</button>
+  </div>
+
+  <!-- Connected Cloudflare Pipelines streams (event ingest) -->
+  <div class="card pipelines-streams-card" style="margin-bottom: 24px;">
+    <h3 class="pipelines-analytics-title" style="margin-bottom: 12px;">Connected streams</h3>
+    <p style="font-size: 13px; color: var(--text-secondary); margin: 0 0 16px 0;">Event streams configured in this Worker. Send events via HTTP or from code using the binding.</p>
+    <div class="pipelines-stream-list">
+      <div class="pipelines-stream-item card" style="padding: 16px; margin-bottom: 12px; background: var(--bg-elevated); border: 1px solid var(--border);">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px;">
+          <strong style="color: var(--text-primary);">inneranimalpro_stream</strong>
+          <code style="font-size: 12px; color: var(--text-secondary);">7907f409b0d444b9a09c901fbdf05f1f</code>
+          <span style="font-size: 12px; color: var(--text-secondary);">Sink: inneranimalpro_sink</span>
+        </div>
+        <details style="font-size: 13px;">
+          <summary style="cursor: pointer; color: var(--accent); margin-bottom: 8px;">Send via HTTP (curl)</summary>
+          <pre id="pipelines-curl-block" style="margin: 0; padding: 12px; background: var(--bg-canvas); border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;">curl -X POST https://7907f409b0d444b9a09c901fbdf05f1f.ingest.cloudflare.com \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -d '[{"user_id":"sample_user_id","event_name":"sample_event_name"}]'</pre>
+          <button type="button" class="btn pipelines-copy-btn" data-copy-target="pipelines-curl-block" style="margin-top: 8px; font-size: 12px;">Copy</button>
+        </details>
+        <details style="font-size: 13px; margin-top: 8px;">
+          <summary style="cursor: pointer; color: var(--accent); margin-bottom: 8px;">From Worker (binding)</summary>
+          <pre id="pipelines-binding-block" style="margin: 0; padding: 12px; background: var(--bg-canvas); border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap;">await env.INNERANIMALPRO_STREAM.send([
+  { user_id: "sample_user_id", event_name: "sample_event_name" }
+]);</pre>
+          <button type="button" class="btn pipelines-copy-btn" data-copy-target="pipelines-binding-block" style="margin-top: 8px; font-size: 12px;">Copy</button>
+        </details>
+        <div style="margin-top: 12px;">
+          <button type="button" class="btn btn-primary" id="pipelines-stream-send-test" style="font-size: 13px;">Send test event</button>
+          <span id="pipelines-stream-send-status" style="margin-left: 10px; font-size: 13px; color: var(--text-secondary);"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pipelines-analytics" class="pipelines-analytics card">
+    <h3 class="pipelines-analytics-title">Pipeline analytics</h3>
+    <div class="pipelines-kpis">
+      <div class="pipeline-kpi"><span class="pipeline-kpi-value" id="pipelines-kpi-total">0</span><span class="pipeline-kpi-label">Pipelines</span></div>
+      <div class="pipeline-kpi"><span class="pipeline-kpi-value" id="pipelines-kpi-runs">0</span><span class="pipeline-kpi-label">Total runs</span></div>
+      <div class="pipeline-kpi"><span class="pipeline-kpi-value pipeline-kpi-success" id="pipelines-kpi-success">0%</span><span class="pipeline-kpi-label">Success rate</span></div>
+      <div class="pipeline-kpi"><span class="pipeline-kpi-value pipeline-kpi-fail" id="pipelines-kpi-failed">0</span><span class="pipeline-kpi-label">Failed</span></div>
+    </div>
+    <div class="pipelines-24h-row" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-secondary);">
+      <strong style="color: var(--text-primary);">Last 24h:</strong>
+      <span id="pipelines-24h-runs">—</span> runs
+      <span style="margin-left: 12px;">Last run: <span id="pipelines-24h-last">—</span></span>
+      <span style="margin-left: 12px;">Success rate: <span id="pipelines-24h-rate">—</span></span>
+      <span id="pipelines-24h-updated" style="margin-left: 12px; font-size: 12px; color: var(--text-muted);"></span>
+    </div>
+    <div class="pipelines-chart-wrap">
+      <p class="pipelines-chart-label">Runs per pipeline (top 12)</p>
+      <div id="pipelines-chart-bars" class="pipelines-chart-bars"></div>
+    </div>
+  </div>
+
+  <div class="pipelines-toolbar">
+    <h2 class="pipelines-section-title" id="pipelines-section-title">MY PIPELINES (<span id="pipelines-total">0</span>)</h2>
+    <div class="pipelines-filters">
+      <button type="button" class="btn pipelines-filter-btn active" data-filter="">All</button>
+      <button type="button" class="btn pipelines-filter-btn" data-filter="active">Active</button>
+      <label for="pipelines-status" class="pipelines-status-label">Last run</label>
+      <select id="pipelines-status">
+        <option value="">Any</option>
+        <option value="success">Success</option>
+        <option value="failed">Failed</option>
+        <option value="running">Running</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="pipelines-list" class="pipelines-list">
+    <div id="pipelines-empty" class="pipelines-empty card">
+      <p class="pipelines-empty-title">No workflow pipelines yet</p>
+      <p class="pipelines-empty-desc">Workflow pipelines (build, test, deploy) will appear here. Your event stream is listed in <strong>Connected streams</strong> above.</p>
+      <button type="button" class="btn btn-primary" id="pipelines-create-first">Create pipeline</button>
+    </div>
+    <div id="pipelines-cards" class="pipelines-cards" style="display: none;"></div>
+  </div>
+</div>
+
+<div id="pipelines-detail" class="pipelines-detail" style="display: none;">
+  <div class="pipelines-detail-header">
+    <div class="pipelines-detail-title-row">
+      <button type="button" class="btn pipelines-back-btn" id="pipelines-back-to-list">← Back to Pipelines</button>
+      <h2 class="pipelines-detail-name" id="pipelines-detail-name">—</h2>
+      <button type="button" class="btn btn-primary" id="pipelines-detail-run">Run Pipeline</button>
+    </div>
+    <p class="pipelines-detail-meta" id="pipelines-detail-meta"></p>
+  </div>
+  <div id="pipelines-detail-error" class="card pipelines-detail-error" style="display: none;"></div>
+  <div class="pipelines-detail-tabs">
+    <button type="button" class="pipelines-tab active" data-tab="overview">Overview</button>
+    <button type="button" class="pipelines-tab" data-tab="stages">Stages</button>
+    <button type="button" class="pipelines-tab" data-tab="executions">Executions</button>
+  </div>
+  <div id="pipelines-tab-overview" class="pipelines-tab-panel card">
+    <h3 style="font-size:15px;margin:0 0 12px 0;color:var(--text-primary);">Overview</h3>
+    <p id="pipelines-detail-desc" style="font-size:14px;color:var(--text-secondary);margin:0 0 16px 0;"></p>
+    <div id="pipelines-detail-stats" style="display:flex;flex-wrap:wrap;gap:16px;font-size:14px;color:var(--text-secondary);"></div>
+  </div>
+  <div id="pipelines-tab-stages" class="pipelines-tab-panel card" style="display:none;">
+    <h3 style="font-size:15px;margin:0 0 12px 0;color:var(--text-primary);">Stages</h3>
+    <ul id="pipelines-stages-list" style="margin:0;padding-left:20px;font-size:14px;color:var(--text-primary);"></ul>
+    <p id="pipelines-stages-empty" style="display:none;color:var(--text-secondary);font-size:14px;margin:8px 0 0 0;">No stages defined.</p>
+  </div>
+  <div id="pipelines-tab-executions" class="pipelines-tab-panel card" style="display:none;">
+    <div style="padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: 13px;">Executions (last 50)</div>
+    <div style="overflow-x: auto;">
+      <table class="pipelines-executions-table">
+        <thead>
+          <tr>
+            <th>Execution ID</th>
+            <th>Status</th>
+            <th>Started</th>
+            <th>Completed</th>
+            <th>Error</th>
+            <th>Result summary</th>
+          </tr>
+        </thead>
+        <tbody id="pipelines-executions-tbody"></tbody>
+      </table>
+    </div>
+    <div id="pipelines-executions-empty" style="display: none; padding: 24px; text-align: center; color: var(--text-secondary); font-size: 14px;">No executions yet.</div>
+  </div>
+</div>
+
+<div id="pipelines-run-modal" class="pipelines-modal" style="display:none;">
+  <div class="pipelines-modal-inner card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="font-size:18px;margin:0;color:var(--text-primary);">Run: <span id="pipelines-run-modal-title">—</span></h3>
+      <button type="button" class="btn pipelines-modal-close" id="pipelines-run-modal-close">×</button>
+    </div>
+    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 16px 0;">Optional: set variables for this run. Leave blank to use defaults.</p>
+    <div id="pipelines-run-variables"></div>
+    <div style="margin-top:16px;">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-primary);cursor:pointer;">
+        <input type="checkbox" id="pipelines-run-dry" />
+        <span>Dry run (preview only, don't make changes)</span>
+      </label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px;">
+      <button type="button" class="btn" id="pipelines-run-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="pipelines-run-submit">Run Pipeline</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .pipelines-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .pipelines-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .pipelines-section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+  .pipelines-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pipelines-filter-btn {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .pipelines-filter-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+  .pipelines-filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pipelines-status-label { font-size: 13px; color: var(--text-secondary); margin: 0; }
+  .pipelines-filters select {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .pipelines-analytics {
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    border-radius: 12px;
+  }
+  .pipelines-analytics-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 16px 0;
+  }
+  .pipelines-kpis {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  @media (min-width: 600px) {
+    .pipelines-kpis { grid-template-columns: repeat(4, 1fr); }
+  }
+  .pipeline-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pipeline-kpi-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .pipeline-kpi-success { color: var(--success); }
+  .pipeline-kpi-fail { color: var(--error); }
+  .pipeline-kpi-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .pipelines-chart-wrap { margin-top: 8px; }
+  .pipelines-chart-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 12px 0;
+  }
+  .pipelines-chart-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .pipeline-chart-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .pipeline-chart-name {
+    width: 140px;
+    min-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+  }
+  .pipeline-chart-bar-wrap {
+    flex: 1;
+    min-width: 0;
+    height: 20px;
+    background: var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .pipeline-chart-bar {
+    height: 100%;
+    border-radius: 6px;
+    background: var(--accent);
+    transition: width 0.3s ease;
+  }
+  .pipeline-chart-bar.fail { background: var(--error); }
+  .pipeline-chart-count { color: var(--text-secondary); min-width: 2em; text-align: right; }
+
+  .pipelines-list { min-height: 200px; }
+  .pipelines-empty {
+    text-align: center;
+    padding: 48px 24px;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+  .pipelines-empty-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  .pipelines-empty-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  .pipelines-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  @media (min-width: 900px) {
+    .pipelines-cards {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .pipeline-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 20px;
+    min-height: 200px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    overflow: hidden;
+  }
+  .pipeline-card::before,
+  .pipeline-card::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: 30px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .pipeline-card > * { position: relative; z-index: 2; }
+  .pipeline-card[data-outline="running"]::before {
+    inset: -2px;
+    border-radius: 30px;
+    border: 2px solid transparent;
+    border-top-color: #22c55e;
+    animation: pipeline-outline-rotate 1.2s linear infinite;
+  }
+  .pipeline-card[data-outline="failing"]::before {
+    inset: -2px;
+    border-radius: 30px;
+    border: 2px solid transparent;
+    border-top-color: #22c55e;
+    border-right-color: #22c55e;
+    border-bottom-color: #22c55e;
+    animation: pipeline-outline-stop 0.5s ease-out forwards;
+  }
+  .pipeline-card[data-outline="failing"]::after {
+    inset: auto auto 8px 50%;
+    width: 10px;
+    height: 10px;
+    margin-left: -5px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 0 2px var(--bg-elevated);
+  }
+  @keyframes pipeline-outline-rotate {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pipeline-outline-stop {
+    to { transform: rotate(270deg); }
+  }
+  .pipeline-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  .pipeline-card-top {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+  }
+  .pipeline-card-head {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .pipeline-card-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pipeline-card-name a { color: inherit; text-decoration: none; }
+  .pipeline-card-name a:hover { text-decoration: underline; }
+  .pipeline-card-head .pipeline-badge { flex-shrink: 0; }
+  .pipeline-card-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 8px 0 0 0;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    width: 100%;
+  }
+  .pipeline-card-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .pipeline-card-warning {
+    font-size: 12px;
+    color: var(--error);
+    margin-top: 6px;
+  }
+  .pipeline-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .pipeline-card-actions .btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .pipeline-card-actions .btn:hover {
+    background: var(--bg-canvas);
+    border-color: var(--accent);
+  }
+  .pipeline-card-actions .btn-run {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+  }
+  .pipeline-card-actions .btn-run:hover { background: var(--accent-hover); }
+  .pipeline-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .pipeline-badge.success { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+  .pipeline-badge.failed { background: rgba(239, 68, 68, 0.15); color: var(--error); }
+  .pipeline-badge.running { background: rgba(59, 130, 246, 0.15); color: var(--accent); }
+  .pipeline-badge.pending { background: rgba(107, 114, 128, 0.15); color: var(--text-secondary); }
+  .pipeline-badge.active { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+
+  .pipelines-detail-header { margin-bottom: 24px; }
+  .pipelines-detail-title-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .pipelines-back-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    font-size: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .pipelines-back-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .pipelines-detail-name {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+  }
+  .pipelines-detail-meta { font-size: 13px; color: var(--text-secondary); margin: 0; }
+  .pipelines-detail-error {
+    margin-bottom: 16px;
+    padding: 16px;
+    color: var(--error);
+  }
+  .pipelines-executions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .pipelines-executions-table th {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .pipelines-executions-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    vertical-align: top;
+  }
+  .pipelines-executions-table tr:last-child td { border-bottom: none; }
+  .pipelines-executions-table .exec-error,
+  .pipelines-executions-table .exec-summary {
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pipelines-detail-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+  }
+  .pipelines-tab {
+    padding: 8px 16px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .pipelines-tab:hover { color: var(--text-primary); }
+  .pipelines-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pipelines-tab-panel { padding: 20px; margin-bottom: 16px; }
+  .pipelines-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .pipelines-modal-inner {
+    max-width: 480px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: auto;
+  }
+  .pipelines-modal-close {
+    background: transparent;
+    border: none;
+    font-size: 24px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .pipelines-modal-close:hover { color: var(--text-primary); }
+  .pipelines-run-var { margin-bottom: 12px; }
+  .pipelines-run-var label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+  .pipelines-run-var input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-canvas); color: var(--text-primary); font-size: 14px; }
+</style>
+
+<script>
+(function () {
+  var base = window.location.origin;
+  var listPanel = document.getElementById('pipelines-list-panel');
+  var detailPanel = document.getElementById('pipelines-detail');
+  var listEl = document.getElementById('pipelines-list');
+  var emptyEl = document.getElementById('pipelines-empty');
+  var cardsEl = document.getElementById('pipelines-cards');
+  var statusSelect = document.getElementById('pipelines-status');
+  var pipelines = [];
+
+  function getLogsId() {
+    var params = new URLSearchParams(window.location.search);
+    return params.get('logs') || '';
+  }
+
+  function showListView() {
+    if (listPanel) listPanel.style.display = '';
+    if (detailPanel) detailPanel.style.display = 'none';
+  }
+
+  function showDetailView() {
+    if (listPanel) listPanel.style.display = 'none';
+    if (detailPanel) detailPanel.style.display = 'block';
+  }
+
+  var pipelinesTotal = 0;
+
+  var pipelinesStats = null;
+
+  function load() {
+    fetch(base + '/api/pipelines', { credentials: 'include' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        pipelines = (d && d.pipelines) ? d.pipelines : [];
+        pipelinesTotal = (d && d.total != null) ? d.total : pipelines.length;
+        pipelinesStats = (d && d.stats) ? d.stats : null;
+        render();
+        loadStreamMetrics();
+      })
+      .catch(function () {
+        pipelines = [];
+        pipelinesTotal = 0;
+        pipelinesStats = null;
+        render();
+      });
+  }
+
+  function loadStreamMetrics() {
+    fetch(base + '/api/pipelines/streams/metrics', { credentials: 'include' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var runsEl = document.getElementById('pipelines-24h-runs');
+        var lastEl = document.getElementById('pipelines-24h-last');
+        var rateEl = document.getElementById('pipelines-24h-rate');
+        var updatedEl = document.getElementById('pipelines-24h-updated');
+        if (runsEl) runsEl.textContent = (d && d.pipeline_runs_24h != null) ? String(d.pipeline_runs_24h) : '—';
+        if (lastEl) {
+          if (d && d.pipeline_last_run_at) {
+            var t = new Date(d.pipeline_last_run_at);
+            lastEl.textContent = isNaN(t.getTime()) ? d.pipeline_last_run_at : t.toLocaleString();
+          } else {
+            lastEl.textContent = '—';
+          }
+        }
+        if (rateEl) rateEl.textContent = (d && d.pipeline_success_rate_24h != null) ? (d.pipeline_success_rate_24h + '%') : '—';
+        if (updatedEl) updatedEl.textContent = '(updated ' + new Date().toLocaleTimeString() + ')';
+      })
+      .catch(function () {
+        var runsEl = document.getElementById('pipelines-24h-runs');
+        var lastEl = document.getElementById('pipelines-24h-last');
+        var rateEl = document.getElementById('pipelines-24h-rate');
+        if (runsEl) runsEl.textContent = '—';
+        if (lastEl) lastEl.textContent = '—';
+        if (rateEl) rateEl.textContent = '—';
+      });
+  }
+
+  function badgeStatus(p) {
+    var s = (p.last_execution_status || p.status || '').toLowerCase();
+    if (s === 'success' || s === 'completed') return 'success';
+    if (s === 'failed' || s === 'error') return 'failed';
+    if (s === 'running') return 'running';
+    if (s === 'active') return 'success';
+    return 'pending';
+  }
+
+  function executionBadgeClass(status) {
+    var s = (status || '').toLowerCase();
+    if (s === 'success' || s === 'completed') return 'success';
+    if (s === 'failed' || s === 'error') return 'failed';
+    if (s === 'running') return 'running';
+    return 'pending';
+  }
+
+  function displayStatus(p) {
+    return p.last_execution_status || p.status || 'pending';
+  }
+
+  function truncate(str, len) {
+    if (str == null || str === '') return '';
+    str = String(str);
+    return str.length <= (len || 80) ? str : str.slice(0, len || 80) + '…';
+  }
+
+  function escapeHtml(str) {
+    if (str == null || str === '') return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleString();
+  }
+
+  var currentDetailPipelineId = null;
+  var currentDetailPipeline = null;
+  var currentDetailExecutions = [];
+
+  function showDetailTab(tabName) {
+    document.querySelectorAll('.pipelines-tab').forEach(function (t) {
+      t.classList.toggle('active', t.getAttribute('data-tab') === tabName);
+    });
+    document.querySelectorAll('.pipelines-tab-panel').forEach(function (p) {
+      var id = p.id;
+      var show = (id === 'pipelines-tab-overview' && tabName === 'overview') ||
+        (id === 'pipelines-tab-stages' && tabName === 'stages') ||
+        (id === 'pipelines-tab-executions' && tabName === 'executions');
+      p.style.display = show ? 'block' : 'none';
+    });
+  }
+
+  function loadDetailView(id) {
+    var nameEl = document.getElementById('pipelines-detail-name');
+    var metaEl = document.getElementById('pipelines-detail-meta');
+    var errorEl = document.getElementById('pipelines-detail-error');
+    var tbody = document.getElementById('pipelines-executions-tbody');
+    var emptyExec = document.getElementById('pipelines-executions-empty');
+    var runBtn = document.getElementById('pipelines-detail-run');
+
+    if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+    if (nameEl) nameEl.textContent = 'Loading…';
+    if (metaEl) metaEl.textContent = '';
+    if (tbody) tbody.innerHTML = '';
+    if (emptyExec) emptyExec.style.display = 'none';
+    currentDetailPipelineId = id;
+
+    Promise.all([
+      fetch(base + '/api/pipelines/' + encodeURIComponent(id), { credentials: 'include' }).then(function (r) { return r.json(); }),
+      fetch(base + '/api/pipelines/' + encodeURIComponent(id) + '/executions', { credentials: 'include' }).then(function (r) { return r.json(); })
+    ]).then(function (results) {
+      var pipeline = results[0];
+      var execData = results[1];
+      if (pipeline && pipeline.error) {
+        if (errorEl) { errorEl.textContent = pipeline.error === 'Not found' ? 'Pipeline not found.' : pipeline.error; errorEl.style.display = 'block'; }
+        if (nameEl) nameEl.textContent = '—';
+        if (runBtn) runBtn.disabled = true;
+        return;
+      }
+      currentDetailPipeline = pipeline;
+      currentDetailExecutions = (execData && execData.executions) ? execData.executions : [];
+      var executions = currentDetailExecutions;
+
+      if (nameEl) nameEl.textContent = pipeline && pipeline.name ? pipeline.name : 'Unnamed pipeline';
+      if (metaEl) metaEl.textContent = 'Trigger: ' + (pipeline && (pipeline.trigger || pipeline.trigger_event) ? (pipeline.trigger || pipeline.trigger_event) : 'Manual');
+
+      var descEl = document.getElementById('pipelines-detail-desc');
+      if (descEl) descEl.textContent = pipeline && pipeline.description ? pipeline.description : 'No description.';
+      var statsEl = document.getElementById('pipelines-detail-stats');
+      if (statsEl) {
+        var successCount = executions.filter(function (e) { var s = (e.status || '').toLowerCase(); return s === 'completed' || s === 'success'; }).length;
+        var failedCount = executions.filter(function (e) { var s = (e.status || '').toLowerCase(); return s === 'failed' || s === 'error'; }).length;
+        var totalRuns = executions.length;
+        var successRate = totalRuns > 0 ? Math.round((successCount / totalRuns) * 100) : 0;
+        var lastRun = executions[0] ? formatDate(executions[0].started_at) : 'Never';
+        statsEl.innerHTML = 'Status: <strong>' + (pipeline.status || 'active') + '</strong> &nbsp;|&nbsp; Total runs: <strong>' + totalRuns + '</strong> &nbsp;|&nbsp; Success rate: <strong>' + successRate + '%</strong> &nbsp;|&nbsp; Last run: <strong>' + lastRun + '</strong>';
+      }
+
+      var stagesList = document.getElementById('pipelines-stages-list');
+      var stagesEmpty = document.getElementById('pipelines-stages-empty');
+      var stages = (pipeline && pipeline.stages) ? pipeline.stages : [];
+      if (stagesList) {
+        if (Array.isArray(stages) && stages.length > 0) {
+          stagesEmpty.style.display = 'none';
+          stagesList.style.display = 'block';
+          stagesList.innerHTML = stages.map(function (s, i) {
+            var name = (typeof s === 'object' && s.name) ? s.name : (typeof s === 'string' ? s : 'Stage ' + (i + 1));
+            var agent = (typeof s === 'object' && (s.agent || s.provider || s.model)) ? (s.agent || s.provider || s.model) : '';
+            var duration = (typeof s === 'object' && s.duration) ? s.duration + 's' : '';
+            return '<li>' + escapeHtml(name) + (agent ? ' &nbsp;<span style="color:var(--text-secondary);">' + escapeHtml(agent) + '</span>' : '') + (duration ? ' &nbsp;' + duration : '') + '</li>';
+          }).join('');
+        } else {
+          stagesList.style.display = 'none';
+          if (stagesEmpty) stagesEmpty.style.display = 'block';
+        }
+      }
+
+      if (runBtn) {
+        runBtn.disabled = false;
+        runBtn.onclick = function () {
+          var modal = document.getElementById('pipelines-run-modal');
+          document.getElementById('pipelines-run-modal-title').textContent = pipeline && pipeline.name ? pipeline.name : 'Pipeline';
+          var varsContainer = document.getElementById('pipelines-run-variables');
+          var vars = (pipeline && pipeline.variables && typeof pipeline.variables === 'object') ? pipeline.variables : {};
+          var keys = Object.keys(vars);
+          if (keys.length === 0) {
+            varsContainer.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);margin:0;">No variables defined for this pipeline.</p>';
+          } else {
+            varsContainer.innerHTML = keys.map(function (k) {
+              var v = vars[k];
+              var label = (typeof v === 'object' && v && v.label) ? v.label : k;
+              var placeholder = (typeof v === 'object' && v && v.default != null) ? String(v.default) : '';
+              return '<div class="pipelines-run-var"><label>' + escapeHtml(label) + '</label><input type="text" data-var="' + escapeHtml(k) + '" placeholder="' + escapeHtml(placeholder) + '" /></div>';
+            }).join('');
+          }
+          document.getElementById('pipelines-run-dry').checked = false;
+          if (modal) modal.style.display = 'flex';
+        };
+      }
+
+      showDetailTab('executions');
+      if (executions.length === 0) {
+        if (emptyExec) emptyExec.style.display = 'block';
+      } else {
+        if (emptyExec) emptyExec.style.display = 'none';
+        if (tbody) {
+          tbody.innerHTML = executions.map(function (e) {
+            var badgeClass = executionBadgeClass(e.status);
+            return '<tr>' +
+              '<td>' + escapeHtml(e.id || '—') + '</td>' +
+              '<td><span class="pipeline-badge ' + badgeClass + '">' + escapeHtml(e.status || '—') + '</span></td>' +
+              '<td>' + formatDate(e.started_at) + '</td>' +
+              '<td>' + formatDate(e.completed_at) + '</td>' +
+              '<td class="exec-error" title="' + escapeHtml(e.error_message || '') + '">' + escapeHtml(truncate(e.error_message, 60)) + '</td>' +
+              '<td class="exec-summary" title="' + escapeHtml(e.result_summary || '') + '">' + escapeHtml(truncate(e.result_summary, 60)) + '</td>' +
+              '</tr>';
+          }).join('');
+        }
+      }
+    }).catch(function (err) {
+      if (errorEl) { errorEl.textContent = 'Failed to load pipeline or executions.'; errorEl.style.display = 'block'; }
+      if (nameEl) nameEl.textContent = '—';
+      if (runBtn) runBtn.disabled = true;
+    });
+  }
+
+  document.querySelectorAll('.pipelines-tab').forEach(function (t) {
+    t.addEventListener('click', function () { showDetailTab(t.getAttribute('data-tab')); });
+  });
+
+  document.getElementById('pipelines-run-modal-close') && document.getElementById('pipelines-run-modal-close').addEventListener('click', function () {
+    document.getElementById('pipelines-run-modal').style.display = 'none';
+  });
+  document.getElementById('pipelines-run-cancel') && document.getElementById('pipelines-run-cancel').addEventListener('click', function () {
+    document.getElementById('pipelines-run-modal').style.display = 'none';
+  });
+  document.getElementById('pipelines-run-submit') && document.getElementById('pipelines-run-submit').addEventListener('click', function () {
+    var id = currentDetailPipelineId;
+    if (!id) return;
+    var variables = {};
+    document.querySelectorAll('#pipelines-run-variables input[data-var]').forEach(function (inp) {
+      var k = inp.getAttribute('data-var');
+      if (k && inp.value.trim() !== '') variables[k] = inp.value.trim();
+    });
+    var dryRun = document.getElementById('pipelines-run-dry') && document.getElementById('pipelines-run-dry').checked;
+    document.getElementById('pipelines-run-modal').style.display = 'none';
+    fetch(base + '/api/pipelines/' + encodeURIComponent(id) + '/run', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variables: variables, dry_run: dryRun })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.status === 'started') loadDetailView(id);
+    });
+  });
+
+  function updateAnalytics(list, stats) {
+    var totalPipelines = list.length;
+    var totalRuns = 0;
+    var totalSuccess = 0;
+    var totalFailed = 0;
+    if (stats && (stats.total_pipelines != null || stats.total_runs != null)) {
+      totalPipelines = Number(stats.total_pipelines) ?? list.length;
+      totalRuns = Number(stats.total_runs) || 0;
+      totalFailed = Number(stats.failed) || 0;
+      totalSuccess = totalRuns - totalFailed;
+    } else {
+      list.forEach(function (p) {
+        totalRuns += Number(p.execution_count) || 0;
+        totalSuccess += Number(p.success_count) || 0;
+        totalFailed += Number(p.failed_count) || 0;
+      });
+    }
+    var successRate = (stats && stats.success_rate != null) ? Number(stats.success_rate) : (totalRuns > 0 ? Math.round((totalSuccess / totalRuns) * 100) : 0);
+    var kpiTotal = document.getElementById('pipelines-kpi-total');
+    var kpiRuns = document.getElementById('pipelines-kpi-runs');
+    var kpiSuccess = document.getElementById('pipelines-kpi-success');
+    var kpiFailed = document.getElementById('pipelines-kpi-failed');
+    var chartEl = document.getElementById('pipelines-chart-bars');
+    if (kpiTotal) kpiTotal.textContent = String(totalPipelines);
+    if (kpiRuns) kpiRuns.textContent = String(totalRuns);
+    if (kpiSuccess) kpiSuccess.textContent = successRate + '%';
+    if (kpiFailed) kpiFailed.textContent = String(totalFailed);
+    if (!chartEl) return;
+    var sorted = list.slice().sort(function (a, b) { return (Number(b.execution_count) || 0) - (Number(a.execution_count) || 0); });
+    var top = sorted.slice(0, 12);
+    var maxRuns = Math.max(1, top.reduce(function (m, p) { return Math.max(m, Number(p.execution_count) || 0); }, 0));
+    chartEl.innerHTML = top.map(function (p) {
+      var runs = Number(p.execution_count) || 0;
+      var failed = Number(p.failed_count) || 0;
+      var pct = maxRuns > 0 ? (runs / maxRuns) * 100 : 0;
+      var failPct = runs > 0 ? (failed / runs) * 100 : 0;
+      return '<div class="pipeline-chart-row">' +
+        '<span class="pipeline-chart-name" title="' + escapeHtml(p.name || '') + '">' + escapeHtml(p.name || 'Unnamed') + '</span>' +
+        '<div class="pipeline-chart-bar-wrap">' +
+          '<div class="pipeline-chart-bar' + (failPct >= 50 ? ' fail' : '') + '" style="width:' + pct + '%"></div>' +
+        '</div>' +
+        '<span class="pipeline-chart-count">' + runs + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  function render() {
+    var statusFilter = (statusSelect && statusSelect.value) || '';
+    var activeFilter = (document.querySelector('.pipelines-filter-btn.active') || {}).getAttribute && document.querySelector('.pipelines-filter-btn.active').getAttribute('data-filter') || '';
+    var filtered = pipelines.filter(function (p) {
+      if (activeFilter === 'active') {
+        var s = (p.status || '').toLowerCase();
+        if (s !== 'active' && s !== '') return false;
+      }
+      if (statusFilter) {
+        var last = (p.last_execution_status || p.status || '').toLowerCase();
+        if (last !== statusFilter) return false;
+      }
+      return true;
+    });
+
+    var totalEl = document.getElementById('pipelines-total');
+    if (totalEl) totalEl.textContent = String(pipelinesTotal);
+    updateAnalytics(pipelines, pipelinesStats);
+
+    if (filtered.length === 0) {
+      emptyEl.style.display = 'block';
+      cardsEl.style.display = 'none';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    cardsEl.style.display = 'grid';
+    cardsEl.innerHTML = filtered.map(function (p) {
+      var badgeClass = badgeStatus(p);
+      var runs = p.execution_count > 0
+        ? (p.failed_count > 0 ? p.execution_count + ' executions (' + p.failed_count + ' failed)' : p.execution_count + ' executions')
+        : 'No runs yet';
+      var warning = '';
+      if ((p.last_execution_status || '').toLowerCase() === 'failed' && p.last_error_message) {
+        warning = '<div class="pipeline-card-warning">Error: ' + escapeHtml(truncate(p.last_error_message, 50)) + '</div>';
+      }
+      var outline = '';
+      var lastStatus = (p.last_execution_status || p.status || '').toLowerCase();
+      if (lastStatus === 'running') outline = 'running';
+      else if (lastStatus === 'failed' || lastStatus === 'error') outline = 'failing';
+      return '<div class="pipeline-card" data-id="' + (p.id || '') + '" data-outline="' + outline + '">' +
+        '<div class="pipeline-card-top">' +
+          '<div class="pipeline-card-head">' +
+            '<span class="pipeline-card-name">' + (p.name || 'Unnamed pipeline') + '</span>' +
+            '<span class="pipeline-badge ' + badgeClass + '">' + displayStatus(p) + '</span>' +
+            '<p class="pipeline-card-desc">' + escapeHtml(p.description || 'No description.') + '</p>' +
+            warning +
+          '</div>' +
+        '</div>' +
+        '<div class="pipeline-card-meta">' +
+          'Last run: ' + (p.last_run || 'Never') + '  •  ' + runs + '  •  ' + (p.trigger || 'Manual') +
+        '</div>' +
+        '<div class="pipeline-card-actions">' +
+          '<button type="button" class="btn btn-run" data-id="' + (p.id || '') + '">Run</button>' +
+          '<button type="button" class="btn btn-logs" data-id="' + (p.id || '') + '">View Executions</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    cardsEl.querySelectorAll('.btn-run').forEach(function (btn) {
+      var id = btn.getAttribute('data-id');
+      btn.addEventListener('click', function () {
+        if (!id) return;
+        btn.disabled = true;
+        fetch(base + '/api/pipelines/' + encodeURIComponent(id) + '/run', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          btn.disabled = false;
+          if (d && d.status === 'started') {
+            var card = Array.prototype.find.call(cardsEl.querySelectorAll('.pipeline-card'), function (c) { return c.getAttribute('data-id') === id; });
+            if (card) card.setAttribute('data-outline', 'running');
+            load();
+          }
+        }).catch(function () { btn.disabled = false; });
+      });
+    });
+    cardsEl.querySelectorAll('.btn-logs').forEach(function (btn) {
+      var id = btn.getAttribute('data-id');
+      btn.addEventListener('click', function () { if (id) window.location.href = '/dashboard/pipelines?logs=' + encodeURIComponent(id); });
+    });
+  }
+
+  document.getElementById('pipelines-back-to-list') && document.getElementById('pipelines-back-to-list').addEventListener('click', function () {
+    window.location.href = '/dashboard/pipelines';
+  });
+
+  document.querySelectorAll('.pipelines-filter-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.pipelines-filter-btn').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      render();
+    });
+  });
+  if (statusSelect) statusSelect.addEventListener('change', render);
+  document.getElementById('pipelines-new') && document.getElementById('pipelines-new').addEventListener('click', function () {
+    console.log('New pipeline');
+  });
+  document.getElementById('pipelines-create-first') && document.getElementById('pipelines-create-first').addEventListener('click', function () {
+    console.log('Create pipeline');
+  });
+
+  document.querySelectorAll('.pipelines-copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-copy-target');
+      var el = id ? document.getElementById(id) : null;
+      if (!el) return;
+      var text = el.textContent || '';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { btn.textContent = 'Copied!'; setTimeout(function () { btn.textContent = 'Copy'; }, 2000); }).catch(function () { btn.textContent = 'Copy'; });
+      } else {
+        btn.textContent = 'Copy';
+      }
+    });
+  });
+
+  var streamSendBtn = document.getElementById('pipelines-stream-send-test');
+  var streamSendStatus = document.getElementById('pipelines-stream-send-status');
+  if (streamSendBtn && streamSendStatus) {
+    streamSendBtn.addEventListener('click', function () {
+      streamSendStatus.textContent = 'Sending…';
+      streamSendBtn.disabled = true;
+      fetch(base + '/api/pipelines/streams/send', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ user_id: 'dashboard_test', event_name: 'pipelines_test_event', ts: new Date().toISOString() }])
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        streamSendStatus.textContent = d.success ? 'Sent ' + (d.sent || 1) + ' event(s).' : (d.error || 'Failed');
+        streamSendStatus.style.color = d.success ? 'var(--success)' : 'var(--error)';
+      }).catch(function () {
+        streamSendStatus.textContent = 'Request failed';
+        streamSendStatus.style.color = 'var(--error)';
+      }).finally(function () { streamSendBtn.disabled = false; });
+    });
+  }
+
+  var logsId = getLogsId();
+  if (logsId) {
+    showDetailView();
+    loadDetailView(logsId);
+  } else {
+    showListView();
+    load();
+  }
+  loadStreamMetrics();
+  setInterval(load, 30000);
+  setInterval(loadStreamMetrics, 30000);
+})();
+</script>
+        </main>
+        <div class="overlay" id="overlay"></div>
+        <div class="dashboard-mobile-footer"></div>
+
+    <script>
+        document.getElementById('profileAvatar') && document.getElementById('profileAvatar').addEventListener('click', function () {
+            var d = document.getElementById('profileDropdown');
+            if (d) d.classList.toggle('open');
+        });
+        document.getElementById('agent-drawer-btn') && document.getElementById('agent-drawer-btn').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.add('open');
+            document.getElementById('agentDrawerBackdrop').classList.add('open');
+        });
+        document.getElementById('agentDrawerClose') && document.getElementById('agentDrawerClose').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.remove('open');
+            document.getElementById('agentDrawerBackdrop').classList.remove('open');
+        });
+        document.getElementById('agentDrawerBackdrop') && document.getElementById('agentDrawerBackdrop').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.remove('open');
+            this.classList.remove('open');
+        });
+        var hamburger = document.getElementById('hamburger');
+        var sidenav = document.getElementById('sidenav');
+        var overlay = document.getElementById('overlay');
+        if (hamburger && sidenav && overlay) {
+            hamburger.addEventListener('click', function () {
+                hamburger.classList.toggle('open');
+                sidenav.classList.toggle('open');
+                overlay.classList.toggle('active');
+            });
+            overlay.addEventListener('click', function () {
+                hamburger.classList.remove('open');
+                sidenav.classList.remove('open');
+                overlay.classList.remove('active');
+            });
+        }
+        var sidenavToggle = document.getElementById('sidenavToggle');
+        if (sidenavToggle && sidenav) {
+            try {
+                if (localStorage.getItem('dashboard_sidenav_collapsed') === '1') sidenav.classList.add('collapsed');
+            } catch (e) {}
+            sidenavToggle.addEventListener('click', function () {
+                sidenav.classList.toggle('collapsed');
+                try { localStorage.setItem('dashboard_sidenav_collapsed', sidenav.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+            });
+        }
+        try {
+            var t = localStorage.getItem('dashboard-theme');
+            if (t) document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+    </script>
+</body>
+    </script>
+</body>
+</html>

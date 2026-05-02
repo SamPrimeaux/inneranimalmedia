@@ -1,0 +1,150 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "inneranimalmedia",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-20",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": true,
+  "no_bundle": false,
+  "build": {
+    "command": ""
+  },
+  "routes": [
+    {
+      "pattern": "inneranimalmedia.com/*",
+      "zone_name": "inneranimalmedia.com"
+    },
+    {
+      "pattern": "www.inneranimalmedia.com/*",
+      "zone_name": "inneranimalmedia.com"
+    },
+    {
+      "pattern": "webhooks.inneranimalmedia.com/*",
+      "zone_name": "inneranimalmedia.com"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "browser": {
+    "binding": "MYBROWSER"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inneranimalmedia-business",
+      "database_id": "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "inneranimalmedia"
+    },
+    {
+      "binding": "DASHBOARD",
+      "bucket_name": "inneranimalmedia"
+    },
+    {
+      "binding": "AUTORAG_BUCKET",
+      "bucket_name": "autorag"
+    },
+    {
+      "binding": "DOCS_BUCKET",
+      "bucket_name": "iam-docs"
+    },
+    {
+      "binding": "R2",
+      "bucket_name": "iam-platform"
+    },
+    {
+      "binding": "TOOLS",
+      "bucket_name": "tools"
+    },
+    {
+      "binding": "EMAIL",
+      "bucket_name": "inneranimalmedia-email-archive"
+    }
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "08183bb9d2914e87ac8395d7e4ecff60"
+    }
+  ],
+  "vpc_services": [
+    {
+      "binding": "PTY_SERVICE",
+      "service_id": "019db639-7c70-7071-8ef3-32ec0392a9ff",
+      "remote": true
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "ai-search-inneranimalmedia-autorag"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "09438d5e4f664bf78467a15af7743c44"
+    },
+    {
+      "binding": "SESSION_CACHE",
+      "id": "dc87920b0a9247979a213c09df9a0234"
+    }
+  ],
+  "migrations": [
+    { "tag": "v1", "new_classes": ["IAMCollaborationSession"] },
+    { "tag": "v2", "new_classes": ["ChessRoom"] },
+    { "tag": "v4" },
+    { "tag": "v5", "new_sqlite_classes": ["AgentChatSqlV1"] },
+    { "tag": "v6", "deleted_classes": ["MeauxSession", "IAMAgentSession", "IAMSession"] }
+  ],
+  // Match wrangler.production.toml so CF Builds (`wrangler deploy -c wrangler.jsonc`) exposes DO stubs.
+  "durable_objects": {
+    "bindings": [
+      { "name": "IAM_COLLAB", "class_name": "IAMCollaborationSession" },
+      { "name": "CHESS_SESSION", "class_name": "ChessRoom" },
+      { "name": "AGENT_SESSION", "class_name": "AgentChatSqlV1" }
+    ]
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "MY_QUEUE",
+        "queue": "74b3155b36334b69852411c083d50322"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "74b3155b36334b69852411c083d50322"
+      }
+    ]
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "WAE",
+      "dataset": "inneranimalmedia"
+    }
+  ],
+  "vars": {
+    "CLOUDFLARE_ACCOUNT_ID": "ede6590ac0d2fb7daf155b35653457b2",
+    "CLOUDFLARE_IMAGES_ACCOUNT_HASH": "g7wf09fCONpnidkRnR_5vw",
+    "GITHUB_CLIENT_ID": "Ov23li6BZYxjVtGUWibX",
+    "GOOGLE_CLIENT_ID": "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com",
+    "TENANT_ID": "tenant_sam_primeaux",
+    "WORKSPACE_ID": "ws_inneranimalmedia",
+    "DEPLOY_ENV": "production"
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
+}

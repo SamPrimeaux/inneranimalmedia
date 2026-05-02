@@ -1,0 +1,163 @@
+-- 2026-04-02: Sandbox IAM Explorer /dashboard/agent back online (partial; known bugs remain).
+-- Apply: ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --file=migrations/211_cicd_20260402_sandbox_agent_dashboard_recovery.sql
+
+INSERT INTO cicd_github_runs (
+  run_id,
+  workflow_name,
+  repo_name,
+  branch,
+  commit_sha,
+  commit_message,
+  trigger_event,
+  status,
+  conclusion,
+  run_attempt,
+  started_at,
+  completed_at,
+  duration_ms
+) VALUES (
+  'github_doc_20260402_sandbox_agent_dashboard_recovery',
+  'manual_verification',
+  'SamPrimeaux/inneranimalmedia-agentsam-dashboard',
+  'main',
+  'dd6cb2465b8a5dd4cafb14792f3aa4e75aaf0ac0',
+  'Sandbox deploy: remove importmap (React #525); WelcomeLauncher useEffect import; R2 uploads; IAM Explorer UI loads',
+  'workflow_dispatch',
+  'success',
+  'success',
+  1,
+  '2026-04-02T18:30:00Z',
+  '2026-04-02T18:50:00Z',
+  NULL
+);
+
+INSERT INTO cicd_pipeline_runs (
+  run_id,
+  commit_hash,
+  branch,
+  env,
+  status,
+  completed_at,
+  notes
+) VALUES (
+  'pipe_20260402_sandbox_agent_dashboard_online',
+  'dd6cb2465b8a5dd4cafb14792f3aa4e75aaf0ac0',
+  'main',
+  'sandbox',
+  'passed',
+  '2026-04-02T18:50:00Z',
+  'https://inneranimal-dashboard.meauxbility.workers.dev/dashboard/agent loads IAM Explorer (Welcome, Agent panel, R2 explorer, +voxel/+Browser/+GLB/+Draw). dashboard-v=6 in HTML comment. Still buggy; usable baseline.'
+);
+
+INSERT INTO cicd_runs (
+  id,
+  run_number,
+  worker_name,
+  environment,
+  deployment_type,
+  trigger_source,
+  triggered_by,
+  status,
+  conclusion,
+  failure_phase,
+  error_message,
+  error_detail_json,
+  git_repo,
+  git_branch,
+  git_commit_sha,
+  git_commit_message,
+  github_run_id,
+  cf_deploy_url,
+  cf_health_check_url,
+  phase_sandbox_status,
+  phase_benchmark_status,
+  phase_promote_status,
+  notes,
+  tags_json,
+  metadata_json,
+  queued_at,
+  started_at,
+  completed_at,
+  created_at,
+  updated_at
+) VALUES (
+  'run_cicd_20260402_sandbox_agent_ui_restored',
+  3,
+  'inneranimal-dashboard',
+  'sandbox',
+  'worker_r2',
+  'agent_sam',
+  'sam_primeaux',
+  'live',
+  'success',
+  NULL,
+  NULL,
+  '{"recovery":{"url":"https://inneranimal-dashboard.meauxbility.workers.dev/dashboard/agent","title":"IAM Explorer","dashboard_html_comment":"dashboard-v:6","status":"partial_operational","bugs_remaining":true,"fixes_applied":["removed index.html importmap (duplicate React / error 525)","vite resolve.dedupe react react-dom","WelcomeLauncher import useEffect","esbuild/wrangler workspace fix dd6cb24","R2 upload retries after 503"]}}',
+  'SamPrimeaux/inneranimalmedia-agentsam-dashboard',
+  'main',
+  'dd6cb2465b8a5dd4cafb14792f3aa4e75aaf0ac0',
+  'fix(agent-dashboard): drop wrangler from workspace; single esbuild for Workers Builds',
+  'github_doc_20260402_sandbox_agent_dashboard_recovery',
+  'https://inneranimal-dashboard.meauxbility.workers.dev',
+  'https://inneranimal-dashboard.meauxbility.workers.dev/dashboard/agent',
+  'passed',
+  'pending',
+  'pending',
+  'Operator confirmed sandbox /dashboard/agent is back online with visible IAM Explorer shell (Welcome, Agent chat, R2, CAD shortcuts). Remaining issues tracked separately.',
+  '["sandbox","iam-explorer","recovery","2026-04-02","dashboard-agent"]',
+  '{"verified_url":"https://inneranimal-dashboard.meauxbility.workers.dev/dashboard/agent","sandbox_deploy_version":6,"worker_name":"inneranimal-dashboard"}',
+  unixepoch('2026-04-02 18:00:00'),
+  unixepoch('2026-04-02 18:30:00'),
+  unixepoch('2026-04-02 18:50:00'),
+  unixepoch('2026-04-02 18:50:00'),
+  unixepoch('2026-04-02 18:50:00')
+);
+
+INSERT INTO cicd_run_steps (
+  id,
+  run_id,
+  tool_name,
+  test_type,
+  status,
+  latency_ms,
+  http_status,
+  error,
+  response_preview,
+  tested_at
+) VALUES
+(
+  'step_20260402_sandbox_agent_url_get',
+  'pipe_20260402_sandbox_agent_dashboard_online',
+  'https_get_dashboard_agent',
+  'route',
+  'pass',
+  NULL,
+  200,
+  NULL,
+  'IAM Explorer title; UI shell visible',
+  '2026-04-02T18:45:00Z'
+),
+(
+  'step_20260402_sandbox_agent_bundle_loads',
+  'pipe_20260402_sandbox_agent_dashboard_online',
+  'vite_bundle_static_dashboard_agent',
+  'invoke',
+  'pass',
+  NULL,
+  NULL,
+  NULL,
+  'JS/CSS under /static/dashboard/agent/assets/',
+  '2026-04-02T18:45:00Z'
+),
+(
+  'step_20260402_sandbox_known_bugs_open',
+  'pipe_20260402_sandbox_agent_dashboard_online',
+  'manual_qa_followup',
+  'invoke',
+  'skip',
+  NULL,
+  NULL,
+  'Operator: still buggy; track in issues / next deploy',
+  NULL,
+  '2026-04-02T18:50:00Z'
+);

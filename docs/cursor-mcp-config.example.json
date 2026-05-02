@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "inneranimalmedia": {
+      "url": "https://mcp.inneranimalmedia.com/mcp",
+      "headers": {
+        "Authorization": "Bearer PASTE_MCP_AUTH_TOKEN_HERE"
+      }
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    }
+  }
+}

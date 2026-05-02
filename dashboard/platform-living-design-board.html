@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="meaux-glass-blue">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Platform Living Board — Inner Animal Media</title>
+
+  <!-- Theme preload (prevents flash) -->
+  <script>
+    (function() {
+      const saved = localStorage.getItem('dashboard-theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+      const savedVars = localStorage.getItem('dashboard-theme-vars');
+      if (savedVars) {
+        const style = document.createElement('style');
+        style.id = 'theme-preload-inject';
+        style.textContent = savedVars;
+        document.head.appendChild(style);
+      }
+    })();
+  </script>
+
+  <script>
+    (function() {
+      // Apply theme vars from /api/settings/theme, same pattern as other dashboard pages.
+      function applyShellTheme(slug, config, apiVariables) {
+        if (!slug) return;
+        document.documentElement.setAttribute('data-theme', slug);
+        var cssVars = (config && (config.cssVars || config.css_vars)) || {};
+        if (apiVariables && typeof apiVariables === 'object' && Object.keys(apiVariables).length) {
+          cssVars = apiVariables;
+        }
+        var cssText = ':root[data-theme="' + String(slug).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"] {';
+        for (var k in cssVars) if (Object.prototype.hasOwnProperty.call(cssVars, k)) {
+          var key = String(k).indexOf('--') === 0 ? k : '--' + k;
+          cssText += key + ':' + cssVars[k] + ';';
+        }
+        cssText += '}';
+        try {
+          localStorage.setItem('dashboard-theme', slug);
+          localStorage.setItem('dashboard-theme-vars', cssText);
+        } catch (e) {}
+        var styleEl = document.getElementById('theme-dynamic-inject');
+        if (!styleEl) {
+          styleEl = document.createElement('style');
+          styleEl.id = 'theme-dynamic-inject';
+          document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = cssText;
+      }
+
+      fetch('/api/settings/theme', { credentials: 'same-origin' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+          var slug = (d && d.theme) ? d.theme.trim() : null;
+          if (!slug) {
+            try { slug = localStorage.getItem('dashboard-theme'); } catch (e) {}
+            if (!slug) return;
+          }
+          if (d && d.variables && typeof d.variables === 'object' && Object.keys(d.variables).length) {
+            applyShellTheme(slug, {}, d.variables);
+            return;
+          }
+          // If API did not return variables, we keep the preloaded vars.
+        })
+        .catch(function() {});
+    })();
+  </script>
+
+  <style>
+    /* Layout */
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: inherit;
+      background: var(--bg-canvas);
+      color: var(--text-primary);
+      overflow-x: hidden;
+    }
+    .root {
+      padding: 18px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* Head */
+    .titlebar {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      margin-bottom: 14px;
+    }
+    .title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--color-border);
+      background: var(--bg-secondary, var(--bg-elevated));
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+    .pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-accent);
+      box-shadow: 0 0 10px rgba(0,0,0,0);
+    }
+
+    /* Sections */
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 1100px) {
+      .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .card-h {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .card-b {
+      padding: 14px;
+    }
+
+    /* Diagram: node/edge canvas */
+    .diagramWrap {
+      overflow: hidden;
+    }
+    .diagramLegend {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .legendRow {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .legendKey {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      background: var(--color-primary);
+      flex-shrink: 0;
+      margin-top: 3px;
+    }
+    .legendText {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .diagram {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--color-border);
+      background: var(--bg-secondary, var(--bg-elevated));
+      position: relative;
+      min-height: 320px;
+    }
+    .node {
+      position: absolute;
+      border: 1px solid var(--color-border);
+      background: var(--bg-elevated);
+      border-radius: 10px;
+      padding: 10px 10px;
+      width: 240px;
+      box-sizing: border-box;
+    }
+    .node h4 {
+      margin: 0 0 6px 0;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+    .node ul {
+      margin: 0;
+      padding-left: 16px;
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+      font-weight: 600;
+    }
+    .node li { margin: 2px 0; }
+    .edgeSvg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .edgeSvg line, .edgeSvg path {
+      stroke: var(--color-border);
+      stroke-width: 1.3;
+      fill: none;
+      opacity: 0.95;
+    }
+    .edgeSvg marker path {
+      fill: var(--color-border);
+    }
+
+    /* Text blocks */
+    .small { font-size: 12px; color: var(--text-muted); font-weight: 600; line-height: 1.45; }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.35;
+    }
+    .codeBlock {
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      background: var(--bg-secondary, var(--bg-elevated));
+      padding: 12px;
+      overflow: auto;
+      max-height: 240px;
+    }
+
+    /* Checklist */
+    .checkGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 1100px) {
+      .checkGrid { grid-template-columns: 1fr; }
+    }
+    .checkItem {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      background: var(--bg-secondary, var(--bg-elevated));
+    }
+    .checkItem input {
+      margin-top: 3px;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--color-primary);
+    }
+    .checkItem .txt {
+      flex: 1;
+      min-width: 0;
+    }
+    .checkItem .txt .h {
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .checkItem .txt .d {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    .checkItem .txt .v {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin-top: 6px;
+      opacity: 0.95;
+    }
+    textarea, .inputLike {
+      width: 100%;
+      border: 1px solid var(--color-border);
+      background: var(--bg-secondary, var(--bg-elevated));
+      color: var(--text-primary);
+      border-radius: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.35;
+      outline: none;
+    }
+    textarea { min-height: 92px; resize: vertical; }
+    .btnRow {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 10px;
+    }
+    button {
+      border: 1px solid var(--color-border);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 800;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin-top: 8px;
+    }
+
+    /* Collapsible */
+    details {
+      margin-top: 12px;
+    }
+    summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      background: var(--bg-elevated);
+      font-weight: 800;
+      font-size: 12px;
+      user-select: none;
+    }
+    details[open] summary {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+    .detailsBody {
+      border: 1px solid var(--color-border);
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      background: var(--bg-secondary, var(--bg-elevated));
+      padding: 12px;
+    }
+
+    /* Footer */
+    .footerNote {
+      margin-top: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="root">
+    <div class="titlebar">
+      <div>
+        <div class="title">Platform Living Board</div>
+        <div class="subtitle">Ever living doc: system diagrams + write/read truth + tomorrow task plan + current D1 snapshot.</div>
+      </div>
+      <div class="pill" title="Local checklist stored in your browser via localStorage.">
+        <span class="dot"></span>
+        Interactive checklist (local)
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px;">
+      <div class="card-h">Current D1 snapshot (remote: inneranimalmedia-business)</div>
+      <div class="card-b">
+        <div class="small">
+          Snapshot captured during build audit. Use this as baseline for “is the system writing data?” staleness checks.
+        </div>
+        <div class="codeBlock mono" style="margin-top: 10px;">
+deployments: (canonical; row count varies)
+ci_di_workflow_runs: 1
+cicd_runs: 0
+project_time_entries: 6
+time_entries: 2
+timesheets: 0
+agent_telemetry: 624
+spend_ledger: 4601
+ai_rag_search_history: 24
+mcp_tool_calls: 293
+mcp_usage_log: 0
+mcp_agent_sessions: 7
+mcp_services: 24
+mcp_registered_tools: 30
+cidi: 3
+cidi_activity_log: 10
+activity_log: 0
+agent_memory_for_context: 13
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <!-- (1) Overview + dataflow -->
+      <div class="card diagramWrap">
+        <div class="card-h">Lens 1: Overview Metrics Dataflow (read/write truth)</div>
+        <div class="card-b">
+          <div class="diagramLegend">
+            <div class="legendRow">
+              <div class="legendKey" style="background: var(--color-primary);"></div>
+              <div class="legendText">UI widgets read from canonical D1 tables and obey time windows / success criteria.</div>
+            </div>
+            <div class="legendRow">
+              <div class="legendKey" style="background: var(--text-accent);"></div>
+              <div class="legendText">Writers exist only when endpoints/tools are called. If table is empty, widget is empty.</div>
+            </div>
+          </div>
+
+          <div class="diagram" id="diagram-overview">
+            <svg class="edgeSvg" viewBox="0 0 980 420" preserveAspectRatio="none">
+              <defs>
+                <marker id="arrowHead1" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                  <path d="M0,0 L0,6 L9,3 z"></path>
+                </marker>
+              </defs>
+              <path d="M 260 95 C 330 95, 330 95, 420 95" marker-end="url(#arrowHead1)"></path>
+              <path d="M 260 160 C 350 160, 350 170, 420 200" marker-end="url(#arrowHead1)"></path>
+              <path d="M 600 95 C 520 95, 520 130, 440 210" marker-end="url(#arrowHead1)"></path>
+              <path d="M 600 300 C 520 300, 520 250, 440 210" marker-end="url(#arrowHead1)"></path>
+            </svg>
+
+            <div class="node" style="left: 24px; top: 40px; width: 250px;">
+              <h4>Overview UI</h4>
+              <ul>
+                <li>Deploys Today</li>
+                <li>Tasks Done</li>
+                <li>Hours This Week</li>
+                <li>Projects</li>
+                <li>Weekly + Recent Activity</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 330px; top: 40px; width: 300px;">
+              <h4>Worker read endpoints</h4>
+              <ul>
+                <li>/api/overview/activity-strip</li>
+                <li>/api/overview/deployments</li>
+                <li>/api/dashboard/time-track</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 680px; top: 40px; width: 260px;">
+              <h4>Canonical tables</h4>
+              <ul>
+                <li>deployments</li>
+                <li>project_time_entries</li>
+                <li>cursor_tasks (planned)</li>
+                <li>cicd_runs (needs writer)</li>
+                <li>ai_rag_search_history</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 330px; top: 230px; width: 610px;">
+              <h4>Staleness invariant (simple)</h4>
+              <div class="small" style="margin-top: 6px;">
+                If the writer path is not executed, the metric will show 0. Every widget must list its canonical table + time window + the exact writer endpoint(s).
+              </div>
+            </div>
+          </div>
+
+          <details open>
+            <summary>Lens 1: Widget mapping (write/read truth)</summary>
+            <div class="detailsBody">
+              <div class="mono">
+Deploys Today:
+  reads: deployments
+  query: date(timestamp) in last 7 days AND status='success'
+
+Worker deploys table:
+  reads: deployments (last 20)
+
+Hours This Week:
+  reads: project_time_entries (user_id variants) is_active=0 AND start_time >= week start
+
+CI/CD runs:
+  reads: cicd_runs (last 10)
+  current state: cicd_runs is empty => widget is empty until we add the webhook writer.
+
+MCP + RAG telemetry:
+  reads: mcp_tool_calls, mcp_usage_log, ai_rag_search_history
+  current state: mcp_usage_log=0 rows => we need usage writer coverage.
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- (2) Agent lifecycle -->
+      <div class="card diagramWrap">
+        <div class="card-h">Lens 2: Agent Lifecycle (chat -> tools -> telemetry -> RAG -> memory)</div>
+        <div class="card-b">
+          <div class="diagram" id="diagram-agent" style="min-height: 320px;">
+            <svg class="edgeSvg" viewBox="0 0 980 420" preserveAspectRatio="none">
+              <defs>
+                <marker id="arrowHead2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                  <path d="M0,0 L0,6 L9,3 z"></path>
+                </marker>
+              </defs>
+              <path d="M 300 90 C 400 90, 420 110, 480 140" marker-end="url(#arrowHead2)"></path>
+              <path d="M 520 190 C 650 190, 650 260, 760 260" marker-end="url(#arrowHead2)"></path>
+              <path d="M 520 190 C 650 190, 650 90, 760 90" marker-end="url(#arrowHead2)"></path>
+              <path d="M 300 270 C 420 270, 420 250, 480 230" marker-end="url(#arrowHead2)"></path>
+              <path d="M 520 230 C 440 310, 300 350, 210 340" marker-end="url(#arrowHead2)"></path>
+            </svg>
+
+            <div class="node" style="left: 24px; top: 40px; width: 280px;">
+              <h4>User + Mode</h4>
+              <ul>
+                <li>chat modes</li>
+                <li>tool intent</li>
+                <li>model/provider route</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 330px; top: 40px; width: 260px;">
+              <h4>Worker /api/agent/chat</h4>
+              <ul>
+                <li>context compile</li>
+                <li>tool loop</li>
+                <li>telemetry writes</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 650px; top: 40px; width: 280px;">
+              <h4>RAG + retrieval</h4>
+              <ul>
+                <li>Vectorize retrieval</li>
+                <li>R2 knowledge context</li>
+                <li>ai_rag_search_history</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 24px; top: 220px; width: 280px;">
+              <h4>Tool loop</h4>
+              <ul>
+                <li>invoke MCP tool</li>
+                <li>record mcp_tool_calls</li>
+                <li>aggregate mcp_usage_log (needs coverage)</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 330px; top: 220px; width: 600px;">
+              <h4>Telemetry + memory invariants</h4>
+              <div class="small" style="margin-top: 6px;">
+                - Telemetry tables fill only if the code path calls the record helper.
+                - RAG history fills only on specific logging call sites.
+                - Memory for context should be a single canonical table (prefer agent_memory_index; avoid duplicate "memory_for_context" unless intentionally bridged).
+              </div>
+            </div>
+          </div>
+
+          <details>
+            <summary>Lens 2: Current “write coverage” hotspots</summary>
+            <div class="detailsBody">
+              <div class="mono">
+mcp_usage_log:
+  current snapshot: 0 rows
+  implication: usage aggregation write path is not firing (or only fires on invokeMcpToolFromChat paths)
+  objective: ensure every desired tool invocation increments mcp_usage_log (including builtins if you want them).
+
+ai_rag_search_history:
+  current snapshot: 24 rows
+  implication: only some RAG paths log history. Decide whether to log all retrieval paths so history matches what the UI shows.
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- (3) CI/CD + Ops -->
+      <div class="card diagramWrap">
+        <div class="card-h">Lens 3: CI/CD + Operational Events (deploys -> runs -> health)</div>
+        <div class="card-b">
+          <div class="diagram" id="diagram-ci" style="min-height: 320px;">
+            <svg class="edgeSvg" viewBox="0 0 980 420" preserveAspectRatio="none">
+              <defs>
+                <marker id="arrowHead3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                  <path d="M0,0 L0,6 L9,3 z"></path>
+                </marker>
+              </defs>
+              <path d="M 270 90 C 360 90, 390 110, 440 140" marker-end="url(#arrowHead3)"></path>
+              <path d="M 270 200 C 360 200, 390 220, 440 240" marker-end="url(#arrowHead3)"></path>
+              <path d="M 600 220 C 660 220, 720 220, 760 220" marker-end="url(#arrowHead3)"></path>
+              <path d="M 600 140 C 660 140, 720 140, 760 140" marker-end="url(#arrowHead3)"></path>
+            </svg>
+
+            <div class="node" style="left: 24px; top: 40px; width: 280px;">
+              <h4>Deploy sources</h4>
+              <ul>
+                <li>npm run deploy</li>
+                <li>wrangler deploy</li>
+                <li>agent deploy</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 330px; top: 40px; width: 610px;">
+              <h4>Record step (required)</h4>
+              <ul>
+                <li>post-deploy-record.sh -> deployments</li>
+                <li>or POST /api/internal/record-deploy</li>
+                <li>ensures Overview Recent Activity stays accurate</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 24px; top: 220px; width: 280px;">
+              <h4>CI/DI workflow runs</h4>
+              <ul>
+                <li>record-workflow-run.sh</li>
+                <li>ci_di_workflow_runs (audit)</li>
+                <li>cicd_runs (needs writer)</li>
+              </ul>
+            </div>
+
+            <div class="node" style="left: 330px; top: 220px; width: 610px;">
+              <h4>Health checks + build steps</h4>
+              <div class="small" style="margin-top: 6px;">
+                Decide which health metrics to store (URL checks, dependency checks, screenshot job state).
+                When you add health writers, create a single canonical table and a dashboard read.
+              </div>
+            </div>
+          </div>
+
+          <details open>
+            <summary>Lens 3: What is currently “empty” and why it matters</summary>
+            <div class="detailsBody">
+              <div class="mono">
+cicd_runs is empty (0 rows):
+  Overview CI/CD widget shows no runs until we add webhook/API writer for workflow_run completion.
+
+mcp_usage_log is empty (0 rows):
+  MCP dashboard usage by day is missing; add write coverage if you want it as a metric.
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 12px;">
+      <div class="card-h">Tomorrow plan (interactive checklist)</div>
+      <div class="card-b">
+        <div class="small">
+          These tasks are designed to convert tomorrow into a tight “write coverage + wiring + verification” loop. Check off items as you complete them.
+          Checklist state is stored locally in your browser.
+        </div>
+
+        <div class="checkGrid" id="checkGrid" style="margin-top: 12px;">
+          <div class="checkItem">
+            <input type="checkbox" id="t_cicd_runs_writer" data-id="t_cicd_runs_writer" />
+            <div class="txt">
+              <div class="h">Add writer for <span class="mono">cicd_runs</span> (CI/CD widget)</div>
+              <div class="d">Implement migration + webhook or internal API insert. Overview already reads <span class="mono">cicd_runs</span>.</div>
+              <div class="v mono">Verify: SELECT COUNT(*) FROM cicd_runs;</div>
+            </div>
+          </div>
+
+          <div class="checkItem">
+            <input type="checkbox" id="t_mcp_usage_log_coverage" data-id="t_mcp_usage_log_coverage" />
+            <div class="txt">
+              <div class="h">Enable <span class="mono">mcp_usage_log</span> writes (coverage)</div>
+              <div class="d">Ensure the usage aggregator runs for the tool paths you care about (builtin + mcp remote, depending on desired metric).</div>
+              <div class="v mono">Verify: SELECT COUNT(*) FROM mcp_usage_log; and check today's date row.</div>
+            </div>
+          </div>
+
+          <div class="checkItem">
+            <input type="checkbox" id="t_rag_history_full_coverage" data-id="t_rag_history_full_coverage" />
+            <div class="txt">
+              <div class="h">Unify RAG history logging</div>
+              <div class="d">Decide which retrieval routes must log to <span class="mono">ai_rag_search_history</span>, then instrument consistent INSERT behavior.</div>
+              <div class="v mono">Verify: run one /api/search and one agent knowledge_search; compare inserted rows.</div>
+            </div>
+          </div>
+
+          <div class="checkItem">
+            <input type="checkbox" id="t_time_tracking_user_id_invariant" data-id="t_time_tracking_user_id_invariant" />
+            <div class="txt">
+              <div class="h">Time tracking user_id invariant</div>
+              <div class="d">Confirm session.user_id variants used by /api/dashboard/time-track and activity-strip match. Fix gaps so Hours This Week is reliable.</div>
+              <div class="v mono">Verify: SELECT * FROM project_time_entries WHERE user_id IN ('sam_primeaux','user_sam_primeaux') ORDER BY start_time DESC LIMIT 5;</div>
+            </div>
+          </div>
+
+          <div class="checkItem">
+            <input type="checkbox" id="t_deploy_attribution_consistency" data-id="t_deploy_attribution_consistency" />
+            <div class="txt">
+              <div class="h">Deploy attribution consistency (30+ deploys/day)</div>
+              <div class="d">Ensure every deploy path records to <span class="mono">deployments</span>: use <span class="mono">npm run deploy</span> or call record-deploy API after wrangler.</div>
+              <div class="v mono">Verify: SELECT COUNT(*) FROM deployments WHERE date(timestamp) >= date('now','-7 days') AND status='success';</div>
+            </div>
+          </div>
+
+          <div class="checkItem">
+            <input type="checkbox" id="t_cidi_schema_wiring" data-id="t_cidi_schema_wiring" />
+            <div class="txt">
+              <div class="h">CIDI schema + write path decisions</div>
+              <div class="d">Decide how <span class="mono">cidi</span> and <span class="mono">cidi_activity_log</span> get populated, then implement one write path and ensure /api/agent/cidi reads it.</div>
+              <div class="v mono">Verify: SELECT COUNT(*) FROM cidi; SELECT COUNT(*) FROM cidi_activity_log;</div>
+            </div>
+          </div>
+
+          <div class="checkItem">
+            <input type="checkbox" id="t_memory_for_context_consolidation" data-id="t_memory_for_context_consolidation" />
+            <div class="txt">
+              <div class="h">Memory consolidation (avoid duplicates)</div>
+              <div class="d">Decide whether to standardize on <span class="mono">agent_memory_index</span> or bridge <span class="mono">agent_memory_for_context</span>. Goal: one canonical memory-for-context source.</div>
+              <div class="v mono">Verify: compare recent reads/writes for both tables (query by importance score or key).</div>
+            </div>
+          </div>
+
+          <div class="checkItem">
+            <input type="checkbox" id="t_legacy_time_bridge" data-id="t_legacy_time_bridge" />
+            <div class="txt">
+              <div class="h">Legacy time bridge/deprecate decision</div>
+              <div class="d">Decide whether <span class="mono">timesheets</span> should be derived from <span class="mono">project_time_entries</span> (view/ETL) or remain legacy-only.</div>
+              <div class="v mono">Verify: SELECT COUNT(*) FROM timesheets; SELECT COUNT(*) FROM project_time_entries;</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;">
+          <div class="small" style="margin-bottom: 8px;">Notes for tomorrow (saved locally):</div>
+          <textarea id="boardNotes" placeholder="Capture decisions, blockers, and the exact commit/migration when you add a writer."></textarea>
+          <div class="btnRow">
+            <button type="button" id="btnSaveNotes">Save notes</button>
+            <button type="button" id="btnResetNotes">Reset notes</button>
+            <button type="button" id="btnCopyPlan">Copy plan summary</button>
+          </div>
+          <div class="hint">All checklist + notes are local to your browser. This page does not change D1 or deploy anything.</div>
+        </div>
+      </div>
+    </div>
+
+    <details>
+      <summary>Append-only “ever living” protocol (how this board stays correct)</summary>
+      <div class="detailsBody">
+        <div class="small">
+          For each change (migration, writer, dashboard read), update:
+          <div class="mono" style="margin-top: 8px;">
+1) Snapshot numbers (row counts for affected tables)
+2) Write path section (exact endpoint/function + INSERT/UPDATE columns)
+3) Reader query section (exact SQL used by UI)
+4) Invariants + verification SQL
+        </div>
+        </div>
+        <div class="footerNote">
+          Links:
+          <span class="mono">docs/OVERVIEW_DASHBOARD_DB_AUDIT.md</span>,
+          <span class="mono">docs/PLATFORM_TABLES_AUDIT_AND_WIRING.md</span>,
+          <span class="mono">docs/DEPLOY_TRACKING.md</span>.
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <script>
+    (function() {
+      const STORAGE_KEY = 'platformLivingBoard_v1';
+      function getState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          return raw ? JSON.parse(raw) : { checks: {}, notes: '' };
+        } catch (e) {
+          return { checks: {}, notes: '' };
+        }
+      }
+      function setState(next) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch (e) {}
+      }
+
+      const state = getState();
+
+      // Initialize checklist from local storage
+      var inputs = document.querySelectorAll('input[type="checkbox"][data-id]');
+      inputs.forEach(function(el) {
+        const id = el.getAttribute('data-id');
+        const checked = !!(state.checks && state.checks[id]);
+        el.checked = checked;
+        el.addEventListener('change', function() {
+          const s = getState();
+          if (!s.checks) s.checks = {};
+          s.checks[id] = el.checked;
+          setState(s);
+        });
+      });
+
+      // Notes
+      const notesEl = document.getElementById('boardNotes');
+      if (notesEl) {
+        notesEl.value = state.notes || '';
+        notesEl.addEventListener('input', function() {
+          const s = getState();
+          s.notes = notesEl.value;
+          setState(s);
+        });
+      }
+
+      const btnSave = document.getElementById('btnSaveNotes');
+      if (btnSave) btnSave.addEventListener('click', function() {
+        const s = getState();
+        s.notes = notesEl ? notesEl.value : '';
+        setState(s);
+        alert('Notes saved locally.');
+      });
+
+      const btnReset = document.getElementById('btnResetNotes');
+      if (btnReset) btnReset.addEventListener('click', function() {
+        const ok = confirm('Reset notes to empty?');
+        if (!ok) return;
+        const s = getState();
+        s.notes = '';
+        setState(s);
+        if (notesEl) notesEl.value = '';
+      });
+
+      const btnCopy = document.getElementById('btnCopyPlan');
+      if (btnCopy) btnCopy.addEventListener('click', function() {
+        const checks = getState().checks || {};
+        const done = [];
+        const todo = [];
+        Object.keys(checks).forEach(function(k) {
+          const inputEl = document.querySelector('input[type="checkbox"][data-id="' + k + '"]');
+          const label = inputEl ? inputEl.parentElement.querySelector('.h') : null;
+          const text = label ? label.textContent.trim() : k;
+          if (checks[k]) done.push(text);
+          else todo.push(text);
+        });
+        const payload =
+          'Platform Living Board - Tomorrow Plan\\n\\n' +
+          'Done:\\n' + (done.length ? done.map(x => '- ' + x).join('\\n') : '- (none)') + '\\n\\n' +
+          'Next:\\n' + (todo.length ? todo.map(x => '- ' + x).join('\\n') : '- (none)') + '\\n';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(payload).then(function() {
+            alert('Plan copied to clipboard.');
+          }).catch(function() {
+            alert('Copy failed. Check console.');
+          });
+        } else {
+          prompt('Copy plan:', payload);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,22 @@
+-- =============================================================================
+-- REMOTE SCHEMA SNAPSHOT — documentation / reconciliation artifact
+-- Target project: dpmuvynqixblxsilnlut
+-- Schemas requested: public, agentsam
+-- Date label: 2026-04-30
+--
+-- AUTOMATED GENERATION (2026-04-30): NOT COMPLETED in the environment that ran
+-- the baseline task. `supabase db dump` required Docker Desktop (pg_dump run
+-- inside the CLI’s container flow); Docker was unavailable and no system
+-- `pg_dump` was found on PATH.
+--
+-- To replace this file with a real pg_dump-backed snapshot, on a machine with
+-- Docker running and this repo linked to dpmuvynqixblxsilnlut:
+--
+--   cd /Users/samprimeaux/inneranimalmedia-agentsam-dashboard
+--   env -u SUPABASE_PROJECT_ID supabase db dump --linked \
+--     -s public,agentsam \
+--     -f docs/supabase/remote_schema_public_agentsam_2026-04-30.sql --yes
+--
+-- See: docs/supabase/MIGRATION_RECONCILIATION_2026-04-30.md
+-- =============================================================================
+-- No DDL below: open for reference only; regenerate with supabase db dump above.

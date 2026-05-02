@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IAM | Agent code pipeline</title>
+  <style>
+    :root {
+      --bg0: hsl(160 18% 6%);
+      --bg1: hsl(165 16% 9%);
+      --glass: hsl(0 0% 100% / 0.06);
+      --glass-border: hsl(0 0% 100% / 0.12);
+      --text: hsl(155 22% 93%);
+      --muted: hsl(150 14% 58%);
+      --accent: hsl(172 58% 54%);
+      --accent-dim: hsl(172 58% 54% / 0.2);
+      --warn: hsl(43 78% 60%);
+      --radius: 14px;
+      --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-sans);
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 120% 80% at 20% -20%, var(--accent-dim), transparent 55%),
+        radial-gradient(ellipse 90% 60% at 100% 0%, hsl(220 45% 55% / 0.12), transparent 50%),
+        linear-gradient(165deg, var(--bg0), var(--bg1));
+      line-height: 1.55;
+    }
+    .wrap {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: clamp(1.25rem, 4vw, 2.5rem);
+    }
+    header {
+      margin-bottom: 2rem;
+      animation: rise 0.7s ease-out both;
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--glass-border);
+      background: var(--glass);
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+    }
+    h1 {
+      font-size: clamp(1.65rem, 4vw, 2.1rem);
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.5rem;
+    }
+    .lede {
+      color: var(--muted);
+      font-size: 1.02rem;
+      max-width: 52ch;
+      margin: 0;
+    }
+    .grid {
+      display: grid;
+      gap: 1rem;
+    }
+    @media (min-width: 640px) {
+      .grid.steps { grid-template-columns: repeat(2, 1fr); }
+    }
+    .panel {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 1.15rem 1.25rem;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 18px 50px hsl(0 0% 0% / 0.45);
+      animation: rise 0.65s ease-out both;
+    }
+    .panel:nth-child(1) { animation-delay: 0.05s; }
+    .panel:nth-child(2) { animation-delay: 0.1s; }
+    .panel:nth-child(3) { animation-delay: 0.15s; }
+    .panel:nth-child(4) { animation-delay: 0.2s; }
+    .panel:nth-child(5) { animation-delay: 0.25s; }
+    .panel h2 {
+      margin: 0 0 0.65rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.65rem;
+      height: 1.65rem;
+      border-radius: 8px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .panel p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .panel code, .mono {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--accent);
+      word-break: break-all;
+    }
+    .artifacts {
+      margin-top: 1.75rem;
+    }
+    .artifacts h2 {
+      font-size: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.5rem;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    th {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    tr:last-child td { border-bottom: none; }
+    .status {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .status.tools { background: var(--accent-dim); color: var(--accent); }
+    .status.pending { background: hsl(43 78% 60% / 0.15); color: var(--warn); }
+    footer {
+      margin-top: 2.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--glass-border);
+      font-size: 0.8rem;
+      color: var(--muted);
+      animation: rise 0.7s ease-out 0.3s both;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+    a:hover { border-bottom-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="badge">Starter shell | replace later</span>
+      <h1>Agent code pipeline</h1>
+      <p class="lede">
+        When Agent Sam (or any agent) writes or builds code, the first landing zone is the
+        <strong style="color: var(--text)">TOOLS</strong> bucket under <span class="mono">code/</span>.
+        This page documents the promotion path until your dashboard replaces it.
+      </p>
+    </header>
+
+    <div class="grid steps">
+      <section class="panel">
+        <h2><span class="step-num">1</span> Write to TOOLS</h2>
+        <p>Artifact lands at <span class="mono">tools / code / &lt;file&gt;</span> via <span class="mono">r2_write</span> (binding <span class="mono">TOOLS</span>).</p>
+      </section>
+      <section class="panel">
+        <h2><span class="step-num">2</span> Public URL</h2>
+        <p>Share <span class="mono">https://tools.inneranimalmedia.com/code/&hellip;</span> for review (custom domain on bucket).</p>
+      </section>
+      <section class="panel">
+        <h2><span class="step-num">3</span> Approval</h2>
+        <p>Human approves content and promotion intent (no auto-prod without gate).</p>
+      </section>
+      <section class="panel">
+        <h2><span class="step-num">4</span> Sandbox R2</h2>
+        <p>Upload or sync into <span class="mono">agent-sam-sandbox-cidi</span> for live validation on the sandbox worker.</p>
+      </section>
+      <section class="panel" style="grid-column: 1 / -1;">
+        <h2><span class="step-num">5</span> Production</h2>
+        <p>After sandbox check, promote to <span class="mono">agent-sam</span> and production URLs per CIDI rules.</p>
+      </section>
+    </div>
+
+    <section class="artifacts panel">
+      <h2>Recent artifacts (placeholder)</h2>
+      <p style="margin-bottom:1rem;font-size:0.88rem;">Replace this table with API-driven rows or static build output.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Status</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">code/example-module.js</td>
+            <td><span class="status tools">in tools</span></td>
+            <td>Sample row</td>
+          </tr>
+          <tr>
+            <td class="mono">code/hub-starter.html</td>
+            <td><span class="status pending">pending promote</span></td>
+            <td>This template</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      Inner Animal Media &middot; Tools bucket seed &middot;
+      Ledger: use System B (<span class="mono">workflow_runs</span> + <span class="mono">workflow_artifacts</span>) to track keys and promotion state, not System A templates.
+    </footer>
+  </div>
+</body>
+</html>

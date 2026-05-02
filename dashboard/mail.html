@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="meaux-glass-blue">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mail — Inner Animal Media</title>
+    <!-- CRITICAL: Theme must load BEFORE any visible content -->
+    <script>
+    (function() {
+        const saved = localStorage.getItem('dashboard-theme');
+        if (saved) {
+            document.documentElement.setAttribute('data-theme', saved);
+        }
+        // Preload theme CSS vars to prevent flash
+        const savedVars = localStorage.getItem('dashboard-theme-vars');
+        if (savedVars) {
+            const style = document.createElement('style');
+            style.id = 'theme-preload-inject';
+            style.textContent = savedVars;
+            document.head.appendChild(style);
+        }
+    })();
+    </script>
+    <script>
+        (function() {
+            function applyShellTheme(slug, config, apiVariables) {
+                if (!slug) return;
+                document.documentElement.setAttribute('data-theme', slug);
+                var cssVars = (config && (config.cssVars || config.css_vars)) || {};
+                if (apiVariables && typeof apiVariables === 'object' && Object.keys(apiVariables).length) {
+                    cssVars = apiVariables;
+                } else if (config && typeof config === 'object' && !config.cssVars && !config.css_vars) {
+                    var c = config;
+                    cssVars['--bg-nav'] = c.nav || c.bg || c.surface || '#1e293b';
+                    cssVars['--text-nav'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-primary'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-secondary'] = c.textSecondary || c.text || '#94a3b8';
+                    cssVars['--color-border'] = c.border || '#334155';
+                    cssVars['--border-nav'] = c.border || '#334155';
+                    cssVars['--accent'] = c.primary || '#3b82f6';
+                    cssVars['--color-primary'] = c.primary || '#3b82f6';
+                    if (!c.bg && !c.surface) { cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b'; } else { if (c.bg) cssVars['--bg-canvas'] = c.bg; if (c.surface) cssVars['--bg-elevated'] = c.surface; }
+                }
+                if (Object.keys(cssVars).length === 0) {
+                    cssVars['--bg-nav'] = '#1e293b'; cssVars['--text-nav'] = '#f1f5f9'; cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b';
+                }
+                var cssText = ':root[data-theme="' + String(slug).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"] {';
+                for (var k in cssVars) if (Object.prototype.hasOwnProperty.call(cssVars, k)) {
+                    var key = String(k).indexOf('--') === 0 ? k : '--' + k;
+                    cssText += key + ':' + cssVars[k] + ';';
+                }
+                cssText += '}';
+                try { localStorage.setItem('dashboard-theme', slug); localStorage.setItem('dashboard-theme-vars', cssText); } catch (e) {}
+                var styleEl = document.getElementById('theme-dynamic-inject');
+                if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'theme-dynamic-inject'; document.head.appendChild(styleEl); }
+                styleEl.textContent = cssText;
+            }
+            fetch('/api/settings/theme', { credentials: 'same-origin' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(d) {
+                    var slug = (d && d.theme) ? d.theme.trim() : null;
+                    if (!slug) {
+                        try { slug = localStorage.getItem('dashboard-theme'); } catch (e) {}
+                        if (!slug) return;
+                    }
+                    if (d && d.variables && typeof d.variables === 'object' && Object.keys(d.variables).length) {
+                        applyShellTheme(slug, {}, d.variables);
+                        return;
+                    }
+                    fetch('/api/themes', { credentials: 'same-origin' })
+                        .then(function(r2) { return r2.json(); })
+                        .then(function(data) {
+                            var themes = data.themes || [];
+                            var applied = false;
+                            for (var i = 0; i < themes.length; i++) {
+                                var t = themes[i];
+                                var s = (t.slug || t.name || '').toLowerCase();
+                                if (s === slug.toLowerCase()) {
+                                    var cfg = t.config;
+                                    if (typeof cfg === 'string') try { cfg = JSON.parse(cfg); } catch (e) { cfg = {}; }
+                                    applyShellTheme(slug, cfg || {});
+                                    applied = true;
+                                    break;
+                                }
+                            }
+                            if (!applied) applyShellTheme(slug, {});
+                        })
+                        .catch(function() { applyShellTheme(slug, {}); });
+                })
+                .catch(function() {
+                    try {
+                        var local = localStorage.getItem('dashboard-theme');
+                        if (local) applyShellTheme(local, {});
+                    } catch (e) {}
+                });
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://pub-b845a8f899834f0faf95dc83eda3c505.r2.dev/static/dashboard/styles_themes.css">
+    <link rel="stylesheet" href="/static/dashboard/shell.css">
+    <style>
+        /* === THEME SYSTEM (same as agent.html) === */
+        :root {
+            --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --safe-area-top: env(safe-area-inset-top, 0);
+            --safe-area-bottom: env(safe-area-inset-bottom, 0);
+            --safe-area-left: env(safe-area-inset-left, 0);
+            --safe-area-right: env(safe-area-inset-right, 0);
+            --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+            --logo-dark: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/thumbnail');
+            --logo-light: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail');
+            --bg-surface: #0a1929;
+            --bg-panel: #132f4c;
+            --bg-base: var(--bg-surface);
+            --color-text: #e0f2fe;
+            --color-muted: #94a3b8;
+            --color-primary: #00b4d8;
+            --color-border: rgba(0,180,216,0.2);
+            --bg-elevated: color-mix(in srgb, var(--bg-panel) 85%, white 15%);
+            --bg-hover: color-mix(in srgb, var(--bg-panel) 90%, white 10%);
+            --bg-canvas: var(--bg-surface);
+            --bg-nav: var(--bg-surface);
+            --accent: var(--color-primary);
+            --text-primary: var(--color-text);
+            --text-secondary: var(--color-muted);
+            --text-nav: var(--color-muted);
+            --border: var(--color-border);
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { height: 100%; overflow-x: hidden; }
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-canvas);
+            color: var(--text-primary);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            max-width: 100vw;
+        }
+        :root { --dashboard-sidenav-width: 260px; }
+        .app-container { display: flex; flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; max-width: 100%; }
+        .topbar {
+            background: var(--bg-nav);
+            border-bottom: 1px solid var(--border-nav);
+            height: 60px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 20px;
+            min-width: 0;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 12px; color: var(--text-nav); }
+        .topbar-center { flex: 1; display: flex; justify-content: center; }
+        .topbar-right { display: flex; align-items: center; gap: 16px; color: var(--text-nav); }
+        .hamburger { width: 40px; height: 40px; border: none; background: transparent; cursor: pointer; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; transition: var(--transition); }
+        .hamburger span { width: 20px; height: 2px; background: var(--text-nav); transition: var(--transition); }
+        .hamburger.open span:nth-child(1) { transform: rotate(45deg) translateY(7px); }
+        .hamburger.open span:nth-child(2) { opacity: 0; }
+        .hamburger.open span:nth-child(3) { transform: rotate(-45deg) translateY(-7px); }
+        .app-logo { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
+        .search-wrap { position: relative; flex: 1; max-width: 360px; display: flex; align-items: center; }
+        .search-wrap .search-input { width: 100%; padding: 8px 12px 8px 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-nav); font-size: 14px; outline: none; }
+        .search-wrap .search-input::placeholder { color: var(--text-nav-muted); }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-nav-muted); pointer-events: none; }
+        .search-dropdown { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; max-height: 280px; overflow-y: auto; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 10001; display: none; }
+        .search-dropdown.open { display: block; }
+        .search-dropdown .item { padding: 10px 12px; font-size: 13px; color: var(--text-primary); cursor: pointer; border-bottom: 1px solid var(--border); }
+        .search-dropdown .item:hover { background: var(--bg-canvas); }
+        .search-mobile-btn { display: none; border: none; background: transparent; cursor: pointer; padding: 8px; color: var(--text-nav); border-radius: 8px; }
+        .profile-dropdown { position: absolute; right: 0; top: 100%; margin-top: 8px; min-width: 200px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.12); z-index: 10001; display: none; padding: 6px 0; }
+        .profile-dropdown.open { display: block; }
+        .profile-dropdown a, .profile-dropdown button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; font-size: 14px; color: var(--text-primary); background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; }
+        .profile-dropdown a:hover, .profile-dropdown button:hover { background: var(--bg-canvas); }
+        .nav-icon-btn { color: var(--text-nav); }
+        .nav-icon-btn:hover { color: #fff; background: rgba(255,255,255,0.08); }
+        .workspace-switcher { padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; background: rgba(15,23,42,0.4); color: var(--text-nav); font-size: 14px; font-weight: 500; cursor: pointer; }
+        .agent-sam-avatar { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; border: 2px solid rgba(255,255,255,0.3); cursor: pointer; }
+        .agent-drawer-backdrop { position: fixed; inset: 0; background: var(--bg-overlay); z-index: 200; opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s; }
+        .agent-drawer-backdrop.open { opacity: 1; visibility: visible; }
+        .agent-drawer { position: fixed; top: 0; right: 0; width: 380px; max-width: 100vw; height: 100vh; background: var(--bg-elevated); border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,0.12); z-index: 201; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.25s ease; }
+        .agent-drawer.open { transform: translateX(0); }
+        .agent-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--bg-nav); color: var(--text-nav); }
+        .agent-drawer-header h3 { font-size: 15px; font-weight: 600; margin: 0; }
+        .agent-drawer-close { width: 32px; height: 32px; border: none; background: transparent; color: inherit; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+        .agent-drawer-close:hover { background: rgba(255,255,255,0.15); }
+        .agent-drawer-messages { flex: 1; overflow-y: auto; padding: 12px; }
+        .agent-drawer-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+        .agent-drawer-msg.assistant { background: var(--bg-canvas); border: 1px solid var(--border); color: var(--text-primary); }
+        .sidenav { width: 260px; background: var(--bg-nav); color: var(--text-nav); display: flex; flex-direction: column; border-right: 1px solid var(--border-nav); transition: width var(--transition); }
+        .sidenav.collapsed { width: 56px; min-width: 56px; }
+        .sidenav.collapsed .sidenav-header h2, .sidenav.collapsed .nav-group-title, .sidenav.collapsed .nav-item span { display: none; }
+        .sidenav.collapsed .nav-item { justify-content: center; padding: 10px; }
+        .sidenav-header { padding: 20px; border-bottom: 1px solid var(--border-nav); display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
+        .sidenav-header h2 { margin: 0; order: 2; font-size: 16px; font-weight: 600; }
+        .sidenav-toggle { order: 1; border: none; background: transparent; color: var(--text-nav-muted); cursor: pointer; padding: 6px; border-radius: 6px; }
+        .sidenav-toggle:hover { color: var(--text-nav); background: rgba(255,255,255,0.1); }
+        .sidenav-toggle .hamburger-bars { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; }
+        .sidenav-toggle .hamburger-bars span { width: 18px; height: 2px; background: currentColor; border-radius: 1px; }
+        .sidenav-nav { flex: 1; overflow-y: auto; padding: 12px; }
+        .nav-group { margin-bottom: 20px; }
+        .nav-group-title { font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; color: var(--text-nav-muted); padding: 8px 12px; margin-bottom: 4px; }
+        .nav-group-title-link { display: flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; color: var(--text-nav-muted); padding: 8px 12px; margin-bottom: 4px; text-decoration: none; cursor: pointer; border-radius: 6px; transition: var(--transition); }
+        .nav-group-title-link:hover { color: var(--accent); }
+        .nav-group-title-link .nav-icon { width: 16px; height: 16px; }
+        .nav-group-title-link.active { color: var(--text-nav); background: rgba(255,255,255,0.15); }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; color: var(--text-nav-muted); text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 500; transition: var(--transition); margin-bottom: 2px; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); color: var(--text-nav); }
+        .nav-item.active { color: var(--text-nav); background: rgba(255,255,255,0.15); }
+        .nav-icon { width: 20px; height: 20px; opacity: 0.8; }
+        .main-content { flex: 1; overflow-x: hidden; overflow-y: auto; padding: 24px; min-height: 0; min-width: 0; max-width: 100%; background: var(--bg-canvas); }
+        .overlay { position: fixed; inset: 0; background: var(--bg-overlay); z-index: 90; display: none; }
+        .overlay.active { display: block; }
+        .dashboard-mobile-footer { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; height: calc(12px + var(--safe-area-bottom, 0px)); min-height: 12px; background: var(--bg-nav); border-top: 1px solid var(--border-nav); }
+        @media (max-width: 768px) {
+            .dashboard-mobile-footer { display: block; }
+            body { padding-bottom: calc(12px + var(--safe-area-bottom, 0px)); }
+            .main-content { padding: 16px 12px; }
+            .hamburger { display: flex; }
+            .sidenav { position: fixed; top: 0; left: 0; bottom: 0; width: 75vw; z-index: 95; transform: translateX(-100%); }
+            .sidenav.open { transform: translateX(0); }
+            .workspace-switcher { display: none; }
+        }
+        @media (min-width: 769px) { .hamburger { display: none; } }
+
+    </style>
+</head>
+
+<body>
+<body>
+    <header class="topbar">
+        <div class="topbar-left">
+            <button class="hamburger" id="hamburger" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+            <img id="ia-logo" class="app-logo" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail" alt="Inner Animal Media">
+        </div>
+        <div class="topbar-center" style="display: flex; align-items: center; gap: 16px;">
+            <div class="search-wrap" id="searchWrap">
+                <button type="button" class="search-mobile-btn" id="searchMobileBtn" aria-label="Search"><svg class="nav-icon-btn" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
+                <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" class="search-input" id="searchInput" placeholder="Search or type a command..." autocomplete="off">
+                <div class="search-dropdown" id="searchDropdown">
+                    <div class="item" data-url="/dashboard/overview">Overview</div>
+                    <div class="item" data-url="/dashboard/cloud">Cloud</div>
+                    <div class="item" data-url="/dashboard/agent">Agent</div>
+                </div>
+            </div>
+            <select class="workspace-switcher" id="workspaceSelect"><option value="ws_samprimeaux">Sam Primeaux Workspace</option></select>
+        </div>
+        <div class="topbar-right">
+            <button type="button" id="agent-drawer-btn" class="nav-icon-btn" aria-label="Open agent_sam" title="agent_sam chat" style="border: none; background: transparent; cursor: pointer; padding: 6px; border-radius: 999px;">?</button>
+            <button id="notifications-btn" class="nav-icon-btn" aria-label="Notifications" style="border: none; background: transparent; cursor: pointer; padding: 6px; border-radius: 999px; color: inherit;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.172V11a6 6 0 1 0-12 0v3.172a2 2 0 0 1-.586 1.414L4 17h5"/><path d="M9 21a3 3 0 0 0 6 0"/></svg></button>
+            <div class="profile-wrap">
+                <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail" alt="Agent Sam" class="agent-sam-avatar" id="profileAvatar">
+                <div class="profile-dropdown" id="profileDropdown">
+                    <button type="button" id="profileSwitchAccount">Switch account</button>
+                    <button type="button" id="profileChangePhoto">Change profile picture</button>
+                    <button type="button" id="logoutBtn">Sign out</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="agent-drawer-backdrop" id="agentDrawerBackdrop"></div>
+    <div class="agent-drawer" id="agentDrawer" role="dialog" aria-label="agent_sam chat">
+        <div class="agent-drawer-header">
+            <h3>agent_sam</h3>
+            <button type="button" class="agent-drawer-close" id="agentDrawerClose" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div class="agent-drawer-messages">
+            <div class="agent-drawer-msg assistant">Hi. I'm agent_sam. Open me from any dashboard page to chat.</div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <aside class="sidenav" id="sidenav">
+            <div class="sidenav-header">
+                <button type="button" class="sidenav-toggle" id="sidenavToggle" aria-label="Collapse sidebar"><span class="hamburger-bars"><span></span><span></span><span></span></span></button>
+                <h2>Dashboard</h2>
+            </div>
+            <nav class="sidenav-nav">
+                <div class="nav-group">
+                    <a href="/dashboard/overview" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg><span>Overview</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Operations</div>
+                    <a href="/dashboard/finance" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Finance</span></a>
+                    <a href="/dashboard/billing" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><span>Billing</span></a>
+                    <a href="/dashboard/clients" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg><span>Clients</span></a>
+                    <a href="/dashboard/pipelines" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Pipelines</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Tools</div>
+                    <a href="/dashboard/agent" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><span>Agent</span></a>
+                    <a href="/dashboard/chats" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg><span>Chats</span></a>
+                    <a href="/dashboard/tools" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span>Dev Tools</span></a>
+                    <a href="/dashboard/hub" class="nav-item "><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 12m-2 0a2 2 0 1 1 4 0a2 2 0 1 1 -4 0"/></svg><span>Hub</span></a>
+                    <a href="/dashboard/calendar" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>Calendar</span></a>
+                    <a href="/dashboard/mcp" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>MCP</span></a>
+                    <a href="/dashboard/cloud" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg><span>Cloud</span></a>
+                    <a href="/dashboard/images" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>Images</span></a>
+                    <a href="/dashboard/draw" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg><span>Draw</span></a>
+                    <a href="/dashboard/meet" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg><span>Meet</span></a>
+                    <a href="/dashboard/mail" class="nav-item active"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg><span>Mail</span></a>
+                </div>
+                <div class="nav-group">
+                    <a href="/dashboard/projects" class="nav-group-title-link">
+                        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+                        <span>Projects</span>
+                    </a>
+                    <a href="/dashboard/kanban" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg><span>Kanban</span></a>
+                    <a href="/dashboard/time-tracking" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Time Tracking</span></a>
+                    <a href="/dashboard/cms" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg><span>CMS</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Settings</div>
+                    <a href="/dashboard/user-settings" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg><span>User Settings</span></a>
+                    <a href="/dashboard/onboarding" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg><span>Onboarding</span></a>
+                </div>
+            </nav>
+        </aside>
+        <main class="main-content">
+
+<div class="mail-page">
+  <div class="mail-header-row">
+    <h1 class="page-title mail-page-title">Mail</h1>
+    <button type="button" class="mail-cta-compose" id="mailComposeBtn">
+      <svg class="mail-cta-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+      Compose
+    </button>
+  </div>
+
+  <div class="mail-layout">
+    <aside class="mail-left">
+      <section class="mail-side-section">
+        <div class="mail-side-label">From</div>
+        <div id="mailIdentitiesList">
+          <div class="mail-side-loading">Loading…</div>
+        </div>
+      </section>
+      <section class="mail-side-section">
+        <div class="mail-side-label">Folders</div>
+        <div class="mail-folders">
+          <button type="button" class="mail-folder mail-folder-inbox active" data-folder="inbox">Inbox</button>
+          <button type="button" class="mail-folder mail-folder-sent" data-folder="sent">Sent</button>
+          <button type="button" class="mail-folder mail-folder-archive" data-folder="archive">Archive</button>
+        </div>
+      </section>
+      <section class="mail-side-section mail-side-templates">
+        <div class="mail-side-label">Templates</div>
+        <div id="mailTemplatesList">
+          <div class="mail-side-loading">Loading…</div>
+        </div>
+      </section>
+      <section class="mail-side-section">
+        <div class="mail-side-label">Reminders</div>
+        <button type="button" class="mail-folder" id="mailMorningEmailBtn" style="width:100%;text-align:left;justify-content:flex-start;" title="Receive one morning to-do email at 8:00 UTC">Email me in the morning</button>
+      </section>
+    </aside>
+
+    <div class="mail-center">
+      <div class="mail-search-wrap">
+        <svg class="mail-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" class="mail-search" id="mailSearch" placeholder="Search mail">
+      </div>
+      <div id="mailList" class="mail-list">
+        <div class="mail-list-loading">Loading…</div>
+      </div>
+      <div class="mail-load-more-wrap" id="mailLoadMoreWrap" style="display:none;">
+        <button type="button" class="mail-load-more" id="mailLoadMore">Load more</button>
+      </div>
+    </div>
+
+    <div class="mail-right">
+      <div id="mailEmpty" class="mail-empty">Select a message</div>
+      <div id="mailDetail" class="mail-detail" style="display:none;">
+        <div class="mail-detail-header">
+          <div class="mail-detail-meta">
+            <span class="mail-detail-from" id="mailDetailFrom"></span>
+            <span class="mail-detail-to" id="mailDetailTo"></span>
+            <span class="mail-detail-date" id="mailDetailDate"></span>
+          </div>
+          <div class="mail-detail-subject" id="mailDetailSubject"></div>
+        </div>
+        <div class="mail-detail-body" id="mailDetailBody"></div>
+        <div class="mail-detail-actions">
+          <button type="button" class="mail-action-btn" id="mailReplyBtn">Reply</button>
+          <button type="button" class="mail-action-btn" id="mailForwardBtn">Forward</button>
+          <button type="button" class="mail-action-btn" id="mailArchiveBtn">Archive</button>
+          <button type="button" class="mail-action-btn" id="mailDeleteBtn">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Compose modal -->
+<div id="mailComposeModal" class="mail-modal" style="display:none;" aria-hidden="true">
+  <div class="mail-modal-backdrop" id="mailComposeBackdrop"></div>
+  <div class="mail-modal-box">
+    <div class="mail-modal-title">New message</div>
+    <div class="mail-form-row">
+      <label class="mail-form-label">From</label>
+      <select class="mail-form-select" id="composeFrom"></select>
+    </div>
+    <div class="mail-form-row">
+      <label class="mail-form-label">To</label>
+      <input type="text" class="mail-form-input" id="composeTo" placeholder="recipient@example.com">
+    </div>
+    <div class="mail-form-row">
+      <label class="mail-form-label">Subject</label>
+      <input type="text" class="mail-form-input" id="composeSubject" placeholder="Subject">
+    </div>
+    <div class="mail-form-row">
+      <label class="mail-form-label">Template (optional)</label>
+      <select class="mail-form-select" id="composeTemplate">
+        <option value="">— None —</option>
+      </select>
+    </div>
+    <div class="mail-form-row">
+      <label class="mail-form-label">Body</label>
+      <div class="mail-form-body" id="composeBody" contenteditable="true"></div>
+    </div>
+    <div class="mail-modal-actions">
+      <button type="button" class="mail-modal-cancel" id="mailComposeCancel">Cancel</button>
+      <button type="button" class="mail-modal-send" id="mailComposeSend">Send</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.mail-page { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.mail-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding: 0 2px; }
+.mail-page-title { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.mail-cta-compose {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px; border: none; border-radius: 24px;
+  background: var(--accent); color: #fff;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.mail-cta-compose:hover { filter: brightness(1.08); box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+.mail-cta-compose:active { transform: scale(0.98); }
+.mail-cta-icon { flex-shrink: 0; }
+.mail-layout { display: flex; flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); overflow: hidden; }
+.mail-left { width: 180px; flex-shrink: 0; border-right: 1px solid var(--border); padding: 10px 8px; overflow-y: auto; }
+.mail-side-section { margin-bottom: 16px; }
+.mail-side-templates { margin-bottom: 0; }
+.mail-side-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; padding-left: 10px; }
+.mail-side-loading { font-size: 12px; color: var(--text-secondary); padding: 6px 10px; }
+.mail-identity-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 10px; border: none; border-radius: 6px; background: none;
+  font-size: 13px; color: var(--text-primary); cursor: pointer; margin-bottom: 1px;
+}
+.mail-identity-item:hover { background: var(--bg-canvas); }
+.mail-identity-item.active { background: rgba(59,130,246,0.12); color: var(--accent); }
+.mail-identity-item.all { font-weight: 600; }
+.mail-identity-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.mail-folders { display: flex; flex-direction: column; gap: 1px; }
+.mail-folder {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 8px 10px; border: none; border-radius: 6px; background: none;
+  font-size: 13px; color: var(--text-primary); cursor: pointer;
+}
+.mail-folder:hover { background: var(--bg-canvas); }
+.mail-folder.active { font-weight: 600; }
+.mail-folder-inbox.active { background: rgba(59,130,246,0.12); color: var(--accent); }
+.mail-folder-sent.active { background: rgba(34,197,94,0.12); color: var(--success, #22c55e); }
+.mail-folder-archive.active { background: rgba(107,114,128,0.15); color: var(--text-secondary); }
+.mail-template-item {
+  display: block; width: 100%; text-align: left; padding: 6px 10px; border: none; border-radius: 6px;
+  background: none; font-size: 12px; color: var(--text-secondary); cursor: pointer; margin-bottom: 1px;
+}
+.mail-template-item:hover { background: var(--bg-canvas); color: var(--text-primary); }
+.mail-center { width: 320px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+.mail-search-wrap { position: relative; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.mail-search-icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; }
+.mail-search { width: 100%; padding: 8px 12px 8px 36px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: var(--bg-canvas); color: var(--text-primary); }
+.mail-search::placeholder { color: var(--text-secondary); }
+.mail-list { flex: 1; overflow-y: auto; min-height: 0; }
+.mail-list-loading { padding: 16px; font-size: 13px; color: var(--text-secondary); }
+.mail-row {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.12s;
+}
+.mail-row:hover { background: var(--bg-canvas); }
+.mail-row.selected { background: rgba(59,130,246,0.08); }
+.mail-row.unread { border-left: 3px solid var(--accent); }
+.mail-row.unread .mail-row-subject { font-weight: 600; }
+.mail-row-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; margin-top: 5px; }
+.mail-row.unread .mail-row-dot { display: block; }
+.mail-row-content { flex: 1; min-width: 0; }
+.mail-row-from { font-size: 12px; color: var(--text-secondary); margin-bottom: 2px; }
+.mail-row-subject { font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mail-row-snippet { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.mail-row-date { font-size: 11px; color: var(--text-secondary); flex-shrink: 0; white-space: nowrap; }
+.mail-load-more-wrap { padding: 10px; text-align: center; border-top: 1px solid var(--border); }
+.mail-load-more { padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); font-size: 12px; cursor: pointer; }
+.mail-load-more:hover { background: var(--bg-canvas); }
+.mail-right { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px; background: var(--bg-canvas); }
+.mail-empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--text-secondary); }
+.mail-detail { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.mail-detail-header { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 12px; }
+.mail-detail-meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.mail-detail-subject { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.mail-detail-body { flex: 1; overflow-y: auto; font-size: 14px; line-height: 1.5; color: var(--text-primary); }
+.mail-detail-body iframe { max-width: 100%; }
+.mail-detail-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.mail-action-btn { padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); font-size: 13px; cursor: pointer; }
+.mail-action-btn:hover { background: var(--bg-canvas); }
+.mail-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.mail-modal-backdrop { position: absolute; inset: 0; background: var(--bg-overlay, rgba(0,0,0,0.4)); }
+.mail-modal-box { position: relative; width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto; background: var(--bg-elevated); border-radius: 16px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); border: 1px solid var(--border); }
+.mail-modal-title { font-size: 17px; font-weight: 700; margin-bottom: 18px; color: var(--text-primary); }
+.mail-form-row { margin-bottom: 12px; }
+.mail-form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+.mail-form-input, .mail-form-select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--bg-canvas); color: var(--text-primary); }
+.mail-form-body { min-height: 140px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; overflow-y: auto; background: var(--bg-canvas); color: var(--text-primary); }
+.mail-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.mail-modal-cancel { padding: 10px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); font-size: 14px; cursor: pointer; }
+.mail-modal-send { padding: 10px 20px; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+</style>
+
+<script>
+(function () {
+  var state = {
+    identities: [],
+    templates: [],
+    folder: 'inbox',
+    fromFilter: '',
+    search: '',
+    limit: 50,
+    offset: 0,
+    messages: [],
+    selectedId: null,
+    selectedMessage: null
+  };
+
+  function esc(s) { if (s == null) return ''; return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  var MAIL_IDENTITY_COLORS = ['#3b82f6', '#22c55e', '#eab308', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+  function identityColor(addr) {
+    if (!addr) return MAIL_IDENTITY_COLORS[0];
+    var h = 0; for (var i = 0; i < addr.length; i++) h = ((h << 5) - h) + addr.charCodeAt(i); h = Math.abs(h);
+    return MAIL_IDENTITY_COLORS[h % MAIL_IDENTITY_COLORS.length];
+  }
+  function relativeTime(d) {
+    if (!d) return '';
+    var date = new Date(d);
+    var now = new Date();
+    var diff = (now - date) / 1000;
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+    return date.toLocaleDateString();
+  }
+
+  function showToast(msg, type) {
+    var t = document.createElement('div');
+    t.className = 'mail-toast ' + (type || '');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2000;padding:12px 18px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--border);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.15);';
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 3000);
+  }
+
+  function loadIdentities() {
+    fetch('/api/mail/identities').then(function (r) { return r.json(); }).then(function (d) {
+      state.identities = d.data || [];
+      var el = document.getElementById('mailIdentitiesList');
+      var byDomain = {};
+      state.identities.forEach(function (i) {
+        var dom = i.domain || 'other';
+        if (!byDomain[dom]) byDomain[dom] = [];
+        byDomain[dom].push(i);
+      });
+      var html = '<button type="button" class="mail-identity-item all active" data-from="">All</button>';
+      Object.keys(byDomain).sort().forEach(function (dom) {
+        byDomain[dom].forEach(function (i) {
+          var color = identityColor(i.address);
+          html += '<button type="button" class="mail-identity-item" data-from="' + esc(i.address) + '">' +
+            '<span class="mail-identity-dot" style="background:' + color + '"></span>' +
+            '<span>' + esc(i.display_name || i.address) + '</span></button>';
+        });
+      });
+      el.innerHTML = html;
+      el.querySelectorAll('.mail-identity-item').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          el.querySelectorAll('.mail-identity-item').forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          state.fromFilter = btn.getAttribute('data-from') || '';
+          state.offset = 0;
+          loadInbox();
+        });
+      });
+    }).catch(function () {
+      document.getElementById('mailIdentitiesList').innerHTML = '<span class="mail-side-loading">Failed to load</span>';
+    });
+  }
+
+  function loadTemplates() {
+    fetch('/api/mail/templates').then(function (r) { return r.json(); }).then(function (d) {
+      state.templates = d.data || [];
+      var el = document.getElementById('mailTemplatesList');
+      if (!state.templates.length) { el.innerHTML = '<span class="mail-side-loading">No templates</span>'; return; }
+      var html = state.templates.map(function (t) {
+        return '<button type="button" class="mail-template-item" data-id="' + esc(t.id) + '" data-subject="' + esc(t.subject || '') + '" data-body="">' + esc(t.name || t.id) + '</button>';
+      }).join('');
+      el.innerHTML = html;
+      el.querySelectorAll('.mail-template-item').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var t = state.templates.find(function (x) { return String(x.id) === btn.getAttribute('data-id'); });
+          if (t) {
+            if (t.subject) document.getElementById('composeSubject').value = t.subject;
+            if (t.body_html) document.getElementById('composeBody').innerHTML = t.body_html;
+            else if (t.body) document.getElementById('composeBody').innerHTML = t.body;
+          }
+        });
+      });
+    }).catch(function () {
+      document.getElementById('mailTemplatesList').innerHTML = '<span class="mail-side-loading">Failed to load</span>';
+    });
+  }
+
+  function loadInbox(append) {
+    var listEl = document.getElementById('mailList');
+    if (!append) {
+      state.offset = 0;
+      listEl.innerHTML = '<div class="mail-list-loading">Loading…</div>';
+    }
+    var q = '?folder=' + encodeURIComponent(state.folder) + '&limit=' + state.limit + '&offset=' + state.offset;
+    if (state.search) q += '&search=' + encodeURIComponent(state.search);
+    if (state.fromFilter) q += '&from_filter=' + encodeURIComponent(state.fromFilter);
+    fetch('/api/mail/inbox' + q).then(function (r) { return r.json(); }).then(function (d) {
+      var data = d.data || [];
+      if (!append) state.messages = []; 
+      state.messages = append ? state.messages.concat(data) : data;
+      state.offset += data.length;
+      renderList();
+      document.getElementById('mailLoadMoreWrap').style.display = (data.length >= state.limit ? 'block' : 'none');
+    }).catch(function () {
+      listEl.innerHTML = '<div class="mail-list-loading">Failed to load messages.</div>';
+    });
+  }
+
+  function renderList() {
+    var listEl = document.getElementById('mailList');
+    if (!state.messages.length) {
+      listEl.innerHTML = '<div class="mail-list-loading">No messages in this folder.</div>';
+      document.getElementById('mailLoadMoreWrap').style.display = 'none';
+      return;
+    }
+    listEl.innerHTML = state.messages.map(function (m) {
+      var unread = !m.is_read;
+      var subj = esc(m.subject || '(No subject)');
+      var snippet = esc((m.snippet || '').slice(0, 80));
+      var from = esc(m.from_email || m.from || '');
+      var date = relativeTime(m.created_at);
+      return '<div class="mail-row' + (unread ? ' unread' : '') + '" data-id="' + esc(m.id) + '">' +
+        '<span class="mail-row-dot" style="display:' + (unread ? 'block' : 'none') + '"></span>' +
+        '<div class="mail-row-content">' +
+        '<div class="mail-row-from">' + from + '</div>' +
+        '<div class="mail-row-subject">' + subj + '</div>' +
+        '<div class="mail-row-snippet">' + snippet + '</div>' +
+        '</div>' +
+        '<span class="mail-row-date">' + esc(date) + '</span></div>';
+    }).join('');
+    listEl.querySelectorAll('.mail-row').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var id = row.getAttribute('data-id');
+        state.selectedId = id;
+        state.selectedMessage = state.messages.find(function (m) { return m.id === id; });
+        document.getElementById('mailEmpty').style.display = 'none';
+        document.getElementById('mailDetail').style.display = 'block';
+        document.getElementById('mailDetailFrom').textContent = 'From: ' + (state.selectedMessage && (state.selectedMessage.from_email || state.selectedMessage.from) || '');
+        document.getElementById('mailDetailTo').textContent = 'To: ' + (state.selectedMessage && state.selectedMessage.to || '');
+        document.getElementById('mailDetailDate').textContent = state.selectedMessage && state.selectedMessage.created_at ? new Date(state.selectedMessage.created_at).toLocaleString() : '';
+        document.getElementById('mailDetailSubject').textContent = state.selectedMessage && state.selectedMessage.subject ? state.selectedMessage.subject : '(No subject)';
+        var bodyEl = document.getElementById('mailDetailBody');
+        bodyEl.innerHTML = (state.selectedMessage && state.selectedMessage.body_html) ? state.selectedMessage.body_html : '<p style="color:var(--text-secondary);">No body</p>';
+        listEl.querySelectorAll('.mail-row').forEach(function (r) { r.classList.remove('selected'); });
+        row.classList.add('selected');
+        if (state.selectedMessage && !state.selectedMessage.is_read) {
+          fetch('/api/mail/' + encodeURIComponent(id), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_read: true })
+          }).then(function () {
+            row.classList.remove('unread');
+            row.querySelector('.mail-row-dot').style.display = 'none';
+            row.querySelector('.mail-row-subject').classList.remove('mail-row-subject-bold');
+            if (state.selectedMessage) state.selectedMessage.is_read = true;
+          });
+        }
+      });
+    });
+  }
+
+  function openCompose(opts) {
+    opts = opts || {};
+    document.getElementById('composeFrom').innerHTML = state.identities.map(function (i) {
+      return '<option value="' + esc(i.address) + '">' + esc(i.display_name || i.address) + '</option>';
+    }).join('');
+    document.getElementById('composeTo').value = opts.to || '';
+    document.getElementById('composeSubject').value = opts.subject || '';
+    var sel = document.getElementById('composeTemplate');
+    sel.innerHTML = '<option value="">— None —</option>' + (state.templates.map(function (t) {
+      return '<option value="' + esc(t.id) + '" data-subject="' + esc(t.subject || '') + '">' + esc(t.name || t.id) + '</option>';
+    }).join(''));
+    sel.selectedIndex = 0;
+    document.getElementById('composeBody').innerHTML = opts.body || '';
+    document.getElementById('mailComposeModal').style.display = 'flex';
+    document.getElementById('mailComposeModal').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeCompose() {
+    document.getElementById('mailComposeModal').style.display = 'none';
+    document.getElementById('mailComposeModal').setAttribute('aria-hidden', 'true');
+  }
+
+  document.querySelectorAll('.mail-folder').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.mail-folder').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.folder = btn.getAttribute('data-folder');
+      state.offset = 0;
+      loadInbox();
+    });
+  });
+
+  document.getElementById('mailComposeBtn').addEventListener('click', function () { openCompose(); });
+  document.getElementById('mailComposeBackdrop').addEventListener('click', closeCompose);
+  document.getElementById('mailComposeCancel').addEventListener('click', closeCompose);
+  var morningBtn = document.getElementById('mailMorningEmailBtn');
+  if (morningBtn) {
+    morningBtn.addEventListener('click', function () {
+      fetch('/api/schedule-morning-email', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.ok || d.message) showToast(d.message || 'You\'ll get one morning email at 8:00 UTC.', 'success');
+          else showToast(d.error || 'Request failed', 'error');
+        })
+        .catch(function () { showToast('Request failed', 'error'); });
+    });
+  }
+  document.getElementById('composeTemplate').addEventListener('change', function () {
+    var opt = this.options[this.selectedIndex];
+    if (!opt || !opt.value) return;
+    var t = state.templates.find(function (x) { return String(x.id) === opt.value; });
+    if (t) {
+      if (t.subject) document.getElementById('composeSubject').value = t.subject;
+      if (t.body_html) document.getElementById('composeBody').innerHTML = t.body_html;
+      else if (t.body) document.getElementById('composeBody').innerHTML = t.body;
+    }
+  });
+  document.getElementById('mailReplyBtn').addEventListener('click', function () {
+    if (!state.selectedMessage) return;
+    openCompose({
+      to: state.selectedMessage.from_email || state.selectedMessage.from,
+      subject: (state.selectedMessage.subject || '').indexOf('Re:') === 0 ? state.selectedMessage.subject : 'Re: ' + (state.selectedMessage.subject || '')
+    });
+  });
+  document.getElementById('mailForwardBtn').addEventListener('click', function () {
+    if (!state.selectedMessage) return;
+    openCompose({
+      subject: (state.selectedMessage.subject || '').indexOf('Fwd:') === 0 ? state.selectedMessage.subject : 'Fwd: ' + (state.selectedMessage.subject || '')
+    });
+  });
+  document.getElementById('mailArchiveBtn').addEventListener('click', function () {
+    if (!state.selectedId) return;
+    fetch('/api/mail/' + encodeURIComponent(state.selectedId), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: 'archive' })
+    }).then(function (r) {
+      if (r.ok) {
+        showToast('Archived', 'success');
+        state.messages = state.messages.filter(function (m) { return m.id !== state.selectedId; });
+        state.selectedId = null;
+        state.selectedMessage = null;
+        document.getElementById('mailEmpty').style.display = 'flex';
+        document.getElementById('mailDetail').style.display = 'none';
+        renderList();
+      }
+    });
+  });
+  document.getElementById('mailComposeSend').addEventListener('click', function () {
+    var from = document.getElementById('composeFrom').value;
+    var to = document.getElementById('composeTo').value.trim();
+    var subject = document.getElementById('composeSubject').value.trim();
+    var html = document.getElementById('composeBody').innerHTML;
+    if (!from || !to || !subject) { showToast('From, To and Subject required', 'error'); return; }
+    fetch('/api/mail/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: from, to: to, subject: subject, html: html, text: document.getElementById('composeBody').innerText || '' })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.success) {
+        showToast('Sent', 'success');
+        closeCompose();
+        if (state.folder === 'sent') loadInbox();
+      } else {
+        showToast(d.error || 'Send failed', 'error');
+      }
+    }).catch(function () {
+      showToast('Send failed', 'error');
+    });
+  });
+
+  document.getElementById('mailLoadMore').addEventListener('click', function () { loadInbox(true); });
+  document.getElementById('mailSearch').addEventListener('input', function () {
+    clearTimeout(window._mailSearchT);
+    window._mailSearchT = setTimeout(function () {
+      state.search = document.getElementById('mailSearch').value.trim();
+      state.offset = 0;
+      loadInbox();
+    }, 300);
+  });
+
+  loadIdentities();
+  loadTemplates();
+  loadInbox();
+})();
+</script>
+        </main>
+        <div class="overlay" id="overlay"></div>
+        <div class="dashboard-mobile-footer"></div>
+
+    <script>
+        document.getElementById('profileAvatar') && document.getElementById('profileAvatar').addEventListener('click', function () {
+            var d = document.getElementById('profileDropdown');
+            if (d) d.classList.toggle('open');
+        });
+        document.getElementById('agent-drawer-btn') && document.getElementById('agent-drawer-btn').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.add('open');
+            document.getElementById('agentDrawerBackdrop').classList.add('open');
+        });
+        document.getElementById('agentDrawerClose') && document.getElementById('agentDrawerClose').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.remove('open');
+            document.getElementById('agentDrawerBackdrop').classList.remove('open');
+        });
+        document.getElementById('agentDrawerBackdrop') && document.getElementById('agentDrawerBackdrop').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.remove('open');
+            this.classList.remove('open');
+        });
+        var hamburger = document.getElementById('hamburger');
+        var sidenav = document.getElementById('sidenav');
+        var overlay = document.getElementById('overlay');
+        if (hamburger && sidenav && overlay) {
+            hamburger.addEventListener('click', function () {
+                hamburger.classList.toggle('open');
+                sidenav.classList.toggle('open');
+                overlay.classList.toggle('active');
+            });
+            overlay.addEventListener('click', function () {
+                hamburger.classList.remove('open');
+                sidenav.classList.remove('open');
+                overlay.classList.remove('active');
+            });
+        }
+        var sidenavToggle = document.getElementById('sidenavToggle');
+        if (sidenavToggle && sidenav) {
+            try {
+                if (localStorage.getItem('dashboard_sidenav_collapsed') === '1') sidenav.classList.add('collapsed');
+            } catch (e) {}
+            sidenavToggle.addEventListener('click', function () {
+                sidenav.classList.toggle('collapsed');
+                try { localStorage.setItem('dashboard_sidenav_collapsed', sidenav.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+            });
+        }
+        try {
+            var t = localStorage.getItem('dashboard-theme');
+            if (t) document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+    </script>
+</body>
+    </script>
+</body>
+</html>

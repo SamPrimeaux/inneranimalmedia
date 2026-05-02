@@ -1,0 +1,4448 @@
+[
+  {
+    "results": [
+      {
+        "schema": "main",
+        "name": "agentsam_user_policy",
+        "type": "table",
+        "ncol": 35,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "secret_audit_log",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_service_credentials",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "deployment_rollbacks",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_workspace_state",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "human_context",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_tool_access",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "kpi_entries",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "subscription_features",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "calendar_events_backup",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "scout_verifications",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "image_metadata",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "worker_analytics_hourly",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_services",
+        "type": "table",
+        "ncol": 33,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "deployment_performance_metrics",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_provider_usage",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cursor_project_context",
+        "type": "table",
+        "ncol": 29,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "time_projects",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_projects",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_revenue",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_model_registry",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_schedule",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_object_inventory",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_platform_context",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ma_brands",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "launch_milestones",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_content",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_role_bindings",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "worker_services",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_members_legacy",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_metrics",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_contacts",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "program_goals",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "keyboard_shortcuts",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_execution_plans",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_tasks",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "features",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_settings",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_tools",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "stripe_transactions",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "column_defs",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "kpi_definitions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_routing",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "active_timers",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tool_access",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "media_gallery",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quality_checks",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "work_sessions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "schema_versions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_objects_fts_docsize",
+        "type": "shadow",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_objects_fts",
+        "type": "virtual",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_object_media",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "customer_subscriptions",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "iam_agent_sam_prompts",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "security_findings",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_routing_rules",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "grant_kb_chunks_v1",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_browser_trusted_origin",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_goals",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pattern_applicability",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "theme_access",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "deployment_health_checks",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_page_sections",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "code_vault",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_runs",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "command_execution_queue",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "updates",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_templates",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_workflow_runs",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_page_overrides",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "weekly_wins",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "task_velocity",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "grant_pipeline",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_model_policies",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "financial_activity",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "roadmap_plans",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "infrastructure_metadata",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_members",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "rag_query_log",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_hook",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "recovery_log",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "otlp_traces",
+        "type": "table",
+        "ncol": 32,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "approval_requests",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "kanban_tasks",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_activity_log",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_command_audit_log",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_tasks",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_intent_execution_log",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "work_items",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_mcp_allowlist",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "connected_integrations",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_navigation_menus",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cidi",
+        "type": "table",
+        "ncol": 31,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_members",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_project_context_config",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "configuration_audit_trail",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_usage_metrics",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ma_brand_tasks",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "brand_assets",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "image_generation_jobs",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tenant_workspaces",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "recurring_finance_runs",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "domains",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_3d_assets",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cad_models",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "sprint_snapshots",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_agent_run",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "webhook_endpoints",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_execution",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspaces",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "roadmap_steps",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "oauth_refresh_tokens",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ticket_tags",
+        "type": "table",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_request_queue",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_routing_rules",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "scout_badge_definitions",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_quotas",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "stripe_customers",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_storage",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "kanban_columns",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ticket_messages",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_skill_revision",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "context_index",
+        "type": "table",
+        "ncol": 30,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_section_components",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "vendor_mappings",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "provider_colors",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pattern_tags",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_workflow_pipelines",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "provider_circuit_breaker",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "data_retention_policies",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_rules_document",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_subagent_profile",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_user_feature_override",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_command_allowlist",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "hook_subscriptions",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "playwright_jobs",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "design_brief_runs",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_capabilities",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_priorities",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "time_entries",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_projects",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "messages",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "autorag",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_hook_execution",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "vectorize_indexed_docs",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "deployment_tracking",
+        "type": "table",
+        "ncol": 41,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_projects",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pattern_categories",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_command_executions",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "v_context_optimization_savings",
+        "type": "view",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "draw_libraries",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "brands",
+        "type": "table",
+        "ncol": 61,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_override_versions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tool_capability_mapping",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "live_stream_chat",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "projects",
+        "type": "table",
+        "ncol": 33,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "goal_checkins",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_recipe_prompts",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_ignore_pattern",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "env_audit_log",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "dashboard_versions",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "billing_accounts",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_integrations",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_intent_patterns",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "saved_views",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "grant_templates_v1",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "users_old",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_collection_assets",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_commands",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "webhook_event_stats",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tenant_branding",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "account_colors",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_accounts",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_bucket_bindings",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_memory_index",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "billing_plans",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "activity_log",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tenant_activation_status",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "payment_source_colors",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cloudflare_zones",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "meauxbility_interactions",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pattern_confidence_events",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "help_articles",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_tenants",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "activity_signals",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_registered_tools",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "terminal_history",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_live_edit_sessions",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_models",
+        "type": "table",
+        "ncol": 26,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_intended_paths",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "state_snapshot_contents",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_objects",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_services",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "video_sessions",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workers",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "context_search_log",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_tool_calls",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_artifacts",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "scout_activity_log",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_scopes",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "execution_performance_metrics",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "prompt_transformations",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "boards",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "timesheets",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quiz_answers",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_command_suggestions",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_bucket_class_daily",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_id_map",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "billing_subscriptions",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_themes",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "lesson_progress",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "minion_step_results",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_file_changes",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_site_pages",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_audit_log",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pipeline_kv",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_audit_log",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_context_versions",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pattern_tag_map",
+        "type": "table",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "library_items",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "images",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "lesson_assets",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_skill_invocation",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_draws",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "brainstorm_sessions",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "csv_import_log",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "superadmin_accounts",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "meauxbility_resources",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "sessions",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "lessons",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_question_templates",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "financial_monthly_summaries",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "financial_accounts",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_knowledge_chunks",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "courses",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "image_generation_variants",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "daily_snapshots",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cidi_pipeline_runs",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "time_sessions",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "transaction_enrichment_cache",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_alerts",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_outcomes",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "events",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ecosystem_knowledge_base",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_sessions",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_assets",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "course_roles",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "deployment_changes",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "csv_imports",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "admin",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_domains",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "products_pricing_catalog",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "usage_events",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ui_copy_packs",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tracking_metrics",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "provider_zones",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_rag_search_history",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_telemetry",
+        "type": "table",
+        "ncol": 64,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_generation_logs",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "org_users",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_mode_configs",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_code_index_job",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "role_capabilities",
+        "type": "table",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "resend_emails",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cursor_costs_daily",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_conversions",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_tool_roles",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "sidebar_preferences",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quizzes",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "orgs",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "state_snapshots",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_command_integrations",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_prompts",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_roles",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "time_logs",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_knowledge_base",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "assets",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_stages",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_backup_codes",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "super_admin_allowlist",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "superadmin_identity",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "patterns",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "onboarding_steps",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "d1_migrations",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "activity_events",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tools",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_checkpoints",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "prompts",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "billing_customers",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "course_reviews",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "external_connections",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "docs_index_log",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "elite_company_insights",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "decisions",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "playbook_patterns",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_collections",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_executions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "rag_ingest_log",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_feature_flag",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "deployments",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_agent_sessions",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "spend_alerts",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "impact_metrics",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cursor_executions",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "playbooks",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_buckets",
+        "type": "table",
+        "ncol": 23,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_passwords",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "apps",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "oauth_states",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "asset_relationships",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "users",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "terminal_sessions",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "design_brief_findings",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_issues",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_prompts_library",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tenant_modules",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "commands",
+        "type": "table",
+        "ncol": 31,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "clients",
+        "type": "table",
+        "ncol": 31,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_objects_fts_data",
+        "type": "shadow",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_pages",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_page_drafts",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "decision_queue",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_apps",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pattern_usage",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "financial_plans",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_time_summary",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_threads",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_fetch_domain_allowlist",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cicd_runs",
+        "type": "table",
+        "ncol": 23,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_costs",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_runtime_configs",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "stripe_products",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quiz_attempts",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "notifications",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "brainstorm_idea_tracking",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_usage_log",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "backfill_jobs",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "warm_intros",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "fundraising_tasks_v1",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_conversion_jobs",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "command_executions",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "course_exports",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_sessions",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "worker_analytics_events",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "github_webhook_events",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "plan_checklist_items",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_integrations",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "kanban_boards",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "client_integrations",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_live_rollbacks",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "calendar_events",
+        "type": "table",
+        "ncol": 24,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "billing_summary",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "products_catalog",
+        "type": "table",
+        "ncol": 25,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "intent_pattern_daily_summary",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "oauth_authorization_codes",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_time_entries",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "legacy_projects",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_locks",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_messages",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "funder_intelligence",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "elite_sources",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "goals",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ui_guidelines",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tasks",
+        "type": "table",
+        "ncol": 29,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "certificates",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "themes",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_rules_revision",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "subscriptions",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "auth_sessions",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "password_resets",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "video_participants",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "task_comments",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "stripe_webhooks",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "_cf_KV",
+        "type": "table",
+        "ncol": 2,
+        "wr": 1,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "table_versions",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "spend_audit",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "prompt_templates",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "subtasks",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_workflows",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_objects_fts_idx",
+        "type": "shadow",
+        "ncol": 3,
+        "wr": 1,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "super_admin_audit",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "memory_retrieval_index",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_compiled_context_cache",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "worker_analytics_errors",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tenants",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "sqlite_schema",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_ai",
+        "type": "table",
+        "ncol": 53,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_rules",
+        "type": "table",
+        "ncol": 23,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_steps",
+        "type": "table",
+        "ncol": 25,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "founder_metrics",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "scout_locations",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "finance_categories",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "plan_steps",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "course_modules",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "content_tags",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_objects_fts_config",
+        "type": "shadow",
+        "ncol": 2,
+        "wr": 1,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "worker_to_do",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "task_attachments",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "help_categories",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "content_item_categories",
+        "type": "table",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "notification_outbox",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tool_capabilities",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "game_credits",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_links",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_secrets",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_configs",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "content_item_tags",
+        "type": "table",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "telemetry_traces",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_policy_templates",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_bucket_list",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_goals",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quality_gates",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "dev_workflows",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "media_collection_items",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_quality_summary",
+        "type": "view",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "governance_roles",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_conversations",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "media_mentions",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "channels",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "brand_config",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_logs",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "content_items",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "content_revisions",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_server_allowlist",
+        "type": "table",
+        "ncol": 27,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "build_artifacts",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "grant_opportunities",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_limits",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_execution_audit",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quality_runs",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "invoices",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "content_categories",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "custom_commands",
+        "type": "table",
+        "ncol": 34,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "spend_ledger",
+        "type": "table",
+        "ncol": 28,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "model_pricing",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "finance_transactions",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "api_gateway_routes",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "message_reactions",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tenant_theme",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "lesson_versions",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_interactions",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_events",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "app_icons",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_command_proposals",
+        "type": "table",
+        "ncol": 38,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_settings",
+        "type": "table",
+        "ncol": 31,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "professional_emails",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_memory",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cell_values",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ma_clients",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "task_activity",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tenant_presets",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_inquiries",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "content_types",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "hook_executions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_audit_log",
+        "type": "table",
+        "ncol": 23,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "integration_webhook_config",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_guardrails",
+        "type": "table",
+        "ncol": 25,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "usage_rollups_daily",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "company_patterns",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quality_gate_sets",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mail_logs",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_notes",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workspace_secrets",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "integrations",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "env_secrets",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "governance_capabilities",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "settings",
+        "type": "table",
+        "ncol": 30,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "scout_profiles",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_approvals",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "pattern_sources",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "finance_budgets",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "team_members",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_folders",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "received_emails",
+        "type": "table",
+        "ncol": 23,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "media_items",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "sessions_v2",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cidi_run_results",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "terminal_connections",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agentsam_skill",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "linkedin_signals",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "meauxbility_user_profiles",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_bucket_summary",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "recurring_finance_rules",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "decision_patterns",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "plans",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "oauth_providers",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflows",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "media_collections",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "vectorize_index_registry",
+        "type": "table",
+        "ncol": 21,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_governance_roles",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "deployment_notifications",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "tool_invocations",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "org_intelligence",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "financial_health",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_ai_executable_limits",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "design_decisions",
+        "type": "table",
+        "ncol": 19,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "teams",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "infrastructure_documentation",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_workflow_executions",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "sqlite_sequence",
+        "type": "table",
+        "ncol": 2,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_context_store",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "mcp_tool_call_stats",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "launch_tracker",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cidi_activity_log",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "customer_feedback",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "external_apps",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "event_queue",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "webhook_events",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ui_nav_items",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_component_templates",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_global_settings",
+        "type": "table",
+        "ncol": 17,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_bucket_daily",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "auth_users",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_pricing_rates",
+        "type": "table",
+        "ncol": 12,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "execution_dependency_graph",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "credit_transactions",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "finance_accounts",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "support_tickets",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "onboarding_state",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quiz_questions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "enrollments",
+        "type": "table",
+        "ncol": 13,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "builds",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_roles",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_attachments",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "v_mcp_tool_drift",
+        "type": "view",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "github_repositories",
+        "type": "table",
+        "ncol": 20,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "iam_agent_sam_config",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_command_conversations",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "quality_results",
+        "type": "table",
+        "ncol": 7,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "dashboard_assets",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "provider_accounts",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "email_labels",
+        "type": "table",
+        "ncol": 4,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "workflow_runs",
+        "type": "table",
+        "ncol": 27,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "user_oauth_tokens",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "model_routing_rules",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "r2_bucket_largest",
+        "type": "table",
+        "ncol": 3,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_permissions",
+        "type": "table",
+        "ncol": 15,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "worker_env",
+        "type": "table",
+        "ncol": 16,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "items",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_costs",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "worker_registry",
+        "type": "table",
+        "ncol": 31,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "activation_checks",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "cms_video_projects",
+        "type": "table",
+        "ncol": 10,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "course_users",
+        "type": "table",
+        "ncol": 9,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "superadmin_emails",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "calendar_reminders",
+        "type": "table",
+        "ncol": 8,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "playwright_jobs_v2",
+        "type": "table",
+        "ncol": 22,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "agent_actions",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "project_capability_constraints",
+        "type": "table",
+        "ncol": 18,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "ai_usage_log",
+        "type": "table",
+        "ncol": 11,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "playbook_steps",
+        "type": "table",
+        "ncol": 6,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "message_threads",
+        "type": "table",
+        "ncol": 14,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "main",
+        "name": "templates",
+        "type": "table",
+        "ncol": 23,
+        "wr": 0,
+        "strict": 0
+      },
+      {
+        "schema": "temp",
+        "name": "sqlite_temp_schema",
+        "type": "table",
+        "ncol": 5,
+        "wr": 0,
+        "strict": 0
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "EWR",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 3.393
+      },
+      "duration": 3.393,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 193286144,
+      "rows_read": 0,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

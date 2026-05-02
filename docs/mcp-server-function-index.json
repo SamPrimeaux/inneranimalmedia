@@ -1,0 +1,135 @@
+[
+  {
+    "name": "unauthorized",
+    "line": 8,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "message"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "validateBearer",
+    "line": 15,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "request",
+      "env"
+    ],
+    "calls": [
+      "unauthorized"
+    ],
+    "tags": [
+      "auth",
+      "mcp"
+    ]
+  },
+  {
+    "name": "sseResponse",
+    "line": 27,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "json"
+    ],
+    "calls": [],
+    "tags": [
+      "streaming"
+    ]
+  },
+  {
+    "name": "textContent",
+    "line": 36,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "text"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "getRegisteredTools",
+    "line": 40,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "env"
+    ],
+    "calls": [],
+    "tags": [
+      "d1",
+      "mcp"
+    ]
+  },
+  {
+    "name": "parseToolInputSchema",
+    "line": 55,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "raw"
+    ],
+    "calls": [],
+    "tags": []
+  },
+  {
+    "name": "recordToolCall",
+    "line": 64,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "env",
+      "?"
+    ],
+    "calls": [],
+    "tags": [
+      "auth",
+      "d1",
+      "mcp"
+    ]
+  },
+  {
+    "name": "fetch",
+    "line": 98,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "request",
+      "env",
+      "ctx"
+    ],
+    "calls": [
+      "getRegisteredTools",
+      "recordToolCall",
+      "sseResponse",
+      "textContent",
+      "validateBearer"
+    ],
+    "tags": [
+      "auth",
+      "d1",
+      "http-client",
+      "mcp",
+      "r2",
+      "streaming",
+      "vectorize"
+    ]
+  },
+  {
+    "name": "queue",
+    "line": 396,
+    "project": "mcp-server",
+    "purpose": "Worker helper or handler.",
+    "params": [
+      "batch",
+      "env",
+      "ctx"
+    ],
+    "calls": [],
+    "tags": []
+  }
+]

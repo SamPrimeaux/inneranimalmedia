@@ -1,0 +1,212 @@
+================================================================================
+TECH SPEC (LOW-FI) — /dashboard/agent — Settings shell → 15 Cursor-style tabs
+================================================================================
+Status: planning / pre-ship review
+Goal: Replace the current ~12 right-rail “views” with the same INFORMATION
+      ARCHITECTURE as Cursor Settings (15 top-level tabs), without breaking the
+      working Environment (vault) experience.
+
+--------------------------------------------------------------------------------
+1) RECOMMENDATION: AUDIT + RE-SKIN THE SHELL, NOT GREENFIELD
+--------------------------------------------------------------------------------
+
+Cheaper and lower risk than “build from scratch”:
+
+  - AUDIT: Inventory SettingsPanel.jsx (or settings.jsx) — list each view id,
+    route/hash, API calls, and which components mount (especially Environment).
+
+  - KEEP: Environment / vault panel as an ISOLATED COMPONENT — same props,
+    same /api/vault/* calls, same grouping (ANTHROPIC, CLOUDFLARE, …). Only
+    change WHERE it mounts in the nav tree (see mapping below).
+
+  - REPLACE: The right-rail CATEGORY + ITEM config (the data structure that
+    renders “WORKSPACE / TOOLS / …”) with a single ordered list of 15 tabs +
+    optional section headers for grouping in the UI.
+
+  - ADD STUBS: New Cursor-only tabs can render “Coming soon” ONLY if every
+    control is hidden or disabled with honest copy — otherwise omit tab until
+    wired (per plan_iam_dashboard_v2: no mock functionality).
+
+Default answer to “audit vs scratch?” → **Audit + incremental restructure.**
+
+--------------------------------------------------------------------------------
+2) TARGET IA — 15 TABS (CURSOR ORDER) + WHERE TODAY’S UI LIVES
+--------------------------------------------------------------------------------
+
+  #  Cursor tab                 Current IAM approximate home     Notes
+  -- -------------------------- ------------------------------ -----------------
+  1  General                    General (+ merge small prefs)  Embed **Environment
+                                                                 (Vault)** here
+                                                                 unchanged; see §4
+  2  Plan & Usage               Usage & Spend                  Billing/quotas
+  3  Agents                     Agents                         Policy, models UX
+  4  Tab                        (new)                          Inline completion
+  5  Models                     (new or split from Agents)     Model picker keys
+  6  Cloud Agents               (new)                          Remote runs
+  7  Plugins                    Extensions                     Rename label only
+  8  Rules, Skills, Subagents   (new) + Guardrails partial     DB-backed later
+  9  Tools & MCP                MCP + Commands slice           Real tool counts
+ 10  Hooks                      (new)                          hook_executions UI
+ 11  Indexing & Docs            (new)                          Index job + docs
+ 12  Network                    (new)                          HTTP/proxy/diag
+ 13  Beta                       (new)                          feature_flags
+ 14  Marketplace                (new)                          Integrations grid
+ 15  Docs                       GitHub + help links            External docs
+
+**Environment** is NOT a separate Cursor tab. It stays **first-class inside
+General** (or a non-breaking dual entry: General scrolls to #environment).
+
+--------------------------------------------------------------------------------
+3) LOW-FIDELITY WIREFRAME — VIEWPORT (ASCII)
+--------------------------------------------------------------------------------
+
++-----------------------------------------------------------------------------+
+| [IA]  [  Search or type a command...                    ]  [WS] [?][bell][u]|
++----------+-------------------------------------------+----------------------+
+| ICON     |  CENTER: Agent                          | SETTINGS STACK       |
+| RAIL     |  New Conversation                    ... | (gear selected)      |
+| (thin)   |  +-------------------------------------+ | +----+ +-----------+ |
+|          |  |  IA logo  /  level AI             | | |ICON| | INNER NAV | |
+|          |  |  [cards 2x3 grid]                 | | |BAR | | (15 tabs) | |
+|          |  +-------------------------------------+ | |    | +-----------+ |
+|          |  [ + ] [Ask v] [Auto v]  Reply... [send] | |    | | CONTENT   | |
+|          |  Agent Sam   Auto · level AI            | |    | | (scroll)  | |
++----------+-------------------------------------------+ +----+ +-----------+ |
+| DASHBOARD NAV (left wide) — unchanged in this spec                        | |
++-----------------------------------------------------------------------------+
+
+INNER NAV (right column, ~200–240px fixed):
+
+  General               <- active row: bg lift + left accent bar
+  Plan & Usage
+  Agents
+  Tab
+  Models
+  Cloud Agents
+  Plugins
+  Rules, Skills, Subagents
+  Tools & MCP
+  Hooks
+  Indexing & Docs
+  Network
+  Beta
+  Marketplace
+  Docs
+
+CONTENT (flex:1, scroll):
+
+  +----------------------------------------------------------+
+  | H1  General                                              |
+  |----------------------------------------------------------|
+  | [ ] Sync layouts   [ ] Notifications ...   (real toggles)|
+  | ...                                                      |
+  |----------------------------------------------------------|
+  | H2  Environment (vault)    [+ Add Secret] [Audit] [ok]   |  <- UNCHANGED
+  | +------------------------------------------------------+ |     COMPONENT
+  | | Provider cards (ANTHROPIC, CLOUDFLARE, …)            | |
+  | |   KEY  [reveal] [roll] [test]                        | |
+  | +------------------------------------------------------+ |
+  +----------------------------------------------------------+
+
+--------------------------------------------------------------------------------
+4) ENVIRONMENT — NON-REGRESSION CONTRACT
+--------------------------------------------------------------------------------
+
+DO NOT:
+  - Change vault API routes or payload shapes in this pass.
+  - Re-skin provider cards unless tokens only (CSS vars).
+  - Move secrets to a different tab without user testing.
+
+DO:
+  - Export `<EnvironmentVaultPanel />` (name as in codebase) and mount it under
+    General (same state hooks, same parent context providers).
+  - Preserve deep-link: if hash was #settings/environment, redirect to
+    #settings/general&section=environment OR keep alias route that scrolls.
+
+--------------------------------------------------------------------------------
+5) COMPONENT / FILE PLAN (settings.jsx / SettingsPanel.jsx)
+--------------------------------------------------------------------------------
+
+Suggested structure (names illustrative):
+
+  settingsNavItems = [
+    { id: 'general',        label: 'General',                component: GeneralTab },
+    { id: 'plan-usage',     label: 'Plan & Usage',           component: PlanUsageTab },
+    ...
+  ];
+
+  <SettingsLayout>
+    <SettingsNav items={settingsNavItems} activeId={active} onSelect={...} />
+    <SettingsContent>
+      {active === 'general' && (
+        <>
+          <GeneralPreferences />
+          <EnvironmentVaultPanel />   <!-- existing, no logic fork -->
+        </>
+      )}
+      ...
+    </SettingsContent>
+  </SettingsLayout>
+
+Remove the old 5×N matrix (WORKSPACE/TOOLS/DEPLOY/SECURITY/CONTEXT) from the
+render path once parity is verified; keep a COMMENT MAP in code for 1 release.
+
+--------------------------------------------------------------------------------
+6) ROUTING / STATE
+--------------------------------------------------------------------------------
+
+  - Prefer URL: /dashboard/agent#settings/general
+  - Optional: ?tab=hooks for shareable links
+  - Persist last tab in localStorage key `iam-settings-tab` (optional)
+
+--------------------------------------------------------------------------------
+7) VISUAL TOKENS (ALIGN WITH CURSOR-CLASS SHELL)
+--------------------------------------------------------------------------------
+
+  - Nav row height ~32–36px; active: left 2–3px accent `var(--color-primary)`
+  - Section title: 18–20px semibold; H2 inside content 14–16px
+  - Content max-width readable (~720px) inside wide panel
+  - Spacing 12–16px vertical between setting rows (label + description + control)
+
+--------------------------------------------------------------------------------
+8) ROLLOUT PHASES
+--------------------------------------------------------------------------------
+
+  Phase A — Nav only: 15 labels + stub OR hidden for unwired tabs.
+  Phase B — Wire high-value: General (incl. Environment), Agents, Tools & MCP,
+            Plan & Usage.
+  Phase C — Remaining tabs + remove legacy 12-view code paths.
+
+--------------------------------------------------------------------------------
+9) OPEN QUESTIONS FOR SAM (CHECK BEFORE SHIP)
+--------------------------------------------------------------------------------
+
+  [ ] Should “Docs” merge GitHub repo picker + external help, or stay split?
+  [ ] Is “Tab” (Cursor inline completion) in scope for IAM product name?
+  [ ] Marketplace: only IAM-approved integrations (no Cursor marketplace)?
+
+--------------------------------------------------------------------------------
+10) SANDBOX WORKER — wrangler.jsonc PARITY (Cloudflare dashboard)
+--------------------------------------------------------------------------------
+
+  Worker **inneranimal-dashboard** (meauxbility.workers.dev) may show an orange
+  callout: keep repo **wrangler.jsonc** aligned with dashboard (e.g. top-level
+  `"name": "inneranimal-dashboard"`). That file lives in the **Git repo wired to
+  that Worker** (dashboard screenshot: SamPrimeaux/inneranimalmedia-agentsam-*),
+  not necessarily this monorepo root — **this** repo’s `wrangler.jsonc` names
+  **inneranimalmedia** (main production worker). Action: add or update
+  `wrangler.jsonc` in the **inneranimal-dashboard** deploy repo** so CI/build
+  metadata matches; do not confuse with `wrangler.production.toml` for
+  **inneranimalmedia**.
+
+--------------------------------------------------------------------------------
+11) PRE-REFACTOR AUDIT SNAPSHOT (march1st-inneranimalmedia) — 2026-03-22
+--------------------------------------------------------------------------------
+
+  See Cursor chat report: line counts, VIEWER_STRIP_TAB_ORDER, input bar
+  tokens, hex inventory, worker terminal_session lines, FloatingPreviewPanel
+  paths (`agent-dashboard/src/FloatingPreviewPanel.jsx`, not `components/`).
+
+================================================================================
+END OF SPEC
+================================================================================

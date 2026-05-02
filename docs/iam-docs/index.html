@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IAM Docs — Inner Animal Media</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: var(--bg-canvas, var(--bg-primary, #1a1712));
+      --bg-surface: var(--bg-nav, #201d18);
+      --bg-elevated: var(--bg-elevated, #2a2620);
+      --bg-hover: var(--bg-hover, #312c25);
+      --border: var(--border, #3a342a);
+      --border-subtle: var(--border-nav, #2a2620);
+      --amber: var(--accent, var(--color-primary, #d4a847));
+      --amber-dim: var(--accent-dim, #9a7830);
+      --amber-glow: var(--accent-glow, rgba(212,168,71,0.12));
+      --text: var(--text-primary, #e8dcc8);
+      --text-dim: var(--text-secondary, #9a8c78);
+      --text-faint: var(--text-muted, #5a5040);
+      --font-mono: var(--font-mono, 'Geist Mono', monospace);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .layout {
+      display: flex;
+      min-height: 100vh;
+      max-width: 100vw;
+    }
+
+    .sidebar {
+      width: 260px;
+      min-width: 260px;
+      flex-shrink: 0;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 150ms cubic-bezier(0.4,0,0.2,1),
+                  min-width 150ms cubic-bezier(0.4,0,0.2,1),
+                  transform 200ms cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .sidebar-collapse-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 10px;
+      background: none;
+      border: none;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-faint);
+      cursor: pointer;
+      transition: color 150ms, background 150ms;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      gap: 6px;
+      letter-spacing: 0.05em;
+    }
+    .sidebar-collapse-btn:hover {
+      color: var(--amber);
+      background: var(--amber-glow);
+    }
+    .sidebar-collapse-btn span {
+      font-size: 10px;
+      color: inherit;
+    }
+    .layout.sidebar-collapsed .sidebar {
+      width: 40px;
+      min-width: 40px;
+    }
+    .layout.sidebar-collapsed .sidebar-item span,
+    .layout.sidebar-collapsed .sidebar-section-label,
+    .layout.sidebar-collapsed .sidebar-group > *:not(.sidebar-collapse-btn) {
+      display: none;
+    }
+    .layout.sidebar-collapsed .sidebar-collapse-btn span {
+      display: none;
+    }
+    .layout.sidebar-collapsed .sidebar-item {
+      justify-content: center;
+      padding: 8px;
+    }
+    .layout.sidebar-collapsed .sidebar-item-icon {
+      margin: 0;
+    }
+
+    .sidebar-inner {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 0 24px;
+    }
+
+    .sidebar-section-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-faint);
+      padding: 8px 16px 6px;
+    }
+
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 13px;
+      border-left: 2px solid transparent;
+      transition: background 150ms, color 150ms, border-color 150ms;
+      cursor: pointer;
+    }
+    .sidebar-item:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+    .sidebar-item[aria-current="page"] {
+      border-left-color: var(--amber);
+      color: var(--text);
+      background: var(--amber-glow);
+    }
+    .sidebar-item-icon {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      width: 1.25rem;
+      text-align: center;
+      color: var(--amber-dim);
+      flex-shrink: 0;
+    }
+
+    .main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar h1 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+      min-width: 0;
+    }
+    .mobile-menu-btn {
+      display: none;
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .mobile-menu-btn:hover {
+      background: var(--bg-hover);
+    }
+    .mobile-menu-btn .bar {
+      display: block;
+      width: 18px;
+      height: 2px;
+      background: var(--text);
+      margin: 3px 0;
+      border-radius: 1px;
+    }
+    .search-wrap {
+      position: relative;
+      flex: 0 1 320px;
+    }
+    .search-wrap input {
+      width: 100%;
+      padding: 8px 12px 8px 36px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      font-family: inherit;
+    }
+    .search-wrap input::placeholder {
+      color: var(--text-faint);
+    }
+    .search-wrap input:focus {
+      border-color: var(--amber);
+    }
+    .search-wrap .search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: var(--text-faint);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .content {
+      flex: 1;
+      padding: 28px 32px 48px;
+      max-width: 56rem;
+    }
+    .content h2 {
+      font-size: 1.125rem;
+      margin: 1.5rem 0 0.75rem;
+      color: var(--text);
+    }
+    .content p, .content li {
+      color: var(--text-dim);
+      font-size: 14px;
+      margin-bottom: 0.65rem;
+    }
+    .content ul { padding-left: 1.25rem; margin: 0.5rem 0 1rem; }
+    .content a {
+      color: var(--amber);
+      text-decoration: none;
+    }
+    .content a:hover { text-decoration: underline; }
+    .content table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 1rem 0;
+    }
+    .content th, .content td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    .content th {
+      background: var(--bg-elevated);
+      color: var(--text);
+      font-weight: 600;
+    }
+    .kbd-hint {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-faint);
+      margin-left: auto;
+    }
+
+    .doc-view h1 { font-size: 1.5rem; margin: 0 0 1rem; color: var(--text); }
+    .doc-view h2 { font-size: 1.2rem; margin: 1.5rem 0 0.75rem; }
+    .doc-view h3 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; color: var(--text); }
+    .doc-view pre, .doc-view code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+    .doc-view pre {
+      padding: 12px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      margin: 0.75rem 0;
+    }
+    .doc-view code { background: var(--bg-hover); padding: 0.1em 0.35em; border-radius: 4px; }
+    .doc-view pre code { background: none; padding: 0; }
+    .doc-view blockquote {
+      border-left: 3px solid var(--amber-dim);
+      padding-left: 12px;
+      margin: 1rem 0;
+      color: var(--text-dim);
+    }
+    .doc-error {
+      color: var(--text-dim);
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-elevated);
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 1.25rem 0 1.75rem;
+    }
+    .home-card {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg-elevated);
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 150ms, background 150ms;
+      font: inherit;
+      cursor: pointer;
+    }
+    .home-card:hover {
+      border-color: var(--amber);
+      background: var(--amber-glow);
+    }
+    .home-card-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .home-card-icon {
+      font-size: 1.35rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .home-card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .home-card-desc {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.45;
+      margin-bottom: 10px;
+    }
+    .home-card-meta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-faint);
+    }
+    .md-body {
+      margin-top: 0.5rem;
+    }
+    .md-body h2 {
+      margin-top: 1.75rem;
+    }
+
+    .sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 90;
+    }
+    .layout.sidebar-mobile-open .sidebar-backdrop {
+      display: block !important;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-menu-btn {
+        display: inline-flex;
+        flex-direction: column;
+      }
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 100;
+        width: min(280px, 88vw);
+        min-width: min(280px, 88vw);
+        transform: translateX(-100%);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.35);
+      }
+      .layout.sidebar-mobile-open .sidebar {
+        transform: translateX(0);
+      }
+      .layout.sidebar-collapsed .sidebar {
+        width: min(280px, 88vw);
+        min-width: min(280px, 88vw);
+      }
+      .layout.sidebar-collapsed:not(.sidebar-mobile-open) .sidebar {
+        transform: translateX(-100%);
+      }
+      .layout.sidebar-mobile-open .sidebar .sidebar-item span,
+      .layout.sidebar-mobile-open .sidebar .sidebar-section-label,
+      .layout.sidebar-mobile-open .sidebar .sidebar-group > *:not(.sidebar-collapse-btn) {
+        display: revert;
+      }
+      .layout.sidebar-mobile-open .sidebar .sidebar-item {
+        justify-content: flex-start;
+        padding: 8px 16px;
+      }
+      .kbd-hint { display: none; }
+      .search-wrap { flex: 1; min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout" id="layoutRoot">
+    <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
+    <aside class="sidebar" id="sidebar" aria-label="Documentation navigation">
+      <button type="button" class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Toggle sidebar" aria-expanded="true">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
+          <rect x="1" y="1" width="14" height="14" rx="2"/>
+          <path d="M5 1v14"/>
+        </svg>
+      </button>
+      <div class="sidebar-inner">
+        <div class="sidebar-group">
+          <div class="sidebar-section-label">Library</div>
+          <a class="sidebar-item spa-nav" href="#README.md" data-doc-path="README.md" data-search="readme overview home"><span class="sidebar-item-icon">H</span><span>Overview</span></a>
+        </div>
+        <div class="sidebar-group">
+          <div class="sidebar-section-label">Guides</div>
+          <a class="sidebar-item spa-nav" href="#cursor/IAM-CURSOR-CONTEXT.md" data-doc-path="cursor/IAM-CURSOR-CONTEXT.md" data-search="cursor ide"><span class="sidebar-item-icon">C</span><span>Cursor context</span></a>
+          <a class="sidebar-item spa-nav" href="#platform/deploy-runbook.md" data-doc-path="platform/deploy-runbook.md" data-search="deploy runbook"><span class="sidebar-item-icon">D</span><span>Deploy runbook</span></a>
+          <a class="sidebar-item spa-nav" href="#platform/worker-routing.md" data-doc-path="platform/worker-routing.md" data-search="worker routing"><span class="sidebar-item-icon">R</span><span>Worker routing</span></a>
+          <a class="sidebar-item spa-nav" href="#platform/r2-bucket-map.md" data-doc-path="platform/r2-bucket-map.md" data-search="r2 bucket"><span class="sidebar-item-icon">S</span><span>R2 bucket map</span></a>
+        </div>
+        <div class="sidebar-group">
+          <div class="sidebar-section-label">Agents</div>
+          <a class="sidebar-item spa-nav" href="#agents/README.md" data-doc-path="agents/README.md" data-search="ai providers"><span class="sidebar-item-icon">A</span><span>AI providers</span></a>
+          <a class="sidebar-item spa-nav" href="#agents/tool-reference.md" data-doc-path="agents/tool-reference.md" data-search="tools mcp"><span class="sidebar-item-icon">T</span><span>Tool reference</span></a>
+        </div>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open navigation menu" aria-expanded="false">
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+        </button>
+        <h1 id="pageTitle">IAM Docs</h1>
+        <span class="kbd-hint">Search</span>
+        <div class="search-wrap">
+          <span class="search-icon" aria-hidden="true">/</span>
+          <input type="search" id="searchInput" placeholder="Filter navigation" autocomplete="off" aria-label="Filter sidebar links">
+        </div>
+      </header>
+      <main class="content" id="homeContent"></main>
+    </div>
+  </div>
+
+  <script>
+    const BASE = 'https://docs.inneranimalmedia.com';
+
+    const STRUCTURE = {
+      toolCount: 73,
+      categoryCount: 18,
+      toolCategories: [
+        'ai_3d_generation', 'browser', 'browser_control', 'browser_debug',
+        'browser_emulation', 'browser_navigation', 'browser_network', 'browser_performance',
+        'context', 'database', 'execute', 'file_conversion', 'image',
+        'integrations', 'ops', 'platform', 'quality', 'query', 'storage', 'telemetry', 'terminal'
+      ]
+    };
+
+    const HOME_CARDS = [
+      { icon: '\u2325', title: 'Cursor Context', desc: 'Full platform context doc for Cursor IDE', path: 'cursor/IAM-CURSOR-CONTEXT.md', count: '1 doc' },
+      { icon: '\u2726', title: 'AI Agents', desc: 'Anthropic ($565), OpenAI ($87), Gemini ($55), Workers AI — real cost data', path: 'agents/README.md', count: '7 docs' },
+      { icon: '\u26A1', title: 'Platform', desc: 'Deploy runbooks, worker routing, R2 map, D1 schema, bindings', path: 'platform/deploy-runbook.md', count: '5 docs' },
+      { icon: '\u2699', title: 'Tool Reference', desc: '73 tools across 18 categories — CDT, terminal, R2, D1, image, 3D, MCP', path: 'agents/tool-reference.md', count: '73 tools' },
+      { icon: '\u22C8', title: 'AutoRAG', desc: 'RAG pipeline, iam-autorag index, knowledge base architecture', path: 'autorag/architecture/how-rag-works.md', count: '1 doc' },
+      { icon: '\u25D0', title: 'Clients', desc: 'Per-client documentation and build overviews', path: 'clients/README.md', count: '3 docs' }
+    ];
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function docUrl(path) {
+      var b = BASE.replace(/\/$/, '');
+      return b + '/' + path.replace(/^\//, '');
+    }
+
+    function getHashPath() {
+      var h = location.hash;
+      if (!h || h === '#') return null;
+      var raw = h.replace(/^#/, '').replace(/^\//, '');
+      try {
+        return raw.split('/').map(function (seg) { return decodeURIComponent(seg); }).join('/');
+      } catch (e) {
+        return raw;
+      }
+    }
+
+    var spaNavigating = false;
+
+    function buildUrlWithHash(path) {
+      if (!path) return location.pathname + location.search;
+      return location.pathname + location.search + '#' + path.split('/').map(function (seg) {
+        return encodeURIComponent(seg);
+      }).join('/');
+    }
+
+    function syncSidebarActive() {
+      var path = getHashPath();
+      document.querySelectorAll('.sidebar-item.spa-nav').forEach(function (el) {
+        var p = el.getAttribute('data-doc-path');
+        if (path && p === path) {
+          el.setAttribute('aria-current', 'page');
+        } else {
+          el.removeAttribute('aria-current');
+        }
+      });
+    }
+
+    function renderHome() {
+      var root = document.getElementById('homeContent');
+      if (!root) return;
+      var pt = document.getElementById('pageTitle');
+      if (pt) pt.textContent = 'IAM Docs';
+      document.title = 'IAM Docs — Inner Animal Media';
+
+      var cardsHtml = HOME_CARDS.map(function (c) {
+        return (
+          '<button type="button" class="home-card spa-nav" data-doc-path="' + esc(c.path) + '">' +
+          '<div class="home-card-head">' +
+          '<span class="home-card-icon" aria-hidden="true">' + esc(c.icon) + '</span>' +
+          '<div><div class="home-card-title">' + esc(c.title) + '</div></div>' +
+          '</div>' +
+          '<p class="home-card-desc">' + esc(c.desc) + '</p>' +
+          '<div class="home-card-meta">' + esc(c.count) + '</div>' +
+          '</button>'
+        );
+      }).join('');
+
+      var catNote = STRUCTURE.toolCount + ' tools across ' + STRUCTURE.categoryCount + ' category groupings (' +
+        STRUCTURE.toolCategories.length + ' distinct tool_category values in D1).';
+
+      root.innerHTML =
+        '<p>Public documentation for the Inner Animal Media platform. Files are served from the <strong>iam-docs</strong> R2 bucket at <a id="baseLink" href="' + esc(BASE) + '" target="_blank" rel="noopener">docs.inneranimalmedia.com</a>.</p>' +
+        '<p style="font-size:13px;color:var(--text-faint)">' + esc(catNote) + '</p>' +
+        '<div class="cards-grid">' + cardsHtml + '</div>' +
+        '<div class="md-body">' +
+        '<h2>System Reality</h2>' +
+        '<table>' +
+        '<thead><tr><th>Provider</th><th>Top Model</th><th>Calls</th><th>Spend</th></tr></thead>' +
+        '<tbody>' +
+        '<tr><td>Anthropic</td><td>claude-haiku-4-5-20251001</td><td>338</td><td>$2.50</td></tr>' +
+        '<tr><td>Anthropic</td><td>claude-sonnet-4-6</td><td>113</td><td>$4.58</td></tr>' +
+        '<tr><td>Google</td><td>gemini-2.5-flash</td><td>104</td><td>$0.009</td></tr>' +
+        '<tr><td>OpenAI</td><td>gpt-4.1</td><td>8</td><td>$0.11</td></tr>' +
+        '<tr><td>Workers AI</td><td>llama-3.1-8b-instruct</td><td>5</td><td>$0.00007</td></tr>' +
+        '<tr><td>Cursor IDE</td><td>claude-auto / opus</td><td>670+</td><td>$450+</td></tr>' +
+        '</tbody></table>' +
+        '<p>Sprint: <strong>44/77 steps complete (57%)</strong> &mdash; Worker <code>924e4b04</code> &mdash; v136 &mdash; 2026-03-23</p>' +
+        '</div>' +
+        '<h2>Directories</h2>' +
+        '<table><thead><tr><th>Path</th><th>Contents</th></tr></thead><tbody>' +
+        '<tr><td><code>cursor/</code></td><td>Cursor IDE context docs</td></tr>' +
+        '<tr><td><code>agents/</code></td><td>AI provider references and tool docs</td></tr>' +
+        '<tr><td><code>autorag/</code></td><td>AutoRAG knowledge base source files</td></tr>' +
+        '<tr><td><code>platform/</code></td><td>Deploy runbooks, routing, bindings, schema</td></tr>' +
+        '<tr><td><code>clients/</code></td><td>Per-client documentation</td></tr>' +
+        '<tr><td><code>sessions/</code></td><td>Session logs and summaries</td></tr>' +
+        '<tr><td><code>screenshots/</code></td><td>Agent and test screenshots</td></tr>' +
+        '<tr><td><code>archive/</code></td><td>Long-term storage</td></tr>' +
+        '</tbody></table>' +
+        '<h2>Quick links</h2><ul>' +
+        '<li><a href="#cursor/IAM-CURSOR-CONTEXT.md" class="spa-nav" data-doc-path="cursor/IAM-CURSOR-CONTEXT.md">Cursor context</a></li>' +
+        '<li><a href="#platform/deploy-runbook.md" class="spa-nav" data-doc-path="platform/deploy-runbook.md">Deploy runbook</a></li>' +
+        '<li><a href="#agents/README.md" class="spa-nav" data-doc-path="agents/README.md">All AI providers</a></li>' +
+        '<li><a href="#agents/tool-reference.md" class="spa-nav" data-doc-path="agents/tool-reference.md">Tool reference</a></li>' +
+        '<li><a href="#platform/worker-routing.md" class="spa-nav" data-doc-path="platform/worker-routing.md">Worker routing</a></li>' +
+        '<li><a href="#platform/r2-bucket-map.md" class="spa-nav" data-doc-path="platform/r2-bucket-map.md">R2 bucket map</a></li>' +
+        '</ul>';
+    }
+
+    function loadDoc(path) {
+      var root = document.getElementById('homeContent');
+      var pt = document.getElementById('pageTitle');
+      if (!root) return;
+      root.innerHTML = '<p class="doc-error">Loading…</p>';
+
+      fetch(docUrl(path), { credentials: 'same-origin' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function (md) {
+          var parse = (typeof marked !== 'undefined' && marked.parse) ? marked.parse : function (t) { return '<pre>' + esc(t) + '</pre>'; };
+          var html = parse(md);
+          root.innerHTML = '<article class="doc-view">' + html + '</article>';
+          if (pt) {
+            var titleMatch = md.match(/^#\s+(.+)$/m);
+            pt.textContent = titleMatch ? titleMatch[1].trim() : path;
+          }
+          document.title = (pt && pt.textContent ? pt.textContent + ' — ' : '') + 'IAM Docs';
+          syncSidebarActive();
+        })
+        .catch(function (err) {
+          root.innerHTML = '<div class="doc-error"><p>Could not load <code>' + esc(path) + '</code>.</p><p>' + esc(String(err.message || err)) + '</p><p><button type="button" class="home-card spa-nav" data-doc-path="" style="margin-top:8px">Back to home</button></p></div>';
+          if (pt) pt.textContent = 'Error';
+          document.title = 'Error — IAM Docs';
+          syncSidebarActive();
+        });
+    }
+
+    function navigateTo(path, replace) {
+      spaNavigating = true;
+      var url = buildUrlWithHash(path);
+      var state = { doc: path || 'home' };
+      if (replace) history.replaceState(state, '', url);
+      else history.pushState(state, '', url);
+      setTimeout(function () { spaNavigating = false; }, 0);
+
+      if (!path) {
+        renderHome();
+        syncSidebarActive();
+      } else {
+        loadDoc(path);
+      }
+      closeMobileSidebar();
+    }
+
+    function initSpaDelegation() {
+      document.body.addEventListener('click', function (e) {
+        var t = e.target.closest('a.spa-nav, button.spa-nav');
+        if (!t) return;
+        var path = t.getAttribute('data-doc-path');
+        if (path === null || path === undefined) return;
+        e.preventDefault();
+        navigateTo(path === '' ? null : path, false);
+      });
+    }
+
+    function applyRouteFromLocation() {
+      var path = getHashPath();
+      if (path) {
+        loadDoc(path);
+      } else {
+        renderHome();
+      }
+      syncSidebarActive();
+    }
+
+    function initSearch() {
+      var input = document.getElementById('searchInput');
+      if (!input) return;
+      input.addEventListener('input', function () {
+        var q = input.value.trim().toLowerCase();
+        document.querySelectorAll('.sidebar-item').forEach(function (el) {
+          var hay = (el.getAttribute('data-search') || el.textContent || '').toLowerCase();
+          el.style.display = !q || hay.includes(q) ? '' : 'none';
+        });
+        document.querySelectorAll('.sidebar-group').forEach(function (group) {
+          var items = group.querySelectorAll('.sidebar-item');
+          var any = false;
+          items.forEach(function (it) {
+            if (it.style.display !== 'none') any = true;
+          });
+          var label = group.querySelector('.sidebar-section-label');
+          if (label) label.style.display = any ? '' : 'none';
+        });
+      });
+    }
+
+    function updateCollapseBtn() {
+      var layout = document.querySelector('.layout');
+      var btn = document.getElementById('sidebarCollapseBtn');
+      if (!layout || !btn) return;
+      var collapsed = layout.classList.contains('sidebar-collapsed');
+      btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
+
+    function initSidebarCollapse() {
+      var btn = document.getElementById('sidebarCollapseBtn');
+      var layout = document.querySelector('.layout');
+      var COLLAPSE_KEY = 'iam_docs_sidebar_collapsed';
+
+      if (!btn || !layout) return;
+
+      if (localStorage.getItem(COLLAPSE_KEY) === '1') {
+        layout.classList.add('sidebar-collapsed');
+      }
+
+      btn.addEventListener('click', function () {
+        layout.classList.toggle('sidebar-collapsed');
+        var collapsed = layout.classList.contains('sidebar-collapsed');
+        localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
+        updateCollapseBtn();
+      });
+
+      updateCollapseBtn();
+    }
+
+    function closeMobileSidebar() {
+      var layout = document.getElementById('layoutRoot');
+      var mb = document.getElementById('mobileMenuBtn');
+      if (layout) layout.classList.remove('sidebar-mobile-open');
+      if (mb) mb.setAttribute('aria-expanded', 'false');
+    }
+
+    function openMobileSidebar() {
+      var layout = document.getElementById('layoutRoot');
+      var mb = document.getElementById('mobileMenuBtn');
+      if (layout) layout.classList.add('sidebar-mobile-open');
+      if (mb) mb.setAttribute('aria-expanded', 'true');
+    }
+
+    function initMobileMenu() {
+      var layout = document.getElementById('layoutRoot');
+      var btn = document.getElementById('mobileMenuBtn');
+      var bd = document.getElementById('sidebarBackdrop');
+      if (!btn || !layout) return;
+      btn.addEventListener('click', function () {
+        if (layout.classList.contains('sidebar-mobile-open')) {
+          closeMobileSidebar();
+        } else {
+          openMobileSidebar();
+        }
+      });
+      if (bd) {
+        bd.addEventListener('click', closeMobileSidebar);
+      }
+    }
+
+    initSearch();
+    initSidebarCollapse();
+    initMobileMenu();
+    initSpaDelegation();
+
+    window.addEventListener('popstate', function (e) {
+      var path = null;
+      if (e.state && e.state.doc && e.state.doc !== 'home') {
+        path = e.state.doc;
+      } else {
+        path = getHashPath();
+      }
+      if (path) {
+        loadDoc(path);
+      } else {
+        renderHome();
+        syncSidebarActive();
+      }
+    });
+
+    window.addEventListener('hashchange', function () {
+      if (spaNavigating) return;
+      applyRouteFromLocation();
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault();
+        var b = document.getElementById('sidebarCollapseBtn');
+        if (b) b.click();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        var s = document.getElementById('searchInput');
+        if (s) s.focus();
+      }
+    });
+
+    (function boot() {
+      var path = getHashPath();
+      if (path) {
+        history.replaceState({ doc: path }, '', buildUrlWithHash(path));
+        loadDoc(path);
+      } else {
+        history.replaceState({ doc: 'home' }, '', location.pathname + location.search);
+        renderHome();
+        syncSidebarActive();
+      }
+    })();
+  </script>
+</body>
+</html>

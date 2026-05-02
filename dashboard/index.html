@@ -1,0 +1,68 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var K_CSS = 'inneranimalmedia_theme_css';
+        var K_DARK = 'inneranimalmedia_theme_is_dark';
+        var L_CSS = 'mcad_theme_css';
+        var L_DARK = 'mcad_theme_is_dark';
+        try {
+          if (!localStorage.getItem(K_CSS) && localStorage.getItem(L_CSS)) {
+            localStorage.setItem(K_CSS, localStorage.getItem(L_CSS));
+            localStorage.removeItem(L_CSS);
+          }
+          var d = localStorage.getItem(K_DARK);
+          if (d !== '1' && d !== '0') {
+            var ld = localStorage.getItem(L_DARK);
+            if (ld === '1' || ld === '0') {
+              localStorage.setItem(K_DARK, ld);
+              localStorage.removeItem(L_DARK);
+              d = ld;
+            }
+          }
+          if (d === '1' || d === '0') {
+            document.documentElement.setAttribute('data-theme', d === '1' ? 'dark' : 'light');
+          }
+          var raw = localStorage.getItem(K_CSS);
+          if (!raw) return;
+          var vars = JSON.parse(raw);
+          if (!vars || typeof vars !== 'object') return;
+          var root = document.documentElement;
+          Object.keys(vars).forEach(function (k) {
+            if (vars[k] != null) root.style.setProperty(k, String(vars[k]));
+          });
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inner Animal Media — Agent Dashboard</title>
+    <link rel="preconnect" href="https://inneranimalmedia.com" crossorigin />
+    <link rel="dns-prefetch" href="https://inneranimalmedia.com" />
+    <!-- Inner Animal Media dashboard shell (layout vars; safe alongside app CSS) -->
+    <link rel="stylesheet" href="/static/dashboard/shell.css" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/webrtc-adapter/8.1.2/adapter.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        font-family: system-ui, -apple-system, sans-serif;
+        background-color: var(--bg-app);
+        color: var(--text-main);
+      }
+    </style>
+    <!-- No importmap: bare-specifier maps to CDN caused a second React copy at runtime (minified error #525) alongside the Vite bundle. -->
+<link rel="stylesheet" href="/index.css?v=1.2.0-1775750920551">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/dashboard/shell.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx?v=1.2.0-1775750920551"></script>
+</body>
+</html>

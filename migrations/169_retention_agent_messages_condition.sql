@@ -1,0 +1,5 @@
+-- Optional: tighten agent_messages retention so inactive/archived sessions purge before active chat history.
+-- Apply when ready (adjust policy id or use WHERE table_name if you prefer):
+-- UPDATE data_retention_policies
+-- SET condition = 'session_id NOT IN (SELECT id FROM agent_sessions WHERE status = ''active'')'
+-- WHERE table_name = 'agent_messages';

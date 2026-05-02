@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="meaux-glass-blue">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mission Control — Inner Animal Media</title>
+    <!-- CRITICAL: Theme must load BEFORE any visible content -->
+    <script>
+    (function() {
+        const saved = localStorage.getItem('dashboard-theme');
+        if (saved) {
+            document.documentElement.setAttribute('data-theme', saved);
+        }
+        // Preload theme CSS vars to prevent flash
+        const savedVars = localStorage.getItem('dashboard-theme-vars');
+        if (savedVars) {
+            const style = document.createElement('style');
+            style.id = 'theme-preload-inject';
+            style.textContent = savedVars;
+            document.head.appendChild(style);
+        }
+    })();
+    </script>
+    <script>
+        (function() {
+            function applyShellTheme(slug, config, apiVariables) {
+                if (!slug) return;
+                document.documentElement.setAttribute('data-theme', slug);
+                var cssVars = (config && (config.cssVars || config.css_vars)) || {};
+                if (apiVariables && typeof apiVariables === 'object' && Object.keys(apiVariables).length) {
+                    cssVars = apiVariables;
+                } else if (config && typeof config === 'object' && !config.cssVars && !config.css_vars) {
+                    var c = config;
+                    cssVars['--bg-nav'] = c.nav || c.bg || c.surface || '#1e293b';
+                    cssVars['--text-nav'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-primary'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-secondary'] = c.textSecondary || c.text || '#94a3b8';
+                    cssVars['--color-border'] = c.border || '#334155';
+                    cssVars['--border-nav'] = c.border || '#334155';
+                    cssVars['--accent'] = c.primary || '#3b82f6';
+                    cssVars['--color-primary'] = c.primary || '#3b82f6';
+                    if (!c.bg && !c.surface) { cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b'; } else { if (c.bg) cssVars['--bg-canvas'] = c.bg; if (c.surface) cssVars['--bg-elevated'] = c.surface; }
+                }
+                if (Object.keys(cssVars).length === 0) {
+                    cssVars['--bg-nav'] = '#1e293b'; cssVars['--text-nav'] = '#f1f5f9'; cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b';
+                }
+                var cssText = ':root[data-theme="' + String(slug).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"] {';
+                for (var k in cssVars) if (Object.prototype.hasOwnProperty.call(cssVars, k)) {
+                    var key = String(k).indexOf('--') === 0 ? k : '--' + k;
+                    cssText += key + ':' + cssVars[k] + ';';
+                }
+                cssText += '}';
+                try { localStorage.setItem('dashboard-theme', slug); localStorage.setItem('dashboard-theme-vars', cssText); } catch (e) {}
+                var styleEl = document.getElementById('theme-dynamic-inject');
+                if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'theme-dynamic-inject'; document.head.appendChild(styleEl); }
+                styleEl.textContent = cssText;
+            }
+            fetch('/api/settings/theme', { credentials: 'same-origin' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(d) {
+                    var slug = (d && d.theme) ? d.theme.trim() : null;
+                    if (!slug) { try { slug = localStorage.getItem('dashboard-theme'); } catch (e) {} if (!slug) return; }
+                    if (d && d.variables && typeof d.variables === 'object' && Object.keys(d.variables).length) { applyShellTheme(slug, {}, d.variables); return; }
+                    fetch('/api/themes', { credentials: 'same-origin' }).then(function(r2) { return r2.json(); }).then(function(data) {
+                        var themes = data.themes || [];
+                        for (var i = 0; i < themes.length; i++) {
+                            var t = themes[i];
+                            if ((t.slug || t.name || '').toLowerCase() === (slug || '').toLowerCase()) {
+                                var cfg = t.config;
+                                if (typeof cfg === 'string') try { cfg = JSON.parse(cfg); } catch (e) { cfg = {}; }
+                                applyShellTheme(slug, cfg || {}); return;
+                            }
+                        }
+                        applyShellTheme(slug, {});
+                    }).catch(function() { applyShellTheme(slug, {}); });
+                })
+                .catch(function() { try { var local = localStorage.getItem('dashboard-theme'); if (local) applyShellTheme(local, {}); } catch (e) {} });
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://pub-b845a8f899834f0faf95dc83eda3c505.r2.dev/static/dashboard/styles_themes.css">
+    <link rel="stylesheet" href="/static/dashboard/shell.css">
+    <style>
+        :root { --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1); --dashboard-sidenav-width: 260px; --logo-dark: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/thumbnail'); --logo-light: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail'); }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { height: 100%; }
+        body { font-family: var(--font-family); background: var(--bg-canvas); color: var(--text-primary); line-height: 1.5; min-height: 100vh; display: flex; flex-direction: column; }
+        .app-container { display: flex; flex: 1; min-height: 0; min-width: 0; }
+        .topbar { background: var(--bg-nav); border-bottom: 1px solid var(--border-nav); height: 60px; display: flex; align-items: center; padding: 0 20px; }
+        .topbar-left, .topbar-right { display: flex; align-items: center; gap: 12px; color: var(--text-nav); }
+        .topbar-center { flex: 1; }
+        .app-logo { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
+        .sidenav { width: 260px; background: var(--bg-nav); border-right: 1px solid var(--border-nav); display: flex; flex-direction: column; }
+        .sidenav-header { padding: 20px; border-bottom: 1px solid var(--border-nav); display: flex; align-items: center; gap: 12px; }
+        .sidenav-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+        .sidenav-nav { flex: 1; overflow-y: auto; padding: 12px; }
+        .nav-group { margin-bottom: 20px; }
+        .nav-group-title { font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; color: var(--text-nav-muted); padding: 8px 12px; }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; color: var(--text-nav-muted); text-decoration: none; border-radius: 6px; font-size: 14px; margin-bottom: 2px; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); color: var(--text-nav); }
+        .nav-item.active { color: var(--text-nav); background: rgba(255,255,255,0.15); }
+        .nav-icon { width: 20px; height: 20px; opacity: 0.8; flex-shrink: 0; }
+        .main-content { flex: 1; overflow-y: auto; padding: 24px; background: var(--bg-canvas); min-height: 0; }
+
+        /* Hub layout */
+        .hub-page-header { margin-bottom: 24px; }
+        .hub-page-title { font-size: 28px; font-weight: 700; color: var(--text-primary); }
+        .hub-page-subtitle { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+        .hub-stat-pills { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+        .hub-pill { padding: 10px 16px; border-radius: 10px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 14px; font-weight: 500; color: var(--text-primary); }
+        .hub-two-col { display: grid; grid-template-columns: 40% 1fr; gap: 24px; margin-bottom: 24px; }
+        @media (max-width: 900px) { .hub-two-col { grid-template-columns: 1fr; } }
+        .hub-section { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-height: 200px; }
+        .hub-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .hub-section-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+        .hub-refresh-btn { border: none; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+        .hub-refresh-btn:hover { background: var(--border); color: var(--text-primary); }
+        .hub-roadmap-progress { height: 6px; background: var(--border); border-radius: 3px; margin-bottom: 12px; overflow: hidden; }
+        .hub-roadmap-progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width var(--transition); }
+        .hub-roadmap-list { list-style: none; padding: 0; margin: 0; }
+        .hub-roadmap-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .hub-roadmap-item:last-child { border-bottom: none; }
+        .hub-roadmap-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; background: var(--border); border: 2px solid var(--border); }
+        .hub-roadmap-dot.completed { background: var(--accent); border-color: var(--accent); }
+        .hub-roadmap-dot.in-progress { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--accent); animation: hub-pulse 1.5s ease-in-out infinite; }
+        @keyframes hub-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--accent); } 50% { box-shadow: 0 0 0 4px var(--bg-elevated), 0 0 0 8px var(--accent); } }
+        .hub-roadmap-dot.not-started { background: transparent; }
+        .hub-roadmap-item .title { color: var(--text-primary); font-weight: 500; }
+        .hub-roadmap-item.completed .title { text-decoration: line-through; color: var(--text-secondary); }
+        .hub-roadmap-item.in-progress .title { font-weight: 600; }
+        .hub-roadmap-item.not-started .title { color: var(--text-secondary); }
+        .hub-tasks-row { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 8px; }
+        .hub-tasks-col { min-width: 200px; flex: 1; max-width: 240px; }
+        .hub-tasks-col-title { font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+        .hub-task-card { background: var(--bg-canvas); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; cursor: pointer; }
+        .hub-task-card:hover { border-color: var(--accent); }
+        .hub-task-card .title { color: var(--text-primary); font-weight: 500; margin-bottom: 4px; }
+        .hub-task-card .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+        .hub-priority-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+        .hub-priority-badge.critical, .hub-priority-badge.urgent { background: color-mix(in srgb, var(--error) 15%, transparent); color: var(--error); }
+        .hub-priority-badge.high { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); }
+        .hub-priority-badge.medium, .hub-priority-badge.low { background: var(--border); color: var(--text-secondary); }
+        .hub-new-task-btn { margin-bottom: 12px; padding: 8px 12px; border-radius: 8px; border: 1px dashed var(--border); background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; width: 100%; }
+        .hub-new-task-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .hub-new-task-form { background: var(--bg-canvas); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+        .hub-new-task-form input, .hub-new-task-form select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); font-size: 13px; margin-bottom: 8px; }
+        .hub-new-task-form label { font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px; }
+        .hub-new-task-form .actions { display: flex; gap: 8px; margin-top: 8px; }
+        .hub-btn { padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; }
+        .hub-btn-primary { background: var(--accent); color: var(--text-nav); }
+        .hub-btn-secondary { background: var(--border); color: var(--text-primary); }
+        .hub-projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+        .hub-project-card { background: var(--bg-canvas); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; }
+        .hub-project-card .name { font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+        .hub-project-card .client { color: var(--text-secondary); font-size: 12px; margin-bottom: 6px; }
+        .hub-project-card .status { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--border); color: var(--text-secondary); display: inline-block; }
+        .hub-terminal-strip { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-primary); }
+        .hub-terminal-line { display: flex; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+        .hub-terminal-line:last-child { border-bottom: none; }
+        .hub-terminal-ts { color: var(--text-secondary); flex-shrink: 0; }
+        .hub-terminal-cmd { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60ch; }
+        .hub-terminal-ok { color: var(--success); }
+        .hub-terminal-fail { color: var(--error); }
+        .hub-empty { color: var(--text-secondary); font-size: 13px; padding: 16px 0; }
+        .hub-task-status-select { font-size: 11px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-left">
+            <img class="app-logo" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail" alt="Inner Animal Media">
+        </div>
+        <div class="topbar-center"></div>
+        <div class="topbar-right">
+            <a href="/dashboard/agent" style="color:inherit;text-decoration:none;font-size:14px;">Agent</a>
+            <a href="/dashboard/overview" style="color:inherit;text-decoration:none;font-size:14px;">Overview</a>
+        </div>
+    </header>
+    <div class="app-container">
+        <aside class="sidenav">
+            <div class="sidenav-header"><h2>Dashboard</h2></div>
+            <nav class="sidenav-nav">
+                <div class="nav-group">
+                    <a href="/dashboard/overview" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg><span>Overview</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Tools</div>
+                    <a href="/dashboard/agent" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><span>Agent</span></a>
+                    <a href="/dashboard/chats" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg><span>Chats</span></a>
+                    <a href="/dashboard/tools" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span>Dev Tools</span></a>
+                    <a href="/dashboard/hub" class="nav-item active"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 12m-2 0a2 2 0 1 1 4 0a2 2 0 1 1 -4 0"/></svg><span>Hub</span></a>
+                    <a href="/dashboard/calendar" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>Calendar</span></a>
+                    <a href="/dashboard/mcp" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>MCP</span></a>
+                    <a href="/dashboard/cloud" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg><span>Cloud</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Projects</div>
+                    <a href="/dashboard/projects" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"/></svg><span>Projects</span></a>
+                    <a href="/dashboard/kanban" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg><span>Kanban</span></a>
+                    <a href="/dashboard/time-tracking" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Time Tracking</span></a>
+                </div>
+            </nav>
+        </aside>
+        <main class="main-content">
+            <div class="hub-page-header">
+                <h1 class="hub-page-title">Mission Control</h1>
+                <p class="hub-page-subtitle">Inner Animal Media — Build Status</p>
+            </div>
+
+            <div class="hub-stat-pills">
+                <span class="hub-pill" id="hub-pill-hours">-- hrs today</span>
+                <span class="hub-pill" id="hub-pill-spend">$-- this week</span>
+                <span class="hub-pill" id="hub-pill-calls">-- agent calls today</span>
+            </div>
+
+            <div class="hub-two-col">
+                <div class="hub-section">
+                    <div class="hub-section-header">
+                        <span class="hub-section-title">Roadmap</span>
+                        <button type="button" class="hub-refresh-btn" id="hub-refresh-roadmap" title="Refresh">&#8635;</button>
+                    </div>
+                    <div class="hub-roadmap-progress"><div class="hub-roadmap-progress-fill" id="hub-roadmap-fill" style="width:0%"></div></div>
+                    <div id="hub-roadmap-count" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">0 of 0 complete</div>
+                    <ul class="hub-roadmap-list" id="hub-roadmap-list"></ul>
+                </div>
+                <div class="hub-section">
+                    <div class="hub-section-header">
+                        <span class="hub-section-title">Active Tasks</span>
+                        <button type="button" class="hub-refresh-btn" id="hub-refresh-tasks" title="Refresh">&#8635;</button>
+                    </div>
+                    <button type="button" class="hub-new-task-btn" id="hub-new-task-btn">+ New Task</button>
+                    <div id="hub-new-task-form" class="hub-new-task-form" style="display:none;">
+                        <label>Title</label>
+                        <input type="text" id="hub-new-task-title" placeholder="Task title" required>
+                        <label>Priority</label>
+                        <select id="hub-new-task-priority"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option><option value="urgent">urgent</option><option value="critical">critical</option></select>
+                        <label>Project</label>
+                        <select id="hub-new-task-project"><option value="">None</option></select>
+                        <div class="actions">
+                            <button type="button" class="hub-btn hub-btn-primary" id="hub-new-task-submit">Add</button>
+                            <button type="button" class="hub-btn hub-btn-secondary" id="hub-new-task-cancel">Cancel</button>
+                        </div>
+                    </div>
+                    <div class="hub-tasks-row" id="hub-tasks-row"></div>
+                </div>
+            </div>
+
+            <div class="hub-section" style="margin-bottom:24px;">
+                <div class="hub-section-header">
+                    <span class="hub-section-title">Projects</span>
+                    <button type="button" class="hub-refresh-btn" id="hub-refresh-projects" title="Refresh">&#8635;</button>
+                </div>
+                <div class="hub-projects-grid" id="hub-projects-grid"></div>
+            </div>
+
+            <div class="hub-section">
+                <div class="hub-section-header">
+                    <span class="hub-section-title">Recent Terminal Activity</span>
+                    <button type="button" class="hub-refresh-btn" id="hub-refresh-terminal" title="Refresh">&#8635;</button>
+                </div>
+                <div class="hub-terminal-strip" id="hub-terminal-strip"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+(function() {
+    var base = window.location.origin;
+
+    function el(id) { return document.getElementById(id); }
+
+    function fetchStats() {
+        fetch(base + '/api/hub/stats', { credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(d) {
+            var h = el('hub-pill-hours'); if (h) h.textContent = (d.hours_today != null ? Number(d.hours_today).toFixed(1) : '0') + ' hrs today';
+            var s = el('hub-pill-spend'); if (s) s.textContent = '$' + (d.spend_this_week != null ? Number(d.spend_this_week).toFixed(2) : '0') + ' this week';
+            var c = el('hub-pill-calls'); if (c) c.textContent = (d.agent_calls_today != null ? d.agent_calls_today : '0') + ' agent calls today';
+        }).catch(function() {});
+    }
+
+    function renderRoadmap(steps) {
+        steps = steps || [];
+        var total = steps.length;
+        var done = steps.filter(function(s) { return s.status === 'completed'; }).length;
+        var fill = el('hub-roadmap-fill'); if (fill) fill.style.width = total ? (100 * done / total) + '%' : '0%';
+        var count = el('hub-roadmap-count'); if (count) count.textContent = done + ' of ' + total + ' complete';
+        var list = el('hub-roadmap-list'); if (!list) return;
+        list.innerHTML = '';
+        steps.forEach(function(s) {
+            var li = document.createElement('li');
+            li.className = 'hub-roadmap-item ' + (s.status === 'completed' ? 'completed' : s.status === 'in_progress' ? 'in_progress' : 'not-started');
+            var dot = document.createElement('span');
+            dot.className = 'hub-roadmap-dot ' + (s.status === 'completed' ? 'completed' : s.status === 'in_progress' ? 'in-progress' : 'not-started');
+            var title = document.createElement('span');
+            title.className = 'title';
+            title.textContent = s.title || s.id || '';
+            li.appendChild(dot); li.appendChild(title);
+            list.appendChild(li);
+        });
+    }
+
+    function loadRoadmap() {
+        fetch(base + '/api/hub/roadmap?plan_id=plan_iam_dashboard_v1', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(d) { renderRoadmap(d.steps); })
+            .catch(function() { renderRoadmap([]); });
+    }
+
+    var STATUSES = ['todo','in_progress','review','blocked'];
+    function renderTasks(tasks, projectsById) {
+        var row = el('hub-tasks-row'); if (!row) return;
+        row.innerHTML = '';
+        STATUSES.forEach(function(status) {
+            var col = document.createElement('div');
+            col.className = 'hub-tasks-col';
+            col.innerHTML = '<div class="hub-tasks-col-title">' + status.replace('_',' ') + '</div>';
+            var list = tasks.filter(function(t) { return t.status === status; });
+            list.forEach(function(t) {
+                var card = document.createElement('div');
+                card.className = 'hub-task-card';
+                card.dataset.id = t.id;
+                var projName = (t.project_id && projectsById[t.project_id]) ? projectsById[t.project_id].name : '';
+                card.innerHTML = '<div class="title">' + (t.title || '').replace(/</g,'&lt;') + '</div>' +
+                    '<div class="meta">' +
+                    '<span class="hub-priority-badge ' + (t.priority || 'medium') + '">' + (t.priority || 'medium') + '</span>' +
+                    (projName ? '<span style="font-size:11px;color:var(--text-secondary)">' + projName.replace(/</g,'&lt;') + '</span>' : '') +
+                    '<select class="hub-task-status-select" data-task-id="' + t.id + '"><option value="todo"' + (t.status==='todo'?' selected':'') + '>todo</option><option value="in_progress"' + (t.status==='in_progress'?' selected':'') + '>in progress</option><option value="review"' + (t.status==='review'?' selected':'') + '>review</option><option value="blocked"' + (t.status==='blocked'?' selected':'') + '>blocked</option><option value="done">done</option><option value="cancelled">cancelled</option></select>' +
+                    '</div>';
+                col.appendChild(card);
+            });
+            row.appendChild(col);
+        });
+        row.querySelectorAll('.hub-task-status-select').forEach(function(sel) {
+            sel.addEventListener('change', function() {
+                var id = sel.getAttribute('data-task-id');
+                fetch(base + '/api/hub/tasks/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ status: sel.value }) })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) { if (d.ok) loadTasks(); });
+            });
+        });
+    }
+
+    var projectsCache = [];
+    function loadTasks() {
+        fetch(base + '/api/hub/tasks', { credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(d) {
+            var tasks = d.tasks || [];
+            var byId = {}; projectsCache.forEach(function(p) { byId[p.id] = p; });
+            renderTasks(tasks, byId);
+        }).catch(function() { renderTasks([], {}); });
+    }
+
+    function loadProjects() {
+        fetch(base + '/api/projects', { credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(d) {
+            var list = d.projects || [];
+            projectsCache = list;
+            var grid = el('hub-projects-grid'); if (!grid) return;
+            grid.innerHTML = '';
+            list.filter(function(p) { return p.status !== 'archived'; }).slice(0, 10).forEach(function(p) {
+                var card = document.createElement('div');
+                card.className = 'hub-project-card';
+                card.innerHTML = '<div class="name">' + (p.name || '').replace(/</g,'&lt;') + '</div><div class="client">' + (p.client_name || '').replace(/</g,'&lt;') + '</div><span class="status">' + (p.status || 'active').replace(/</g,'&lt;') + '</span>';
+                grid.appendChild(card);
+            });
+            var sel = el('hub-new-task-project');
+            if (sel) {
+                sel.innerHTML = '<option value="">None</option>';
+                list.forEach(function(p) { var o = document.createElement('option'); o.value = p.id; o.textContent = p.name || p.id; sel.appendChild(o); });
+            }
+        }).catch(function() {});
+    }
+
+    function loadTerminal() {
+        fetch(base + '/api/hub/terminal', { credentials: 'same-origin' }).then(function(r) { return r.json(); }).then(function(d) {
+            var rows = d.rows || [];
+            var strip = el('hub-terminal-strip'); if (!strip) return;
+            strip.innerHTML = '';
+            if (rows.length === 0) { strip.innerHTML = '<div class="hub-empty">No terminal activity</div>'; return; }
+            rows.forEach(function(r) {
+                var line = document.createElement('div');
+                line.className = 'hub-terminal-line';
+                var ts = r.created_at != null ? new Date(r.created_at * 1000).toLocaleString() : '--';
+                var cmd = (r.command || '').slice(0, 60);
+                var code = r.exit_code != null ? r.exit_code : '-';
+                line.innerHTML = '<span class="hub-terminal-ts">' + ts + '</span><span class="hub-terminal-cmd">' + cmd.replace(/</g,'&lt;') + '</span><span class="' + (code === 0 || code === '0' ? 'hub-terminal-ok' : 'hub-terminal-fail') + '">' + code + '</span>';
+                strip.appendChild(line);
+            });
+        }).catch(function() { el('hub-terminal-strip').innerHTML = '<div class="hub-empty">Failed to load</div>'; });
+    }
+
+    el('hub-refresh-roadmap').addEventListener('click', loadRoadmap);
+    el('hub-refresh-tasks').addEventListener('click', loadTasks);
+    el('hub-refresh-projects').addEventListener('click', loadProjects);
+    el('hub-refresh-terminal').addEventListener('click', loadTerminal);
+
+    el('hub-new-task-btn').addEventListener('click', function() {
+        el('hub-new-task-form').style.display = 'block';
+    });
+    el('hub-new-task-cancel').addEventListener('click', function() {
+        el('hub-new-task-form').style.display = 'none';
+        el('hub-new-task-title').value = '';
+    });
+    el('hub-new-task-submit').addEventListener('click', function() {
+        var title = (el('hub-new-task-title').value || '').trim();
+        if (!title) return;
+        var priority = el('hub-new-task-priority').value || 'medium';
+        var project_id = el('hub-new-task-project').value || null;
+        if (project_id === '') project_id = null;
+        fetch(base + '/api/hub/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ title: title, priority: priority, project_id: project_id })
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.ok) { el('hub-new-task-form').style.display = 'none'; el('hub-new-task-title').value = ''; loadTasks(); }
+            else alert(d.error || 'Failed');
+        }).catch(function() { alert('Network error'); });
+    });
+
+    loadRoadmap();
+    loadTasks();
+    loadProjects();
+    loadTerminal();
+    fetchStats();
+
+    setInterval(fetchStats, 60000);
+})();
+    </script>
+</body>
+</html>

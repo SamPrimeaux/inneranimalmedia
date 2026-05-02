@@ -1,0 +1,73 @@
+@import './inneranimalmedia.css';
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+@import "tailwindcss";
+
+:root {
+  --font-sans: 'Nunito', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
+  line-height: 1.5;
+}
+
+code, kbd, pre, samp {
+  font-family: var(--font-mono) !important;
+  letter-spacing: -0.02em;
+}
+
+/* IAM: Tailwind `font-mono` uses Nunito for UI chrome; real monospace on code/pre/kbd/samp */
+.font-mono {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif !important;
+}
+pre.font-mono,
+code.font-mono,
+kbd.font-mono,
+samp.font-mono {
+  font-family: var(--font-mono) !important;
+}
+
+.terminal-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  flex: 1 1 0% !important;
+}
+
+.xterm-shell-viewport {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+.nav-search-container {
+  position: relative;
+}
+
+.nav-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  width: 100%;
+  max-width: 500px;
+  z-index: 50;
+}
+
+/* Split Editor Layout */
+[data-editor-split="true"] {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-subtle);
+}
+
+[data-editor-split="true"] > * {
+  background: var(--bg-app);
+}
+

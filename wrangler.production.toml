@@ -1,0 +1,173 @@
+name = "inneranimalmedia"
+main = "src/index.js"
+compatibility_date = "2026-01-20"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
+no_bundle = false
+
+[triggers]
+crons = [
+  "*/30 * * * *",
+  "0 * * * *",
+  "0 1 * * *",
+  "0 0 * * *",
+  "10 0 * * *",
+  "0 6 * * *",
+  "0 9 * * *",
+  "0 9 * * 1",
+  "10 0 * * 1",
+  "30 13 * * *",
+  "0 0 1 * *"
+]
+
+[build]
+command = ""
+
+# esbuild options belong in wrangler.jsonc / per-project build config; top-level [esbuild] is not valid and triggers Wrangler warnings.
+
+[[routes]]
+pattern = "inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
+[[routes]]
+pattern = "www.inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
+[[routes]]
+pattern = "webhooks.inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
+[ai]
+binding = "AI"
+
+# [[ai_search]]
+# binding = "AI_SEARCH"
+# instance_name = "iam-autorag"
+
+[browser]
+binding = "MYBROWSER"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "inneranimalmedia"
+
+# Dashboard JS/HTML/CSS served on inneranimalmedia.com — production R2 (`agent-sam`) only.
+[[r2_buckets]]
+binding = "DASHBOARD"
+bucket_name = "inneranimalmedia"
+
+[[r2_buckets]]
+binding = "AUTORAG_BUCKET"
+bucket_name = "inneranimalmedia-autorag"
+
+[[r2_buckets]]
+binding = "DOCS_BUCKET"
+bucket_name = "iam-docs"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "iam-platform"
+
+[[r2_buckets]]
+binding = "TOOLS"
+bucket_name = "tools"
+
+[[r2_buckets]]
+binding = "EMAIL"
+bucket_name = "inneranimalmedia-email-archive"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "inneranimalmedia-business"
+database_id = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
+
+# inneranimalmedia-supabase-hyperdrive
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "08183bb9d2914e87ac8395d7e4ecff60"
+
+# Vectorize index for Workers AI vector queries (dashboard Storage → Vectors reports binding status).
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "ai-search-inneranimalmedia-autorag"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "09438d5e4f664bf78467a15af7743c44"
+
+[[kv_namespaces]]
+binding = "SESSION_CACHE"
+id = "dc87920b0a9247979a213c09df9a0234"
+
+[[durable_objects.bindings]]
+name = "IAM_COLLAB"
+class_name = "IAMCollaborationSession"
+
+[[durable_objects.bindings]]
+name = "CHESS_SESSION"
+class_name = "ChessRoom"
+[[durable_objects.bindings]]
+name = "AGENT_SESSION"
+class_name = "AgentChatSqlV1"
+
+[[vpc_services]]
+binding = "PTY_SERVICE"
+service_id = "019db639-7c70-7071-8ef3-32ec0392a9ff"
+remote = true
+
+[[migrations]]
+tag = "v1"
+new_classes = ["IAMCollaborationSession"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["ChessRoom"]
+
+[[migrations]]
+tag = "v4"
+
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["AgentChatSqlV1"]
+
+[[migrations]]
+tag = "v6"
+deleted_classes = ["MeauxSession", "IAMAgentSession", "IAMSession"]
+
+[[queues.producers]]
+binding = "MY_QUEUE"
+queue = "74b3155b36334b69852411c083d50322"
+
+[[queues.consumers]]
+queue = "74b3155b36334b69852411c083d50322"
+
+[[analytics_engine_datasets]]
+binding = "WAE"
+dataset = "inneranimalmedia"
+
+[vars]
+OPENAI_API_BASE_URL = "https://api.openai.com/v1"
+SUPABASE_S3_ENDPOINT = "https://dpmuvynqixblxsilnlut.storage.supabase.co/storage/v1/s3"
+SUPABASE_S3_REGION = "us-east-2"
+RAG_DOCUMENTS_PROJECT_ID = "inneranimalmedia"
+RAG_AGENT_ID = "agent-sam"
+RAG_OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"
+RAG_EMBEDDING_DIMENSIONS = "1024"
+R2_AUTORAG_BUCKET_NAME = "inneranimalmedia-autorag"
+RAG_AUTORAG_FOLDER_PREFIXES = "knowledge/,memory/,context/,docs/,plans/,recipes/,roadmap/,workflows/"
+CLOUDFLARE_ACCOUNT_ID = "ede6590ac0d2fb7daf155b35653457b2"
+CLOUDFLARE_IMAGES_ACCOUNT_HASH = "g7wf09fCONpnidkRnR_5vw"
+GITHUB_CLIENT_ID = "Ov23li6BZYxjVtGUWibX"
+GOOGLE_CLIENT_ID = "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com"
+TENANT_ID = "tenant_inneranimalmedia"
+WORKSPACE_ID = "ws_inneranimalmedia"
+DEPLOY_ENV = "production"
+AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com"
+
+[observability]
+
+[observability.logs]
+enabled = true
+invocation_logs = true

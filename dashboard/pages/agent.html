@@ -1,0 +1,2117 @@
+        <main class="main-content agent-page-main">
+<!-- Agent Sam — Cursor-like: shell fixed to bottom; only chat/preview area scrolls (flex-fit). -->
+<style>
+.agent-sam-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  min-height: 400px; /* ensure workspace area has room to render */
+  height: 100%;
+  padding-bottom: 160px;
+  background: var(--bg-canvas, #f8f9fa);
+  color: var(--text-primary, #111827);
+  font-family: inherit;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.agent-sam-main {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.agent-sam-chat-zone {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.agent-sam-resizer {
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--border, #e5e7eb);
+  cursor: col-resize;
+  transition: background 0.15s;
+}
+.agent-sam-resizer:hover { background: var(--accent, #3b82f6); }
+.agent-sam-workstation {
+  width: var(--agent-workstation-width, 420px);
+  min-width: 200px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-elevated, #fff);
+  overflow: hidden;
+}
+.agent-sam-workstation.collapsed { display: none; }
+.agent-sam-workstation-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+}
+.agent-sam-workstation-tabs .agent-sam-tab {
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.agent-sam-workstation-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.agent-sam-workstation-pane { display: none; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.agent-sam-workstation-pane.active { display: flex; }
+.agent-sam-tabs {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-elevated, #fff);
+  flex-shrink: 0;
+  flex: 0 0 auto;
+}
+.agent-sam-tabs-single .agent-sam-tab-code-toggle {
+  padding: 6px 14px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.agent-sam-tabs-single .agent-sam-tab-code-toggle:hover {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+.agent-sam-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.agent-sam-tab.active {
+  border-bottom-color: var(--accent, #3b82f6);
+  color: var(--text-primary, #111827);
+  font-weight: 600;
+}
+.agent-sam-panel { display: none; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.agent-sam-panel.active { display: flex; }
+#agentSamChatPanel.active {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.agent-sam-messages {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px 40px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 100%;
+}
+.agent-sam-msg { display: flex; gap: 12px; align-items: flex-start; }
+.agent-sam-msg.system { opacity: 0.7; }
+.agent-sam-avatar {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600;
+  flex-shrink: 0;
+  background: var(--accent); color: #fff;
+}
+.agent-sam-bubble {
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  padding: 16px;
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+.agent-sam-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 200px;
+  gap: 16px;
+  opacity: 0.7;
+}
+.agent-sam-empty h2 { margin: 0; font-size: 24px; font-weight: 400; color: var(--text-primary); }
+.agent-sam-empty p { margin: 0; font-size: 14px; color: var(--text-secondary); }
+/* Shell: fixed to viewport bottom (like Cursor) — does not scroll; chat/preview area scrolls above it */
+.agent-sam-input-wrap {
+  position: fixed;
+  left: var(--dashboard-sidenav-width, 260px);
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  padding: 16px 24px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-nav, rgba(255,255,255,0.2));
+  background: var(--bg-nav, rgba(59, 130, 246, 0.98));
+  backdrop-filter: saturate(180%) blur(8px);
+  color: var(--text-nav, #fff);
+  box-sizing: border-box;
+}
+@media (max-width: 768px) {
+  .agent-sam-input-wrap { left: 0; }
+}
+main.main-content.agent-page-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  padding-bottom: 48px; /* space for fixed footer chat bar */
+  min-height: 60vh; /* ensure main area never collapses to zero */
+  height: 100%;
+}
+main.main-content.agent-page-main .agent-sam-root {
+  flex: 1 1 0;
+  min-height: 400px; /* ensure workspace never collapses to zero */
+}
+.agent-sam-input-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  max-width: 900px;
+  margin: 0 auto;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid var(--border-nav, rgba(255,255,255,0.2));
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+.agent-sam-input-row input[type="text"] {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-nav, #fff);
+  font-size: 15px;
+}
+.agent-sam-input-row input[type="text"]::placeholder { color: var(--text-nav-muted, rgba(255,255,255,0.7)); }
+.agent-sam-input-row.agent-sam-drag-over { outline: 2px dashed rgba(255,255,255,0.5); outline-offset: 2px; }
+.agent-sam-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.agent-sam-input-actions button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  color: var(--text-nav-muted, rgba(255,255,255,0.75));
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+.agent-sam-input-actions button:hover {
+  color: var(--text-nav, #fff);
+  background: rgba(255,255,255,0.1);
+}
+.agent-sam-input-actions button svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.agent-sam-provider-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  min-width: 160px;
+  z-index: 50;
+  padding: 6px 0;
+}
+.agent-sam-provider-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, #111827);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.agent-sam-provider-dropdown button:hover {
+  background: var(--bg-canvas, #f3f4f6);
+}
+.agent-sam-provider-dropdown button.active {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent, #3b82f6);
+  font-weight: 600;
+}
+.agent-sam-attached {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  max-width: 200px;
+  min-height: 36px;
+}
+.agent-sam-attached-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.2);
+  border: 1px solid var(--border-nav, rgba(255,255,255,0.3));
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-nav, #fff);
+}
+.agent-sam-attached-pill img {
+  width: 24px;
+  height: 24px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.agent-sam-attached-pill .agent-sam-attached-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100px; }
+.agent-sam-attached-pill button {
+  background: none;
+  border: none;
+  color: var(--text-nav-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  font-size: 14px;
+}
+.agent-sam-attached-pill button:hover { color: var(--text-nav, #fff); }
+.agent-sam-send {
+  background: var(--accent, #fff);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.agent-sam-send svg { width: 20px; height: 20px; display: block; stroke: currentColor; fill: none; }
+.agent-sam-send .agent-sam-send-stop svg { stroke: none; fill: currentColor; }
+.agent-sam-send:disabled { opacity: 0.7; cursor: not-allowed; }
+.agent-sam-send:not(:disabled):hover { opacity: 0.95; }
+.agent-sam-send.agent-sam-send-stop { background: var(--error, #ef4444); color: #fff; }
+.agent-sam-send.agent-sam-send-stop:hover { opacity: 0.95; }
+.agent-sam-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-nav-muted, rgba(255,255,255,0.75));
+}
+.agent-sam-models-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid var(--border-nav, rgba(255,255,255,0.2));
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-nav-muted, rgba(255,255,255,0.85));
+  cursor: default;
+}
+.agent-sam-models-badge strong { color: var(--text-nav, #fff); }
+.agent-sam-models-dropdown {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.agent-sam-models-dropdown-inner {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+.agent-sam-models-dropdown-inner h3 { margin: 0 0 20px 0; font-size: 18px; }
+.agent-sam-models-popup-section { padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 12px; }
+.agent-sam-models-popup-section strong { display: block; margin-bottom: 8px; }
+.agent-sam-models-popup-section div { font-size: 14px; color: #6b7280; line-height: 1.5; }
+.agent-sam-models-popup-section .note { margin-top: 8px; font-size: 12px; }
+.agent-sam-models-popup-close { margin-top: 20px; padding: 10px 20px; background: #3b82f6; color: #fff; border: none; border-radius: 6px; cursor: pointer; width: 100%; font-size: 14px; }
+.agent-sam-models-provider-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.agent-sam-models-tab { padding: 8px 14px; border: 1px solid #e5e7eb; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.agent-sam-models-tab:hover { background: #f3f4f6; }
+.agent-sam-models-tab.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.agent-sam-models-hint { font-size: 12px; color: #6b7280; margin: 0 0 10px 0; }
+.agent-sam-models-list-popup { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.agent-sam-models-list-popup li { padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 6px; cursor: pointer; font-size: 14px; }
+.agent-sam-models-list-popup li:hover { background: #f3f4f6; }
+.agent-sam-models-list-popup li.empty { cursor: default; color: #6b7280; }
+.agent-sam-at-popover { position: absolute; bottom: 100%; left: 0; margin-bottom: 8px; background: var(--bg-elevated, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); min-width: 220px; max-height: 280px; overflow-y: auto; z-index: 50; padding: 8px 0; }
+.agent-sam-at-popover h4 { margin: 0 12px 8px; font-size: 11px; text-transform: uppercase; color: var(--text-secondary, #6b7280); }
+.agent-sam-at-popover .item { display: block; width: 100%; padding: 8px 12px; border: none; background: transparent; text-align: left; cursor: pointer; font-size: 13px; color: var(--text-primary, #111827); }
+.agent-sam-at-popover .item:hover { background: var(--bg-canvas, #f3f4f6); }
+/* Budget pie: small accurate chart (used / $70 from spend_ledger) — always visible ring + fill */
+.agent-sam-budget-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-nav-muted, rgba(255,255,255,0.85));
+}
+.agent-sam-budget-pie {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  padding: 2px;
+  background: rgba(255,255,255,0.25);
+  box-sizing: border-box;
+}
+.agent-sam-budget-pie-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  min-height: 26px;
+  min-width: 26px;
+  transition: background 0.3s ease;
+  background: rgba(255,255,255,0.2);
+}
+.agent-sam-budget-label {
+  white-space: nowrap;
+  font-weight: 500;
+}
+.agent-sam-usage-wrap {
+  position: relative;
+  display: inline-block;
+}
+.agent-sam-usage-btn {
+  margin-left: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 8px;
+  color: var(--text-nav, #fff);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agent-sam-usage-btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+.agent-sam-usage-panel {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 8px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  z-index: 200;
+  max-width: 420px;
+  max-height: 320px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.agent-sam-usage-panel[hidden] { display: none !important; }
+.agent-sam-usage-heading {
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+.agent-sam-usage-table-wrap {
+  overflow: auto;
+  padding: 0;
+  max-height: 260px;
+}
+.agent-sam-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.agent-sam-usage-table th,
+.agent-sam-usage-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  color: var(--text-primary, #111827);
+}
+.agent-sam-usage-table th {
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated, #fff);
+}
+.agent-sam-usage-table td:nth-child(4) { text-align: right; }
+.agent-sam-usage-empty {
+  padding: 16px 14px;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+  margin: 0;
+}
+
+/* Footer chat pane: bar + expandable chat with context/$ gauges */
+#agent-footer-chat {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 180;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated, #fff);
+  border-top: 1px solid var(--border, #e5e7eb);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+  max-height: 50vh;
+  transition: max-height 0.25s ease;
+}
+#agent-footer-chat.collapsed { max-height: 48px; }
+#agent-footer-chat .agent-footer-chat-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  min-height: 48px;
+  flex-shrink: 0;
+  background: var(--bg-nav, #3b82f6);
+  color: var(--text-nav, #fff);
+}
+#agent-footer-chat .agent-footer-chat-bar .gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.2);
+}
+#agent-footer-chat .agent-footer-chat-bar .gauge.context { min-width: 100px; }
+#agent-footer-chat .agent-footer-chat-bar .gauge.dollars { min-width: 72px; }
+#agent-footer-chat .agent-footer-chat-bar .agent-footer-expand {
+  margin-left: auto;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.25);
+  border: none;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+}
+#agent-footer-chat .agent-footer-chat-bar .agent-footer-expand:hover { background: rgba(255,255,255,0.35); }
+#agent-footer-chat .agent-footer-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+#agent-footer-chat.collapsed .agent-footer-pane { display: none; }
+#agent-footer-chat-messages {
+  flex: 1 1 0;
+  min-height: 120px;
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+  background: var(--bg-canvas, #f8f9fa);
+}
+#agent-footer-chat-messages .agent-footer-msg {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: 85%;
+}
+#agent-footer-chat-messages .agent-footer-msg.user {
+  margin-left: auto;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+}
+#agent-footer-chat-messages .agent-footer-msg.assistant {
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  color: var(--text-primary, #111827);
+}
+#agent-footer-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-elevated, #fff);
+  border-top: 1px solid var(--border, #e5e7eb);
+  flex-shrink: 0;
+}
+#agent-footer-chat-input-row textarea {
+  flex: 1;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  resize: none;
+  font-family: inherit;
+}
+#agent-footer-chat-input-row button.send {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+#agent-footer-chat-input-row button.send:hover { filter: brightness(1.05); }
+#agent-footer-chat-input-row button.send:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.agent-sam-panel { display: none; flex: 1 1 0%; flex-direction: column; min-height: 0; overflow: hidden; }
+.agent-sam-panel.active { display: flex; }
+/* Preview drawer: right-side overlay for View (HTML/code) */
+.agent-sam-preview-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 48%;
+  max-width: 720px;
+  height: 100%;
+  z-index: 200;
+  background: var(--bg-elevated, #fff);
+  border-left: 1px solid var(--border, #e5e7eb);
+  box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+.agent-sam-preview-drawer.open { transform: translateX(0); }
+.agent-sam-preview-drawer .preview-drawer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-canvas, #f8f9fa);
+  flex-shrink: 0;
+}
+.agent-sam-preview-drawer .preview-drawer-toolbar span { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.agent-sam-preview-drawer .preview-drawer-toolbar button {
+  padding: 6px 12px;
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-sam-preview-drawer .preview-drawer-toolbar button:hover { background: var(--bg-canvas); }
+.agent-sam-preview-drawer .preview-drawer-body {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.agent-sam-preview-drawer .preview-drawer-body iframe {
+  flex: 1 1 0%;
+  width: 100%;
+  height: 100%;
+  min-height: 60vh;
+  border: none;
+  display: block;
+}
+.agent-sam-preview-drawer .preview-drawer-body pre {
+  margin: 0;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+.agent-sam-file-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-top: 10px;
+  background: var(--bg-canvas, #f3f4f6);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.agent-sam-file-card .file-card-title { font-weight: 600; color: var(--text-primary); }
+.agent-sam-file-card .file-card-meta { color: var(--text-secondary, #6b7280); font-size: 12px; }
+.agent-sam-file-card .file-card-actions { display: flex; gap: 8px; margin-left: auto; }
+.agent-sam-file-card .file-card-actions button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.agent-sam-file-card .file-card-actions button:hover { background: var(--bg-canvas); }
+.agent-sam-file-card .file-card-actions button.view-btn { background: var(--accent, #3b82f6); color: #fff; border-color: var(--accent); }
+.agent-sam-code-panel {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.agent-sam-code-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-elevated, #fff);
+  flex-shrink: 0;
+}
+.agent-sam-code-toolbar select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.agent-sam-code-toolbar button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.agent-sam-code-toolbar button:hover {
+  background: var(--bg-canvas);
+}
+.agent-sam-code-toolbar button.agent-sam-run { background: var(--accent, #3b82f6); color: #fff; border-color: var(--accent); }
+.agent-sam-code-toolbar button.agent-sam-deploy { background: var(--success, #059669); color: #fff; border-color: var(--success); }
+#agentSamMonacoContainer { flex: 1 1 0%; min-height: 200px; width: 100%; }
+.agent-sam-preview-panel {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+}
+.agent-sam-preview-panel .preview-body {
+  flex: 1 1 0%;
+  min-height: 0;
+  width: 100%;
+  padding: 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+.agent-sam-preview-panel iframe.preview-iframe {
+  flex: 1 1 0%;
+  width: 100%;
+  min-height: 0;
+  border: none;
+  background: #fff;
+}
+.agent-sam-bubble .apply-to-code-btn {
+  margin-top: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.agent-sam-bubble .apply-to-code-btn:hover { opacity: 0.9; }
+.agent-sam-code-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.agent-sam-apply { padding: 6px 12px; font-size: 12px; background: var(--success, #10b981); color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+.agent-sam-apply:hover { opacity: 0.9; }
+.agent-sam-apply:disabled { opacity: 0.6; cursor: not-allowed; }
+.agent-sam-stage { padding: 6px 12px; font-size: 12px; background: var(--bg-canvas); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.agent-sam-stage:hover { background: var(--border); }
+.agent-sam-preview-toolbar, .agent-sam-logs-toolbar { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.agent-sam-preview-toolbar button, .agent-sam-logs-toolbar button { padding: 6px 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elevated); cursor: pointer; }
+.agent-sam-preview-hint { font-size: 12px; color: var(--text-secondary); }
+.agent-sam-logs-table-wrap { flex: 1; min-height: 0; overflow: auto; }
+.agent-sam-logs-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.agent-sam-msg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.agent-sam-msg-actions button { padding: 6px 12px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elevated); cursor: pointer; }
+.agent-sam-msg-actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+@media (max-width: 640px) {
+  .agent-sam-tabs { padding: 12px 16px; }
+  .agent-sam-messages { padding: 16px 12px; }
+  .agent-sam-input-wrap { padding: 12px 16px; }
+}
+@media (max-width: 768px) {
+  .agent-sam-resizer { display: none; }
+  .agent-sam-workstation {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 70vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.12);
+    z-index: 100;
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+  }
+  .agent-sam-workstation.slide-up { transform: translateY(0); }
+  .agent-sam-workstation.collapsed { display: none; }
+}
+
+<div class="agent-sam-root">
+  <div class="agent-sam-main">
+    <div class="agent-sam-chat-zone">
+      <div class="agent-sam-tabs agent-sam-tabs-single">
+        <button type="button" class="agent-sam-tab-code-toggle" id="agentSamCodeToggle" title="Open workstation">Workstation</button>
+      </div>
+      <div id="agentSamChatPanel" class="agent-sam-panel active">
+        <div class="agent-sam-messages" id="agentSamMessages">
+          <div class="agent-sam-empty" id="agentSamEmpty">
+            <h2>Good evening, Sam</h2>
+            <p id="agentSamEmptyHint">Claude ready • chat mode</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="agent-sam-resizer" id="agentSamResizer" title="Drag to resize"></div>
+    <div id="agentSamWorkstation" class="agent-sam-workstation">
+      <div class="agent-sam-workstation-tabs">
+        <button type="button" class="agent-sam-tab active" data-pane="editor">Editor</button>
+        <button type="button" class="agent-sam-tab" data-pane="preview">Preview</button>
+        <button type="button" class="agent-sam-tab" data-pane="logs">Logs</button>
+      </div>
+      <div class="agent-sam-workstation-content">
+        <div id="agentSamWorkstationEditor" class="agent-sam-workstation-pane active">
+          <div class="agent-sam-code-panel">
+            <div class="agent-sam-code-toolbar">
+              <select id="agentSamLang" title="Language">
+                <option value="javascript">JavaScript</option>
+                <option value="html">HTML</option>
+                <option value="css">CSS</option>
+                <option value="json">JSON</option>
+                <option value="markdown">Markdown</option>
+                <option value="typescript">TypeScript</option>
+                <option value="plaintext">Plain</option>
+              </select>
+              <button type="button" class="agent-sam-run" id="agentSamRunBtn">Run / Preview</button>
+              <button type="button" class="agent-sam-deploy" id="agentSamDeployBtn">Deploy (save to R2)</button>
+              <button type="button" class="agent-sam-stage" id="agentSamStageBtn" title="Stage for Preview / Apply">Stage</button>
+              <button type="button" class="agent-sam-apply" id="agentSamApplyBtn" title="Apply change set to R2" style="margin-left:auto;">Apply</button>
+            </div>
+            <div id="agentSamMonacoContainer"></div>
+            <textarea id="agentSamCode" placeholder="Paste or edit code. Agent replies can go here. Loading editor…" spellcheck="false" style="display:none;"></textarea>
+          </div>
+        </div>
+        <div id="agentSamWorkstationPreview" class="agent-sam-workstation-pane">
+          <div class="agent-sam-preview-panel">
+            <div class="agent-sam-preview-toolbar">
+              <button type="button" id="agentSamPreviewRefreshBtn">Refresh</button>
+              <span class="agent-sam-preview-hint" id="agentSamPreviewHint">Use Editor then Apply to stage; open Preview to see.</span>
+            </div>
+            <iframe id="agentSamPreviewIframe" class="preview-iframe" title="Live preview" sandbox="allow-scripts" style="display:none;"></iframe>
+            <div class="preview-body" id="agentSamPreview">No change set. Run / Preview from Editor or Apply a change set to see preview.</div>
+          </div>
+        </div>
+        <div id="agentSamWorkstationLogs" class="agent-sam-workstation-pane">
+          <div class="agent-sam-logs-panel">
+            <div class="agent-sam-logs-toolbar">
+              <button type="button" id="agentSamLogsRefreshBtn">Refresh</button>
+            </div>
+            <div id="agentSamLogsTableWrap" class="agent-sam-logs-table-wrap">
+              <table id="agentSamLogsTable" class="agent-sam-usage-table"><thead><tr><th>Time</th><th>Command</th><th>Target</th><th>Result</th></tr></thead><tbody></tbody></table>
+            </div>
+            <p id="agentSamLogsEmpty" class="agent-sam-usage-empty">No audit entries yet.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="agentSamPreviewDrawer" class="agent-sam-preview-drawer" aria-hidden="true">
+      <div class="preview-drawer-toolbar">
+        <span id="agentSamPreviewDrawerTitle">Preview</span>
+        <div>
+          <button type="button" id="agentSamPreviewDrawerCopy">Copy</button>
+          <button type="button" id="agentSamPreviewDrawerRefresh">Refresh</button>
+          <button type="button" id="agentSamPreviewDrawerClose">Close</button>
+        </div>
+      </div>
+      <div class="preview-drawer-body" id="agentSamPreviewDrawerBody">
+        <iframe id="agentSamPreviewDrawerIframe" title="Live HTML preview" sandbox="allow-scripts" style="display:none;"></iframe>
+        <pre id="agentSamPreviewDrawerPre" style="display:none;"></pre>
+      </div>
+    </div>
+
+    <div class="agent-sam-input-wrap">
+      <div class="agent-sam-input-row" style="position: relative;">
+        <div class="agent-sam-input-actions">
+          <button type="button" id="agentSamProviderBtn" title="Change AI / Model" aria-haspopup="true" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <div id="agentSamProviderDropdown" class="agent-sam-provider-dropdown" role="menu" hidden>
+            <button type="button" role="menuitem" data-provider="anthropic">Claude</button>
+            <button type="button" role="menuitem" data-provider="openai">GPT</button>
+            <button type="button" role="menuitem" data-provider="gemini">Gemini</button>
+            <button type="button" role="menuitem" data-provider="workers_ai">Workers AI</button>
+            <button type="button" role="menuitem" data-provider="cursor">Cursor</button>
+          </div>
+          <div style="position: relative;">
+            <button type="button" id="agentSamAtBtn" title="Mention file or project (@)" style="font-size: 16px; font-weight: 600; line-height: 1;">@</button>
+            <div id="agentSamAtPopover" class="agent-sam-at-popover" hidden style="display: none;">
+              <h4>Boards & projects</h4>
+              <div id="agentSamAtList"></div>
+            </div>
+          </div>
+          <input type="file" id="agentSamFile" accept="image/*,.html,.htm,.pdf,.doc,.docx" style="display:none;" />
+          <button type="button" id="agentSamUploadBtn" title="Attach image or file">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          </button>
+        </div>
+        <input type="text" id="agentSamInput" placeholder="Reply…" />
+        <div class="agent-sam-attached" id="agentSamAttached"></div>
+        <button type="button" class="agent-sam-send" id="agentSamSend" title="Send message">
+          <svg id="agentSamSendIconArrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          <svg id="agentSamSendIconStop" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+      </div>
+      <div class="agent-sam-footer">
+        <span id="agentSamFooterProvider">Claude • Extended</span>
+        <div style="position: relative;">
+          <button type="button" id="agentSamModelsBtn" class="agent-sam-models-badge" title="Models & capabilities (click to list)">
+            <strong id="agentSamModelsCount">—</strong> models
+          </button>
+          <div id="agentSamModelsDropdown" class="agent-sam-models-dropdown" role="dialog" hidden>
+            <div class="agent-sam-models-dropdown-inner" onclick="event.stopPropagation()">
+              <h3>Available AI models</h3>
+              <div class="agent-sam-models-provider-tabs">
+                <button type="button" class="agent-sam-models-tab active" data-provider="anthropic">Claude</button>
+                <button type="button" class="agent-sam-models-tab" data-provider="openai">GPT</button>
+                <button type="button" class="agent-sam-models-tab" data-provider="gemini">Gemini</button>
+                <button type="button" class="agent-sam-models-tab" data-provider="workers_ai">Workers AI</button>
+                <button type="button" class="agent-sam-models-tab" data-provider="cursor">Cursor</button>
+              </div>
+              <p class="agent-sam-models-hint">Select a provider above, then click a model to use it.</p>
+              <ul id="agentSamModelsListPopup" class="agent-sam-models-list-popup"></ul>
+              <button type="button" class="agent-sam-models-popup-close" id="agentSamModelsPopupClose">Close</button>
+            </div>
+          </div>
+        </div>
+        <div class="agent-sam-budget-wrap" id="agentSamBudgetWrap" title="Dashboard Agent spend this month (only this chat). Cap: $70.">
+          <div class="agent-sam-budget-pie">
+            <div class="agent-sam-budget-pie-inner" id="agentSamBudgetPie"></div>
+          </div>
+          <span class="agent-sam-budget-label" id="agentSamBudgetLabel">$0 / $70</span>
+        </div>
+        <div class="agent-sam-usage-wrap">
+          <button type="button" id="agentSamUsageBtn" class="agent-sam-usage-btn" title="Recent AI usage (per model)">Usage</button>
+          <div id="agentSamUsagePanel" class="agent-sam-usage-panel" hidden>
+            <div class="agent-sam-usage-heading">Recent AI usage (dashboard agent)</div>
+            <div id="agentSamUsageTableWrap" class="agent-sam-usage-table-wrap">
+              <table id="agentSamUsageTable" class="agent-sam-usage-table"><thead><tr><th>Time</th><th>Model</th><th>Provider</th><th>Cost</th><th>Tokens</th></tr></thead><tbody></tbody></table>
+            </div>
+            <p id="agentSamUsageEmpty" class="agent-sam-usage-empty" style="display:none;">No usage recorded yet. Send a message to see usage here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var main = document.querySelector('main.main-content');
+  if (main) {
+    main.classList.add('agent-page-main');
+    main.style.overflow = 'hidden';
+    main.style.display = 'flex';
+    main.style.flexDirection = 'column';
+    main.style.minHeight = '0';
+    main.style.height = '100%';
+  }
+  var root = document.querySelector('.agent-sam-root');
+  if (root) {
+    root.style.flex = '1 1 0';
+    root.style.minHeight = '0';
+    root.style.overflow = 'hidden';
+  }
+  var messagesWrap = document.getElementById('agentSamMessages');
+  if (messagesWrap) {
+    messagesWrap.style.flex = '1 1 0';
+    messagesWrap.style.minHeight = '0';
+    messagesWrap.style.overflowY = 'auto';
+  }
+  const base = window.location.origin;
+  const fetcher = window.dashboardFetch || fetch;
+  const providers = [
+    { id: 'anthropic', name: 'Claude', letter: 'C' },
+    { id: 'openai', name: 'GPT', letter: 'G' },
+    { id: 'gemini', name: 'Gemini', letter: 'G' },
+    { id: 'workers_ai', name: 'Workers AI', letter: 'W' },
+    { id: 'cursor', name: 'Cursor', letter: 'X' }
+  ];
+  let activeProvider = 'anthropic';
+  let mode = 'chat';
+  const messages = [];
+  let currentConversationId = null;
+  let pendingAttachUrl = null;
+  let pendingAttachName = null;
+  let agentBusy = false;
+  let abortController = null;
+
+  const messagesEl = document.getElementById('agentSamMessages');
+  const emptyEl = document.getElementById('agentSamEmpty');
+  const emptyHint = document.getElementById('agentSamEmptyHint');
+  const inputEl = document.getElementById('agentSamInput');
+  const sendBtn = document.getElementById('agentSamSend');
+  const sendIconArrow = document.getElementById('agentSamSendIconArrow');
+  const sendIconStop = document.getElementById('agentSamSendIconStop');
+  const fileInput = document.getElementById('agentSamFile');
+  const uploadBtn = document.getElementById('agentSamUploadBtn');
+  const attachedContainer = document.getElementById('agentSamAttached');
+  const footerProvider = document.getElementById('agentSamFooterProvider');
+  const codeEl = document.getElementById('agentSamCode');
+  const previewEl = document.getElementById('agentSamPreview');
+  const previewIframe = document.getElementById('agentSamPreviewIframe');
+  const langSelect = document.getElementById('agentSamLang');
+  const runBtn = document.getElementById('agentSamRunBtn');
+  const deployBtn = document.getElementById('agentSamDeployBtn');
+
+  function getCodeValue() {
+    if (window.monacoEditorInstance) return window.monacoEditorInstance.getValue();
+    return (codeEl && codeEl.value) || '';
+  }
+  function setCodeValue(val) {
+    if (window.monacoEditorInstance) {
+      window.monacoEditorInstance.setValue(val || '');
+    } else if (codeEl) {
+      codeEl.value = val || '';
+    }
+  }
+  function getCodeLanguage() {
+    return (langSelect && langSelect.value) || 'javascript';
+  }
+  function initMonaco() {
+    var container = document.getElementById('agentSamMonacoContainer');
+    if (!container || window.monacoEditorInstance) return;
+    var lang = getCodeLanguage();
+    var initial = (codeEl && codeEl.value) || '// Write or paste code here\n';
+    window.monacoEditorInstance = monaco.editor.create(container, {
+      value: initial,
+      language: lang,
+      theme: 'vs-dark',
+      automaticLayout: true,
+      minimap: { enabled: true },
+      fontSize: 14
+    });
+    if (codeEl) codeEl.style.display = 'none';
+    window.monacoEditorInstance.getModel().onDidChangeContent(function() {
+      if (codeEl) codeEl.value = window.monacoEditorInstance.getValue();
+    });
+    if (langSelect) langSelect.addEventListener('change', function() {
+      monaco.editor.setModelLanguage(window.monacoEditorInstance.getModel(), this.value);
+    });
+  }
+  function ensureMonaco(cb) {
+    if (window.monacoEditorInstance) { if (cb) cb(); return; }
+    if (window.monacoEditorReady) { if (cb) cb(); return; }
+    if (!window.monacoLoaderLoaded) {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js';
+      s.onload = function() {
+        window.monacoLoaderLoaded = true;
+        require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' }, 'vs/nls': { availableLanguages: {} } });
+        require(['vs/editor/editor.main'], function() {
+          window.monacoEditorReady = true;
+          initMonaco();
+          if (cb) cb();
+        });
+      };
+      s.onerror = function() { if (cb) cb(); };
+      document.head.appendChild(s);
+    } else {
+      require(['vs/editor/editor.main'], function() {
+        if (!window.monacoEditorInstance) initMonaco();
+        if (cb) cb();
+      });
+    }
+  }
+  const providerBtn = document.getElementById('agentSamProviderBtn');
+  const providerDropdown = document.getElementById('agentSamProviderDropdown');
+  const atBtn = document.getElementById('agentSamAtBtn');
+
+  function getProvider() {
+    return providers.find(function (p) { return p.id === activeProvider; }) || providers[0];
+  }
+
+  function setProvider(p) {
+    activeProvider = p;
+    if (footerProvider) footerProvider.textContent = getProvider().name + ' • Extended';
+    if (emptyEl && emptyEl.style.display !== 'none') {
+      emptyHint.textContent = getProvider().name + ' ready • ' + mode + ' mode';
+    }
+    providerDropdown.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-provider') === p);
+    });
+  }
+
+  if (providerBtn && providerDropdown) {
+    // Load real AI models from database first
+    fetcher(base + '/api/agent/models', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d && d.models && d.models.length) {
+          providerDropdown.innerHTML = d.models.map(function(m) {
+            var label = m.name;
+            if (m.cost) label += ' (' + m.cost + ')';
+            return '<button type="button" role="menuitem" data-provider="' + 
+              m.id + '" data-model-name="' + m.name + '" title="' + (m.description || '') + '">' + 
+              label + '</button>';
+          }).join('');
+        }
+        
+        // After models loaded, attach all handlers
+        providerDropdown.querySelectorAll('button').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var p = this.getAttribute('data-provider');
+            var name = this.getAttribute('data-model-name') || this.textContent.trim();
+            if (p) {
+              activeProvider = p;
+              if (footerProvider) footerProvider.textContent = name + ' • Extended';
+              if (emptyEl && emptyEl.style.display !== 'none') {
+                emptyHint.textContent = name + ' ready • ' + mode + ' mode';
+              }
+            }
+            providerDropdown.hidden = true;
+            providerBtn.setAttribute('aria-expanded', 'false');
+          });
+        });
+      })
+      .catch(function(e) { 
+        console.warn('Could not load models:', e);
+        // If API fails, still attach handlers to hardcoded buttons
+        providerDropdown.querySelectorAll('button').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var p = this.getAttribute('data-provider');
+            if (p) setProvider(p);
+            providerDropdown.hidden = true;
+            providerBtn.setAttribute('aria-expanded', 'false');
+          });
+        });
+      });
+    
+    // Toggle dropdown
+    providerBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const open = providerDropdown.hidden;
+      providerDropdown.hidden = !open;
+      providerBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    
+    // Close on outside click
+    document.addEventListener('click', function (e) {
+      if (providerDropdown && !providerDropdown.hidden && !providerDropdown.contains(e.target) && !providerBtn.contains(e.target)) {
+        providerDropdown.hidden = true;
+        providerBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  var atPopover = document.getElementById('agentSamAtPopover');
+  var atListEl = document.getElementById('agentSamAtList');
+  if (atBtn && inputEl && atPopover && atListEl) {
+    atBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = atPopover.hidden || atPopover.style.display === 'none';
+      if (open) {
+        atPopover.hidden = false;
+        atPopover.style.display = 'block';
+        atListEl.innerHTML = '';
+        fetcher(base + '/api/agent/context-refs', { credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            var boards = (d && d.boards) ? d.boards : [];
+            var projects = (d && d.projects) ? d.projects : [];
+            if (boards.length) {
+              var h = document.createElement('h4');
+              h.textContent = 'Boards';
+              atListEl.appendChild(h);
+              boards.forEach(function (b) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'item';
+                btn.textContent = b.name || b.id;
+                btn.addEventListener('click', function () {
+                  var start = inputEl.selectionStart || 0;
+                  var end = inputEl.selectionEnd || start;
+                  var insert = '@' + (b.name || b.id);
+                  inputEl.value = (inputEl.value || '').slice(0, start) + insert + (inputEl.value || '').slice(end);
+                  inputEl.focus();
+                  inputEl.selectionStart = inputEl.selectionEnd = start + insert.length;
+                  atPopover.hidden = true;
+                  atPopover.style.display = 'none';
+                });
+                atListEl.appendChild(btn);
+              });
+            }
+            if (projects.length) {
+              var h2 = document.createElement('h4');
+              h2.textContent = 'Projects';
+              atListEl.appendChild(h2);
+              projects.forEach(function (p) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'item';
+                btn.textContent = p.name || p.id;
+                btn.addEventListener('click', function () {
+                  var start = inputEl.selectionStart || 0;
+                  var end = inputEl.selectionEnd || start;
+                  var insert = '@' + (p.name || p.id);
+                  inputEl.value = (inputEl.value || '').slice(0, start) + insert + (inputEl.value || '').slice(end);
+                  inputEl.focus();
+                  inputEl.selectionStart = inputEl.selectionEnd = start + insert.length;
+                  atPopover.hidden = true;
+                  atPopover.style.display = 'none';
+                });
+                atListEl.appendChild(btn);
+              });
+            }
+            if (boards.length === 0 && projects.length === 0) {
+              atListEl.innerHTML = '<p style="padding:12px;color:#6b7280;font-size:13px;">No boards or projects yet. Create some on Kanban or Time.</p>';
+            }
+          })
+          .catch(function () {
+            atListEl.innerHTML = '<p style="padding:12px;color:#6b7280;font-size:13px;">Could not load. Sign in and try again.</p>';
+          });
+      } else {
+        atPopover.hidden = true;
+        atPopover.style.display = 'none';
+      }
+    });
+    document.addEventListener('click', function (e) {
+      if (atPopover && !atPopover.contains(e.target) && e.target !== atBtn) {
+        atPopover.hidden = true;
+        atPopover.style.display = 'none';
+      }
+    });
+  } else if (atBtn && inputEl) {
+    atBtn.addEventListener('click', function () {
+      var start = inputEl.selectionStart || 0;
+      var end = inputEl.selectionEnd || start;
+      var text = (inputEl.value || '');
+      inputEl.value = text.slice(0, start) + '@' + text.slice(end);
+      inputEl.focus();
+      inputEl.selectionStart = inputEl.selectionEnd = start + 1;
+    });
+  }
+
+  var previewDrawer = document.getElementById('agentSamPreviewDrawer');
+  var previewDrawerTitleEl = document.getElementById('agentSamPreviewDrawerTitle');
+  var previewDrawerIframeEl = document.getElementById('agentSamPreviewDrawerIframe');
+  var previewDrawerPreEl = document.getElementById('agentSamPreviewDrawerPre');
+  var previewDrawerContent = '';
+  var previewDrawerIsHtml = false;
+
+  function wrapHtmlForPreview(html) {
+    if (!html || !html.trim()) return '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><p>Empty.</p></body></html>';
+    var t = html.trim();
+    if (/^\s*<!DOCTYPE\s+/i.test(t) || /^\s*<html\s/i.test(t) || /^\s*<html>/i.test(t)) return html;
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' + html + '</body></html>';
+  }
+
+  function openPreviewDrawer(content, isHtml, title) {
+    previewDrawerContent = content || '';
+    previewDrawerIsHtml = !!isHtml;
+    if (previewDrawerTitleEl) previewDrawerTitleEl.textContent = title || 'Preview';
+    if (previewDrawerIframeEl && previewDrawerPreEl) {
+      if (previewDrawerIsHtml) {
+        previewDrawerIframeEl.srcdoc = wrapHtmlForPreview(previewDrawerContent);
+        previewDrawerIframeEl.style.display = 'block';
+        previewDrawerPreEl.style.display = 'none';
+      } else {
+        previewDrawerPreEl.textContent = previewDrawerContent || '';
+        previewDrawerPreEl.style.display = 'block';
+        previewDrawerIframeEl.style.display = 'none';
+      }
+    }
+    if (previewDrawer) {
+      previewDrawer.classList.add('open');
+      previewDrawer.setAttribute('aria-hidden', 'false');
+    }
+  }
+  function closePreviewDrawer() {
+    if (previewDrawer) {
+      previewDrawer.classList.remove('open');
+      previewDrawer.setAttribute('aria-hidden', 'true');
+    }
+  }
+  var drawerCloseBtn = document.getElementById('agentSamPreviewDrawerClose');
+  if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', closePreviewDrawer);
+  var drawerRefreshBtn = document.getElementById('agentSamPreviewDrawerRefresh');
+  if (drawerRefreshBtn) drawerRefreshBtn.addEventListener('click', function () {
+    if (previewDrawerIsHtml && previewDrawerIframeEl) previewDrawerIframeEl.srcdoc = wrapHtmlForPreview(previewDrawerContent);
+    else if (previewDrawerPreEl) previewDrawerPreEl.textContent = previewDrawerContent || '';
+  });
+  var drawerCopyBtn = document.getElementById('agentSamPreviewDrawerCopy');
+  if (drawerCopyBtn) drawerCopyBtn.addEventListener('click', function () {
+    if (!previewDrawerContent) return;
+    navigator.clipboard.writeText(previewDrawerContent).then(function () {
+      appendMessage('system', 'Copied to clipboard.', null);
+    }).catch(function () {});
+  });
+
+  var codeToggleBtn = document.getElementById('agentSamCodeToggle');
+  var workstationEl = document.getElementById('agentSamWorkstation');
+  var resizerEl = document.getElementById('agentSamResizer');
+  var currentChangeSetId = null;
+  try {
+    var w = localStorage.getItem('agent-workstation-width');
+    if (w) document.documentElement.style.setProperty('--agent-workstation-width', w + 'px');
+    var open = localStorage.getItem('agent-workstation-open');
+    if (open === '1' && workstationEl) {
+      workstationEl.classList.remove('collapsed');
+      if (window.innerWidth <= 768) workstationEl.classList.add('slide-up');
+    }
+  } catch (e) {}
+
+  if (codeToggleBtn && workstationEl) {
+    codeToggleBtn.addEventListener('click', function () {
+      var isOpen = !workstationEl.classList.contains('collapsed');
+      if (isOpen) {
+        workstationEl.classList.add('collapsed');
+        try { localStorage.setItem('agent-workstation-open', '0'); } catch (e) {}
+        if (window.innerWidth <= 768) workstationEl.classList.remove('slide-up');
+      } else {
+        workstationEl.classList.remove('collapsed');
+        try { localStorage.setItem('agent-workstation-open', '1'); } catch (e) {}
+        if (window.innerWidth <= 768) workstationEl.classList.add('slide-up');
+        var editorPane = document.getElementById('agentSamWorkstationEditor');
+        if (editorPane && editorPane.classList.contains('active')) ensureMonaco();
+      }
+    });
+  }
+
+  (function () {
+    var tabs = document.querySelectorAll('.agent-sam-workstation-tabs .agent-sam-tab');
+    var panes = document.querySelectorAll('.agent-sam-workstation-pane');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var paneId = tab.getAttribute('data-pane');
+        tabs.forEach(function (t) { t.classList.remove('active'); });
+        panes.forEach(function (p) {
+          p.classList.remove('active');
+          if ((p.id === 'agentSamWorkstationEditor' && paneId === 'editor') ||
+              (p.id === 'agentSamWorkstationPreview' && paneId === 'preview') ||
+              (p.id === 'agentSamWorkstationLogs' && paneId === 'logs')) p.classList.add('active');
+        });
+        tab.classList.add('active');
+        if (paneId === 'editor') ensureMonaco();
+        if (paneId === 'preview' && currentChangeSetId) loadPreviewFromChangeSet(currentChangeSetId);
+        if (paneId === 'logs') fetchAuditLog();
+      });
+    });
+  })();
+
+  function loadPreviewFromChangeSet(changeSetId) {
+    var iframe = document.getElementById('agentSamPreviewIframe');
+    var placeholder = document.getElementById('agentSamPreview');
+    if (!iframe || !placeholder) return;
+    var url = base + '/api/agent/preview?change_set_id=' + encodeURIComponent(changeSetId);
+    iframe.src = url;
+    iframe.style.display = 'block';
+    placeholder.style.display = 'none';
+  }
+  function fetchAuditLog() {
+    var tbody = document.querySelector('#agentSamLogsTable tbody');
+    var emptyEl = document.getElementById('agentSamLogsEmpty');
+    if (!tbody) return;
+    fetcher(base + '/api/agent/audit-log', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var entries = (d && d.entries) || [];
+        tbody.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = entries.length ? 'none' : 'block';
+        entries.forEach(function (e) {
+          var tr = document.createElement('tr');
+          var time = e.timestamp ? new Date(e.timestamp * 1000).toLocaleString() : '—';
+          tr.innerHTML = '<td>' + time + '</td><td>' + (e.command_key || '—') + '</td><td>' + (e.target || '—') + '</td><td>' + (e.result || '—') + '</td>';
+          tbody.appendChild(tr);
+        });
+      })
+      .catch(function () {
+        if (emptyEl) { emptyEl.textContent = 'Failed to load logs.'; emptyEl.style.display = 'block'; }
+      });
+  }
+  var logsRefreshBtn = document.getElementById('agentSamLogsRefreshBtn');
+  if (logsRefreshBtn) logsRefreshBtn.addEventListener('click', fetchAuditLog);
+  var previewRefreshBtn = document.getElementById('agentSamPreviewRefreshBtn');
+  if (previewRefreshBtn) previewRefreshBtn.addEventListener('click', function () {
+    if (currentChangeSetId) loadPreviewFromChangeSet(currentChangeSetId);
+  });
+
+  if (resizerEl) {
+    var startX = 0, startW = 0;
+    resizerEl.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = workstationEl ? parseInt(getComputedStyle(document.documentElement).getPropertyValue('--agent-workstation-width'), 10) || 420 : 420;
+      function move(e) {
+        var dx = startX - e.clientX;
+        var newW = Math.min(900, Math.max(200, startW + dx));
+        document.documentElement.style.setProperty('--agent-workstation-width', newW + 'px');
+        try { localStorage.setItem('agent-workstation-width', String(newW)); } catch (e) {}
+      }
+      function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    });
+  }
+
+  var applyBtn = document.getElementById('agentSamApplyBtn');
+  if (applyBtn) applyBtn.addEventListener('click', function () {
+    if (!currentChangeSetId) {
+      appendMessage('system', 'No change set to apply. Stage code first (e.g. Deploy creates a draft).', null);
+      return;
+    }
+    applyBtn.disabled = true;
+    fetcher(base + '/api/agent/apply-change-set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ change_set_id: currentChangeSetId })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) {
+          appendMessage('system', 'Applied change set. ' + (d.results && d.results.length ? d.results.length + ' file(s) written to R2.' : ''), null);
+          currentChangeSetId = null;
+        } else {
+          appendMessage('system', 'Apply failed: ' + (d.error || 'Unknown'), null);
+        }
+      })
+      .catch(function (e) { appendMessage('system', 'Apply error: ' + (e.message || 'Request failed'), null); })
+      .finally(function () { applyBtn.disabled = false; });
+  });
+
+  var stageBtn = document.getElementById('agentSamStageBtn');
+  if (stageBtn) stageBtn.addEventListener('click', function () {
+    var code = getCodeValue();
+    var lang = getCodeLanguage();
+    var ext = lang === 'html' ? 'html' : lang === 'css' ? 'css' : lang === 'javascript' || lang === 'typescript' ? 'js' : 'txt';
+    var key = 'dashboard-uploads/agent-drafts/staged-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '') + '.' + ext;
+    var contentType = ext === 'html' ? 'text/html; charset=utf-8' : ext === 'js' ? 'application/javascript; charset=utf-8' : 'text/plain; charset=utf-8';
+    stageBtn.disabled = true;
+    fetcher(base + '/api/agent/change-set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        items: [{ command_key: 'r2.write', args_json: { key: key, content: code, contentType: contentType } }]
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok && d.change_set_id) {
+          currentChangeSetId = d.change_set_id;
+          appendMessage('system', 'Staged. Use Preview tab to see, Apply to write to R2.', null);
+        } else {
+          appendMessage('system', 'Stage failed: ' + (d.error || 'Unknown'), null);
+        }
+      })
+      .catch(function (e) { appendMessage('system', 'Stage error: ' + (e.message || 'Request failed'), null); })
+      .finally(function () { stageBtn.disabled = false; });
+  });
+
+  if (runBtn) runBtn.addEventListener('click', function () {
+    var code = getCodeValue();
+    var lang = getCodeLanguage();
+    var isHtml = lang === 'html' || (code.trim().startsWith('<') && /<\/?[\w-]+/.test(code));
+    openPreviewDrawer(code, isHtml, (lang || 'code') + ' — ' + (isHtml ? 'Live preview' : 'Output'));
+  });
+  if (deployBtn) deployBtn.addEventListener('click', function () {
+    var code = getCodeValue();
+    var lang = getCodeLanguage();
+    var ext = lang === 'html' ? 'html' : lang === 'css' ? 'css' : lang === 'javascript' || lang === 'typescript' ? 'js' : 'txt';
+    var name = 'agent-draft-' + new Date().toISOString().slice(0, 10) + '.' + ext;
+    deployBtn.disabled = true;
+    fetcher(base + '/api/agent/save-draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ content: code, filename: name })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok && d.url) {
+          appendMessage('system', 'Saved: ' + d.url + ' — Run wrangler deploy from repo to publish, or use Cloudflare Dashboard.', null);
+        } else {
+          appendMessage('system', 'Save failed: ' + (d.error || 'Unknown'), null);
+        }
+      })
+      .catch(function (e) {
+        appendMessage('system', 'Save error: ' + (e.message || 'Request failed'), null);
+      })
+      .finally(function () { deployBtn.disabled = false; });
+  });
+
+  function appendMessage(role, content, provider, fileUrl) {
+    if (emptyEl) emptyEl.style.display = 'none';
+    var div = document.createElement('div');
+    div.className = 'agent-sam-msg' + (role === 'system' ? ' system' : '');
+    var avatar = document.createElement('div');
+    avatar.className = 'agent-sam-avatar';
+    if (role === 'user') {
+      avatar.style.background = 'var(--accent)';
+      avatar.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+      avatar.style.color = 'var(--text-nav, #fff)';
+    } else {
+      var p = provider ? providers.find(function (x) { return x.id === provider; }) : null;
+      avatar.style.background = p ? 'var(--accent)' : 'var(--bg-elevated)';
+      avatar.textContent = provider ? (p && p.letter) || provider[0].toUpperCase() : 'A';
+    }
+    var bubble = document.createElement('div');
+    bubble.className = 'agent-sam-bubble';
+    var codeBlock = (role === 'assistant' && content) ? (function () {
+      var m = content.match(/```[\s\S]*?```/);
+      if (m) {
+        var raw = m[0];
+        var lang = raw.slice(3, raw.indexOf('\n') > 0 ? raw.indexOf('\n') : 3).trim();
+        var body = raw.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+        return { body: body, lang: lang || 'plaintext' };
+      }
+      return null;
+    })() : null;
+    bubble.textContent = content;
+    if (codeBlock) {
+      var textWithoutCode = content.replace(/```[\s\S]*?```/, '[Code block below]').trim();
+      bubble.textContent = textWithoutCode;
+      var isHtml = codeBlock.lang === 'html' || (codeBlock.body.trim().startsWith('<') && /<\/?[\w-]+/.test(codeBlock.body));
+      var card = document.createElement('div');
+      card.className = 'agent-sam-file-card';
+      card.innerHTML = '<span class="file-card-title">' + (codeBlock.lang || 'code') + '</span><span class="file-card-meta">Code</span><div class="file-card-actions"></div>';
+      var actions = card.querySelector('.file-card-actions');
+      var viewBtn = document.createElement('button');
+      viewBtn.type = 'button';
+      viewBtn.className = 'view-btn';
+      viewBtn.textContent = 'View';
+      viewBtn.addEventListener('click', function () {
+        openPreviewDrawer(codeBlock.body, isHtml, (codeBlock.lang || 'Preview') + ' – ' + (isHtml ? 'HTML' : 'Code'));
+      });
+      actions.appendChild(viewBtn);
+      var downloadBtn = document.createElement('button');
+      downloadBtn.type = 'button';
+      downloadBtn.textContent = 'Download';
+      downloadBtn.addEventListener('click', function () {
+        var ext = codeBlock.lang === 'html' ? 'html' : codeBlock.lang === 'css' ? 'css' : codeBlock.lang === 'javascript' || codeBlock.lang === 'typescript' ? 'js' : 'txt';
+        var blob = new Blob([codeBlock.body], { type: 'text/plain;charset=utf-8' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'agent-' + new Date().toISOString().slice(0, 10) + '.' + ext;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+      actions.appendChild(downloadBtn);
+      var deployBtnEl = document.createElement('button');
+      deployBtnEl.type = 'button';
+      deployBtnEl.textContent = 'Deploy';
+      deployBtnEl.addEventListener('click', function () {
+        var ext = codeBlock.lang === 'html' ? 'html' : codeBlock.lang === 'css' ? 'css' : codeBlock.lang === 'javascript' || codeBlock.lang === 'typescript' ? 'js' : 'txt';
+        var name = 'agent-draft-' + new Date().toISOString().slice(0, 10) + '.' + ext;
+        deployBtnEl.disabled = true;
+        fetcher(base + '/api/agent/save-draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ content: codeBlock.body, filename: name })
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.ok && d.url) appendMessage('system', 'Saved: ' + d.url, null);
+            else appendMessage('system', 'Save failed: ' + (d.error || 'Unknown'), null);
+          })
+          .catch(function (e) { appendMessage('system', 'Save error: ' + e.message, null); })
+          .finally(function () { deployBtnEl.disabled = false; });
+      });
+      actions.appendChild(deployBtnEl);
+      bubble.appendChild(document.createElement('br'));
+      bubble.appendChild(card);
+      var applyBtn = document.createElement('button');
+      applyBtn.type = 'button';
+      applyBtn.className = 'apply-to-code-btn';
+      applyBtn.textContent = 'Apply to code';
+      applyBtn.addEventListener('click', function () {
+        setCodeValue(codeBlock.body);
+        if (langSelect && codeBlock.lang && codeBlock.lang !== 'plaintext') {
+          var opt = langSelect.querySelector('option[value="' + codeBlock.lang + '"]');
+          if (opt) langSelect.value = codeBlock.lang;
+          if (window.monacoEditorInstance) monaco.editor.setModelLanguage(window.monacoEditorInstance.getModel(), codeBlock.lang);
+        }
+        if (workstationEl && workstationEl.classList.contains('collapsed')) {
+          workstationEl.classList.remove('collapsed');
+          try { localStorage.setItem('agent-workstation-open', '1'); } catch (e) {}
+          if (window.innerWidth <= 768) workstationEl.classList.add('slide-up');
+        }
+        var editorPane = document.getElementById('agentSamWorkstationEditor');
+        var editorTab = document.querySelector('.agent-sam-workstation-tabs .agent-sam-tab[data-pane="editor"]');
+        if (editorTab) editorTab.click();
+        ensureMonaco();
+      });
+      bubble.appendChild(document.createElement('br'));
+      bubble.appendChild(applyBtn);
+    }
+    div.appendChild(avatar);
+    div.appendChild(bubble);
+    if (fileUrl) {
+      var img = document.createElement('img');
+      img.src = fileUrl;
+      img.alt = 'Upload';
+      img.style.maxWidth = '400px';
+      img.style.marginTop = '12px';
+      img.style.borderRadius = '8px';
+      bubble.appendChild(document.createElement('br'));
+      bubble.appendChild(img);
+    }
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function renderAttachedPill() {
+    if (!attachedContainer) return;
+    attachedContainer.innerHTML = '';
+    if (pendingAttachUrl && pendingAttachName) {
+      var pill = document.createElement('span');
+      pill.className = 'agent-sam-attached-pill';
+      var isImg = /\.(jpe?g|png|gif|webp)$/i.test(pendingAttachName);
+      if (isImg) {
+        var thumb = document.createElement('img');
+        thumb.src = pendingAttachUrl;
+        thumb.alt = '';
+        thumb.onerror = function () { pill.insertBefore(document.createTextNode(pendingAttachName.slice(0, 12) + (pendingAttachName.length > 12 ? '…' : '')), pill.firstChild); };
+        pill.appendChild(thumb);
+      }
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'agent-sam-attached-name';
+      nameSpan.textContent = pendingAttachName;
+      pill.appendChild(nameSpan);
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.setAttribute('aria-label', 'Remove attachment');
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', function () {
+        pendingAttachUrl = null;
+        pendingAttachName = null;
+        renderAttachedPill();
+      });
+      pill.appendChild(removeBtn);
+      attachedContainer.appendChild(pill);
+    }
+  }
+
+  function setAgentBusy(busy) {
+    agentBusy = busy;
+    sendBtn.disabled = false;
+    if (sendIconArrow) sendIconArrow.style.display = busy ? 'none' : 'block';
+    if (sendIconStop) sendIconStop.style.display = busy ? 'block' : 'none';
+    sendBtn.classList.toggle('agent-sam-send-stop', busy);
+    sendBtn.title = busy ? 'Stop response' : 'Send message';
+  }
+
+  uploadBtn.addEventListener('click', function () { fileInput.click(); });
+
+  function doUploadFile(file) {
+    if (!file) return;
+    uploadBtn.disabled = true;
+    var fd = new FormData();
+    fd.append('file', file);
+    fetcher(base + '/api/agent/upload-attachment', { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok && d.url) {
+          pendingAttachUrl = d.url;
+          pendingAttachName = file.name || 'upload';
+          renderAttachedPill();
+        } else {
+          appendMessage('system', 'Upload failed: ' + (d.error || 'Unknown'), null);
+        }
+      })
+      .catch(function (e) {
+        appendMessage('system', 'Upload error: ' + e.message, null);
+      })
+      .finally(function () { uploadBtn.disabled = false; fileInput.value = ''; });
+  }
+
+  fileInput.addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    if (!file) return;
+    doUploadFile(file);
+  });
+
+  var inputWrap = document.querySelector('.agent-sam-input-row');
+  if (inputWrap) {
+    inputWrap.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      inputWrap.classList.add('agent-sam-drag-over');
+    });
+    inputWrap.addEventListener('dragleave', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      inputWrap.classList.remove('agent-sam-drag-over');
+    });
+    inputWrap.addEventListener('drop', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      inputWrap.classList.remove('agent-sam-drag-over');
+      var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) doUploadFile(file);
+    });
+  }
+  document.addEventListener('paste', function (e) {
+    if (!e.clipboardData || !e.clipboardData.files || !e.clipboardData.files.length) return;
+    var file = e.clipboardData.files[0];
+    if (file && /^image\//.test(file.type)) {
+      e.preventDefault();
+      doUploadFile(file);
+    }
+  });
+
+  function renderMessagesOnly() {
+    var wrap = document.getElementById('agentSamMessages');
+    var emptyNode = document.getElementById('agentSamEmpty');
+    if (!wrap) return;
+    var existing = wrap.querySelectorAll('.agent-sam-msg');
+    existing.forEach(function (n) { n.remove(); });
+    if (emptyNode) emptyNode.style.display = messages.length ? 'none' : '';
+    messages.forEach(function (m) {
+      if (m.role === 'system') return;
+      var div = document.createElement('div');
+      div.className = 'agent-sam-msg';
+      var avatar = document.createElement('div');
+      avatar.className = 'agent-sam-avatar';
+      if (m.role === 'user') {
+        avatar.style.background = 'var(--accent)';
+        avatar.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+        avatar.style.color = 'var(--text-nav, #fff)';
+      } else {
+        var p = m.provider ? providers.find(function (x) { return x.id === m.provider; }) : null;
+        avatar.style.background = p ? 'var(--accent)' : 'var(--bg-elevated)';
+        avatar.textContent = p ? p.letter : 'A';
+      }
+      var bubble = document.createElement('div');
+      bubble.className = 'agent-sam-bubble';
+      bubble.textContent = m.content;
+      div.appendChild(avatar);
+      div.appendChild(bubble);
+      wrap.appendChild(div);
+    });
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+
+  function loadConversation(convId) {
+    if (!convId) return;
+    fetcher(base + '/api/agent/conversations/' + encodeURIComponent(convId), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.messages && d.conversation) {
+          messages.length = 0;
+          d.messages.forEach(function (m) {
+            if (m.role === 'user' || m.role === 'assistant') {
+              messages.push({ role: m.role, content: m.content, provider: m.provider });
+            }
+          });
+          currentConversationId = d.conversation.id;
+          if (emptyEl) emptyEl.style.display = messages.length ? 'none' : '';
+          renderMessagesOnly();
+        }
+      })
+      .catch(function () {});
+  }
+
+  function loadLastConversation() {
+    fetcher(base + '/api/agent/conversations', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var list = d.conversations || [];
+        if (list.length) loadConversation(list[0].id);
+      })
+      .catch(function () {});
+  }
+
+  function sendMessage() {
+    if (agentBusy) {
+      if (abortController) abortController.abort();
+      return;
+    }
+    var text = inputEl.value.trim();
+    if (!text && !pendingAttachUrl) return;
+    var contentToSend = text;
+    var attachUrlForBubble = pendingAttachUrl || null;
+    if (pendingAttachUrl) {
+      contentToSend = (text ? text + '\n\n' : '') + '[Attached image: ' + pendingAttachUrl + ']';
+      pendingAttachUrl = null;
+      pendingAttachName = null;
+      renderAttachedPill();
+    }
+    inputEl.value = '';
+    messages.push({ role: 'user', content: contentToSend });
+    var displayContent = attachUrlForBubble && contentToSend.indexOf('[Attached image:') !== -1
+      ? contentToSend.replace(/\n\n\[Attached image: [^\]]+\]$/, '').trim() || 'Image attached'
+      : contentToSend;
+    appendMessage('user', displayContent, null, attachUrlForBubble);
+    abortController = new AbortController();
+    setAgentBusy(true);
+
+    fetcher(base + '/api/agent/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        messages: messages,
+        conversation_id: currentConversationId,
+        agent_mode: 'agent_sam',
+        model_id: activeProvider,
+        current_page: window.location.pathname || ''
+      }),
+      signal: abortController.signal
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.conversation_id) currentConversationId = d.conversation_id;
+        var content = (d.message && d.message.content) ? d.message.content : (d.error || 'No response');
+        messages.push({ role: 'assistant', content: content, provider: d.provider });
+        appendMessage('assistant', content, d.provider || activeProvider);
+        if (!getCodeValue().trim()) setCodeValue(content);
+        if (typeof loadBudget === 'function') setTimeout(loadBudget, 1500);
+      })
+      .catch(function (e) {
+        if (e.name === 'AbortError') return;
+        var err = 'Error: ' + (e.message || 'Request failed');
+        appendMessage('assistant', err, null);
+      })
+      .finally(function () { setAgentBusy(false); abortController = null; });
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  setProvider(activeProvider);
+  loadLastConversation();
+
+  // Models: count + popup with provider tabs and clickable list
+  const modelsCountEl = document.getElementById('agentSamModelsCount');
+  const modelsBtn = document.getElementById('agentSamModelsBtn');
+  const modelsDropdown = document.getElementById('agentSamModelsDropdown');
+  const modelsListPopup = document.getElementById('agentSamModelsListPopup');
+  function loadModelsCount() {
+    fetcher(base + '/api/agent/models', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (modelsCountEl) modelsCountEl.textContent = (d && d.total) != null ? d.total : '—'; })
+      .catch(function () { if (modelsCountEl) modelsCountEl.textContent = '—'; });
+  }
+  loadModelsCount();
+  function renderModelsForProvider(providerId) {
+    if (!modelsListPopup) return;
+    modelsListPopup.innerHTML = '';
+    fetcher(base + '/api/agent/models?provider=' + encodeURIComponent(providerId), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var list = (d && d.models) ? d.models : [];
+        if (list.length === 0) {
+          var li = document.createElement('li');
+          li.className = 'empty';
+          li.textContent = 'No models for this provider. Set provider on each row in agent_ai_sam.';
+          modelsListPopup.appendChild(li);
+          return;
+        }
+        list.forEach(function (m) {
+          var li = document.createElement('li');
+          li.textContent = (m.name || m.id) + (m.mode ? ' · ' + m.mode : '');
+          li.setAttribute('data-provider', m.provider || providerId);
+          li.addEventListener('click', function () {
+            var p = this.getAttribute('data-provider') || providerId;
+            if (p) setProvider(p);
+            closeModelsPopup();
+          });
+          modelsListPopup.appendChild(li);
+        });
+      })
+      .catch(function () {
+        var li = document.createElement('li');
+        li.className = 'empty';
+        li.textContent = 'Could not load models.';
+        modelsListPopup.appendChild(li);
+      });
+  }
+  if (modelsBtn && modelsDropdown) {
+    function closeModelsPopup() {
+      modelsDropdown.setAttribute('hidden', '');
+      modelsDropdown.style.display = 'none';
+    }
+    modelsBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var wasHidden = modelsDropdown.hasAttribute('hidden');
+      if (wasHidden) {
+        modelsDropdown.removeAttribute('hidden');
+        modelsDropdown.style.display = 'flex';
+        document.querySelectorAll('.agent-sam-models-tab').forEach(function (b) {
+          b.classList.toggle('active', b.getAttribute('data-provider') === activeProvider);
+        });
+        renderModelsForProvider(activeProvider);
+      } else {
+        closeModelsPopup();
+      }
+    });
+    modelsDropdown.addEventListener('click', function (e) {
+      if (e.target === modelsDropdown) closeModelsPopup();
+    });
+    document.querySelectorAll('.agent-sam-models-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        document.querySelectorAll('.agent-sam-models-tab').forEach(function (b) { b.classList.remove('active'); });
+        this.classList.add('active');
+        var p = this.getAttribute('data-provider');
+        if (p) renderModelsForProvider(p);
+      });
+    });
+    var popupCloseBtn = document.getElementById('agentSamModelsPopupClose');
+    if (popupCloseBtn) popupCloseBtn.addEventListener('click', closeModelsPopup);
+    document.addEventListener('click', function (e) {
+      if (!modelsDropdown.contains(e.target) && e.target !== modelsBtn) closeModelsPopup();
+    });
+  }
+
+  // Budget pie + Recent usage table from /api/finance/ai-spend?scope=agent
+  const BUDGET_CAP = 70;
+  const budgetPieEl = document.getElementById('agentSamBudgetPie');
+  const budgetLabelEl = document.getElementById('agentSamBudgetLabel');
+  const usagePanel = document.getElementById('agentSamUsagePanel');
+  const usageTableBody = document.getElementById('agentSamUsageTable') && document.getElementById('agentSamUsageTable').tBodies[0];
+  const usageEmptyEl = document.getElementById('agentSamUsageEmpty');
+
+  function updateBudgetPie(used) {
+    if (!budgetPieEl || !budgetLabelEl) return;
+    var u = Number(used) || 0;
+    var pct = Math.min(100, (u / BUDGET_CAP) * 100);
+    budgetPieEl.style.background = 'conic-gradient(#fff 0deg, #fff ' + (pct * 3.6) + 'deg, rgba(255,255,255,0.22) ' + (pct * 3.6) + 'deg, rgba(255,255,255,0.22) 360deg)';
+    budgetLabelEl.textContent = '$' + (u.toFixed(1)) + ' / $' + BUDGET_CAP;
+  }
+
+  function renderUsageTable(rows) {
+    if (!usageTableBody || !usageEmptyEl) return;
+    var list = (rows && Array.isArray(rows)) ? rows.slice(0, 50) : [];
+    usageEmptyEl.style.display = list.length ? 'none' : 'block';
+    usageTableBody.innerHTML = '';
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      var date = r.date || '—';
+      if (r.occurred_at != null) {
+        var d = new Date(Number(r.occurred_at) * 1000);
+        date = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      var service = (r.service || r.description || '—').toString().slice(0, 32);
+      var provider = (r.provider_slug || r.provider || '—').toString().replace('_api', '').replace('_', ' ');
+      var cost = r.amount_usd != null ? '$' + Number(r.amount_usd).toFixed(4) : '—';
+      var notes = (r.notes || '—').toString().slice(0, 40);
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + date + '</td><td title="' + (r.description || '').replace(/"/g, '&quot;') + '">' + service + '</td><td>' + provider + '</td><td>' + cost + '</td><td>' + notes + '</td>';
+      usageTableBody.appendChild(tr);
+    }
+  }
+
+  if (document.getElementById('agentSamUsageBtn') && usagePanel) {
+    document.getElementById('agentSamUsageBtn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      usagePanel.hidden = !usagePanel.hidden;
+    });
+    document.addEventListener('click', function (e) {
+      if (usagePanel && !usagePanel.hidden && !usagePanel.contains(e.target) && e.target.id !== 'agentSamUsageBtn') {
+        usagePanel.hidden = true;
+      }
+    });
+  }
+
+  function loadBudget() {
+    fetcher(base + '/api/finance/ai-spend?scope=agent', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var used = (d && d.summary && d.summary.total_this_month != null) ? d.summary.total_this_month : 0;
+        updateBudgetPie(used);
+        if (d && d.rows && Array.isArray(d.rows)) renderUsageTable(d.rows);
+        else renderUsageTable([]);
+      })
+      .catch(function () {
+        updateBudgetPie(0);
+        renderUsageTable([]);
+      });
+  }
+  loadBudget();
+})();
+</script>
+        </main>
+    <!-- Footer chat pane: context gauge, $ gauge, scrollable chat -->
+    <div id="agent-footer-chat" class="collapsed" aria-label="Agent chat and gauges">
+      <div class="agent-footer-chat-bar">
+        <span class="gauge context" id="agent-footer-context-gauge" title="Estimated context (tokens)">Context <span id="agent-footer-context-value">0</span>k / 128k</span>
+        <span class="gauge dollars" id="agent-footer-dollar-gauge" title="AI spend this month">$<span id="agent-footer-dollar-value">0.00</span></span>
+        <button type="button" class="agent-footer-expand" id="agent-footer-expand-btn" aria-expanded="false" aria-controls="agent-footer-pane">Chat ▼</button>
+      </div>
+      <div class="agent-footer-pane" id="agent-footer-pane">
+        <div id="agent-footer-chat-messages" tabindex="0"></div>
+        <div id="agent-footer-chat-input-row">
+          <textarea id="agent-footer-chat-input" placeholder="Message…" rows="1"></textarea>
+          <button type="button" class="send" id="agent-footer-chat-send">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function () {
+      var footerChat = document.getElementById('agent-footer-chat');
+      var expandBtn = document.getElementById('agent-footer-expand-btn');
+      var pane = document.getElementById('agent-footer-pane');
+      var messagesEl = document.getElementById('agent-footer-chat-messages');
+      var inputEl = document.getElementById('agent-footer-chat-input');
+      var sendBtn = document.getElementById('agent-footer-chat-send');
+      var contextValueEl = document.getElementById('agent-footer-context-value');
+      var dollarValueEl = document.getElementById('agent-footer-dollar-value');
+      var CONTEXT_LIMIT_K = 128;
+      var footerMessages = [];
+
+      function updateContextGauge() {
+        if (!contextValueEl) return;
+        var totalChars = footerMessages.reduce(function (sum, m) { return sum + (m.content || '').length; }, 0);
+        var tokens = Math.round(totalChars / 4);
+        var k = (tokens / 1000).toFixed(1);
+        contextValueEl.textContent = k;
+      }
+      function appendFooterMessage(role, content) {
+        if (!messagesEl) return;
+        var div = document.createElement('div');
+        div.className = 'agent-footer-msg ' + role;
+        div.textContent = content;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+      function loadDollarGauge() {
+        var base = window.location.origin;
+        var fetcher = window.dashboardFetch || fetch;
+        fetcher(base + '/api/finance/ai-spend?scope=agent', { credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            var used = (d && d.summary && d.summary.total_this_month != null) ? d.summary.total_this_month : (d && d.total_usd != null ? d.total_usd : 0);
+            if (dollarValueEl) dollarValueEl.textContent = (Number(used) || 0).toFixed(2);
+          })
+          .catch(function () { if (dollarValueEl) dollarValueEl.textContent = '0.00'; });
+      }
+
+      if (expandBtn && footerChat && pane) {
+        expandBtn.addEventListener('click', function () {
+          var collapsed = footerChat.classList.toggle('collapsed');
+          expandBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+          expandBtn.textContent = collapsed ? 'Chat ▼' : 'Chat ▲';
+        });
+      }
+      loadDollarGauge();
+      setInterval(loadDollarGauge, 60000);
+
+      if (sendBtn && inputEl && messagesEl) {
+        sendBtn.addEventListener('click', function () {
+          var raw = inputEl.value.trim();
+          if (!raw) return;
+          inputEl.value = '';
+          footerMessages.push({ role: 'user', content: raw });
+          appendFooterMessage('user', raw);
+          updateContextGauge();
+          sendBtn.disabled = true;
+          var prefer = (function () { try { return sessionStorage.getItem('agent_sam_prefer_provider') || 'workers_ai'; } catch (_) { return 'workers_ai'; } })();
+          fetch(window.location.origin + '/api/agent/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: footerMessages, prefer_provider: prefer, current_page: window.location.pathname || '' })
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            var content = (d.ok && d.message && d.message.content) ? d.message.content : ('Error: ' + (d.error || 'No response'));
+            footerMessages.push({ role: 'assistant', content: content });
+            appendFooterMessage('assistant', content);
+            updateContextGauge();
+          }).catch(function (e) {
+            footerMessages.push({ role: 'assistant', content: 'Error: ' + e.message });
+            appendFooterMessage('assistant', 'Error: ' + e.message);
+            updateContextGauge();
+          }).finally(function () { sendBtn.disabled = false; });
+        });
+        inputEl.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+        });
+      }
+    })();

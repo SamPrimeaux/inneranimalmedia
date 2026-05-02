@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="meaux-glass-blue">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dev Tools — Inner Animal Media</title>
+    <!-- CRITICAL: Theme must load BEFORE any visible content -->
+    <script>
+    (function() {
+        const saved = localStorage.getItem('dashboard-theme');
+        if (saved) {
+            document.documentElement.setAttribute('data-theme', saved);
+        }
+        // Preload theme CSS vars to prevent flash
+        const savedVars = localStorage.getItem('dashboard-theme-vars');
+        if (savedVars) {
+            const style = document.createElement('style');
+            style.id = 'theme-preload-inject';
+            style.textContent = savedVars;
+            document.head.appendChild(style);
+        }
+    })();
+    </script>
+    <script>
+        (function() {
+            function applyShellTheme(slug, config, apiVariables) {
+                if (!slug) return;
+                document.documentElement.setAttribute('data-theme', slug);
+                var cssVars = (config && (config.cssVars || config.css_vars)) || {};
+                if (apiVariables && typeof apiVariables === 'object' && Object.keys(apiVariables).length) {
+                    cssVars = apiVariables;
+                } else if (config && typeof config === 'object' && !config.cssVars && !config.css_vars) {
+                    var c = config;
+                    cssVars['--bg-nav'] = c.nav || c.bg || c.surface || '#1e293b';
+                    cssVars['--text-nav'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-primary'] = c.text || c.textSecondary || '#f1f5f9';
+                    cssVars['--text-secondary'] = c.textSecondary || c.text || '#94a3b8';
+                    cssVars['--color-border'] = c.border || '#334155';
+                    cssVars['--border-nav'] = c.border || '#334155';
+                    cssVars['--accent'] = c.primary || '#3b82f6';
+                    cssVars['--color-primary'] = c.primary || '#3b82f6';
+                    if (!c.bg && !c.surface) { cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b'; } else { if (c.bg) cssVars['--bg-canvas'] = c.bg; if (c.surface) cssVars['--bg-elevated'] = c.surface; }
+                }
+                if (Object.keys(cssVars).length === 0) {
+                    cssVars['--bg-nav'] = '#1e293b'; cssVars['--text-nav'] = '#f1f5f9'; cssVars['--bg-canvas'] = '#0f172a'; cssVars['--bg-elevated'] = '#1e293b';
+                }
+                var cssText = ':root[data-theme="' + String(slug).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"] {';
+                for (var k in cssVars) if (Object.prototype.hasOwnProperty.call(cssVars, k)) {
+                    var key = String(k).indexOf('--') === 0 ? k : '--' + k;
+                    cssText += key + ':' + cssVars[k] + ';';
+                }
+                cssText += '}';
+                try { localStorage.setItem('dashboard-theme', slug); localStorage.setItem('dashboard-theme-vars', cssText); } catch (e) {}
+                var styleEl = document.getElementById('theme-dynamic-inject');
+                if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'theme-dynamic-inject'; document.head.appendChild(styleEl); }
+                styleEl.textContent = cssText;
+            }
+            fetch('/api/settings/theme', { credentials: 'same-origin' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(d) {
+                    var slug = (d && d.theme) ? d.theme.trim() : null;
+                    if (!slug) {
+                        try { slug = localStorage.getItem('dashboard-theme'); } catch (e) {}
+                        if (!slug) return;
+                    }
+                    if (d && d.variables && typeof d.variables === 'object' && Object.keys(d.variables).length) {
+                        applyShellTheme(slug, {}, d.variables);
+                        return;
+                    }
+                    fetch('/api/themes', { credentials: 'same-origin' })
+                        .then(function(r2) { return r2.json(); })
+                        .then(function(data) {
+                            var themes = data.themes || [];
+                            var applied = false;
+                            for (var i = 0; i < themes.length; i++) {
+                                var t = themes[i];
+                                var s = (t.slug || t.name || '').toLowerCase();
+                                if (s === slug.toLowerCase()) {
+                                    var cfg = t.config;
+                                    if (typeof cfg === 'string') try { cfg = JSON.parse(cfg); } catch (e) { cfg = {}; }
+                                    applyShellTheme(slug, cfg || {});
+                                    applied = true;
+                                    break;
+                                }
+                            }
+                            if (!applied) applyShellTheme(slug, {});
+                        })
+                        .catch(function() { applyShellTheme(slug, {}); });
+                })
+                .catch(function() {
+                    try {
+                        var local = localStorage.getItem('dashboard-theme');
+                        if (local) applyShellTheme(local, {});
+                    } catch (e) {}
+                });
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://pub-b845a8f899834f0faf95dc83eda3c505.r2.dev/static/dashboard/styles_themes.css">
+    <link rel="stylesheet" href="/static/dashboard/shell.css">
+    <style>
+        /* === THEME SYSTEM (same as agent.html) === */
+        :root {
+            --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --safe-area-top: env(safe-area-inset-top, 0);
+            --safe-area-bottom: env(safe-area-inset-bottom, 0);
+            --safe-area-left: env(safe-area-inset-left, 0);
+            --safe-area-right: env(safe-area-inset-right, 0);
+            --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+            --logo-dark: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/thumbnail');
+            --logo-light: url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail');
+            --bg-surface: #0a1929;
+            --bg-panel: #132f4c;
+            --bg-base: var(--bg-surface);
+            --color-text: #e0f2fe;
+            --color-muted: #94a3b8;
+            --color-primary: #00b4d8;
+            --color-border: rgba(0,180,216,0.2);
+            --bg-elevated: color-mix(in srgb, var(--bg-panel) 85%, white 15%);
+            --bg-hover: color-mix(in srgb, var(--bg-panel) 90%, white 10%);
+            --bg-canvas: var(--bg-surface);
+            --bg-nav: var(--bg-surface);
+            --accent: var(--color-primary);
+            --text-primary: var(--color-text);
+            --text-secondary: var(--color-muted);
+            --text-nav: var(--color-muted);
+            --border: var(--color-border);
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { height: 100%; overflow-x: hidden; }
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-canvas);
+            color: var(--text-primary);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            max-width: 100vw;
+        }
+        :root { --dashboard-sidenav-width: 260px; }
+        .app-container { display: flex; flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; max-width: 100%; }
+        .topbar {
+            background: var(--bg-nav);
+            border-bottom: 1px solid var(--border-nav);
+            height: 60px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 20px;
+            min-width: 0;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 12px; color: var(--text-nav); }
+        .topbar-center { flex: 1; display: flex; justify-content: center; }
+        .topbar-right { display: flex; align-items: center; gap: 16px; color: var(--text-nav); }
+        .hamburger { width: 40px; height: 40px; border: none; background: transparent; cursor: pointer; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; transition: var(--transition); }
+        .hamburger span { width: 20px; height: 2px; background: var(--text-nav); transition: var(--transition); }
+        .hamburger.open span:nth-child(1) { transform: rotate(45deg) translateY(7px); }
+        .hamburger.open span:nth-child(2) { opacity: 0; }
+        .hamburger.open span:nth-child(3) { transform: rotate(-45deg) translateY(-7px); }
+        .app-logo { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
+        .search-wrap { position: relative; flex: 1; max-width: 360px; display: flex; align-items: center; }
+        .search-wrap .search-input { width: 100%; padding: 8px 12px 8px 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-nav); font-size: 14px; outline: none; }
+        .search-wrap .search-input::placeholder { color: var(--text-nav-muted); }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-nav-muted); pointer-events: none; }
+        .search-dropdown { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; max-height: 280px; overflow-y: auto; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 10001; display: none; }
+        .search-dropdown.open { display: block; }
+        .search-dropdown .item { padding: 10px 12px; font-size: 13px; color: var(--text-primary); cursor: pointer; border-bottom: 1px solid var(--border); }
+        .search-dropdown .item:hover { background: var(--bg-canvas); }
+        .search-mobile-btn { display: none; border: none; background: transparent; cursor: pointer; padding: 8px; color: var(--text-nav); border-radius: 8px; }
+        .profile-dropdown { position: absolute; right: 0; top: 100%; margin-top: 8px; min-width: 200px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.12); z-index: 10001; display: none; padding: 6px 0; }
+        .profile-dropdown.open { display: block; }
+        .profile-dropdown a, .profile-dropdown button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; font-size: 14px; color: var(--text-primary); background: none; border: none; cursor: pointer; text-align: left; font-family: inherit; }
+        .profile-dropdown a:hover, .profile-dropdown button:hover { background: var(--bg-canvas); }
+        .nav-icon-btn { color: var(--text-nav); }
+        .nav-icon-btn:hover { color: #fff; background: rgba(255,255,255,0.08); }
+        .workspace-switcher { padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; background: rgba(15,23,42,0.4); color: var(--text-nav); font-size: 14px; font-weight: 500; cursor: pointer; }
+        .agent-sam-avatar { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; border: 2px solid rgba(255,255,255,0.3); cursor: pointer; }
+        .agent-drawer-backdrop { position: fixed; inset: 0; background: var(--bg-overlay); z-index: 200; opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s; }
+        .agent-drawer-backdrop.open { opacity: 1; visibility: visible; }
+        .agent-drawer { position: fixed; top: 0; right: 0; width: 380px; max-width: 100vw; height: 100vh; background: var(--bg-elevated); border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,0.12); z-index: 201; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.25s ease; }
+        .agent-drawer.open { transform: translateX(0); }
+        .agent-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--bg-nav); color: var(--text-nav); }
+        .agent-drawer-header h3 { font-size: 15px; font-weight: 600; margin: 0; }
+        .agent-drawer-close { width: 32px; height: 32px; border: none; background: transparent; color: inherit; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+        .agent-drawer-close:hover { background: rgba(255,255,255,0.15); }
+        .agent-drawer-messages { flex: 1; overflow-y: auto; padding: 12px; }
+        .agent-drawer-msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+        .agent-drawer-msg.assistant { background: var(--bg-canvas); border: 1px solid var(--border); color: var(--text-primary); }
+        .sidenav { width: 260px; background: var(--bg-nav); color: var(--text-nav); display: flex; flex-direction: column; border-right: 1px solid var(--border-nav); transition: width var(--transition); }
+        .sidenav.collapsed { width: 56px; min-width: 56px; }
+        .sidenav.collapsed .sidenav-header h2, .sidenav.collapsed .nav-group-title, .sidenav.collapsed .nav-item span { display: none; }
+        .sidenav.collapsed .nav-item { justify-content: center; padding: 10px; }
+        .sidenav-header { padding: 20px; border-bottom: 1px solid var(--border-nav); display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
+        .sidenav-header h2 { margin: 0; order: 2; font-size: 16px; font-weight: 600; }
+        .sidenav-toggle { order: 1; border: none; background: transparent; color: var(--text-nav-muted); cursor: pointer; padding: 6px; border-radius: 6px; }
+        .sidenav-toggle:hover { color: var(--text-nav); background: rgba(255,255,255,0.1); }
+        .sidenav-toggle .hamburger-bars { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; }
+        .sidenav-toggle .hamburger-bars span { width: 18px; height: 2px; background: currentColor; border-radius: 1px; }
+        .sidenav-nav { flex: 1; overflow-y: auto; padding: 12px; }
+        .nav-group { margin-bottom: 20px; }
+        .nav-group-title { font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; color: var(--text-nav-muted); padding: 8px 12px; margin-bottom: 4px; }
+        .nav-group-title-link { display: flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; color: var(--text-nav-muted); padding: 8px 12px; margin-bottom: 4px; text-decoration: none; cursor: pointer; border-radius: 6px; transition: var(--transition); }
+        .nav-group-title-link:hover { color: var(--accent); }
+        .nav-group-title-link .nav-icon { width: 16px; height: 16px; }
+        .nav-group-title-link.active { color: var(--text-nav); background: rgba(255,255,255,0.15); }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; color: var(--text-nav-muted); text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 500; transition: var(--transition); margin-bottom: 2px; }
+        .nav-item:hover { background: rgba(255,255,255,0.1); color: var(--text-nav); }
+        .nav-item.active { color: var(--text-nav); background: rgba(255,255,255,0.15); }
+        .nav-icon { width: 20px; height: 20px; opacity: 0.8; }
+        .main-content { flex: 1; overflow-x: hidden; overflow-y: auto; padding: 24px; min-height: 0; min-width: 0; max-width: 100%; background: var(--bg-canvas); }
+        .overlay { position: fixed; inset: 0; background: var(--bg-overlay); z-index: 90; display: none; }
+        .overlay.active { display: block; }
+        .dashboard-mobile-footer { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; height: calc(12px + var(--safe-area-bottom, 0px)); min-height: 12px; background: var(--bg-nav); border-top: 1px solid var(--border-nav); }
+        @media (max-width: 768px) {
+            .dashboard-mobile-footer { display: block; }
+            body { padding-bottom: calc(12px + var(--safe-area-bottom, 0px)); }
+            .main-content { padding: 16px 12px; }
+            .hamburger { display: flex; }
+            .sidenav { position: fixed; top: 0; left: 0; bottom: 0; width: 75vw; z-index: 95; transform: translateX(-100%); }
+            .sidenav.open { transform: translateX(0); }
+            .workspace-switcher { display: none; }
+        }
+        @media (min-width: 769px) { .hamburger { display: none; } }
+
+    </style>
+</head>
+
+<body>
+<body>
+    <header class="topbar">
+        <div class="topbar-left">
+            <button class="hamburger" id="hamburger" aria-label="Toggle menu"><span></span><span></span><span></span></button>
+            <img id="ia-logo" class="app-logo" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail" alt="Inner Animal Media">
+        </div>
+        <div class="topbar-center" style="display: flex; align-items: center; gap: 16px;">
+            <div class="search-wrap" id="searchWrap">
+                <button type="button" class="search-mobile-btn" id="searchMobileBtn" aria-label="Search"><svg class="nav-icon-btn" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
+                <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" class="search-input" id="searchInput" placeholder="Search or type a command..." autocomplete="off">
+                <div class="search-dropdown" id="searchDropdown">
+                    <div class="item" data-url="/dashboard/overview">Overview</div>
+                    <div class="item" data-url="/dashboard/cloud">Cloud</div>
+                    <div class="item" data-url="/dashboard/agent">Agent</div>
+                </div>
+            </div>
+            <select class="workspace-switcher" id="workspaceSelect"><option value="ws_samprimeaux">Sam Primeaux Workspace</option></select>
+        </div>
+        <div class="topbar-right">
+            <button type="button" id="agent-drawer-btn" class="nav-icon-btn" aria-label="Open agent_sam" title="agent_sam chat" style="border: none; background: transparent; cursor: pointer; padding: 6px; border-radius: 999px;">?</button>
+            <button id="notifications-btn" class="nav-icon-btn" aria-label="Notifications" style="border: none; background: transparent; cursor: pointer; padding: 6px; border-radius: 999px; color: inherit;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.172V11a6 6 0 1 0-12 0v3.172a2 2 0 0 1-.586 1.414L4 17h5"/><path d="M9 21a3 3 0 0 0 6 0"/></svg></button>
+            <div class="profile-wrap">
+                <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail" alt="Agent Sam" class="agent-sam-avatar" id="profileAvatar">
+                <div class="profile-dropdown" id="profileDropdown">
+                    <button type="button" id="profileSwitchAccount">Switch account</button>
+                    <button type="button" id="profileChangePhoto">Change profile picture</button>
+                    <button type="button" id="logoutBtn">Sign out</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="agent-drawer-backdrop" id="agentDrawerBackdrop"></div>
+    <div class="agent-drawer" id="agentDrawer" role="dialog" aria-label="agent_sam chat">
+        <div class="agent-drawer-header">
+            <h3>agent_sam</h3>
+            <button type="button" class="agent-drawer-close" id="agentDrawerClose" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div class="agent-drawer-messages">
+            <div class="agent-drawer-msg assistant">Hi. I'm agent_sam. Open me from any dashboard page to chat.</div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <aside class="sidenav" id="sidenav">
+            <div class="sidenav-header">
+                <button type="button" class="sidenav-toggle" id="sidenavToggle" aria-label="Collapse sidebar"><span class="hamburger-bars"><span></span><span></span><span></span></span></button>
+                <h2>Dashboard</h2>
+            </div>
+            <nav class="sidenav-nav">
+                <div class="nav-group">
+                    <a href="/dashboard/overview" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg><span>Overview</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Operations</div>
+                    <a href="/dashboard/finance" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Finance</span></a>
+                    <a href="/dashboard/billing" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><span>Billing</span></a>
+                    <a href="/dashboard/clients" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg><span>Clients</span></a>
+                    <a href="/dashboard/pipelines" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Pipelines</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Tools</div>
+                    <a href="/dashboard/agent" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg><span>Agent</span></a>
+                    <a href="/dashboard/chats" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg><span>Chats</span></a>
+                    <a href="/dashboard/tools" class="nav-item active"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span>Dev Tools</span></a>
+                    <a href="/dashboard/hub" class="nav-item "><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 12m-2 0a2 2 0 1 1 4 0a2 2 0 1 1 -4 0"/></svg><span>Hub</span></a>
+                    <a href="/dashboard/calendar" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>Calendar</span></a>
+                    <a href="/dashboard/mcp" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>MCP</span></a>
+                    <a href="/dashboard/cloud" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg><span>Cloud</span></a>
+                    <a href="/dashboard/images" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><span>Images</span></a>
+                    <a href="/dashboard/draw" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg><span>Draw</span></a>
+                    <a href="/dashboard/meet" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg><span>Meet</span></a>
+                    <a href="/dashboard/mail" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg><span>Mail</span></a>
+                </div>
+                <div class="nav-group">
+                    <a href="/dashboard/projects" class="nav-group-title-link">
+                        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+                        <span>Projects</span>
+                    </a>
+                    <a href="/dashboard/kanban" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg><span>Kanban</span></a>
+                    <a href="/dashboard/time-tracking" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Time Tracking</span></a>
+                    <a href="/dashboard/cms" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg><span>CMS</span></a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">Settings</div>
+                    <a href="/dashboard/user-settings" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg><span>User Settings</span></a>
+                    <a href="/dashboard/onboarding" class="nav-item"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg><span>Onboarding</span></a>
+                </div>
+            </nav>
+        </aside>
+        <main class="main-content">
+
+<div class="page-header tools-header">
+  <div>
+    <h1 class="page-title">Dev Tools</h1>
+    <p class="page-subtitle">9 pre-built tools · inneranimalmedia-business · cf87b717</p>
+  </div>
+  <button type="button" class="btn btn-primary tools-new-prompt-btn" id="toolsNewPromptBtn">New Prompt</button>
+</div>
+
+<div class="card tools-global-bar">
+  <div class="tools-global-bar-top">
+    <div class="tools-provider-tabs" role="tablist" aria-label="AI provider">
+      <button type="button" class="tools-tab active" data-provider="workers_ai">Workers AI</button>
+      <button type="button" class="tools-tab" data-provider="openai">OpenAI</button>
+      <button type="button" class="tools-tab" data-provider="anthropic">Anthropic</button>
+    </div>
+    <div class="tools-health-dots">
+      <span class="tools-health-item" data-key="workers_ai">
+        <span class="dot skeleton"></span><span class="label">Workers AI</span>
+      </span>
+      <span class="tools-health-item" data-key="openai">
+        <span class="dot skeleton"></span><span class="label">OpenAI</span>
+      </span>
+      <span class="tools-health-item" data-key="anthropic">
+        <span class="dot skeleton"></span><span class="label">Anthropic</span>
+      </span>
+      <span class="tools-health-item" data-key="vectorize">
+        <span class="dot skeleton"></span><span class="label">Vectorize: meauxos-knowledge-base</span>
+      </span>
+    </div>
+  </div>
+  <div class="tools-global-bar-bottom">
+    <textarea id="toolsGlobalPrompt" class="tools-global-textarea" rows="3" placeholder="Ask agent_sam to design or update this dashboard, run D1 queries, or inspect deployments…"></textarea>
+  </div>
+</div>
+
+<div class="tools-grid">
+  <!-- Agent Sam -->
+  <div class="tools-card" data-tool="agent">
+    <div class="tools-card-band"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/avatar" alt="Agent Sam icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>Agent Sam</h3>
+            <span class="tools-badge tools-badge-ok" id="badge-agent">online</span>
+          </div>
+          <p class="tools-card-tagline"><code>agent_sam · dashboard assistant</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-action="agent-run-global">Run with prompt</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="panel">Details</button>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="agent">
+      <label class="tools-panel-label">Prompt</label>
+      <textarea rows="3" class="tools-panel-textarea" data-agent-textarea></textarea>
+      <div class="tools-panel-footer">
+        <button type="button" class="btn btn-primary btn-sm" data-action="agent-run-local">Send to /api/agent/run</button>
+        <span class="tools-panel-hint">Uses the same context as the Agent page.</span>
+      </div>
+      <pre class="tools-panel-output" data-output="agent"></pre>
+    </div>
+  </div>
+
+  <!-- Hyperdrive -->
+  <div class="tools-card" data-tool="hyperdrive">
+    <div class="tools-card-band tools-card-band-blue"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/c2eec95d-98c4-48ed-0394-45ae2f632300/avatar" alt="Hyperdrive icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>Hyperdrive</h3>
+            <span class="tools-badge tools-badge-neutral" id="badge-hyperdrive">checking…</span>
+          </div>
+          <p class="tools-card-tagline"><code>cf hyperdrive · connection configs</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="panel">Configs</button>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="hyperdrive">
+      <p class="tools-panel-label">Hyperdrive configurations</p>
+      <p class="tools-panel-text" id="hyperdriveSummary">Loading from /api/tools/status…</p>
+    </div>
+  </div>
+
+  <!-- D1 Studio -->
+  <div class="tools-card" data-tool="d1">
+    <div class="tools-card-band tools-card-band-green"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d1864d11-4485-4a38-1849-168f567aa200/avatar" alt="D1 icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>D1 Studio</h3>
+            <span class="tools-badge tools-badge-neutral" id="badge-d1">checking…</span>
+          </div>
+          <p class="tools-card-tagline"><code>cf87b717-d4e2-4cf8-bab0-a81268e32d49 · inneranimalmedia-business</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-action="d1-run">Run query</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="panel">Console</button>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="d1">
+      <label class="tools-panel-label">SQL · POST /api/d1/query</label>
+      <textarea rows="4" class="tools-panel-textarea" data-d1-sql>SELECT name, deployment_status, created_at FROM worker_registry ORDER BY created_at DESC LIMIT 20;</textarea>
+      <div class="tools-panel-footer">
+        <span class="tools-panel-hint">Database: inneranimalmedia-business (cf87b717).</span>
+      </div>
+      <pre class="tools-panel-output" data-output="d1"></pre>
+    </div>
+  </div>
+
+  <!-- DeployOps -->
+  <div class="tools-card" data-tool="deployops">
+    <div class="tools-card-band tools-card-band-red"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/611ea0dd-fcae-4997-8a4f-1d4a69fa9d00/avatar" alt="DeployOps icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>DeployOps</h3>
+            <span class="tools-badge tools-badge-neutral skeleton-pill" id="badge-deployops">checking…</span>
+          </div>
+          <p class="tools-card-tagline"><code>worker_registry · failed deployments</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="panel">Recent</button>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="deployops">
+      <p class="tools-panel-label">Failed deployments</p>
+      <p class="tools-panel-text" id="deployopsSummary">Loading from /api/tools/status…</p>
+    </div>
+  </div>
+
+  <!-- Services -->
+  <div class="tools-card" data-tool="services">
+    <div class="tools-card-band tools-card-band-purple"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/adb8e5ab-0f86-47d4-487e-4a444a7e1e00/avatar" alt="Services icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>MCP Services</h3>
+            <span class="tools-badge tools-badge-neutral skeleton-pill" id="badge-services">checking…</span>
+          </div>
+          <p class="tools-card-tagline"><code>mcp_services · is_active=1</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="panel">Catalog</button>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="services">
+      <p class="tools-panel-label">Services overview</p>
+      <p class="tools-panel-text" id="servicesSummary">Loading from /api/tools/status…</p>
+    </div>
+  </div>
+
+  <!-- Tenants -->
+  <div class="tools-card" data-tool="tenants">
+    <div class="tools-card-band tools-card-band-teal"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b158fce7-8824-48a3-70d9-d114a7dd3600/avatar" alt="Tenants icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>Tenants</h3>
+            <span class="tools-badge tools-badge-neutral skeleton-pill" id="badge-tenants">checking…</span>
+          </div>
+          <p class="tools-card-tagline"><code>iam_clients · status='active'</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="panel">Summary</button>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="tenants">
+      <p class="tools-panel-label">Active tenants</p>
+      <p class="tools-panel-text" id="tenantsSummary">Loading from /api/tools/status…</p>
+    </div>
+  </div>
+
+  <!-- Activity -->
+  <div class="tools-card" data-tool="activity">
+    <div class="tools-card-band tools-card-band-amber"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ae210967-379f-4e63-9204-518edf7a5800/avatar" alt="Activity icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>Activity</h3>
+            <span class="tools-badge tools-badge-ok" id="badge-activity">wired</span>
+          </div>
+          <p class="tools-card-tagline"><code>audit_logs · /dashboard/activity</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <a href="/dashboard/activity" class="btn btn-secondary btn-sm">Open log</a>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="activity">
+      <p class="tools-panel-text">Activity is managed on the Activity page. This card is a quick launch shortcut.</p>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="tools-card" data-tool="settings">
+    <div class="tools-card-band tools-card-band-slate"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b10d6496-0776-4f78-1ffa-4bcbcee51900/avatar" alt="Settings icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>Settings</h3>
+            <span class="tools-badge tools-badge-ok" id="badge-settings">live</span>
+          </div>
+          <p class="tools-card-tagline"><code>/dashboard/user-settings · /api/settings/*</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <a href="/dashboard/user-settings" class="btn btn-secondary btn-sm">Open settings</a>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="settings">
+      <p class="tools-panel-text">User, org, and API token settings live under User Settings.</p>
+    </div>
+  </div>
+
+  <!-- DO Functions / Vector search -->
+  <div class="tools-card" data-tool="vector">
+    <div class="tools-card-band tools-card-band-indigo"></div>
+    <div class="tools-card-body">
+      <div class="tools-card-main">
+        <img class="tools-card-icon" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ad1e2269-844c-41bc-790a-ea72302bf000/avatar" alt="DO Functions icon">
+        <div class="tools-card-text">
+          <div class="tools-card-title-row">
+            <h3>DO Functions</h3>
+            <span class="tools-badge tools-badge-neutral skeleton-pill" id="badge-vector">checking…</span>
+          </div>
+          <p class="tools-card-tagline"><code>Vectorize · meauxos-knowledge-base</code></p>
+        </div>
+      </div>
+      <div class="tools-card-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-action="vector-search">Search</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-toggle="panel">Console</button>
+      </div>
+    </div>
+    <div class="tools-card-panel" data-panel="vector">
+      <label class="tools-panel-label">Query · POST /api/vectorize/search</label>
+      <textarea rows="3" class="tools-panel-textarea" data-vector-query>Find any DO Functions or deployment docs related to inneranimal-dashboard.</textarea>
+      <pre class="tools-panel-output" data-output="vector"></pre>
+    </div>
+  </div>
+</div>
+
+<style>
+  .tools-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .tools-new-prompt-btn {
+    white-space: nowrap;
+  }
+  .tools-global-bar {
+    margin-top: 16px;
+    margin-bottom: 20px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .tools-global-bar-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .tools-provider-tabs {
+    display: inline-flex;
+    border-radius: 999px;
+    padding: 3px;
+    background: color-mix(in srgb, var(--bg-canvas) 96%, transparent);
+  }
+  .tools-tab {
+    border: none;
+    background: transparent;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text-secondary);
+  }
+  .tools-tab.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .tools-health-dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .tools-health-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tools-health-item .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--border);
+  }
+  .tools-health-item .dot.ok {
+    background: var(--success);
+  }
+  .tools-health-item .dot.off {
+    background: var(--error);
+  }
+  .tools-health-item .dot.skeleton {
+    background: var(--border);
+    opacity: 0.7;
+    animation: tools-pulse 1.2s ease-in-out infinite;
+  }
+  .tools-global-textarea {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    font-size: 14px;
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+  }
+  .tools-card {
+    position: relative;
+    border-radius: 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .tools-card-band {
+    height: 4px;
+    background: linear-gradient(90deg, #3b82f6, #22c55e);
+  }
+  .tools-card-band-blue { background: linear-gradient(90deg, #0ea5e9, #6366f1); }
+  .tools-card-band-green { background: linear-gradient(90deg, #22c55e, #16a34a); }
+  .tools-card-band-red { background: linear-gradient(90deg, #f97316, #ef4444); }
+  .tools-card-band-purple { background: linear-gradient(90deg, #a855f7, #6366f1); }
+  .tools-card-band-teal { background: linear-gradient(90deg, #14b8a6, #22c55e); }
+  .tools-card-band-amber { background: linear-gradient(90deg, #facc15, #f97316); }
+  .tools-card-band-slate { background: linear-gradient(90deg, #64748b, #0f172a); }
+  .tools-card-band-indigo { background: linear-gradient(90deg, #4f46e5, #0ea5e9); }
+  .tools-card-body {
+    padding: 14px 16px 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .tools-card-main {
+    display: flex;
+    gap: 10px;
+  }
+  .tools-card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .tools-card-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .tools-card-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .tools-card-title-row h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+  }
+  .tools-card-tagline {
+    margin: 4px 0 0 0;
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tools-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .tools-badge-ok {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.4);
+    color: var(--success);
+  }
+  .tools-badge-neutral {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.4);
+    color: var(--text-secondary);
+  }
+  .tools-badge-alert {
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.4);
+    color: var(--error);
+  }
+  .btn-sm {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .btn.btn-secondary {
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+  }
+  .btn.btn-secondary:hover {
+    background: var(--border);
+  }
+  .tools-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .tools-card-panel {
+    border-top: 1px solid var(--border);
+    padding: 10px 14px 12px 14px;
+    display: none;
+    background: var(--bg-canvas);
+  }
+  .tools-card-panel.open {
+    display: block;
+  }
+  .tools-panel-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0 0 6px 0;
+  }
+  .tools-panel-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+  .tools-panel-textarea {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    font-size: 13px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    box-sizing: border-box;
+    resize: vertical;
+  }
+  .tools-panel-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    gap: 8px;
+  }
+  .tools-panel-hint {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .tools-panel-output {
+    margin-top: 8px;
+    max-height: 200px;
+    overflow: auto;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+  }
+  .skeleton-pill {
+    animation: tools-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes tools-pulse {
+    0% { opacity: 0.4; }
+    50% { opacity: 1; }
+    100% { opacity: 0.4; }
+  }
+  @media (max-width: 640px) {
+    .tools-global-bar-top {
+      align-items: flex-start;
+    }
+    .tools-health-dots {
+      justify-content: flex-start;
+    }
+  }
+</style>
+
+<script>
+(function () {
+  var base = window.location.origin;
+  var state = {
+    provider: 'workers_ai',
+  };
+
+  var tabs = document.querySelectorAll('.tools-tab');
+  tabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      tabs.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.provider = btn.getAttribute('data-provider');
+    });
+  });
+
+  var newPromptBtn = document.getElementById('toolsNewPromptBtn');
+  var globalPrompt = document.getElementById('toolsGlobalPrompt');
+  if (newPromptBtn && globalPrompt) {
+    newPromptBtn.addEventListener('click', function () {
+      globalPrompt.value = '';
+      globalPrompt.focus();
+    });
+  }
+
+  function updateHealthDots(data) {
+    var health = (data && data.ai) || {};
+    var map = {
+      workers_ai: !!health.workers_ai,
+      openai: !!health.openai_configured,
+      anthropic: !!health.anthropic_configured,
+      vectorize: !!health.vectorize_configured,
+    };
+    Object.keys(map).forEach(function (key) {
+      var el = document.querySelector('.tools-health-item[data-key=\"' + key + '\"] .dot');
+      if (!el) return;
+      el.classList.remove('skeleton', 'ok', 'off');
+      el.classList.add(map[key] ? 'ok' : 'off');
+    });
+  }
+
+  function setBadge(id, text, variant) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('tools-badge-ok', 'tools-badge-neutral', 'tools-badge-alert', 'skeleton-pill');
+    if (variant) el.classList.add(variant);
+  }
+
+  function openPanel(name) {
+    var panel = document.querySelector('.tools-card-panel[data-panel=\"' + name + '\"]');
+    if (panel) panel.classList.add('open');
+  }
+
+  function togglePanel(btn) {
+    var card = btn.closest('.tools-card');
+    if (!card) return;
+    var name = card.getAttribute('data-tool');
+    var panel = document.querySelector('.tools-card-panel[data-panel=\"' + name + '\"]');
+    if (!panel) return;
+    panel.classList.toggle('open');
+  }
+
+  document.querySelectorAll('[data-toggle=\"panel\"]').forEach(function (btn) {
+    btn.addEventListener('click', function () { togglePanel(btn); });
+  });
+
+  function safeJson(val) {
+    try { return JSON.stringify(val, null, 2); } catch (_) { return String(val); }
+  }
+
+  // Actions: agent run, D1 query, vector search
+  document.querySelectorAll('[data-action=\"agent-run-global\"]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var prompt = (globalPrompt && globalPrompt.value.trim()) || '';
+      if (!prompt) {
+        if (globalPrompt) globalPrompt.focus();
+        return;
+      }
+      var out = document.querySelector('[data-output=\"agent\"]');
+      var panelArea = document.querySelector('[data-agent-textarea]');
+      if (panelArea && !panelArea.value) panelArea.value = prompt;
+      btn.disabled = true;
+      if (out) { out.textContent = 'Running /api/agent/run…'; }
+      fetch(base + '/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt, prefer_provider: state.provider })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!out) return;
+        if (d.ok && d.message && d.message.content) out.textContent = d.message.content;
+        else if (d.ok && d.text) out.textContent = d.text;
+        else out.textContent = d.error || 'No response';
+      }).catch(function (e) {
+        if (out) out.textContent = 'Error: ' + e.message;
+      }).finally(function () { btn.disabled = false; });
+    });
+  });
+
+  document.querySelectorAll('[data-action=\"agent-run-local\"]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var card = btn.closest('.tools-card');
+      var ta = card && card.querySelector('[data-agent-textarea]');
+      var prompt = ta ? ta.value.trim() : '';
+      if (!prompt) { if (ta) ta.focus(); return; }
+      var out = card && card.querySelector('[data-output=\"agent\"]');
+      btn.disabled = true;
+      if (out) out.textContent = 'Running /api/agent/run…';
+      fetch(base + '/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt, prefer_provider: state.provider })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!out) return;
+        if (d.ok && d.message && d.message.content) out.textContent = d.message.content;
+        else if (d.ok && d.text) out.textContent = d.text;
+        else out.textContent = d.error || 'No response';
+      }).catch(function (e) {
+        if (out) out.textContent = 'Error: ' + e.message;
+      }).finally(function () { btn.disabled = false; });
+    });
+  });
+
+  document.querySelectorAll('[data-action=\"d1-run\"]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var card = btn.closest('.tools-card');
+      var sqlEl = card && card.querySelector('[data-d1-sql]');
+      var sql = sqlEl ? sqlEl.value.trim() : '';
+      if (!sql) { if (sqlEl) sqlEl.focus(); return; }
+      var out = card && card.querySelector('[data-output=\"d1\"]');
+      btn.disabled = true;
+      if (out) out.textContent = 'Running /api/d1/query…';
+      fetch(base + '/api/d1/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ database_id: 'cf87b717-d4e2-4cf8-bab0-a81268e32d49', sql: sql })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!out) return;
+        if (d.ok) out.textContent = safeJson(d);
+        else out.textContent = 'Error: ' + (d.error || 'Query failed');
+      }).catch(function (e) {
+        if (out) out.textContent = 'Error: ' + e.message;
+      }).finally(function () { btn.disabled = false; });
+    });
+  });
+
+  document.querySelectorAll('[data-action=\"vector-search\"]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var card = btn.closest('.tools-card');
+      var qEl = card && card.querySelector('[data-vector-query]');
+      var q = qEl ? qEl.value.trim() : '';
+      if (!q) { if (qEl) qEl.focus(); return; }
+      var out = card && card.querySelector('[data-output=\"vector\"]');
+      btn.disabled = true;
+      if (out) out.textContent = 'Searching via /api/vectorize/search…';
+      fetch(base + '/api/vectorize/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!out) return;
+        if (d.ok) out.textContent = safeJson(d);
+        else out.textContent = 'Error: ' + (d.error || 'Search failed');
+      }).catch(function (e) {
+        if (out) out.textContent = 'Error: ' + e.message;
+      }).finally(function () { btn.disabled = false; });
+    });
+  });
+
+  // Status loader
+  fetch(base + '/api/tools/status').then(function (r) { return r.json(); }).then(function (d) {
+    if (!d || !d.ok) return;
+    updateHealthDots(d);
+
+    var failed = typeof d.deployops_failed === 'number' ? d.deployops_failed : null;
+    if (failed != null) {
+      if (failed > 0) {
+        setBadge('badge-deployops', failed + ' failed', 'tools-badge-alert');
+        var el = document.getElementById('deployopsSummary');
+        if (el) el.textContent = 'There are ' + failed + ' failed deployments in worker_registry.';
+        openPanel('deployops');
+      } else {
+        setBadge('badge-deployops', '0 failed', 'tools-badge-ok');
+        var el2 = document.getElementById('deployopsSummary');
+        if (el2) el2.textContent = 'No failed deployments in worker_registry.';
+      }
+    }
+
+    if (typeof d.tenants_active === 'number') {
+      setBadge('badge-tenants', d.tenants_active + ' active', 'tools-badge-ok');
+      var ts = document.getElementById('tenantsSummary');
+      if (ts) ts.textContent = d.tenants_active + ' active tenants in iam_clients.';
+    }
+
+    if (typeof d.services_active === 'number') {
+      setBadge('badge-services', d.services_active + ' active', d.services_active > 0 ? 'tools-badge-ok' : 'tools-badge-neutral');
+      var ss = document.getElementById('servicesSummary');
+      if (ss) ss.textContent = d.services_active + ' active services in mcp_services.';
+    }
+
+    if (typeof d.d1_count === 'number') {
+      setBadge('badge-d1', d.d1_count + ' dbs', 'tools-badge-ok');
+      var ds = document.getElementById('hyperdriveSummary');
+      if (ds && typeof d.hyperdrive_count === 'number') {
+        ds.textContent = d.hyperdrive_count + ' Hyperdrive configs · ' + d.d1_count + ' D1 databases (or configured).';
+      }
+    }
+
+    if (typeof d.hyperdrive_count === 'number') {
+      setBadge('badge-hyperdrive', d.hyperdrive_count + ' configs', 'tools-badge-ok');
+      var hs = document.getElementById('hyperdriveSummary');
+      if (hs && !hs.textContent.includes('Hyperdrive')) {
+        hs.textContent = d.hyperdrive_count + ' Hyperdrive configs detected for this account.';
+      }
+    }
+
+    if (d.ai && d.ai.vectorize_configured) {
+      setBadge('badge-vector', 'configured', 'tools-badge-ok');
+    } else {
+      setBadge('badge-vector', 'optional', 'tools-badge-neutral');
+    }
+  }).catch(function () {
+    // Leave skeletons; page will still work.
+  });
+})();
+</script>
+        </main>
+        <div class="overlay" id="overlay"></div>
+        <div class="dashboard-mobile-footer"></div>
+
+    <script>
+        document.getElementById('profileAvatar') && document.getElementById('profileAvatar').addEventListener('click', function () {
+            var d = document.getElementById('profileDropdown');
+            if (d) d.classList.toggle('open');
+        });
+        document.getElementById('agent-drawer-btn') && document.getElementById('agent-drawer-btn').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.add('open');
+            document.getElementById('agentDrawerBackdrop').classList.add('open');
+        });
+        document.getElementById('agentDrawerClose') && document.getElementById('agentDrawerClose').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.remove('open');
+            document.getElementById('agentDrawerBackdrop').classList.remove('open');
+        });
+        document.getElementById('agentDrawerBackdrop') && document.getElementById('agentDrawerBackdrop').addEventListener('click', function () {
+            document.getElementById('agentDrawer').classList.remove('open');
+            this.classList.remove('open');
+        });
+        var hamburger = document.getElementById('hamburger');
+        var sidenav = document.getElementById('sidenav');
+        var overlay = document.getElementById('overlay');
+        if (hamburger && sidenav && overlay) {
+            hamburger.addEventListener('click', function () {
+                hamburger.classList.toggle('open');
+                sidenav.classList.toggle('open');
+                overlay.classList.toggle('active');
+            });
+            overlay.addEventListener('click', function () {
+                hamburger.classList.remove('open');
+                sidenav.classList.remove('open');
+                overlay.classList.remove('active');
+            });
+        }
+        var sidenavToggle = document.getElementById('sidenavToggle');
+        if (sidenavToggle && sidenav) {
+            try {
+                if (localStorage.getItem('dashboard_sidenav_collapsed') === '1') sidenav.classList.add('collapsed');
+            } catch (e) {}
+            sidenavToggle.addEventListener('click', function () {
+                sidenav.classList.toggle('collapsed');
+                try { localStorage.setItem('dashboard_sidenav_collapsed', sidenav.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+            });
+        }
+        try {
+            var t = localStorage.getItem('dashboard-theme');
+            if (t) document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+    </script>
+</body>
+    </script>
+</body>
+</html>

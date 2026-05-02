@@ -1,0 +1,10 @@
+[
+  { "label": "cd build", "cmd": "cd build", "action_type": null },
+  { "label": "git status", "cmd": "git status", "action_type": null },
+  { "label": "git log", "cmd": "git log --oneline -10", "action_type": null },
+  { "label": "build", "cmd": "npm run build:vite-only", "action_type": null },
+  { "label": "deploy", "cmd": "cd ~/Downloads/march1st-inneranimalmedia && ./scripts/deploy-sandbox.sh", "action_type": null },
+  { "label": "iam-pty health", "cmd": "pm2 status iam-pty", "action_type": null },
+  { "label": "pwd", "cmd": "pwd", "action_type": null },
+  { "label": "ls", "cmd": "ls -la", "action_type": null }
+]

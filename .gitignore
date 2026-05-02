@@ -1,0 +1,36 @@
+# secrets
+.env
+.env.*
+!.env.example
+!.env.cloudflare.example
+.dev.vars
+IAM_SECRETS.env
+*.pem
+*.key
+
+# dependencies
+node_modules/
+dashboard/node_modules/
+
+# build/cache/logs
+.wrangler/
+.cache/
+tmp/
+*.log
+
+# OS/editor
+.DS_Store
+._*
+.vscode/
+.cursor/
+
+# generated dashboard build
+dashboard/dist/
+
+# old nested / reference repos - do not commit
+inneranimalmedia-agentsam-dashboard/
+inneranimalmedia-main-repo/
+gorilla-mode/
+
+# local migration helper
+promote-deploy-root-from-child.sh
