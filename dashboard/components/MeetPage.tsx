@@ -1,5 +1,5 @@
 /**
- * dashboard/source/components/MeetPage.tsx
+ * dashboard/components/MeetPage.tsx
  * InnerAnimalMedia Meet — Cloudflare Calls SFU
  * Fully theme-variable-driven. No hardcoded colors.
  */

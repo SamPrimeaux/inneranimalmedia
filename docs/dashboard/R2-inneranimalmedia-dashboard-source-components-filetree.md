@@ -11,7 +11,7 @@ Modified dates in UI: mostly **28 Apr 2026**; **`auth/`** objects also appear as
 
   `https://<dashboard-or-assets-host>/dashboard/source/components/<filename>`
 
-  Replace `<dashboard-or-assets-host>` with the hostname that serves the `inneranimalmedia` bucket mirror (e.g. an `assets.*` host or same-origin path behind the Worker). This repo’s Vite source of truth for these components is **`agent-dashboard/agent-dashboard/components/`**; R2 uses the **`dashboard/source/components/`** mirror layout.
+  Replace `<dashboard-or-assets-host>` with the hostname that serves the `inneranimalmedia` bucket mirror (e.g. an `assets.*` host or same-origin path behind the Worker). This repo’s Vite source of truth for these components is **`dashboard/components/`**; R2 uses the **`dashboard/source/components/`** mirror layout.
 
 ## Directory tree
 
@@ -165,4 +165,4 @@ Paths are under `dashboard/source/components/`.
 
 - **Subfolders** `auth/`, `learn/`, and `onboarding/` are fully enumerated above (10 objects total under those prefixes).
 - **GlobalSearchPage.tsx** is **0 B** in the listing (empty object).
-- **Repo path:** implementation files typically live under **`agent-dashboard/agent-dashboard/components/`** (with matching **`auth/`**, **`learn/`**, **`onboarding/`** subdirs); R2 uses **`dashboard/source/components/`** as a mirrored prefix for delivery/reference.
+- **Repo path:** implementation files typically live under **`dashboard/components/`** (with matching **`auth/`**, **`learn/`**, **`onboarding/`** subdirs); R2 uses **`dashboard/source/components/`** as a mirrored prefix for delivery/reference.
