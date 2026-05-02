@@ -1,6 +1,6 @@
 {
-  "name": "iam-pty",
-  "version": "1.0.1",
+  "name": "inneranimalmedia",
+  "version": "1.0.0",
   "main": "server.js",
   "scripts": {
     "test": "playwright test",
@@ -49,5 +49,6 @@
     "chrome-devtools-mcp": "^0.21.0",
     "wrangler": "^4.87.0"
   },
-  "type": "module"
+  "type": "module",
+  "private": true
 }
