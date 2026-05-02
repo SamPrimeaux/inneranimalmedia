@@ -50,6 +50,7 @@ import { handleStatusBundle } from './api/status-bundle';
 import { handleCursorAgentApi } from './api/cursor-agent';
 import { handleCalendarApi } from './api/calendar.js';
 import legacyWorker from '../worker.js';
+import { annotateLegacyWorkerResponse } from './core/legacy-worker-annotate.js';
 import {
   runAgentsamMemoryDecay,
   compactAgentsamToolCallLogToStats,
@@ -271,13 +272,21 @@ export default {
           pathLower === '/api/auth/google/start'
             ? '/api/oauth/google/start'
             : '/api/oauth/github/start';
-        return legacyWorker.fetch(new Request(u.toString(), request), env, ctx);
+        return annotateLegacyWorkerResponse(
+          await legacyWorker.fetch(new Request(u.toString(), request), env, ctx),
+          request,
+          'oauth-alias-google-github-start',
+        );
       }
 
       if (pathLower.startsWith('/api/oauth/')) {
         const res = await handleOAuthApi(request, env, ctx);
         if (res && res.status !== 404) return res;
-        return await legacyWorker.fetch(request, env, ctx);
+        return annotateLegacyWorkerResponse(
+          await legacyWorker.fetch(request, env, ctx),
+          request,
+          'oauth-after-modular-404',
+        );
       }
 
       // Supabase login OAuth (must be above legacyWorker /auth/ passthrough)
@@ -303,7 +312,11 @@ export default {
       }
 
       if (pathLower.startsWith('/auth/')) {
-        return await legacyWorker.fetch(request, env, ctx);
+        return annotateLegacyWorkerResponse(
+          await legacyWorker.fetch(request, env, ctx),
+          request,
+          'auth-html-passthrough',
+        );
       }
 
       // 1b. System Health Snapshot
@@ -548,7 +561,7 @@ export default {
             instruction: 'Please verify the api/ route is defined in src/api/'
           }, 404);
         }
-        return legacyRes;
+        return annotateLegacyWorkerResponse(legacyRes, request, 'api-catchall-modular-missed');
       }
 
       if (!pathLower.startsWith('/api/')) {
@@ -615,7 +628,7 @@ export default {
    * Queue Handler
    */
   async queue(batch, env, ctx) {
-    console.log(`[Queue] Received batch of ${batch.messages.length} messages`);
+    console.warn('[legacyWorker:fallback]', 'queue', batch.messages?.length ?? 0, 'messages');
     return legacyWorker.queue(batch, env, ctx);
   }
 };
