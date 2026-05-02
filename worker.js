@@ -4014,7 +4014,7 @@ const worker = {
                 output: 'cd /Users/samprimeaux/Downloads/inneranimalmedia/inneranimalmedia-agentsam-dashboard && ./scripts/benchmark-full.sh sandbox --quick',
               }),
               list_tools: async () => {
-                const r = await env.DB.prepare('SELECT tool_name, description FROM mcp_registered_tools WHERE enabled = 1').all();
+                const r = await env.DB.prepare('SELECT tool_key as tool_name, description FROM agentsam_mcp_tools WHERE is_active = 1').all();
                 return { output: JSON.stringify((r.results || []).map(t => ({ name: t.tool_name, description: t.description })), null, 2) };
               },
               terminal_execute: async () => {
@@ -6832,8 +6832,9 @@ fast=greeting/status/factual, moderate=lookup/explain/single-tool, complex=multi
  * Loads core tools + intent-matched tools and caches the result.
  */
 async function buildTieredContext(env, tier, intent, agentId, mode) {
-  if (tier === 'fast') return { tools: [] };
-  
+  // chat mode = zero tools, pure LLM
+  if (tier === 'fast' || mode === 'chat') return { tools: [] };
+
   const cacheKey = `compiled_ctx:${tier}:${intent}:${agentId}:${mode}`;
   if (env.SESSION_CACHE) {
     try {
@@ -6842,19 +6843,24 @@ async function buildTieredContext(env, tier, intent, agentId, mode) {
     } catch (_) {}
   }
 
-  // Tier 0: 10 Core Always-On Tools
-  const CORE_TOOLS = ['d1_query', 'terminal_execute', 'r2_read', 'r2_list', 'r2_search', 'knowledge_search', 'workspace_search', 'human_context_list', 'generate_execution_plan', 'sequential_thinking'];
-  
+  // Query agentsam_tools filtered by mode and intent
+  const modeFilter = mode || 'auto';
   const toolResults = await env.DB.prepare(
-    `SELECT tool_name, description, input_schema, tool_category 
-     FROM mcp_registered_tools 
-     WHERE enabled = 1 AND is_degraded = 0 
+    `SELECT tool_name, description, input_schema, tool_category
+     FROM agentsam_tools
+     WHERE is_active = 1
      AND (
-       tool_name IN (${CORE_TOOLS.map(() => '?').join(',')})
-       OR (intent_tags LIKE ('%' || ? || '%') AND ? != 'mixed')
+       modes_json LIKE ('%"' || ? || '"%')
+       OR modes_json LIKE ('%"auto"%')
      )
-     ORDER BY sort_priority ASC, tool_name ASC`
-  ).bind(...CORE_TOOLS, intent, intent).all();
+     AND (
+       ? = 'mixed'
+       OR intent_tags LIKE ('%' || ? || '%')
+       OR risk_level = 'low'
+     )
+     ORDER BY sort_priority ASC, tool_name ASC
+     LIMIT 40`
+  ).bind(modeFilter, intent, intent).all();
 
   const toolDeclarations = (toolResults.results || []).map(t => {
     let schema = {};
@@ -7335,9 +7341,9 @@ async function runIntegritySnapshot(env, triggeredBy = 'cron') {
   const sqlQ4 = `
     SELECT
       COUNT(*) AS tools_total,
-      COALESCE(SUM(is_degraded), 0) AS tools_degraded,
-      COALESCE(SUM(CASE WHEN modes_json IS NULL OR modes_json = '' THEN 1 ELSE 0 END), 0) AS tools_missing_modes
-    FROM mcp_registered_tools WHERE enabled = 1`;
+      COALESCE(SUM(CASE WHEN handler_type='builtin' THEN 0 ELSE 0 END), 0) AS tools_degraded,
+      COALESCE(SUM(CASE WHEN modes_json IS NULL OR modes_json = '[]' THEN 1 ELSE 0 END), 0) AS tools_missing_modes
+    FROM agentsam_mcp_tools WHERE is_active = 1`;
   const sqlQ4b = `
     SELECT tool_name,
       SUM(failure_count) AS failure_count,
@@ -10163,7 +10169,7 @@ async function runToolLoop(env, request, provider, modelKey, systemWithBlurb, ap
         try {
           let category = 'builtin';
           if (!BUILTIN_TOOLS.has(toolName) && !toolName.startsWith('cdt_') && !toolName.startsWith('resend_')) {
-            const toolRow = await env.DB.prepare('SELECT tool_category FROM mcp_registered_tools WHERE tool_name = ? AND enabled = 1').bind(toolName).first();
+            const toolRow = await env.DB.prepare('SELECT tool_category FROM agentsam_mcp_tools WHERE tool_key = ? AND is_active = 1').bind(toolName).first();
             category = toolRow?.tool_category ?? 'execute';
           } else if (toolName.startsWith('cdt_')) {
             category = 'browser';
@@ -11177,9 +11183,8 @@ async function chatWithToolsGoogle(env, systemWithBlurb, apiMessages, modelRow, 
   let toolDeclarations = [];
   try {
     const r = await env.DB.prepare(
-      `SELECT tool_name, description, input_schema, tool_category FROM mcp_registered_tools WHERE enabled = 1
-       AND (modes_json LIKE '%"' || ? || '"%')
-       AND is_degraded = 0`
+      `SELECT tool_key as tool_name, description, input_schema, tool_category FROM agentsam_mcp_tools WHERE is_active = 1
+       AND (modes_json LIKE '%"' || ? || '"%')`
     ).bind(mode).all();
     const filtered = filterToolRowsByPanel(agent_id, r.results || []);
     const modeFiltered = filterToolsByMode(mode, filtered.map(t => ({ name: t.tool_name, ...t })));
@@ -17898,9 +17903,9 @@ async function handleAgentsamApi(request, url, env) {
 
     if (pathLower === '/api/agentsam/tools-registry' && method === 'GET') {
       const { results } = await env.DB.prepare(
-        `SELECT id, tool_name, tool_category, description, enabled
-         FROM mcp_registered_tools
-         ORDER BY tool_category, tool_name`
+        `SELECT id, tool_key as tool_name, tool_category, description, is_active as enabled
+         FROM agentsam_mcp_tools
+         ORDER BY tool_category, tool_key`
       ).all();
       return jsonResponse(results || []);
     }
@@ -18741,12 +18746,12 @@ async function handleMcpApi(req, u, e, ctx) {
       const panelAgent = u.searchParams.get('agent_id');
       let tools = [];
       try {
-        const r = await e.DB.prepare('SELECT tool_name, description, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name').all();
+        const r = await e.DB.prepare('SELECT tool_key as tool_name, description, tool_category FROM agentsam_mcp_tools WHERE is_active = 1 ORDER BY tool_key').all();
         const rows = filterToolRowsByPanel(panelAgent, r.results || []);
         tools = rows.map((t) => ({ tool_name: t.tool_name, description: t.description || '', category: t.tool_category || 'execute' }));
       } catch (_) {
         try {
-          const r = await e.DB.prepare('SELECT tool_name, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name').all();
+          const r = await e.DB.prepare('SELECT tool_key as tool_name, tool_category FROM agentsam_mcp_tools WHERE is_active = 1 ORDER BY tool_key').all();
           const rows = filterToolRowsByPanel(panelAgent, r.results || []);
           tools = rows.map((t) => ({ tool_name: t.tool_name, description: '', category: t.tool_category || 'execute' }));
         } catch (__) { }
@@ -21658,7 +21663,7 @@ Return ONLY the HTML email body (no doctype/html/head tags). Keep it tight — r
     return { result: outResult };
   }
 
-  const toolRow = await env.DB.prepare('SELECT * FROM mcp_registered_tools WHERE tool_name = ? AND enabled = 1').bind(tool_name).first();
+  const toolRow = await env.DB.prepare('SELECT tool_key as tool_name, tool_category, handler_type, handler_config, input_schema, requires_approval FROM agentsam_mcp_tools WHERE tool_key = ? AND is_active = 1').bind(tool_name).first();
   if (!toolRow) {
     await rec({ conversationId, toolName: tool_name, toolCategory: 'mcp', toolInput: params, result: null, error: 'Tool not found', serviceName: null });
     return { error: 'Tool not found' };
@@ -22627,9 +22632,9 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
         (step.params && typeof step.params === 'object' ? step.params : {});
       try {
         const toolRow = await env.DB.prepare(
-          `SELECT tool_name, tool_category, handler_config, input_schema, requires_approval, is_degraded, failure_rate
-           FROM mcp_registered_tools
-           WHERE tool_name = ? AND enabled = 1
+          `SELECT tool_key as tool_name, tool_category, handler_config, input_schema, requires_approval, 0 as is_degraded, 0.0 as failure_rate
+           FROM agentsam_mcp_tools
+           WHERE tool_key = ? AND is_active = 1
            LIMIT 1`
         ).bind(tool_name).first();
         if (!toolRow) {
@@ -24048,10 +24053,9 @@ async function chatWithToolsOpenAI(env, systemWithBlurb, apiMessages, model, con
       });
     } else {
       const r = await env.DB.prepare(
-        `SELECT tool_name, description, input_schema, tool_category FROM mcp_registered_tools WHERE enabled = 1
+        `SELECT tool_key as tool_name, description, input_schema, tool_category FROM agentsam_mcp_tools WHERE is_active = 1
          AND (modes_json LIKE '%"' || ? || '"%')
-         AND is_degraded = 0
-         ORDER BY tool_name`
+         ORDER BY tool_key`
       )
         .bind(mode)
         .all();
@@ -24701,10 +24705,9 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
       console.log('[chatWithToolsAnthropic] Using pre-filtered tools:', tools.length);
     } else {
       const r = await env.DB.prepare(
-        `SELECT tool_name, description, input_schema, tool_category FROM mcp_registered_tools WHERE enabled = 1
+        `SELECT tool_key as tool_name, description, input_schema, tool_category FROM agentsam_mcp_tools WHERE is_active = 1
        AND (modes_json LIKE '%"' || ? || '"%')
-       AND is_degraded = 0
-       ORDER BY tool_name`
+       ORDER BY tool_key`
       ).bind(mode).all();
       const filtered = filterToolRowsByPanel(agent_id, r.results || []);
       // Apply mode-based tool filter to cap tokens per LLM call
@@ -27202,7 +27205,7 @@ async function runKnowledgeSearchMerged(env, query, max_results) {
 async function ensureRagSearchToolRegistered(env) {
   if (_ragSearchToolEnsured || !env.DB) return;
   try {
-    const exists = await env.DB.prepare('SELECT id FROM mcp_registered_tools WHERE id = ?').bind('tool_rag_search').first();
+    const exists = await env.DB.prepare('SELECT id FROM agentsam_mcp_tools WHERE tool_key = ?').bind('rag_search').first();
     if (exists) {
       _ragSearchToolEnsured = true;
       return;
@@ -27982,7 +27985,7 @@ async function writeKnowledgePostDeploy(env, body = {}) {
   let toolsList = [];
   if (env.DB) {
     try {
-      const r = await env.DB.prepare('SELECT tool_name, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name').all();
+      const r = await env.DB.prepare('SELECT tool_key as tool_name, tool_category FROM agentsam_mcp_tools WHERE is_active = 1 ORDER BY tool_key').all();
       toolsList = (r.results || []).map(t => `${t.tool_name} (${t.tool_category || 'execute'})`);
     } catch (_) { }
   }
