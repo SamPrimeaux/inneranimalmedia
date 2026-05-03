@@ -52,6 +52,7 @@ import { handleCursorAgentApi } from './api/cursor-agent';
 import { handleCalendarApi } from './api/calendar.js';
 import legacyWorker from '../worker.js';
 import { annotateLegacyWorkerResponse } from './core/legacy-worker-annotate.js';
+import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
 import {
   runAgentsamMemoryDecay,
   compactAgentsamToolCallLogToStats,
@@ -687,7 +688,34 @@ export default {
    * Queue Handler
    */
   async queue(batch, env, ctx) {
-    console.warn('[legacyWorker:fallback]', 'queue', batch.messages?.length ?? 0, 'messages');
-    return legacyWorker.queue(batch, env, ctx);
+    const messages = batch?.messages || [];
+    const forLegacy = [];
+    for (const msg of messages) {
+      let body = {};
+      try {
+        body =
+          msg.body && typeof msg.body === 'object'
+            ? msg.body
+            : typeof msg.body === 'string'
+              ? JSON.parse(msg.body || '{}')
+              : {};
+      } catch {
+        body = {};
+      }
+      if (body?.type === 'codebase_index_sync') {
+        try {
+          await handleCodebaseIndexSyncFromQueue(env, body, ctx);
+          msg.ack();
+        } catch (e) {
+          console.warn('[queue codebase_index_sync]', e?.message ?? e);
+          msg.retry();
+        }
+        continue;
+      }
+      forLegacy.push(msg);
+    }
+    if (!forLegacy.length) return;
+    console.warn('[legacyWorker:fallback]', 'queue', forLegacy.length, 'messages');
+    return legacyWorker.queue({ messages: forLegacy }, env, ctx);
   }
 };

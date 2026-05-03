@@ -184,6 +184,21 @@ npx wrangler r2 object put "$BUCKET/$MANIFEST_PREFIX/${SNAPSHOT_ID}.json" \
   --file "$MANIFEST" \
   --remote
 
+# Worker MY_QUEUE: refresh Supabase codebase_* from R2 latest (see src/queue/codebase-index-sync.js).
+if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  _QID="${CLOUDFLARE_QUEUE_ID:-74b3155b36334b69852411c083d50322}"
+  echo "== Enqueue codebase_index_sync on MY_QUEUE (queue $_QID) =="
+  curl -sS -X POST \
+    "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues/${_QID}/messages" \
+    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    --data "{\"body\":{\"type\":\"codebase_index_sync\",\"workspace_id\":\"${WORKSPACE_ID}\"}}" \
+    && echo "Queue publish OK" || echo "warn: queue publish failed (check token Queues Edit + account id)"
+  unset _QID
+else
+  echo "Optional: set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID to auto-enqueue codebase_index_sync after R2 upload."
+fi
+
 echo
 echo "== Verify latest =="
 npx wrangler r2 object list "$BUCKET" \

@@ -40,6 +40,7 @@ import {
   syncWorkflowRunToSupabase,
   updateSupabaseWorkflowRun,
 } from './src/core/agentsam-supabase-sync.js';
+import { handleCodebaseIndexSyncFromQueue } from './src/queue/codebase-index-sync.js';
 
 const IAM_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
 const IAM_EMBED_DIMS = 1024;
@@ -6985,6 +6986,15 @@ const worker = {
     for (const msg of batch.messages) {
       try {
         const body = msg.body && typeof msg.body === 'object' ? msg.body : (typeof msg.body === 'string' ? JSON.parse(msg.body || '{}') : {});
+        if (body.type === 'codebase_index_sync') {
+          try {
+            await handleCodebaseIndexSyncFromQueue(env, body, ctx);
+          } catch (e) {
+            console.warn('[queue codebase_index_sync]', e?.message ?? e);
+          }
+          msg.ack();
+          continue;
+        }
         const r2SourceOk = body.source === 'r2' || body.source == null || body.source === undefined;
         const objectKey = body.object && typeof body.object.key === 'string' ? body.object.key : null;
         const bucketName = body.bucket;

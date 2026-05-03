@@ -174,3 +174,36 @@ for (const r of flat) {
 fs.mkdirSync(pathMod.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, md, 'utf8');
 console.log('Wrote', outPath, 'routes:', routes.length);
+
+/** Optional: publish MY_QUEUE `codebase_index_sync` so the worker ingests latest R2 index into Supabase. */
+async function publishCodebaseIndexSyncQueue() {
+  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const queueId = process.env.CLOUDFLARE_QUEUE_ID || '74b3155b36334b69852411c083d50322';
+  if (!token || !accountId) {
+    console.log(
+      '[route-map] Optional: set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (+ CLOUDFLARE_QUEUE_ID) to enqueue codebase_index_sync after route-map generation.',
+    );
+    return;
+  }
+  const workspaceId = process.env.CODEBASE_SYNC_WORKSPACE_ID || 'ws_inneranimalmedia';
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/queues/${queueId}/messages`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      body: { type: 'codebase_index_sync', workspace_id: workspaceId },
+    }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.success === false) {
+    console.warn('[route-map] Queue publish failed', res.status, JSON.stringify(j).slice(0, 500));
+    return;
+  }
+  console.log('[route-map] Published MY_QUEUE codebase_index_sync for', workspaceId);
+}
+
+await publishCodebaseIndexSyncQueue();
