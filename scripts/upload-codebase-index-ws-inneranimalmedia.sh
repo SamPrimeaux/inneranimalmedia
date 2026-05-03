@@ -201,9 +201,9 @@ fi
 
 echo
 echo "== Verify latest =="
-npx wrangler r2 object list "$BUCKET" \
-  --prefix "$LATEST_PREFIX/" \
-  --remote
+npx wrangler r2 object get \
+  "${BUCKET}/codebase-index/${WORKSPACE_ID}/latest/repo-snapshot.json" \
+  --pipe --remote | head -c 100 && echo " ✓ latest verified"
 
 echo
 echo "== Verify snapshot =="
