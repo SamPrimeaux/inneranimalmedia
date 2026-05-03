@@ -1636,6 +1636,36 @@ export async function handleSettingsRequest(request, env, ctx) {
   }
 
   {
+    const m = pathLower.match(/^\/api\/settings\/security\/findings\/([^/]+)$/);
+    if (m && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const findingId = decodeURIComponent(m[1] || '').trim();
+      if (!findingId) return jsonResponse({ error: 'id required' }, 400);
+      const tenantId = await resolveAuthTenantId(env, authUser);
+      if (!tenantId) return jsonResponse({ error: 'Tenant required' }, 403);
+      const body = await request.json().catch(() => ({}));
+      const newStatus = typeof body.status === 'string' ? body.status.trim() : '';
+      const allowed = ['triaged', 'false_positive', 'fixed'];
+      if (!allowed.includes(newStatus)) {
+        return jsonResponse({ error: 'invalid_status' }, 400);
+      }
+      const out = await env.DB.prepare(
+        `UPDATE security_findings
+         SET status = ?, updated_at = unixepoch()
+         WHERE id = ? AND tenant_id = ?`,
+      )
+        .bind(newStatus, findingId, tenantId)
+        .run()
+        .catch(() => null);
+      const changes = out?.meta?.changes ?? 0;
+      if (!out?.success || changes === 0) {
+        return jsonResponse({ error: 'not_found' }, 404);
+      }
+      return jsonResponse({ ok: true, id: findingId, status: newStatus });
+    }
+  }
+
+  {
     const m = pathLower.match(/^\/api\/settings\/security\/sessions\/([^/]+)$/);
     if (m && method === 'DELETE') {
       if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
