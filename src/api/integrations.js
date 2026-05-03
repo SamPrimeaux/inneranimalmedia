@@ -24,7 +24,7 @@ const REGISTRY_SEED = [
     ['int_hyperdrive', 'hyperdrive', 'Hyperdrive (Supabase)', 'database', 'worker_binding', 'connected', 120, 'HYPERDRIVE'],
     ['int_browser_rendering', 'browser_rendering', 'Browser Rendering', 'automation', 'worker_binding', 'connected', 130, 'MYBROWSER'],
     ['int_supabase', 'supabase', 'Supabase', 'database', 'api_key', 'connected', 140, 'SUPABASE_SERVICE_ROLE_KEY'],
-    ['int_supabase_oauth', 'supabase_oauth', 'Supabase (OAuth)', 'database', 'oauth2', 'disconnected', 145, 'SUPABASE_OAUTH_CLIENT_ID'],
+    ['int_supabase_oauth', 'supabase_oauth', 'Supabase (OAuth)', 'database', 'oauth2', 'disconnected', 145, 'SUPABASE_MANAGEMENT_OAUTH_CLIENT_ID'],
     ['int_cursor', 'cursor', 'Cursor', 'automation', 'api_key', 'connected', 150, 'CURSOR_API_KEY'],
     ['int_claude_code', 'claude_code', 'Claude Code', 'automation', 'api_key', 'disconnected', 160, 'CLAUDE_CODE_API_KEY'],
 ];
@@ -339,10 +339,12 @@ async function handleSummary(env, authUser) {
     const providers = (registry.results || []).map((r) => {
         let regRow = r;
         if (r.provider_key === 'supabase_oauth') {
+            const mgmtReady =
+                env.SUPABASE_MANAGEMENT_OAUTH_CLIENT_ID && env.SUPABASE_MANAGEMENT_OAUTH_CLIENT_SECRET;
             regRow = {
                 ...r,
-                status: env.SUPABASE_OAUTH_CLIENT_ID ? r.status : 'disconnected',
-                secret_binding_name: env.SUPABASE_OAUTH_CLIENT_ID ? r.secret_binding_name : null,
+                status: mgmtReady ? r.status : 'disconnected',
+                secret_binding_name: mgmtReady ? r.secret_binding_name : null,
             };
         }
         let oauthAccounts = oauthByProvider.get(normalizeProviderKey(regRow.provider_key)) || [];

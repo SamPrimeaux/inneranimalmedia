@@ -108,6 +108,43 @@ export default {
     };
 
     try {
+      const methodUpper = (request.method || 'GET').toUpperCase();
+      // Canonical auth URLs first — before health, assets, dashboard shell, or legacy fallthrough.
+      // Preserve query string (e.g. next=). No-store so stale HTML is not cached at /login.
+      if ((methodUpper === 'GET' || methodUpper === 'HEAD') && pathLower === '/login') {
+        const u = new URL(request.url);
+        u.pathname = '/auth/login';
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: u.toString(),
+            'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+          },
+        });
+      }
+      if ((methodUpper === 'GET' || methodUpper === 'HEAD') && pathLower === '/signup') {
+        const u = new URL(request.url);
+        u.pathname = '/auth/signup';
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: u.toString(),
+            'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+          },
+        });
+      }
+      if ((methodUpper === 'GET' || methodUpper === 'HEAD') && pathLower === '/auth/register') {
+        const u = new URL(request.url);
+        u.pathname = '/auth/signup';
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: u.toString(),
+            'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+          },
+        });
+      }
+
       // 1. Health Checks
       if (pathLower === '/api/health' || pathLower === '/health') {
         return handleHealthCheck(request, env);
@@ -143,13 +180,6 @@ export default {
 
       if (pathLower === '/api/catalog/integrations') {
         return handleCatalogApi(request, url, env, ctx);
-      }
-
-      // Canonical sign-in URL is /auth/login (ASSETS pages/auth/login.html). /login is legacy SPA path only.
-      if (request.method === 'GET' && pathLower === '/login') {
-        const u = new URL(request.url);
-        u.pathname = '/auth/login';
-        return Response.redirect(u.toString(), 302);
       }
 
       // Collab workspace room -> IAM_COLLAB DO (path segment after /api/collab/; casing preserved)
@@ -311,7 +341,10 @@ export default {
       ) {
         return handleSupabaseOAuthCallback(request, env);
       }
-      if (request.method === 'GET' && pathLower === '/api/auth/oauth/consent') {
+      if (
+        (request.method === 'GET' || request.method === 'POST') &&
+        pathLower === '/api/auth/oauth/consent'
+      ) {
         return handleOAuthConsentPage(request, env);
       }
 

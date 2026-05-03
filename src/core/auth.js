@@ -12,6 +12,35 @@ export const IAM_KV_SESSION_KEY_PREFIX = 'iam_sess_v1:';
 export const AUTH_COOKIE_NAME = 'session';
 export const AUTH_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
+/** Canonical browser routes (never send users to legacy `/login` or `/signup`). */
+export const AUTH_LOGIN_PATH = '/auth/login';
+export const AUTH_SIGNUP_PATH = '/auth/signup';
+export const DASHBOARD_AFTER_LOGIN_PATH = '/dashboard/overview';
+
+/**
+ * Same-origin relative paths only. Rewrites deprecated `/login` and `/signup`.
+ * Rejects scheme-relative `//`, absolute URLs, and paths containing `:`.
+ */
+export function sanitizeBrowserNextPath(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s.startsWith('/') || s.startsWith('//')) return null;
+  if (/^[a-zA-Z][a-zA-Z+\-.]*:/.test(s) || s.includes('://')) return null;
+
+  let pathname = s;
+  let search = '';
+  const q = s.indexOf('?');
+  if (q !== -1) {
+    pathname = s.slice(0, q);
+    search = s.slice(q);
+  }
+  const lower = pathname.toLowerCase();
+  if (lower === '/login' || lower === '/auth/signin') pathname = AUTH_LOGIN_PATH;
+  else if (lower === '/signup' || lower === '/auth/register') pathname = AUTH_SIGNUP_PATH;
+
+  return pathname + search;
+}
+
 export function invalidateSuperadminIdentifiersCache() {
   SUPERADMIN_IDS_CACHE = null;
   SUPERADMIN_IDS_CACHE_TIME = 0;

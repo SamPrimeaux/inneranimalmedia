@@ -20,6 +20,30 @@ import { syncProviderModels } from './integrations/model-sync.js';
 
 const OAUTH_STATE_TTL_SECONDS = 600;
 
+/**
+ * Supabase Management API OAuth only (https://api.supabase.com).
+ * Must NOT reuse env.SUPABASE_OAUTH_* — those belong to the project's Auth OAuth Server (login) in auth.js.
+ */
+function getSupabaseManagementOAuthCredentials(env) {
+  const id =
+    typeof env.SUPABASE_MANAGEMENT_OAUTH_CLIENT_ID === 'string'
+      ? env.SUPABASE_MANAGEMENT_OAUTH_CLIENT_ID.trim()
+      : '';
+  const secret =
+    typeof env.SUPABASE_MANAGEMENT_OAUTH_CLIENT_SECRET === 'string'
+      ? env.SUPABASE_MANAGEMENT_OAUTH_CLIENT_SECRET.trim()
+      : '';
+  if (id && secret) return { clientId: id, clientSecret: secret };
+  return null;
+}
+
+/** Last 6 chars of client id for logs only — never log full ids or secrets. */
+function oauthClientIdTail(clientId) {
+  const t = String(clientId || '').trim();
+  if (!t) return '(empty)';
+  return t.length <= 6 ? t : t.slice(-6);
+}
+
 const PROVIDERS = new Set(['github', 'google', 'cloudflare', 'supabase']);
 const APIKEY_PROVIDERS = new Set(['openai', 'anthropic', 'google_ai', 'resend', 'cursor']);
 
@@ -29,6 +53,40 @@ function nowSeconds() {
 
 function oauthStateKey(state) {
   return `oauth_state_${state}`;
+}
+
+/**
+ * Integration OAuth state keys in SESSION_CACHE. Supabase Management uses its own prefix so it
+ * never collides with project login OAuth in auth.js (`supabase_auth_oauth_state:*`).
+ */
+function integrationOAuthKvKey(provider, state) {
+  const p = String(provider || '').trim().toLowerCase();
+  if (p === 'supabase') return `supabase_management_oauth_state:${state}`;
+  return oauthStateKey(state);
+}
+
+async function kvPutIntegrationOAuthState(env, provider, state, payload) {
+  if (!env?.SESSION_CACHE?.put) return false;
+  await env.SESSION_CACHE.put(integrationOAuthKvKey(provider, state), JSON.stringify(payload), {
+    expirationTtl: OAUTH_STATE_TTL_SECONDS,
+  });
+  return true;
+}
+
+async function kvGetIntegrationOAuthState(env, provider, state) {
+  if (!env?.SESSION_CACHE?.get) return null;
+  const raw = await env.SESSION_CACHE.get(integrationOAuthKvKey(provider, state));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function kvDeleteIntegrationOAuthState(env, provider, state) {
+  if (!env?.SESSION_CACHE?.delete) return;
+  await env.SESSION_CACHE.delete(integrationOAuthKvKey(provider, state));
 }
 
 const DEFAULT_OAUTH_RETURN = '/dashboard/settings?section=Integrations';
@@ -113,24 +171,6 @@ async function loginGitHubOAuthStart(_request, url, env) {
     state,
   });
   return Response.redirect(`https://github.com/login/oauth/authorize?${params}`, 302);
-}
-
-async function kvPutState(env, state, payload) {
-  if (!env?.SESSION_CACHE?.put) return false;
-  await env.SESSION_CACHE.put(oauthStateKey(state), JSON.stringify(payload), { expirationTtl: OAUTH_STATE_TTL_SECONDS });
-  return true;
-}
-
-async function kvGetState(env, state) {
-  if (!env?.SESSION_CACHE?.get) return null;
-  const raw = await env.SESSION_CACHE.get(oauthStateKey(state));
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
-async function kvDeleteState(env, state) {
-  if (!env?.SESSION_CACHE?.delete) return;
-  await env.SESSION_CACHE.delete(oauthStateKey(state));
 }
 
 async function encryptWithVault(env, plaintext) {
@@ -428,19 +468,21 @@ function cloudflareAuthUrl(env, state, oauthScopeString) {
 }
 
 // ── Supabase MANAGEMENT OAuth (/api/oauth/supabase/*) ────────────────────────
-// Connects to Supabase Management API (api.supabase.com) — links org/projects.
-// This is NOT the project OAuth Server login flow.
+// Uses ONLY SUPABASE_MANAGEMENT_OAUTH_* → https://api.supabase.com/v1/oauth/*
+// redirect_uri: https://inneranimalmedia.com/api/oauth/supabase/callback
 //
-// Login OAuth ("Continue with Supabase"):
-//   GET /api/auth/supabase/start     → dpmuvynqixblxsilnlut.supabase.co/auth/v1/oauth/authorize
-//   GET /api/auth/supabase/callback  → establishIamSession → dashboard
-//   GET /api/auth/oauth/consent      → consent HTML (DASHBOARD R2); WAF must allow this path
+// Project Auth login OAuth (different secrets, different KV keys) — auth.js ONLY:
+//   GET /api/auth/supabase/start|callback → {project}.supabase.co/auth/v1/oauth/* (SUPABASE_OAUTH_*)
+//
+// IAM OAuth Server consent SPA (InnerAnimalMedia as provider — not Supabase login):
+//   GET /api/auth/oauth/consent — unrelated to either flow above.
 // ─────────────────────────────────────────────────────────────────────────────
 function supabaseAuthUrl(env, state, oauthScopeString) {
-  if (!env.SUPABASE_OAUTH_CLIENT_ID) return null;
+  const creds = getSupabaseManagementOAuthCredentials(env);
+  if (!creds) return null;
   const u = new URL('https://api.supabase.com/v1/oauth/authorize');
   u.searchParams.set('response_type', 'code');
-  u.searchParams.set('client_id', env.SUPABASE_OAUTH_CLIENT_ID);
+  u.searchParams.set('client_id', creds.clientId);
   u.searchParams.set('redirect_uri', 'https://inneranimalmedia.com/api/oauth/supabase/callback');
   u.searchParams.set(
     'scope',
@@ -449,6 +491,16 @@ function supabaseAuthUrl(env, state, oauthScopeString) {
       : 'all',
   );
   u.searchParams.set('state', state);
+  console.log(
+    `[supabase_management_oauth] ${JSON.stringify({
+      phase: 'authorize_redirect',
+      provider: 'supabase_management_api',
+      callback_path: '/api/oauth/supabase/callback',
+      redirect_uri: 'https://inneranimalmedia.com/api/oauth/supabase/callback',
+      authorize_host: 'api.supabase.com',
+      client_id_tail: oauthClientIdTail(creds.clientId),
+    })}`,
+  );
   return u.toString();
 }
 
@@ -524,16 +576,17 @@ async function exchangeCloudflare(env, code) {
 }
 
 async function exchangeSupabase(env, code) {
-  if (!env.SUPABASE_OAUTH_CLIENT_ID || !env.SUPABASE_OAUTH_CLIENT_SECRET) {
-    throw new Error('Supabase OAuth not configured');
+  const creds = getSupabaseManagementOAuthCredentials(env);
+  if (!creds) {
+    throw new Error('Supabase Management OAuth not configured (SUPABASE_MANAGEMENT_OAUTH_*)');
   }
   const res = await fetch('https://api.supabase.com/v1/oauth/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id: env.SUPABASE_OAUTH_CLIENT_ID,
-      client_secret: env.SUPABASE_OAUTH_CLIENT_SECRET,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
       redirect_uri: 'https://inneranimalmedia.com/api/oauth/supabase/callback',
       grant_type: 'authorization_code',
     }).toString(),
@@ -694,6 +747,12 @@ export async function handleOAuthApi(request, env, ctx) {
       }
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
+    if (!authUser && provider === 'supabase') {
+      return jsonResponse(
+        { error: 'Authentication required to connect Supabase Management integration.' },
+        401,
+      );
+    }
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     const userId = integrationUserId(authUser);
@@ -703,7 +762,7 @@ export async function handleOAuthApi(request, env, ctx) {
     const state = crypto.randomUUID();
     const returnTo = safeReturnTo(url.searchParams.get('return_to'));
     const workspace_id = String(url.searchParams.get('workspace_id') || '').trim() || String(env.WORKSPACE_ID || '').trim() || '';
-    await kvPutState(env, state, {
+    await kvPutIntegrationOAuthState(env, provider, state, {
       user_id: userId,
       tenant_id: tenantId,
       person_uuid: personUuid,
@@ -774,7 +833,7 @@ export async function handleOAuthApi(request, env, ctx) {
     }
 
     if (!stored) {
-      stored = await kvGetState(env, state);
+      stored = await kvGetIntegrationOAuthState(env, provider, state);
     }
     if (!stored) return new Response(null, { status: 404 });
 
@@ -833,6 +892,17 @@ export async function handleOAuthApi(request, env, ctx) {
           account_display: 'Cloudflare',
         });
       } else if (provider === 'supabase') {
+        const mgmtCreds = getSupabaseManagementOAuthCredentials(env);
+        console.log(
+          `[supabase_management_oauth] ${JSON.stringify({
+            phase: 'callback_token_exchange',
+            provider: 'supabase_management_api',
+            callback_path: url.pathname,
+            redirect_uri: 'https://inneranimalmedia.com/api/oauth/supabase/callback',
+            client_id_tail: oauthClientIdTail(mgmtCreds?.clientId),
+            next_redirect: returnTo,
+          })}`,
+        );
         const tok = await exchangeSupabase(env, code);
         const supabaseAcct = supabaseOAuthAccountIdentifier(oauthWorkspaceId);
         let metadata_json = null;
@@ -862,12 +932,12 @@ export async function handleOAuthApi(request, env, ctx) {
         });
       }
     } catch (e) {
-      await kvDeleteState(env, state);
+      await kvDeleteIntegrationOAuthState(env, provider, state);
       const msg = encodeURIComponent(e?.message || 'oauth_failed');
       const _origin = new URL(request.url).origin; const _abs638 = returnTo.startsWith("http") ? returnTo : _origin + returnTo; return Response.redirect(`${_abs638}?error=${msg}`, 302);
     }
 
-    await kvDeleteState(env, state);
+    await kvDeleteIntegrationOAuthState(env, provider, state);
     const _abs642 = returnTo.startsWith("http") ? returnTo : new URL(request.url).origin + returnTo; return Response.redirect(`${_abs642}?connected=${encodeURIComponent(provider)}&success=true`, 302);
   }
 
@@ -892,15 +962,16 @@ export async function getOAuthToken(env, userId, provider) {
 }
 
 async function refreshSupabaseAccessToken(env, refreshToken) {
-  if (!env.SUPABASE_OAUTH_CLIENT_ID || !env.SUPABASE_OAUTH_CLIENT_SECRET || !refreshToken) return null;
+  const creds = getSupabaseManagementOAuthCredentials(env);
+  if (!creds || !refreshToken) return null;
   const res = await fetch('https://api.supabase.com/v1/oauth/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: env.SUPABASE_OAUTH_CLIENT_ID,
-      client_secret: env.SUPABASE_OAUTH_CLIENT_SECRET,
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
     }).toString(),
   });
   const data = await res.json().catch(() => ({}));
@@ -935,10 +1006,10 @@ export async function getUserSupabaseToken(env, userId, workspaceId = null) {
       : fullRow.refresh_token || null;
 
   const exp = Number(fullRow.expires_at);
+  const mgmt = getSupabaseManagementOAuthCredentials(env);
   const needsRefresh =
     refresh &&
-    env.SUPABASE_OAUTH_CLIENT_ID &&
-    env.SUPABASE_OAUTH_CLIENT_SECRET &&
+    mgmt &&
     (!Number.isFinite(exp) || exp <= nowSeconds() + 300);
 
   if (needsRefresh) {
