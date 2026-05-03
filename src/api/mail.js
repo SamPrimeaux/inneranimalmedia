@@ -890,13 +890,13 @@ export async function handleMailApi(request, url, env, ctx) {
     // POST /api/mail/send
     if (method === 'POST' && p === '/api/mail/send') {
       const body = await readJsonBody(request);
-      const from = body?.from ? String(body.from).trim() : '';
+      let from = body?.from ? String(body.from).trim() : '';
       const to = body?.to ? String(body.to).trim() : '';
       const subjectRaw = body?.subject != null ? String(body.subject) : '';
       const subject = subjectRaw.trim();
 
-      if (!from || !to || !subject) {
-        return jsonResponse({ error: 'from, to, subject are required' }, 400);
+      if (!to || !subject) {
+        return jsonResponse({ error: 'to, subject are required' }, 400);
       }
 
       let html = body?.html != null ? String(body.html) : '';
@@ -918,11 +918,14 @@ export async function handleMailApi(request, url, env, ctx) {
         text = replaceTemplateVars(text, vars);
       }
 
-      // If Gmail is connected and "from" matches the connected account, send via Gmail API.
+      // If Gmail is connected, send via Gmail API (from defaults to connected account when omitted).
       const gmailTok = await getGmailTokenRow(env, authUser);
       const connectedAcct = gmailTok?.account_identifier ? String(gmailTok.account_identifier).trim().toLowerCase() : '';
-      const fromLower = from.toLowerCase();
-      const wantsGmail = !!(gmailTok?.access_token && connectedAcct && fromLower.includes(connectedAcct));
+      const wantsGmail = !!(gmailTok?.access_token);
+      if (wantsGmail && !body?.from && connectedAcct) from = connectedAcct;
+      if (!from || !to || !subject) {
+        return jsonResponse({ error: 'from, to, subject are required' }, 400);
+      }
       const threadId = body?.thread_id ? String(body.thread_id).trim() : '';
       const inReplyTo = body?.in_reply_to ? String(body.in_reply_to).trim() : '';
       const references = body?.references ? String(body.references).trim() : '';
