@@ -240,6 +240,8 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (!authUserIsSuperadmin(authUser)) {
             return jsonResponse({ terminal_enabled: false, error: 'Forbidden' }, 403);
         }
+        if (!authUser?.tenant_id) return jsonResponse({ error: 'tenant_required' }, 403);
+        const tenantId = authUser.tenant_id;
         try {
             const body = await request.json().catch(() => ({}));
             const command = typeof body?.command === 'string' ? body.command.trim() : '';
@@ -254,7 +256,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
                      VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
                 ).bind(
                     execId,
-                    authUser.tenant_id || 'system',
+                    tenantId,
                     (url.searchParams.get('workspace_id') || 'ws_inneranimalmedia'),
                     session_id || null,
                     runCommand,

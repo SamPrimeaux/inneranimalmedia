@@ -36,6 +36,7 @@ import { handleHealthCheck } from './api/health';
 import { handleVaultApi } from './api/vault';
 import { runIntegritySnapshot } from './api/integrity';
 import { runMasterDailyRetention } from './core/retention.js';
+import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
 import { handleDashboardApi } from './api/dashboard';
 import { handleMailApi } from './api/mail';
 import { handleLearnApi } from './api/learn';
@@ -66,6 +67,7 @@ import {
 export { IAMCollaborationSession } from './do/Collaboration.js';
 export { AgentChatSqlV1 } from './do/AgentChat.js';
 export { ChessRoom } from './do/Legacy.js';
+export { runSecurityScan, logSecretAudit } from './core/security-scan.js';
 
 export default {
 
@@ -649,7 +651,13 @@ export default {
     );
     if (event.cron === '0 0 * * *') {
       ctx.waitUntil(
-        Promise.allSettled([runMasterDailyRetention(env)]).then((results) => {
+        Promise.allSettled([
+          runMasterDailyRetention(env),
+          runSecurityScan(env, {
+            scanSources: ['agent_messages', 'terminal_history', 'mcp_audit_log'],
+            triggeredBy: 'nightly_cron',
+          }),
+        ]).then((results) => {
           console.log('[retention] rollup complete', { results });
         })
       );

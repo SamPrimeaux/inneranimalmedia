@@ -23,7 +23,7 @@ export async function handleHubApi(request, url, env, ctx) {
         if (hubPath === 'roadmap') return handleHubRoadmap(url, env);
         if (hubPath === 'tasks') {
             if (method === 'POST') return handleHubTaskCreate(request, env);
-            return handleHubTasks(env);
+            return handleHubTasks(env, authUser);
         }
         if (hubPath === 'stats') return handleHubStats(env);
         if (hubPath === 'terminal') return handleHubTerminal(env);
@@ -47,14 +47,15 @@ async function handleHubRoadmap(url, env) {
     return jsonResponse({ steps: results || [] });
 }
 
-async function handleHubTasks(env) {
+async function handleHubTasks(env, authUser) {
+    if (!authUser?.tenant_id) return jsonResponse({ error: 'tenant_required' }, 403);
     const { results } = await env.DB.prepare(`
         SELECT id, title, status, priority, project_id, due_date
         FROM tasks
-        WHERE status NOT IN ('done','cancelled') AND (tenant_id = 'system' OR tenant_id IS NULL)
+        WHERE status NOT IN ('done','cancelled') AND (tenant_id = ? OR tenant_id = 'system' OR tenant_id IS NULL)
         ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'urgent' THEN 2 WHEN 'high' THEN 3 WHEN 'medium' THEN 4 ELSE 5 END, created_at DESC
         LIMIT 20
-    `).all();
+    `).bind(authUser.tenant_id).all();
     return jsonResponse({ tasks: results || [] });
 }
 

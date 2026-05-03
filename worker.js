@@ -22,6 +22,7 @@ import { getAESKey } from "./src/core/crypto-vault.js";
 import { handleVaultApi } from "./src/api/vault.js";
 import { generateDailySummaryEmail } from './src/api/workflow/summary.js';
 import { runMasterDailyRetention } from './src/core/retention.js';
+import { runSecurityScan } from './src/core/security-scan.js';
 import { loadAgentMemoryForPrompt } from "./src/core/memory.js";
 import { fetchCicdPipelineRunsForOverview } from './src/api/overview.js';
 import {
@@ -28101,7 +28102,13 @@ worker.scheduled = async function scheduled(event, env, ctx) {
     if (env?.DB) ctx.waitUntil(runRetentionPurge(env));
     if (env?.DB) {
       ctx.waitUntil(
-        Promise.allSettled([runMasterDailyRetention(env)]).then((results) => {
+        Promise.allSettled([
+          runMasterDailyRetention(env),
+          runSecurityScan(env, {
+            scanSources: ['agent_messages', 'terminal_history', 'mcp_audit_log'],
+            triggeredBy: 'nightly_cron',
+          }),
+        ]).then((results) => {
           console.log('[retention] rollup complete', { results });
         })
       );

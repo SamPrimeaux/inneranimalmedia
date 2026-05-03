@@ -6,6 +6,7 @@
  * GET  /api/terminal/session/validate — validate PTY auth token via KV
  */
 import { jsonResponse }      from '../core/responses.js';
+import { getAuthUser }       from '../core/auth.js';
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
 
@@ -68,7 +69,8 @@ export async function handleTerminalApi(request, url, env, ctx) {
     if (!session_id) return jsonResponse({ error: 'session_id required' }, 400);
 
     const now = Math.floor(Date.now() / 1000);
-    const tenantId = 'system';
+    const authUser = await getAuthUser(request, env);
+    const tenantId = authUser?.tenant_id ?? 'system';
 
     await env.DB?.prepare(
       `INSERT INTO terminal_sessions

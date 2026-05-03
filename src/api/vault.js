@@ -1,5 +1,6 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
+import { logSecretAudit } from '../core/security-scan.js';
 import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/crypto-vault.js';
 
 const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
@@ -112,6 +113,15 @@ async function vaultRevealSecret(id, eventType, request, env, authUser) {
   }
   await env.DB.prepare(`UPDATE user_secrets SET last_used_at = unixepoch(), usage_count = usage_count + 1, updated_at = unixepoch() WHERE id = ?`).bind(id).run();
   await vaultWriteAudit(env.DB, { secret_id: id, event_type: eventType, notes: `Secret ${eventType} for ${row.service_name || 'unknown service'}`, request });
+  await logSecretAudit(env, {
+    secretId: id,
+    tenantId: authUser.tenant_id,
+    userId: authUser.id,
+    eventType,
+    triggeredBy: 'dashboard_ui',
+    ipAddress: request.headers.get('CF-Connecting-IP'),
+    userAgent: request.headers.get('User-Agent'),
+  });
   return vaultJson({ value: plaintext });
 }
 
@@ -147,6 +157,17 @@ async function vaultRotateSecret(id, request, env, authUser) {
   const newMeta = JSON.stringify({ ...JSON.parse(existing.metadata_json || '{}'), last4: newLast4 });
   await env.DB.prepare(`UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, updated_at = unixepoch() WHERE id = ?`).bind(newEncrypted, newMeta, id).run();
   await vaultWriteAudit(env.DB, { secret_id: id, event_type: 'rotated', previous_last4: oldLast4, new_last4: newLast4, notes: 'Secret rotated', request });
+  await logSecretAudit(env, {
+    secretId: id,
+    tenantId: authUser.tenant_id,
+    userId: authUser.id,
+    eventType: 'rotated',
+    triggeredBy: 'dashboard_ui',
+    previousLast4: oldLast4,
+    newLast4: newLast4,
+    notes: 'Manual rotation via dashboard',
+    ipAddress: request.headers.get('CF-Connecting-IP'),
+  });
   return vaultJson({ success: true, new_last4: newLast4 });
 }
 
