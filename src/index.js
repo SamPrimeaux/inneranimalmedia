@@ -39,6 +39,7 @@ import { runMasterDailyRetention } from './core/retention.js';
 import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
 import { handleDashboardApi } from './api/dashboard';
 import { handleMailApi } from './api/mail';
+import { handleEmailApi } from './api/email.js';
 import { handleLearnApi } from './api/learn';
 import { handleOnboardingApi } from './api/onboarding';
 import { handleOAuthApi } from './api/oauth';
@@ -539,6 +540,10 @@ export default {
 
       if (pathLower.startsWith('/api/mail')) {
         return handleMailApi(request, url, env, ctx);
+      }
+
+      if (pathLower === '/api/email/send' && methodUpper === 'POST') {
+        return handleEmailApi(request, env);
       }
 
       if (pathLower.startsWith('/api/learn')) {

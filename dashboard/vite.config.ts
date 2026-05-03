@@ -50,7 +50,17 @@ export default defineConfig(({ mode }) => {
             assetFileNames: (assetInfo) => {
               if (assetInfo.name?.endsWith('.css')) return 'agent-dashboard.css';
               return '[name][extname]';
-            }
+            },
+            manualChunks: {
+              'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+              'vendor-editor': ['@monaco-editor/react'],
+              'vendor-mermaid': ['mermaid'],
+              'vendor-three': ['three'],
+              'agent-core': ['./components/ChatAssistant', './components/McpPage'],
+              'settings': ['./components/settings/SettingsPanel'],
+              'learn': ['./components/LearnPage'],
+              'studio': ['./components/DesignStudioPage'],
+            },
           }
         }
       }

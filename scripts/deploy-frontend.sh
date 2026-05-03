@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -f "$REPO_ROOT/.env.cloudflare" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$REPO_ROOT/.env.cloudflare"
+  set +a
+fi
+
 DIST="dashboard/dist"
 BUCKET="inneranimalmedia"
 PREFIX="static/dashboard/agent"
@@ -45,9 +53,10 @@ echo "[deploy] build manifest → analytics/app-builds/${TS}.json"
 GIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "unknown")
 TOTAL_KB=$(du -sk "$DIST" | cut -f1)
 
-echo "→ Sending deploy notification via Resend..."
-curl -s -X POST "https://inneranimalmedia.com/api/email/send" \
+echo "→ Sending deploy notification (POST /api/email/send)..."
+curl -sS -X POST "https://inneranimalmedia.com/api/email/send" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${INTERNAL_API_SECRET:-}" \
   -d "{
     \"to\": \"info@inneranimals.com\",
     \"subject\": \"[Agent Sam] Deploy ${GIT_HASH} → prod\",
