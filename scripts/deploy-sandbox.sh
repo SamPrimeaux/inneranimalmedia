@@ -47,7 +47,7 @@ WRANGLER=(./scripts/with-cloudflare-env.sh npx wrangler)
 DIST_DIR="${REPO_ROOT}/dashboard/dist"
 MANIFEST_NAME=".deploy-manifest"
 MANIFEST_PATH="${DIST_DIR}/${MANIFEST_NAME}"
-VER_FILE="${REPO_ROOT}/agent-dashboard/.sandbox-deploy-version"
+VER_FILE="${REPO_ROOT}/dashboard/.sandbox-deploy-version"
 R2_AGENT_PREFIX="static/dashboard/agent"
 DEPLOY_TS="$(date -u +%Y%m%d%H%M%S)"
 SANDBOX_HEALTH_URL="${SANDBOX_HEALTH_URL:-https://inneranimal-dashboard.meauxbility.workers.dev/dashboard/agent}"
@@ -300,13 +300,13 @@ echo ""
 
 # ── Step 1: Build ─────────────────────────────────────────────────────────────
 if [ "$SKIP_BUILD" -eq 0 ] && [ "$WORKER_ONLY" -eq 0 ]; then
-  echo "Building agent-dashboard (npm ci + vite)..."
+  echo "Building dashboard/ (Vite dist → dashboard/dist, flat chunk layout)..."
   CICD_T_BUILD_START=$(date +%s)
   export VITE_SHELL_VERSION="v${NEXT_V}"
   (
-    cd "${REPO_ROOT}/agent-dashboard"
+    cd "${REPO_ROOT}/dashboard"
     npm ci --include=dev
-    npm run build:vite-only
+    npm run build
   )
   CICD_T_BUILD_END=$(date +%s)
   CICD_MS_BUILD=$(( (CICD_T_BUILD_END - CICD_T_BUILD_START) * 1000 ))
@@ -437,7 +437,7 @@ WORKER_STARTUP_LINE=$(grep -i "Worker Startup Time:" /tmp/sandbox-deploy-out.txt
 export CICD_WORKER_STARTUP_MS=$(echo "$WORKER_STARTUP_LINE" | grep -oE '[0-9]+' | head -1 || echo "0")
 export CICD_PHASE_SANDBOX_END_UNIX="$CICD_T_WORKER_END"
 export CICD_PHASE_SANDBOX_DURATION_MS=$(( (CICD_T_WORKER_END - CICD_SB_DEPLOY_START_UNIX) * 1000 ))
-printf '%s\n' "$SANDBOX_VERSION" > "${REPO_ROOT}/agent-dashboard/.last-sandbox-worker-version" 2>/dev/null || true
+printf '%s\n' "$SANDBOX_VERSION" > "${REPO_ROOT}/dashboard/.last-sandbox-worker-version" 2>/dev/null || true
 echo "Worker deployed: ${SANDBOX_VERSION} ($(fmt_ms $CICD_MS_WORKER))"
 
 # ── Step 4: Health check ───────────────────────────────────────────────────────
@@ -463,7 +463,7 @@ fi
 
 # ── Step 5: Vuln audit (consolidated — one call, exports vars for notification fn) ──
 # BUG FIX: Previous script ran npm audit twice. Now runs once here, exports vars.
-_AUDIT_JSON=$(cd "${REPO_ROOT}/agent-dashboard/agent-dashboard" && npm audit --json 2>/dev/null || echo '{}')
+_AUDIT_JSON=$(cd "${REPO_ROOT}/dashboard" && npm audit --json 2>/dev/null || echo '{}')
 export GITHUB_VULN_HIGH=$(echo "$_AUDIT_JSON" | python3 -c \
   "import sys,json; d=json.load(sys.stdin); v=d.get('metadata',{}).get('vulnerabilities',{}); print(v.get('high',0)+v.get('critical',0))" 2>/dev/null || echo "0")
 export GITHUB_VULN_MODERATE=$(echo "$_AUDIT_JSON" | python3 -c \

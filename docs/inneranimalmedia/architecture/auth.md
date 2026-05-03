@@ -3,6 +3,7 @@
 ## Overview
 
 - Session-backed dashboard access; OAuth (Google, GitHub) and email flows as implemented in Worker and `pages/auth/*`.
+- **Two Supabase OAuth products** (IAM login vs Management integration): **`docs/supabase-oauth-split.md`**. Pre-commit checklist for **`App.tsx`** / auth components: **`docs/PRE_COMMIT_AUTH_ROUTES.md`**.
 
 ## Locked flows
 
