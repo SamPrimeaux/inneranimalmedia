@@ -1486,7 +1486,7 @@ export function MailPage() {
                 {
                   label: 'From',
                   render: (
-                    <select
+                    <input
                       value={composing.from}
                       onChange={(e) => setComposing((p) => ({ ...p, from: e.target.value }))}
                       style={{
@@ -1498,19 +1498,7 @@ export function MailPage() {
                         outline: 'none',
                         fontSize: 13,
                       }}
-                    >
-                      {senders.length === 0 ? (
-                        <option value="">No senders configured</option>
-                      ) : (
-                        senders.map((s) => (
-                          <option key={s.id} value={s.address}>
-                            {(s.display_name && s.display_name.trim())
-                              ? `${s.display_name.trim()} <${s.address}>`
-                              : s.address}
-                          </option>
-                        ))
-                      )}
-                    </select>
+                    />
                   ),
                 },
                 {

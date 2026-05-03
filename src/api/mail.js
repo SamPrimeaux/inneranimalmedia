@@ -781,6 +781,21 @@ export async function handleMailApi(request, url, env, ctx) {
 
     // GET /api/mail/senders
     if (method === 'GET' && p === '/api/mail/senders') {
+      const gmailTok = await getGmailTokenRow(env, authUser);
+      if (gmailTok && (gmailTok.refresh_token || gmailTok.access_token)) {
+        const account_identifier = String(gmailTok.account_identifier || '');
+        return jsonResponse({
+          senders: [
+            {
+              id: 'gmail',
+              address: account_identifier,
+              display_name: account_identifier,
+              label: 'Gmail',
+              purpose: 'gmail',
+            },
+          ],
+        });
+      }
       const { results } = await env.DB.prepare(
         `SELECT id, address, display_name, label, purpose
          FROM resend_emails
@@ -890,13 +905,13 @@ export async function handleMailApi(request, url, env, ctx) {
     // POST /api/mail/send
     if (method === 'POST' && p === '/api/mail/send') {
       const body = await readJsonBody(request);
-      let from = body?.from ? String(body.from).trim() : '';
+      const from = body?.from ? String(body.from).trim() : '';
       const to = body?.to ? String(body.to).trim() : '';
       const subjectRaw = body?.subject != null ? String(body.subject) : '';
       const subject = subjectRaw.trim();
 
-      if (!to || !subject) {
-        return jsonResponse({ error: 'to, subject are required' }, 400);
+      if (!from || !to || !subject) {
+        return jsonResponse({ error: 'from, to, subject are required' }, 400);
       }
 
       let html = body?.html != null ? String(body.html) : '';
@@ -918,14 +933,11 @@ export async function handleMailApi(request, url, env, ctx) {
         text = replaceTemplateVars(text, vars);
       }
 
-      // If Gmail is connected, send via Gmail API (from defaults to connected account when omitted).
+      // If Gmail is connected and "from" matches the connected account, send via Gmail API.
       const gmailTok = await getGmailTokenRow(env, authUser);
       const connectedAcct = gmailTok?.account_identifier ? String(gmailTok.account_identifier).trim().toLowerCase() : '';
-      const wantsGmail = !!(gmailTok?.access_token);
-      if (wantsGmail && !body?.from && connectedAcct) from = connectedAcct;
-      if (!from || !to || !subject) {
-        return jsonResponse({ error: 'from, to, subject are required' }, 400);
-      }
+      const fromLower = from.toLowerCase();
+      const wantsGmail = !!(gmailTok?.access_token && connectedAcct && fromLower.includes(connectedAcct));
       const threadId = body?.thread_id ? String(body.thread_id).trim() : '';
       const inReplyTo = body?.in_reply_to ? String(body.in_reply_to).trim() : '';
       const references = body?.references ? String(body.references).trim() : '';
