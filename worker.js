@@ -7482,12 +7482,17 @@ function getCommandIdFromToolCall(toolName, input) {
  */
 async function updateExecutionPerformanceMetrics(env, commandId, success, durationMs, costUsd) {
   if (!env?.DB || !commandId) return;
+  const tenantId = 'tenant_sam_primeaux';
   const dateStr = new Date().toISOString().slice(0, 10);
   const costCents = Math.floor((Number(costUsd) || 0) * 100);
   const lat = Math.floor(Number(durationMs) || 0);
 
   try {
-    const row = await env.DB.prepare('SELECT execution_count, avg_duration_ms FROM execution_performance_metrics WHERE command_id = ?').bind(commandId).first();
+    const row = await env.DB.prepare(
+      'SELECT execution_count, avg_duration_ms FROM execution_performance_metrics WHERE tenant_id = ? AND command_id = ? AND metric_date = ?',
+    )
+      .bind(tenantId, commandId, dateStr)
+      .first();
     let newAvg = lat;
     let count = 0;
     if (row) {
@@ -7496,17 +7501,23 @@ async function updateExecutionPerformanceMetrics(env, commandId, success, durati
       newAvg = Math.floor((oldAvg * count + lat) / (count + 1));
     }
     await env.DB.prepare(`
-      INSERT INTO execution_performance_metrics 
-      (command_id, metric_date, execution_count, success_count, failure_count, avg_duration_ms, total_cost_cents, last_computed_at)
-      VALUES (?, ?, 1, ?, ?, ?, ?, unixepoch())
-      ON CONFLICT(command_id) DO UPDATE SET
-        execution_count = execution_count + 1,
-        success_count = success_count + excluded.success_count,
-        failure_count = failure_count + excluded.failure_count,
-        avg_duration_ms = ?,
-        total_cost_cents = total_cost_cents + excluded.total_cost_cents,
+      INSERT INTO execution_performance_metrics
+        (id, tenant_id, command_id, metric_date,
+         execution_count, success_count, failure_count,
+         avg_duration_ms, total_cost_cents, last_computed_at)
+      VALUES
+        ('epm_' || lower(hex(randomblob(8))), ?, ?, ?,
+         1, ?, ?, ?, ?, unixepoch())
+      ON CONFLICT(tenant_id, command_id, metric_date) DO UPDATE SET
+        execution_count = execution_performance_metrics.execution_count + 1,
+        success_count = execution_performance_metrics.success_count + excluded.success_count,
+        failure_count = execution_performance_metrics.failure_count + excluded.failure_count,
+        avg_duration_ms = excluded.avg_duration_ms,
+        total_cost_cents = execution_performance_metrics.total_cost_cents + excluded.total_cost_cents,
         last_computed_at = unixepoch()
-    `).bind(commandId, dateStr, success ? 1 : 0, success ? 0 : 1, newAvg, costCents, newAvg).run();
+    `)
+      .bind(tenantId, commandId, dateStr, success ? 1 : 0, success ? 0 : 1, newAvg, costCents)
+      .run();
   } catch (e) {
     console.warn('[updateExecutionPerformanceMetrics]', e?.message ?? e);
   }

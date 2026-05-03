@@ -58,6 +58,7 @@ import {
   runAgentsamMemoryDecay,
   compactAgentsamToolCallLogToStats,
   rollupExecutionPerformanceMetrics,
+  rollupUsageEventsDaily,
 } from './core/memory.js';
 import { handleCatalogApi } from './api/catalog.js';
 import {
@@ -663,6 +664,11 @@ export default {
             scanSources: ['agent_messages', 'terminal_history', 'mcp_audit_log'],
             triggeredBy: 'nightly_cron',
           }),
+          env?.DB
+            ? rollupUsageEventsDaily(env).catch((e) =>
+                console.warn('[cron] agentsam_usage_rollups_daily', e?.message ?? e),
+              )
+            : Promise.resolve(),
         ]).then((results) => {
           console.log('[retention] rollup complete', { results });
         })
@@ -711,11 +717,41 @@ export default {
         try {
           await handleCodebaseIndexSyncFromQueue(env, body, ctx);
           msg.ack();
+          if (env?.DB) {
+            env.DB.prepare(`
+              INSERT INTO agentsam_webhook_events
+                (id, tenant_id, provider, event_type, payload_json, status, processed_at)
+              VALUES
+                ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
+            `).bind(
+              body?.tenant_id ?? 'tenant_sam_primeaux',
+              body?.type ?? 'unknown',
+              JSON.stringify({
+                ...(typeof body === 'object' && body ? body : {}),
+                workspace_id: body?.workspace_id ?? 'ws_inneranimalmedia',
+              }),
+            ).run().catch(() => {});
+          }
         } catch (e) {
           console.warn('[queue codebase_index_sync]', e?.message ?? e);
           msg.retry();
         }
         continue;
+      }
+      if (env?.DB) {
+        env.DB.prepare(`
+          INSERT INTO agentsam_webhook_events
+            (id, tenant_id, provider, event_type, payload_json, status, processed_at)
+          VALUES
+            ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
+        `).bind(
+          body?.tenant_id ?? 'tenant_sam_primeaux',
+          body?.type ?? 'unknown',
+          JSON.stringify({
+            ...(typeof body === 'object' && body ? body : {}),
+            workspace_id: body?.workspace_id ?? 'ws_inneranimalmedia',
+          }),
+        ).run().catch(() => {});
       }
       forLegacy.push(msg);
     }

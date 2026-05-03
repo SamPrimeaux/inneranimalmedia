@@ -592,6 +592,48 @@ async function auditToolDecision(env, opts) {
   } catch (_) {}
 }
 
+/** Dedup key pairs with UNIQUE(ref_table, ref_id) on agentsam_usage_events. */
+function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
+  if (!env?.DB || !ctx?.waitUntil) return;
+  const {
+    tenantId,
+    workspaceId,
+    userId,
+    conversationId,
+    resolvedProvider,
+    modelKey,
+    inputTokens,
+    outputTokens,
+    costUsd,
+    streamFailed,
+    refId,
+  } = opts;
+  ctx.waitUntil(
+    env.DB.prepare(`
+      INSERT OR IGNORE INTO agentsam_usage_events
+        (id, tenant_id, workspace_id, user_id, session_id,
+         agent_name, provider, model, tokens_in, tokens_out,
+         cost_usd, status, ref_table, ref_id, created_at)
+      VALUES
+        ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
+         'agent-sam',?,?,?,?,?,?,
+         'agent_chat_sse',?,unixepoch())
+    `).bind(
+      tenantId ?? 'tenant_sam_primeaux',
+      workspaceId ?? 'ws_inneranimalmedia',
+      userId ?? null,
+      conversationId ?? null,
+      resolvedProvider ?? 'unknown',
+      modelKey ?? 'unknown',
+      Math.floor(Number(inputTokens) || 0),
+      Math.floor(Number(outputTokens) || 0),
+      Number(costUsd) || 0,
+      streamFailed ? 'error' : 'ok',
+      refId ?? 'na',
+    ).run().catch(() => {}),
+  );
+}
+
 // ─── SSE Tool Loop ────────────────────────────────────────────────────────────
 
 async function runAgentToolLoop(env, ctx, emit, params) {
@@ -1076,6 +1118,11 @@ export async function agentChatSseHandler(env, request, ctx, session) {
 
   ;(async () => {
     const chatT0 = Date.now();
+    const providerForModelKey = (mk) => {
+      const k = mk != null ? String(mk) : '';
+      const r = chainRows.find((x) => String(x.model_key || '') === k);
+      return r?.provider != null ? String(r.provider) : 'unknown';
+    };
     try {
       const tried = [];
       const startIdx = (confidence < escalationThreshold && fallbackModelKeys.length > 1) ? 1 : 0;
@@ -1198,6 +1245,19 @@ export async function agentChatSseHandler(env, request, ctx, session) {
           (lastLoopStats?.totalUsage?.input_tokens ?? 0) +
           (lastLoopStats?.totalUsage?.output_tokens ?? 0),
       });
+      scheduleAgentsamUsageEventFromChat(env, ctx, {
+        tenantId,
+        workspaceId,
+        userId,
+        conversationId: sessionId ? String(sessionId) : null,
+        resolvedProvider: providerForModelKey(lastLoopStats?.modelKey),
+        modelKey: lastLoopStats?.modelKey ?? fallbackModelKeys[0] ?? 'unknown',
+        inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+        outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+        costUsd: 0,
+        streamFailed: !succeeded,
+        refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
+      });
     } catch (e) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
       emit('error', { message: 'Agent loop failed' });
@@ -1230,6 +1290,19 @@ export async function agentChatSseHandler(env, request, ctx, session) {
         recentError: e?.message != null ? String(e.message).slice(0, 2000) : null,
         goal: null,
         contextTokenEstimate: 0,
+      });
+      scheduleAgentsamUsageEventFromChat(env, ctx, {
+        tenantId,
+        workspaceId,
+        userId,
+        conversationId: sessionId ? String(sessionId) : null,
+        resolvedProvider: providerForModelKey(fallbackModelKeys[0]),
+        modelKey: fallbackModelKeys[0] ?? 'unknown',
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        streamFailed: true,
+        refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
       });
     } finally {
       await writer.close().catch(() => {});
