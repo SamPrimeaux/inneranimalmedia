@@ -2137,6 +2137,7 @@ const App: React.FC = () => {
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
                             onSendMessage={handleSendMessage}
+                            onOpenEditor={focusCodeEditorFromChat}
                           />
                       </div>
                   )}

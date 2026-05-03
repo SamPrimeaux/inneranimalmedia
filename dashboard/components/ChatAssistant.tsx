@@ -1976,6 +1976,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => onOpenCodeTab?.()}
+              title="Code editor"
+              aria-label="Open code editor"
+              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)]"
+            >
+              <FileCode size={16} />
+            </button>
+            <button
+              type="button"
               className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-muted)]"
               aria-label="More options"
             >

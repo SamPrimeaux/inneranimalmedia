@@ -31,6 +31,7 @@ interface WorkspaceDashboardProps {
   authWorkspaceId: string | null;
   onSwitchWorkspace: (id: string) => void;
   onSendMessage: (message: string) => void;
+  onOpenEditor?: () => void;
 }
 
 interface AIModel {
@@ -52,7 +53,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   workspaceRows,
   authWorkspaceId,
   onSwitchWorkspace,
-  onSendMessage
+  onSendMessage,
+  onOpenEditor
 }) => {
   const [chatInput, setChatInput] = useState('');
   const [models, setModels] = useState<AIModel[]>([]);
@@ -299,7 +301,11 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
             <span>Plan New Idea</span>
             <span className="opacity-40 text-[10px]">⇧ Tab</span>
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)]/50 hover:bg-[var(--bg-panel)] transition-all text-[12px] font-medium text-[var(--text-muted)] hover:text-white">
+          <button
+            type="button"
+            onClick={() => onOpenEditor?.()}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)]/50 hover:bg-[var(--bg-panel)] transition-all text-[12px] font-medium text-[var(--text-muted)] hover:text-white"
+          >
             <span>Open Editor Window</span>
           </button>
         </div>
