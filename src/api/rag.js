@@ -97,7 +97,7 @@ function ragEmbeddingModel(env) {
 }
 
 function ragEmbeddingDims(env) {
-  const n = Number(String(env.RAG_EMBEDDING_DIMENSIONS ?? '').trim());
+  const n = Number(env.RAG_EMBEDDING_DIMENSIONS || 1024);
   return Number.isFinite(n) && n > 0 ? n : NaN;
 }
 
