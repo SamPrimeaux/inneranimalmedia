@@ -459,8 +459,8 @@ const App: React.FC = () => {
     }));
   }, [recentFiles]);
 
-  // Tabs: only 'welcome' is open by default. Others open on demand and can be closed.
-  const [openTabs, setOpenTabs] = useState<TabId[]>(['welcome']);
+  // Tabs: Workspace matches default activeTab (welcome had no panel — stranded tab id removed from defaults).
+  const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
   const [activeTab, setActiveTab] = useState<TabId>('Workspace');
   
   // Derived from EditorContext to minimize massive refactor breakage
@@ -556,10 +556,10 @@ const App: React.FC = () => {
     return () => document.removeEventListener('mousedown', onDoc);
   }, [topChromeMoreOpen]);
 
-  const openTab = (tab: TabId) => {
+  const openTab = useCallback((tab: TabId) => {
     setOpenTabs((prev) => (prev.includes(tab) ? prev : [...prev, tab]));
     setActiveTab(tab);
-  };
+  }, []);
 
   const closeTab = (tab: TabId, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -736,12 +736,11 @@ const App: React.FC = () => {
 
   const focusCodeEditorFromChat = useCallback(() => {
     revealMainWorkspaceIfNarrow();
-    setOpenTabs((prev) => (prev.includes('code') ? prev : [...prev, 'code']));
-    setActiveTab('code');
+    openTab('code');
     if (isNarrowViewport) {
       setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
     }
-  }, [revealMainWorkspaceIfNarrow, isNarrowViewport]);
+  }, [revealMainWorkspaceIfNarrow, isNarrowViewport, openTab]);
 
   const consumeGithubExpandRepo = useCallback(() => setGithubExpandRepo(null), []);
 

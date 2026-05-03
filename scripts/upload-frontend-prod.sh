@@ -16,7 +16,7 @@ echo "Building frontend..."
 
 echo "Running pre-deploy secret scan..."
 SCAN_HITS=$( (grep -rE \
-  'sk_live_[a-zA-Z0-9]{90,}|cfut_[a-zA-Z0-9]{20,}|sk-ant-[a-zA-Z0-9-]{80,}|iam-bridge-[a-zA-Z0-9]{20,}' \
+  'sk_live_[a-zA-Z0-9]{24,}|cfut_[a-zA-Z0-9]{20,}|sk-ant-[a-zA-Z0-9\-]{80,}|iam-bridge-[a-zA-Z0-9]{20,}|re_[a-zA-Z0-9]{32,}|ghp_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z\-_]{35}|sk-proj-[a-zA-Z0-9\-_]{40,}' \
   "$DIST" 2>/dev/null || true) | wc -l | tr -d ' ')
 
 if [ "$SCAN_HITS" -gt "0" ]; then
