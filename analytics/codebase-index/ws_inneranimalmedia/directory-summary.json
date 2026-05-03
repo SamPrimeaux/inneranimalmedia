@@ -1,0 +1,530 @@
+[
+  {
+    "directory": ".",
+    "files": 845,
+    "bytes": 11983487,
+    "lines": 256915
+  },
+  {
+    "directory": "analytics",
+    "files": 2,
+    "bytes": 1029425,
+    "lines": 18482
+  },
+  {
+    "directory": "dashboard",
+    "files": 155,
+    "bytes": 4348569,
+    "lines": 84030
+  },
+  {
+    "directory": "db",
+    "files": 3,
+    "bytes": 4196,
+    "lines": 98
+  },
+  {
+    "directory": "docs",
+    "files": 244,
+    "bytes": 2347315,
+    "lines": 54061
+  },
+  {
+    "directory": "inneranimalmedia-agentsam-dashboard",
+    "files": 2,
+    "bytes": 29684,
+    "lines": 779
+  },
+  {
+    "directory": "migrations",
+    "files": 167,
+    "bytes": 331848,
+    "lines": 7978
+  },
+  {
+    "directory": "scripts",
+    "files": 129,
+    "bytes": 731546,
+    "lines": 17344
+  },
+  {
+    "directory": "src",
+    "files": 132,
+    "bytes": 1446593,
+    "lines": 35593
+  },
+  {
+    "directory": "supabase",
+    "files": 2,
+    "bytes": 165,
+    "lines": 0
+  },
+  {
+    "directory": "analytics/codebase-index",
+    "files": 2,
+    "bytes": 1029425,
+    "lines": 18482
+  },
+  {
+    "directory": "dashboard/components",
+    "files": 91,
+    "bytes": 1452615,
+    "lines": 33471
+  },
+  {
+    "directory": "dashboard/pages",
+    "files": 1,
+    "bytes": 86692,
+    "lines": 2117
+  },
+  {
+    "directory": "dashboard/public",
+    "files": 1,
+    "bytes": 2173,
+    "lines": 92
+  },
+  {
+    "directory": "dashboard/services",
+    "files": 1,
+    "bytes": 24394,
+    "lines": 657
+  },
+  {
+    "directory": "dashboard/src",
+    "files": 7,
+    "bytes": 25642,
+    "lines": 783
+  },
+  {
+    "directory": "dashboard/utils",
+    "files": 2,
+    "bytes": 9273,
+    "lines": 195
+  },
+  {
+    "directory": "docs/agent-sam-sandbox-cicd",
+    "files": 1,
+    "bytes": 4877,
+    "lines": 84
+  },
+  {
+    "directory": "docs/agentsam",
+    "files": 1,
+    "bytes": 5165,
+    "lines": 92
+  },
+  {
+    "directory": "docs/autorag",
+    "files": 1,
+    "bytes": 821,
+    "lines": 21
+  },
+  {
+    "directory": "docs/autorag-knowledge",
+    "files": 5,
+    "bytes": 27303,
+    "lines": 493
+  },
+  {
+    "directory": "docs/codebase-index",
+    "files": 1,
+    "bytes": 4097,
+    "lines": 88
+  },
+  {
+    "directory": "docs/daily",
+    "files": 2,
+    "bytes": 8547,
+    "lines": 157
+  },
+  {
+    "directory": "docs/dashboard",
+    "files": 2,
+    "bytes": 18355,
+    "lines": 354
+  },
+  {
+    "directory": "docs/iam-docs",
+    "files": 25,
+    "bytes": 101881,
+    "lines": 2174
+  },
+  {
+    "directory": "docs/inneranimalmedia",
+    "files": 23,
+    "bytes": 31249,
+    "lines": 921
+  },
+  {
+    "directory": "docs/knowledge",
+    "files": 7,
+    "bytes": 70685,
+    "lines": 1405
+  },
+  {
+    "directory": "docs/memory",
+    "files": 20,
+    "bytes": 93547,
+    "lines": 1298
+  },
+  {
+    "directory": "docs/modularization",
+    "files": 1,
+    "bytes": 15286,
+    "lines": 298
+  },
+  {
+    "directory": "docs/plans",
+    "files": 5,
+    "bytes": 56057,
+    "lines": 873
+  },
+  {
+    "directory": "docs/runbooks",
+    "files": 4,
+    "bytes": 6409,
+    "lines": 172
+  },
+  {
+    "directory": "docs/specs",
+    "files": 3,
+    "bytes": 30049,
+    "lines": 565
+  },
+  {
+    "directory": "docs/supabase",
+    "files": 2,
+    "bytes": 6366,
+    "lines": 138
+  },
+  {
+    "directory": "docs/theme-presets",
+    "files": 1,
+    "bytes": 3896,
+    "lines": 122
+  },
+  {
+    "directory": "inneranimalmedia-agentsam-dashboard/docs",
+    "files": 1,
+    "bytes": 3179,
+    "lines": 110
+  },
+  {
+    "directory": "inneranimalmedia-agentsam-dashboard/src",
+    "files": 1,
+    "bytes": 26505,
+    "lines": 669
+  },
+  {
+    "directory": "migrations/d1",
+    "files": 2,
+    "bytes": 3338,
+    "lines": 93
+  },
+  {
+    "directory": "scripts/aitestsuite",
+    "files": 6,
+    "bytes": 47548,
+    "lines": 1735
+  },
+  {
+    "directory": "scripts/designstudio",
+    "files": 11,
+    "bytes": 10984,
+    "lines": 322
+  },
+  {
+    "directory": "scripts/lib",
+    "files": 1,
+    "bytes": 37096,
+    "lines": 846
+  },
+  {
+    "directory": "src/api",
+    "files": 56,
+    "bytes": 987105,
+    "lines": 24221
+  },
+  {
+    "directory": "src/core",
+    "files": 24,
+    "bytes": 190994,
+    "lines": 5118
+  },
+  {
+    "directory": "src/do",
+    "files": 4,
+    "bytes": 45898,
+    "lines": 1194
+  },
+  {
+    "directory": "src/email-templates",
+    "files": 4,
+    "bytes": 12638,
+    "lines": 224
+  },
+  {
+    "directory": "src/integrations",
+    "files": 14,
+    "bytes": 56457,
+    "lines": 1503
+  },
+  {
+    "directory": "src/tools",
+    "files": 28,
+    "bytes": 61638,
+    "lines": 1465
+  },
+  {
+    "directory": "supabase/.temp",
+    "files": 2,
+    "bytes": 165,
+    "lines": 0
+  },
+  {
+    "directory": "analytics/codebase-index/ws_inneranimalmedia",
+    "files": 2,
+    "bytes": 1029425,
+    "lines": 18482
+  },
+  {
+    "directory": "dashboard/components/auth",
+    "files": 5,
+    "bytes": 29506,
+    "lines": 917
+  },
+  {
+    "directory": "dashboard/components/learn",
+    "files": 5,
+    "bytes": 31180,
+    "lines": 969
+  },
+  {
+    "directory": "dashboard/components/onboarding",
+    "files": 1,
+    "bytes": 21817,
+    "lines": 566
+  },
+  {
+    "directory": "dashboard/components/settings",
+    "files": 34,
+    "bytes": 245179,
+    "lines": 5928
+  },
+  {
+    "directory": "dashboard/public/static",
+    "files": 1,
+    "bytes": 2173,
+    "lines": 92
+  },
+  {
+    "directory": "docs/autorag-knowledge/architecture",
+    "files": 4,
+    "bytes": 23009,
+    "lines": 428
+  },
+  {
+    "directory": "docs/autorag-knowledge/sessions",
+    "files": 1,
+    "bytes": 4294,
+    "lines": 65
+  },
+  {
+    "directory": "docs/autorag/context",
+    "files": 1,
+    "bytes": 821,
+    "lines": 21
+  },
+  {
+    "directory": "docs/codebase-index/ws_inneranimalmedia",
+    "files": 1,
+    "bytes": 4097,
+    "lines": 88
+  },
+  {
+    "directory": "docs/iam-docs/agents",
+    "files": 7,
+    "bytes": 27080,
+    "lines": 582
+  },
+  {
+    "directory": "docs/iam-docs/autorag",
+    "files": 2,
+    "bytes": 6483,
+    "lines": 107
+  },
+  {
+    "directory": "docs/iam-docs/clients",
+    "files": 3,
+    "bytes": 2813,
+    "lines": 52
+  },
+  {
+    "directory": "docs/iam-docs/cursor",
+    "files": 1,
+    "bytes": 2685,
+    "lines": 38
+  },
+  {
+    "directory": "docs/iam-docs/platform",
+    "files": 5,
+    "bytes": 18247,
+    "lines": 335
+  },
+  {
+    "directory": "docs/iam-docs/screenshots",
+    "files": 1,
+    "bytes": 1978,
+    "lines": 35
+  },
+  {
+    "directory": "docs/iam-docs/sessions",
+    "files": 2,
+    "bytes": 12257,
+    "lines": 171
+  },
+  {
+    "directory": "docs/inneranimalmedia/architecture",
+    "files": 5,
+    "bytes": 3186,
+    "lines": 87
+  },
+  {
+    "directory": "docs/inneranimalmedia/brand",
+    "files": 3,
+    "bytes": 1270,
+    "lines": 43
+  },
+  {
+    "directory": "docs/inneranimalmedia/games",
+    "files": 3,
+    "bytes": 1137,
+    "lines": 42
+  },
+  {
+    "directory": "docs/inneranimalmedia/product",
+    "files": 9,
+    "bytes": 23918,
+    "lines": 696
+  },
+  {
+    "directory": "docs/inneranimalmedia/runbooks",
+    "files": 3,
+    "bytes": 1738,
+    "lines": 53
+  },
+  {
+    "directory": "docs/knowledge/skills",
+    "files": 6,
+    "bytes": 67062,
+    "lines": 1333
+  },
+  {
+    "directory": "docs/knowledge/workflows",
+    "files": 1,
+    "bytes": 3623,
+    "lines": 72
+  },
+  {
+    "directory": "docs/memory/agent-plans",
+    "files": 4,
+    "bytes": 15262,
+    "lines": 216
+  },
+  {
+    "directory": "docs/memory/daily",
+    "files": 7,
+    "bytes": 39236,
+    "lines": 493
+  },
+  {
+    "directory": "scripts/designstudio/fixtures",
+    "files": 2,
+    "bytes": 2048,
+    "lines": 54
+  },
+  {
+    "directory": "src/api/designstudio",
+    "files": 2,
+    "bytes": 36750,
+    "lines": 934
+  },
+  {
+    "directory": "src/api/integrations",
+    "files": 2,
+    "bytes": 10507,
+    "lines": 307
+  },
+  {
+    "directory": "src/api/workflow",
+    "files": 1,
+    "bytes": 8265,
+    "lines": 162
+  },
+  {
+    "directory": "src/tools/builtin",
+    "files": 17,
+    "bytes": 32733,
+    "lines": 705
+  },
+  {
+    "directory": "dashboard/components/settings/components",
+    "files": 10,
+    "bytes": 56778,
+    "lines": 1334
+  },
+  {
+    "directory": "dashboard/components/settings/hooks",
+    "files": 2,
+    "bytes": 47641,
+    "lines": 1398
+  },
+  {
+    "directory": "dashboard/components/settings/sections",
+    "files": 17,
+    "bytes": 124868,
+    "lines": 2733
+  },
+  {
+    "directory": "dashboard/public/static/dashboard",
+    "files": 1,
+    "bytes": 2173,
+    "lines": 92
+  },
+  {
+    "directory": "docs/iam-docs/autorag/architecture",
+    "files": 1,
+    "bytes": 2984,
+    "lines": 55
+  },
+  {
+    "directory": "docs/iam-docs/autorag/sessions",
+    "files": 1,
+    "bytes": 3499,
+    "lines": 52
+  },
+  {
+    "directory": "docs/iam-docs/clients/pelican-peptides",
+    "files": 1,
+    "bytes": 754,
+    "lines": 21
+  },
+  {
+    "directory": "docs/iam-docs/clients/swamp-blood-gator",
+    "files": 1,
+    "bytes": 595,
+    "lines": 15
+  },
+  {
+    "directory": "docs/inneranimalmedia/product/designstudio",
+    "files": 5,
+    "bytes": 22319,
+    "lines": 633
+  },
+  {
+    "directory": "dashboard/components/settings/components/rulesSkills",
+    "files": 4,
+    "bytes": 14728,
+    "lines": 322
+  }
+]

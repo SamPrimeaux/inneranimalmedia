@@ -1,0 +1,13 @@
+{
+  "workspace_id": "ws_inneranimalmedia",
+  "worker_name": "inneranimalmedia",
+  "handle": "inneranimalmedia",
+  "owner_tenant_id": "tenant_sam_primeaux",
+  "app_id": "3236491",
+  "github_url": "https://github.com/SamPrimeaux/inneranimalmedia",
+  "repo_root": "/Users/samprimeaux/Downloads/inneranimalmedia",
+  "branch": "main",
+  "commit_sha": "388a58417ab2d4ae7c7287168310d4ad69591b7a",
+  "remote_origin": "https://github.com/SamPrimeaux/inneranimalmedia.git",
+  "generated_at": "2026-05-03T04:54:47Z"
+}
