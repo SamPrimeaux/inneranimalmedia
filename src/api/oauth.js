@@ -555,6 +555,126 @@ async function googleUserinfo(accessToken) {
   return { email: data.email || null, name: data.name || null };
 }
 
+/** Gmail integration OAuth — distinct from login Google (`/api/oauth/google/*`) and Drive integration. */
+const GMAIL_OAUTH_REDIRECT_URI = 'https://inneranimalmedia.com/api/oauth/gmail/callback';
+const GMAIL_OAUTH_SCOPES =
+  'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly';
+
+function gmailOauthStateKvKey(token) {
+  return `oauth_state:${token}`;
+}
+
+function googleClientSecretForGmailCallback(env) {
+  const a = typeof env.GOOGLE_CLIENT_SECRET === 'string' ? env.GOOGLE_CLIENT_SECRET.trim() : '';
+  if (a) return a;
+  const b =
+    typeof env.GOOGLE_OAUTH_CLIENT_SECRET === 'string' ? env.GOOGLE_OAUTH_CLIENT_SECRET.trim() : '';
+  return b;
+}
+
+async function exchangeGoogleAuthCodeForGmail(env, code) {
+  const clientSecret = googleClientSecretForGmailCallback(env);
+  if (!env.GOOGLE_CLIENT_ID || !clientSecret) {
+    throw new Error('Google OAuth client not configured');
+  }
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: clientSecret,
+      redirect_uri: GMAIL_OAUTH_REDIRECT_URI,
+      grant_type: 'authorization_code',
+    }).toString(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error_description || data.error || 'Google token exchange failed');
+  }
+  return data;
+}
+
+async function gmailOAuthStart(request, _url, env) {
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (!env.GOOGLE_CLIENT_ID || !env.SESSION_CACHE?.put) {
+    return jsonResponse({ error: 'OAuth not configured' }, 503);
+  }
+  const state = crypto.randomUUID();
+  await env.SESSION_CACHE.put(
+    gmailOauthStateKvKey(state),
+    JSON.stringify({ user_id: authUser.id, provider: 'gmail' }),
+    { expirationTtl: OAUTH_STATE_TTL_SECONDS },
+  );
+  const params = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID,
+    redirect_uri: GMAIL_OAUTH_REDIRECT_URI,
+    scope: GMAIL_OAUTH_SCOPES,
+    response_type: 'code',
+    access_type: 'offline',
+    prompt: 'consent',
+    state,
+  });
+  return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`, 302);
+}
+
+async function gmailOAuthCallback(_request, url, env) {
+  const origin = url.origin;
+  const fail = () => Response.redirect(`${origin}/dashboard/mail?error=gmail_auth_failed`, 302);
+  const state = url.searchParams.get('state') || '';
+  const code = url.searchParams.get('code') || '';
+  if (!state || !code) return fail();
+
+  if (!env.SESSION_CACHE?.get || !env.SESSION_CACHE?.delete) return fail();
+
+  const raw = await env.SESSION_CACHE.get(gmailOauthStateKvKey(state));
+  if (!raw) return fail();
+
+  let stored;
+  try {
+    stored = JSON.parse(raw);
+  } catch {
+    await env.SESSION_CACHE.delete(gmailOauthStateKvKey(state));
+    return fail();
+  }
+
+  const userId = stored?.user_id != null ? String(stored.user_id) : '';
+  if (!userId || stored?.provider !== 'gmail') {
+    await env.SESSION_CACHE.delete(gmailOauthStateKvKey(state));
+    return fail();
+  }
+
+  await env.SESSION_CACHE.delete(gmailOauthStateKvKey(state));
+
+  if (!env.DB || !env.VAULT_MASTER_KEY) return fail();
+
+  try {
+    const tok = await exchangeGoogleAuthCodeForGmail(env, code);
+    const info = await googleUserinfo(tok.access_token);
+    const email = info.email != null ? String(info.email).trim() : '';
+    if (!email) throw new Error('missing_email');
+
+    await upsertOauthToken(env, {
+      user_id: userId,
+      tenant_id: '',
+      person_uuid: '',
+      provider: 'gmail',
+      access_token: tok.access_token,
+      refresh_token: tok.refresh_token || null,
+      scope: tok.scope || GMAIL_OAUTH_SCOPES,
+      expires_at: tok.expires_in ? nowSeconds() + Number(tok.expires_in) : null,
+      account_identifier: email,
+      account_email: email,
+      account_display: email,
+    });
+  } catch {
+    return fail();
+  }
+
+  return Response.redirect(`${origin}/dashboard/mail`, 302);
+}
+
 async function exchangeCloudflare(env, code) {
   if (!env.CLOUDFLARE_OAUTH_CLIENT_ID || !env.CLOUDFLARE_OAUTH_CLIENT_SECRET) {
     throw new Error('Cloudflare OAuth not configured');
@@ -693,6 +813,13 @@ export async function handleOAuthApi(request, env, ctx) {
   const url = new URL(request.url);
   const pathLower = url.pathname.toLowerCase().replace(/\/$/, '');
   const method = request.method.toUpperCase();
+
+  if (pathLower === '/api/oauth/gmail/start' && method === 'GET') {
+    return gmailOAuthStart(request, url, env);
+  }
+  if (pathLower === '/api/oauth/gmail/callback' && method === 'GET') {
+    return gmailOAuthCallback(request, url, env);
+  }
 
   const startMatch = pathLower.match(/^\/api\/oauth\/([^/]+)\/start$/);
   const cbMatch = pathLower.match(/^\/api\/oauth\/([^/]+)\/callback$/);
