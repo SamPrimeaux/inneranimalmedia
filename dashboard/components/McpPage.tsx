@@ -11,6 +11,7 @@
  * Matches IAM dark IDE aesthetic via CSS vars.
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Brain, Hammer, FlaskConical, Rocket,
   Terminal, Zap, Activity, CheckCircle2,
@@ -25,12 +26,15 @@ type AgentStatus = 'idle' | 'running' | 'active' | 'waiting' | 'error' | 'succes
 
 interface AgentConfig {
   id: string;
+  /** Route + dispatch slug (e.g. architect, engineer); may match `id` when loaded from D1 */
+  slug?: string;
   name: string;
   role: string;
   description: string;
   icon: React.ReactNode;
   accentVar: string;
   tools: string[];
+  default_model_id?: string | null;
 }
 
 interface AgentState {
@@ -82,11 +86,65 @@ type AgentProfile = {
   access_mode: string | null;
   tool_categories: string | null;
   allowed_tool_globs: unknown;
+  default_model_id?: string | null;
 };
+
+const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
+
+function mcpAgentIdToRouteSlug(agentId: string): string {
+  switch (String(agentId || '').trim()) {
+    case 'mcp_agent_architect':
+      return 'architect';
+    case 'mcp_agent_builder':
+      return 'engineer';
+    case 'mcp_agent_inspector':
+      return 'analyst';
+    case 'mcp_agent_operator':
+      return 'devops';
+    default:
+      return String(agentId || 'architect').trim() || 'architect';
+  }
+}
+
+function routeSlugToMcpAgentId(slug: string, configs: AgentConfig[]): string | null {
+  const s = String(slug || '').trim().toLowerCase();
+  if (!s) return null;
+  const legacy: Record<string, string> = {
+    architect: 'mcp_agent_architect',
+    engineer: 'mcp_agent_builder',
+    builder: 'mcp_agent_builder',
+    analyst: 'mcp_agent_inspector',
+    inspector: 'mcp_agent_inspector',
+    devops: 'mcp_agent_operator',
+    operator: 'mcp_agent_operator',
+  };
+  if (legacy[s]) return legacy[s];
+  const hit = configs.find((c) => String(c.id).toLowerCase() === s || String(c.slug || '').toLowerCase() === s);
+  return hit ? hit.id : null;
+}
+
+async function postAgentsamWorkspaceMcpState(slug: string, actionLabel: string) {
+  try {
+    await fetch(`/api/agent/workspace/${encodeURIComponent(IAM_DEFAULT_WORKSPACE_ID)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        active_agent_slug: slug,
+        active_agent_panel: 'mcp',
+        last_agent_action: actionLabel,
+      }),
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
 
 const FALLBACK_AGENTS: AgentConfig[] = [
   {
     id: 'mcp_agent_architect',
+    slug: 'architect',
+    default_model_id: 'claude-haiku-4-5-20251001',
     name: 'Architect',
     role: 'Systems design, architecture planning, technical strategy'.slice(0, 60),
     description: 'Systems design, architecture planning, technical strategy',
@@ -96,6 +154,8 @@ const FALLBACK_AGENTS: AgentConfig[] = [
   },
   {
     id: 'mcp_agent_builder',
+    slug: 'engineer',
+    default_model_id: 'claude-haiku-4-5-20251001',
     name: 'Builder',
     role: 'Full-stack code generation, feature implementation, scaffolding'.slice(0, 60),
     description: 'Full-stack code generation, feature implementation, scaffolding',
@@ -105,6 +165,8 @@ const FALLBACK_AGENTS: AgentConfig[] = [
   },
   {
     id: 'mcp_agent_inspector',
+    slug: 'analyst',
+    default_model_id: 'claude-haiku-4-5-20251001',
     name: 'Inspector',
     role: 'Code review, bug hunting, test coverage, security audits'.slice(0, 60),
     description: 'Code review, bug hunting, test coverage, security audits',
@@ -114,6 +176,8 @@ const FALLBACK_AGENTS: AgentConfig[] = [
   },
   {
     id: 'mcp_agent_operator',
+    slug: 'devops',
+    default_model_id: 'claude-haiku-4-5-20251001',
     name: 'Operator',
     role: 'Deployments, health monitoring, infra ops, release management'.slice(0, 60),
     description: 'Deployments, health monitoring, infra ops, release management',
@@ -166,12 +230,14 @@ function mapProfilesToAgents(profiles: AgentProfile[]): AgentConfig[] {
     const desc = String(p.description || '').trim();
     return {
       id,
+      slug: id,
       name,
       role: (desc || name).slice(0, 60),
       description: desc || name,
       icon: lucideForIconName(p.icon),
       accentVar: ACCENT_CYCLE[idx % ACCENT_CYCLE.length],
       tools: parseAllowedToolGlobs((p as any).allowed_tool_globs),
+      default_model_id: (p as { default_model_id?: string | null }).default_model_id ?? null,
     };
   }).filter((a) => !!a.id);
 }
@@ -453,6 +519,8 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
 
 // ─── McpPage ──────────────────────────────────────────────────────────────────
 export const McpPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { agentSlug } = useParams<{ agentSlug?: string }>();
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [agentStates, setAgentStates] = useState<Record<string, AgentState>>(() =>
     Object.fromEntries(FALLBACK_AGENTS.map(a => [a.id, {
@@ -515,6 +583,30 @@ export const McpPage: React.FC = () => {
   }, []);
 
   useEffect(() => { void loadWorkflows(); }, [loadWorkflows]);
+
+  const openAgentPanel = useCallback(
+    (id: string) => {
+      setActiveAgent(id);
+      const routeSlug = mcpAgentIdToRouteSlug(id);
+      navigate(`/dashboard/mcp/${encodeURIComponent(routeSlug)}`);
+      const stateSlug = String(agents.find((a) => a.id === id)?.slug || mcpAgentIdToRouteSlug(id));
+      void postAgentsamWorkspaceMcpState(stateSlug, `open_mcp_agent:${stateSlug}`);
+    },
+    [navigate, agents],
+  );
+
+  const closeAgentPanel = useCallback(() => {
+    setActiveAgent(null);
+    navigate('/dashboard/mcp');
+  }, [navigate]);
+
+  useEffect(() => {
+    const raw = agentSlug?.trim();
+    if (!raw) return;
+    const list = agents.length ? agents : FALLBACK_AGENTS;
+    const id = routeSlugToMcpAgentId(decodeURIComponent(raw), list);
+    if (id) setActiveAgent(id);
+  }, [agentSlug, agents]);
 
   const runWorkflow = useCallback(async (wf: WorkflowRow) => {
     const id = String(wf?.id || '').trim();
@@ -684,21 +776,34 @@ export const McpPage: React.FC = () => {
     setDispatching(true);
     setCommandFocus(false);
     try {
+      const list = agents.length ? agents : FALLBACK_AGENTS;
+      const selectedCfg = activeAgent
+        ? list.find((a) => a.id === activeAgent)
+        : list.find((a) => a.id === 'mcp_agent_architect') || list[0];
+      const routeSlug = mcpAgentIdToRouteSlug(String(selectedCfg?.id || 'mcp_agent_architect'));
+      const dispatchSlug = String(selectedCfg?.slug || routeSlug);
+      const model =
+        String(selectedCfg?.default_model_id || '').trim() || 'claude-haiku-4-5-20251001';
       const res = await fetch('/api/mcp/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({
+          message: prompt,
+          mode: 'agent',
+          model,
+          agent: dispatchSlug,
+        }),
       });
       const data = await res.json();
       if (data.agent_id) {
         setCommandInput('');
         await loadAgentStatus();
-        setTimeout(() => setActiveAgent(data.agent_id), 400);
+        setTimeout(() => openAgentPanel(String(data.agent_id)), 400);
       }
     } catch { /* silent */ }
     finally { setDispatching(false); }
-  }, [commandInput, dispatching, loadAgentStatus]);
+  }, [commandInput, dispatching, loadAgentStatus, activeAgent, agents, openAgentPanel]);
 
   const healthColor = (status?: string) => {
     const s = (status ?? '').toLowerCase();
@@ -833,7 +938,7 @@ export const McpPage: React.FC = () => {
               key={config.id}
               config={config}
               state={agentStates[config.id]}
-              onOpen={setActiveAgent}
+              onOpen={openAgentPanel}
               onResetStale={resetStaleSession}
             />
           ))}
@@ -990,7 +1095,7 @@ export const McpPage: React.FC = () => {
 
       {/* ── Workspace overlay ─────────────────────────────────────────────── */}
       {activeAgent && (
-        <WorkspacePanel agentId={activeAgent} agents={agents.length ? agents : FALLBACK_AGENTS} onClose={() => setActiveAgent(null)} />
+        <WorkspacePanel agentId={activeAgent} agents={agents.length ? agents : FALLBACK_AGENTS} onClose={closeAgentPanel} />
       )}
     </div>
   );

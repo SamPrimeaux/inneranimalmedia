@@ -16874,12 +16874,189 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
            icon,
            access_mode,
            tool_categories,
-           allowed_tool_globs
+           allowed_tool_globs,
+           default_model_id
          FROM agentsam_subagent_profile
          WHERE user_id = ? AND workspace_id = ? AND is_active = 1
          ORDER BY sort_order ASC`
       ).bind(userId, workspaceId).all();
       return jsonResponse({ profiles: results || [] }, 200);
+    }
+
+    {
+      const workspacePathMatch = pathLower.match(/^\/api\/agent\/workspace\/([^/]+)$/);
+      if (workspacePathMatch && env.DB) {
+        const wsPathId = decodeURIComponent(workspacePathMatch[1] || '').trim();
+        const authUserWs = await getAuthUser(request, env);
+        if (!authUserWs) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const userIdWs = String(authUserWs?.id || 'anonymous').trim();
+        let tidWs =
+          authUserWs?.tenant_id != null && String(authUserWs.tenant_id).trim() !== ''
+            ? String(authUserWs.tenant_id).trim()
+            : '';
+        if (!tidWs) tidWs = (await fetchAuthUserTenantId(env, authUserWs.id)) || '';
+        if (!tidWs && authUserWs.email) tidWs = (await fetchAuthUserTenantId(env, authUserWs.email)) || '';
+        if (!tidWs) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
+        const uwsIdWs = `uws:${tidWs}:${userIdWs}:${wsPathId}`;
+        const isAgentsamWs = /^ws_/i.test(wsPathId) || wsPathId === IAM_DEFAULT_WORKSPACE_ID;
+
+        const safeJsonState = (v) => {
+          if (!v) return {};
+          if (typeof v === 'object' && v !== null) return v;
+          try {
+            return JSON.parse(String(v));
+          } catch {
+            return {};
+          }
+        };
+        const stringifyState = (state) => (typeof state === 'string' ? state : JSON.stringify(state || {}));
+
+        if (method === 'GET') {
+          try {
+            if (isAgentsamWs) {
+              let awsRow = null;
+              try {
+                awsRow = await env.DB.prepare(
+                  `SELECT * FROM agentsam_workspace_state WHERE workspace_id = ? OR id = ? ORDER BY updated_at DESC LIMIT 1`,
+                )
+                  .bind(wsPathId, wsPathId)
+                  .first();
+              } catch (_) {
+                awsRow = null;
+              }
+              const st = safeJsonState(awsRow?.state_json);
+              const stateStr = typeof awsRow?.state_json === 'string' ? awsRow.state_json : stringifyState(st);
+              return jsonResponse({
+                id: wsPathId,
+                name: 'Workspace',
+                environment: 'cloud',
+                status: 'active',
+                settings: {},
+                state: st,
+                state_json: stateStr,
+                agentsam_workspace_state: awsRow || null,
+              });
+            }
+            const [globalWs, personalWs] = await Promise.all([
+              env.DB.prepare(`SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`).bind(wsPathId, wsPathId).first().catch(() => null),
+              env.DB.prepare(`SELECT state_json FROM agent_workspace_state WHERE id = ?`).bind(uwsIdWs).first().catch(() => null),
+            ]);
+            const row = globalWs || (personalWs ? { id: wsPathId, state_json: personalWs.state_json, name: 'Personal' } : null);
+            if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
+            const st = safeJsonState(row.state_json);
+            const stateStr = typeof row.state_json === 'string' ? row.state_json : stringifyState(st);
+            return jsonResponse({
+              id: row.id,
+              name: row.name || 'Workspace',
+              environment: row.environment || 'local',
+              status: row.status || 'active',
+              settings: safeJsonState(row.settings_json),
+              state: st,
+              state_json: stateStr,
+            });
+          } catch (e) {
+            return jsonResponse({ error: `Fetch error: ${e.message}` }, 500);
+          }
+        }
+
+        if (method === 'PUT') {
+          try {
+            const bodyWs = await request.json().catch(() => ({}));
+            const stateWs = bodyWs.state || bodyWs.state_json;
+            const stateStrPut = stringifyState(stateWs);
+            if (isAgentsamWs) {
+              let awsRow = null;
+              try {
+                awsRow = await env.DB.prepare(
+                  `SELECT id, state_json FROM agentsam_workspace_state WHERE workspace_id = ? OR id = ? ORDER BY updated_at DESC LIMIT 1`,
+                )
+                  .bind(wsPathId, wsPathId)
+                  .first();
+              } catch (_) {
+                awsRow = null;
+              }
+              if (awsRow?.id) {
+                await env.DB.prepare(
+                  `UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`,
+                )
+                  .bind(stateStrPut, awsRow.id)
+                  .run();
+              } else {
+                const nid = `aws_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+                try {
+                  await env.DB.prepare(
+                    `INSERT INTO agentsam_workspace_state (id, workspace_id, state_json, updated_at) VALUES (?,?,?,unixepoch())`,
+                  )
+                    .bind(nid, wsPathId, stateStrPut)
+                    .run();
+                } catch (e2) {
+                  console.warn('[agent/workspace] agentsam_workspace_state insert', e2?.message ?? e2);
+                }
+              }
+              return jsonResponse({ ok: true, id: wsPathId });
+            }
+            await Promise.allSettled([
+              env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`).bind(stateStrPut, wsPathId).run(),
+              env.DB.prepare(`UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`).bind(stateStrPut, uwsIdWs).run(),
+            ]);
+            return jsonResponse({ ok: true, id: wsPathId });
+          } catch (e) {
+            return jsonResponse({ error: e.message }, 500);
+          }
+        }
+
+        if (method === 'POST' && isAgentsamWs) {
+          try {
+            const bodyPost = await request.json().catch(() => ({}));
+            if (!bodyPost || typeof bodyPost !== 'object') return jsonResponse({ error: 'Invalid JSON' }, 400);
+            let awsRow = null;
+            try {
+              awsRow = await env.DB.prepare(
+                `SELECT id, state_json FROM agentsam_workspace_state WHERE workspace_id = ? OR id = ? ORDER BY updated_at DESC LIMIT 1`,
+              )
+                .bind(wsPathId, wsPathId)
+                .first();
+            } catch (_) {
+              awsRow = null;
+            }
+            const cur = safeJsonState(awsRow?.state_json);
+            const patch = {};
+            for (const k of ['active_agent_slug', 'active_agent_panel', 'last_agent_action', 'agent_id']) {
+              if (Object.prototype.hasOwnProperty.call(bodyPost, k) && bodyPost[k] != null) patch[k] = bodyPost[k];
+            }
+            const merged = { ...cur, ...patch };
+            const mergedStr = stringifyState(merged);
+            if (awsRow?.id) {
+              await env.DB.prepare(
+                `UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`,
+              )
+                .bind(mergedStr, awsRow.id)
+                .run();
+            } else {
+              const nid = `aws_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+              try {
+                await env.DB.prepare(
+                  `INSERT INTO agentsam_workspace_state (id, workspace_id, state_json, updated_at) VALUES (?,?,?,unixepoch())`,
+                )
+                  .bind(nid, wsPathId, mergedStr)
+                  .run();
+              } catch (e3) {
+                console.warn('[agent/workspace] agentsam POST insert', e3?.message ?? e3);
+                return jsonResponse({ error: 'agentsam_workspace_state write failed' }, 503);
+              }
+            }
+            return jsonResponse({ ok: true, id: wsPathId });
+          } catch (e) {
+            return jsonResponse({ error: e.message }, 500);
+          }
+        }
+        if (method === 'POST' && !isAgentsamWs) {
+          return jsonResponse(
+            { error: 'Use PUT for conversation workspace snapshots; POST merge is for ws_* workspace ids.' },
+            400,
+          );
+        }
+      }
     }
 
     if (pathLower === '/api/agent/browse' && method === 'POST') {
@@ -20978,27 +21155,49 @@ async function handleMcpApi(req, u, e, ctx) {
     if (pathLower === '/api/mcp/dispatch' && method === 'POST') {
       let body = {};
       try { body = await req.json(); } catch (_) { }
-      const prompt = String(body.prompt || '').trim();
-      if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
+      const prompt = String(body.message || body.prompt || '').trim();
+      if (!prompt) return jsonResponse({ error: 'message or prompt required' }, 400);
+      const rawAgent = String(body.agent || body.agent_slug || '').trim().toLowerCase();
+      const slugToMcp = {
+        architect: { id: 'mcp_agent_architect', name: 'Architect' },
+        engineer: { id: 'mcp_agent_builder', name: 'Builder' },
+        builder: { id: 'mcp_agent_builder', name: 'Builder' },
+        analyst: { id: 'mcp_agent_inspector', name: 'Inspector' },
+        inspector: { id: 'mcp_agent_inspector', name: 'Inspector' },
+        devops: { id: 'mcp_agent_operator', name: 'Operator' },
+        operator: { id: 'mcp_agent_operator', name: 'Operator' },
+        tester: { id: 'mcp_agent_inspector', name: 'Inspector' },
+      };
       let agentId = 'mcp_agent_builder';
       let agentName = 'Builder';
       let routedBy = 'default';
+      if (rawAgent && slugToMcp[rawAgent]) {
+        agentId = slugToMcp[rawAgent].id;
+        agentName = slugToMcp[rawAgent].name;
+        routedBy = 'explicit';
+      } else if (rawAgent && rawAgent.startsWith('mcp_agent_')) {
+        agentId = rawAgent;
+        agentName = rawAgent;
+        routedBy = 'explicit';
+      }
       try {
-        const patterns = await e.DB.prepare("SELECT workflow_agent AS agent_id, triggers_json FROM agent_intent_patterns WHERE is_active=1").all();
-        const low = prompt.toLowerCase();
-        for (const p of (patterns.results || [])) {
-          let triggers = [];
-          try { triggers = JSON.parse(p.triggers_json || '[]'); } catch (_) { }
-          for (const t of triggers) {
-            if (low.includes(String(t).toLowerCase())) {
-              agentId = p.agent_id;
-              const names = { mcp_agent_architect: 'Architect', mcp_agent_builder: 'Builder', mcp_agent_tester: 'Tester', mcp_agent_operator: 'Operator' };
-              agentName = names[p.agent_id] || p.agent_id;
-              routedBy = 'intent_pattern';
-              break;
+        if (routedBy === 'default') {
+          const patterns = await e.DB.prepare("SELECT workflow_agent AS agent_id, triggers_json FROM agent_intent_patterns WHERE is_active=1").all();
+          const low = prompt.toLowerCase();
+          for (const p of (patterns.results || [])) {
+            let triggers = [];
+            try { triggers = JSON.parse(p.triggers_json || '[]'); } catch (_) { }
+            for (const t of triggers) {
+              if (low.includes(String(t).toLowerCase())) {
+                agentId = p.agent_id;
+                const names = { mcp_agent_architect: 'Architect', mcp_agent_builder: 'Builder', mcp_agent_tester: 'Tester', mcp_agent_operator: 'Operator' };
+                agentName = names[p.agent_id] || p.agent_id;
+                routedBy = 'intent_pattern';
+                break;
+              }
             }
+            if (routedBy !== 'default') break;
           }
-          if (routedBy !== 'default') break;
         }
       } catch (_) { }
       const sessionId = crypto.randomUUID();

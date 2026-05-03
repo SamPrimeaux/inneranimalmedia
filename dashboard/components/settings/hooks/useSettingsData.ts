@@ -151,6 +151,7 @@ export function useSettingsData({
   const [agentsCommands, setAgentsCommands] = useState<string[]>([]);
   const [agentsDomains, setAgentsDomains] = useState<string[]>([]);
   const [agentsMcp, setAgentsMcp] = useState<Array<{ tool_key: string; notes?: string | null }>>([]);
+  const [agentsSubagents, setAgentsSubagents] = useState<Array<Record<string, unknown>>>([]);
 
   const [newCommand, setNewCommand] = useState('');
   const [newDomain, setNewDomain] = useState('');
@@ -459,16 +460,33 @@ export function useSettingsData({
       setAgentsCommands(Array.isArray(d.allowlists?.commands) ? d.allowlists.commands : []);
       setAgentsDomains(Array.isArray(d.allowlists?.domains) ? d.allowlists.domains : []);
       setAgentsMcp(Array.isArray(d.allowlists?.mcp) ? d.allowlists.mcp : []);
+      setAgentsSubagents(Array.isArray(d.subagents) ? d.subagents : []);
     } catch (e) {
       setAgentsError(e instanceof Error ? e.message : 'Failed to load Agents settings');
       setAgentsPolicy({ ...defaultAgentsPolicy });
       setAgentsCommands([]);
       setAgentsDomains([]);
       setAgentsMcp([]);
+      setAgentsSubagents([]);
     } finally {
       setAgentsLoading(false);
     }
   }, []);
+
+  const patchAgentsSubagent = useCallback(
+    async (id: string, body: { is_active?: boolean; default_model_id?: string | null }) => {
+      const ws = agentsWorkspaceId?.trim() || workspaceId?.trim() || '';
+      const r = await fetch(`/api/settings/agents/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, workspace_id: ws }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      await loadAgentsSettings(ws || workspaceId);
+    },
+    [agentsWorkspaceId, workspaceId, loadAgentsSettings],
+  );
 
   const refreshLlmKeys = useCallback(() => {
     fetch('/api/vault/llm-keys', { credentials: 'same-origin' })
@@ -1265,6 +1283,8 @@ export function useSettingsData({
     removeAgentsDomain,
     addAgentsMcp,
     removeAgentsMcp,
+    agentsSubagents,
+    patchAgentsSubagent,
 
     settingsMcp,
     setSettingsMcp,

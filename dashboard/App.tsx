@@ -327,6 +327,9 @@ const App: React.FC = () => {
   /** Rows from same API — used for human-readable workspace name in chrome + chat. */
   const [workspaceRows, setWorkspaceRows] = useState<Array<{ id: string; name: string }>>([]);
   const [workspaceDisplayName, setWorkspaceDisplayName] = useState<string | null>(null);
+  const [agentsamChatPolicy, setAgentsamChatPolicy] = useState<Record<string, unknown> | null>(null);
+  const maxTabsPolicyRef = useRef(24);
+  const [workspaceSamState, setWorkspaceSamState] = useState<Record<string, unknown> | null>(null);
 
   const workspaceDisplayFallback = useMemo(() => {
     const id = authWorkspaceId?.trim();
@@ -345,6 +348,37 @@ const App: React.FC = () => {
     (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ = authWorkspaceId || 'global';
     window.dispatchEvent(new CustomEvent('iam_workspace_id'));
   }, [authWorkspaceId]);
+
+  useEffect(() => {
+    const ws = authWorkspaceId?.trim() || 'ws_inneranimalmedia';
+    void fetch(`/api/settings/agents?workspace_id=${encodeURIComponent(ws)}`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { policy?: Record<string, unknown> } | null) => {
+        if (!d?.policy || typeof d.policy !== 'object') {
+          setAgentsamChatPolicy(null);
+          return;
+        }
+        setAgentsamChatPolicy(d.policy);
+        const loc = String(d.policy.default_agent_location || '').toLowerCase();
+        if (loc === 'pane') setAgentPosition('left');
+        else if (loc === 'sidebar') setAgentPosition('right');
+        const m = Number(d.policy.max_tab_count);
+        if (Number.isFinite(m) && m >= 2) maxTabsPolicyRef.current = Math.min(48, Math.max(2, Math.floor(m)));
+      })
+      .catch(() => setAgentsamChatPolicy(null));
+  }, [authWorkspaceId]);
+
+  useEffect(() => {
+    if (location.pathname !== '/dashboard/agent') return;
+    const ws = authWorkspaceId?.trim() || 'ws_inneranimalmedia';
+    void fetch(`/api/agent/workspace/${encodeURIComponent(ws)}`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((row: { state?: Record<string, unknown> } | null) => {
+        const st = row?.state && typeof row.state === 'object' ? row.state : null;
+        setWorkspaceSamState(st);
+      })
+      .catch(() => setWorkspaceSamState(null));
+  }, [location.pathname, authWorkspaceId]);
 
   useEffect(() => {
     const applyRecent = (list: Array<{ id: string; display_name?: string; slug?: string }>) => {
@@ -557,7 +591,15 @@ const App: React.FC = () => {
   }, [topChromeMoreOpen]);
 
   const openTab = useCallback((tab: TabId) => {
-    setOpenTabs((prev) => (prev.includes(tab) ? prev : [...prev, tab]));
+    setOpenTabs((prev) => {
+      if (prev.includes(tab)) return prev;
+      const cap = maxTabsPolicyRef.current;
+      if (prev.length >= cap) {
+        setToastMsg(`Max ${cap} tabs — close one to open another.`);
+        return prev;
+      }
+      return [...prev, tab];
+    });
     setActiveTab(tab);
   }, []);
 
@@ -1761,7 +1803,7 @@ const App: React.FC = () => {
                   active={settingsIntegrationsActive}
                   onClick={() => navigate('/dashboard/settings/integrations')}
               />
-              <ActivityRailItem icon={Layers} label="MCP & AI" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/mcp'} onClick={() => navigate('/dashboard/mcp')} />
+              <ActivityRailItem icon={Layers} label="MCP & AI" expanded={sidebarRailExpanded} active={location.pathname.startsWith('/dashboard/mcp')} onClick={() => navigate('/dashboard/mcp')} />
               <ActivityRailItem
                   icon={Database}
                   label="D1 Explorer"
@@ -1817,6 +1859,7 @@ const App: React.FC = () => {
                         activeFile={activeFile}
                         editorCursorLine={cursorPos.line}
                         editorCursorColumn={cursorPos.col}
+                        agentsamPolicy={agentsamChatPolicy}
                         messages={chatMessages} 
                         setMessages={setChatMessages} 
                         onOpenChatHistory={() => setActiveActivity('search')}
@@ -1998,7 +2041,7 @@ const App: React.FC = () => {
                     <Route path="/dashboard/overview" element={<OverviewPage />} />
                     <Route path="/dashboard/learn" element={<LearnPage />} />
                     <Route path="/dashboard/database" element={<DatabasePage />} />
-                    <Route path="/dashboard/mcp" element={<McpPage />} />
+                    <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
                     <Route
                       path="/dashboard/integrations"
                       element={
@@ -2137,6 +2180,10 @@ const App: React.FC = () => {
                             onSwitchWorkspace={persistActiveWorkspace}
                             onSendMessage={handleSendMessage}
                             onOpenEditor={focusCodeEditorFromChat}
+                            workspacePlanTasks={Array.isArray(workspaceSamState?.next_tasks) ? (workspaceSamState!.next_tasks as unknown[]) : []}
+                            workspaceActivity={Array.isArray(workspaceSamState?.recent_adjustments) ? (workspaceSamState!.recent_adjustments as unknown[]) : []}
+                            workspaceVerificationCommands={Array.isArray(workspaceSamState?.verification_commands) ? (workspaceSamState!.verification_commands as unknown[]) : []}
+                            activeAgentSlug={typeof workspaceSamState?.active_agent_slug === 'string' ? workspaceSamState.active_agent_slug : null}
                           />
                       </div>
                   )}
@@ -2277,6 +2324,7 @@ const App: React.FC = () => {
                             activeFile={activeFile}
                             editorCursorLine={cursorPos.line}
                             editorCursorColumn={cursorPos.col}
+                            agentsamPolicy={agentsamChatPolicy}
                             messages={chatMessages} 
                             setMessages={setChatMessages} 
                             onOpenChatHistory={() => setActiveActivity('search')}

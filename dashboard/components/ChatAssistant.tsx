@@ -81,6 +81,8 @@ interface ChatAssistantProps {
   onOpenCodeTab?: () => void;
   /** Open the Search sidebar (knowledge + chat history). */
   onOpenChatHistory?: () => void;
+  /** `agentsam_user_policy` row fields for the active workspace (from App bootstrap). */
+  agentsamPolicy?: Record<string, unknown> | null;
 }
 
 type StagedAttachment = {
@@ -188,9 +190,14 @@ function measureAboveAnchor(
 function looksLikeRawProviderLeak(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
   const o = data as Record<string, unknown>;
-  if (o.object === 'chat.completion.chunk') return true;
-  if (typeof o.id === 'string' && o.id.startsWith('chatcmpl')) return true;
-  return false;
+  const looksOpenAiFraming =
+    o.object === 'chat.completion.chunk' ||
+    (typeof o.id === 'string' && o.id.startsWith('chatcmpl'));
+  if (!looksOpenAiFraming) return false;
+  const choices = o.choices as Array<{ delta?: { content?: unknown } }> | undefined;
+  const dc = choices?.[0]?.delta?.content;
+  if (typeof dc === 'string' && dc.length > 0) return false;
+  return true;
 }
 
 function ssePayloadLooksReasoningOnly(data: unknown): boolean {
@@ -677,7 +684,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onMobileOpenDashboard,
   onOpenCodeTab,
   onOpenChatHistory,
+  agentsamPolicy = null,
 }) => {
+  const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    agentsamPolicyRef.current = agentsamPolicy;
+  }, [agentsamPolicy]);
+
+  useEffect(() => {
+    if (!agentsamPolicy) return;
+    const ar = String(agentsamPolicy.auto_run_mode || '').toLowerCase();
+    if (ar === 'disabled' || ar === 'manual') setMode('ask');
+    else if (ar === 'allowlist' || ar === 'auto') setMode('agent');
+  }, [agentsamPolicy]);
+
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1061,6 +1081,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const before = value.slice(0, cursor);
       const atMatch = before.match(/@([^\s@]*)$/);
       if (atMatch) {
+        if (Number(agentsamPolicyRef.current?.agent_autocomplete) === 0) {
+          setMentionOpen(false);
+          mentionQueryRef.current = null;
+          return;
+        }
         const q = atMatch[1];
         const start = cursor - atMatch[0].length;
         mentionQueryRef.current = { start, end: cursor };
@@ -1415,8 +1440,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           for (const rawLine of block.split('\n')) {
             const line = rawLine.trim();
             if (!line) continue;
-            if (!line.startsWith('data:')) continue;
-            const dataStr = line.slice(5).trim();
+            if (!/^data:/i.test(line)) continue;
+            const dataStr = line.replace(/^data:\s*/i, '').trim();
             if (dataStr === '[DONE]') break sseLoop;
             let data: unknown;
             try {
@@ -1425,6 +1450,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               continue;
             }
             if (signal.aborted) break sseLoop;
+            if (data && typeof data === 'object' && Array.isArray((data as { choices?: unknown }).choices)) {
+              const ch0 = (data as { choices: Array<{ delta?: { content?: string | null; reasoning_content?: unknown } }> })
+                .choices[0];
+              const del = ch0?.delta;
+              if (del) {
+                if (del.reasoning_content) continue;
+                if (del.content === null) continue;
+              }
+            }
             if (looksLikeRawProviderLeak(data)) {
               emptyRun += 1;
               continue;
@@ -1757,6 +1791,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
+      const modEnter = Number(agentsamPolicyRef.current?.submit_with_mod_enter) === 1;
+      if (modEnter && !(e.ctrlKey || e.metaKey)) {
+        return;
+      }
       e.preventDefault();
       if (isLoading) {
         setMessageQueue((prev) => [...prev, input]);

@@ -277,6 +277,7 @@ export function scheduleRoutingArmBanditUpdate(env, ctx, o) {
           await env.DB.prepare(
             `UPDATE agentsam_routing_arms SET
               success_beta = success_beta + 1,
+              is_paused = CASE WHEN (COALESCE(success_beta, 0) + 1) > 10 THEN 1 ELSE COALESCE(is_paused, 0) END,
               updated_at = unixepoch()
              WHERE task_type = ? AND mode = ? AND model_key = ?`,
           )

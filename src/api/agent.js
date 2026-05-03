@@ -1818,13 +1818,20 @@ export async function handleAgentApi(request, url, env, ctx) {
           try { return JSON.parse(v); } catch(e) { return {}; }
         };
 
+        const stateObj = safeJson(row.state_json);
+        const stateJsonStr =
+          typeof row.state_json === 'string' && row.state_json.trim()
+            ? row.state_json
+            : JSON.stringify(stateObj || {});
+
         return jsonResponse({
           id: row.id,
           name: row.name || 'Workspace',
           environment: row.environment || 'local',
           status: row.status || 'active',
           settings: safeJson(row.settings_json),
-          state:    safeJson(row.state_json)
+          state:    stateObj,
+          state_json: stateJsonStr,
         });
       } catch (e) { 
         return jsonResponse({ error: `Fetch error: ${e.message}` }, 500); 

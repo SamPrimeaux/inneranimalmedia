@@ -185,6 +185,18 @@ export async function handleSettingsRequest(request, env, ctx) {
     const workspace_id = row?.default_workspace_id != null && String(row.default_workspace_id).trim()
       ? String(row.default_workspace_id).trim()
       : (await resolveRequestWorkspaceId(env, authUser, url)) || null;
+    let agentsam_user_policy = null;
+    if (workspace_id) {
+      try {
+        agentsam_user_policy = await env.DB.prepare(
+          `SELECT * FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
+        )
+          .bind(uid, workspace_id)
+          .first();
+      } catch (_) {
+        agentsam_user_policy = null;
+      }
+    }
     return jsonResponse({
       id: uid,
       email: row?.email ?? email,
@@ -194,6 +206,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       workspace_id,
       created_at: row?.created_at ?? null,
       avatar_url: row?.avatar_url ?? null,
+      agentsam_user_policy,
     });
   }
 
@@ -693,7 +706,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       .catch(() => null);
     const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
 
-    const [policyRow, cmdRows, domainRows, mcpRows] = await Promise.all([
+    const [policyRow, cmdRows, domainRows, mcpRows, subagentList] = await Promise.all([
       env.DB.prepare(
         `SELECT * FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
       )
@@ -727,6 +740,15 @@ export async function handleSettingsRequest(request, env, ctx) {
         .all()
         .then((r) => r.results || [])
         .catch(() => []),
+      env.DB.prepare(
+        `SELECT * FROM agentsam_subagent_profile
+         WHERE user_id = ? AND workspace_id = ?
+         ORDER BY COALESCE(sort_order, 9999), display_name ASC`,
+      )
+        .bind(agentsamUserId, workspaceId || '')
+        .all()
+        .then((r) => r.results || [])
+        .catch(() => []),
     ]);
 
     return jsonResponse({
@@ -738,6 +760,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         session_user_id: sessionUserId || null,
       },
       policy: policyRow || null,
+      subagents: Array.isArray(subagentList) ? subagentList : [],
       allowlists: {
         commands: cmdRows.map((r) => String(r.command || '').trim()).filter(Boolean),
         domains: domainRows.map((r) => String(r.host || '').trim()).filter(Boolean),
@@ -746,6 +769,58 @@ export async function handleSettingsRequest(request, env, ctx) {
           .filter((x) => x.tool_key),
       },
     });
+  }
+
+  {
+    const agentRowM = pathLower.match(/^\/api\/settings\/agents\/([^/]+)$/);
+    const agentSeg = agentRowM ? decodeURIComponent(agentRowM[1] || '').trim() : '';
+    const reserved = new Set(['policy', 'commands', 'domains', 'mcp']);
+    if (agentSeg && !reserved.has(agentSeg) && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const body = await request.json().catch(() => ({}));
+      const workspaceId =
+        body.workspace_id != null && String(body.workspace_id).trim() !== ''
+          ? String(body.workspace_id).trim()
+          : await resolveRequestWorkspaceId(env, authUser, url);
+      const stored = await env.DB.prepare(
+        `SELECT user_id FROM agentsam_user_policy
+         WHERE workspace_id = ?
+           AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
+         LIMIT 1`,
+      )
+        .bind(workspaceId || '', ...agentsamUserCandidates)
+        .first()
+        .catch(() => null);
+      const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
+      const sets = [];
+      const vals = [];
+      if (Object.prototype.hasOwnProperty.call(body, 'is_active')) {
+        sets.push('is_active = ?');
+        const v = body.is_active;
+        vals.push(v === true || v === 1 || v === '1' ? 1 : 0);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'default_model_id') && body.default_model_id != null) {
+        sets.push('default_model_id = ?');
+        vals.push(String(body.default_model_id));
+      }
+      if (!sets.length) return jsonResponse({ error: 'Only is_active and default_model_id may be updated' }, 400);
+      sets.push("updated_at = datetime('now')");
+      vals.push(agentSeg, agentsamUserId, workspaceId || '');
+      const n = await env.DB.prepare(
+        `UPDATE agentsam_subagent_profile SET ${sets.join(', ')}
+         WHERE id = ? AND user_id = ? AND workspace_id = ?`,
+      )
+        .bind(...vals)
+        .run();
+      if (!n.meta?.changes) return jsonResponse({ error: 'Subagent not found' }, 404);
+      const row = await env.DB.prepare(
+        `SELECT * FROM agentsam_subagent_profile WHERE id = ? AND user_id = ? LIMIT 1`,
+      )
+        .bind(agentSeg, agentsamUserId)
+        .first()
+        .catch(() => null);
+      return jsonResponse({ ok: true, subagent: row });
+    }
   }
 
   if (pathLower === '/api/settings/agents/policy' && (method === 'PATCH' || method === 'PUT')) {

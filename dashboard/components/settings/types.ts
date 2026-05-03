@@ -66,6 +66,8 @@ export type AgentsamUserPolicy = {
 export type AgentsSettingsResponse = {
   workspace_id: string;
   policy: AgentsamUserPolicy | null;
+  /** Full `agentsam_subagent_profile` rows for this workspace (from GET /api/settings/agents). */
+  subagents?: Array<Record<string, unknown>>;
   allowlists: {
     commands: string[];
     domains: string[];

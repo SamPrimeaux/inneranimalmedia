@@ -32,6 +32,11 @@ interface WorkspaceDashboardProps {
   onSwitchWorkspace: (id: string) => void;
   onSendMessage: (message: string) => void;
   onOpenEditor?: () => void;
+  /** From `agentsam_workspace_state.state_json.next_tasks` */
+  workspacePlanTasks?: unknown[];
+  workspaceActivity?: unknown[];
+  workspaceVerificationCommands?: unknown[];
+  activeAgentSlug?: string | null;
 }
 
 interface AIModel {
@@ -45,6 +50,19 @@ interface AIModel {
  * WorkspaceDashboard: A premium, centered 'Cursor-style' home screen for the IDE.
  * Replaces the legacy WelcomeScreen and WorkspaceLauncher modal.
  */
+function summarizeUnknownTask(row: unknown): string {
+  if (row == null) return '';
+  if (typeof row === 'string') return row;
+  if (typeof row === 'object' && row !== null && 'title' in row && typeof (row as { title?: unknown }).title === 'string') {
+    return String((row as { title: string }).title);
+  }
+  try {
+    return JSON.stringify(row).slice(0, 200);
+  } catch {
+    return String(row);
+  }
+}
+
 export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({ 
   onOpenFolder, 
   onConnectWorkspace, 
@@ -54,7 +72,11 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   authWorkspaceId,
   onSwitchWorkspace,
   onSendMessage,
-  onOpenEditor
+  onOpenEditor,
+  workspacePlanTasks = [],
+  workspaceActivity = [],
+  workspaceVerificationCommands = [],
+  activeAgentSlug = null,
 }) => {
   const [chatInput, setChatInput] = useState('');
   const [models, setModels] = useState<AIModel[]>([]);
@@ -326,6 +348,60 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {(workspacePlanTasks.length > 0 || workspaceActivity.length > 0 || workspaceVerificationCommands.length > 0 || activeAgentSlug) ? (
+        <div className="w-full max-w-3xl mb-10 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+          {activeAgentSlug ? (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 md:col-span-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Active subagent</p>
+              <p className="text-[13px] font-mono text-[var(--solar-cyan)]">{activeAgentSlug}</p>
+            </div>
+          ) : null}
+          {workspacePlanTasks.length > 0 ? (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Next tasks</p>
+              <ul className="space-y-2 text-[12px] text-[var(--text-main)]">
+                {workspacePlanTasks.slice(0, 12).map((t, i) => (
+                  <li key={i} className="flex gap-2">
+                    <Target size={12} className="mt-0.5 shrink-0 text-[var(--solar-yellow)]" />
+                    <span className="leading-snug">{summarizeUnknownTask(t)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {workspaceActivity.length > 0 ? (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Recent activity</p>
+              <ul className="space-y-2 text-[11px] text-[var(--text-muted)] font-mono">
+                {workspaceActivity.slice(0, 12).map((a, i) => (
+                  <li key={i} className="truncate">{summarizeUnknownTask(a)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {workspaceVerificationCommands.length > 0 ? (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 md:col-span-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Verification commands</p>
+              <div className="flex flex-wrap gap-2">
+                {workspaceVerificationCommands.slice(0, 16).map((c, i) => {
+                  const cmd = typeof c === 'string' ? c : summarizeUnknownTask(c);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => onSendMessage(`Run in terminal: ${cmd}`)}
+                      className="px-2 py-1 rounded-lg border border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-main)] hover:border-[var(--solar-cyan)]"
+                    >
+                      {cmd}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* ── Action Grid (Preserved) ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mb-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">

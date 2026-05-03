@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { AgentsamUserPolicy } from '../types';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { Toggle } from '../settingsUi';
@@ -34,6 +35,8 @@ const POLICY_TOGGLES: { key: keyof AgentsamUserPolicy; label: string; desc: stri
 ];
 
 export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
+  const navigate = useNavigate();
+
   return (
     <div className="flex flex-col gap-5 max-w-2xl">
       <div className="flex items-center justify-between">
@@ -163,6 +166,70 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
       </div>
 
       <AgentsAllowlists data={data} workspaceId={workspaceId} />
+
+      {Array.isArray(data.agentsSubagents) && data.agentsSubagents.length > 0 ? (
+        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[12px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
+              Subagent profiles
+            </h3>
+            <span className="text-[10px] font-mono text-[var(--text-muted)]">{data.agentsSubagents.length} rows</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-[11px] border-collapse">
+              <thead>
+                <tr className="text-[var(--text-muted)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
+                  <th className="py-2 pr-2">Active</th>
+                  <th className="py-2 pr-2">Slug</th>
+                  <th className="py-2 pr-2">Name</th>
+                  <th className="py-2 pr-2">Model</th>
+                  <th className="py-2 pr-2">Sandbox</th>
+                  <th className="py-2">MCP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.agentsSubagents.map((row) => {
+                  const id = String(row.id || '').trim();
+                  const slug = String(row.slug || '').trim();
+                  const on = Number(row.is_active) !== 0;
+                  return (
+                    <tr key={id || slug} className="border-b border-[var(--border-subtle)]/40">
+                      <td className="py-2 pr-2 align-middle">
+                        <Toggle
+                          on={on}
+                          onChange={(v) => {
+                            if (!id) return;
+                            void data.patchAgentsSubagent(id, { is_active: v }).catch(() => {});
+                          }}
+                        />
+                      </td>
+                      <td className="py-2 pr-2 font-mono text-[var(--solar-cyan)]">{slug || '—'}</td>
+                      <td className="py-2 pr-2">{String(row.display_name || '')}</td>
+                      <td className="py-2 pr-2 font-mono text-[var(--text-muted)]">
+                        {String(row.default_model_id || '—')}
+                      </td>
+                      <td className="py-2 pr-2 text-[var(--text-muted)]">{String(row.sandbox_mode ?? row.access_mode ?? '—')}</td>
+                      <td className="py-2">
+                        {slug ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/dashboard/mcp/${encodeURIComponent(slug)}`)}
+                            className="px-2 py-1 rounded-md border border-[var(--border-subtle)] text-[10px] font-semibold uppercase tracking-wide text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
+                          >
+                            Open
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
