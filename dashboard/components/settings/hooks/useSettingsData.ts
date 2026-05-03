@@ -111,6 +111,13 @@ export function useSettingsData({
   const [sessions, setSessions] = useState<any[]>([]);
   const [findings, setFindings] = useState<any[]>([]);
 
+  const [user, setUser] = useState<{
+    email?: string | null;
+    passwordMethod?: string;
+    passwordUpdatedAt?: string | null;
+    provider?: string | null;
+  } | null>(null);
+
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [usagePage, setUsagePage] = useState(1);
@@ -1013,6 +1020,25 @@ export function useSettingsData({
         setWorkerBaseUrl('');
       });
 
+    fetch('/api/auth/me', opt)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: Record<string, unknown> | null) => {
+        if (!d || typeof d !== 'object') {
+          setUser(null);
+          return;
+        }
+        setUser({
+          email: d.email != null ? String(d.email) : null,
+          passwordMethod:
+            d.passwordMethod != null && String(d.passwordMethod).trim() !== ''
+              ? String(d.passwordMethod)
+              : undefined,
+          passwordUpdatedAt: d.passwordUpdatedAt != null ? String(d.passwordUpdatedAt) : null,
+          provider: d.provider != null ? String(d.provider) : null,
+        });
+      })
+      .catch(() => setUser(null));
+
     refreshLlmKeys();
 
     fetch('/api/integrations/github/repos', opt)
@@ -1256,6 +1282,8 @@ export function useSettingsData({
     removeLlmKey,
     saveVaultKeyFromSecurity,
     refreshLlmKeys,
+
+    user,
   };
 }
 

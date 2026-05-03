@@ -6701,13 +6701,23 @@ const worker = {
         return notFound(path);
       }
 
-      if (pathLower === '/login' || pathLower === '/auth/login' || pathLower === '/auth/signin') {
+      if (pathLower === '/login') {
+        const u = new URL(request.url);
+        u.pathname = '/auth/login';
+        return Response.redirect(u.toString(), 302);
+      }
+      if (pathLower === '/auth/login' || pathLower === '/auth/signin') {
         const res = await servePublicAssetPage('pages/auth/login.html');
         if (res) return res;
         return notFound(path);
       }
 
-      if (pathLower === '/signup' || pathLower === '/auth/signup' || pathLower === '/auth/register') {
+      if (pathLower === '/signup' || pathLower === '/auth/register') {
+        const u = new URL(request.url);
+        u.pathname = '/auth/signup';
+        return Response.redirect(u.toString(), 302);
+      }
+      if (pathLower === '/auth/signup') {
         const res = await servePublicAssetPage('pages/auth/signup.html');
         if (res) return res;
         return notFound(path);

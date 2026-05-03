@@ -643,15 +643,18 @@ const KpiStrip: React.FC<{ summary: Record<string, number> }> = ({ summary }) =>
   ];
   return (
     <section className="grid grid-cols-2 md:grid-cols-5 gap-2">
-      {items.map(([label, value, Icon]) => (
+      {items.map(([label, value, Icon]) => {
+        const Ico = Icon as React.ComponentType<{ size?: number }>;
+        return (
         <div key={String(label)} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-3">
           <div className="flex items-center justify-between text-[var(--text-muted)]">
             <span className="text-[10px] uppercase tracking-wider font-bold">{label as string}</span>
-            <Icon size={13} />
+            <Ico size={13} />
           </div>
           <div className="mt-2 text-2xl font-bold text-[var(--text-heading)]">{value as number}</div>
         </div>
-      ))}
+      );
+      })}
     </section>
   );
 };

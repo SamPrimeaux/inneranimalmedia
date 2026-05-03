@@ -104,7 +104,6 @@ function previewAddressBarLabel(file: ActiveFile): string {
 
 const PRODUCT_NAME = 'Agent Sam';
 
-
 function buildAgentSamGreeting(workspaceDisplayLine: string): string {
   const w = workspaceDisplayLine.trim();
   if (!w || w === 'No workspace') {
@@ -210,8 +209,7 @@ const App: React.FC = () => {
       <Routes>
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/auth/login" element={<AuthSignInPage />} />
-        <Route path="/login" element={<AuthSignInPage />} />
-        <Route path="/signup" element={<AuthSignUpPage />} />
+        <Route path="/auth/signup" element={<AuthSignUpPage />} />
         <Route path="/forgot-password" element={<AuthForgotPage />} />
         <Route path="/reset-password" element={<AuthResetPage />} />
         <Route path="/api/auth/oauth/consent" element={<AuthOAuthConsentPage />} />
