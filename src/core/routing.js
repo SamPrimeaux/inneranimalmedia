@@ -264,20 +264,22 @@ export function scheduleRoutingArmBanditUpdate(env, ctx, o) {
           await env.DB.prepare(
             `UPDATE agentsam_routing_arms SET
               success_alpha = success_alpha + 1,
-              cost_n = cost_n + 1,
-              cost_mean = cost_mean + (? - cost_mean) / (cost_n + 1),
-              latency_n = latency_n + 1,
-              latency_mean = latency_mean + (? - latency_mean) / (latency_n + 1),
-              updated_at = unixepoch()
+              cost_n        = cost_n + 1,
+              cost_mean     = CASE WHEN cost_n = 0 THEN ?
+                      ELSE (cost_mean * cost_n + ?) / (cost_n + 1) END,
+              latency_n     = latency_n + 1,
+              latency_mean  = CASE WHEN latency_n = 0 THEN ?
+                      ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
+              updated_at    = unixepoch()
              WHERE task_type = ? AND mode = ? AND model_key = ?`,
           )
-            .bind(costUsd, durationMs, taskType, mode, modelKey)
+            .bind(costUsd, costUsd, durationMs, durationMs, taskType, mode, modelKey)
             .run();
         } else {
           await env.DB.prepare(
             `UPDATE agentsam_routing_arms SET
               success_beta = success_beta + 1,
-              is_paused = CASE WHEN (COALESCE(success_beta, 0) + 1) > 10 THEN 1 ELSE COALESCE(is_paused, 0) END,
+              is_paused = CASE WHEN COALESCE(success_beta, 0) + 1 > 10 THEN 1 ELSE COALESCE(is_paused, 0) END,
               updated_at = unixepoch()
              WHERE task_type = ? AND mode = ? AND model_key = ?`,
           )

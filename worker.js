@@ -255,8 +255,105 @@ function resolveTelemetryTenantId(_env, explicitTenantId) {
   return null;
 }
 
-/** Default D1 workspace_id for prod telemetry rows (resolve per-user later). */
+/** Default D1 workspace_id when no user or no bootstrap row (owner / legacy). */
 const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
+
+/**
+ * Latest agentsam_bootstrap row for a user (request-scope cache to avoid duplicate D1 reads).
+ * @param {any} env
+ * @param {string|null|undefined} userId
+ * @param {Record<string, unknown>} [cache] request-scoped object; set cache.__bootstrapRow
+ * @returns {Promise<{ workspace_id: string, bootstrap: Record<string, unknown>|null }>}
+ */
+async function resolveBootstrapWorkspaceContext(env, userId, cache) {
+  const uid = userId != null ? String(userId).trim() : '';
+  if (!uid) {
+    return { workspace_id: IAM_DEFAULT_WORKSPACE_ID, bootstrap: null };
+  }
+  if (cache && cache.__bootstrapCtx != null) return cache.__bootstrapCtx;
+  let bootstrap = null;
+  if (env?.DB) {
+    try {
+      bootstrap = await env.DB.prepare(
+        `SELECT workspace_id, capabilities_json, feature_flags_json, ui_preferences_json
+         FROM agentsam_bootstrap
+         WHERE user_id = ? AND COALESCE(is_active, 1) = 1
+         ORDER BY updated_at DESC
+         LIMIT 1`
+      )
+        .bind(uid)
+        .first();
+    } catch (_) {
+      bootstrap = null;
+    }
+  }
+  const ws =
+    bootstrap?.workspace_id != null && String(bootstrap.workspace_id).trim() !== ''
+      ? String(bootstrap.workspace_id).trim()
+      : IAM_DEFAULT_WORKSPACE_ID;
+  const out = { workspace_id: ws, bootstrap: bootstrap || null };
+  if (cache && typeof cache === 'object') cache.__bootstrapCtx = out;
+  return out;
+}
+
+/**
+ * Keys for agentsam_routing_arms (task_type + mode columns, per prod seed e.g. chat/agent → task_type=chat, mode=agent).
+ */
+function routingArmTaskAndMode(mode, intent) {
+  const m = String(mode || 'agent').toLowerCase();
+  const i = String(intent || 'mixed').toLowerCase();
+  if (m === 'plan') return { task_type: 'plan', mode: 'agent' };
+  if (m === 'debug') return { task_type: 'code', mode: 'agent' };
+  if (m === 'ask') return { task_type: 'chat', mode: 'ask' };
+  if (m === 'auto') return { task_type: 'chat', mode: 'auto' };
+  if (m === 'agent' && i === 'sql') return { task_type: 'sql_d1_generation', mode: 'agent' };
+  if (m === 'agent' && i === 'shell') return { task_type: 'code', mode: 'agent' };
+  if (m === 'agent') return { task_type: 'chat', mode: 'agent' };
+  return { task_type: 'chat', mode: m };
+}
+
+/**
+ * Thompson / bandit feedback on agentsam_routing_arms (non-blocking).
+ * @param {any} env
+ * @param {{ success: boolean, taskType: string, mode: string, modelKey: string, costUsd?: number, latencyMs?: number }} p
+ */
+function fireForgetRoutingArmsBandit(env, p) {
+  if (!env?.DB || !p) return;
+  const taskType = p.taskType != null ? String(p.taskType).trim() : '';
+  const mode = p.mode != null ? String(p.mode).trim() : '';
+  const modelKey = p.modelKey != null ? String(p.modelKey).trim() : '';
+  if (!taskType || !mode || !modelKey) return;
+  const costUsd = Number(p.costUsd) || 0;
+  const latencyMs = Math.floor(Number(p.latencyMs) || 0);
+  if (p.success) {
+    env.DB.prepare(
+      `UPDATE agentsam_routing_arms SET
+        success_alpha = success_alpha + 1,
+        cost_n        = cost_n + 1,
+        cost_mean     = CASE WHEN cost_n = 0 THEN ?
+                    ELSE (cost_mean * cost_n + ?) / (cost_n + 1) END,
+        latency_n     = latency_n + 1,
+        latency_mean  = CASE WHEN latency_n = 0 THEN ?
+                    ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
+        updated_at    = unixepoch()
+      WHERE task_type = ? AND mode = ? AND model_key = ?`
+    )
+      .bind(costUsd, costUsd, latencyMs, latencyMs, taskType, mode, modelKey)
+      .run()
+      .catch((e) => console.warn('[routing_arms] success feedback', e?.message ?? e));
+  } else {
+    env.DB.prepare(
+      `UPDATE agentsam_routing_arms SET
+        success_beta = success_beta + 1,
+        is_paused    = CASE WHEN COALESCE(success_beta, 0) + 1 > 10 THEN 1 ELSE COALESCE(is_paused, 0) END,
+        updated_at   = unixepoch()
+      WHERE task_type = ? AND mode = ? AND model_key = ?`
+    )
+      .bind(taskType, mode, modelKey)
+      .run()
+      .catch((e) => console.warn('[routing_arms] failure feedback', e?.message ?? e));
+  }
+}
 
 /** Parse `cms_themes.config` JSON for theme API responses. */
 function parseCmsThemeConfig(raw) {
@@ -8312,20 +8409,58 @@ async function maybeSyncAgentsamAgentRunFromCursorGet(env, apiBody, cursorAgentI
   }
 }
 
-async function resolveAgentAiIdForChat(env, agentParam) {
-  if (!env?.DB) return null;
+/** Subagent profile PK for agentsam_agent_run.agent_id (slug from chat body `agent`). */
+async function resolveSubagentProfileIdBySlug(env, userId, slug) {
+  const s = slug != null ? String(slug).trim() : '';
+  const uid = userId != null ? String(userId).trim() : '';
+  if (!env?.DB || !s || !uid) return null;
   try {
+    const r = await env.DB.prepare(
+      `SELECT id FROM agentsam_subagent_profile
+       WHERE slug = ? AND is_active = 1 AND user_id = ?
+       LIMIT 1`
+    )
+      .bind(s, uid)
+      .first();
+    return r?.id != null ? String(r.id) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Orchestrator row id for chat telemetry (never null — defaults ai_sam_v1).
+ * Order: body agent_ai_id → agentsam_ai id from agentParam → agentsam_ai by chat mode → ai_sam_v1.
+ */
+async function resolveAgentAiIdForChat(env, agentParam, opts = {}) {
+  const fallback = 'ai_sam_v1';
+  if (!env?.DB) return fallback;
+  try {
+    const bodyId = opts.bodyAgentAiId != null ? String(opts.bodyAgentAiId).trim() : '';
+    if (bodyId) {
+      const b = await env.DB.prepare(`SELECT id FROM agentsam_ai WHERE id = ? AND status = 'active' LIMIT 1`).bind(bodyId).first();
+      if (b?.id) return String(b.id);
+    }
     const ap = agentParam != null ? String(agentParam).trim() : '';
     if (ap) {
       const r = await env.DB.prepare(`SELECT id FROM agentsam_ai WHERE id = ? AND status = 'active' LIMIT 1`).bind(ap).first();
-      if (r?.id) return r.id;
+      if (r?.id) return String(r.id);
+    }
+    const chatMode = opts.chatMode != null ? String(opts.chatMode).trim().toLowerCase() : '';
+    if (chatMode) {
+      const rMode = await env.DB.prepare(
+        `SELECT id FROM agentsam_ai WHERE status = 'active' AND LOWER(TRIM(COALESCE(mode, ''))) = ? ORDER BY CASE id WHEN 'ai_sam_v1' THEN 0 ELSE 1 END, sort_order LIMIT 1`
+      )
+        .bind(chatMode)
+        .first();
+      if (rMode?.id) return String(rMode.id);
     }
     const r2 = await env.DB.prepare(
       `SELECT id FROM agentsam_ai WHERE status = 'active' ORDER BY CASE id WHEN 'ai_sam_v1' THEN 0 ELSE 1 END, sort_order LIMIT 1`
     ).first();
-    return r2?.id || null;
+    return r2?.id != null ? String(r2.id) : fallback;
   } catch (_) {
-    return null;
+    return fallback;
   }
 }
 
@@ -8393,19 +8528,35 @@ async function loadSubagentAllowedToolGlobs(env, oauthUserId, subagentKey) {
 }
 
 /** Start a per-request chat SSE row (linked to conversation for rollup queries). */
-async function insertChatSseAgentRun(env, id, conversationId, modelId, sessionLike, agentAiId = null) {
+async function insertChatSseAgentRun(env, id, conversationId, modelId, sessionLike, agentAiId = null, subagentProfileId = null) {
   if (!id || !env?.DB) return;
   const userId = sessionLike?.user_id ?? null;
   if (!userId) return;
   const workspaceId = sessionLike?.workspace_id ?? null;
   const convId = conversationId != null && conversationId !== '' ? conversationId : id;
-  await env.DB.prepare(
-    `INSERT INTO agentsam_agent_run (id, user_id, workspace_id, conversation_id, status, trigger, model_id, started_at, created_at, agent_ai_id)
-     VALUES (?, ?, ?, ?, 'running', 'chat', ?, datetime('now'), datetime('now'), ?)
-     ON CONFLICT(id) DO NOTHING`
-  )
-    .bind(id, userId, workspaceId, convId, modelId || null, agentAiId || null)
-    .run();
+  const aiId = agentAiId != null && String(agentAiId).trim() !== '' ? String(agentAiId).trim() : 'ai_sam_v1';
+  const subId = subagentProfileId != null && String(subagentProfileId).trim() !== '' ? String(subagentProfileId).trim() : null;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_agent_run (id, user_id, workspace_id, conversation_id, status, trigger, model_id, started_at, created_at, agent_ai_id, agent_id)
+       VALUES (?, ?, ?, ?, 'running', 'chat', ?, datetime('now'), datetime('now'), ?, ?)
+       ON CONFLICT(id) DO NOTHING`
+    )
+      .bind(id, userId, workspaceId, convId, modelId || null, aiId, subId)
+      .run();
+  } catch (e) {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO agentsam_agent_run (id, user_id, workspace_id, conversation_id, status, trigger, model_id, started_at, created_at, agent_ai_id)
+         VALUES (?, ?, ?, ?, 'running', 'chat', ?, datetime('now'), datetime('now'), ?)
+         ON CONFLICT(id) DO NOTHING`
+      )
+        .bind(id, userId, workspaceId, convId, modelId || null, aiId)
+        .run();
+    } catch (e2) {
+      console.warn('[agentsam_agent_run] chat insert', e2?.message ?? e2);
+    }
+  }
 }
 
 /** After telemetry row exists: link routing_decisions row (by id if provided, else latest for session) to telemetry. */
@@ -8462,9 +8613,8 @@ async function completeRoutingDecisionTelemetry(env, conversationId, telemetryId
   // EMA write-back: update model_routing_rules with observed latency + success signal (α=0.15).
   // isSuccess: error paths emit done with 0 tokens; treat that as failure signal toward 0.0.
   const taskType = routingOpts?.taskType;
-  if (!routingOpts || !taskType) return;
   const emaLatency = latencyMs != null ? latencyMs : 0;
-  if (taskType && env.DB) {
+  if (routingOpts && taskType && env.DB) {
     try {
       const isSuccess = Number(inputTokens) > 0;
       if (isSuccess) {
@@ -8486,6 +8636,20 @@ async function completeRoutingDecisionTelemetry(env, conversationId, telemetryId
       }
     } catch (e) {
       console.warn('[model_routing_rules] perf write-back', e?.message ?? e);
+    }
+  }
+  const rat = routingOpts?.routingArmTaskType;
+  const ram = routingOpts?.routingArmMode;
+  const rak = routingOpts?.routingArmModelKey;
+  if (rat && ram && rak && env?.DB) {
+    const isSuccessTokens = Number(inputTokens) > 0;
+    if (!isSuccessTokens) {
+      fireForgetRoutingArmsBandit(env, {
+        success: false,
+        taskType: String(rat).trim(),
+        mode: String(ram).trim(),
+        modelKey: String(rak).trim(),
+      });
     }
   }
 }
@@ -9343,6 +9507,21 @@ async function streamDoneDbWrites(env, conversationId, modelRow, fullText, input
   }
   if (telemetryRowId) {
     await completeRoutingDecisionTelemetry(env, conversationId, telemetryRowId, safeInput, safeOutput, amountUsd, routingOpts);
+  }
+  const raT = routingOpts?.routingArmTaskType;
+  const raM = routingOpts?.routingArmMode;
+  const raK = routingOpts?.routingArmModelKey || safeModelKey;
+  if (raT && raM && raK && (safeInput > 0 || safeOutput > 0)) {
+    const latMs =
+      routingOpts && typeof routingOpts.chatStartMs === 'number' ? Date.now() - routingOpts.chatStartMs : 0;
+    fireForgetRoutingArmsBandit(env, {
+      success: true,
+      taskType: String(raT).trim(),
+      mode: String(raM).trim(),
+      modelKey: String(raK).trim(),
+      costUsd: amountUsd,
+      latencyMs: latMs,
+    });
   }
 }
 
@@ -12578,9 +12757,20 @@ async function runCursorCloudAgentBuiltinTool(env, toolName, params, opts = {}) 
     const ref = String(params?.ref ?? 'main').trim();
     const oauthUserId = String(opts.oauthUserId || params?.user_id || '').trim() || null;
     const conversationId = opts.conversationId != null && String(opts.conversationId).trim() !== '' ? String(opts.conversationId).trim() : null;
-    let agentAiId = null;
+    const cursorWsCache = {};
+    let cursorWorkspaceId = tenantIdFromEnv(env) || IAM_DEFAULT_WORKSPACE_ID;
+    if (oauthUserId) {
+      try {
+        const bc = await resolveBootstrapWorkspaceContext(env, oauthUserId, cursorWsCache);
+        if (bc?.workspace_id) cursorWorkspaceId = bc.workspace_id;
+      } catch (_) { /* keep tenant/env default */ }
+    }
+    let agentAiId = 'ai_sam_v1';
     try {
-      agentAiId = await resolveAgentAiIdForChat(env, params?.agent_id || params?.agent_ai_id || null);
+      agentAiId = await resolveAgentAiIdForChat(env, params?.agent_id || params?.agent_ai_id || null, {
+        bodyAgentAiId: params?.agent_ai_id,
+        chatMode: 'agent',
+      });
     } catch (_) { }
     const runId = crypto.randomUUID();
     if (env.DB && oauthUserId) {
@@ -12589,7 +12779,7 @@ async function runCursorCloudAgentBuiltinTool(env, toolName, params, opts = {}) 
           `INSERT INTO agentsam_agent_run (id, user_id, workspace_id, conversation_id, status, trigger, model_id, started_at, created_at, agent_ai_id)
            VALUES (?, ?, ?, ?, 'queued', 'cursor_agent', ?, datetime('now'), datetime('now'), ?)`
         )
-          .bind(runId, oauthUserId, tenantIdFromEnv(env) || null, conversationId, model, agentAiId)
+          .bind(runId, oauthUserId, cursorWorkspaceId, conversationId, model, agentAiId)
           .run();
       } catch (e) {
         console.warn('[agentsam_agent_run] cursor spawn insert', e?.message ?? e);
@@ -13509,6 +13699,7 @@ async function parseAgentChatRequestBody(request) {
       model: String(fd.get('model') || fd.get('model_id') || '').trim(),
       conversationId: String(fd.get('conversationId') || fd.get('session_id') || '').trim(),
       agent: String(fd.get('agent') || '').trim(),
+      agent_ai_id: String(fd.get('agent_ai_id') || fd.get('agentAiId') || '').trim(),
       subagentProfileKey: sid || aid,
       jsonImages: [],
       chatAttachments,
@@ -13532,6 +13723,7 @@ async function parseAgentChatRequestBody(request) {
     model: String(body.model || body.model_id || '').trim(),
     conversationId: String(body.conversationId || body.session_id || '').trim(),
     agent: body.agent != null ? String(body.agent).trim() : '',
+    agent_ai_id: body.agent_ai_id != null ? String(body.agent_ai_id).trim() : '',
     subagentProfileKey: sidJson || aidJson,
     jsonImages,
     chatAttachments: null,
@@ -14092,6 +14284,7 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
     model: modelParam,
     conversationId,
     agent: agentParamRaw,
+    agent_ai_id: agentAiIdFromBody = '',
     jsonImages = [],
     chatAttachments,
     subagentProfileKey: subagentProfileKeySse = '',
@@ -14114,6 +14307,22 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   if (!['ask', 'agent', 'plan', 'debug', 'auto'].includes(mode)) {
     return jsonResponse({ error: 'Invalid mode', allowed: ['ask', 'agent', 'plan', 'debug', 'auto'] }, 400);
   }
+
+  const chatSseT0 = Date.now();
+  const reqWsCache = {};
+  const bootCtx =
+    !ingestBypass && chatSseSession?.user_id
+      ? await resolveBootstrapWorkspaceContext(env, chatSseSession.user_id, reqWsCache)
+      : { workspace_id: IAM_DEFAULT_WORKSPACE_ID, bootstrap: null };
+  const sessionWs =
+    chatSseSession?.workspace_id != null && String(chatSseSession.workspace_id).trim() !== ''
+      ? String(chatSseSession.workspace_id).trim()
+      : '';
+  const effectiveWorkspaceId = sessionWs || bootCtx.workspace_id || IAM_DEFAULT_WORKSPACE_ID;
+  const chatSseSessionEffective =
+    chatSseSession && typeof chatSseSession === 'object'
+      ? { ...chatSseSession, workspace_id: effectiveWorkspaceId }
+      : chatSseSession;
 
   console.log('[agent:sse] request_start', JSON.stringify({ mode, requested_model: modelParam }));
   waitUntilAgentSseLifecycle(env, ctx, 'request_start', { mode, requested_model: String(modelParam || '') });
@@ -14166,9 +14375,20 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   try {
     modelRatesMap = await loadAiModelRatesMap(env);
   } catch (_) { }
-  const agentAiIdSse = await resolveAgentAiIdForChat(env, agentParamRaw || null);
-  const agentBaseSystem = await loadAgentsamAiSystemPromptForChat(env, agentAiIdSse);
   const oauthPersonaUid = chatSseSession && (chatSseSession._session_user_id || chatSseSession.email || chatSseSession.user_id);
+  let subagentProfilePkSse = null;
+  if (oauthPersonaUid && agentParamRaw && String(agentParamRaw).trim()) {
+    try {
+      subagentProfilePkSse = await resolveSubagentProfileIdBySlug(env, oauthPersonaUid, agentParamRaw);
+    } catch (_) {
+      subagentProfilePkSse = null;
+    }
+  }
+  const agentAiIdSse = await resolveAgentAiIdForChat(env, agentParamRaw || null, {
+    bodyAgentAiId: agentAiIdFromBody,
+    chatMode: mode,
+  });
+  const agentBaseSystem = await loadAgentsamAiSystemPromptForChat(env, agentAiIdSse);
   let personaPrefixSse = '';
   if (oauthPersonaUid) {
     try {
@@ -14225,7 +14445,9 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
     billingGate = gate;
   }
   const envChat = envWithLlmKeyOverride(env, billingGate, apiPlatform);
-  const skillWorkspaceKey = chatSseSession?.workspace_id ?? tenantIdChatSse ?? null;
+  const skillWorkspaceKey = effectiveWorkspaceId || tenantIdChatSse || null;
+  const armKeys = routingArmTaskAndMode(mode, intent);
+  const modelRoutingTaskType = intentToModelRoutingTaskType(intent);
   const IAM_SSE_BRAND_OUTPUT_POLICY = `## Brand and output policy (Inner Animal Media)
 - Do not use emojis in assistant replies, in files you create or edit (HTML, CSS, JavaScript, markdown, copy, etc.), or in user-visible UI text. Use plain words instead (for example "Hello" or "Looks good"). Only use emojis if the user explicitly asks for them.`;
 
@@ -14454,7 +14676,15 @@ You can delegate tasks directly to Claude Code running on the host machine by st
     stream: true,
     mode: mode ?? 'agent',
     oauthUserId: oauthPersonaUid,
-    routingOpts: { tenantId: tenantIdChatSse },
+    routingOpts: {
+      tenantId: tenantIdChatSse,
+      workspaceId: effectiveWorkspaceId,
+      taskType: modelRoutingTaskType,
+      routingArmTaskType: armKeys.task_type,
+      routingArmMode: armKeys.mode,
+      routingArmModelKey: modelKey,
+      chatStartMs: chatSseT0,
+    },
     agentsamAgentRunId: chatSseRunId,
     modelRates: modelRatesMap,
     subagent_id: subagentProfileKeySse,
@@ -14530,9 +14760,15 @@ You can delegate tasks directly to Claude Code running on the host machine by st
     if (toolResp instanceof Response) {
       const ct = (toolResp.headers.get('content-type') || '').toLowerCase();
       if (ct.includes('text/event-stream')) {
-        await insertChatSseAgentRun(env, chatSseRunId, conversationId, modelRow.id, chatSseSession, agentAiIdSse).catch((e) =>
-          console.warn('[agent/chat-sse] agentsam_agent_run insert', e?.message ?? e),
-        );
+        await insertChatSseAgentRun(
+          env,
+          chatSseRunId,
+          conversationId,
+          modelRow.id,
+          chatSseSessionEffective,
+          agentAiIdSse,
+          subagentProfilePkSse,
+        ).catch((e) => console.warn('[agent/chat-sse] agentsam_agent_run insert', e?.message ?? e));
         return new Response(toolResp.body, { headers: sseResponseHeaders() });
       }
       return toolResp;
@@ -14568,7 +14804,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
       {
         mode: sseToolOpts.mode,
         agentsamAgentRunId: chatSseRunId,
-        routingOpts: { tenantId: tenantIdChatSse },
+        routingOpts: sseToolOpts.routingOpts,
         modelRates: modelRatesMap
       }
     );
@@ -14587,7 +14823,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
       {
         mode: sseToolOpts.mode,
         agentsamAgentRunId: chatSseRunId,
-        routingOpts: { tenantId: tenantIdChatSse },
+        routingOpts: sseToolOpts.routingOpts,
         modelRates: modelRatesMap,
         stream: true
       }
@@ -14596,7 +14832,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
 
   if (apiPlatform === 'workers_ai') {
     const messages = [{ role: 'user', content: hasMedia ? flattenUserContentForWorkersAi(message, jsonImages, chatAttachments) : message }];
-    return streamWorkersAI(envChat, chatSseSystemPrompt, messages, modelRow, conversationId, agentAiIdSse, ctx, chatSseRunId, { tenantId: tenantIdChatSse }, lastLoadedToolsSse);
+    return streamWorkersAI(envChat, chatSseSystemPrompt, messages, modelRow, conversationId, agentAiIdSse, ctx, chatSseRunId, sseToolOpts.routingOpts, lastLoadedToolsSse);
   }
 }
 

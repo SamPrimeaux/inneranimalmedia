@@ -47,6 +47,38 @@ const AP_SYS = {
 const TENANT_KNOWLEDGE_PLATFORM = 'tenant_knowledge_platform';
 const TENANT_SHINSHU = 'tenant_jake_waalk';
 
+/** Owner default when session has no workspace and D1 has no bootstrap row. */
+const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
+
+/**
+ * Resolve workspace_id from agentsam_bootstrap (cached per request object).
+ * @param {any} env
+ * @param {string|null|undefined} userId
+ * @param {Record<string, unknown>} [cache]
+ */
+async function resolveBootstrapWorkspaceIdForAgentApi(env, userId, cache) {
+  const uid = userId != null ? String(userId).trim() : '';
+  if (!uid || !env?.DB) return IAM_DEFAULT_WORKSPACE_ID;
+  if (cache && cache.__iamBootWs != null) return cache.__iamBootWs;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT workspace_id FROM agentsam_bootstrap
+       WHERE user_id = ? AND COALESCE(is_active, 1) = 1
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+      .bind(uid)
+      .first();
+    const ws =
+      row?.workspace_id != null && String(row.workspace_id).trim() !== ''
+        ? String(row.workspace_id).trim()
+        : IAM_DEFAULT_WORKSPACE_ID;
+    if (cache && typeof cache === 'object') cache.__iamBootWs = ws;
+    return ws;
+  } catch {
+    return IAM_DEFAULT_WORKSPACE_ID;
+  }
+}
+
 /** Minimal fallback if D1 has no core row (same intent as legacy single-line base). */
 const FALLBACK_CORE_SYSTEM = 'You are Agent Sam, an autonomous AI coding and operations assistant for Inner Animal Media.';
 
@@ -884,8 +916,14 @@ export async function agentChatSseHandler(env, request, ctx, session) {
   if (!tenantId && session?.user_id) {
     tenantId = await fetchAuthUserTenantId(env, session.user_id);
   }
-  const userId        = session?.user_id || null;
-  const workspaceId   = body.workspace_id || session?.workspace_id || env.WORKSPACE_ID || '';
+  const userId = session?.user_id || null;
+  const wsCache = {};
+  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, userId, wsCache) : IAM_DEFAULT_WORKSPACE_ID;
+  const workspaceId =
+    String(body.workspace_id || '').trim() ||
+    String(session?.workspace_id || '').trim() ||
+    String(env.WORKSPACE_ID || '').trim() ||
+    bootstrapWorkspaceId;
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
     loadModeConfig(env, requestedMode),
