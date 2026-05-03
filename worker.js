@@ -735,7 +735,15 @@ async function notifySam(env, opts, executionCtx) {
   const toAddr = opts.to || env.RESEND_TO || '';
   const fromAddr = env.RESEND_FROM || 'support@inneranimalmedia.com';
   const prefix = subjectRaw.startsWith('[Agent Sam]') ? '' : '[Agent Sam] ';
-  const subject = `${prefix}${subjectRaw}`.slice(0, 400);
+  let subject = `${prefix}${subjectRaw}`.slice(0, 400);
+  const repoPlaceholder =
+    (typeof env.GITHUB_REPO === 'string' && env.GITHUB_REPO.trim()) || 'SamPrimeaux/inneranimalmedia';
+  const branchPlaceholder =
+    (typeof env.GIT_BRANCH === 'string' && env.GIT_BRANCH.trim()) || 'main';
+  subject = subject
+    .replace(/\{repo\}/g, repoPlaceholder)
+    .replace(/\{branch\}/g, branchPlaceholder)
+    .slice(0, 400);
 
   const run = async () => {
     if (!env.RESEND_API_KEY) {
@@ -1854,6 +1862,14 @@ async function recordGithubCicdFollowups(env, row, rawBody, hookCtx = null) {
   const actor = githubActorFromWebhookPayload(rawBody);
   const notesRaw = row.commit_message != null ? String(row.commit_message) : githubCommitMessageFromWebhookPayload(rawBody);
   const notes = notesRaw.slice(0, 4000);
+  const repoName =
+    (repoFull && String(repoFull).trim()) ||
+    (typeof env.GITHUB_REPO === 'string' && env.GITHUB_REPO.trim()) ||
+    'SamPrimeaux/inneranimalmedia';
+  const branchName =
+    (branch && String(branch).trim()) ||
+    (typeof env.GIT_BRANCH === 'string' && env.GIT_BRANCH.trim()) ||
+    'main';
   const desc = `GitHub CI: ${wfName || 'workflow'}${branch ? ` (${branch})` : ''}`;
 
   try {
@@ -1881,8 +1897,8 @@ async function recordGithubCicdFollowups(env, row, rawBody, hookCtx = null) {
   // Push email template substitution (repo/branch/notes/etc.)
   try {
     notifySam(env, {
-      subject: `[Agent Sam] Push: ${repoFull || 'unknown'} on ${branch || 'main'}`,
-      body: `Repo: ${repoFull || 'unknown'}\nBranch: ${branch || 'main'}\nActor: ${actor || 'github'}\nVersion: ${versionShort || 'unknown'}\nCommit: ${commitSha || 'unknown'}\n\nNotes:\n${notes || '(no commit message)'}`,
+      subject: `[Agent Sam] Push: ${repoName} on ${branchName}`,
+      body: `Repo: ${repoName}\nBranch: ${branchName}\nActor: ${actor || 'github'}\nVersion: ${versionShort || 'unknown'}\nCommit: ${commitSha || 'unknown'}\n\nNotes:\n${notes || '(no commit message)'}`,
       category: 'deploy',
     }, hookCtx?.waitUntil ? hookCtx : null);
   } catch (_) { }
