@@ -11,7 +11,7 @@ import {
   Loader2, Radio, Video, Mail, Plus, ChevronDown,
   FileText, CheckSquare, AlignLeft, Circle, Settings,
   BarChart2, Layout, Pin,
-  Maximize2, Volume2, VolumeX, Bot, Calendar as CalendarIcon,
+  Maximize2, Volume2, VolumeX, Bot,
 } from 'lucide-react';
 import { MeetCtxValue } from '../src/MeetContext';
 import { ExcalidrawView } from './ExcalidrawView';
@@ -253,7 +253,6 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
   const recordingChunks = useRef<Blob[]>([]);
   const [showDraw, setShowDraw] = useState(false);
   const [drawOpacity, setDrawOpacity] = useState(70);
-  const [showSchedule, setShowSchedule] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -268,6 +267,17 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
   const [pinnedId, setPinnedId]   = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [showPoll, setShowPoll]   = useState(false);
+  const [showNewMeetingMenu, setShowNewMeetingMenu] = useState(false);
+  const [newMeetLink, setNewMeetLink] = useState<string | null>(null);
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduleTitle, setScheduleTitle] = useState('');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleDuration, setScheduleDuration] = useState(60);
+  const [scheduleEmails, setScheduleEmails] = useState('');
+  const [scheduleDesc, setScheduleDesc] = useState('');
+  const [scheduleMsg, setScheduleMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [copyLinkFeedback, setCopyLinkFeedback] = useState(false);
   const [aiStudioOpen, setAiStudioOpen] = useState<AiStudioItem | null>(null);
   const [aiStudioResult, setAiStudioResult] = useState<string | null>(null);
 
@@ -285,8 +295,7 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
   const chatEnd         = useRef<HTMLDivElement>(null);
   const aiEnd           = useRef<HTMLDivElement>(null);
   const prevMsgCount    = useRef(0);
-  const [preview, setPreview] = useState<MediaStream | null>(null);
-  const previewRef      = useRef<HTMLVideoElement>(null);
+  const newMeetingMenuRef = useRef<HTMLDivElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement>(null);
   const recognitionRef = useRef<any>(null);
   const callTimer       = useCallTimer(phase === 'in-call');
@@ -307,17 +316,22 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
     });
   }, [phase, roomId, participants, audioOn, videoOn, screenOn, recording, showDraw, drawOpacity, aiStudioOpen, aiStudioResult, showInvite]);
 
-  // Preview camera
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-      .then(s => setPreview(s)).catch(() => {});
-    return () => preview?.getTracks().forEach(t => t.stop());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (previewRef.current && preview) previewRef.current.srcObject = preview;
-  }, [preview]);
+    if (!showNewMeetingMenu) return;
+    const onDown = (e: MouseEvent) => {
+      const el = newMeetingMenuRef.current;
+      if (el && !el.contains(e.target as Node)) setShowNewMeetingMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowNewMeetingMenu(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showNewMeetingMenu]);
 
   // Chat scroll
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -366,7 +380,6 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
       const turnData = await turnRes.json();
       iceRef.current = turnData.iceServers || [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
-      preview?.getTracks().forEach(t => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localRef.current = stream;
       stream.getAudioTracks().forEach(t => { t.enabled = audioOn; });
@@ -426,11 +439,119 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
     } catch (err: any) {
       setError(err.message || 'Failed to join'); setPhase('lobby');
     }
-  }, [displayName, roomId, audioOn, videoOn, preview]);
+  }, [displayName, roomId, audioOn, videoOn]);
 
   useEffect(() => {
     joinCallRef.current = joinCall;
   }, [joinCall]);
+
+  const createMeetingForLater = useCallback(async () => {
+    try {
+      const res = await fetch('/api/meet/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Meeting ' + new Date().toLocaleDateString() }),
+        credentials: 'include',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json?.room?.id) {
+        setNewMeetLink(`https://inneranimalmedia.com/dashboard/meet?room=${json.room.id}`);
+      }
+      setShowNewMeetingMenu(false);
+      if (!res.ok) setError(typeof json?.error === 'string' ? json.error : 'Could not create meeting link');
+    } catch {
+      setError('Could not create meeting link');
+      setShowNewMeetingMenu(false);
+    }
+  }, []);
+
+  const startInstantMeeting = useCallback(async () => {
+    if (!displayName.trim()) {
+      setError('Enter your display name before starting a meeting.');
+      setShowNewMeetingMenu(false);
+      return;
+    }
+    setShowNewMeetingMenu(false);
+    try {
+      const res = await fetch('/api/meet/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Instant Meeting' }),
+        credentials: 'include',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json?.room?.id) {
+        setRoomId(json.room.id);
+        await joinCall({ roomId: json.room.id });
+      } else {
+        setError(typeof json?.error === 'string' ? json.error : 'Could not start meeting');
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not start meeting');
+    }
+  }, [joinCall, displayName]);
+
+  const openScheduleFromMenu = useCallback(() => {
+    setShowNewMeetingMenu(false);
+    setShowScheduleForm(true);
+  }, []);
+
+  const copyNewMeetLink = useCallback(async () => {
+    if (!newMeetLink) return;
+    try {
+      await navigator.clipboard.writeText(newMeetLink);
+      setCopyLinkFeedback(true);
+      window.setTimeout(() => setCopyLinkFeedback(false), 2000);
+    } catch { /* ignore */ }
+  }, [newMeetLink]);
+
+  const submitScheduleMeeting = useCallback(async () => {
+    if (!scheduleTitle.trim() || !scheduleDate) {
+      setScheduleMsg({ ok: false, text: 'Title and date are required.' });
+      return;
+    }
+    setScheduling(true);
+    const emails = scheduleEmails.split(',').map(e => e.trim()).filter(Boolean);
+    try {
+      const res = await fetch('/api/meet/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: scheduleTitle.trim(),
+          scheduled_at: scheduleDate,
+          duration_min: scheduleDuration,
+          invite_emails: emails,
+          description: scheduleDesc,
+        }),
+        credentials: 'include',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setScheduleMsg({ ok: true, text: 'Meeting scheduled. Invites sent.' });
+        setShowScheduleForm(false);
+        setScheduleTitle('');
+        setScheduleDate('');
+        setScheduleDuration(60);
+        setScheduleEmails('');
+        setScheduleDesc('');
+      } else {
+        setScheduleMsg({ ok: false, text: (json as { error?: string }).error ?? 'Failed to schedule meeting.' });
+      }
+    } catch (e: unknown) {
+      setScheduleMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed to schedule meeting.' });
+    } finally {
+      setScheduling(false);
+    }
+  }, [scheduleTitle, scheduleDate, scheduleDuration, scheduleEmails, scheduleDesc]);
+
+  const cancelScheduleForm = useCallback(() => {
+    setShowScheduleForm(false);
+    setScheduleTitle('');
+    setScheduleDate('');
+    setScheduleDuration(60);
+    setScheduleEmails('');
+    setScheduleDesc('');
+  }, []);
 
   const autoJoinStarted = useRef(false);
 
@@ -791,11 +912,8 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
       <div className="lobby-wrap">
         <div className="lobby-card">
           <div className="lobby-preview">
-            {preview
-              ? <video ref={previewRef} autoPlay muted playsInline className="lobby-vid" />
-              : <div className="lobby-no-cam"><Camera size={36} /><span>No camera</span></div>
-            }
-            <div className="lobby-preview-label">Preview</div>
+            <div className="lobby-no-cam"><Camera size={36} /><span>Camera off until you join</span></div>
+            <div className="lobby-preview-label">Lobby</div>
           </div>
           <div className="lobby-form">
             <div className="lobby-brand">
@@ -826,22 +944,101 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
                 <label className="lobby-label">Room ID <span className="lobby-hint">(blank = new room)</span></label>
                 <input className="lobby-input" value={roomId} onChange={e => setRoomId(e.target.value)}
                   placeholder="Paste room ID" onKeyDown={e => e.key === 'Enter' && joinCall()} />
+                <div className="lobby-dropdown-wrap" ref={newMeetingMenuRef}>
+                  <button
+                    type="button"
+                    className="lobby-btn"
+                    onClick={() => setShowNewMeetingMenu(v => !v)}
+                    disabled={phase === 'connecting'}
+                  >
+                    New Meeting <ChevronDown size={15} />
+                  </button>
+                  {showNewMeetingMenu && (
+                    <div className="lobby-dropdown-menu" role="menu">
+                      <button type="button" className="lobby-dropdown-item" onClick={() => void createMeetingForLater()}>
+                        Create a meeting for later
+                      </button>
+                      <button type="button" className="lobby-dropdown-item" onClick={() => void startInstantMeeting()}>
+                        Start an instant meeting
+                      </button>
+                      <button type="button" className="lobby-dropdown-item" onClick={openScheduleFromMenu}>
+                        Schedule a meeting
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {newMeetLink && (
+                  <div className="lobby-link-share">
+                    <div className="lobby-label">Your meeting link:</div>
+                    <div className="lobby-link-select">{newMeetLink}</div>
+                    <button type="button" className="lobby-btn-secondary" onClick={() => void copyNewMeetLink()}>
+                      {copyLinkFeedback ? 'Copied' : 'Copy link'}
+                    </button>
+                  </div>
+                )}
+                {showScheduleForm && (
+                  <div className="lobby-schedule-inline">
+                    <input
+                      className="lobby-input"
+                      type="text"
+                      placeholder="Meeting title"
+                      value={scheduleTitle}
+                      onChange={e => setScheduleTitle(e.target.value)}
+                    />
+                    <input
+                      className="lobby-input"
+                      type="datetime-local"
+                      value={scheduleDate}
+                      onChange={e => setScheduleDate(e.target.value)}
+                    />
+                    <select
+                      className="lobby-input"
+                      value={scheduleDuration}
+                      onChange={e => setScheduleDuration(Number(e.target.value))}
+                    >
+                      <option value={30}>30 minutes</option>
+                      <option value={60}>1 hour</option>
+                      <option value={90}>1.5 hours</option>
+                      <option value={120}>2 hours</option>
+                    </select>
+                    <input
+                      className="lobby-input"
+                      type="text"
+                      placeholder="Invite: email1@example.com, email2@example.com"
+                      value={scheduleEmails}
+                      onChange={e => setScheduleEmails(e.target.value)}
+                    />
+                    <textarea
+                      className="lobby-input lobby-textarea"
+                      placeholder="Description (optional)"
+                      value={scheduleDesc}
+                      onChange={e => setScheduleDesc(e.target.value)}
+                      rows={3}
+                    />
+                    <div className="lobby-schedule-actions">
+                      <button type="button" className="lobby-btn" disabled={scheduling} onClick={() => void submitScheduleMeeting()}>
+                        {scheduling ? <><Loader2 size={15} className="spin" /> Scheduling…</> : 'Schedule'}
+                      </button>
+                      <button type="button" className="lobby-btn-secondary" disabled={scheduling} onClick={cancelScheduleForm}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {scheduleMsg && (
+                  <div className={scheduleMsg.ok ? 'lobby-schedule-msg ok' : 'lobby-schedule-msg err'}>{scheduleMsg.text}</div>
+                )}
                 <button className="lobby-btn" onClick={() => joinCall()}
                   disabled={!displayName.trim() || phase === 'connecting'}>
                   {phase === 'connecting'
                     ? <><Loader2 size={15} className="spin" /> Connecting…</>
                     : <><Video size={15} /> Join Call</>}
                 </button>
-                <div className="lobby-divider">or</div>
-                <button className="lobby-btn-secondary" onClick={() => setShowSchedule(true)}>
-                  <CalendarIcon size={15} /> Schedule for later
-                </button>
               </>
             )}
           </div>
         </div>
       </div>
-      {showSchedule && <ScheduleMeetingModal onClose={() => setShowSchedule(false)} />}
     </>
   );
 
@@ -1599,6 +1796,33 @@ function MeetCSS() {
       .lobby-btn-secondary { display:flex; align-items:center; justify-content:center; gap:8px; background:var(--bg-surface,#0d1e1c); color:var(--text-secondary,#6b9e99); border:1px solid var(--border,#1a2e2c); border-radius:8px; padding:10px 16px; font-size:13px; font-family:inherit; cursor:pointer; width:100%; transition:all .15s; }
       .lobby-btn-secondary:hover { border-color:var(--primary,#2dd4bf); color:var(--primary,#2dd4bf); }
 
+      .lobby-dropdown-wrap { position: relative; width: 100%; }
+      .lobby-dropdown-menu {
+        position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 20;
+        display: flex; flex-direction: column; gap: 0;
+        background: var(--bg-panel, #0b1918); border: 1px solid var(--border, #1a2e2c);
+        border-radius: 10px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      }
+      .lobby-dropdown-item {
+        text-align: left; padding: 10px 12px; border: none; border-radius: 8px;
+        background: transparent; color: var(--text-main, #c9d8d6); font-size: 13px; cursor: pointer;
+      }
+      .lobby-dropdown-item:hover { background: var(--bg-hover, rgba(45,212,191,.08)); color: var(--primary, #2dd4bf); }
+
+      .lobby-link-share { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; width: 100%; }
+      .lobby-link-select {
+        font-size: 12px; word-break: break-all; padding: 10px; border-radius: 8px;
+        border: 1px solid var(--border, #1a2e2c); background: var(--bg-app, #07100f);
+        color: var(--text-muted, #6b9e99); user-select: text;
+      }
+
+      .lobby-schedule-inline { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; width: 100%; }
+      .lobby-textarea { min-height: 72px; resize: vertical; font-family: inherit; }
+      .lobby-schedule-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+      .lobby-schedule-msg { font-size: 13px; margin-top: 8px; }
+      .lobby-schedule-msg.ok { color: var(--primary, #2dd4bf); }
+      .lobby-schedule-msg.err { color: var(--danger, #f87171); }
+
       /* ─ Ended ─ */
       .ended-wrap { width: 100%; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-app, #07100f); }
       .ended-card {
@@ -1627,68 +1851,3 @@ function MeetCSS() {
   );
 }
 
-function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
-  const [title, setTitle] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
-  const [inviteEmails, setInviteEmails] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [doneId, setDoneId] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  const submit = async () => {
-    if (!title.trim() || !scheduledAt.trim()) return;
-    setSaving(true);
-    setErr(null);
-    try {
-      const emails = inviteEmails
-        .split(/[\n,]+/g)
-        .map((e) => e.trim())
-        .filter(Boolean);
-      const res = await api('/schedule', {
-        method: 'POST',
-        body: JSON.stringify({ title: title.trim(), scheduledAt: scheduledAt.trim(), inviteEmails: emails }),
-      });
-      const data = await res.json().catch(() => ({} as any));
-      if (!res.ok) throw new Error(data?.error || 'Schedule failed');
-      setDoneId(String(data.id || 'scheduled'));
-    } catch (e: any) {
-      setErr(e.message || 'Schedule failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h3 className="modal-title">
-          <CalendarIcon size={15} /> Schedule meeting
-        </h3>
-        <p className="modal-sub">Create a scheduled meeting (stored in D1). Optionally email invites.</p>
-        {err && <div className="lobby-error">{err}</div>}
-        {!doneId ? (
-          <>
-            <label className="lobby-label">Title</label>
-            <input className="modal-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Weekly sync" />
-            <label className="lobby-label">Scheduled for</label>
-            <input className="modal-input" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
-            <label className="lobby-label">Invite emails (comma or newline separated)</label>
-            <textarea
-              className="modal-input"
-              value={inviteEmails}
-              onChange={(e) => setInviteEmails(e.target.value)}
-              placeholder="alex@example.com, sam@example.com"
-              rows={3}
-            />
-            <button className="modal-send-btn" onClick={submit} disabled={saving || !title.trim() || !scheduledAt.trim()}>
-              {saving ? <><Loader2 size={13} className="spin" /> Scheduling…</> : <>Schedule</>}
-            </button>
-          </>
-        ) : (
-          <div className="modal-sent">✓ Scheduled ({doneId})</div>
-        )}
-        <button className="modal-close" onClick={onClose}>Close</button>
-      </div>
-    </div>
-  );
-}

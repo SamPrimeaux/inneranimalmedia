@@ -30,6 +30,12 @@ function newId(prefix) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }
 
+function genRoomId() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 async function getUserId(request, env) {
   const user = await getAuthUser(request, env);
   const userId = user?.id || user?.userId || user?.user_id;
@@ -175,6 +181,10 @@ export async function handleMeetApi(request, env, ctx) {
   if (parts[0] === 'turn' && method === 'POST')
     return handleTurn(request, env);
 
+  // POST /api/meet/rooms
+  if (parts[0] === 'rooms' && !parts[1] && method === 'POST')
+    return handleMeetRoomsCreate(request, env);
+
   if (parts[0] === 'room' && !parts[1] && method === 'POST')
     return handleRoomJoin(request, env);
 
@@ -208,6 +218,7 @@ export async function handleMeetApi(request, env, ctx) {
   if (parts[0] === 'recording' && parts[1] === 'save' && method === 'POST')
     return handleRecordingSave(request, env);
 
+  // POST /api/meet/schedule
   if (parts[0] === 'schedule' && method === 'POST')
     return handleSchedule(request, env);
 
@@ -215,6 +226,24 @@ export async function handleMeetApi(request, env, ctx) {
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
+
+async function handleMeetRoomsCreate(request, env) {
+  const { userId } = await getUserId(request, env);
+  if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const body = await request.json().catch(() => ({}));
+  const name = String(body.name ?? 'Meeting').trim() || 'Meeting';
+  const roomId = genRoomId();
+
+  await env.DB.prepare(
+    `INSERT INTO meet_rooms (id, name, created_by, status)
+     VALUES (?, ?, ?, 'active')`,
+  )
+    .bind(roomId, name, userId)
+    .run();
+
+  return jsonResponse({ ok: true, room: { id: roomId, name } }, 200);
+}
 
 async function handleTurn(request, env) {
   try {
@@ -526,136 +555,111 @@ async function handleRecordingSave(request, env) {
 }
 
 async function handleSchedule(request, env) {
-  const url = new URL(request.url);
   const { user, userId } = await getUserId(request, env);
   if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const url = new URL(request.url);
   const body = await request.json().catch(() => ({}));
 
-  const title = String(body.title || '').trim().slice(0, 200);
-  const scheduledAt = String(body.scheduledAt || body.scheduled_at || '').trim();
-  const durationMin = Number(body.durationMin || body.duration_min || 30);
-  const emails = Array.isArray(body.inviteEmails) ? body.inviteEmails : (Array.isArray(body.invite_emails) ? body.invite_emails : []);
+  const title = String(body.title || '').trim();
+  const scheduled_at = String(body.scheduled_at || body.scheduledAt || '').trim();
+  const description = body.description != null ? String(body.description) : '';
+  const dur = Number(body.duration_min ?? body.durationMin) || 60;
+  const invite_emails = Array.isArray(body.invite_emails)
+    ? body.invite_emails
+    : Array.isArray(body.inviteEmails)
+      ? body.inviteEmails
+      : [];
 
-  if (!title || !scheduledAt) return jsonResponse({ error: 'title and scheduledAt required' }, 400);
+  if (!title || !scheduled_at) return jsonResponse({ error: 'Title and date required' }, 400);
 
-  const workspaceId = resolveWorkspaceIdLoose(user, env, body, url);
-  const tenantId = resolveTenantIdLoose(user);
+  const tenant_id = resolveTenantIdLoose(user);
+  const workspace_id =
+    resolveWorkspaceIdLoose(user, env, body, url) || 'ws_inneranimalmedia';
 
-  // 1) Insert calendar_events first (workspace-aware).
-  const calendarEventId = newId('cev');
-  const endExpr = `datetime(?, '+' || ? || ' minutes')`;
+  const roomId = genRoomId();
+  const schedId = `msched_${roomId}`;
+  const calId = newId('cev');
+
+  await env.DB.prepare(
+    `INSERT INTO meet_rooms (id, name, created_by, status)
+     VALUES (?, ?, ?, 'active')`,
+  )
+    .bind(roomId, title, userId)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO meet_scheduled
+       (id, room_id, created_by, title, description, scheduled_at, duration_min, invite_emails, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`,
+  )
+    .bind(
+      schedId,
+      roomId,
+      userId,
+      title,
+      description || null,
+      scheduled_at,
+      dur,
+      JSON.stringify(invite_emails || []),
+    )
+    .run();
+
+  const startMs = new Date(scheduled_at).getTime();
+  const endISO = new Date(startMs + dur * 60000).toISOString();
+
   await env.DB.prepare(
     `INSERT INTO calendar_events
-      (id, tenant_id, workspace_id, event_type, title, start_datetime, end_datetime, created_by, attendees, created_at, updated_at)
-     VALUES
-      (?,  ?,         ?,           'client_call', ?,     ?,             ${endExpr},   ?,         ?,         datetime('now'), datetime('now'))`
-  ).bind(
-    calendarEventId,
-    tenantId,
-    workspaceId,
-    title,
-    scheduledAt,
-    scheduledAt,
-    String(Math.max(5, Math.min(720, durationMin || 30))),
-    userId,
-    JSON.stringify(emails || []),
-  ).run();
+       (id, tenant_id, workspace_id, user_id, title, event_type,
+        start_datetime, end_datetime, timezone, attendees, meet_room_id, status)
+     VALUES (?, ?, ?, ?, ?, 'meeting', ?, ?, 'America/Chicago', ?, ?, 'scheduled')`,
+  )
+    .bind(
+      calId,
+      tenant_id,
+      workspace_id,
+      userId,
+      title,
+      scheduled_at,
+      endISO,
+      JSON.stringify(invite_emails || []),
+      roomId,
+    )
+    .run();
 
-  // 2) Create meet room and link calendar_events.meet_room_id
-  const roomId = `room_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO meet_rooms
-      (id, name, workspace_id, tenant_id, calendar_event_id, cf_app_id, status, created_by, created_at)
-     VALUES
-      (?,  ?,    ?,           ?,        ?,                 ?,        'scheduled', ?,        datetime('now'))`
-  ).bind(
-    roomId,
-    title,
-    workspaceId,
-    tenantId,
-    calendarEventId,
-    env?.CLOUDFLARE_CALLS_APP_ID ?? null,
-    userId
-  ).run();
-  await env.DB.prepare(`UPDATE calendar_events SET meet_room_id = ? WHERE id = ?`)
-    .bind(roomId, calendarEventId).run();
+  if (env.RESEND_API_KEY && Array.isArray(invite_emails) && invite_emails.length > 0) {
+    const joinUrl = `https://inneranimalmedia.com/dashboard/meet?room=${roomId}`;
+    const dateStr = new Date(scheduled_at).toLocaleString('en-US', {
+      timeZone: 'America/Chicago',
+      dateStyle: 'full',
+      timeStyle: 'short',
+    });
+    const safeDesc = description
+      ? description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      : '';
+    const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // 3) Insert meet_scheduled with calendar_event_id linkage
-  const scheduledId = newId('msched');
-  await env.DB.prepare(`
-    INSERT INTO meet_scheduled
-      (id, created_by, title, scheduled_at, invite_emails, status, created_at, calendar_event_id, workspace_id, tenant_id, reminder_sent)
-    VALUES
-      (?,  ?,          ?,     ?,            ?,            'scheduled', datetime('now'), ?,               ?,            ?,        0)
-  `).bind(
-    scheduledId,
-    userId,
-    title,
-    scheduledAt,
-    JSON.stringify(emails || []),
-    calendarEventId,
-    workspaceId,
-    tenantId,
-  ).run();
-
-  const meetUrl = `${url.origin}/dashboard/meet?room=${encodeURIComponent(roomId)}`;
-  const fromAddr = env.EMAIL_FROM || 'Inner Animal Media <support@inneranimalmedia.com>';
-  const inviteSubject = `You have been invited: ${title}`;
-
-  // 4) Send invites via Resend + log + enqueue notification_outbox (best-effort).
-  if (emails.length && env.RESEND_API_KEY) {
-    for (const raw of emails) {
-      const to = String(raw || '').trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) continue;
-
-      let resendId = null;
-      try {
-        const res = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${env.RESEND_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: fromAddr,
-            to: [to],
-            subject: inviteSubject,
-            html: `<div style="font-family:system-ui,Segoe UI,sans-serif;background:#07100f;color:#c9d8d6;padding:28px;border-radius:12px;max-width:520px;line-height:1.5">
-  <p style="margin:0 0 12px;color:#2dd4bf;font-weight:600">Inner Animal Media</p>
-  <p style="margin:0 0 8px;color:#e2efed">You're invited to a call: <strong>${title}</strong></p>
-  <p style="margin:0 0 20px;color:#6b9e99;font-size:14px">Join using the link below.</p>
-  <a href="${meetUrl}" style="display:inline-block;background:#2dd4bf;color:#07100f;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">Join Call</a>
-  <p style="margin:20px 0 0;font-size:12px;color:#4a7a75">Or copy: <span style="color:#7a9aaa">${meetUrl}</span></p>
-</div>`,
-          }),
-        });
-        const j = await res.json().catch(() => ({}));
-        resendId = j?.id ?? null;
-
-        // best-effort email_logs
-        await env.DB.prepare(
-          `INSERT INTO email_logs (id, tenant_id, workspace_id, to_email, subject, provider, provider_message_id, status, created_at)
-           VALUES (?, ?, ?, ?, ?, 'resend', ?, ?, datetime('now'))`
-        ).bind(
-          newId('elog'),
-          tenantId,
-          workspaceId,
-          to,
-          inviteSubject,
-          resendId,
-          res.ok ? 'sent' : 'failed'
-        ).run().catch(() => {});
-      } catch (e) {
-        console.warn('[meet-schedule-invite]', e?.message);
-      }
+    for (const email of invite_emails) {
+      const to = String(email || '').trim();
+      if (!to) continue;
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: 'Inner Animal Media <hey@inneranimalmedia.com>',
+          to: [to],
+          subject: `You're invited: ${title}`,
+          html: `<p>You have been invited to a meeting: <strong>${safeTitle}</strong></p>
+                 <p>When: ${dateStr} (${dur} minutes)</p>
+                 ${safeDesc ? `<p>${safeDesc}</p>` : ''}
+                 <p><a href="${joinUrl}">Join meeting</a></p>`,
+        }),
+      }).catch((e) => console.error('[meet/schedule] resend error', e));
     }
-
-    // Enqueue outbox row (one per schedule)
-    await env.DB.prepare(
-      `INSERT INTO notification_outbox (id, tenant_id, workspace_id, channel, event_type, source_table, source_id, created_at)
-       VALUES (?, ?, ?, 'resend_email', 'meet_scheduled', 'meet_scheduled', ?, datetime('now'))`
-    ).bind(newId('nout'), tenantId, workspaceId, scheduledId).run().catch(() => {});
   }
 
-  return jsonResponse({ ok: true, id: scheduledId, calendar_event_id: calendarEventId, room_id: roomId, meet_url: meetUrl }, 200);
+  return jsonResponse({ ok: true, room_id: roomId, scheduled_id: schedId }, 200);
 }

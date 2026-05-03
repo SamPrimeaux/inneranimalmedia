@@ -40,7 +40,7 @@ export default defineConfig(({ mode }) => {
         include: ['react', 'react-dom', '@excalidraw/excalidraw'],
       },
       build: {
-        minify: false,
+        minify: true,
         sourcemap: true,
         outDir: 'dist',
         rollupOptions: {
