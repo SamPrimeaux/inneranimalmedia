@@ -21,6 +21,107 @@ function sanitizeIntentCategoryForCommandRun(raw) {
   return VALID_INTENT_CATEGORIES.includes(s) ? s : 'misc';
 }
 
+/** Sequential dependency edge for tool_chain steps (D1). */
+export async function insertExecutionDependencyGraphEdge(env, tenantId, executionId, dependsOnExecutionId) {
+  if (!env?.DB || !tenantId || !executionId || !dependsOnExecutionId) return;
+  await env.DB
+    .prepare(
+      `
+    INSERT OR IGNORE INTO execution_dependency_graph
+      (id, tenant_id, execution_id, depends_on_execution_id,
+       dependency_type, created_at)
+    VALUES (
+      lower(hex(randomblob(8))),
+      ?,
+      ?,
+      ?,
+      'sequential',
+      unixepoch()
+    )
+  `,
+    )
+    .bind(tenantId, executionId, dependsOnExecutionId)
+    .run()
+    .catch((e) => console.warn('[tool_chain] dep_graph insert', e?.message));
+}
+
+/**
+ * Upsert execution_performance_metrics after a command run completes (insert path).
+ * Skips when commandId is absent.
+ */
+export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
+  const commandId = p.commandId != null ? String(p.commandId).trim() : '';
+  if (!env?.DB || !commandId) return;
+
+  const tenantId = p.tenantId != null && String(p.tenantId).trim() !== '' ? String(p.tenantId).trim() : 'tenant_sam_primeaux';
+  const status = p.success ? 'completed' : 'failed';
+  const metricDate = new Date().toISOString().slice(0, 10);
+  const isSuccess = status === 'completed' ? 1 : 0;
+  const isFail = status === 'failed' ? 1 : 0;
+  const costUsd = p.costUsd ?? 0;
+  const costCents = (costUsd || 0) * 100;
+  const durationMs = Math.max(0, Math.floor(Number(p.durationMs) || 0));
+  const tokensConsumed = Math.max(0, Math.floor(Number(p.tokensConsumed) || 0));
+
+  await env.DB
+    .prepare(
+      `
+    INSERT INTO execution_performance_metrics
+      (id, tenant_id, command_id, metric_date,
+       execution_count, success_count, failure_count,
+       avg_duration_ms, min_duration_ms, max_duration_ms,
+       success_rate_percent, total_tokens_consumed,
+       total_cost_cents, last_computed_at)
+    VALUES (
+      'epm_' || lower(hex(randomblob(8))),
+      ?, ?, ?,
+      1, ?, ?,
+      ?, ?, ?,
+      ?, ?,
+      ?, unixepoch()
+    )
+    ON CONFLICT(tenant_id, command_id, metric_date) DO UPDATE SET
+      execution_count = execution_count + 1,
+      success_count = success_count + ?,
+      failure_count = failure_count + ?,
+      avg_duration_ms = ((avg_duration_ms * (execution_count - 1)) + ?) / execution_count,
+      min_duration_ms = CASE WHEN ? < min_duration_ms OR min_duration_ms = 0
+                        THEN ? ELSE min_duration_ms END,
+      max_duration_ms = CASE WHEN ? > max_duration_ms
+                        THEN ? ELSE max_duration_ms END,
+      success_rate_percent = CAST(success_count AS REAL) /
+                             CAST(execution_count AS REAL) * 100,
+      total_tokens_consumed = total_tokens_consumed + ?,
+      total_cost_cents = total_cost_cents + ?,
+      last_computed_at = unixepoch()
+  `,
+    )
+    .bind(
+      tenantId,
+      commandId,
+      metricDate,
+      isSuccess,
+      isFail,
+      durationMs,
+      durationMs,
+      durationMs,
+      (isSuccess / 1) * 100,
+      tokensConsumed,
+      costCents,
+      isSuccess,
+      isFail,
+      durationMs,
+      durationMs,
+      durationMs,
+      durationMs,
+      durationMs,
+      tokensConsumed,
+      costCents,
+    )
+    .run()
+    .catch((e) => console.warn('[cmd_run] perf_metrics upsert', e?.message));
+}
+
 /**
  * @param {any} env
  * @param {any} ctx
@@ -105,6 +206,15 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
           )
           .run();
         if (!ins?.success) return;
+
+        await upsertExecutionPerformanceMetricsAfterCommandRun(env, {
+          tenantId: 'tenant_sam_primeaux',
+          commandId: p.selectedCommandId,
+          success: p.success,
+          durationMs: Math.max(0, Math.floor(p.durationMs || 0)),
+          costUsd: p.costUsd ?? 0,
+          tokensConsumed: (p.inputTokens ?? 0) + (p.outputTokens ?? 0),
+        });
 
         await env.DB
           .prepare(

@@ -41,6 +41,10 @@ import {
   updateSupabaseWorkflowRun,
 } from './src/core/agentsam-supabase-sync.js';
 import { handleCodebaseIndexSyncFromQueue } from './src/queue/codebase-index-sync.js';
+import {
+  insertExecutionDependencyGraphEdge,
+  upsertExecutionPerformanceMetricsAfterCommandRun,
+} from './src/api/command-run-telemetry.js';
 
 const IAM_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
 const IAM_EMBED_DIMS = 1024;
@@ -20286,7 +20290,48 @@ async function executeAgentsamSlashCommand(request, env, ctx) {
         ? String(command.category).trim()
         : 'misc';
     if (!wsForRun) console.warn('[agentsam_command_run] skip: missing workspace_id');
-    else if (env.DB) void env.DB.prepare(`INSERT INTO agentsam_command_run (workspace_id, session_id, user_input, normalized_intent, intent_category, commands_json, result_json, output_text, success, exit_code, duration_ms, selected_command_id, selected_command_slug, risk_level, requires_confirmation, approval_status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`).bind(wsForRun, session.id ?? null, rawInput, command.slug, safeSlashIntentCat, JSON.stringify([command.mapped_command != null ? command.mapped_command : { slug: command.slug, handler_type: handlerType, handler_ref: handlerRef }]), JSON.stringify({ success: !result?.error }), String(result?.output ?? result?.result ?? '').slice(0, 500), result?.error ? 0 : 1, result?.exit_code ?? null, Date.now() - cmdRunT0, command.id, command.slug, command.risk_level ?? 'low', Number(command.requires_confirmation ?? 0), 'not_required').run().catch((e) => console.warn('[agentsam_command_run]', e?.message ?? e));
+    else if (env.DB) {
+      const cmdDur = Date.now() - cmdRunT0;
+      const cmdOk = !result?.error;
+      void env.DB
+        .prepare(
+          `INSERT INTO agentsam_command_run (workspace_id, session_id, user_input, normalized_intent, intent_category, commands_json, result_json, output_text, success, exit_code, duration_ms, selected_command_id, selected_command_slug, risk_level, requires_confirmation, approval_status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+        )
+        .bind(
+          wsForRun,
+          session.id ?? null,
+          rawInput,
+          command.slug,
+          safeSlashIntentCat,
+          JSON.stringify([
+            command.mapped_command != null
+              ? command.mapped_command
+              : { slug: command.slug, handler_type: handlerType, handler_ref: handlerRef },
+          ]),
+          JSON.stringify({ success: cmdOk }),
+          String(result?.output ?? result?.result ?? '').slice(0, 500),
+          result?.error ? 0 : 1,
+          result?.exit_code ?? null,
+          cmdDur,
+          command.id,
+          command.slug,
+          command.risk_level ?? 'low',
+          Number(command.requires_confirmation ?? 0),
+          'not_required',
+        )
+        .run()
+        .then(() =>
+          upsertExecutionPerformanceMetricsAfterCommandRun(env, {
+            tenantId: 'tenant_sam_primeaux',
+            commandId: command.id,
+            success: cmdOk,
+            durationMs: cmdDur,
+            costUsd: 0,
+            tokensConsumed: 0,
+          }),
+        )
+        .catch((e) => console.warn('[agentsam_command_run]', e?.message ?? e));
+    }
 
     await env.DB.prepare(
       `UPDATE agentsam_slash_commands
@@ -22295,17 +22340,24 @@ function fireForgetAgentToolChainRow(env, {
   mcpToolCallId,
   durationMs,
   terminalSessionId,
+  tenantId = null,
+  parentChainId = null,
 }) {
-  if (!env.DB) return;
+  if (!env.DB) return null;
   const completedAt = Math.floor(Date.now() / 1000);
   const durSec = Math.max(0, Math.ceil((Number(durationMs) || 0) / 1000));
   const startedAt = Math.max(0, completedAt - durSec);
   const toolStatus = error ? 'failed' : 'completed';
   const chainId = 'atc_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-  void env.DB.prepare(
-    `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
+  const tenant =
+    tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
+  const parentId =
+    parentChainId != null && String(parentChainId).trim() !== '' ? String(parentChainId).trim() : null;
+  void env.DB
+    .prepare(
+      `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
     .bind(
       chainId,
       IAM_DEFAULT_WORKSPACE_ID,
@@ -22316,10 +22368,17 @@ function fireForgetAgentToolChainRow(env, {
       completedAt,
       costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
       mcpToolCallId || null,
-      terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null
+      terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
+      parentId,
     )
     .run()
+    .then(() => {
+      if (tenant && parentId) {
+        return insertExecutionDependencyGraphEdge(env, tenant, chainId, parentId);
+      }
+    })
     .catch((e) => console.warn('[agentsam_tool_chain]', e?.message ?? e));
+  return chainId;
 }
 
 function fireForgetWorkspaceConnectivityTunnel(env, ctx, healthy, connections) {
@@ -22448,6 +22507,7 @@ async function recordMcpToolCall(env, opts) {
       mcpToolCallId: id,
       durationMs,
       terminalSessionId: optTerminalSessionId,
+      tenantId: tenant,
     });
     appendMcpAuditLogAndStats(env, {
       conversationId: sessionId,
@@ -25429,6 +25489,7 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
     let failed = false;
     const startMs = Date.now();
     const stepOutputs = []; // accumulate step results for injection
+    let prevToolChainId = null;
 
     for (const step of steps) {
       const tool_name = step.tool_name || step.tool;
@@ -25534,15 +25595,18 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
         errorMsg ? String(errorMsg).slice(0, 8000) : null
       ).run();
       assertD1Write(tcIns, 'mcp_tool_calls workflow step');
-      fireForgetAgentToolChainRow(env, {
-        toolName: tool_name,
-        agentSessionId: session_id ?? null,
-        error: stepStatus === 'completed' ? null : errorMsg,
-        costUsd: 0,
-        mcpToolCallId: tcId,
-        durationMs: 0,
-        terminalSessionId: null,
-      });
+      prevToolChainId =
+        fireForgetAgentToolChainRow(env, {
+          toolName: tool_name,
+          agentSessionId: session_id ?? null,
+          error: stepStatus === 'completed' ? null : errorMsg,
+          costUsd: 0,
+          mcpToolCallId: tcId,
+          durationMs: 0,
+          terminalSessionId: null,
+          tenantId: MCP_WF_TENANT,
+          parentChainId: prevToolChainId,
+        }) || prevToolChainId;
 
       stepResults.push({ tool_name, status: callStatus, tool_call_id: tcId });
       if (stepStatus === 'completed' && output && output !== '(no output)') {
