@@ -21,6 +21,9 @@ function sanitizeIntentCategoryForCommandRun(raw) {
   return VALID_INTENT_CATEGORIES.includes(s) ? s : 'misc';
 }
 
+/** Same default as IAM_DEFAULT_WORKSPACE_ID in worker — agentsam_tool_chain.workspace_id. */
+const DEFAULT_AGENT_TOOL_CHAIN_WORKSPACE_ID = 'ws_inneranimalmedia';
+
 /** Sequential dependency edge for tool_chain steps (D1). */
 export async function insertExecutionDependencyGraphEdge(env, tenantId, executionId, dependsOnExecutionId) {
   if (!env?.DB || !tenantId || !executionId || !dependsOnExecutionId) return;
@@ -43,6 +46,63 @@ export async function insertExecutionDependencyGraphEdge(env, tenantId, executio
     .bind(tenantId, executionId, dependsOnExecutionId)
     .run()
     .catch((e) => console.warn('[tool_chain] dep_graph insert', e?.message));
+}
+
+/** Fire-and-forget agentsam_tool_chain row (D1 telemetry). Ported from worker.js. */
+export async function fireForgetAgentToolChainRow(env, opts) {
+  const {
+    toolName,
+    agentSessionId,
+    error,
+    costUsd,
+    mcpToolCallId,
+    durationMs,
+    terminalSessionId,
+    tenantId = null,
+    parentChainId = null,
+    ctx = null,
+  } = opts || {};
+  if (!env?.DB) return null;
+  const completedAt = Math.floor(Date.now() / 1000);
+  const durSec = Math.max(0, Math.ceil((Number(durationMs) || 0) / 1000));
+  const startedAt = Math.max(0, completedAt - durSec);
+  const toolStatus = error ? 'failed' : 'completed';
+  const chainId = `atc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const tenant =
+    tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
+  const parentId =
+    parentChainId != null && String(parentChainId).trim() !== '' ? String(parentChainId).trim() : null;
+
+  const p = env.DB
+    .prepare(
+      `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      chainId,
+      DEFAULT_AGENT_TOOL_CHAIN_WORKSPACE_ID,
+      agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
+      toolName,
+      toolStatus,
+      startedAt,
+      completedAt,
+      costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
+      mcpToolCallId || null,
+      terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
+      parentId,
+    )
+    .run()
+    .then(() => {
+      if (tenant && parentId) {
+        return insertExecutionDependencyGraphEdge(env, tenant, chainId, parentId);
+      }
+    })
+    .catch((e) => console.warn('[agentsam_tool_chain]', e?.message ?? e));
+
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p);
+  else void p;
+
+  return chainId;
 }
 
 /**

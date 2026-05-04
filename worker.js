@@ -42,7 +42,7 @@ import {
 } from './src/core/agentsam-supabase-sync.js';
 import { handleCodebaseIndexSyncFromQueue } from './src/queue/codebase-index-sync.js';
 import {
-  insertExecutionDependencyGraphEdge,
+  fireForgetAgentToolChainRow,
   upsertExecutionPerformanceMetricsAfterCommandRun,
 } from './src/api/command-run-telemetry.js';
 
@@ -22331,56 +22331,6 @@ async function handleCidiApi(request, url, env, ctx) {
   return jsonResponse({ error: 'not found' }, 404);
 }
 
-/** Fire-and-forget agentsam_tool_chain row (D1 telemetry). */
-function fireForgetAgentToolChainRow(env, {
-  toolName,
-  agentSessionId,
-  error,
-  costUsd,
-  mcpToolCallId,
-  durationMs,
-  terminalSessionId,
-  tenantId = null,
-  parentChainId = null,
-}) {
-  if (!env.DB) return null;
-  const completedAt = Math.floor(Date.now() / 1000);
-  const durSec = Math.max(0, Math.ceil((Number(durationMs) || 0) / 1000));
-  const startedAt = Math.max(0, completedAt - durSec);
-  const toolStatus = error ? 'failed' : 'completed';
-  const chainId = 'atc_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-  const tenant =
-    tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
-  const parentId =
-    parentChainId != null && String(parentChainId).trim() !== '' ? String(parentChainId).trim() : null;
-  void env.DB
-    .prepare(
-      `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      chainId,
-      IAM_DEFAULT_WORKSPACE_ID,
-      agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
-      toolName,
-      toolStatus,
-      startedAt,
-      completedAt,
-      costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
-      mcpToolCallId || null,
-      terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
-      parentId,
-    )
-    .run()
-    .then(() => {
-      if (tenant && parentId) {
-        return insertExecutionDependencyGraphEdge(env, tenant, chainId, parentId);
-      }
-    })
-    .catch((e) => console.warn('[agentsam_tool_chain]', e?.message ?? e));
-  return chainId;
-}
-
 function fireForgetWorkspaceConnectivityTunnel(env, ctx, healthy, connections) {
   if (!env.DB) return;
   const statusStr = healthy ? 'healthy' : 'down';
@@ -22499,7 +22449,7 @@ async function recordMcpToolCall(env, opts) {
       inTok,
       outTok
     ).run();
-    fireForgetAgentToolChainRow(env, {
+    await fireForgetAgentToolChainRow(env, {
       toolName,
       agentSessionId: sessionId,
       error,
@@ -25596,7 +25546,7 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
       ).run();
       assertD1Write(tcIns, 'mcp_tool_calls workflow step');
       prevToolChainId =
-        fireForgetAgentToolChainRow(env, {
+        (await fireForgetAgentToolChainRow(env, {
           toolName: tool_name,
           agentSessionId: session_id ?? null,
           error: stepStatus === 'completed' ? null : errorMsg,
@@ -25606,7 +25556,7 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
           terminalSessionId: null,
           tenantId: MCP_WF_TENANT,
           parentChainId: prevToolChainId,
-        }) || prevToolChainId;
+        })) || prevToolChainId;
 
       stepResults.push({ tool_name, status: callStatus, tool_call_id: tcId });
       if (stepStatus === 'completed' && output && output !== '(no output)') {

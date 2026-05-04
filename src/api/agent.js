@@ -28,7 +28,10 @@ import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
 import { runBuiltinTool }                               from '../tools/ai-dispatch.js';
 import { getDefaultModelForTask, scheduleRoutingArmBanditUpdate } from '../core/routing.js';
-import { scheduleAgentsamCommandRunInsert }                   from './command-run-telemetry.js';
+import {
+  scheduleAgentsamCommandRunInsert,
+  fireForgetAgentToolChainRow,
+} from './command-run-telemetry.js';
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_execute', 'run_command', 'bash']);
@@ -896,6 +899,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     if (!pendingToolCalls.length || stopReason === 'end_turn') break;
 
     const toolResults = [];
+    let previousToolChainId = null;
     for (const call of pendingToolCalls) {
       if (toolCallsUsed >= maxToolCalls) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
@@ -920,15 +924,31 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       executedToolNames.push(call.name);
       emit('tool_call', { tool: call.name, args: call.input });
       await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_executed', message: `Executing: ${call.name}`, riskLevel: validation.riskLevel, reason: 'allowed' });
+      const toolT0 = Date.now();
       let toolOutput = '';
+      let execErr = null;
       try {
         const execResult = await dispatchToolCall(env, call.name, call.input, { sessionId, tenantId, userId });
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
       } catch (e) {
+        execErr = e;
         toolOutput = `Tool execution failed: ${e.message}`;
         console.warn('[agent] tool_error', call.name, e?.message ?? e);
-      emit('tool_error', { tool: call.name, error: 'Tool execution failed' });
+        emit('tool_error', { tool: call.name, error: 'Tool execution failed' });
       }
+      const toolDurMs = Date.now() - toolT0;
+      previousToolChainId = await fireForgetAgentToolChainRow(env, {
+        toolName: call.name,
+        agentSessionId: sessionId,
+        error: execErr,
+        costUsd: 0,
+        mcpToolCallId: null,
+        durationMs: toolDurMs,
+        terminalSessionId: null,
+        tenantId,
+        parentChainId: previousToolChainId,
+        ctx,
+      });
       emit('tool_result', { tool: call.name, output: toolOutput.slice(0, 2000) });
       toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: toolOutput });
       if (env.DB) {
