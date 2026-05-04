@@ -1,22 +1,43 @@
-WORKING DIRECTORY: /Users/samprimeaux/Downloads/inneranimalmedia
-This is the repo root. All files live here flat.
-- Worker source: src/
+WORKING DIRECTORY: /Users/samprimeaux/inneranimalmedia
+This is the ONLY valid repo root. Confirm with pwd before every command.
+
+- Worker entry: src/index.js (production)
+- Legacy fallback: worker.js (do not grow — modularize into src/)
 - React dashboard: dashboard/
+- Dashboard components: dashboard/components/
 - Production wrangler config: wrangler.production.toml
 - GitHub remote: https://github.com/SamPrimeaux/inneranimalmedia
 
 NEVER reference or write to:
-- /Users/samprimeaux/inneranimalmedia-agentsam-dashboard
-- /Users/samprimeaux/inneranimalmedia
-- ~/march1st-inneranimalmedia
-- Any nested inneranimalmedia-agentsam-dashboard path
+- /Users/samprimeaux/Downloads/inneranimalmedia (GONE)
+- /Users/samprimeaux/inneranimalmedia-agentsam-dashboard (DELETED)
+- /Users/samprimeaux/inneranimalmedia-BARE-DELETE (DELETED)
+- /Users/samprimeaux/march1st-inneranimalmedia (DELETED)
+- Any agent-dashboard/ or nested inneranimalmedia-agentsam-dashboard path
 
-Every file edit must be in /Users/samprimeaux/Downloads/inneranimalmedia/
-Every git command runs from /Users/samprimeaux/Downloads/inneranimalmedia/
-CF Builds auto-deploys on push to main branch.
+Every file edit must be in /Users/samprimeaux/inneranimalmedia/
+Every git command runs from /Users/samprimeaux/inneranimalmedia/
+
+## Architecture rules
+- src/index.js is the production entry point. worker.js isOT deployed directly.
+- All new business logic goes in src/ as focused modules.
+- worker.js gets max one import + one route delegation per module. Nothing else.
+- When touching any worker.js reference: extract logic into src/ at the same time.
+- Never hardcode workspace_id, tenant_id, email addresses, or secret values.
 
 ## Deploy — never guess (wrong command = wasted work)
-- `npm run deploy:full` — Any change under `dashboard/` (Vite build + R2 upload + Worker deploy). Required for frontend; push-to-main alone may not refresh R2 static assets the same way.
-- `npm run deploy` — Worker/API only (`src/`, `worker.js`). No R2 dashboard bundle upload.
-- `npm run deploy:ingest` — Route map + D1 schema doc + doc/memory ingest + Worker deploy. Not a replacement for `deploy:full` for dashboard UI changes.
-Do not invent alternate deploy directories, hardcode model names in deploy scripts, or run autonomous deploy commands unless the user explicitly asks.
+- `npm run deploy:full` — DEFAULT. Any change under dashboard/ (Vite build + R2 upload + Worker deploy).
+- `npm run deploy` — Worker/API only (src/, worker.js backend changes). No R2 upload.
+- `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` — Worker-only one-liner.
+- `npm run deploy:ingest` — Route map + D1 schema doc + memory ingest + Worker deploy.
+
+## Sandbox is DISCONTINUED
+- Never suggest deploy-sandbox.sh or promote-to-prod.sh — both are marked dangerous/discontinued.
+- Deploy directly to production with npm run deploy:full.
+
+## Dashboard build rules
+- NEVER run cd dashboard
+- Always usix dashboard run build OR npm run build:vite-only from repo root
+
+CF Builds auto-deploys Worker on push to main. Does NOT upload R2 frontend bundle.
+Run deploy:full locally when dashboard changes need to be live immediately.
