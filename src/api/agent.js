@@ -1012,7 +1012,20 @@ export async function agentChatSseHandler(env, request, ctx, session) {
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
   const { tools: dbTools } = await loadToolsForRequest(env, requestedMode, intentSlug, { limit: modeConfig.max_tool_calls || 20, includeSchemas: true });
-  let tools = dbTools.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema || { type: 'object', properties: {} } }));
+  let tools = dbTools.map(t => {
+    const raw = t.input_schema && typeof t.input_schema === 'object'
+      ? t.input_schema : {};
+    return {
+      name: t.name,
+      description: t.description || t.name,
+      input_schema: {
+        type: 'object',
+        properties: {},
+        ...raw,
+        type: 'object',
+      }
+    };
+  });
   const toolsFromPattern = parseJsonSafe(intentPattern?.tools_json, null);
   if (Array.isArray(toolsFromPattern) && toolsFromPattern.length) {
     const allow = new Set(toolsFromPattern.map((x) => String(x || '').trim()).filter(Boolean));
@@ -1358,6 +1371,20 @@ export async function agentChatSseHandler(env, request, ctx, session) {
 export async function handleAgentApi(request, url, env, ctx) {
   const path   = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
   const method = request.method.toUpperCase();
+
+  if (path === '/api/agent/subagent-profiles' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const { results } = await env.DB.prepare(
+      `SELECT id, slug, display_name, description, icon,
+              agent_type, default_model_id, is_active,
+              sort_order, sandbox_mode, mcp_servers_json,
+              modes_json, tool_invocation_style
+       FROM agentsam_subagent_profile
+       WHERE is_active = 1
+       ORDER BY sort_order ASC`
+    ).all().catch(() => ({ results: [] }));
+    return jsonResponse(results || []);
+  }
 
   // GET /api/agent/tools — combined tool exposure (builtin + registered MCP)
   if (path === '/api/agent/tools' && method === 'GET') {
@@ -2021,6 +2048,65 @@ export async function handleAgentApi(request, url, env, ctx) {
       } catch (e) { 
         console.error('[agent] workspace PUT error:', e.stack);
         return jsonResponse({ error: e.message }, 500); 
+      }
+    }
+
+    if (method === 'POST') {
+      const isAgentsamWs = /^ws_/i.test(wsId) || wsId === IAM_DEFAULT_WORKSPACE_ID;
+      if (!isAgentsamWs) {
+        return jsonResponse(
+          { error: 'Use PUT for conversation workspace snapshots; POST merge is for ws_* workspace ids.' },
+          400,
+        );
+      }
+      try {
+        const bodyPost = await request.json().catch(() => ({}));
+        if (!bodyPost || typeof bodyPost !== 'object') return jsonResponse({ error: 'Invalid JSON' }, 400);
+        let awsRow = null;
+        try {
+          awsRow = await env.DB.prepare(
+            `SELECT id, state_json FROM agentsam_workspace_state WHERE workspace_id = ? OR id = ? ORDER BY updated_at DESC LIMIT 1`,
+          )
+            .bind(wsId, wsId)
+            .first();
+        } catch (_) {
+          awsRow = null;
+        }
+        const safeJsonState = (v) => {
+          if (!v) return {};
+          if (typeof v === 'object' && v !== null) return v;
+          try { return JSON.parse(String(v)); } catch { return {}; }
+        };
+        const stringifyState = (state) => (typeof state === 'string' ? state : JSON.stringify(state || {}));
+        const cur = safeJsonState(awsRow?.state_json);
+        const patch = {};
+        for (const k of ['active_agent_slug', 'active_agent_panel', 'last_agent_action', 'agent_id']) {
+          if (Object.prototype.hasOwnProperty.call(bodyPost, k) && bodyPost[k] != null) patch[k] = bodyPost[k];
+        }
+        const merged = { ...cur, ...patch };
+        const mergedStr = stringifyState(merged);
+        if (awsRow?.id) {
+          await env.DB.prepare(
+            `UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`,
+          )
+            .bind(mergedStr, awsRow.id)
+            .run();
+        } else {
+          const nid = `aws_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+          try {
+            await env.DB.prepare(
+              `INSERT INTO agentsam_workspace_state (id, workspace_id, state_json, updated_at) VALUES (?,?,?,unixepoch())`,
+            )
+              .bind(nid, wsId, mergedStr)
+              .run();
+          } catch (e3) {
+            console.warn('[agent/workspace] agentsam POST insert', e3?.message ?? e3);
+            return jsonResponse({ error: 'agentsam_workspace_state write failed' }, 503);
+          }
+        }
+        return jsonResponse({ ok: true, id: wsId });
+      } catch (e) {
+        return jsonResponse({ error: e.message }, 500);
       }
     }
   }

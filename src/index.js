@@ -51,8 +51,7 @@ import { handleStudioSessionApi } from './api/studio-session';
 import { handleStatusBundle } from './api/status-bundle';
 import { handleCursorAgentApi } from './api/cursor-agent';
 import { handleCalendarApi } from './api/calendar.js';
-import legacyWorker from '../worker.js';
-import { annotateLegacyWorkerResponse } from './core/legacy-worker-annotate.js';
+import { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './core/router.js';
 import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
 import {
   runAgentsamMemoryDecay,
@@ -187,6 +186,11 @@ export default {
         return handleCatalogApi(request, url, env, ctx);
       }
 
+      // Tunnel status (shared handler with src/core/router.js; must run before legacy removal / api catchall)
+      if (pathLower === TUNNEL_STATUS_PATH && methodUpper === 'GET') {
+        return handleTunnelStatusGet(request, env);
+      }
+
       // Collab workspace room -> IAM_COLLAB DO (path segment after /api/collab/; casing preserved)
       if (/^\/api\/collab\/room\//i.test(path)) {
         const collabMatch = path.match(/^\/api\/collab\/(.+)$/i);
@@ -300,8 +304,8 @@ export default {
         });
       }
 
-      // 1c. OAuth & Auth Passthrough (Legacy Monolith)
-      // Aliases for older/doc links: same behavior as /api/oauth/{google,github}/start (legacy login flow).
+      // 1c. OAuth aliases + modular OAuth (no legacy worker)
+      // Aliases for older/doc links → same routes as /api/oauth/{google,github}/start.
       if (
         (pathLower === '/api/auth/google/start' || pathLower === '/api/auth/github/start') &&
         request.method === 'GET'
@@ -311,20 +315,15 @@ export default {
           pathLower === '/api/auth/google/start'
             ? '/api/oauth/google/start'
             : '/api/oauth/github/start';
-        return annotateLegacyWorkerResponse(
-          await legacyWorker.fetch(new Request(u.toString(), request), env, ctx),
-          request,
-          'oauth-alias-google-github-start',
-        );
+        return handleOAuthApi(new Request(u.toString(), request), env, ctx);
       }
 
       if (pathLower.startsWith('/api/oauth/')) {
         const res = await handleOAuthApi(request, env, ctx);
         if (res && res.status !== 404) return res;
-        return annotateLegacyWorkerResponse(
-          await legacyWorker.fetch(request, env, ctx),
-          request,
-          'oauth-after-modular-404',
+        return jsonResponse(
+          { error: 'Not found', path: pathLower },
+          404,
         );
       }
 
@@ -469,13 +468,19 @@ export default {
       }
 
       if (pathLower.startsWith('/api/agent') || pathLower.startsWith('/api/terminal') || pathLower.startsWith('/api/chat') || pathLower.startsWith('/api/playwright')) {
+        const postAgentFirst = pathLower.startsWith('/api/agent') && methodUpper === 'POST';
+        let postAgentRes = null;
+        if (postAgentFirst) {
+          postAgentRes = await handleAgentRequest(request, env, ctx, authUser);
+          if (postAgentRes.status !== 404) return postAgentRes;
+        }
         const dashRes = await handleDashboardApi(request, url, env, ctx);
         if (dashRes.status !== 404) return dashRes;
-      }
-
-      if (pathLower.startsWith('/api/agent')) {
-        const agentRes = await handleAgentRequest(request, env, ctx, authUser);
-        if (agentRes.status !== 404) return agentRes;
+        if (pathLower.startsWith('/api/agent')) {
+          if (postAgentFirst && postAgentRes) return postAgentRes;
+          const agentRes = await handleAgentRequest(request, env, ctx, authUser);
+          if (agentRes.status !== 404) return agentRes;
+        }
       }
 
       if (
@@ -611,17 +616,12 @@ export default {
         }
       }
 
-      // 5. Fallback: API Route Not Found (Delegate to Legacy Monolith)
+      // 5. Fallback: API route not implemented in modular worker
       if (pathLower.startsWith('/api/')) {
-        const legacyRes = await legacyWorker.fetch(request, env, ctx);
-        if (legacyRes.status === 404) {
-          return jsonResponse({
-            error: 'Route not found in modular router or legacy worker',
-            path: pathLower,
-            instruction: 'Please verify the api/ route is defined in src/api/'
-          }, 404);
-        }
-        return annotateLegacyWorkerResponse(legacyRes, request, 'api-catchall-modular-missed');
+        return new Response(JSON.stringify({ error: 'Not found', path: url.pathname }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
 
       if (!pathLower.startsWith('/api/')) {
@@ -756,7 +756,18 @@ export default {
       forLegacy.push(msg);
     }
     if (!forLegacy.length) return;
-    console.warn('[legacyWorker:fallback]', 'queue', forLegacy.length, 'messages');
-    return legacyWorker.queue({ messages: forLegacy }, env, ctx);
+    console.warn(
+      '[queue] dropped',
+      forLegacy.length,
+      'unhandled message(s) (no legacy worker); types:',
+      forLegacy.map((m) => {
+        try {
+          const b = m.body && typeof m.body === 'object' ? m.body : JSON.parse(m.body || '{}');
+          return b?.type ?? 'unknown';
+        } catch {
+          return 'parse_error';
+        }
+      }),
+    );
   }
 };

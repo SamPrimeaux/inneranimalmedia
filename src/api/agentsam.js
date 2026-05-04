@@ -25,6 +25,22 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
     const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
+    // Bootstrap config for authenticated user (Agent Sam UI)
+    if (path === '/api/agentsam/config' && method === 'GET') {
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!env.DB) return jsonResponse({});
+      try {
+        const row = await env.DB.prepare(
+          `SELECT * FROM agentsam_bootstrap
+           WHERE user_id = ? AND is_active = 1
+           ORDER BY updated_at DESC LIMIT 1`,
+        ).bind(String(authUser.id)).first();
+        return jsonResponse(row || {});
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
     // 1. Model Registry: GET /api/agentsam/ai/:role
     if (path.startsWith('/api/agentsam/ai') && method === 'GET') {
         const parts = path.split('/');

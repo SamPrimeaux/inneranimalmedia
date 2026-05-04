@@ -56,6 +56,33 @@ const CORS_HEADERS = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Shared with src/index.js (see TUNNEL_STATUS_PATH). */
+export const TUNNEL_STATUS_PATH = '/api/tunnel/status';
+
+export async function handleTunnelStatusGet(request, env) {
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (!env.DB) return jsonResponse({ healthy: false, status: 'no-db', connections: 0 });
+  try {
+    const row = await env.DB.prepare(
+      `SELECT tunnel_url, status, connections
+       FROM tunnel_sessions
+       WHERE user_id = ? AND status = 'active'
+       ORDER BY updated_at DESC LIMIT 1`,
+    ).bind(String(authUser.id)).first().catch(() => null);
+
+    if (!row) return jsonResponse({ healthy: false, status: 'no-tunnel', connections: 0 });
+    return jsonResponse({
+      healthy: true,
+      status: row.status,
+      connections: row.connections ?? 0,
+      tunnel_url: row.tunnel_url,
+    });
+  } catch (e) {
+    return jsonResponse({ healthy: false, status: 'error', error: e.message, connections: 0 });
+  }
+}
+
 // Pages that render without an active workspace (no workspace UUID needed in shell)
 const WORKSPACE_OPTIONAL_PAGES = new Set(['overview', 'finance', 'billing', 'settings', 'health']);
 
@@ -457,28 +484,8 @@ export async function handleRequest(request, env, ctx) {
   }
 
   // ── Tunnel Status ──────────────────────────────────────────────────────────
-  if (path === '/api/tunnel/status' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
-    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    if (!env.DB)   return jsonResponse({ healthy: false, status: 'no-db', connections: 0 });
-    try {
-      const row = await env.DB.prepare(
-        `SELECT tunnel_url, status, connections
-         FROM tunnel_sessions
-         WHERE user_id = ? AND status = 'active'
-         ORDER BY updated_at DESC LIMIT 1`
-      ).bind(String(authUser.id)).first().catch(() => null);
-
-      if (!row) return jsonResponse({ healthy: false, status: 'no-tunnel', connections: 0 });
-      return jsonResponse({
-        healthy:     true,
-        status:      row.status,
-        connections: row.connections ?? 0,
-        tunnel_url:  row.tunnel_url,
-      });
-    } catch (e) {
-      return jsonResponse({ healthy: false, status: 'error', error: e.message, connections: 0 });
-    }
+  if (path === TUNNEL_STATUS_PATH && method === 'GET') {
+    return handleTunnelStatusGet(request, env);
   }
 
   // ── Branding / Logo ────────────────────────────────────────────────────────
