@@ -202,8 +202,8 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   const policy = await loadModeToolPolicy(env, modeSlug);
   const { results } = await env.DB.prepare(
     `SELECT tool_name, description, input_schema, tool_category, requires_approval
-     FROM mcp_registered_tools
-     WHERE enabled = 1
+     FROM agentsam_mcp_tools
+     WHERE is_active = 1 AND is_degraded = 0
      ORDER BY tool_name
      LIMIT ?`
   ).bind(lim).all().catch(() => ({ results: [] }));
@@ -249,7 +249,7 @@ async function validateToolCall(env, modeSlug, toolName) {
   let row = null;
   if (env.DB) {
     row = await env.DB.prepare(
-      'SELECT tool_name, tool_category, requires_approval, enabled FROM mcp_registered_tools WHERE tool_name = ? LIMIT 1'
+      'SELECT tool_name, tool_category, requires_approval, enabled FROM agentsam_mcp_tools WHERE tool_name = ? LIMIT 1'
     ).bind(name).first().catch(() => null);
     if (row && Number(row.enabled || 0) !== 1) {
       return { allowed: false, reason: 'tool disabled', riskLevel: 'blocked', requiresConfirmation: false };
@@ -1416,7 +1416,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     try {
       const m = await env.DB.prepare(
         `SELECT tool_name, description, tool_category, enabled, requires_approval
-         FROM mcp_registered_tools
+         FROM agentsam_mcp_tools
          WHERE COALESCE(enabled,0) = 1
          ORDER BY tool_name ASC
          LIMIT 500`,
