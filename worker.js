@@ -3444,9 +3444,7 @@ const worker = {
         if (pathLower === '/api/webhooks/stripe') {
           return handleInboundWebhook(env, request, secret, { verifyKind: 'stripe', source: 'stripe', endpointPath: '/api/webhooks/stripe' }, ctx);
         }
-        if (pathLower === '/api/webhooks/github') {
-          return handleInboundWebhook(env, request, secret, { verifyKind: 'github', source: 'github', endpointPath: '/api/webhooks/github' }, ctx);
-        }
+        // GitHub: handled by src/api/webhooks/github.js (production main = src/index.js)
         if (pathLower === '/api/webhooks/cursor') {
           return handleInboundWebhook(env, request, secret, { verifyKind: 'cursor', source: 'cursor', endpointPath: '/api/webhooks/cursor' }, ctx);
         }
@@ -3461,9 +3459,6 @@ const worker = {
         }
         if (pathLower === '/api/webhooks/internal') {
           return handleInboundWebhook(env, request, secret, { verifyKind: 'internal', source: 'internal', endpointPath: '/api/webhooks/internal' }, ctx);
-        }
-        if (pathLower === '/api/hooks/github') {
-          return handleInboundWebhook(env, request, secret, { verifyKind: 'github', source: 'github', endpointPath: '/api/hooks/github' }, ctx);
         }
         if (pathLower === '/api/hooks/cursor') {
           return handleInboundWebhook(env, request, secret, { verifyKind: 'cursor', source: 'cursor', endpointPath: '/api/hooks/cursor' }, ctx);

@@ -64,6 +64,7 @@ import {
   handleGoogleLoginOAuthCallback,
   handleGitHubLoginOAuthCallback,
 } from './api/oauth-login-callbacks.js';
+import { handleGithubWebhook } from './api/webhooks/github.js';
 
 // --- Durable Objects (ACTIVE: 3 production classes only) ---
 export { IAMCollaborationSession } from './do/Collaboration.js';
@@ -152,6 +153,11 @@ export default {
       // 1. Health Checks
       if (pathLower === '/api/health' || pathLower === '/health') {
         return handleHealthCheck(request, env);
+      }
+
+      // GitHub App / webhook deliveries (must run on modular worker; wrangler main = src/index.js)
+      if (pathLower === '/api/webhooks/github' && methodUpper === 'POST') {
+        return handleGithubWebhook(request, env, ctx);
       }
 
       if (pathLower === '/api/admin/run-retention' && request.method === 'POST') {
