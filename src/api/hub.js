@@ -63,7 +63,7 @@ async function handleHubStats(env) {
     const [hoursRow, spendRow, callsRow] = await Promise.all([
         env.DB.prepare(`SELECT COALESCE(SUM(duration_seconds),0)/3600.0 as h FROM project_time_entries WHERE date(start_time) = date('now')`).first(),
         env.DB.prepare(`SELECT COALESCE(SUM(amount_usd), 0) as s FROM spend_ledger WHERE occurred_at >= unixepoch('now', '-7 days')`).first(),
-        env.DB.prepare(`SELECT COUNT(*) as c FROM agent_telemetry WHERE created_at >= unixepoch('now', 'start of day')`).first(),
+        env.DB.prepare(`SELECT COUNT(*) as c FROM agentsam_usage_events WHERE created_at >= unixepoch('now', 'start of day')`).first(),
     ]);
     return jsonResponse({
         hours_today: Number(hoursRow?.h || 0),

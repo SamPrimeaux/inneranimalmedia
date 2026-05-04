@@ -18,12 +18,12 @@ export async function runIntegritySnapshot(env, triggeredBy = 'cron') {
     SELECT
       COALESCE(SUM(CASE WHEN created_at >= (unixepoch() - 86400) THEN 1 ELSE 0 END), 0) AS tel_total_24h,
       COALESCE(SUM(CASE WHEN created_at >= (unixepoch() - 604800) THEN 1 ELSE 0 END), 0) AS tel_total_7d,
-      COALESCE(SUM(CASE WHEN created_at >= (unixepoch() - 86400) THEN computed_cost_usd ELSE 0 END), 0) AS tel_cost_24h,
-      COALESCE(SUM(CASE WHEN created_at >= (unixepoch() - 604800) THEN computed_cost_usd ELSE 0 END), 0) AS tel_cost_7d
-    FROM agent_telemetry`;
+      COALESCE(SUM(CASE WHEN created_at >= (unixepoch() - 86400) THEN cost_usd ELSE 0 END), 0) AS tel_cost_24h,
+      COALESCE(SUM(CASE WHEN created_at >= (unixepoch() - 604800) THEN cost_usd ELSE 0 END), 0) AS tel_cost_7d
+    FROM agentsam_usage_events`;
   const sqlQ3 = `
-    SELECT provider, COUNT(*) AS n, SUM(computed_cost_usd) AS cost
-    FROM agent_telemetry WHERE created_at >= (unixepoch() - 604800)
+    SELECT provider, COUNT(*) AS n, SUM(cost_usd) AS cost
+    FROM agentsam_usage_events WHERE created_at >= (unixepoch() - 604800)
     GROUP BY provider ORDER BY n DESC`;
   const sqlQ4 = `
     SELECT

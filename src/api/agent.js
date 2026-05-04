@@ -275,7 +275,7 @@ const FALLBACK_CORE_SYSTEM = 'You are Agent Sam, an autonomous AI coding and ope
 
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig) {
   const rows = await env.DB.prepare(`
-    SELECT id, prompt_kind, content
+    SELECT id, prompt_kind, body AS content
     FROM agentsam_prompt_versions
     WHERE status = 'active'
       AND prompt_kind = 'system'
@@ -2772,7 +2772,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   // ── /api/agent/telemetry ──────────────────────────────────────────────────
   if (path === '/api/agent/telemetry') {
     if (!env.DB) return jsonResponse([]);
-    const { results } = await env.DB.prepare(`SELECT provider, SUM(input_tokens) as total_input, SUM(output_tokens) as total_output, COUNT(*) as total_calls FROM agent_telemetry WHERE created_at > unixepoch('now','-7 days') GROUP BY provider`).all().catch(() => ({ results: [] }));
+    const { results } = await env.DB.prepare(`SELECT provider, SUM(tokens_in) as total_input, SUM(tokens_out) as total_output, COUNT(*) as total_calls FROM agentsam_usage_events WHERE created_at > unixepoch('now','-7 days') GROUP BY provider`).all().catch(() => ({ results: [] }));
     return jsonResponse(results || []);
   }
 

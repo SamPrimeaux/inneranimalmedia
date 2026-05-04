@@ -3,6 +3,10 @@
  * Internal / scripted sends (deploy hooks, automation).
  * Auth: INTERNAL_API_SECRET (Bearer or X-Internal-Secret).
  *
+ * Deploy notifications (scripts/deploy-frontend.sh) may include HTML built from
+ * Supabase `build_deploy_events` fields: worker_version_id, git_commit_sha, git_message,
+ * git_branch, environment, deployed_by, duration_ms, started_at, and optional AI cost fields.
+ *
  * Primary: Resend. Fallback: Gmail API via GOOGLE_SERVICE_ACCOUNT_JSON JWT
  * (domain-wide delegation: set GMAIL_DELEGATED_USER to the Workspace user to impersonate).
  */

@@ -140,7 +140,7 @@ async function handleOverviewAgentActivity(env) {
       `SELECT COALESCE(event_type,'unknown') as type,
               COUNT(*) as count,
               COALESCE(SUM(COALESCE(cost_usd,0)),0) as cost_usd
-       FROM agent_telemetry
+       FROM agentsam_usage_events
        WHERE COALESCE(created_at,0) >= ?
        GROUP BY COALESCE(event_type,'unknown')
        ORDER BY count DESC`
@@ -159,10 +159,10 @@ async function handleOverviewAgentActivity(env) {
     let top_model = null;
     try {
       const row = await env.DB.prepare(
-        `SELECT COALESCE(model_key, model, provider_model, '') AS m, COUNT(*) AS c
-         FROM agent_telemetry
+        `SELECT COALESCE(NULLIF(model_key,''), NULLIF(model,''), '') AS m, COUNT(*) AS c
+         FROM agentsam_usage_events
          WHERE COALESCE(created_at,0) >= ?
-         GROUP BY COALESCE(model_key, model, provider_model, '')
+         GROUP BY COALESCE(NULLIF(model_key,''), NULLIF(model,''), '')
          ORDER BY c DESC
          LIMIT 1`
       ).bind(since).first();
@@ -317,7 +317,7 @@ async function handleOverviewActivityStrip(authUser, env) {
       `SELECT COUNT(*) as c FROM deployments WHERE date(timestamp) >= date(?) AND status = 'success'`
     ).bind(sevenDaysAgo).first()),
     safe(env.DB.prepare(
-      `SELECT COUNT(*) as c FROM agent_telemetry WHERE created_at >= unixepoch(?)`
+      `SELECT COUNT(*) as c FROM agentsam_usage_events WHERE created_at >= unixepoch(?)`
     ).bind(sevenDaysAgo).first()),
     safe(env.DB.prepare(
       `SELECT COUNT(*) as c FROM cicd_pipeline_runs WHERE created_at >= unixepoch(?) AND status = 'success'`
@@ -325,17 +325,17 @@ async function handleOverviewActivityStrip(authUser, env) {
     safe(env.DB.prepare(
       `SELECT (COUNT(DISTINCT strftime('%Y-%m-%d %H', datetime(created_at, 'unixepoch'))) +
                COALESCE((SELECT SUM(total_active_seconds)/3600.0 FROM work_sessions WHERE started_at >= date('now','weekday 1')), 0)
-              ) as h FROM agent_telemetry WHERE created_at >= unixepoch(date('now','weekday 1'))`
+              ) as h FROM agentsam_usage_events WHERE created_at >= unixepoch(date('now','weekday 1'))`
     ).first()),
     safe(env.DB.prepare(
       `SELECT (COUNT(DISTINCT strftime('%Y-%m-%d %H', datetime(created_at, 'unixepoch'))) +
                COALESCE((SELECT SUM(total_active_seconds)/3600.0 FROM work_sessions WHERE date(started_at) = date('now')), 0)
-              ) as h FROM agent_telemetry WHERE date(datetime(created_at, 'unixepoch')) = date('now')`
+              ) as h FROM agentsam_usage_events WHERE date(datetime(created_at, 'unixepoch')) = date('now')`
     ).first()),
     safe(env.DB.prepare(
       `SELECT date(datetime(created_at, 'unixepoch')) as d,
               COUNT(DISTINCT strftime('%Y-%m-%d %H', datetime(created_at, 'unixepoch'))) as h
-       FROM agent_telemetry
+       FROM agentsam_usage_events
        WHERE created_at >= unixepoch(date('now','weekday 1'))
        GROUP BY date(datetime(created_at, 'unixepoch'))
        ORDER BY d ASC`

@@ -9,15 +9,17 @@ const MEET_URL = 'https://inneranimalmedia.com/dashboard/meet?room=iam-sam-conno
 
 function deployEmailHtml(meetUrl) {
   return `
-<div style="font-family:'Courier New',monospace;background:#00212b;color:#b0c4ce;padding:32px;border:1px solid #1e3e4a;max-width:520px;margin:0 auto;">
-  <div style="color:#2dd4bf;font-size:13px;margin-bottom:20px;">Inner Animal Media — Deploy Complete</div>
-  <p style="color:#e8f4f8;font-size:16px;margin:0 0 12px;">Production is live.</p>
-  <p style="color:#7a9aaa;font-size:12px;margin:0 0 24px;">The latest build just deployed successfully. Join the live session now.</p>
-  <a href="${meetUrl}" style="display:inline-block;padding:12px 28px;background:#2dd4bf;color:#00212b;font-family:'Courier New',monospace;font-size:13px;font-weight:bold;text-decoration:none;border-radius:4px;">Join Live Session →</a>
-  <p style="margin:20px 0 0;color:#2a4a5a;font-size:10px;">${meetUrl}</p>
-  <div style="margin-top:28px;padding-top:20px;border-top:1px solid #1e3e4a;">
-    <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/238de9d1-a470-4fe5-5424-9182f4bc0500/medium" width="100" style="opacity:0.7;" />
+<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#f8fafc;padding:28px 24px 36px;max-width:560px;margin:0 auto;">
+  <div style="font-size:22px;font-weight:700;color:#0d9488;letter-spacing:-0.02em;margin-bottom:6px;">Inner Animal Media</div>
+  <div style="font-size:13px;color:#94a3b8;margin-bottom:20px;">Deploy Notification · Live session</div>
+  <p style="margin:0 0 12px;font-size:16px;">Production is live.</p>
+  <p style="color:#94a3b8;font-size:13px;margin:0 0 22px;">The latest build deployed successfully. Join the live session now.</p>
+  <a href="${meetUrl}" style="display:inline-block;padding:12px 28px;background:#0d9488;color:#f8fafc;font-size:14px;font-weight:600;text-decoration:none;border-radius:6px;">Join Live Session →</a>
+  <p style="margin:18px 0 0;color:#64748b;font-size:11px;word-break:break-all;">${meetUrl}</p>
+  <div style="margin-top:28px;padding-top:18px;border-top:1px solid #1e293b;">
+    <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/238de9d1-a470-4fe5-5424-9182f4bc0500/medium" width="100" style="opacity:0.75;" alt="" />
   </div>
+  <p style="font-size:12px;color:#64748b;margin:20px 0 0;">Inner Animal Media · inneranimalmedia.com · Auto-generated deploy notification</p>
 </div>`;
 }
 

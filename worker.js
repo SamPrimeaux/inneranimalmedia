@@ -4053,7 +4053,7 @@ const worker = {
           }));
           return jsonResponse({
             timestamp: ts,
-            agent_runs: {
+            agentsam_agent_run: {
               total: Number(arTotal?.c) || 0,
               completed: Number(arCompleted?.c) || 0,
               stuck: Number(arStuck?.c) || 0,
@@ -8377,7 +8377,7 @@ async function maybeInsertSkillInvocationForTool(env, { toolName, tenantId, sess
   }
 }
 
-/** Mark agentsam_agent_run row completed with same cost/tokens as agent_telemetry (id = run row PK). */
+/** Mark agentsam_agent_run row completed with same cost/tokens as agentsam_usage_events (id = run row PK). */
 async function completeAgentsamAgentRun(env, runId, conversationId, inputTokens, outputTokens, costUsd) {
   if (!runId || !env?.DB) return;
   try {

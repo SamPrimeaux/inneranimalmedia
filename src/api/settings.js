@@ -2127,29 +2127,28 @@ export async function handleSettingsRequest(request, env, ctx) {
       params.push(provider);
     }
     if (model) {
-      where += ` AND model_used = ?`;
+      where += ` AND COALESCE(model_key, model) = ?`;
       params.push(model);
     }
     const [summary, ledger, total] = await Promise.all([
       env.DB.prepare(
-        `SELECT provider, model_used,
-                SUM(input_tokens) AS input_tokens,
-                SUM(output_tokens) AS output_tokens,
+        `SELECT provider, COALESCE(model_key, model) AS model_used,
+                SUM(tokens_in) AS input_tokens,
+                SUM(tokens_out) AS output_tokens,
                 COUNT(*) AS call_count,
-                ROUND(SUM(metric_value), 4) AS cost_usd
-         FROM agent_telemetry
-         WHERE tenant_id = ? AND metric_type = 'cost'
-           AND created_at >= date('now','start of month')
-         GROUP BY provider, model_used
+                ROUND(SUM(cost_usd), 4) AS cost_usd
+         FROM agentsam_usage_events
+         WHERE tenant_id = ? AND created_at >= unixepoch(date('now','start of month'))
+         GROUP BY provider, COALESCE(model_key, model)
          ORDER BY cost_usd DESC`,
       )
         .bind(tenantId)
         .all()
         .catch(() => ({ results: [] })),
       env.DB.prepare(
-        `SELECT provider, model_used, input_tokens, output_tokens, metric_value AS cost_usd, created_at
-         FROM agent_telemetry
-         ${where} AND metric_type = 'cost'
+        `SELECT provider, COALESCE(model_key, model) AS model_used, tokens_in AS input_tokens, tokens_out AS output_tokens, cost_usd, created_at
+         FROM agentsam_usage_events
+         ${where}
          ORDER BY created_at DESC
          LIMIT 50 OFFSET ?`,
       )
@@ -2157,7 +2156,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         .all()
         .catch(() => ({ results: [] })),
       env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM agent_telemetry ${where} AND metric_type = 'cost'`,
+        `SELECT COUNT(*) AS n FROM agentsam_usage_events ${where}`,
       )
         .bind(...params)
         .first()

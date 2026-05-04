@@ -84,10 +84,8 @@ export async function writeTelemetry(env, data, modelRates) {
   const {
     sessionId, tenantId, provider, model,
     inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
-    latencyMs, toolCallCount, toolNamesUsed,
-    promptPreview, responsePreview,
-    success, errorMessage,
-    routingDecisionId, agentRunId,
+    latencyMs,
+    success,
     computedCostUsdOverride,
   } = data;
 
@@ -101,38 +99,40 @@ export async function writeTelemetry(env, data, modelRates) {
   }
 
   const telemetryId = `tel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const metaObj = {
-    routing_decision_id: routingDecisionId || null,
-    agent_run_id: agentRunId || null,
-    tool_call_count: toolCallCount || 0,
-    tool_names_used: toolNamesUsed || [],
-    prompt_preview: (promptPreview || '').slice(0, 500),
-    response_preview: (responsePreview || '').slice(0, 500),
-    success: !!success,
-    error_message: errorMessage || null,
-    request_latency_ms: latencyMs ?? null,
-  };
-  
+
   const mid = resolveTelemetryTenantId(env, tenantId);
   const sid = sessionId != null ? String(sessionId) : null;
 
+  const tidInsert = mid || 'default';
+  const tokIn =
+    Math.floor((Number(inputTokens) || 0) + (Number(cacheReadTokens) || 0) + (Number(cacheWriteTokens) || 0));
+  const tokOut = Math.floor(Number(outputTokens) || 0);
+  const totalTok = tokIn + tokOut;
+
   try {
     await env.DB.prepare(
-      `INSERT INTO agent_telemetry (
-        id, tenant_id, session_id, metric_type, metric_name, metric_value, timestamp, metadata_json,
-        model_used, provider, input_tokens, output_tokens,
-        cache_read_input_tokens, cache_creation_input_tokens,
-        computed_cost_usd, total_input_tokens,
-        event_type, severity, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,unixepoch(),?,?,?,?,?,?,?,?,?,?,?,unixepoch(),unixepoch())`
+      `INSERT INTO agentsam_usage_events (
+        id, tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
+        tokens_in, tokens_out, total_tokens, cost_usd, status,
+        event_type, duration_ms,
+        created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`
     ).bind(
-      telemetryId, mid ?? null, sid,
-      'agent_chat', 'llm_turn', 1, JSON.stringify(metaObj),
-      modelKey, String(provider || 'unknown'),
-      Math.floor(inputTokens || 0), Math.floor(outputTokens || 0), 
-      Math.floor(cacheReadTokens || 0), Math.floor(cacheWriteTokens || 0),
-      estimatedCost ?? 0, (inputTokens || 0) + (cacheReadTokens || 0) + (cacheWriteTokens || 0),
-      'chat', success ? 'info' : 'warning'
+      telemetryId,
+      tidInsert,
+      'ws_inneranimalmedia',
+      sid,
+      'agent-sam',
+      String(provider || 'unknown'),
+      modelKey,
+      modelKey,
+      tokIn,
+      tokOut,
+      totalTok,
+      estimatedCost ?? 0,
+      success ? 'ok' : 'error',
+      'agent_chat',
+      latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
     ).run();
 
     // PHASE 4B — ai_provider_usage rollup (correct schema: tokens_input/tokens_output/cost_usd/requests)
@@ -169,7 +169,7 @@ export async function writeTelemetry(env, data, modelRates) {
          lid, mid, 'default', 'inneranimalmedia', spFixed, 'api_direct',
         Math.floor(Date.now() / 1000), estimatedCost, modelKey, inputTokens, outputTokens,
         sid || 'unknown', 'proj_inneranimalmedia_main_prod_013',
-        'agent_telemetry', telemetryId
+        'agentsam_usage_events', telemetryId
       ).run();
     }
   } catch (e) {
@@ -191,15 +191,30 @@ export async function insertAiGenerationLog(env, opts) {
   const now = Math.floor(Date.now() / 1000);
   
   try {
+    const tin = Math.floor(Number(opts.inputTokens) || 0);
+    const tout = Math.floor(Number(opts.outputTokens) || 0);
+    const mk = String(opts.model || 'unknown').trim() || 'unknown';
     await env.DB.prepare(
       `INSERT INTO agentsam_usage_events (
-        id, tenant_id, generation_type, prompt, model, response_text,
-        input_tokens, output_tokens, computed_cost_usd, status, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        id, tenant_id, workspace_id, agent_name, provider, model, model_key,
+        tokens_in, tokens_out, total_tokens, cost_usd, status, event_type, tool_name, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-       id, tid, opts.generationType, opts.prompt || '', opts.model || 'unknown', opts.responseText || '',
-       opts.inputTokens || 0, opts.outputTokens || 0, opts.computedCostUsd || 0, opts.status || 'completed',
-       opts.createdBy || 'worker', now
+      id,
+      tid,
+      'ws_inneranimalmedia',
+      'agent-sam',
+      'course_generation',
+      mk,
+      mk,
+      tin,
+      tout,
+      tin + tout,
+      Number(opts.computedCostUsd) || 0,
+      (opts.status || 'completed').toLowerCase() === 'completed' ? 'ok' : 'error',
+      String(opts.generationType || 'generation').slice(0, 120),
+      String(opts.prompt || '').slice(0, 200),
+      now,
     ).run();
 
     // PHASE 4D — Snapshot context if requested

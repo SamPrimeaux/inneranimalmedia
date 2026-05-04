@@ -67,12 +67,12 @@ export async function rollupAgentsamUsageDaily(env) {
   if (!env?.DB) return { ok: false, skipped: true, reason: 'no_db' };
   await ensureAgentsamUsageRollupsDaily(env.DB);
 
-  const telCols = await pragmaTableInfo(env.DB, 'agent_telemetry');
+  const telCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
   if (!telCols.has('created_at')) {
-    return { ok: false, skipped: true, reason: 'agent_telemetry_missing_created_at' };
+    return { ok: false, skipped: true, reason: 'agentsam_usage_events_missing_created_at' };
   }
 
-  const costExpr = telCols.has('computed_cost_usd') ? 'SUM(COALESCE(t.computed_cost_usd,0))' : '0';
+  const costExpr = telCols.has('cost_usd') ? 'SUM(COALESCE(t.cost_usd,0))' : '0';
   const wsExpr = telCols.has('workspace_id')
     ? "COALESCE(t.workspace_id, 'default')"
     : "'default'";
@@ -116,8 +116,8 @@ export async function rollupAgentsamUsageDaily(env) {
       ${wsExpr} AS workspace_id,
       date('now','-1 day') AS day,
       COUNT(*) AS ai_calls,
-      SUM(COALESCE(t.input_tokens,0)) AS tokens_in,
-      SUM(COALESCE(t.output_tokens,0)) AS tokens_out,
+      SUM(COALESCE(t.tokens_in,0)) AS tokens_in,
+      SUM(COALESCE(t.tokens_out,0)) AS tokens_out,
       ${costExpr} AS cost_usd,
       (SELECT COUNT(*) FROM agentsam_tool_call_log WHERE ${toolDay}) AS tool_calls,
       (SELECT ${succExpr ? `COUNT(*) FROM agentsam_tool_call_log WHERE ${toolDay} AND ${succExpr}` : '0'}) AS tool_successes,
@@ -130,7 +130,7 @@ export async function rollupAgentsamUsageDaily(env) {
       '[]' AS top_tools_json,
       'nightly_cron' AS rollup_source,
       unixepoch() AS rolled_up_at
-    FROM agent_telemetry t
+    FROM agentsam_usage_events t
     WHERE date(datetime(t.created_at, 'unixepoch')) = date('now','-1 day')
     GROUP BY ${tenantGroup}, ${wsExpr}
     ON CONFLICT(tenant_id, workspace_id, day) DO UPDATE SET
@@ -355,8 +355,8 @@ export async function rollupWorkspaceUsageMetrics(env) {
 export async function rollupModelPerformanceScores(env) {
   if (!env?.DB) return { ok: false, skipped: true };
   const out = await pragmaTableInfo(env.DB, 'agentsam_model_drift_signals');
-  const tel = await pragmaTableInfo(env.DB, 'agent_telemetry');
-  if (!out.size || !tel.has('created_at') || !tel.has('model_used')) {
+  const tel = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
+  if (!out.size || !tel.has('created_at') || (!tel.has('model') && !tel.has('model_key'))) {
     return { ok: false, skipped: true, reason: 'schema' };
   }
 
@@ -370,14 +370,21 @@ export async function rollupModelPerformanceScores(env) {
     selectExprs.push(`'${DEFAULT_TENANT}'`);
   }
   insertCols.push(modelDest);
-  selectExprs.push(`COALESCE(model_used,'unknown')`);
+  const modelExpr = tel.has('model_key') && tel.has('model')
+    ? `COALESCE(model_key, model, 'unknown')`
+    : tel.has('model_key')
+      ? `COALESCE(model_key, 'unknown')`
+      : `COALESCE(model, 'unknown')`;
+  selectExprs.push(modelExpr);
   if (tel.has('provider') && out.has('provider')) {
     insertCols.push('provider');
     selectExprs.push(`COALESCE(provider,'unknown')`);
   }
-  if (tel.has('metric_type') && out.has('task_type')) {
+  if ((tel.has('event_type') || tel.has('metric_type')) && out.has('task_type')) {
     insertCols.push('task_type');
-    selectExprs.push(`COALESCE(metric_type,'general')`);
+    selectExprs.push(
+      tel.has('event_type') ? `COALESCE(event_type,'general')` : `COALESCE(metric_type,'general')`,
+    );
   }
   if (out.has('period_start')) {
     insertCols.push('period_start');
@@ -394,35 +401,41 @@ export async function rollupModelPerformanceScores(env) {
     insertCols.push('call_count');
     selectExprs.push('COUNT(*)');
   }
-  if (out.has('error_count') && tel.has('severity')) {
+  if (out.has('error_count') && tel.has('status')) {
     insertCols.push('error_count');
-    selectExprs.push(`SUM(CASE WHEN severity='error' THEN 1 ELSE 0 END)`);
+    selectExprs.push(`SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('error','blocked','timeout') THEN 1 ELSE 0 END)`);
   }
-  if (out.has('error_rate') && tel.has('severity')) {
+  if (out.has('error_rate') && tel.has('status')) {
     insertCols.push('error_rate');
     selectExprs.push(
-      `CAST(SUM(CASE WHEN severity='error' THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(*), 0)`,
+      `CAST(SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('error','blocked','timeout') THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(*), 0)`,
     );
   }
   if (out.has('avg_cost_usd')) {
     insertCols.push('avg_cost_usd');
-    selectExprs.push('AVG(COALESCE(computed_cost_usd,0))');
+    selectExprs.push('AVG(COALESCE(cost_usd,0))');
   }
   if (out.has('total_cost_usd')) {
     insertCols.push('total_cost_usd');
-    selectExprs.push('SUM(COALESCE(computed_cost_usd,0))');
+    selectExprs.push('SUM(COALESCE(cost_usd,0))');
   }
   if (out.has('avg_input_tokens')) {
     insertCols.push('avg_input_tokens');
-    selectExprs.push('AVG(COALESCE(input_tokens,0))');
+    selectExprs.push(
+      tel.has('tokens_in') ? 'AVG(COALESCE(tokens_in,0))' : 'AVG(COALESCE(input_tokens,0))',
+    );
   }
   if (out.has('avg_output_tokens')) {
     insertCols.push('avg_output_tokens');
-    selectExprs.push('AVG(COALESCE(output_tokens,0))');
+    selectExprs.push(
+      tel.has('tokens_out') ? 'AVG(COALESCE(tokens_out,0))' : 'AVG(COALESCE(output_tokens,0))',
+    );
   }
   if (out.has('avg_latency_ms')) {
     insertCols.push('avg_latency_ms');
-    selectExprs.push('NULL');
+    selectExprs.push(
+      tel.has('duration_ms') ? 'AVG(COALESCE(duration_ms,0))' : 'NULL',
+    );
   }
   if (out.has('data_quality')) {
     insertCols.push('data_quality');
@@ -433,16 +446,17 @@ export async function rollupModelPerformanceScores(env) {
     selectExprs.push('unixepoch()');
   }
 
-  const groupParts = ['model_used'];
+  const groupParts = [modelExpr];
   if (tel.has('provider')) groupParts.push('provider');
-  if (tel.has('metric_type')) groupParts.push('metric_type');
+  if (tel.has('event_type')) groupParts.push('event_type');
+  else if (tel.has('metric_type')) groupParts.push('metric_type');
 
   const sql = `
     INSERT INTO agentsam_model_drift_signals (${insertCols.join(', ')})
     SELECT ${selectExprs.join(', ')}
-    FROM agent_telemetry
+    FROM agentsam_usage_events
     WHERE created_at >= unixepoch(date('now','-7 days'))
-      AND model_used IS NOT NULL
+      AND length(trim(COALESCE(model_key, model, ''))) > 0
     GROUP BY ${groupParts.join(', ')}
   `;
 
@@ -715,7 +729,6 @@ export async function purgeHotLogs(env) {
   if (!env?.DB) return { purges: {}, ok: false };
   const purges = {};
   const specs = [
-    { table: 'agent_telemetry', days: 7, prefs: ['created_at'] },
     { table: 'agentsam_usage_events', days: 7, prefs: ['created_at'] },
     { table: 'agentsam_mcp_tool_execution', days: 7, prefs: ['created_at'] },
     { table: 'agentsam_webhook_events', days: 7, prefs: ['received_at', 'processed_at'] },
