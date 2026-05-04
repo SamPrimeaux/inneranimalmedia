@@ -879,10 +879,15 @@ export default {
       } catch {
         body = {};
       }
+      let tenantId = body?.tenantId ?? body?.tenant_id;
+      let workspaceId = body?.workspaceId ?? body?.workspace_id;
+      const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
+      if (isCfSystem) {
+        tenantId = 'tenant_sam_primeaux';
+        workspaceId = 'ws_inneranimalmedia';
+      }
       if (body?.type === 'codebase_index_sync') {
         try {
-          const tenantId = body?.tenantId ?? body?.tenant_id;
-          const workspaceId = body?.workspaceId ?? body?.workspace_id;
           if (!tenantId || !workspaceId) {
             console.warn('[queue] missing tenantId/workspaceId in payload, skipping codebase_index_sync');
             msg.ack();
@@ -912,8 +917,6 @@ export default {
         continue;
       }
       if (env?.DB) {
-        const tenantId = body?.tenantId ?? body?.tenant_id;
-        const workspaceId = body?.workspaceId ?? body?.workspace_id;
         if (!tenantId || !workspaceId) {
           console.warn('[queue] missing tenantId/workspaceId in payload, skipping webhook event insert');
         } else {

@@ -1095,7 +1095,9 @@ export async function handleSettingsRequest(request, env, ctx) {
     try {
       const [models, tiers, routing] = await Promise.all([
         env.DB.prepare(
-          `SELECT id, display_name AS name, provider, is_active, show_in_picker,
+          `SELECT id, display_name AS name, provider,
+                  CASE WHEN COALESCE(status, '') = 'active' THEN 1 ELSE 0 END AS is_active,
+                  show_in_picker,
                   context_max_tokens AS context_window,
                   input_rate_per_mtok AS cost_per_input_mtok,
                   output_rate_per_mtok AS cost_per_output_mtok
@@ -1136,19 +1138,21 @@ export async function handleSettingsRequest(request, env, ctx) {
       const hasSP = body && Object.prototype.hasOwnProperty.call(body, 'show_in_picker');
       if (!hasIA && !hasSP) return jsonResponse({ error: 'No fields to update' }, 400);
       const existing = await env.DB.prepare(
-        `SELECT is_active, show_in_picker FROM agentsam_ai WHERE id = ? LIMIT 1`,
+        `SELECT status, show_in_picker FROM agentsam_ai WHERE id = ? LIMIT 1`,
       )
         .bind(id)
         .first();
       if (!existing) return jsonResponse({ error: 'Model not found' }, 404);
-      const iaRaw = hasIA ? body.is_active : existing.is_active;
+      const effectiveActive = String(existing.status || '') === 'active';
+      const iaRaw = hasIA ? body.is_active : effectiveActive;
       const spRaw = hasSP ? body.show_in_picker : existing.show_in_picker;
-      const ia = iaRaw === true || iaRaw === 1 || iaRaw === '1' ? 1 : 0;
+      const nextActive =
+        iaRaw === true || iaRaw === 1 || iaRaw === '1' || iaRaw === 'active';
       const sp = spRaw === true || spRaw === 1 || spRaw === '1' ? 1 : 0;
       await env.DB.prepare(
-        `UPDATE agentsam_ai SET is_active = ?, show_in_picker = ?, updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE agentsam_ai SET status = ?, show_in_picker = ?, updated_at = datetime('now') WHERE id = ?`,
       )
-        .bind(ia, sp, id)
+        .bind(nextActive ? 'active' : 'inactive', sp, id)
         .run();
       return jsonResponse({ ok: true });
     }

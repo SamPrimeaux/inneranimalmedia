@@ -80,7 +80,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
             const batch = await env.DB.batch([
                 env.DB.prepare("SELECT id, name, role_name, mode, thinking_mode, effort FROM agentsam_ai WHERE status='active' ORDER BY sort_order, name"),
                 env.DB.prepare("SELECT id, service_name, service_type, endpoint_url, authentication_type, token_secret_name, is_active, health_status FROM mcp_services WHERE is_active=1 ORDER BY service_name"),
-                env.DB.prepare("SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens, supports_tools, supports_web_search, supports_vision, size_class, picker_group FROM agentsam_ai WHERE COALESCE(is_active,0)=1 AND COALESCE(show_in_picker,0)=1 AND COALESCE(picker_eligible,1)=1 ORDER BY sort_order ASC, display_name ASC"),
+                env.DB.prepare("SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens, supports_tools, supports_web_search, supports_vision, size_class, picker_group FROM agentsam_ai WHERE status = 'active' AND COALESCE(show_in_picker,0)=1 AND COALESCE(picker_eligible,1)=1 AND model_key IS NOT NULL ORDER BY sort_order ASC, display_name ASC"),
                 env.DB.prepare("SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20"),
             ]);
             

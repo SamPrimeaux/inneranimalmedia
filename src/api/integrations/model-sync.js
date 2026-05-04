@@ -46,8 +46,8 @@ export async function syncProviderModels(env, provider, apiKey) {
       if (!m.key) continue;
       const id = genModelId(p, m.key);
       await env.DB.prepare(
-        `INSERT OR IGNORE INTO agentsam_ai (id, provider, model_key, display_name, billing_unit, is_active, show_in_picker, picker_eligible, api_platform, pricing_unit)
-         VALUES (?, ?, ?, ?, 'tokens', 1, 1, 1, ?, 'usd_per_mtok')`,
+        `INSERT OR IGNORE INTO agentsam_ai (id, provider, model_key, display_name, billing_unit, is_active, show_in_picker, picker_eligible, api_platform, pricing_unit, status)
+         VALUES (?, ?, ?, ?, 'tokens', 1, 1, 1, ?, 'usd_per_mtok', 'active')`,
       )
         .bind(id, p, m.key, m.name || m.key, p)
         .run()

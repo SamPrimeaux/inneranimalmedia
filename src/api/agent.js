@@ -724,27 +724,47 @@ function dedupeModelsByKey(rows) {
   return out;
 }
 
-async function loadLastResortModels(env, opts = {}) {
+/** DB-driven tool-capable fallback chain (canonical agentsam_ai only). */
+async function loadToolFallbackChain(env, opts = {}) {
   if (!env.DB) return [];
   const tenantId =
     opts.tenantId != null && String(opts.tenantId).trim() !== ''
       ? String(opts.tenantId).trim()
-      : null;
+      : '';
   if (!tenantId) return [];
+  const excludeModelKeys = Array.isArray(opts.excludeModelKeys)
+    ? [...new Set(opts.excludeModelKeys.map((k) => String(k || '').trim()).filter(Boolean))]
+    : [];
+  const limRaw = Number(opts.limit);
+  const lim = Number.isFinite(limRaw) && limRaw > 0 ? Math.min(Math.floor(limRaw), 50) : 3;
   try {
-    const sql = `SELECT ${AI_MODEL_ROW_SQL}
+    let sql = `SELECT ${AI_MODEL_ROW_SQL}
        FROM agentsam_ai
        WHERE mode = 'model' AND status = 'active'
-         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
-         AND api_platform NOT IN ('workers_ai', 'ollama')
          AND supports_tools = 1
-       ORDER BY sort_order ASC
-       LIMIT 5`;
-    const { results } = await env.DB.prepare(sql).bind(tenantId).all();
+         AND model_key IS NOT NULL
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+         AND api_platform NOT IN ('workers_ai', 'ollama')`;
+    const binds = [tenantId];
+    if (excludeModelKeys.length) {
+      sql += ` AND model_key NOT IN (${excludeModelKeys.map(() => '?').join(',')})`;
+      binds.push(...excludeModelKeys);
+    }
+    sql += ` ORDER BY COALESCE(sort_order, 999999) ASC LIMIT ?`;
+    binds.push(lim);
+    const { results } = await env.DB.prepare(sql).bind(...binds).all();
     return results || [];
   } catch (_) {
     return [];
   }
+}
+
+async function loadLastResortModels(env, opts = {}) {
+  return loadToolFallbackChain(env, {
+    tenantId: opts.tenantId,
+    excludeModelKeys: opts.excludeModelKeys,
+    limit: 3,
+  });
 }
 
 function filterChainToolPolicy(rows, requireTools) {
@@ -1439,7 +1459,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const primaryRow = await resolveAiModelRowById(env, modeConfig?.model_preference ?? null, tenantId);
   const escalationRow = await resolveAiModelRowById(env, modeConfig?.escalation_model ?? null, tenantId);
-  const lastResort = await loadLastResortModels(env, { requireTools, tenantId });
+  const reservedForFallback = [
+    thompsonRow?.model_key,
+    primaryRow?.model_key,
+    escalationRow?.model_key,
+  ].filter(Boolean);
+  const lastResort = await loadLastResortModels(env, {
+    tenantId,
+    excludeModelKeys: reservedForFallback,
+  });
   let poolRows = dedupeModelsByKey(
     [...(thompsonRow ? [thompsonRow] : []), primaryRow, escalationRow, ...(lastResort || [])].filter(Boolean),
   );
@@ -1495,12 +1523,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   let systemPrompt = legacySystemPrompt();
   if (env.DB) {
-    try {
-      systemPrompt = await buildSystemPrompt(env, tenantId, requestedMode, contextBlock, modeConfig);
-    } catch (e) {
-      console.warn('[agent] buildSystemPrompt fallback', e?.message ?? e);
-      systemPrompt = legacySystemPrompt();
-    }
+    systemPrompt = await buildSystemPrompt(env, tenantId, requestedMode, contextBlock, modeConfig);
   }
   try {
     const mem = await loadAgentMemoryForPrompt(env, tenantId, {
@@ -1603,6 +1626,19 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             console.warn('[agent] ollama skipped; trying next model');
           } else {
             console.warn('[agent] model fallback:', { provider: row?.provider, model_key: row?.model_key, error: e?.message });
+            try {
+              const more = await loadToolFallbackChain(env, {
+                tenantId,
+                excludeModelKeys: tried,
+                limit: 3,
+              });
+              const moreFiltered = await filterWorkspaceModelTierPool(env, workspaceId, more);
+              for (let j = moreFiltered.length - 1; j >= 0; j--) {
+                chainRows.splice(i + 1, 0, moreFiltered[j]);
+              }
+            } catch (_) {
+              /* extra fallbacks are optional */
+            }
           }
         }
       }
