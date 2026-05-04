@@ -3,6 +3,8 @@
  * Uses PRAGMA table_info before writes — column names are never guessed.
  */
 
+import { decayRoutingArms, updateArmsFromMetrics } from './thompson.js';
+
 const DEFAULT_TENANT = 'system';
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
@@ -826,6 +828,8 @@ export async function runMasterDailyRetention(env) {
     workspace_usage_metrics: await rollupWorkspaceUsageMetrics(env),
     agentsam_model_drift_signals: await rollupModelPerformanceScores(env),
     agentsam_routing_arms: await updateModelRoutingRulesFromScores(env),
+    thompson_arm_update: await updateArmsFromMetrics(env),
+    thompson_decay: await decayRoutingArms(env),
     agentsam_health_daily: await rollupAgentsamHealthDaily(env),
     deployments_weekly_rollup: await rollupDeploymentsWeekly(env),
   };

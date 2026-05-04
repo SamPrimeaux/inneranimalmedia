@@ -912,6 +912,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         reasoningEffort: modeConfig?.gate_reasoning_effort || null,
         temperature,
         userId,
+        taskType: routingTaskType || 'chat',
+        mode: mode || 'auto',
       });
       isWorkersAiStream = false;
     } catch (e) {
@@ -1354,7 +1356,11 @@ export async function agentChatSseHandler(env, request, ctx, session) {
 
   let routingPick = null;
   try {
-    routingPick = await getDefaultModelForTask(env, { taskKey: intentSlug, tenantId });
+    routingPick = await getDefaultModelForTask(env, {
+      taskKey: intentSlug,
+      tenantId,
+      mode: requestedMode,
+    });
   } catch (_) {
     routingPick = null;
   }

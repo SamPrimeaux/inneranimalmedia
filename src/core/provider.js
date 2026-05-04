@@ -10,9 +10,20 @@ import { chatWithToolsGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
 import { resolveApiKey }       from './vault.js';
+import { thompsonSample }      from './thompson.js';
 
 /** Thrown when Ollama is skipped so the agent model chain can try the next provider (no SSE error text). */
 export const OLLAMA_SKIP_MESSAGE = 'ollama_skip';
+
+/** @param {any} params */
+async function resolveAutoModelKey(env, params) {
+  let modelKey = params.modelKey;
+  const mk = modelKey != null ? String(modelKey).trim() : '';
+  if (mk && mk.toLowerCase() !== 'auto') return modelKey;
+  const arm = await thompsonSample(env, params.taskType || 'chat', params.mode || 'auto');
+  if (arm?.model_key) return arm.model_key;
+  return modelKey;
+}
 
 export async function resolveModelMeta(env, modelKey) {
   if (!env.DB || !modelKey) return null;
@@ -32,7 +43,8 @@ export async function resolveModelMeta(env, modelKey) {
 }
 
 export async function dispatchStream(env, request, params) {
-  const { modelKey, systemPrompt, messages, tools = [], options = {}, userId } = params;
+  const modelKey = await resolveAutoModelKey(env, params);
+  const { systemPrompt, messages, tools = [], options = {}, userId } = params;
   const meta     = await resolveModelMeta(env, modelKey);
   const platform = meta?.api_platform || 'anthropic';
   const dp       = { modelKey, systemPrompt, messages, tools, userId, ...options };
@@ -58,7 +70,8 @@ export async function dispatchStream(env, request, params) {
 }
 
 export async function dispatchComplete(env, params) {
-  const { modelKey, systemPrompt, messages, tools = [], options = {}, userId } = params;
+  const modelKey = await resolveAutoModelKey(env, params);
+  const { systemPrompt, messages, tools = [], options = {}, userId } = params;
   const meta     = await resolveModelMeta(env, modelKey);
   const platform = meta?.api_platform || 'anthropic';
 

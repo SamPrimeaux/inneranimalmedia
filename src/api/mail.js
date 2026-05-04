@@ -7,6 +7,7 @@
 
 import { getAuthUser } from '../core/auth.js';
 import { jsonResponse } from '../core/responses.js';
+import { sendPlatformEmail, sendUserGmail } from '../lib/email.js';
 
 const PAGE_SIZE = 50;
 const GMAIL_PROVIDER = 'google_gmail';
@@ -905,10 +906,58 @@ export async function handleMailApi(request, url, env, ctx) {
     // POST /api/mail/send
     if (method === 'POST' && p === '/api/mail/send') {
       const body = await readJsonBody(request);
+      const providerRaw =
+        body?.provider != null && String(body.provider).trim() !== ''
+          ? String(body.provider).trim().toLowerCase()
+          : '';
       const from = body?.from ? String(body.from).trim() : '';
       const to = body?.to ? String(body.to).trim() : '';
       const subjectRaw = body?.subject != null ? String(body.subject) : '';
       const subject = subjectRaw.trim();
+
+      if (providerRaw === 'gmail') {
+        if (!to || !subject) return jsonResponse({ error: 'to and subject are required' }, 400);
+        let html = body?.html != null ? String(body.html) : '';
+        let text = body?.text != null ? String(body.text) : '';
+        const result = await sendUserGmail(env, authUser.id, {
+          to,
+          subject,
+          html: html || undefined,
+          text: text || undefined,
+        });
+        if (!result.ok) {
+          const err = result.error || '';
+          if (err === 'no_google_oauth' || err === 'no_sender_identity') {
+            return jsonResponse(
+              { error: 'Gmail not connected. Go to Settings → Integrations to connect Google.' },
+              403,
+            );
+          }
+          return jsonResponse({ error: err || 'send_failed' }, 502);
+        }
+        return jsonResponse({ ok: true, provider: 'gmail', id: result.id || null });
+      }
+
+      if (providerRaw === 'resend' || providerRaw === 'platform') {
+        if (!to || !subject) return jsonResponse({ error: 'to and subject are required' }, 400);
+        const html = body?.html != null ? String(body.html) : '';
+        const text = body?.text != null ? String(body.text) : '';
+        const r = await sendPlatformEmail(env, {
+          to,
+          subject,
+          html: html || undefined,
+          text: text || undefined,
+          from: from || undefined,
+        });
+        if (!r.success) {
+          return jsonResponse({ error: r.error || 'send_failed' }, r.error === 'no_resend_key' ? 503 : 502);
+        }
+        return jsonResponse({
+          ok: true,
+          provider: 'platform',
+          ...(r.data?.id ? { id: String(r.data.id) } : {}),
+        });
+      }
 
       if (!from || !to || !subject) {
         return jsonResponse({ error: 'from, to, subject are required' }, 400);
@@ -967,33 +1016,24 @@ export async function handleMailApi(request, url, env, ctx) {
         return jsonResponse({ ok: true, provider: 'gmail', id: String(sent.json?.id || ''), log_id: logId });
       }
 
-      if (!env.RESEND_API_KEY) return jsonResponse({ error: 'RESEND_API_KEY not configured' }, 503);
-
-      const payload = {
+      const platformSend = await sendPlatformEmail(env, {
         from,
         to,
         subject,
-        ...(html ? { html } : {}),
-        ...(text ? { text } : {}),
-        ...(replyTo ? { reply_to: replyTo } : {}),
-      };
-
-      const resp = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
+        html: html || undefined,
+        text: text || undefined,
       });
-
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        const msg = typeof data?.message === 'string' ? data.message : 'Failed to send email';
-        return jsonResponse({ error: msg }, 502);
+      if (!platformSend.success) {
+        const st = platformSend.error === 'no_resend_key' || platformSend.error === 'no_service_account'
+          ? 503
+          : 502;
+        return jsonResponse({ error: platformSend.error || 'send_failed' }, st);
       }
-
-      const resendId = typeof data?.id === 'string' && data.id.trim() ? data.id.trim() : (crypto?.randomUUID?.() || 'sent');
+      const data = platformSend.data || {};
+      const resendId =
+        typeof data?.id === 'string' && data.id.trim()
+          ? data.id.trim()
+          : crypto?.randomUUID?.() || 'sent';
       const logId = crypto.randomUUID();
       const archive = env.EMAIL || env.EMAIL_ARCHIVE;
       const archivePayload = JSON.stringify({

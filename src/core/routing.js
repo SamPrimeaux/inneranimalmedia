@@ -13,6 +13,8 @@
  *   - is_active | active  — optional eligibility gate
  */
 
+import { thompsonSample } from './thompson.js';
+
 const TABLE = 'agentsam_routing_arms';
 
 /** @param {import('@cloudflare/workers-types').D1Database | undefined} db */
@@ -192,24 +194,36 @@ export function thompsonSelectArm(arms, cols) {
  */
 export async function getDefaultModelForTask(env, ctx = {}) {
   try {
-    const { cols, arms } = await loadEligibleArms(env, ctx);
-    if (!arms.length) {
+    const db = env?.DB;
+    if (!db) {
+      return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_db' };
+    }
+    const taskType =
+      ctx.taskKey != null && String(ctx.taskKey).trim() !== ''
+        ? String(ctx.taskKey).trim()
+        : 'chat';
+    const mode = ctx.mode != null && String(ctx.mode).trim() !== '' ? String(ctx.mode).trim() : 'auto';
+    const arm = await thompsonSample(env, taskType, mode);
+    if (!arm?.model_key) {
       return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_eligible_arms' };
     }
-
-    const idCol = pickIdColumn(cols);
-    const modelCol = pickModelColumn(cols);
-    const { arm } = thompsonSelectArm(arms, cols);
-    if (!arm || !idCol || !modelCol) {
-      return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'selection_skipped' };
-    }
-
-    const modelId = arm[modelCol] != null ? String(arm[modelCol]).trim() : '';
-    const armId = arm[idCol] != null ? String(arm[idCol]).trim() : '';
+    const row = await db
+      .prepare(
+        `SELECT id FROM agentsam_ai WHERE model_key = ? AND mode = 'model' AND status = 'active' LIMIT 1`,
+      )
+      .bind(String(arm.model_key))
+      .first()
+      .catch(() => null);
+    const modelId = row?.id != null ? String(row.id).trim() : '';
+    const armId = arm.id != null ? String(arm.id).trim() : '';
     if (!modelId) {
-      return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'empty_model_id' };
+      return {
+        modelId: null,
+        armId: armId || null,
+        source: 'fallback',
+        fallbackReason: 'unknown_model_key',
+      };
     }
-
     return {
       modelId,
       armId: armId || null,
