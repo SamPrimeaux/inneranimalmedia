@@ -68,9 +68,13 @@ export async function runSecurityScan(env, opts = {}) {
 
   const {
     scanTargets = SCAN_TARGETS,
-    tenantId = 'tenant_sam_primeaux',
     triggeredBy = 'nightly_cron',
   } = opts;
+
+  const tenantId = opts?.tenantId ?? env?.TENANT_ID ?? null;
+  if (!tenantId) {
+    throw new Error('security-scan: tenantId required');
+  }
 
   const findings = [];
 

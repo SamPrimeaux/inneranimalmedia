@@ -249,20 +249,20 @@ export async function handleDashboardApi(request, url, env, ctx) {
             if (!command) return jsonResponse({ error: 'No command' }, 400);
             const { output, command: runCommand } = await runTerminalCommand(env, request, command, session_id, ctx);
             const execId = crypto.randomUUID();
-            try {
+            const wsForAudit =
+              url.searchParams.get('workspace_id') ||
+              (env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+                ? String(env.DEFAULT_WORKSPACE_ID).trim()
+                : null);
+            if (wsForAudit) {
+              try {
                 await env.DB?.prepare(
                     `INSERT INTO agentsam_command_run
                      (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
                      VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
-                ).bind(
-                    execId,
-                    tenantId,
-                    (url.searchParams.get('workspace_id') || env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia'),
-                    session_id || null,
-                    runCommand,
-                    output,
-                ).run();
-            } catch (_) {}
+                ).bind(execId, tenantId, wsForAudit, session_id || null, runCommand, output).run();
+              } catch (_) {}
+            }
             return jsonResponse({ output, command: runCommand, execution_id: execId });
         } catch (e) {
             return jsonResponse({ error: e?.message || 'terminal run failed' }, 500);

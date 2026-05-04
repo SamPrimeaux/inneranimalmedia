@@ -140,7 +140,7 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
     // ── /api/workspaces/current/shell ───────────────────────────────────────
     if (pathLower === '/api/workspaces/current/shell' && method === 'GET') {
         return jsonResponse({
-            workspace_id: env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia',
+            workspace_id: env.DEFAULT_WORKSPACE_ID || null,
             product_name: 'IAM Explorer',
             version: 'v6'
         });

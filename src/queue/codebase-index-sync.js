@@ -180,15 +180,12 @@ async function insertFileAndChunks(env, opts) {
  * @param {import('@cloudflare/workers-types').ExecutionContext} [_ctx]
  */
 export async function handleCodebaseIndexSyncFromQueue(env, body, _ctx) {
-  const workspace_id =
-    (body?.workspace_id != null && String(body.workspace_id).trim()) ||
-    (env?.WORKSPACE_ID != null && String(env.WORKSPACE_ID).trim()) ||
-    (env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim()) ||
-    'ws_inneranimalmedia';
-  const tenant_id =
-    (body?.tenant_id != null && String(body.tenant_id).trim()) ||
-    (env?.TENANT_ID != null && String(env.TENANT_ID).trim()) ||
-    'tenant_sam_primeaux';
+  const tenant_id = body?.tenantId ?? body?.tenant_id;
+  const workspace_id = body?.workspaceId ?? body?.workspace_id;
+  if (!tenant_id || !workspace_id) {
+    console.warn('[codebase-index-sync] missing tenant/workspace, skipping');
+    return;
+  }
 
   const r2 = pickR2Binding(env);
   if (!r2) throw new Error('No R2 binding (ASSETS/DASHBOARD/R2) for codebase_index_sync');

@@ -15,7 +15,10 @@ const BLUEPRINTS = 'designstudio_design_blueprints';
 const MCP_WORKFLOWS = 'agentsam_mcp_workflows';
 const WORKSPACE_TABLE = 'agentsam_workspace';
 function defaultWorkspaceId(env) {
-  return env?.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
+  if (env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== '') {
+    return String(env.DEFAULT_WORKSPACE_ID).trim();
+  }
+  return null;
 }
 
 async function resolveWorkspaceId(env, tenantId, explicit) {
@@ -228,6 +231,7 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       const title = String(body.title || '').trim();
       if (!title) return jsonResponse({ error: 'title required' }, 400);
       const workspaceId = await resolveWorkspaceId(env, tenantId, body.workspace_id);
+      if (!workspaceId) return jsonResponse({ error: 'workspace required' }, 400);
       const sketchJson =
         typeof body.sketch_json === 'object' && body.sketch_json !== null
           ? JSON.stringify(body.sketch_json)
@@ -376,6 +380,7 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
         return jsonResponse({ error: 'No active DesignStudio workflow configured' }, 503);
       }
       const workspaceId = await resolveWorkspaceId(env, tenantId, body.workspace_id ?? blueprint.workspace_id);
+      if (!workspaceId) return jsonResponse({ error: 'workspace required' }, 400);
       const inputPayload = {
         blueprint_id: blueprintId,
         prompt: blueprint.original_prompt != null ? String(blueprint.original_prompt) : null,
@@ -494,11 +499,13 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
         );
         const text = await res.text();
         const rows = text ? JSON.parse(text) : [];
-        const ws = (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env);
+        const ws =
+          (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env) || '';
         const prefix = buildCadCreationsPrefix(tenantId, ws, runId);
         return jsonResponse({ workflow_run_id: runId, r2_prefix: prefix, assets: Array.isArray(rows) ? rows : [] }, 200);
       } catch (e) {
-        const ws = (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env);
+        const ws =
+          (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env) || '';
         const prefix = buildCadCreationsPrefix(tenantId, ws, runId);
         return jsonResponse(
           { workflow_run_id: runId, r2_prefix: prefix, assets: [], supabase_error: String(e?.message || e) },

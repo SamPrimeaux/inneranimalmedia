@@ -110,7 +110,7 @@ export class AgentChatSqlV1 extends DurableObject {
     this.workspaceId =
       env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ""
         ? String(env.DEFAULT_WORKSPACE_ID).trim()
-        : "ws_inneranimalmedia";
+        : "";
     this.workspaceSettings = {};
     this.workspaceSettingsPromise = null;
     this.historySequence = 0;
@@ -220,7 +220,7 @@ export class AgentChatSqlV1 extends DurableObject {
       String(workspaceId || "").trim() ||
       (this.env?.DEFAULT_WORKSPACE_ID != null && String(this.env.DEFAULT_WORKSPACE_ID).trim() !== ""
         ? String(this.env.DEFAULT_WORKSPACE_ID).trim()
-        : "ws_inneranimalmedia");
+        : "");
     if (this.workspaceId !== nextWorkspaceId) {
       this.workspaceId = nextWorkspaceId;
       this.workspaceSettings = {};

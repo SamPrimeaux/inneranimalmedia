@@ -19,6 +19,7 @@ import {
   isIngestSecretAuthorized,
   fetchAuthUserTenantId,
 } from './core/auth';
+import { resolveIdentity } from './core/identity.js';
 import { handleSettingsRequest } from './api/settings';
 import { handleWorkspaceApi } from './api/workspace';
 import { handleCicdEvent } from './api/cicd-event';
@@ -120,6 +121,7 @@ export default {
 
     try {
       const methodUpper = (request.method || 'GET').toUpperCase();
+      const identity = await resolveIdentity(env, request);
       // Canonical auth URLs first — before health, assets, dashboard shell, or legacy fallthrough.
       // Preserve query string (e.g. next=). No-store so stale HTML is not cached at /login.
       if ((methodUpper === 'GET' || methodUpper === 'HEAD') && pathLower === '/login') {
@@ -414,15 +416,40 @@ export default {
         if (!ingestBypass) {
           session = await getSession(env, request).catch(() => null);
           if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);
+          if (!identity) {
+            return new Response(JSON.stringify({ error: 'unauthenticated' }), {
+              status: 401,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          if (!identity.workspaceId) {
+            return new Response(
+              JSON.stringify({ error: 'no_workspace', redirect: '/onboarding' }),
+              { status: 403, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
         }
         const body = await request.json().catch(() => ({}));
-        const userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;
+        let userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;
         let tenantId = body.tenantId ?? authUser?.tenant_id ?? session?.tenant_id ?? null;
+        let workspaceId =
+          body.workspaceId ?? body.workspace_id ?? identity?.workspaceId ?? null;
+        if (!ingestBypass && identity) {
+          userId = body.userId ?? identity.userId;
+          tenantId = body.tenantId ?? identity.tenantId;
+          workspaceId = body.workspaceId ?? body.workspace_id ?? identity.workspaceId;
+        }
         if (!tenantId && userId) {
           tenantId = await fetchAuthUserTenantId(env, userId).catch(() => null);
         }
         const sessionId = body.sessionId ?? session?.session_id ?? null;
-        const result = await executeCommand(env, ctx, { ...body, userId, tenantId, sessionId });
+        const result = await executeCommand(env, ctx, {
+          ...body,
+          userId,
+          tenantId,
+          workspaceId,
+          sessionId,
+        });
         return jsonResponse(result);
       }
 
@@ -456,14 +483,39 @@ export default {
         if (!ingestBypass) {
           session = await getSession(env, request).catch(() => null);
           if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);
+          if (!identity) {
+            return new Response(JSON.stringify({ error: 'unauthenticated' }), {
+              status: 401,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          if (!identity.workspaceId) {
+            return new Response(
+              JSON.stringify({ error: 'no_workspace', redirect: '/onboarding' }),
+              { status: 403, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
         }
-        const userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;
+        let userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;
         let tenantId = body.tenantId ?? authUser?.tenant_id ?? session?.tenant_id ?? null;
+        let workspaceId =
+          body.workspaceId ?? body.workspace_id ?? identity?.workspaceId ?? null;
+        if (!ingestBypass && identity) {
+          userId = body.userId ?? identity.userId;
+          tenantId = body.tenantId ?? identity.tenantId;
+          workspaceId = body.workspaceId ?? body.workspace_id ?? identity.workspaceId;
+        }
         if (!tenantId && userId) {
           tenantId = await fetchAuthUserTenantId(env, userId).catch(() => null);
         }
         const sessionId = body.sessionId ?? session?.session_id ?? null;
-        const result = await startWorkflow(env, ctx, { ...body, userId, sessionId, tenantId });
+        const result = await startWorkflow(env, ctx, {
+          ...body,
+          userId,
+          sessionId,
+          tenantId,
+          workspaceId,
+        });
         return jsonResponse(result);
       }
 
@@ -733,6 +785,7 @@ export default {
         Promise.allSettled([
           runMasterDailyRetention(env),
           runSecurityScan(env, {
+            tenantId: env.TENANT_ID,
             scanSources: ['agent_messages', 'terminal_history', 'agentsam_mcp_tool_execution'],
             triggeredBy: 'nightly_cron',
           }),
@@ -787,6 +840,13 @@ export default {
       }
       if (body?.type === 'codebase_index_sync') {
         try {
+          const tenantId = body?.tenantId ?? body?.tenant_id;
+          const workspaceId = body?.workspaceId ?? body?.workspace_id;
+          if (!tenantId || !workspaceId) {
+            console.warn('[queue] missing tenantId/workspaceId in payload, skipping codebase_index_sync');
+            msg.ack();
+            continue;
+          }
           await handleCodebaseIndexSyncFromQueue(env, body, ctx);
           msg.ack();
           if (env?.DB) {
@@ -796,14 +856,11 @@ export default {
               VALUES
                 ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
             `).bind(
-              body?.tenant_id ?? 'tenant_sam_primeaux',
+              tenantId,
               body?.type ?? 'unknown',
               JSON.stringify({
                 ...(typeof body === 'object' && body ? body : {}),
-                workspace_id:
-                  body?.workspace_id ??
-                  env.DEFAULT_WORKSPACE_ID ??
-                  'ws_inneranimalmedia',
+                workspace_id: workspaceId,
               }),
             ).run().catch(() => {});
           }
@@ -814,20 +871,25 @@ export default {
         continue;
       }
       if (env?.DB) {
-        env.DB.prepare(`
+        const tenantId = body?.tenantId ?? body?.tenant_id;
+        const workspaceId = body?.workspaceId ?? body?.workspace_id;
+        if (!tenantId || !workspaceId) {
+          console.warn('[queue] missing tenantId/workspaceId in payload, skipping webhook event insert');
+        } else {
+          env.DB.prepare(`
           INSERT INTO agentsam_webhook_events
             (id, tenant_id, provider, event_type, payload_json, status, processed_at)
           VALUES
             ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
         `).bind(
-          body?.tenant_id ?? 'tenant_sam_primeaux',
-          body?.type ?? 'unknown',
-          JSON.stringify({
-            ...(typeof body === 'object' && body ? body : {}),
-            workspace_id:
-              body?.workspace_id ?? env.DEFAULT_WORKSPACE_ID ?? 'ws_inneranimalmedia',
-          }),
-        ).run().catch(() => {});
+            tenantId,
+            body?.type ?? 'unknown',
+            JSON.stringify({
+              ...(typeof body === 'object' && body ? body : {}),
+              workspace_id: workspaceId,
+            }),
+          ).run().catch(() => {});
+        }
       }
       forLegacy.push(msg);
     }

@@ -158,16 +158,6 @@ export async function resolveAgentCommand(env, opts) {
   };
 }
 
-/** Resolve workspace for runtime telemetry (env override → explicit → default). */
-export function resolveRuntimeWorkspaceId(env, workspaceId) {
-  const w = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
-  if (w) return w;
-  const def = env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-    ? String(env.DEFAULT_WORKSPACE_ID).trim()
-    : '';
-  return def || 'ws_inneranimalmedia';
-}
-
 /** Sequential dependency edge for tool_chain steps (D1). */
 export async function insertExecutionDependencyGraphEdge(env, tenantId, executionId, dependsOnExecutionId) {
   if (!env?.DB || !tenantId || !executionId || !dependsOnExecutionId) return;
@@ -207,6 +197,11 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     ctx = null,
   } = opts || {};
   if (!env?.DB) return null;
+  const ws =
+    opts?.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : '';
+  if (!ws) return null;
   const completedAt = Math.floor(Date.now() / 1000);
   const durSec = Math.max(0, Math.ceil((Number(durationMs) || 0) / 1000));
   const startedAt = Math.max(0, completedAt - durSec);
@@ -224,7 +219,7 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     )
     .bind(
       chainId,
-      resolveRuntimeWorkspaceId(env, opts?.workspaceId),
+      ws,
       agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
       toolName,
       toolStatus,
@@ -257,7 +252,8 @@ export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
   const commandId = p.commandId != null ? String(p.commandId).trim() : '';
   if (!env?.DB || !commandId) return;
 
-  const tenantId = p.tenantId != null && String(p.tenantId).trim() !== '' ? String(p.tenantId).trim() : 'tenant_sam_primeaux';
+  const tenantId = p.tenantId != null && String(p.tenantId).trim() !== '' ? String(p.tenantId).trim() : null;
+  if (!tenantId) return;
   const status = p.success ? 'completed' : 'failed';
   const metricDate = new Date().toISOString().slice(0, 10);
   const isSuccess = status === 'completed' ? 1 : 0;
@@ -364,6 +360,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
   if (!env?.DB || !ctx?.waitUntil) return;
   const ws = p.workspaceId != null ? String(p.workspaceId).trim() : '';
   if (!ws) return;
+  if (p.tenantId == null || String(p.tenantId).trim() === '') return;
 
   ctx.waitUntil(
     (async () => {
@@ -412,7 +409,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
         if (!ins?.success) return;
 
         await upsertExecutionPerformanceMetricsAfterCommandRun(env, {
-          tenantId: 'tenant_sam_primeaux',
+          tenantId: p.tenantId,
           commandId: p.selectedCommandId,
           success: p.success,
           durationMs: Math.max(0, Math.floor(p.durationMs || 0)),
@@ -510,7 +507,10 @@ export async function executeCommand(env, ctx, o) {
       .catch(() => null);
     sessionWorkspace = srow?.workspace_id != null ? String(srow.workspace_id).trim() : null;
   }
-  const resolvedWorkspace = resolveRuntimeWorkspaceId(env, wid || sessionWorkspace);
+  const resolvedWorkspace = wid || sessionWorkspace;
+  if (!resolvedWorkspace) {
+    return { ok: false, error: 'workspace_required' };
+  }
 
   const cmd = await env.DB
     .prepare(`SELECT * FROM agentsam_commands WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`)

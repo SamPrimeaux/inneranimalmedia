@@ -1,7 +1,7 @@
 /**
  * Multi-step workflow runner — D1 agentsam_mcp_workflows + agentsam_workflow_runs.
  */
-import { executeCommand, resolveRuntimeWorkspaceId } from '../api/command-run-telemetry.js';
+import { executeCommand } from '../api/command-run-telemetry.js';
 import { isFeatureEnabled } from './features.js';
 
 export async function startWorkflow(env, ctx, o) {
@@ -16,6 +16,9 @@ export async function startWorkflow(env, ctx, o) {
     triggerType = 'agent',
   } = o || {};
   if (!env?.DB) return { ok: false, error: 'no_db' };
+  if (!workspaceId || String(workspaceId).trim() === '') {
+    return { ok: false, error: 'workspace_required' };
+  }
 
   const enabled = await isFeatureEnabled(env, 'multi_step_workflows', { userId, tenantId });
   if (!enabled) return { ok: false, error: 'feature_disabled' };
@@ -42,7 +45,7 @@ export async function startWorkflow(env, ctx, o) {
     steps = [];
   }
   const runId = 'wrun_' + crypto.randomUUID().slice(0, 16);
-  const wsResolved = resolveRuntimeWorkspaceId(env, workspaceId);
+  const wsResolved = workspaceId;
 
   await env.DB
     .prepare(

@@ -415,7 +415,36 @@ export async function handleStorageApi(request, url, env) {
   if (pathLower === '/api/storage/analytics' && method === 'GET') {
     if (!env.DB) return jsonResponse({ source: 'd1_registry', data_quality: 'partial', last_synced_at: null, failed: ['DB'], ...baseMeta });
     return cachedStorageResponse(env, 'analytics', tenantId, async (failed) => {
-      const workspaceId = url.searchParams.get('workspace_id') || env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
+      const workspaceId =
+        url.searchParams.get('workspace_id') ||
+        (env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+          ? String(env.DEFAULT_WORKSPACE_ID).trim()
+          : null);
+      if (!workspaceId) {
+        failed.add('workspace_id');
+        return {
+          source: 'd1_registry',
+          data_quality: 'partial',
+          last_synced_at: null,
+          total_objects: 0,
+          total_bytes: 0,
+          by_bucket: [],
+          summary: { object_count: 0, size_bytes: 0 },
+          storage_inventory: {
+            total_objects: 0,
+            total_bytes: 0,
+            total_mb: 0,
+            bucket_count: 0,
+            storage_by_bucket: [],
+            by_content_type: {},
+            cleanup_breakdown: [],
+          },
+          request_trends: [],
+          recent_errors: [],
+          workspace_usage: [],
+          ...baseMeta,
+        };
+      }
       const [summaries, syncRow, trends, errors, usage] = await Promise.all([
         q(env, failed, 'r2_bucket_summary', `SELECT * FROM r2_bucket_summary ORDER BY COALESCE(priority,999), bucket_name`),
         q(env, failed, 'r2_bucket_summary', `SELECT MAX(last_inventoried_at) AS last_synced_at FROM r2_bucket_summary`, [], 'first'),

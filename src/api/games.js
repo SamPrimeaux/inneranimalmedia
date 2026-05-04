@@ -19,7 +19,11 @@ export async function handleGamesApi(request, url, env, _ctx, authUser) {
   // POST /api/games/rooms — create a room
   if (path === '/api/games/rooms' && method === 'POST') {
     const roomId = `room_${crypto.randomUUID().replace(/-/g,'').slice(0,12)}`;
-    const wsId = env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
+    const wsId =
+      env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+        ? String(env.DEFAULT_WORKSPACE_ID).trim()
+        : null;
+    if (!wsId) return jsonResponse({ error: 'workspace not configured' }, 503);
     await env.DB.prepare(`
       INSERT INTO game_rooms (id, game_type, status, host_player_id, host_display_name, workspace_id)
       VALUES (?, 'chess', 'open', ?, ?, ?)

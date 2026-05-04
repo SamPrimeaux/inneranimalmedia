@@ -22,6 +22,7 @@ import { getAuthUser, getSession,
          fetchAuthUserTenantId,
          authUserIsSuperadmin,
          platformTenantIdFromEnv }    from '../core/auth.js';
+import { resolveIdentity } from '../core/identity.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
@@ -50,15 +51,6 @@ const AP_SYS = {
 };
 const TENANT_KNOWLEDGE_PLATFORM = 'tenant_knowledge_platform';
 const TENANT_SHINSHU = 'tenant_jake_waalk';
-
-/** Owner default when session has no workspace and D1 has no bootstrap row. */
-function iamDefaultWorkspaceId(env) {
-  const d =
-    env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-      ? String(env.DEFAULT_WORKSPACE_ID).trim()
-      : '';
-  return d || 'ws_inneranimalmedia';
-}
 
 /**
  * Resolve workspace_id from agentsam_bootstrap (cached per request object).
@@ -257,7 +249,7 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
 
 async function resolveBootstrapWorkspaceIdForAgentApi(env, userId, cache) {
   const uid = userId != null ? String(userId).trim() : '';
-  if (!uid || !env?.DB) return iamDefaultWorkspaceId(env);
+  if (!uid || !env?.DB) return null;
   if (cache && cache.__iamBootWs != null) return cache.__iamBootWs;
   try {
     const row = await env.DB.prepare(
@@ -270,11 +262,11 @@ async function resolveBootstrapWorkspaceIdForAgentApi(env, userId, cache) {
     const ws =
       row?.workspace_id != null && String(row.workspace_id).trim() !== ''
         ? String(row.workspace_id).trim()
-        : iamDefaultWorkspaceId(env);
+        : null;
     if (cache && typeof cache === 'object') cache.__iamBootWs = ws;
     return ws;
   } catch {
-    return iamDefaultWorkspaceId(env);
+    return null;
   }
 }
 
@@ -540,9 +532,8 @@ async function loadUserPolicy(env, userId, workspaceId = '') {
   } catch (_) { return defaults; }
 }
 
-async function resolveDefaultModel(env) {
-  if (!env.DB) return null;
-  const tenantId = 'tenant_sam_primeaux';
+async function resolveDefaultModel(env, tenantId) {
+  if (!env.DB || !tenantId || String(tenantId).trim() === '') return null;
   try {
     const row = await env.DB.prepare(
       `SELECT model_key FROM agentsam_ai
@@ -582,7 +573,8 @@ async function resolveAiModelRowById(env, id, tenantIdOpt) {
   const tenantId =
     tenantIdOpt != null && String(tenantIdOpt).trim() !== ''
       ? String(tenantIdOpt).trim()
-      : 'tenant_sam_primeaux';
+      : null;
+  if (!tenantId) return null;
   try {
     return await env.DB.prepare(
       `SELECT ${AI_MODEL_ROW_SQL}
@@ -617,11 +609,16 @@ function rowIsExternalProvider(row) {
   return true;
 }
 
-async function resolveAiModelFromRequest(env, body) {
+async function resolveAiModelFromRequest(env, body, tenantIdCtx) {
   const tenantId =
-    body?.tenant_id != null && String(body.tenant_id).trim() !== ''
-      ? String(body.tenant_id).trim()
-      : 'tenant_sam_primeaux';
+    tenantIdCtx != null && String(tenantIdCtx).trim() !== ''
+      ? String(tenantIdCtx).trim()
+      : body?.tenant_id != null && String(body.tenant_id).trim() !== ''
+        ? String(body.tenant_id).trim()
+        : null;
+  if (!tenantId) {
+    return { row: null, rawRequestedKey: null, rawRequestedId: null };
+  }
   const rawId =
     body?.model_id != null && String(body.model_id).trim() !== ''
       ? String(body.model_id).trim()
@@ -637,7 +634,9 @@ async function resolveAiModelFromRequest(env, body) {
           ? String(body.modelKey).trim()
           : '';
   if (/^auto$/i.test(rawKey)) rawKey = '';
-  if (!env.DB) return { row: null, rawRequestedKey: rawKey || null, rawRequestedId: rawId || null };
+  if (!env.DB) {
+    return { row: null, rawRequestedKey: rawKey || null, rawRequestedId: rawId || null };
+  }
   try {
     if (rawId || rawKey) {
       const needle = rawId || rawKey;
@@ -668,9 +667,10 @@ function normalizeGateParseFailure(originalMessage) {
   return { intent: 'auto', rewritten_query: originalMessage, confidence: 0 };
 }
 
-async function gateRewriteAndClassify(env, modeConfig, message) {
+async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
+  if (!tenantId || String(tenantId).trim() === '') return normalizeGateParseFailure(message);
   const gateId = modeConfig?.gate_model ?? null;
-  const gateMeta = await resolveAiModelRowById(env, gateId);
+  const gateMeta = await resolveAiModelRowById(env, gateId, tenantId);
   if (!gateMeta?.model_key) return normalizeGateParseFailure(message);
 
   const gatePrompt =
@@ -729,7 +729,8 @@ async function loadLastResortModels(env, opts = {}) {
   const tenantId =
     opts.tenantId != null && String(opts.tenantId).trim() !== ''
       ? String(opts.tenantId).trim()
-      : 'tenant_sam_primeaux';
+      : null;
+  if (!tenantId) return [];
   try {
     const sql = `SELECT ${AI_MODEL_ROW_SQL}
        FROM agentsam_ai
@@ -872,6 +873,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
     streamFailed,
     refId,
   } = opts;
+  if (!tenantId || !workspaceId) return;
   ctx.waitUntil(
     env.DB.prepare(`
       INSERT OR IGNORE INTO agentsam_usage_events
@@ -883,8 +885,8 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
          'iam_agent',?,?,?,?,?,?,
          'agent_chat_sse',?,unixepoch())
     `).bind(
-      tenantId ?? 'tenant_sam_primeaux',
-      workspaceId ?? iamDefaultWorkspaceId(env),
+      tenantId,
+      workspaceId,
       userId ?? null,
       conversationId ?? null,
       resolvedProvider ?? 'unknown',
@@ -1205,6 +1207,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       previousToolChainId = await fireForgetAgentToolChainRow(env, {
         toolName: call.name,
         agentSessionId: sessionId,
+        workspaceId,
         error: execErr,
         costUsd: 0,
         mcpToolCallId: null,
@@ -1250,18 +1253,46 @@ async function runAgentToolLoop(env, ctx, emit, params) {
 
 // ─── SSE Chat Handler ─────────────────────────────────────────────────────────
 
-export async function agentChatSseHandler(env, request, ctx, session) {
+export async function agentChatSseHandler(env, request, ctx, opts = {}) {
+  const { ingestBypass, identity } = opts;
   const contentType = request.headers.get('content-type') || '';
   let body = {};
-  
+
   if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
     body = Object.fromEntries(formData.entries());
-    // Attach files if any
     const files = formData.getAll('files');
     if (files.length) body.files = files;
   } else {
     body = await request.json().catch(() => ({}));
+  }
+
+  /** @type {{ user_id: string, tenant_id: string, workspace_id: string, session_id?: string|null }} */
+  let session;
+  if (ingestBypass) {
+    const tid = body.tenantId ?? body.tenant_id;
+    const wid = body.workspaceId ?? body.workspace_id;
+    const uid = body.userId ?? body.user_id;
+    if (!tid || !wid || !uid) {
+      return jsonResponse({ error: 'ingest requires tenantId, workspaceId, userId' }, 400);
+    }
+    session = {
+      user_id: uid,
+      tenant_id: tid,
+      workspace_id: wid,
+      session_id: body.sessionId ?? body.session_id ?? null,
+    };
+  } else {
+    if (!identity) return jsonResponse({ error: 'unauthenticated' }, 401);
+    if (!identity.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    session = {
+      user_id: identity.userId,
+      tenant_id: identity.tenantId,
+      workspace_id: identity.workspaceId,
+      session_id: body.sessionId ?? body.session_id ?? null,
+    };
   }
 
   let message = (body.message || '').trim();
@@ -1320,12 +1351,14 @@ export async function agentChatSseHandler(env, request, ctx, session) {
   }
   const userId = session?.user_id || null;
   const wsCache = {};
-  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, userId, wsCache) : iamDefaultWorkspaceId(env);
+  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, userId, wsCache) : null;
   const workspaceId =
     String(body.workspace_id || '').trim() ||
     String(session?.workspace_id || '').trim() ||
     String(env.WORKSPACE_ID || '').trim() ||
-    bootstrapWorkspaceId;
+    bootstrapWorkspaceId ||
+    '';
+  if (!workspaceId) return jsonResponse({ error: 'workspace required' }, 400);
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
     loadModeConfig(env, requestedMode),
@@ -1335,7 +1368,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
 
   kickoffModelTierMigration(env, ctx);
 
-  const gate = await gateRewriteAndClassify(env, modeConfig, message);
+  const gate = await gateRewriteAndClassify(env, modeConfig, message, tenantId);
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
@@ -1373,7 +1406,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
     row: requestedCatalogRow,
     rawRequestedKey,
     rawRequestedId,
-  } = await resolveAiModelFromRequest(env, body);
+  } = await resolveAiModelFromRequest(env, body, tenantId);
 
   let explicitRow = null;
   let blockedToolsForRequested = false;
@@ -1635,6 +1668,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
       }
 
       scheduleAgentsamCommandRunInsert(env, ctx, {
+        tenantId,
         workspaceId: resolvedWorkspaceId ?? '',
         sessionId: sessionId ? String(sessionId) : null,
         conversationId: sessionId ? String(sessionId) : null,
@@ -1683,6 +1717,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
       emit('error', { message: 'Agent loop failed' });
       scheduleAgentsamCommandRunInsert(env, ctx, {
+        tenantId,
         workspaceId: resolvedWorkspaceId ?? '',
         sessionId: sessionId ? String(sessionId) : null,
         conversationId: sessionId ? String(sessionId) : null,
@@ -1740,11 +1775,35 @@ export async function agentChatSseHandler(env, request, ctx, session) {
   });
 }
 
+function isAgentApiPublic(path, method) {
+  if (path === '/api/agent/health' && method === 'GET') return true;
+  if (path === '/api/agent/subagent-profiles' && method === 'GET') return true;
+  if (path === '/api/agent/modes' && method === 'GET') return true;
+  if (path === '/api/agent/commands' && method === 'GET') return true;
+  if (path === '/api/agent/conversations/search' && method === 'GET') return true;
+  if (path === '/api/agent/telemetry') return true;
+  if (path === '/api/agent/cicd') return true;
+  if (path === '/api/agent/mcp') return true;
+  return false;
+}
+
 // ─── Main Dispatcher ──────────────────────────────────────────────────────────
 
 export async function handleAgentApi(request, url, env, ctx) {
   const path   = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
   const method = request.method.toUpperCase();
+
+  const identity = await resolveIdentity(env, request);
+  const ingestChatBypass =
+    path === '/api/agent/chat' &&
+    method === 'POST' &&
+    isIngestSecretAuthorized(request, env);
+  if (!isAgentApiPublic(path, method) && !ingestChatBypass) {
+    if (!identity) return jsonResponse({ error: 'unauthenticated' }, 401);
+    if (!identity.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+  }
 
   if (path === '/api/agent/subagent-profiles' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
@@ -1874,7 +1933,8 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     if (method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405);
     const showInPicker = url.searchParams.get('show_in_picker') === '1';
-    const tenantForModels = url.searchParams.get('tenant_id') || 'tenant_sam_primeaux';
+    const tenantForModels = url.searchParams.get('tenant_id') || identity?.tenantId;
+    if (!tenantForModels) return jsonResponse({ error: 'tenant_id required' }, 400);
     try {
       const { results } = await env.DB.prepare(
         `SELECT id, name, provider, model_key, api_platform, show_in_picker,
@@ -2236,6 +2296,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   // ── /api/agent/boot ───────────────────────────────────────────────────────
   if (path === '/api/agent/boot') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!identity?.tenantId) return jsonResponse({ error: 'unauthenticated' }, 401);
     try {
       const batch = await env.DB.batch([
         env.DB.prepare(`SELECT id, name, role_name, mode, thinking_mode, effort FROM agentsam_ai WHERE status='active' ORDER BY sort_order, name`),
@@ -2252,7 +2313,7 @@ export async function handleAgentApi(request, url, env, ctx) {
           FROM agentsam_ai
           WHERE mode = 'model' AND status = 'active'
             AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
-          ORDER BY provider, COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC`).bind('tenant_sam_primeaux'),
+          ORDER BY provider, COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC`).bind(identity.tenantId),
         env.DB.prepare(`SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20`),
       ]);
       return jsonResponse({ agents: batch[0]?.results||[], mcp_services: batch[1]?.results||[], models: batch[2]?.results||[], sessions: batch[3]?.results||[] });
@@ -2426,7 +2487,11 @@ export async function handleAgentApi(request, url, env, ctx) {
     }
 
     if (method === 'POST') {
-      const isAgentsamWs = /^ws_/i.test(wsId) || wsId === iamDefaultWorkspaceId(env);
+      const defaultWs =
+        env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+          ? String(env.DEFAULT_WORKSPACE_ID).trim()
+          : '';
+      const isAgentsamWs = /^ws_/i.test(wsId) || (defaultWs !== '' && wsId === defaultWs);
       if (!isAgentsamWs) {
         return jsonResponse(
           { error: 'Use PUT for conversation workspace snapshots; POST merge is for ws_* workspace ids.' },
@@ -2613,6 +2678,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   if (path === '/api/agent/workers-ai/image' && method === 'POST') {
     if (!env.AI) return jsonResponse({ error: 'Workers AI not configured' }, 503);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!identity?.tenantId) return jsonResponse({ error: 'unauthenticated' }, 401);
     const body   = await request.json().catch(() => ({}));
     const prompt = String(body.prompt || '').trim();
     if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
@@ -2628,7 +2694,7 @@ export async function handleAgentApi(request, url, env, ctx) {
        ORDER BY COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC
        LIMIT 1`,
     )
-      .bind('tenant_sam_primeaux')
+      .bind(identity.tenantId)
       .first()
       .catch(() => null);
     let model = modelRow?.model_key;
@@ -2641,7 +2707,7 @@ export async function handleAgentApi(request, url, env, ctx) {
          ORDER BY COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC
          LIMIT 1`,
       )
-        .bind('tenant_sam_primeaux')
+        .bind(identity.tenantId)
         .first()
         .catch(() => null);
       model = modelRow?.model_key;
@@ -2656,8 +2722,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/do-history ─────────────────────────────────────────────────
   if (path === '/api/agent/do-history' && method === 'GET') {
-    const session = await getSession(env, request).catch(() => null);
-    if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.userId) return jsonResponse({ error: 'unauthenticated' }, 401);
     const convId = url.searchParams.get('conversation_id');
     if (!convId) return jsonResponse({ error: 'conversation_id required' }, 400);
     if (!env.AGENT_SESSION) return jsonResponse({ error: 'AGENT_SESSION not configured' }, 503);
@@ -2691,19 +2756,14 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/bootstrap ──────────────────────────────────────────────────
   if (path === '/api/agent/bootstrap' && method === 'GET') {
-    const session = await getSession(env, request).catch(() => null);
-    return handleAgentBootstrapRequest(request, env, ctx, session);
+    if (!identity) return jsonResponse({ error: 'unauthenticated' }, 401);
+    return handleAgentBootstrapRequest(request, env, ctx, identity);
   }
 
   // ── /api/agent/chat ───────────────────────────────────────────────────────
   if (path === '/api/agent/chat' && method === 'POST') {
     const ingestBypass = isIngestSecretAuthorized(request, env);
-    let session = null;
-    if (!ingestBypass) {
-      session = await getSession(env, request);
-      if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);
-    }
-    return agentChatSseHandler(env, request, ctx, session);
+    return agentChatSseHandler(env, request, ctx, { ingestBypass, identity });
   }
 
   return jsonResponse({ error: 'Agent route not found', path }, 404);
@@ -2716,9 +2776,9 @@ export async function handleAgentRequest(request, env, ctx, _authUser = null) {
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
-async function handleAgentBootstrapRequest(request, env, ctx, session) {
+async function handleAgentBootstrapRequest(request, env, ctx, identity) {
   try {
-    const userId   = session?.user_id || 'system';
+    const userId   = identity?.userId || 'system';
     const cacheKey = `bootstrap_${userId}`;
     if (env.DB) {
       const cached = await env.DB.prepare(`SELECT compiled_context FROM ai_compiled_context_cache WHERE context_hash = ? AND (expires_at IS NULL OR expires_at > unixepoch())`).bind(cacheKey).first().catch(() => null);
@@ -2739,13 +2799,13 @@ async function handleAgentBootstrapRequest(request, env, ctx, session) {
       ]);
     }
     if (!todayTodo && env.DB) {
-      const row = await env.DB.prepare(`SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?`).bind(session?.tenant_id || 'system').first().catch(() => null);
+      const row = await env.DB.prepare(`SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?`).bind(identity?.tenantId || 'system').first().catch(() => null);
       if (row?.value) todayTodo = String(row.value);
     }
     const context = { daily_log: dailyLog || null, yesterday_log: yesterdayLog || null, schema_and_records_memory: schemaMemory || null, today_todo: todayTodo || null, date: today };
     if (env.DB && ctx?.waitUntil) {
       ctx.waitUntil(
-        env.DB.prepare(`INSERT INTO ai_compiled_context_cache (id, context_hash, context_type, compiled_context, source_context_ids_json, token_count, tenant_id, created_at, last_accessed_at, expires_at) VALUES (?,?,'bootstrap',?,'[]',0,?,unixepoch(),unixepoch(),unixepoch()+1800) ON CONFLICT(context_hash) DO UPDATE SET compiled_context=excluded.compiled_context, expires_at=excluded.expires_at, last_accessed_at=unixepoch()`).bind(cacheKey, cacheKey, JSON.stringify(context), session?.tenant_id || 'system').run().catch(() => {})
+        env.DB.prepare(`INSERT INTO ai_compiled_context_cache (id, context_hash, context_type, compiled_context, source_context_ids_json, token_count, tenant_id, created_at, last_accessed_at, expires_at) VALUES (?,?,'bootstrap',?,'[]',0,?,unixepoch(),unixepoch(),unixepoch()+1800) ON CONFLICT(context_hash) DO UPDATE SET compiled_context=excluded.compiled_context, expires_at=excluded.expires_at, last_accessed_at=unixepoch()`).bind(cacheKey, cacheKey, JSON.stringify(context), identity?.tenantId || 'system').run().catch(() => {})
       );
     }
     return jsonResponse(context);

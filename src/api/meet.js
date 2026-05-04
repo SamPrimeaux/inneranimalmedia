@@ -5,6 +5,7 @@
 
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
+import { resolveIdentity } from '../core/identity.js';
 
 const CALLS_BASE = 'https://rtc.live.cloudflare.com/v1';
 const TURN_BASE  = 'https://rtc.live.cloudflare.com/v1/turn/keys';
@@ -555,10 +556,12 @@ async function handleRecordingSave(request, env) {
 }
 
 async function handleSchedule(request, env) {
-  const { user, userId } = await getUserId(request, env);
-  if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const identity = await resolveIdentity(env, request);
+  if (!identity) return jsonResponse({ error: 'unauthenticated' }, 401);
+  if (!identity.workspaceId) {
+    return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+  }
 
-  const url = new URL(request.url);
   const body = await request.json().catch(() => ({}));
 
   const title = String(body.title || '').trim();
@@ -573,11 +576,9 @@ async function handleSchedule(request, env) {
 
   if (!title || !scheduled_at) return jsonResponse({ error: 'Title and date required' }, 400);
 
-  const tenant_id = resolveTenantIdLoose(user);
-  const workspace_id =
-    resolveWorkspaceIdLoose(user, env, body, url) ||
-    env.DEFAULT_WORKSPACE_ID ||
-    'ws_inneranimalmedia';
+  const tenant_id = identity.tenantId;
+  const workspace_id = identity.workspaceId;
+  const userId = identity.userId;
 
   const roomId = genRoomId();
   const schedId = `msched_${roomId}`;

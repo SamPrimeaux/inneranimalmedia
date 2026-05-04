@@ -99,7 +99,7 @@ async function resolveTenantId(request, env, authUser) {
 
 /**
  * Resolve workspace ID for shell injection.
- * Only passes a UUID — never an alias string like 'ws_inneranimalmedia'.
+ * Only passes a UUID — never a hardcoded workspace alias string.
  * For overview/settings pages, returns null intentionally.
  */
 function resolveWorkspaceId(authUser, env) {
@@ -111,7 +111,7 @@ function resolveWorkspaceId(authUser, env) {
   const fromEnv = env.WORKSPACE_ID ?? null;
   if (fromEnv && UUID_RE.test(fromEnv)) return fromEnv;
 
-  // Non-UUID workspace aliases ('ws_inneranimalmedia', etc.) are NOT injected into the shell.
+  // Non-UUID workspace alias strings are NOT injected into the shell.
   // The frontend resolves workspace context via /api/settings/workspaces after load.
   return null;
 }
