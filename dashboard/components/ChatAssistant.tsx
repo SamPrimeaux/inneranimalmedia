@@ -232,6 +232,10 @@ function normalizeAssistantSseText(parsed: unknown): string {
   if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {
     return nestedDelta.content;
   }
+  if (nestedDelta?.reasoning_content) {
+    // thinking tokens from Qwen3/o-series — discard silently
+    return '';
+  }
 
   const choices = p.choices as Array<{ delta?: { content?: string } }> | undefined;
   const oc = choices?.[0]?.delta?.content;
@@ -2784,4 +2788,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         )}
     </>
   );
+};
+
+export {
+  normalizeAssistantSseText,
+  looksLikeRawProviderLeak,
+  ssePayloadLooksReasoningOnly,
+  isStreamErrorPayload,
+  extractMonacoInvokesFromBuffer,
+  hideIncompleteMonacoInvokeTail,
+  looksLikeEmbeddedFileDumpStart,
+  formatHttpErrorMessage,
 };

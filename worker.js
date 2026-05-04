@@ -8041,15 +8041,22 @@ async function buildTieredContext(env, tier, intent, agentId, mode) {
   const CORE_TOOLS = ['d1_query', 'terminal_execute', 'r2_read', 'r2_list', 'r2_search', 'knowledge_search', 'workspace_search', 'human_context_list', 'generate_execution_plan', 'sequential_thinking'];
   
   const toolResults = await env.DB.prepare(
-    `SELECT tool_name, description, input_schema, tool_category 
-     FROM mcp_registered_tools 
-     WHERE enabled = 1 AND is_degraded = 0 
-     AND (
-       tool_name IN (${CORE_TOOLS.map(() => '?').join(',')})
-       OR (intent_tags LIKE ('%' || ? || '%') AND ? != 'mixed')
-     )
-     ORDER BY sort_priority ASC, tool_name ASC`
-  ).bind(...CORE_TOOLS, intent, intent).all();
+    `SELECT tool_name, description, input_schema, tool_category
+  FROM agentsam_mcp_tools
+  WHERE is_active = 1
+    AND is_degraded = 0
+    AND (
+      tool_name IN (${CORE_TOOLS.map(() => '?').join(',')})
+      OR (
+        intent_tags LIKE ('%' || ? || '%')
+        AND ? != 'mixed'
+        AND ? != ''
+      )
+    )
+    AND modes_json LIKE ('%"' || ? || '"%')
+  ORDER BY sort_priority ASC, tool_name ASC
+  LIMIT 25`
+  ).bind(...CORE_TOOLS, intent, intent, intent, mode).all();
 
   const toolDeclarations = (toolResults.results || []).map(t => {
     let schema = {};
@@ -14323,7 +14330,6 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   const messageForSlash = String(message).trimStart();
 
   const hasMedia = hasChatMedia(jsonImages, chatAttachments);
-  if (!modelParam) return jsonResponse({ error: 'model required' }, 400);
   const mode = modeRaw || 'agent';
   if (!['ask', 'agent', 'plan', 'debug', 'auto'].includes(mode)) {
     return jsonResponse({ error: 'Invalid mode', allowed: ['ask', 'agent', 'plan', 'debug', 'auto'] }, 400);
@@ -14348,22 +14354,56 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   console.log('[agent:sse] request_start', JSON.stringify({ mode, requested_model: modelParam }));
   waitUntilAgentSseLifecycle(env, ctx, 'request_start', { mode, requested_model: String(modelParam || '') });
 
+  const tenantIdForAgentsamAi =
+    chatSseSession?.tenant_id != null && String(chatSseSession.tenant_id).trim() !== ''
+      ? String(chatSseSession.tenant_id).trim()
+      : 'tenant_sam_primeaux';
+
   let modelRow;
   try {
     modelRow = await env.DB.prepare(
-      `SELECT id, model_key, api_platform, provider, input_rate_per_mtok, output_rate_per_mtok, display_name, secret_key_name, supports_tools
-       FROM ai_models
-       WHERE (id = ? OR model_key = ?) AND COALESCE(is_active, 0) = 1
+      `SELECT id, model_key, api_platform, provider,
+         input_rate_per_mtok, output_rate_per_mtok,
+         name AS display_name, secret_key_name
+       FROM agentsam_ai
+       WHERE (id = ? OR model_key = ?)
+         AND mode = 'model'
+         AND status = 'active'
+         AND (
+           is_global = 1
+           OR allowed_tenants_json LIKE ('%"' || ? || '"%')
+         )
        LIMIT 1`
     )
-      .bind(modelParam, modelParam)
+      .bind(modelParam, modelParam, tenantIdForAgentsamAi)
       .first();
   } catch (e) {
     console.error('[agent/chat-sse] model lookup', e?.message ?? e);
     return jsonResponse({ error: 'Model lookup failed', detail: String(e?.message || e) }, 500);
   }
 
-  if (!modelRow) return jsonResponse({ error: 'Unknown model' }, 400);
+  if (!modelRow) {
+    const fallbackMode = await env.DB.prepare(
+      `SELECT model_preference FROM agent_mode_configs
+       WHERE slug = ? AND is_active = 1 AND model_preference IS NOT NULL
+       LIMIT 1`
+    ).bind(mode || 'auto').first();
+
+    if (!fallbackMode?.model_preference) {
+      return jsonResponse({ error: 'No model configured for this mode' }, 400);
+    }
+
+    modelRow = await env.DB.prepare(
+      `SELECT id, model_key, api_platform, provider,
+            input_rate_per_mtok, output_rate_per_mtok,
+            name AS display_name, secret_key_name
+     FROM agentsam_ai
+     WHERE model_key = ? AND mode = 'model' AND status = 'active'
+     LIMIT 1`
+    ).bind(fallbackMode.model_preference).first();
+
+    if (!modelRow) return jsonResponse({ error: 'model required' }, 400);
+  }
 
   const msgSuggestsTools =
     /\bd1_query\b|r2_[a-z0-9_]+|terminal_execute|github_file|workspace_search|mcp\.inneranimalmedia|agentsam_tool_call_log/i.test(
@@ -14374,18 +14414,23 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
     env.DB &&
     String(modelRow.api_platform || '').trim() === 'workers_ai' &&
     toolHeavyModes.has(mode) &&
-    Number(modelRow.supports_tools) !== 1 &&
+    (modelRow.supports_tools == null || Number(modelRow.supports_tools) !== 1) &&
     (needsTools || msgSuggestsTools)
   ) {
     try {
       const fb = await env.DB.prepare(
-        `SELECT id, model_key, api_platform, provider, input_rate_per_mtok, output_rate_per_mtok, display_name, secret_key_name, supports_tools
-         FROM ai_models
-         WHERE COALESCE(is_active, 0) = 1 AND COALESCE(supports_tools, 0) = 1
-           AND api_platform IN ('gemini_api', 'openai')
+        `SELECT id, model_key, api_platform, provider, input_rate_per_mtok, output_rate_per_mtok,
+                name AS display_name, secret_key_name
+         FROM agentsam_ai
+         WHERE mode = 'model' AND status = 'active'
+           AND (
+             is_global = 1
+             OR allowed_tenants_json LIKE ('%"' || ? || '"%')
+           )
+           AND api_platform IN ('gemini_api', 'openai', 'openai_responses')
          ORDER BY CASE api_platform WHEN 'gemini_api' THEN 0 WHEN 'openai' THEN 1 ELSE 2 END
          LIMIT 1`,
-      ).first();
+      ).bind(tenantIdForAgentsamAi).first();
       if (fb) modelRow = fb;
     } catch (escErr) {
       console.warn('[agent/chat-sse] workers_ai tool-capable fallback skipped', escErr?.message ?? escErr);
@@ -14417,7 +14462,17 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
     } catch (_) { }
   }
 
-  const apiPlatform = String(modelRow.api_platform || '').trim();
+  // Normalize api_platform variants → canonical routing keys
+  const platformRaw = modelRow.api_platform || '';
+  const platform = platformRaw === 'openai_responses'           ? 'openai'
+    : platformRaw === 'anthropic_messages'                      ? 'anthropic'
+    : platformRaw === 'google_gemini_generate_content'          ? 'google'
+    : platformRaw === 'gemini_api'                              ? 'google'
+    : platformRaw;
+  const apiPlatform =
+    platform === 'anthropic' ? 'anthropic_api'
+    : platform === 'google' ? 'gemini_api'
+    : String(platform).trim();
   const modelKey = String(modelRow.model_key || modelParam);
   const providerLabel = String(modelRow.provider || apiPlatform || 'unknown');
   const provider = modelRow.provider || apiPlatform || 'unknown';
@@ -14692,7 +14747,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
   };
 
   const toolLoopModes = new Set(['agent', 'debug', 'plan', 'ask']);
-  const toolLoopPlatforms = new Set(['anthropic_api', 'openai', 'gemini_api', 'vertex_ai', 'google_ai', 'cursor', 'workers_ai']);
+  const toolLoopPlatforms = new Set(['anthropic', 'anthropic_api', 'google', 'openai', 'gemini_api', 'vertex_ai', 'google_ai', 'cursor', 'workers_ai']);
   const sseToolOpts = {
     stream: true,
     mode: mode ?? 'agent',
@@ -14715,23 +14770,23 @@ You can delegate tasks directly to Claude Code running on the host machine by st
   };
   if (toolLoopModes.has(mode) && toolLoopPlatforms.has(apiPlatform)) {
     let apiMessagesForTools = [];
-    if (apiPlatform === 'anthropic_api') {
+    if (platform === 'anthropic' || platform === 'anthropic_api') {
       apiMessagesForTools = [
         { role: 'user', content: hasMedia ? buildAnthropicContent(message, jsonImages, chatAttachments) : message },
       ];
-    } else if (apiPlatform === 'openai') {
+    } else if (platform === 'openai') {
       apiMessagesForTools = [
         { role: 'user', content: hasMedia ? buildOpenAIContent(message, jsonImages, chatAttachments) : message },
       ];
     } else {
       apiMessagesForTools = [{ role: 'user', content: message }];
     }
-    if (hasMedia && (apiPlatform === 'gemini_api' || apiPlatform === 'vertex_ai')) {
+    if (hasMedia && (platform === 'google' || platform === 'gemini_api' || platform === 'vertex_ai')) {
       sseToolOpts.googleUserParts = buildGoogleParts(message, jsonImages, chatAttachments);
     }
     let toolResp = null;
     try {
-      if (apiPlatform === 'anthropic_api') {
+      if (platform === 'anthropic' || platform === 'anthropic_api') {
         const ak = secretFn('ANTHROPIC_API_KEY') ?? envChat.ANTHROPIC_API_KEY;
         if (ak) {
           toolResp = await chatWithToolsAnthropic(
@@ -14749,7 +14804,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
             ctx,
           );
         }
-      } else if (apiPlatform === 'openai') {
+      } else if (platform === 'openai') {
         const ok = secretFn('OPENAI_API_KEY') ?? envChat.OPENAI_API_KEY;
         if (ok) {
           toolResp = await chatWithToolsOpenAI(
@@ -14763,7 +14818,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
             sseToolOpts,
           );
         }
-      } else if (apiPlatform === 'gemini_api' || apiPlatform === 'vertex_ai') {
+      } else if (platform === 'google' || platform === 'gemini_api' || platform === 'vertex_ai') {
         toolResp = await chatWithToolsGoogle(
           envChat,
           chatSseSystemPrompt,
@@ -14796,7 +14851,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
     }
   }
 
-  if (apiPlatform === 'anthropic_api') {
+  if (platform === 'anthropic' || platform === 'anthropic_api') {
     return chatWithToolsAnthropic(
       envChat,
       request,
@@ -14813,11 +14868,11 @@ You can delegate tasks directly to Claude Code running on the host machine by st
     );
   }
 
-  if (apiPlatform === 'gemini_api' || provider === 'gemini' || apiPlatform === 'vertex_ai') {
+  if (platform === 'google' || platform === 'gemini_api' || provider === 'gemini' || platform === 'vertex_ai') {
     return chatWithToolsGoogle(
       envChat,
       chatSseSystemPrompt,
-      parsed.message ? [{ role: 'user', content: parsed.message }] : messages,
+      parsed.message ? [{ role: 'user', content: parsed.message }] : [],
       modelRow,
       conversationId,
       agentAiIdSse,
@@ -14832,11 +14887,11 @@ You can delegate tasks directly to Claude Code running on the host machine by st
   }
 
 
-  if (apiPlatform === 'openai' || apiPlatform === 'cursor') {
+  if (platform === 'openai' || platform === 'cursor') {
     return chatWithToolsOpenAI(
       envChat,
       chatSseSystemPrompt,
-      parsed.message ? [{ role: 'user', content: parsed.message }] : messages,
+      parsed.message ? [{ role: 'user', content: parsed.message }] : [],
       modelRow,
       conversationId,
       agentAiIdSse,
@@ -14851,7 +14906,7 @@ You can delegate tasks directly to Claude Code running on the host machine by st
     );
   }
 
-  if (apiPlatform === 'workers_ai') {
+  if (platform === 'workers_ai') {
     const messages = [{ role: 'user', content: hasMedia ? flattenUserContentForWorkersAi(message, jsonImages, chatAttachments) : message }];
     return streamWorkersAI(envChat, chatSseSystemPrompt, messages, modelRow, conversationId, agentAiIdSse, ctx, chatSseRunId, sseToolOpts.routingOpts, lastLoadedToolsSse);
   }

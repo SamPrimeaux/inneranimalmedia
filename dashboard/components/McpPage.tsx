@@ -20,6 +20,16 @@ import {
   Cpu, Network, Shield, GitBranch,
   MoreHorizontal, Circle, Wifi, WifiOff,
 } from 'lucide-react';
+import {
+  normalizeAssistantSseText,
+  looksLikeRawProviderLeak,
+  ssePayloadLooksReasoningOnly,
+  isStreamErrorPayload,
+  extractMonacoInvokesFromBuffer,
+  hideIncompleteMonacoInvokeTail,
+  looksLikeEmbeddedFileDumpStart,
+  formatHttpErrorMessage,
+} from './ChatAssistant';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AgentStatus = 'idle' | 'running' | 'active' | 'waiting' | 'error' | 'success';
@@ -34,6 +44,8 @@ interface AgentConfig {
   icon: React.ReactNode;
   accentVar: string;
   tools: string[];
+  /** Canonical model key from catalog when present */
+  model_key?: string | null;
   default_model_id?: string | null;
 }
 
@@ -86,6 +98,7 @@ type AgentProfile = {
   access_mode: string | null;
   tool_categories: string | null;
   allowed_tool_globs: unknown;
+  model_key?: string | null;
   default_model_id?: string | null;
 };
 
@@ -237,6 +250,7 @@ function mapProfilesToAgents(profiles: AgentProfile[]): AgentConfig[] {
       icon: lucideForIconName(p.icon),
       accentVar: ACCENT_CYCLE[idx % ACCENT_CYCLE.length],
       tools: parseAllowedToolGlobs((p as any).allowed_tool_globs),
+      model_key: (p as { model_key?: string | null }).model_key ?? null,
       default_model_id: (p as { default_model_id?: string | null }).default_model_id ?? null,
     };
   }).filter((a) => !!a.id);
@@ -416,37 +430,222 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
   }, [messages]);
 
   const send = useCallback(async () => {
-    if (!input.trim() || !agentId || sending) return;
+    if (!input.trim() || !agentId || sending || !config) return;
     const text = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setSending(true);
     setMessages(prev => [...prev, { role: 'thinking', content: 'Thinking…' }]);
 
-    try {
-      const body: Record<string, unknown> = {
-        messages: [...messages.filter(m => m.role !== 'thinking'), { role: 'user', content: text }],
-        agent_id: agentId,
-        model_id: 'auto',
-      };
-      if (sessionId) body.session_id = sessionId;
+    const stripThinking = (prev: WsMessage[]) => prev.filter((m) => m.role !== 'thinking');
 
-      const res = await fetch('/api/agent/chat', {
+    const applyAssistantError = (msg: string) => {
+      setMessages((prev) => [...stripThinking(prev), { role: 'assistant', content: msg }]);
+    };
+
+    const currentMode = 'agent';
+    let agentModelKey = String(config.model_key || config.default_model_id || '').trim();
+    if (!agentModelKey) {
+      try {
+        const modesRes = await fetch('/api/agent/modes', { credentials: 'same-origin' });
+        const modesJson = await modesRes.json();
+        const modesArr = Array.isArray(modesJson) ? modesJson : [];
+        const row = modesArr.find((r: { slug?: string }) => String(r.slug || '') === currentMode);
+        agentModelKey = String((row as { model_preference?: string } | undefined)?.model_preference || '').trim();
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    let convId = sessionId;
+    if (!convId) {
+      convId = crypto.randomUUID();
+      setSessionId(convId);
+    }
+
+    const form = new FormData();
+    form.append('message', text);
+    form.append('mode', currentMode);
+    form.append('model', agentModelKey);
+    form.append('agent', agentId);
+    form.append('conversationId', convId);
+
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    try {
+      const response = await fetch('/api/agent/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: form,
         credentials: 'same-origin',
-        body: JSON.stringify(body),
       });
-      const data = await res.json();
-      const reply = data.content?.[0]?.text ?? data.response ?? data.message ?? JSON.stringify(data);
-      if (data.conversation_id && !sessionId) setSessionId(data.conversation_id);
-      setMessages(prev => [...prev.filter(m => m.role !== 'thinking'), { role: 'assistant', content: reply }]);
-    } catch (err) {
-      setMessages(prev => [...prev.filter(m => m.role !== 'thinking'), { role: 'assistant', content: `Error: ${String(err)}` }]);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        applyAssistantError(formatHttpErrorMessage(response.status, errText));
+        return;
+      }
+      if (!response.body) {
+        applyAssistantError('Empty response body from chat endpoint');
+        return;
+      }
+
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = '';
+      let assistantStreamBuf = '';
+      let sseCarry = '';
+      let fileEchoSuppress = false;
+
+      const streamStartedAt = Date.now();
+      let readCount = 0;
+      let emptyRun = 0;
+      const MAX_STREAM_MS = 60000;
+      const MAX_READS = 2000;
+      const MAX_EMPTY_RUN = 200;
+
+      setMessages((prev) => [...stripThinking(prev), { role: 'assistant', content: '' }]);
+
+      sseLoop: while (true) {
+        if (
+          Date.now() - streamStartedAt > MAX_STREAM_MS ||
+          readCount >= MAX_READS ||
+          emptyRun >= MAX_EMPTY_RUN
+        ) {
+          assistantStreamBuf += '\n\n[Stream stopped: exceeded safety limits.]';
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          break sseLoop;
+        }
+
+        const { done, value } = await reader.read();
+        readCount += 1;
+        if (done) break;
+
+        sseCarry += decoder.decode(value, { stream: true });
+        const parts = sseCarry.split('\n\n');
+        sseCarry = parts.pop() || '';
+
+        for (const block of parts) {
+          for (const rawLine of block.split('\n')) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            if (!/^data:/i.test(line)) continue;
+            const dataStr = line.replace(/^data:\s*/i, '').trim();
+            if (dataStr === '[DONE]') break sseLoop;
+            let data: unknown;
+            try {
+              data = JSON.parse(dataStr);
+            } catch {
+              continue;
+            }
+            if (data && typeof data === 'object' && Array.isArray((data as { choices?: unknown }).choices)) {
+              const ch0 = (data as { choices: Array<{ delta?: { content?: string | null; reasoning_content?: unknown } }> })
+                .choices[0];
+              const del = ch0?.delta;
+              if (del) {
+                if (del.reasoning_content) continue;
+                if (del.content === null) continue;
+              }
+            }
+            if (looksLikeRawProviderLeak(data)) {
+              emptyRun += 1;
+              continue;
+            }
+            if (isStreamErrorPayload(data)) {
+              const partsErr = [data.error, data.detail, data.provider, data.model].filter(Boolean);
+              throw new Error(partsErr.join(' — '));
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'tool_approval_request'
+            ) {
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'r2_file_updated' &&
+              typeof (data as { bucket?: string }).bucket === 'string' &&
+              typeof (data as { key?: string }).key === 'string'
+            ) {
+              fileEchoSuppress = false;
+              assistantStreamBuf += `\n[FILE_CREATED:${(data as { key: string }).key}]\n`;
+              assistantContent = assistantStreamBuf;
+              setMessages((prev) => {
+                const last = [...prev];
+                last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                return last;
+              });
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'browser_navigate' &&
+              typeof (data as { url?: string }).url === 'string'
+            ) {
+              /* WorkspacePanel: no browser tab hook */
+            }
+            if (data && typeof data === 'object' && 'conversation_id' in data) {
+              const cid = (data as { conversation_id?: string }).conversation_id;
+              if (typeof cid === 'string' && cid) {
+                setSessionId(cid);
+              }
+            }
+            const delta = normalizeAssistantSseText(data);
+            if (!delta && ssePayloadLooksReasoningOnly(data)) {
+              emptyRun += 1;
+              if (emptyRun >= MAX_EMPTY_RUN) {
+                assistantStreamBuf += '\n\n[Stream stopped: too many non-text chunks.]';
+                assistantContent = assistantStreamBuf;
+                setMessages((prev) => {
+                  const last = [...prev];
+                  last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                  return last;
+                });
+                break sseLoop;
+              }
+            } else if (delta) {
+              emptyRun = 0;
+            }
+            if (delta && !fileEchoSuppress) {
+              const trialBuf = assistantStreamBuf + delta;
+              const extracted = extractMonacoInvokesFromBuffer(trialBuf);
+              const nextBuf = extracted.text;
+              const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
+              if (looksLikeEmbeddedFileDumpStart(nextVisible)) {
+                fileEchoSuppress = true;
+              } else {
+                assistantStreamBuf = nextBuf;
+                assistantContent = nextVisible;
+                setMessages((prev) => {
+                  const last = [...prev];
+                  last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                  return last;
+                });
+              }
+            }
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Chat request failed:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      setMessages((prev) => [...stripThinking(prev), { role: 'assistant', content: msg }]);
     } finally {
+      try {
+        await reader?.cancel();
+      } catch {
+        /* ignore */
+      }
       setSending(false);
     }
-  }, [input, agentId, sending, messages, sessionId]);
+  }, [input, agentId, sending, sessionId, config]);
 
   if (!agentId || !config) return null;
   const accent = config.accentVar;
