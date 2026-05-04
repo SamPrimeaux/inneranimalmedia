@@ -1101,7 +1101,7 @@ export async function handleSettingsRequest(request, env, ctx) {
           .bind(workspaceId || '')
           .all()
           .catch(() => ({ results: [] })),
-        env.DB.prepare(`SELECT * FROM ai_routing_rules ORDER BY priority`)
+        env.DB.prepare(`SELECT * FROM agentsam_routing_arms ORDER BY priority`)
           .all()
           .catch(() => ({ results: [] })),
       ]);
@@ -1182,7 +1182,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         env.DB.prepare(
           `SELECT s.*, COUNT(t.id) AS tool_count
            FROM mcp_services s
-           LEFT JOIN mcp_registered_tools t ON t.mcp_service_url = s.endpoint_url
+           LEFT JOIN agentsam_mcp_tools t ON t.mcp_service_url = s.endpoint_url
            WHERE COALESCE(s.is_active, 1) = 1
            GROUP BY s.id
            ORDER BY s.service_name`,
@@ -1191,14 +1191,14 @@ export async function handleSettingsRequest(request, env, ctx) {
           .catch(() => ({ results: [] })),
         env.DB.prepare(
           `SELECT t.*
-           FROM mcp_registered_tools t
+           FROM agentsam_mcp_tools t
            ORDER BY COALESCE(t.tool_category, 'other'), COALESCE(t.sort_priority, 9999), t.tool_name`,
         )
           .all()
           .catch(() => ({ results: [] })),
         env.DB.prepare(
           `SELECT tool_name, call_count, success_count, failure_count, total_cost_usd, avg_duration_ms
-           FROM mcp_tool_call_stats
+           FROM agentsam_tool_stats_compacted
            WHERE date = date('now')`,
         )
           .all()
@@ -1258,7 +1258,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       const body = await request.json().catch(() => ({}));
       const enabled = body.enabled === true || body.enabled === 1 || body.enabled === '1';
       await env.DB.prepare(
-        `UPDATE mcp_registered_tools
+        `UPDATE agentsam_mcp_tools
          SET enabled = ?, updated_at = datetime('now')
          WHERE id = ? OR tool_name = ?`,
       )
@@ -1296,7 +1296,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       const sets = keys.map((k) => `${k} = ?`).join(', ');
       const vals = keys.map((k) => body[k]);
       await env.DB.prepare(
-        `UPDATE mcp_registered_tools
+        `UPDATE agentsam_mcp_tools
          SET ${sets}, updated_at = datetime('now')
          WHERE id = ? OR tool_name = ?`,
       )

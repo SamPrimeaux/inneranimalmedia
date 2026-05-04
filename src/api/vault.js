@@ -50,8 +50,8 @@ async function vaultWriteAudit(db, { secret_id, event_type, triggered_by, previo
   const ip = request?.headers?.get('CF-Connecting-IP') || null;
   const ua = request?.headers?.get('User-Agent')?.slice(0, 200) || null;
   await db.prepare(
-    `INSERT INTO secret_audit_log (id, secret_id, event_type, triggered_by, previous_last4, new_last4, notes, ip_address, user_agent, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+    `INSERT INTO secret_audit_log (id, secret_id, tenant_id, user_id, event_type, triggered_by, previous_last4, new_last4, notes, ip_address, user_agent, created_at, secret_source)
+     VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, unixepoch(), 'user_secrets')`
   ).bind(id, secret_id, event_type, triggered_by || null, previous_last4 || null, new_last4 || null, notes || null, ip, ua).run();
 }
 

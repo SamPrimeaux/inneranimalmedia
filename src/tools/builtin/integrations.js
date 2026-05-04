@@ -1,7 +1,7 @@
 /**
  * Implements 13 tools for third-party service connectivity.
  */
-import { sendEmail } from '../../integrations/resend.js';
+import { sendPlatformEmail as sendEmail } from '../../lib/email.js';
 
 async function invokeExternalApi(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';

@@ -51,7 +51,7 @@ async function handleHubTasks(env, authUser) {
     if (!authUser?.tenant_id) return jsonResponse({ error: 'tenant_required' }, 403);
     const { results } = await env.DB.prepare(`
         SELECT id, title, status, priority, project_id, due_date
-        FROM tasks
+        FROM agentsam_todo
         WHERE status NOT IN ('done','cancelled') AND (tenant_id = ? OR tenant_id = 'system' OR tenant_id IS NULL)
         ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'urgent' THEN 2 WHEN 'high' THEN 3 WHEN 'medium' THEN 4 ELSE 5 END, created_at DESC
         LIMIT 20
@@ -86,7 +86,7 @@ async function handleHubTaskCreate(request, env) {
     
     const id = 'task_' + Date.now();
     await env.DB.prepare(
-        `INSERT INTO tasks (id, title, status, priority, project_id, tenant_id, created_at) 
+        `INSERT INTO agentsam_todo (id, title, status, priority, project_id, tenant_id, created_at) 
          VALUES (?, ?, 'todo', ?, ?, 'system', unixepoch())`
     ).bind(id, title, body.priority || 'medium', body.project_id || null).run();
     return jsonResponse({ ok: true, id });
@@ -96,6 +96,6 @@ async function handleHubTaskUpdate(request, env, taskId) {
     const body = await request.json().catch(() => ({}));
     const status = body.status;
     if (!status) return jsonResponse({ error: 'status required' }, 400);
-    await env.DB.prepare(`UPDATE tasks SET status = ? WHERE id = ?`).bind(status, taskId).run();
+    await env.DB.prepare(`UPDATE agentsam_todo SET status = ? WHERE id = ?`).bind(status, taskId).run();
     return jsonResponse({ ok: true });
 }

@@ -37,7 +37,7 @@ import {
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_execute', 'run_command', 'bash']);
 
-/** Registry ids in `agent_prompts.id` — content always loaded from D1. */
+/** Registry ids in `agentsam_prompt_versions.id` — content always loaded from D1. */
 const AP_SYS = {
   core: 'ap_core_agent_sam_system_v1',
   dbSafety: 'ap_core_db_safety_system_v1',
@@ -278,7 +278,7 @@ const FALLBACK_CORE_SYSTEM = 'You are Agent Sam, an autonomous AI coding and ope
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig) {
   const rows = await env.DB.prepare(`
     SELECT id, prompt_kind, content
-    FROM agent_prompts
+    FROM agentsam_prompt_versions
     WHERE status = 'active'
       AND prompt_kind = 'system'
       AND (tenant_id IS NULL OR tenant_id = ?)
@@ -698,7 +698,7 @@ async function loadIntentPattern(env, intentSlug) {
   if (!env.DB || !intentSlug) return null;
   try {
     return await env.DB.prepare(
-      `SELECT workflow_agent, tools_json FROM agent_intent_patterns
+      `SELECT workflow_agent, tools_json FROM agentsam_routing_arms
        WHERE intent_slug = ? AND is_active = 1 LIMIT 1`
     ).bind(String(intentSlug).trim().toLowerCase()).first();
   } catch (_) {
@@ -811,7 +811,7 @@ async function createApprovalRequest(env, opts) {
       riskLevel || 'medium', toolName, 'pending', expiresAt, now, now
     ).run();
     await env.DB.prepare(
-      `INSERT INTO mcp_tool_calls
+      `INSERT INTO agentsam_mcp_tool_execution
        (id, tenant_id, session_id, tool_name, tool_category, input_schema,
         status, approval_gate_id, invoked_by, invoked_at, created_at, updated_at)
        VALUES (?,?,?,?,?,?,'awaiting_approval',?,?,datetime('now'),datetime('now'),datetime('now'))`
@@ -827,7 +827,7 @@ async function auditToolDecision(env, opts) {
   if (!env.DB) return;
   try {
     await env.DB.prepare(
-      `INSERT INTO agent_audit_log (id, tenant_id, actor_role_id, event_type, message, metadata_json)
+      `INSERT INTO agentsam_hook_execution (id, tenant_id, actor_role_id, event_type, message, metadata_json)
        VALUES (?, ?, 'agent-sam', ?, ?, ?)`
     ).bind(
       crypto.randomUUID(), opts.tenantId || 'system', opts.eventType, opts.message,
@@ -1180,7 +1180,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: toolOutput });
       if (env.DB) {
         env.DB.prepare(
-          `INSERT OR IGNORE INTO mcp_tool_calls
+          `INSERT OR IGNORE INTO agentsam_mcp_tool_execution
            (id, tenant_id, session_id, tool_name, tool_category, input_schema,
             output, status, invoked_by, invoked_at, completed_at, created_at, updated_at)
            VALUES (?,?,?,?,?,?,?,'completed',?,datetime('now'),datetime('now'),datetime('now'),datetime('now'))`
@@ -1899,8 +1899,8 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const checkedAt = new Date().toISOString();
     let mcp_tool_errors = [], audit_failures = [], worker_errors = [];
-    try { const q = await env.DB.prepare(`SELECT id, tool_name, status, error_message, session_id, created_at FROM mcp_tool_calls WHERE lower(COALESCE(status,'')) IN ('error','failed') OR (error_message IS NOT NULL AND length(trim(error_message)) > 0) ORDER BY created_at DESC LIMIT 50`).all(); mcp_tool_errors = q.results || []; } catch (_) {}
-    try { const q = await env.DB.prepare(`SELECT id, event_type, message, created_at, metadata_json FROM agent_audit_log WHERE lower(COALESCE(event_type,'')) LIKE '%fail%' OR lower(COALESCE(event_type,'')) LIKE '%error%' OR lower(COALESCE(event_type,'')) LIKE '%denied%' ORDER BY created_at DESC LIMIT 25`).all(); audit_failures = q.results || []; } catch (_) {}
+    try { const q = await env.DB.prepare(`SELECT id, tool_name, status, error_message, session_id, created_at FROM agentsam_mcp_tool_execution WHERE lower(COALESCE(status,'')) IN ('error','failed') OR (error_message IS NOT NULL AND length(trim(error_message)) > 0) ORDER BY created_at DESC LIMIT 50`).all(); mcp_tool_errors = q.results || []; } catch (_) {}
+    try { const q = await env.DB.prepare(`SELECT id, event_type, message, created_at, metadata_json FROM agentsam_hook_execution WHERE lower(COALESCE(event_type,'')) LIKE '%fail%' OR lower(COALESCE(event_type,'')) LIKE '%error%' OR lower(COALESCE(event_type,'')) LIKE '%denied%' ORDER BY created_at DESC LIMIT 25`).all(); audit_failures = q.results || []; } catch (_) {}
     try { const q = await env.DB.prepare(`SELECT rowid as id, path, method, status_code, error_message, created_at FROM worker_analytics_errors ORDER BY created_at DESC LIMIT 20`).all(); worker_errors = q.results || []; } catch (_) {}
     return jsonResponse({ checked_at: checkedAt, mcp_tool_errors, audit_failures, worker_errors });
   }
@@ -2085,9 +2085,9 @@ export async function handleAgentApi(request, url, env, ctx) {
     let tables = [], workflows = [], commands = [], memory_keys = [], workspaces = [];
     await Promise.allSettled([
       env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all().then(r => { tables = (r.results||[]).map(x=>x.name); }),
-      env.DB.prepare(`SELECT id, name FROM ai_workflow_pipelines ORDER BY COALESCE(name,id) LIMIT 100`).all().then(r => { workflows = r.results||[]; }),
+      env.DB.prepare(`SELECT id, name FROM agentsam_mcp_workflows ORDER BY COALESCE(name,id) LIMIT 100`).all().then(r => { workflows = r.results||[]; }),
       tenantId ? env.DB.prepare(`SELECT slug, name, category FROM agent_commands WHERE tenant_id = ? AND COALESCE(status,'active')='active' ORDER BY category, name LIMIT 200`).bind(tenantId).all().then(r => { commands = r.results||[]; }) : Promise.resolve(),
-      tenantId ? env.DB.prepare(`SELECT key FROM agent_memory_index WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 150`).bind(tenantId).all().then(r => { memory_keys = (r.results||[]).map(x=>x.key); }) : Promise.resolve(),
+      tenantId ? env.DB.prepare(`SELECT key FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 150`).bind(tenantId).all().then(r => { memory_keys = (r.results||[]).map(x=>x.key); }) : Promise.resolve(),
       env.DB.prepare(`SELECT id, name FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name LIMIT 50`).all().then(r => { workspaces = r.results||[]; }),
     ]);
     return jsonResponse({ tables, workflows, commands, memory_keys, workspaces });
@@ -2105,7 +2105,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
     if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
     if (!tenantId) return jsonResponse({ items: [] });
-    const { results } = await env.DB.prepare(`SELECT key, memory_type, importance_score FROM agent_memory_index WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 200`).bind(tenantId).all().catch(() => ({ results: [] }));
+    const { results } = await env.DB.prepare(`SELECT key, memory_type, importance_score FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 200`).bind(tenantId).all().catch(() => ({ results: [] }));
     return jsonResponse({ items: (results||[]).filter(r=>r.key) });
   }
 
@@ -2313,7 +2313,7 @@ export async function handleAgentApi(request, url, env, ctx) {
         // Attempt retrieval from both tables
         const [globalWs, personalWs] = await Promise.all([
           env.DB.prepare(`SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`).bind(wsId, wsId).first().catch(() => null),
-          env.DB.prepare(`SELECT state_json FROM agent_workspace_state WHERE id = ?`).bind(uwsId).first().catch(() => null)
+          env.DB.prepare(`SELECT state_json FROM agentsam_workspace_state WHERE id = ?`).bind(uwsId).first().catch(() => null)
         ]);
         
         const row = globalWs || (personalWs ? { id: wsId, state_json: personalWs.state_json, name: 'Personal' } : null);
@@ -2367,7 +2367,7 @@ export async function handleAgentApi(request, url, env, ctx) {
             const results = await Promise.allSettled([
               env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`)
                 .bind(stateStr, wsId).run(),
-              env.DB.prepare(`UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`)
+              env.DB.prepare(`UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`)
                 .bind(stateStr, uwsId).run()
             ]);
             console.log('[agent] workspace update results:', results.map(r => r.status));
@@ -2697,7 +2697,7 @@ async function handleAgentBootstrapRequest(request, env, ctx, session) {
       ]);
     }
     if (!todayTodo && env.DB) {
-      const row = await env.DB.prepare(`SELECT value FROM agent_memory_index WHERE key = 'today_todo' AND tenant_id = ?`).bind(session?.tenant_id || 'system').first().catch(() => null);
+      const row = await env.DB.prepare(`SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?`).bind(session?.tenant_id || 'system').first().catch(() => null);
       if (row?.value) todayTodo = String(row.value);
     }
     const context = { daily_log: dailyLog || null, yesterday_log: yesterdayLog || null, schema_and_records_memory: schemaMemory || null, today_todo: todayTodo || null, date: today };

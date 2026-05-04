@@ -166,7 +166,7 @@ export async function compactAgentsamToolCallLogToStats(env) {
   if (!env?.DB) return;
   const id = `bj_${Date.now()}`;
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO backfill_jobs (id,job_name,target_table,source_type,status,started_at,created_by)
+    `INSERT OR IGNORE INTO agentsam_code_index_job (id,job_name,target_table,source_type,status,started_at,created_by)
      VALUES (?,?,?,'cron','running',unixepoch(),?)`,
   )
     .bind(id, 'agentsam_tool_stats_compacted_rollup', 'agentsam_tool_stats_compacted', 'system')
@@ -187,7 +187,7 @@ export async function compactAgentsamToolCallLogToStats(env) {
     .catch(() => null);
   const n = Number(res?.meta?.changes ?? res?.changes ?? 0) || 0;
   await env.DB.prepare(
-    `UPDATE backfill_jobs SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?`,
+    `UPDATE agentsam_code_index_job SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?`,
   )
     .bind(n, n, id)
     .run()

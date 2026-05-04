@@ -26,10 +26,10 @@ export async function generateDailySummaryEmail(env) {
       } catch (_) {}
     }
 
-    // Fallback to ai_routing_rules
+    // Fallback to agentsam_routing_arms
     if (!modelId) {
       const r = await env.DB.prepare(`
-        SELECT model_key, provider FROM ai_routing_rules
+        SELECT model_key, provider FROM agentsam_routing_arms
         WHERE is_active=1 ORDER BY priority DESC LIMIT 1
       `).first().catch(() => null);
       if (r) { modelId = r.model_key; provider = r.provider || provider; }
@@ -47,7 +47,7 @@ export async function generateDailySummaryEmail(env) {
                SUM(tokens_output) as tout, SUM(cost_estimate) as cost,
                GROUP_CONCAT(DISTINCT model) as models,
                GROUP_CONCAT(DISTINCT provider) as providers
-        FROM ai_usage_log WHERE date=?
+        FROM agentsam_usage_events WHERE date=?
       `).bind(yesterday).first()),
 
       safeFirst(env.DB.prepare(`
@@ -60,12 +60,12 @@ export async function generateDailySummaryEmail(env) {
 
       safeFirst(env.DB.prepare(`
         SELECT COUNT(*) as total, GROUP_CONCAT(DISTINCT tool_name) as tools
-        FROM mcp_tool_calls
+        FROM agentsam_mcp_tool_execution
         WHERE created_at >= unixepoch(?) AND created_at < unixepoch(?)
       `).bind(yesterday, today).first()),
 
       safeFirst(env.DB.prepare(`
-        SELECT COUNT(*) as total FROM mcp_audit_log
+        SELECT COUNT(*) as total FROM agentsam_mcp_tool_execution
         WHERE created_at >= unixepoch(?) AND created_at < unixepoch(?)
       `).bind(yesterday, today).first()),
 

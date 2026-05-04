@@ -30,8 +30,8 @@ export async function handleMcpToolCallsApi(request, url, env, ctx, authUser) {
         tc.status, tc.invoked_by, tc.invoked_at, tc.completed_at,
         tc.cost_usd, tc.input_tokens, tc.output_tokens, tc.error_message,
         mrt.name as tool_display_name
-      FROM mcp_tool_calls tc
-      LEFT JOIN mcp_registered_tools mrt ON mrt.tool_name = tc.tool_name
+      FROM agentsam_mcp_tool_execution tc
+      LEFT JOIN agentsam_mcp_tools mrt ON mrt.tool_name = tc.tool_name
       WHERE tc.tenant_id = ?
         AND tc.invoked_at >= datetime('now', '-' || ? || ' days')
       ORDER BY tc.invoked_at DESC LIMIT ?`

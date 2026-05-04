@@ -181,7 +181,7 @@ export async function handleMcpApi(request, url, env, ctx) {
 
     if (pathLower === '/api/mcp/server-allowlist' && method === 'GET') {
       const { results } = await env.DB.prepare(
-        'SELECT * FROM mcp_server_allowlist ORDER BY server_name ASC LIMIT 500'
+        'SELECT * FROM agentsam_mcp_allowlist ORDER BY server_name ASC LIMIT 500'
       ).all();
       return jsonResponse({ allowlist: results || [] });
     }
@@ -196,7 +196,7 @@ export async function handleMcpApi(request, url, env, ctx) {
     if (pathLower === '/api/mcp/audit' && method === 'GET') {
       const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
       const { results } = await env.DB.prepare(
-        'SELECT * FROM mcp_audit_log ORDER BY created_at DESC LIMIT ?'
+        'SELECT * FROM agentsam_mcp_tool_execution ORDER BY created_at DESC LIMIT ?'
       ).bind(lim).all();
       return jsonResponse({ audit: results || [] });
     }
@@ -204,7 +204,7 @@ export async function handleMcpApi(request, url, env, ctx) {
     if (pathLower === '/api/mcp/stats' && method === 'GET') {
       const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
       const { results } = await env.DB.prepare(
-        'SELECT * FROM mcp_tool_call_stats ORDER BY date DESC, call_count DESC LIMIT ?'
+        'SELECT * FROM agentsam_tool_stats_compacted ORDER BY date DESC, call_count DESC LIMIT ?'
       ).bind(lim).all();
       return jsonResponse({ stats: results || [] });
     }
@@ -346,11 +346,11 @@ export async function handleMcpApi(request, url, env, ctx) {
 
       try {
         await env.DB.prepare(
-          `INSERT INTO mcp_tool_calls (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
+          `INSERT INTO agentsam_mcp_tool_execution (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
                VALUES (?, ?, ?, 'mcp_dispatch', 'orchestration', '{}', '', 'pending', 'dashboard', ?, ?, ?, ?, NULL, 0, 0, 0)`
         ).bind(toolCallId, tenantId, sessionId, nowIso, nowIso, nowIso, nowIso).run();
       } catch (err) {
-        console.warn('[mcp/agents/dispatch] mcp_tool_calls insert failed', err?.message ?? err);
+        console.warn('[mcp/agents/dispatch] agentsam_mcp_tool_execution insert failed', err?.message ?? err);
       }
 
       return jsonResponse({ ok: true, session_id: sessionId, tool_call_id: toolCallId, agent_id: agentId });
@@ -396,7 +396,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       let tools = [];
       try {
         const r = await env.DB.prepare(
-          'SELECT tool_name, description, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name'
+          'SELECT tool_name, description, tool_category FROM agentsam_mcp_tools WHERE enabled = 1 ORDER BY tool_name'
         ).all();
         const filtered = filterToolRowsByPanel(panelAgent, r.results || []);
         tools = filtered.map((t) => ({
@@ -407,7 +407,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       } catch (_) {
         try {
           const r = await env.DB.prepare(
-            'SELECT tool_name, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name'
+            'SELECT tool_name, tool_category FROM agentsam_mcp_tools WHERE enabled = 1 ORDER BY tool_name'
           ).all();
           const filtered = filterToolRowsByPanel(panelAgent, r.results || []);
           tools = filtered.map((t) => ({
@@ -426,7 +426,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!toolName) return jsonResponse({ error: 'tool_name required' }, 400);
       let row = null;
       try {
-        row = await env.DB.prepare(`SELECT * FROM mcp_registered_tools WHERE tool_name = ? LIMIT 1`)
+        row = await env.DB.prepare(`SELECT * FROM agentsam_mcp_tools WHERE tool_name = ? LIMIT 1`)
           .bind(toolName)
           .first();
       } catch (e) {
@@ -451,7 +451,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!body || typeof body !== 'object') return jsonResponse({ error: 'JSON body required' }, 400);
 
       const existing = await env.DB.prepare(
-        `SELECT tool_name FROM mcp_registered_tools WHERE tool_name = ? LIMIT 1`,
+        `SELECT tool_name FROM agentsam_mcp_tools WHERE tool_name = ? LIMIT 1`,
       )
         .bind(toolName)
         .first();
@@ -487,14 +487,14 @@ export async function handleMcpApi(request, url, env, ctx) {
       binds.push(toolName);
       try {
         await env.DB.prepare(
-          `UPDATE mcp_registered_tools SET ${sets.join(', ')} WHERE tool_name = ?`,
+          `UPDATE agentsam_mcp_tools SET ${sets.join(', ')} WHERE tool_name = ?`,
         )
           .bind(...binds)
           .run();
       } catch (e) {
         return jsonResponse({ error: String(e?.message || e) }, 500);
       }
-      const updated = await env.DB.prepare(`SELECT * FROM mcp_registered_tools WHERE tool_name = ? LIMIT 1`)
+      const updated = await env.DB.prepare(`SELECT * FROM agentsam_mcp_tools WHERE tool_name = ? LIMIT 1`)
         .bind(toolName)
         .first();
       return jsonResponse({ ok: true, tool: updated });
@@ -546,11 +546,11 @@ export async function handleMcpApi(request, url, env, ctx) {
       }
       try {
         await env.DB.prepare(
-          `INSERT INTO mcp_tool_calls (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
+          `INSERT INTO agentsam_mcp_tool_execution (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
                VALUES (?, ?, ?, 'mcp_dispatch', 'orchestration', '{}', '', 'pending', 'dashboard', ?, ?, ?, ?, NULL, 0, 0, 0)`
         ).bind(toolCallId, tenantId, sessionId, nowIso, nowIso, nowIso, nowIso).run();
       } catch (err) {
-        console.warn('[mcp/dispatch] mcp_tool_calls insert failed', err?.message ?? err);
+        console.warn('[mcp/dispatch] agentsam_mcp_tool_execution insert failed', err?.message ?? err);
       }
       return jsonResponse({
         ok: true,

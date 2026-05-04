@@ -251,7 +251,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
             const execId = crypto.randomUUID();
             try {
                 await env.DB?.prepare(
-                    `INSERT INTO agent_command_executions
+                    `INSERT INTO agentsam_command_run
                      (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
                      VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
                 ).bind(
@@ -283,7 +283,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (executionId && (status === 'completed' || status === 'failed')) {
             try {
                 await env.DB?.prepare(
-                    "UPDATE agent_command_executions SET status = ?, completed_at = ?, output_text = COALESCE(?, output_text), exit_code = COALESCE(?, exit_code) WHERE id = ?"
+                    "UPDATE agentsam_command_run SET status = ?, completed_at = ?, output_text = COALESCE(?, output_text), exit_code = COALESCE(?, exit_code) WHERE id = ?"
                 ).bind(status, now, body?.output_text ?? null, body?.exit_code ?? null, executionId).run();
             } catch (_) {}
         }

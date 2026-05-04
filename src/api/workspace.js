@@ -103,7 +103,7 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
         
         const stateJson = JSON.stringify(record);
         await env.DB.prepare(
-            `INSERT INTO agent_workspace_state (id, state_json, updated_at) VALUES (?, ?, unixepoch())
+            `INSERT INTO agentsam_workspace_state (id, state_json, updated_at) VALUES (?, ?, unixepoch())
              ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`
         ).bind(rowId, stateJson).run();
         
@@ -117,21 +117,21 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
         const rowId = `uws:${String(authUser.tenant_id ?? '').trim()}:${String(authUser.id ?? '').trim()}:${wsUuid}`;
 
         if (method === 'GET') {
-            const row = await env.DB.prepare('SELECT state_json FROM agent_workspace_state WHERE id = ?').bind(rowId).first();
+            const row = await env.DB.prepare('SELECT state_json FROM agentsam_workspace_state WHERE id = ?').bind(rowId).first();
             if (!row) return jsonResponse({ error: 'Not found' }, 404);
             return jsonResponse(JSON.parse(row.state_json || '{}'));
         }
 
         if (method === 'PATCH') {
             const body = await request.json().catch(() => ({}));
-            const row = await env.DB.prepare('SELECT state_json FROM agent_workspace_state WHERE id = ?').bind(rowId).first();
+            const row = await env.DB.prepare('SELECT state_json FROM agentsam_workspace_state WHERE id = ?').bind(rowId).first();
             if (!row) return jsonResponse({ error: 'Not found' }, 404);
             
             const rec = JSON.parse(row.state_json || '{}');
             if (typeof body.lastOpenedAt === 'number') rec.lastOpenedAt = body.lastOpenedAt;
             if (typeof body.folderName === 'string') rec.folderName = body.folderName;
             
-            await env.DB.prepare('UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?')
+            await env.DB.prepare('UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?')
                 .bind(JSON.stringify(rec), rowId)
                 .run();
             return jsonResponse({ ok: true, record: rec });

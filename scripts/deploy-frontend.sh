@@ -49,6 +49,10 @@ printf '{"git_hash":"%s","timestamp":"%s","file_count":%s,"branch":"%s","environ
   --pipe --content-type application/json -c "$TOML" --remote
 echo "[deploy] build manifest → analytics/app-builds/${TS}.json"
 
+# Post-deploy: Supabase pgvector backfill for rows with NULL embedding (Edge Function).
+# Set SUPABASE_WEBHOOK_SECRET in .env.cloudflare (same value as the function's WEBHOOK_SECRET).
+"$REPO_ROOT/scripts/supabase-embeddings-backfill.sh"
+
 # Post-deploy: Resend notification
 GIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "unknown")
 TOTAL_KB=$(du -sk "$DIST" | cut -f1)
@@ -63,4 +67,4 @@ curl -sS -X POST "https://inneranimalmedia.com/api/email/send" \
     \"html\": \"<h2>Deploy Complete</h2><p><b>Commit:</b> ${GIT_HASH} — ${GIT_MSG}</p><p><b>Files synced:</b> ${FILE_COUNT}</p><p><b>Bundle size:</b> ${TOTAL_KB} KB</p><p><b>Branch:</b> ${BRANCH}</p><p><b>Time:</b> ${TS}</p>\"
   }"
 
-echo "✓ Done (manifest + notification)"
+echo "✓ Done (manifest + embeddings backfill + notification)"

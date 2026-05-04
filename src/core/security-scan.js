@@ -3,6 +3,7 @@
  * Runs shield rules, writes security_findings, fires notifications.
  * Called from nightly-master cron and optionally from deploy gate.
  */
+import { sendPlatformEmail } from '../lib/email.js';
 
 // Patterns that constitute a critical exposure if found in logs/chat/bundles
 const EXPOSURE_PATTERNS = [
@@ -32,13 +33,13 @@ const EXPOSURE_PATTERNS = [
 ];
 
 /**
- * D1 scan targets (last 24h). terminal_history uses `content` + direction; mcp_audit_log column is request_args_json.
+ * D1 scan targets (last 24h). terminal_history uses `content` + direction; agentsam_mcp_tool_execution uses request_args_json.
  */
 const SCAN_TARGETS = [
   { table: 'agent_messages', column: 'content', limit: 500, dateCol: 'created_at' },
   { table: 'terminal_history', column: 'content', limit: 200, dateCol: 'recorded_at', extraWhere: `direction = 'output'` },
   { table: 'terminal_history', column: 'content', limit: 200, dateCol: 'recorded_at', extraWhere: `direction = 'input'` },
-  { table: 'mcp_audit_log', column: 'request_args_json', limit: 100, dateCol: 'created_at' },
+  { table: 'agentsam_mcp_tool_execution', column: 'request_args_json', limit: 100, dateCol: 'created_at' },
   { table: 'agentsam_memory', column: 'value', limit: 200, dateCol: 'updated_at' },
 ];
 
@@ -112,13 +113,17 @@ export async function runSecurityScan(env, opts = {}) {
             INSERT INTO security_findings
               (id, tenant_id, source_type, source_ref, finding_type,
                severity, fingerprint, snippet_redacted, status,
-               created_by, notification_sent_at, metadata_json)
-            VALUES (?,?,?,?,?,?,?,?,  'open',?,NULL,?)
+               created_by, notification_sent_at, metadata_json,
+               title, description, user_id)
+            VALUES (?,?,?,?,?,?,?,?,  'open',?,NULL,?,?,?,?)
           `).bind(
             findingId, tenantId, sourceKey, row.id,
             'credential_exposure', pat.severity, fp,
             redact(match), triggeredBy,
             JSON.stringify({ pattern_name: pat.name, rotate_key: pat.rotate }),
+            'credential_exposure',
+            redact(match),
+            triggeredBy,
           ).run().catch(() => {});
 
           findings.push({ id: findingId, pattern: pat.name, severity: pat.severity,
@@ -144,11 +149,15 @@ export async function runSecurityScan(env, opts = {}) {
     await env.DB.prepare(`
       INSERT INTO security_findings
         (id, tenant_id, source_type, source_ref, finding_type,
-         severity, fingerprint, snippet_redacted, status, created_by)
-      VALUES (?,?,  'env_secrets',?,  'null_vault_value',  'medium',?,?,  'open',?)
+         severity, fingerprint, snippet_redacted, status, created_by,
+         title, description, user_id)
+      VALUES (?,?,  'env_secrets',?,  'null_vault_value',  'medium',?,?,  'open',?,
+              'null_vault_value', ?, ?)
     `).bind(
       'sf_' + Math.random().toString(36).slice(2),
       tenantId, r.key_name, fp, r.key_name, 'nightly_security_scan',
+      r.key_name,
+      'nightly_security_scan',
     ).run().catch(() => {});
   }
 
@@ -169,11 +178,15 @@ export async function runSecurityScan(env, opts = {}) {
     await env.DB.prepare(`
       INSERT INTO security_findings
         (id, tenant_id, source_type, source_ref, finding_type,
-         severity, fingerprint, snippet_redacted, status, created_by)
-      VALUES (?,?,'env_secrets',?,'rotation_overdue','high',?,?,'open',?)
+         severity, fingerprint, snippet_redacted, status, created_by,
+         title, description, user_id)
+      VALUES (?,?,'env_secrets',?,'rotation_overdue','high',?,?,'open',?,
+              'rotation_overdue', ?, ?)
     `).bind(
       'sf_' + Math.random().toString(36).slice(2),
       tenantId, r.key_name, fp,
+      `${r.key_name} rotation overdue`,
+      'nightly_security_scan',
       `${r.key_name} rotation overdue`,
       'nightly_security_scan',
     ).run().catch(() => {});
@@ -181,26 +194,19 @@ export async function runSecurityScan(env, opts = {}) {
 
   const criticalNew = findings.filter(f => f.severity === 'critical');
 
-  // Notify if any critical/high findings were new — send to Resend
-  if (criticalNew.length > 0 && env.RESEND_API_KEY) {
+  // Notify if any critical findings were new — platform email (Resend or gmail_platform)
+  if (criticalNew.length > 0) {
     const lines = criticalNew.map(f =>
       `• [${f.severity.toUpperCase()}] ${f.pattern} in ${f.source}` +
       (f.rotate ? ` → ROTATE: ${f.rotate}` : ''),
     ).join('\n');
 
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: env.RESEND_FROM ?? 'security@inneranimalmedia.com',
-        to: env.RESEND_TO ?? 'support@inneranimalmedia.com',
-        subject: `IAM Security Alert — ${criticalNew.length} critical finding(s) detected`,
-        text: `IAM Security Scanner detected the following:\n\n${lines}\n\nReview at: https://inneranimalmedia.com/dashboard/settings/security\n\nTimestamp: ${new Date().toISOString()}`,
-      }),
-    }).catch(() => {});
+    await sendPlatformEmail(env, {
+      subject: `IAM Security Alert — ${criticalNew.length} critical finding(s) detected`,
+      text: `IAM Security Scanner detected the following:\n\n${lines}\n\nReview at: https://inneranimalmedia.com/dashboard/settings/security\n\nTimestamp: ${new Date().toISOString()}`,
+      category: 'security_scan',
+      noAgentSamPrefix: true,
+    });
 
     // Update notification_sent_at on findings we just alerted
     for (const f of criticalNew) {
@@ -234,19 +240,21 @@ export async function logSecretAudit(env, {
   secretId, tenantId, userId, eventType,
   triggeredBy, previousLast4, newLast4,
   notes, ipAddress, userAgent,
+  secretSource = 'user_secrets',
 }) {
   if (!env?.DB || !secretId) return;
   await env.DB.prepare(`
     INSERT INTO secret_audit_log
       (id, secret_id, tenant_id, user_id, event_type,
        triggered_by, previous_last4, new_last4,
-       notes, ip_address, user_agent, created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,unixepoch())
+       notes, ip_address, user_agent, created_at, secret_source)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,unixepoch(),?)
   `).bind(
     'saudit_' + Math.random().toString(36).slice(2),
     secretId, tenantId, userId ?? null, eventType,
     triggeredBy ?? 'system', previousLast4 ?? null, newLast4 ?? null,
     notes ?? null, ipAddress ?? null, userAgent ?? null,
+    secretSource,
   ).run().catch(() => {});
 }
 

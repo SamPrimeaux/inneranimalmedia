@@ -30,26 +30,26 @@ export async function runIntegritySnapshot(env, triggeredBy = 'cron') {
       COUNT(*) AS tools_total,
       COALESCE(SUM(is_degraded), 0) AS tools_degraded,
       COALESCE(SUM(CASE WHEN modes_json IS NULL OR modes_json = '' THEN 1 ELSE 0 END), 0) AS tools_missing_modes
-    FROM mcp_registered_tools WHERE enabled = 1`;
+    FROM agentsam_mcp_tools WHERE enabled = 1`;
   const sqlQ4b = `
     SELECT tool_name,
       SUM(failure_count) AS failure_count,
       SUM(success_count) AS success_count,
       ROUND(100.0 * SUM(failure_count) / NULLIF(SUM(failure_count) + SUM(success_count), 0), 1) AS fail_pct
-    FROM mcp_tool_call_stats
+    FROM agentsam_tool_stats_compacted
     GROUP BY tool_name
     HAVING SUM(failure_count) > 0
     ORDER BY fail_pct DESC
     LIMIT 5`;
   const sqlQ5 = `
     SELECT
-      (SELECT COUNT(*) FROM agent_intent_patterns) AS intents_total,
-      (SELECT COUNT(*) FROM agent_intent_patterns WHERE total_executions > 0) AS intents_wired,
-      (SELECT COUNT(*) FROM model_routing_rules WHERE is_active = 1) AS routing_rules_active,
-      (SELECT COUNT(*) FROM model_routing_rules WHERE is_active = 1 AND provider = 'google') AS routing_rules_with_google,
+      (SELECT COUNT(*) FROM agentsam_routing_arms) AS intents_total,
+      (SELECT COUNT(*) FROM agentsam_routing_arms WHERE total_executions > 0) AS intents_wired,
+      (SELECT COUNT(*) FROM agentsam_routing_arms WHERE is_active = 1) AS routing_rules_active,
+      (SELECT COUNT(*) FROM agentsam_routing_arms WHERE is_active = 1 AND provider = 'google') AS routing_rules_with_google,
       (SELECT COUNT(*) FROM provider_prompt_fragments WHERE is_active = 1) AS provider_fragments_active`;
   const sqlQ5b = `
-    SELECT intent_slug, total_executions FROM agent_intent_patterns
+    SELECT intent_slug, total_executions FROM agentsam_routing_arms
     WHERE total_executions > 0 ORDER BY total_executions DESC LIMIT 10`;
   const [r1, r2, r3all, r4, r4b, r5, r5b] = await Promise.all([
     env.DB.prepare(sqlQ1).first(),

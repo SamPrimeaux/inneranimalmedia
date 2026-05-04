@@ -20,6 +20,7 @@ import { handleBillingApi } from "./src/api/billing.js";
 import { authUserIsSuperadmin } from "./src/core/auth.js";
 import { getAESKey } from "./src/core/crypto-vault.js";
 import { handleVaultApi } from "./src/api/vault.js";
+import { getVaultSecrets } from "./src/core/vault.js";
 import { generateDailySummaryEmail } from './src/api/workflow/summary.js';
 import { runMasterDailyRetention } from './src/core/retention.js';
 import { runSecurityScan } from './src/core/security-scan.js';
@@ -786,7 +787,7 @@ async function agentsamIsFetchHostAllowed(env, userKey, workspaceId, urlOrHost) 
   }
 }
 
-/** Call after any write to agent_memory_index or ai_knowledge_base so agent_sam context cache is invalidated. */
+/** Call after any write to agentsam_memory or ai_knowledge_base so agent_sam context cache is invalidated. */
 function invalidateCompiledContextCache(env) {
   if (env.DB) env.DB.prepare(`DELETE FROM ai_compiled_context_cache WHERE context_hash LIKE '%system%'`).run().catch(() => { });
 }
@@ -898,7 +899,7 @@ async function notifySam(env, opts, executionCtx) {
 
 
 // ============================================================================
-// AUTO MODE: D1 model_routing_rules (intent -> task_type -> primary model)
+// AUTO MODE: D1 agentsam_routing_arms (intent -> task_type -> primary model)
 // ============================================================================
 
 function intentToModelRoutingTaskType(intent) {
@@ -907,7 +908,7 @@ function intentToModelRoutingTaskType(intent) {
 }
 
 /**
- * Select model for Auto mode: classify intent, then model_routing_rules by task_type.
+ * Select model for Auto mode: classify intent, then agentsam_routing_arms by task_type.
  */
 async function selectAutoModel(env, lastUserContent, returnIntent = false) {
   try {
@@ -933,13 +934,13 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
             performance_score,
             success_rate,
             avg_latency_ms
-          FROM model_routing_rules
+          FROM agentsam_routing_arms
           WHERE task_type = ?
             AND is_active = 1
           LIMIT 1
         `).bind(taskType).first();
       } catch (e) {
-        console.warn('[Auto Mode] model_routing_rules lookup failed:', e?.message ?? e);
+        console.warn('[Auto Mode] agentsam_routing_arms lookup failed:', e?.message ?? e);
       }
     }
 
@@ -1483,42 +1484,9 @@ async function fetchUnifiedSpendGrouped(env, periodDays, groupKey) {
   return { rows, total_cost_usd, period_days: periodDays, group: g };
 }
 
-// ── Vault secret loader ───────────────────────────────────────
-// Loads all active vault secrets from D1 into a plain object.
-// Returns empty object on any failure — never throws.
-// (Crypto matches /api/env/* _vaultDecrypt; defined at module scope so fetch can call it.)
-async function getVaultSecrets(env) {
-  try {
-    if (!env.VAULT_KEY || !env.DB) return {};
-    async function decryptRow(encB64, ivB64, vaultKeyB64) {
-      const key = await getAESKey({ VAULT_MASTER_KEY: vaultKeyB64 }, ['decrypt']);
-      const plain = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: Uint8Array.from(atob(ivB64), c => c.charCodeAt(0)) },
-        key,
-        Uint8Array.from(atob(encB64), c => c.charCodeAt(0))
-      );
-      return new TextDecoder().decode(plain);
-    }
-    const { results } = await env.DB.prepare(
-      'SELECT key_name, encrypted_value, iv FROM env_secrets WHERE is_active = 1'
-    ).all();
-    const secrets = {};
-    for (const row of (results || [])) {
-      try {
-        secrets[row.key_name] = await decryptRow(
-          row.encrypted_value, row.iv, env.VAULT_KEY
-        );
-      } catch { }
-    }
-    return secrets;
-  } catch {
-    return {};
-  }
-}
-
 // ----- Inbound webhooks (/api/hooks/*) -----
-// Matches production D1: webhook_endpoints (source, is_active, total_*, TEXT datetimes), webhook_events (payload_json, tenant_id, source, ...),
-// hook_subscriptions (is_active, run_order), hook_executions (subscription_id first, error_message, status, TEXT datetimes), deployment_tracking (full deploy row).
+// Matches production D1: webhook_endpoints (source, is_active, total_*, TEXT datetimes), agentsam_webhook_events (payload_json, tenant_id, provider, ...),
+// agentsam_hook (is_active, run_order), agentsam_hook_execution (subscription_id first, error_message, status, TEXT datetimes), deployment_tracking (full deploy row).
 
 function timingSafeEqualUtf8(a, b) {
   if (a.length !== b.length) return false;
@@ -2096,7 +2064,7 @@ async function runWriteD1MapInsert(env, cfg, ctx) {
 
 async function runWriteD1GithubRaw(env, cfg, ctx) {
   const table = cfg.table != null ? String(cfg.table) : '';
-  if (table !== 'github_webhook_events') return { ok: false, error: 'write_d1: raw only supported for github_webhook_events' };
+  if (table !== 'agentsam_webhook_events') return { ok: false, error: 'write_d1: raw only supported for agentsam_webhook_events' };
   let parsed = {};
   try {
     parsed = JSON.parse((ctx.rawBody || ctx.webhookBody || ctx.body || "{}"));
@@ -2104,10 +2072,19 @@ async function runWriteD1GithubRaw(env, cfg, ctx) {
     parsed = {};
   }
   const repo = parsed.repository?.full_name != null ? String(parsed.repository.full_name) : 'unknown';
+  const tid = tenantIdFromEnv(env) || 'tenant_sam_primeaux';
   try {
     await env.DB.prepare(
-      `INSERT INTO github_webhook_events (event_type, repo_full_name, payload_json) VALUES (?, ?, ?)`
-    ).bind(ctx.eventType || ctx.webhookEventType || "unknown", repo, ctx.rawBody || ctx.webhookBody || ctx.body || "{}").run();
+      `INSERT INTO agentsam_webhook_events (id, tenant_id, provider, event_type, payload_json, status, processed_at)
+       VALUES (?, ?, 'github', ?, ?, 'received', datetime('now'))`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        tid,
+        ctx.eventType || ctx.webhookEventType || 'unknown',
+        JSON.stringify({ repo_full_name: repo, raw: ctx.rawBody || ctx.webhookBody || ctx.body || '{}' }),
+      )
+      .run();
     return { ok: true, result: { inserted: true } };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
@@ -2271,7 +2248,7 @@ async function executeHookSubscriptionAction(env, actionType, actionConfigJson, 
     const score = Number(cfg.importance_score) >= 0 && Number(cfg.importance_score) <= 1 ? Number(cfg.importance_score) : 0.75;
     try {
       await env.DB.prepare(
-        `INSERT INTO agent_memory_index (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, 'execution_outcome', ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
+        `INSERT INTO agentsam_memory (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, 'execution_outcome', ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
       ).bind(tenantId, agentCfg, memKey, valueStr, score).run();
       invalidateCompiledContextCache(env);
       return { ok: true, result: { memory_key: memKey } };
@@ -2356,7 +2333,7 @@ async function handleHooksHealth(env) {
   try {
     const { results } = await env.DB.prepare(
       `SELECT e.*,
-        (SELECT COUNT(*) FROM hook_subscriptions h WHERE h.endpoint_id = e.id) AS subscription_count
+        (SELECT COUNT(*) FROM agentsam_hook h WHERE h.endpoint_id = e.id) AS subscription_count
        FROM webhook_endpoints e
        ORDER BY e.source, e.slug`
     ).all();
@@ -2398,28 +2375,28 @@ async function handleInboundWebhook(env, request, resolveSecret, opts, execution
 
   try {
     await env.DB.prepare(
-      `INSERT INTO webhook_events (
-        id, endpoint_id, tenant_id, source, event_type, event_id,
-        repo_full_name, branch, commit_sha, actor,
-        payload_json, headers_json, signature_valid, ip_address, status, received_at, processed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'received', datetime('now'), NULL)`
+      `INSERT INTO agentsam_webhook_events (
+        id, tenant_id, provider, event_type, payload_json, status, processed_at
+      ) VALUES (?, ?, ?, ?, ?, 'received', NULL)`
     ).bind(
       eventId,
-      ep.id,
       tenantId,
       source,
       eventType,
-      externalEventId,
-      repo,
-      branch,
-      sha,
-      actor,
-      payloadStore,
-      headersJson,
-      ip || null
+      JSON.stringify({
+        endpoint_id: ep.id,
+        event_id: externalEventId,
+        repo_full_name: repo,
+        branch,
+        commit_sha: sha,
+        actor,
+        raw: payloadStore,
+        headers: headersJson,
+        ip: ip || null,
+      }),
     ).run();
   } catch (e) {
-    console.error('[hooks] webhook_events INSERT', e?.message ?? e);
+    console.error('[hooks] agentsam_webhook_events INSERT', e?.message ?? e);
     return jsonResponse({ error: String(e?.message || e) }, 500);
   }
 
@@ -2448,7 +2425,7 @@ async function handleInboundWebhook(env, request, resolveSecret, opts, execution
   let subs = [];
   try {
     const { results } = await env.DB.prepare(
-      `SELECT id, action_type, action_config_json, event_filter FROM hook_subscriptions
+      `SELECT id, action_type, action_config_json, event_filter FROM agentsam_hook
        WHERE endpoint_id = ?
        AND COALESCE(is_active, 1) = 1
        ORDER BY COALESCE(run_order, 0) ASC, id ASC`
@@ -2456,9 +2433,9 @@ async function handleInboundWebhook(env, request, resolveSecret, opts, execution
     const allSubs = results || [];
     subs = allSubs.filter((row) => hookSubscriptionMatchesEventFilter(row.event_filter, eventType));
   } catch (e) {
-    console.error('[hooks] hook_subscriptions SELECT', e?.message ?? e);
+    console.error('[hooks] agentsam_hook SELECT', e?.message ?? e);
     try {
-      await env.DB.prepare(`UPDATE webhook_events SET status = 'failed', processed_at = datetime('now') WHERE id = ?`).bind(eventId).run();
+      await env.DB.prepare(`UPDATE agentsam_webhook_events SET status = 'failed', processed_at = datetime('now') WHERE id = ?`).bind(eventId).run();
     } catch (_) { }
     return jsonResponse({ error: String(e?.message || e), event_id: eventId }, 500);
   }
@@ -2470,7 +2447,7 @@ async function handleInboundWebhook(env, request, resolveSecret, opts, execution
     const durationMs = Date.now() - t0;
     const execId = crypto.randomUUID();
     const execStatus = out.ok ? 'success' : 'failed';
-    console.log('[hooks] attempting hook_executions INSERT', {
+    console.log('[hooks] attempting agentsam_hook_execution INSERT', {
       subscription_id: sub.id,
       webhook_event_id: eventId,
       status: execStatus,
@@ -2478,12 +2455,13 @@ async function handleInboundWebhook(env, request, resolveSecret, opts, execution
     });
     try {
       await env.DB.prepare(
-        `INSERT INTO hook_executions (
-          id, subscription_id, webhook_event_id, tenant_id, attempt, status,
-          result_json, error_message, duration_ms, started_at, completed_at
-        ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+        `INSERT INTO agentsam_hook_execution (
+          id, hook_id, subscription_id, webhook_event_id, tenant_id, attempt, status,
+          result_json, error_message, duration_ms, started_at, completed_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, datetime('now'), datetime('now'), unixepoch())`
       ).bind(
         execId,
+        sub.id,
         sub.id,
         eventId,
         tenantId,
@@ -2494,8 +2472,8 @@ async function handleInboundWebhook(env, request, resolveSecret, opts, execution
       ).run();
     } catch (e) {
       const errStr = String(e?.message || e);
-      console.error('[hooks] hook_executions INSERT', errStr);
-      console.log('[hooks] hook_executions INSERT failed', {
+      console.error('[hooks] agentsam_hook_execution INSERT', errStr);
+      console.log('[hooks] agentsam_hook_execution INSERT failed', {
         subscription_id: sub.id,
         webhook_event_id: eventId,
         error: errStr,
@@ -2505,7 +2483,7 @@ async function handleInboundWebhook(env, request, resolveSecret, opts, execution
   }
 
   try {
-    await env.DB.prepare(`UPDATE webhook_events SET status = 'processed', processed_at = datetime('now') WHERE id = ?`).bind(eventId).run();
+    await env.DB.prepare(`UPDATE agentsam_webhook_events SET status = 'processed', processed_at = datetime('now') WHERE id = ?`).bind(eventId).run();
     await env.DB.prepare(
       `UPDATE webhook_endpoints SET
         last_received_at = datetime('now'),
@@ -2678,7 +2656,7 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
     }
     if (pathLower === '/api/ai/routing-rules' && method === 'GET') {
       const { results } = await env.DB.prepare(
-        'SELECT * FROM ai_routing_rules ORDER BY priority DESC, id ASC'
+        'SELECT * FROM agentsam_routing_arms ORDER BY priority DESC, id ASC'
       ).all();
       return jsonResponse({ rules: results || [] });
     }
@@ -2699,10 +2677,10 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
       const is_active = body.is_active === false || body.is_active === 0 || body.is_active === '0' ? 0 : 1;
       const id = crypto.randomUUID();
       await env.DB.prepare(
-        `INSERT INTO ai_routing_rules (id, rule_name, priority, match_type, match_value, target_model_key, target_provider, reason, is_active)
+        `INSERT INTO agentsam_routing_arms (id, rule_name, priority, match_type, match_value, target_model_key, target_provider, reason, is_active)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(id, rule_name, priority, match_type, match_value, target_model_key, target_provider, reason, is_active).run();
-      const row = await env.DB.prepare('SELECT * FROM ai_routing_rules WHERE id = ?').bind(id).first();
+      const row = await env.DB.prepare('SELECT * FROM agentsam_routing_arms WHERE id = ?').bind(id).first();
       return jsonResponse({ rule: row }, 201);
     }
     {
@@ -2740,14 +2718,14 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
         if (!setParts.length) return jsonResponse({ error: 'No valid fields' }, 400);
         setParts.push("updated_at = datetime('now')");
         vals.push(id);
-        const sql = `UPDATE ai_routing_rules SET ${setParts.join(', ')} WHERE id = ?`;
+        const sql = `UPDATE agentsam_routing_arms SET ${setParts.join(', ')} WHERE id = ?`;
         const r = await env.DB.prepare(sql).bind(...vals).run();
         if (!r.meta?.changes) return jsonResponse({ error: 'Not found' }, 404);
-        const row = await env.DB.prepare('SELECT * FROM ai_routing_rules WHERE id = ?').bind(id).first();
+        const row = await env.DB.prepare('SELECT * FROM agentsam_routing_arms WHERE id = ?').bind(id).first();
         return jsonResponse({ rule: row });
       }
       if (rr && method === 'DELETE') {
-        const r = await env.DB.prepare('DELETE FROM ai_routing_rules WHERE id = ?').bind(rr[1]).run();
+        const r = await env.DB.prepare('DELETE FROM agentsam_routing_arms WHERE id = ?').bind(rr[1]).run();
         if (!r.meta?.changes) return jsonResponse({ error: 'Not found' }, 404);
         return jsonResponse({ ok: true });
       }
@@ -2807,13 +2785,13 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
     }
     if (pathLower === '/api/agent/rules' && method === 'GET') {
       const { results } = await env.DB.prepare(
-        'SELECT * FROM agent_rules ORDER BY COALESCE(updated_at, created_at) DESC'
+        'SELECT * FROM agentsam_rules_document ORDER BY COALESCE(updated_at, created_at) DESC'
       ).all();
       return jsonResponse({ rules: results || [] });
     }
     if (pathLower === '/api/commands/custom' && method === 'GET') {
       const { results } = await env.DB.prepare(
-        'SELECT * FROM custom_commands WHERE COALESCE(is_active, 1) = 1 ORDER BY command_name ASC'
+        'SELECT * FROM agentsam_commands WHERE COALESCE(is_active, 1) = 1 ORDER BY command_name ASC'
       ).all();
       return jsonResponse({ commands: results || [] });
     }
@@ -2891,7 +2869,7 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
       const ids = body && Array.isArray(body.ids) ? body.ids : null;
       if (!ids || !ids.length) return jsonResponse({ error: 'ids array required' }, 400);
       const stmts = ids.map((rid, i) =>
-        env.DB.prepare(`UPDATE hook_subscriptions SET run_order = ? WHERE id = ?`).bind(i, String(rid))
+        env.DB.prepare(`UPDATE agentsam_hook SET run_order = ? WHERE id = ?`).bind(i, String(rid))
       );
       await env.DB.batch(stmts);
       return jsonResponse({ ok: true });
@@ -2915,10 +2893,10 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
         }
         if (!setParts.length) return jsonResponse({ error: 'is_active and/or run_order required' }, 400);
         vals.push(id);
-        const sql = `UPDATE hook_subscriptions SET ${setParts.join(', ')} WHERE id = ?`;
+        const sql = `UPDATE agentsam_hook SET ${setParts.join(', ')} WHERE id = ?`;
         const r = await env.DB.prepare(sql).bind(...vals).run();
         if (!r.meta?.changes) return jsonResponse({ error: 'Not found' }, 404);
-        const row = await env.DB.prepare('SELECT * FROM hook_subscriptions WHERE id = ?').bind(id).first();
+        const row = await env.DB.prepare('SELECT * FROM agentsam_hook WHERE id = ?').bind(id).first();
         return jsonResponse(row || { ok: true });
       }
       if (hm && method === 'DELETE') {
@@ -2932,7 +2910,7 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
     if (pathLower === '/api/hooks/executions' && method === 'GET') {
       const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
       const { results } = await env.DB.prepare(
-        'SELECT * FROM hook_executions ORDER BY started_at DESC LIMIT ?'
+        'SELECT * FROM agentsam_hook_execution ORDER BY started_at DESC LIMIT ?'
       ).bind(limit).all();
       return jsonResponse({ executions: results || [] });
     }
@@ -4055,10 +4033,10 @@ const worker = {
             env.DB.prepare('SELECT COUNT(*) AS c FROM agent_messages').first(),
             env.DB.prepare('SELECT COUNT(*) AS c FROM agent_messages WHERE token_count > 0').first(),
             env.DB.prepare('SELECT COUNT(*) AS c FROM agent_messages WHERE token_count = 0 OR token_count IS NULL').first(),
-            env.DB.prepare('SELECT COUNT(*) AS c FROM mcp_tool_calls').first(),
-            env.DB.prepare("SELECT COUNT(*) AS c FROM mcp_tool_calls WHERE datetime(created_at) >= datetime('now', '-7 days')").first(),
+            env.DB.prepare('SELECT COUNT(*) AS c FROM agentsam_mcp_tool_execution').first(),
+            env.DB.prepare("SELECT COUNT(*) AS c FROM agentsam_mcp_tool_execution WHERE datetime(created_at) >= datetime('now', '-7 days')").first(),
             env.DB.prepare(
-              "SELECT COUNT(*) AS c FROM mcp_tool_calls WHERE status = 'failed' AND datetime(created_at) >= datetime('now', '-7 days')"
+              "SELECT COUNT(*) AS c FROM agentsam_mcp_tool_execution WHERE status = 'failed' AND datetime(created_at) >= datetime('now', '-7 days')"
             ).first(),
             env.DB.prepare('SELECT COUNT(*) AS c FROM mcp_usage_log').first(),
             env.DB.prepare("SELECT COUNT(*) AS c FROM terminal_sessions WHERE status = 'active'").first(),
@@ -4297,7 +4275,7 @@ const worker = {
         return jsonResponse({ error: 'mode must be d1 or supabase' }, 400);
       }
 
-      // POST /api/admin/trigger-workflow — trigger ai_workflow_pipelines, log to ai_workflow_executions
+      // POST /api/admin/trigger-workflow — trigger agentsam_mcp_workflows, log to ai_workflow_executions
       if (pathLower === '/api/admin/trigger-workflow' && (request.method || 'GET').toUpperCase() === 'POST') {
         const internalSecret = request.headers.get('X-Internal-Secret') || request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
         const session = await getSession(env, request);
@@ -4311,10 +4289,10 @@ const worker = {
           const pipelineId = body.pipeline_id || null;
           let pipelines = [];
           if (pipelineId) {
-            const row = await env.DB.prepare('SELECT id, tenant_id, name, stages_json FROM ai_workflow_pipelines WHERE id = ?').bind(pipelineId).first();
+            const row = await env.DB.prepare('SELECT id, tenant_id, name, stages_json FROM agentsam_mcp_workflows WHERE id = ?').bind(pipelineId).first();
             if (row) pipelines = [row];
           } else {
-            const r = await env.DB.prepare('SELECT id, tenant_id, name, stages_json FROM ai_workflow_pipelines ORDER BY id LIMIT 10').all();
+            const r = await env.DB.prepare('SELECT id, tenant_id, name, stages_json FROM agentsam_mcp_workflows ORDER BY id LIMIT 10').all();
             pipelines = r.results || [];
           }
           const executed = [];
@@ -4346,7 +4324,7 @@ const worker = {
           const pipeline_id = body.pipeline_id;
           const input = body.input != null && typeof body.input === 'object' ? body.input : {};
           if (!pipeline_id) return jsonResponse({ error: 'pipeline_id required' }, 400);
-          const pipeline = await env.DB.prepare('SELECT * FROM ai_workflow_pipelines WHERE id = ? LIMIT 1').bind(pipeline_id).first();
+          const pipeline = await env.DB.prepare('SELECT * FROM agentsam_mcp_workflows WHERE id = ? LIMIT 1').bind(pipeline_id).first();
           if (!pipeline) return jsonResponse({ error: 'pipeline not found' }, 404);
           const execId = 'wfexec_' + Date.now();
           const tenantId = pipeline.tenant_id != null && String(pipeline.tenant_id).trim() ? String(pipeline.tenant_id).trim() : null;
@@ -4532,7 +4510,7 @@ const worker = {
         try {
           if (!env.DB) return jsonResponse({ branch: null, staged: [], modified: [], untracked: [] });
           const ws = await env.DB.prepare(
-            `SELECT state_json FROM agent_workspace_state ORDER BY updated_at DESC LIMIT 1`
+            `SELECT state_json FROM agentsam_workspace_state ORDER BY updated_at DESC LIMIT 1`
           ).first().catch(() => null);
           let state = {};
           if (ws && ws.state_json) {
@@ -6421,7 +6399,7 @@ const worker = {
         return jsonResponse({ emails });
       }
 
-      // ----- User IDE workspace metadata (agent_workspace_state, id uws:tenant:user:uuid) — web-IDE style local/cloud hints -----
+      // ----- User IDE workspace metadata (agentsam_workspace_state, id uws:tenant:user:uuid) — web-IDE style local/cloud hints -----
       if (pathLower === '/api/workspace/create' && (request.method || '').toUpperCase() === 'POST') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -6447,7 +6425,7 @@ const worker = {
         };
         const stateJson = JSON.stringify(record);
         await env.DB.prepare(
-          `INSERT INTO agent_workspace_state (id, conversation_id, workspace_type, state_json, created_at, updated_at) VALUES (?, '', 'ide', ?, unixepoch(), unixepoch())
+          `INSERT INTO agentsam_workspace_state (id, conversation_id, workspace_type, state_json, created_at, updated_at) VALUES (?, '', 'ide', ?, unixepoch(), unixepoch())
            ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`
         )
           .bind(rowId, stateJson)
@@ -6471,7 +6449,7 @@ const worker = {
         const method = (request.method || 'GET').toUpperCase();
 
         if (method === 'GET') {
-          const row = await env.DB.prepare('SELECT state_json FROM agent_workspace_state WHERE id = ?').bind(rowId).first();
+          const row = await env.DB.prepare('SELECT state_json FROM agentsam_workspace_state WHERE id = ?').bind(rowId).first();
           if (!row) return jsonResponse({ error: 'Not found' }, 404);
           let rec = null;
           try {
@@ -6482,7 +6460,7 @@ const worker = {
         }
 
         if (method === 'PATCH') {
-          const row = await env.DB.prepare('SELECT state_json FROM agent_workspace_state WHERE id = ?').bind(rowId).first();
+          const row = await env.DB.prepare('SELECT state_json FROM agentsam_workspace_state WHERE id = ?').bind(rowId).first();
           if (!row) return jsonResponse({ error: 'Not found' }, 404);
           let rec = {};
           try {
@@ -6497,7 +6475,7 @@ const worker = {
           if (typeof body.r2Bucket === 'string') rec.r2Bucket = body.r2Bucket;
           if (Array.isArray(body.recentFiles)) rec.recentFiles = body.recentFiles.slice(0, 24);
           const stateJson = JSON.stringify(rec);
-          await env.DB.prepare('UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?')
+          await env.DB.prepare('UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?')
             .bind(stateJson, rowId)
             .run();
           if (env.DASHBOARD) {
@@ -7331,7 +7309,7 @@ function getTelemetryFallbackRates(modelKey) {
   return { in: 1, out: 3 };
 }
 
-/** Fire-and-forget agent_command_audit_log for terminal_execute / d1_write. */
+/** Fire-and-forget command audit row (agentsam_hook_execution). */
 function insertAgentCommandAuditLog(env, {
   userId = null,
   workspaceId = null,
@@ -7344,31 +7322,36 @@ function insertAgentCommandAuditLog(env, {
 }) {
   if (!env?.DB || !commandKey) return;
   console.log('[cmd_audit] INSERT attempted', commandKey);
+  const id = crypto.randomUUID();
   const targetSlice = String(target ?? '').slice(0, 500);
-  const resultStr = success ? 'success' : 'error';
-  const resultJson = JSON.stringify({ output_length: output != null ? String(output).length : 0 }).slice(0, 2000);
-  const errSlice = errorMessage != null ? String(errorMessage).slice(0, 200) : null;
-  const tid = tenantIdFromEnv(env);
+  const errSlice = errorMessage != null ? String(errorMessage).slice(0, 500) : null;
+  const hookId = `cmd_${String(commandKey).replace(/[^a-zA-Z0-9_:-]/g, '_').slice(0, 80)}`;
+  const meta = JSON.stringify({
+    source: 'command',
+    user_id: userId,
+    workspace_id: workspaceId,
+    target: targetSlice,
+    output_len: output != null ? String(output).length : 0,
+    request_id: requestId,
+  }).slice(0, 4000);
   env.DB.prepare(
-    `INSERT INTO agent_command_audit_log
-      (id, timestamp, user_id, workspace_id, tenant_id,
-       command_key, target, result, result_json, cost, error_text, request_id)
-     VALUES (?, unixepoch(), ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?)`
-  ).bind(
-    id,
-    userId ?? null,
-    workspaceId ?? 'default',
-    tid,
-    commandKey,
-    targetSlice,
-    resultStr,
-    resultJson,
-    errSlice,
-    requestId ?? null
-  ).run().catch(() => { });
+    `INSERT INTO agentsam_hook_execution (
+      id, hook_id, event_type, message, metadata_json, status, error_message, ran_at, created_at
+    ) VALUES (?, ?, 'command', ?, ?, ?, ?, unixepoch(), unixepoch())`,
+  )
+    .bind(
+      id,
+      hookId,
+      `terminal:${commandKey}`,
+      meta,
+      success ? 'success' : 'failed',
+      errSlice,
+    )
+    .run()
+    .catch(() => { });
 }
 
-/** Fire-and-forget mcp_audit_log + daily mcp_tool_call_stats rollup after a tool call. */
+/** Fire-and-forget agentsam_mcp_tool_execution + daily agentsam_tool_stats_compacted rollup after a tool call. */
 function appendMcpAuditLogAndStats(env, {
   conversationId,
   toolName,
@@ -7386,7 +7369,7 @@ function appendMcpAuditLogAndStats(env, {
     tenantIdFromEnv(env) ||
     null;
   if (!tid) {
-    console.warn('[mcp_audit_log] missing tenant_id; skip');
+    console.warn('[agentsam_mcp_tool_execution] missing tenant_id; skip');
     return;
   }
   const errStr = error ? String(error).slice(0, 200) : null;
@@ -7402,7 +7385,7 @@ function appendMcpAuditLogAndStats(env, {
 
   // 1. Audit Log
   env.DB.prepare(
-    `INSERT INTO mcp_audit_log
+    `INSERT INTO agentsam_mcp_tool_execution
       (tenant_id, session_id, tool_name, tool_category,
        request_args_json, response_size_bytes, latency_ms,
        status, error_message, tokens_used, cost_usd, created_at)
@@ -7418,11 +7401,11 @@ function appendMcpAuditLogAndStats(env, {
     status,
     errStr,
     costUsd ?? 0
-  ).run().catch((e) => console.warn('[mcp_audit_log] insert failed', e?.message ?? e));
+  ).run().catch((e) => console.warn('[agentsam_mcp_tool_execution] insert failed', e?.message ?? e));
 
   // 2. Tool Stats (Rollup)
   env.DB.prepare(
-    `INSERT INTO mcp_tool_call_stats
+    `INSERT INTO agentsam_tool_stats_compacted
       (date, tool_name, tool_category, tenant_id,
        call_count, success_count, failure_count)
      VALUES (date('now'), ?, ?, ?, 1, ?, ?)
@@ -7437,7 +7420,7 @@ function appendMcpAuditLogAndStats(env, {
     tid,
     ok ? 1 : 0,
     ok ? 0 : 1
-  ).run().catch((e) => console.warn('[mcp_tool_call_stats] upsert failed', e?.message ?? e));
+  ).run().catch((e) => console.warn('[agentsam_tool_stats_compacted] upsert failed', e?.message ?? e));
 
   // 3. Phase 3: "Wired" Performance Improvement Loop
   try {
@@ -7609,16 +7592,31 @@ function recordAgentsamSkillInvocationsFromChat(env, {
   }
 }
 
-/** Write one row to agent_audit_log. Fire-and-forget; never throw. */
+/** Write one row to agentsam_hook_execution (audit + telemetry_query columns). Fire-and-forget; never throw. */
 async function writeAuditLog(env, { event_type, message, run_id = null, metadata = {} }) {
   if (!env?.DB) return;
   const tid = tenantIdFromEnv(env);
   if (!tid) return;
   try {
+    const id = crypto.randomUUID();
+    const slug = String(event_type || 'event').replace(/[^a-zA-Z0-9_:-]/g, '_').slice(0, 60);
+    const meta = JSON.stringify({ tenant_id: tid, run_id, ...metadata }).slice(0, 8000);
+    const et = String(event_type || 'audit').slice(0, 200);
+    const msg = String(message || '').slice(0, 4000);
     await env.DB.prepare(
-      `INSERT INTO agent_audit_log (id, tenant_id, actor_role_id, run_id, event_type, message, metadata_json, created_at)
-       VALUES (?, ?, 'agent_sam', ?, ?, ?, ?, datetime('now'))`
-    ).bind(crypto.randomUUID(), tid, run_id, event_type, message, JSON.stringify(metadata)).run();
+      `INSERT INTO agentsam_hook_execution (
+        id, hook_id, tenant_id, ran_at, status, event_type, message, metadata_json, run_id, created_at, error_message
+      ) VALUES (?, ?, ?, unixepoch(), 'audit', ?, ?, ?, ?, unixepoch(), ?)`
+    ).bind(
+      id,
+      `audit_${slug}`,
+      tid,
+      et,
+      msg,
+      meta,
+      run_id ?? null,
+      msg.slice(0, 500),
+    ).run();
   } catch (e) {
     console.warn('[writeAuditLog]', e?.message ?? e);
   }
@@ -7704,7 +7702,7 @@ async function runPostDeployQualityChecks(env, deploymentId) {
         WHERE created_at > unixepoch() - 3600`).first(),
       env.DB.prepare(`SELECT COUNT(*) as total,
         COUNT(CASE WHEN cost_usd IS NOT NULL THEN 1 END) as has_cost
-        FROM mcp_tool_calls
+        FROM agentsam_mcp_tool_execution
         WHERE date(created_at) = date('now')`).first(),
       env.DB.prepare(`SELECT COUNT(*) as total,
         COUNT(CASE WHEN git_hash IS NOT NULL THEN 1 END) as has_git
@@ -7720,7 +7718,7 @@ async function runPostDeployQualityChecks(env, deploymentId) {
       {
         name: 'mcp_cost_populated',
         pass: Number(mcpCheck?.total || 0) === 0 || (Number(mcpCheck?.has_cost || 0) / Number(mcpCheck?.total || 1)) > 0.8,
-        detail: `${Number(mcpCheck?.has_cost || 0)}/${Number(mcpCheck?.total || 0)} mcp_tool_calls have cost`,
+        detail: `${Number(mcpCheck?.has_cost || 0)}/${Number(mcpCheck?.total || 0)} agentsam_mcp_tool_execution have cost`,
       },
       {
         name: 'deploy_git_hash',
@@ -7757,15 +7755,15 @@ async function writeDailySnapshot(env, reason = 'cron') {
       `SELECT COALESCE(SUM(tokens_input),0) AS tokens_in,
         COALESCE(SUM(tokens_output),0) AS tokens_out,
         ROUND(COALESCE(SUM(cost_estimate),0),4) AS cost_usd
-       FROM ai_usage_log WHERE date=date('now')`
+       FROM agentsam_usage_events WHERE date=date('now')`
     ).first()),
     safe(env.DB.prepare(
       `SELECT COUNT(*) AS total
        FROM deployment_tracking
        WHERE created_at >= date('now')`
     ).first()),
-    env.DB.prepare("SELECT provider, COUNT(*) as c, SUM(cost_estimate) as cost FROM ai_usage_log WHERE date=date('now') GROUP BY provider").all().catch(() => ({ results: [] })),
-    env.DB.prepare("SELECT model, COUNT(*) as c FROM ai_usage_log WHERE date=date('now') GROUP BY model ORDER BY c DESC LIMIT 5").all().catch(() => ({ results: [] })),
+    env.DB.prepare("SELECT provider, COUNT(*) as c, SUM(cost_estimate) as cost FROM agentsam_usage_events WHERE date=date('now') GROUP BY provider").all().catch(() => ({ results: [] })),
+    env.DB.prepare("SELECT model, COUNT(*) as c FROM agentsam_usage_events WHERE date=date('now') GROUP BY model ORDER BY c DESC LIMIT 5").all().catch(() => ({ results: [] })),
     env.DB.prepare(`
       SELECT id, tasks_done, tasks_total FROM agentsam_plans
       WHERE status='active' AND plan_type='daily'
@@ -7806,21 +7804,21 @@ async function writeDailySnapshot(env, reason = 'cron') {
   const _wsId = IAM_DEFAULT_WORKSPACE_ID;
   const _tid = 'tenant_sam_primeaux';
   const [_wai, _wtc, _wmc, _wdc] = await Promise.all([
-    env.DB.prepare("SELECT COUNT(*) as c,COALESCE(SUM(tokens_input+tokens_output),0) as t,COALESCE(SUM(cost_estimate),0) as cost FROM ai_usage_log WHERE date=date('now')").first().catch(() => null),
+    env.DB.prepare("SELECT COUNT(*) as c,COALESCE(SUM(tokens_input+tokens_output),0) as t,COALESCE(SUM(cost_estimate),0) as cost FROM agentsam_usage_events WHERE date=date('now')").first().catch(() => null),
     env.DB.prepare("SELECT COUNT(*) as c FROM agentsam_tool_call_log WHERE created_at>=unixepoch('now','start of day')").first().catch(() => null),
-    env.DB.prepare("SELECT COUNT(*) as c FROM mcp_tool_calls WHERE created_at>=datetime('now','-1 day')").first().catch(() => null),
+    env.DB.prepare("SELECT COUNT(*) as c FROM agentsam_mcp_tool_execution WHERE created_at>=datetime('now','-1 day')").first().catch(() => null),
     env.DB.prepare("SELECT COUNT(*) as c FROM deployment_tracking WHERE created_at>=date('now')").first().catch(() => null),
   ]);
   await env.DB.prepare("INSERT OR REPLACE INTO workspace_usage_metrics (workspace_id,metric_date,ai_calls,tokens_used,cost_estimate_cents,tool_calls,mcp_calls,deployments_count,rollup_source,updated_at) VALUES (?,date('now'),?,?,?,?,?,?,'daily_cron',unixepoch())").bind(_wsId, _wai?.c || 0, _wai?.t || 0, (_wai?.cost || 0) * 100, _wtc?.c || 0, _wmc?.c || 0, _wdc?.c || 0).run().catch(() => { });
 
   // agentsam_tool_stats_compacted (backfill job wrapper)
   const _bjToolsId = 'bj_' + Date.now();
-  await env.DB.prepare("INSERT OR IGNORE INTO backfill_jobs (id,job_name,target_table,source_type,status,started_at,created_by) VALUES (?,?,?,'cron','running',unixepoch(),?)")
+  await env.DB.prepare("INSERT OR IGNORE INTO agentsam_code_index_job (id,job_name,target_table,source_type,status,started_at,created_by) VALUES (?,?,?,'cron','running',unixepoch(),?)")
     .bind(_bjToolsId, 'agentsam_tool_stats_compacted_rollup', 'agentsam_tool_stats_compacted', 'system')
     .run().catch(() => { });
   const _toolsRes = await env.DB.prepare("INSERT OR REPLACE INTO agentsam_tool_stats_compacted (tenant_id,tool_name,total_calls,success_count,failure_count,success_rate,total_cost_usd,avg_duration_ms,first_seen_at,last_seen_at,compacted_at) SELECT tenant_id,tool_name,COUNT(*),SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),SUM(CASE WHEN status='error' THEN 1 ELSE 0 END),ROUND(1.0*SUM(CASE WHEN status='success' THEN 1 ELSE 0 END)/COUNT(*),4),COALESCE(SUM(cost_usd),0),ROUND(AVG(duration_ms),2),MIN(created_at),MAX(created_at),unixepoch() FROM agentsam_tool_call_log GROUP BY tenant_id,tool_name").run().catch(() => null);
   const _toolsInserted = Number(_toolsRes?.meta?.changes ?? _toolsRes?.changes ?? 0) || 0;
-  await env.DB.prepare("UPDATE backfill_jobs SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?")
+  await env.DB.prepare("UPDATE agentsam_code_index_job SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?")
     .bind(_toolsInserted, _toolsInserted, _bjToolsId)
     .run().catch(() => { });
 
@@ -8642,7 +8640,7 @@ async function completeRoutingDecisionTelemetry(env, conversationId, telemetryId
   } catch (e) {
     console.warn('[routing_decisions] telemetry completion', e?.message ?? e);
   }
-  // EMA write-back: update model_routing_rules with observed latency + success signal (α=0.15).
+  // EMA write-back: update agentsam_routing_arms with observed latency + success signal (α=0.15).
   // isSuccess: error paths emit done with 0 tokens; treat that as failure signal toward 0.0.
   const taskType = routingOpts?.taskType;
   const emaLatency = latencyMs != null ? latencyMs : 0;
@@ -8651,7 +8649,7 @@ async function completeRoutingDecisionTelemetry(env, conversationId, telemetryId
       const isSuccess = Number(inputTokens) > 0;
       if (isSuccess) {
         await env.DB.prepare(
-          `UPDATE model_routing_rules SET
+          `UPDATE agentsam_routing_arms SET
             avg_latency_ms    = ROUND(COALESCE(avg_latency_ms, ?) * 0.85 + ? * 0.15, 1),
             success_rate      = ROUND(COALESCE(success_rate, 1.0) * 0.85 + 1.0 * 0.15, 4),
             last_evaluated_at = unixepoch()
@@ -8660,14 +8658,14 @@ async function completeRoutingDecisionTelemetry(env, conversationId, telemetryId
       } else {
         // Failure: drive success_rate toward 0.0; latency is meaningless on failed calls
         await env.DB.prepare(
-          `UPDATE model_routing_rules SET
+          `UPDATE agentsam_routing_arms SET
             success_rate      = ROUND(COALESCE(success_rate, 1.0) * 0.85 + 0.0 * 0.15, 4),
             last_evaluated_at = unixepoch()
           WHERE task_type = ? AND is_active = 1`
         ).bind(taskType).run();
       }
     } catch (e) {
-      console.warn('[model_routing_rules] perf write-back', e?.message ?? e);
+      console.warn('[agentsam_routing_arms] perf write-back', e?.message ?? e);
     }
   }
   const rat = routingOpts?.routingArmTaskType;
@@ -8709,36 +8707,36 @@ async function runIntegritySnapshot(env, triggeredBy = 'cron') {
       COALESCE(SUM(CASE WHEN date>=date('now','-7 days') THEN calls ELSE 0 END),0) AS tel_total_7d,
       COALESCE(SUM(CASE WHEN date=date('now') THEN cost_estimate ELSE 0 END),0) AS tel_cost_24h,
       COALESCE(SUM(CASE WHEN date>=date('now','-7 days') THEN cost_estimate ELSE 0 END),0) AS tel_cost_7d
-    FROM ai_usage_log`;
+    FROM agentsam_usage_events`;
   const sqlQ3 = `
     SELECT provider, COUNT(*) AS n, SUM(cost_estimate) AS cost
-    FROM ai_usage_log WHERE date >= date('now','-7 days')
+    FROM agentsam_usage_events WHERE date >= date('now','-7 days')
     GROUP BY provider ORDER BY n DESC`;
   const sqlQ4 = `
     SELECT
       COUNT(*) AS tools_total,
       COALESCE(SUM(is_degraded), 0) AS tools_degraded,
       COALESCE(SUM(CASE WHEN modes_json IS NULL OR modes_json = '' THEN 1 ELSE 0 END), 0) AS tools_missing_modes
-    FROM mcp_registered_tools WHERE enabled = 1`;
+    FROM agentsam_mcp_tools WHERE enabled = 1`;
   const sqlQ4b = `
     SELECT tool_name,
       SUM(failure_count) AS failure_count,
       SUM(success_count) AS success_count,
       ROUND(100.0 * SUM(failure_count) / NULLIF(SUM(failure_count) + SUM(success_count), 0), 1) AS fail_pct
-    FROM mcp_tool_call_stats
+    FROM agentsam_tool_stats_compacted
     GROUP BY tool_name
     HAVING SUM(failure_count) > 0
     ORDER BY fail_pct DESC
     LIMIT 5`;
   const sqlQ5 = `
     SELECT
-      (SELECT COUNT(*) FROM agent_intent_patterns) AS intents_total,
-      (SELECT COUNT(*) FROM agent_intent_patterns WHERE total_executions > 0) AS intents_wired,
-      (SELECT COUNT(*) FROM model_routing_rules WHERE is_active = 1) AS routing_rules_active,
-      (SELECT COUNT(*) FROM model_routing_rules WHERE is_active = 1 AND provider = 'google') AS routing_rules_with_google,
+      (SELECT COUNT(*) FROM agentsam_routing_arms) AS intents_total,
+      (SELECT COUNT(*) FROM agentsam_routing_arms WHERE total_executions > 0) AS intents_wired,
+      (SELECT COUNT(*) FROM agentsam_routing_arms WHERE is_active = 1) AS routing_rules_active,
+      (SELECT COUNT(*) FROM agentsam_routing_arms WHERE is_active = 1 AND provider = 'google') AS routing_rules_with_google,
       (SELECT COUNT(*) FROM provider_prompt_fragments WHERE is_active = 1) AS provider_fragments_active`;
   const sqlQ5b = `
-    SELECT intent_slug, total_executions FROM agent_intent_patterns
+    SELECT intent_slug, total_executions FROM agentsam_routing_arms
     WHERE total_executions > 0 ORDER BY total_executions DESC LIMIT 10`;
   const [r1, r2, r3all, r4, r4b, r5, r5b] = await Promise.all([
     env.DB.prepare(sqlQ1).first(),
@@ -8819,7 +8817,7 @@ async function runIntegritySnapshot(env, triggeredBy = 'cron') {
 }
 
 /**
- * Persist AI-related asset events (images, R2 files, conversions, 3D) to ai_generation_logs.
+ * Persist AI-related asset events (images, R2 files, conversions, 3D) to agentsam_usage_events.
  * Non-fatal on failure. opts.metadataJson may be object or JSON string.
  */
 async function insertAiGenerationLog(env, opts) {
@@ -8895,13 +8893,13 @@ async function insertAiGenerationLog(env, opts) {
   const codeChars = codeCharCount != null ? Math.floor(Number(codeCharCount) || 0) : null;
 
   const insertSql = insertOrIgnore
-    ? `INSERT OR IGNORE INTO ai_generation_logs (
+    ? `INSERT OR IGNORE INTO agentsam_usage_events (
         id, course_id, lesson_id, quiz_id, generation_type, prompt, model, response_text,
         tokens_used, cost_cents, quality_score, status, created_by, created_at, completed_at, tenant_id,
         metadata_json, source_kind, workspace_id, related_ids_json,
         input_tokens, output_tokens, computed_cost_usd, provider, conversation_id, code_language, code_char_count
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    : `INSERT INTO ai_generation_logs (
+    : `INSERT INTO agentsam_usage_events (
         id, course_id, lesson_id, quiz_id, generation_type, prompt, model, response_text,
         tokens_used, cost_cents, quality_score, status, created_by, created_at, completed_at, tenant_id,
         metadata_json, source_kind, workspace_id, related_ids_json,
@@ -8946,7 +8944,7 @@ async function insertAiGenerationLog(env, opts) {
 
 /**
  * Cursor Cloud Agent: when GET /v0/agents/:id returns FINISHED with a PR URL, persist once to
- * agentsam_executions (execution_type cursor_cloud_agent) and ai_generation_logs (idempotent).
+ * agentsam_executions (execution_type cursor_cloud_agent) and agentsam_usage_events (idempotent).
  * Does not use deprecated cursor_* tables.
  */
 async function maybePersistCursorCloudAgentFinished(env, apiBody, agentId) {
@@ -9682,7 +9680,7 @@ function buildUnifiedAgentContextBlock(d1Rows, pgRows) {
   return capWithMarker('\n\n' + body, PROMPT_CAPS.AGENT_CONTEXT_MAX_CHARS);
 }
 
-/** Up to 3 terms (length > 3) joined for context_index LIKE search; empty if none. */
+/** Up to 3 terms (length > 3) joined for agentsam_project_context LIKE search; empty if none. */
 function getContextIndexSearchTerm(query) {
   if (typeof query !== 'string' || !query.trim()) return '';
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 3).slice(0, 3);
@@ -9690,7 +9688,7 @@ function getContextIndexSearchTerm(query) {
 }
 
 /**
- * Keyword search on context_index (no vectors). Returns [] if table missing or no terms.
+ * Keyword search on agentsam_project_context (no vectors). Returns [] if table missing or no terms.
  * scope: tenant or bucket scope; rows match scope = 'global' OR scope = ?
  */
 async function fetchContextIndex(db, query, scope) {
@@ -9706,7 +9704,7 @@ async function fetchContextIndex(db, query, scope) {
     const { results } = await db.prepare(
       `SELECT id, title, doc_type, storage_type,
               r2_bucket, r2_key, inline_content, summary
-       FROM context_index
+       FROM agentsam_project_context
        WHERE is_active = 1 AND is_stale = 0
        AND (keywords LIKE ? OR title LIKE ? OR tags LIKE ?)
        AND (scope = 'global' OR scope = ?)
@@ -9725,7 +9723,7 @@ async function fetchContextIndex(db, query, scope) {
       summary: r.summary,
     }));
   } catch (e) {
-    console.warn('[context_index] fetchContextIndex', e?.message ?? e);
+    console.warn('[agentsam_project_context] fetchContextIndex', e?.message ?? e);
     return [];
   }
 }
@@ -9744,7 +9742,7 @@ function contextIndexWarrantsR2FullFetch(queryLower, row) {
 }
 
 /**
- * Build prompt text from context_index rows: inline_content verbatim (capped); R2 = summary unless warrant full fetch.
+ * Build prompt text from agentsam_project_context rows: inline_content verbatim (capped); R2 = summary unless warrant full fetch.
  * @returns {{ text: string, ids: string[] }}
  */
 async function buildContextIndexPromptBlock(env, rows, queryLower) {
@@ -9771,7 +9769,7 @@ async function buildContextIndexPromptBlock(env, rows, queryLower) {
               body = capWithMarker(txt, PROMPT_CAPS.CONTEXT_INDEX_R2_FULL_MAX_CHARS);
             }
           } catch (e) {
-            console.warn('[context_index] R2 get', row.r2_key, e?.message ?? e);
+            console.warn('[agentsam_project_context] R2 get', row.r2_key, e?.message ?? e);
           }
         }
       }
@@ -9811,7 +9809,7 @@ async function logContextSearch(db, { queryText, scope, searchTerm, contextIds }
        VALUES (?, unixepoch(), ?, ?, ?, ?, ?, ?, NULL)`
     ).bind(id, snippet, snippet, scopeParam, term, idsJson, count).run();
   } catch (e) {
-    console.warn('[context_index] logContextSearch', e?.message ?? e);
+    console.warn('[agentsam_project_context] logContextSearch', e?.message ?? e);
   }
 }
 
@@ -10093,7 +10091,7 @@ const TOOLCTX_INTENTS_KV_PREFIX = 'toolctx:intents:';
 const TOOLCTX_INTENTS_KV_TTL_SEC = 300;
 
 /**
- * Load keyword tool groups from agent_intent_patterns (D1), KV-cached per tenant.
+ * Load keyword tool groups from agentsam_routing_arms (D1), KV-cached per tenant.
  * @returns {Promise<Array<{ keys: string[], tools: string[] }>|null>} null on D1 error (caller uses fallback)
  */
 async function loadIntentKeywordGroupsFromD1(env, tenantId) {
@@ -10114,7 +10112,7 @@ async function loadIntentKeywordGroupsFromD1(env, tenantId) {
   if (!env.DB) return null;
   try {
     const r = await env.DB.prepare(
-      `SELECT triggers_json, tools_json FROM agent_intent_patterns
+      `SELECT triggers_json, tools_json FROM agentsam_routing_arms
        WHERE is_active = 1
          AND tools_json IS NOT NULL
          AND TRIM(tools_json) != ''`
@@ -10187,7 +10185,7 @@ function panelColumnFromRequestAgentId(agentId) {
   return 'agent_sam';
 }
 
-/** @param {string|null|undefined} requestAgentId @param {any[]} rows from mcp_registered_tools */
+/** @param {string|null|undefined} requestAgentId @param {any[]} rows from agentsam_mcp_tools */
 function filterToolRowsByPanel(requestAgentId, rows) {
   if (!requestAgentId || !Array.isArray(rows) || !PANEL_TOOL_POLICY[requestAgentId]) return rows || [];
   const allow = PANEL_TOOL_POLICY[requestAgentId];
@@ -10201,13 +10199,13 @@ function filterToolRowsByPanel(requestAgentId, rows) {
   });
 }
 
-/** Log classifyIntent outcomes to agent_intent_execution_log (requires agent_intent_patterns rows for sql|shell|question|mixed). */
+/** Log classifyIntent outcomes to agent_intent_execution_log (requires agentsam_routing_arms rows for sql|shell|question|mixed). */
 async function logAgentIntentExecution(env, userText, intentDetected, confidence = 0.9) {
   if (!env?.DB || !userText || !intentDetected) return;
   const tid = tenantIdFromEnv(env);
   if (!tid) return;
   try {
-    const pr = await env.DB.prepare('SELECT id FROM agent_intent_patterns WHERE intent_slug = ? LIMIT 1').bind(intentDetected).first();
+    const pr = await env.DB.prepare('SELECT id FROM agentsam_routing_arms WHERE intent_slug = ? LIMIT 1').bind(intentDetected).first();
     if (!pr?.id) return;
     await env.DB.prepare(
       `INSERT INTO agent_intent_execution_log (tenant_id, intent_pattern_id, user_input, intent_detected, confidence_score, created_at)
@@ -10218,12 +10216,12 @@ async function logAgentIntentExecution(env, userText, intentDetected, confidence
   }
 }
 
-/** Increment pattern execution counters for routing feedback (agent_intent_patterns). */
+/** Increment pattern execution counters for routing feedback (agentsam_routing_arms). */
 async function bumpAgentIntentPatternExecutions(env, intentSlug) {
   if (!env?.DB || !intentSlug) return;
   try {
     await env.DB.prepare(
-      `UPDATE agent_intent_patterns SET total_executions = total_executions + 1, last_executed_at = unixepoch() WHERE intent_slug = ?`
+      `UPDATE agentsam_routing_arms SET total_executions = total_executions + 1, last_executed_at = unixepoch() WHERE intent_slug = ?`
     ).bind(intentSlug).run();
   } catch (e) {
     console.warn('[bumpAgentIntentPatternExecutions]', e?.message ?? e);
@@ -10520,7 +10518,7 @@ Example: {"intent":"mixed","tasks":[{"type":"shell","content":"ls -la"},{"type":
 
 Known schemas (use exact column names in SQL):
 - agentsam_ai: id, name, status ('active'/'inactive'), model_policy_json
-- mcp_registered_tools: tool_name, tool_category, enabled (0/1), input_schema
+- agentsam_mcp_tools: tool_name, tool_category, enabled (0/1), input_schema
 - ai_models: id, provider, model_key, is_active (0/1), show_in_picker (0/1)
 Always use exact column names from these schemas.
 For large queries spanning many tables, break into multiple sequential d1_query calls of max 5 tables each.
@@ -10788,7 +10786,7 @@ async function singleRoundNoTools(env, provider, modelKey, systemWithBlurb, mess
   return '';
 }
 
-/** Terminal assist: one non-stream completion from `model_routing_rules` + system text; retry once with fallback_model. */
+/** Terminal assist: one non-stream completion from `agentsam_routing_arms` + system text; retry once with fallback_model. */
 async function invokeTerminalAssistCompletion(env, rule, systemPrompt, userMessage, maxTokensOverride) {
   const maxTok = Math.min(Math.max(Number(maxTokensOverride ?? rule.max_output_tokens) || 300, 1), 8192);
   const primary = rule.primary_model;
@@ -10877,7 +10875,7 @@ async function invokeTerminalAssistCompletion(env, rule, systemPrompt, userMessa
   return 'assist unavailable';
 }
 
-/** Execute mixed tasks in order, persist to agent_tasks, aggregate results and return one response. */
+/** Execute mixed tasks in order, persist to agentsam_plan_tasks, aggregate results and return one response. */
 async function runMixedTasks(env, request, provider, modelKey, systemWithBlurb, messages, modelRow, conversationId, tasks, executionCtx) {
   const results = [];
   const now = Math.floor(Date.now() / 1000);
@@ -10894,10 +10892,10 @@ async function runMixedTasks(env, request, provider, modelKey, systemWithBlurb, 
 
     try {
       await env.DB.prepare(
-        'INSERT INTO agent_tasks (id, conversation_id, message_id, title, description, status, priority, files_affected, commands_run, created_at, started_at, metadata_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+        'INSERT INTO agentsam_plan_tasks (id, conversation_id, message_id, title, description, status, priority, files_affected, commands_run, created_at, started_at, metadata_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
       ).bind(taskId, conversationIdOrPlaceholder, null, title, content, 'running', i, '[]', '[]', now, now, '{}').run();
     } catch (e) {
-      console.log('[runToolLoop] agent_tasks INSERT failed:', e?.message ?? e);
+      console.log('[runToolLoop] agentsam_plan_tasks INSERT failed:', e?.message ?? e);
     }
 
     let resultText = '';
@@ -10928,7 +10926,7 @@ async function runMixedTasks(env, request, provider, modelKey, systemWithBlurb, 
 
     try {
       await env.DB.prepare(
-        'UPDATE agent_tasks SET status=?, completed_at=?, metadata_json=? WHERE id=?'
+        'UPDATE agentsam_plan_tasks SET status=?, completed_at=?, metadata_json=? WHERE id=?'
       ).bind('completed', Math.floor(Date.now() / 1000), JSON.stringify({ result: resultText.slice(0, 5000) }), taskId).run();
     } catch (_) { }
   }
@@ -10987,13 +10985,13 @@ function splitTopLevelCommaListSql(expr) {
 }
 
 /**
- * d1_write guard: INSERT INTO agent_memory_index without agent_config_id / tenant_id gets canonical defaults.
+ * d1_write guard: INSERT INTO agentsam_memory without agent_config_id / tenant_id gets canonical defaults.
  * Does not alter other statements or tables.
  */
 function ensureAgentMemoryIndexInsertDefaults(sql) {
   if (typeof sql !== 'string' || !sql.trim()) return sql;
   const s = sql.trim();
-  const lead = /^INSERT\s+(?:OR\s+\S+\s+)?INTO\s+`?agent_memory_index`?\s*\(/i;
+  const lead = /^INSERT\s+(?:OR\s+\S+\s+)?INTO\s+`?agentsam_memory`?\s*\(/i;
   const lm = s.match(lead);
   if (!lm) return sql;
   const colStart = lm.index + lm[0].length;
@@ -11581,7 +11579,7 @@ async function runToolLoop(env, request, provider, modelKey, systemWithBlurb, ap
           } else {
           const planJson = JSON.stringify({ summary, steps });
           await env.DB.prepare(
-            `INSERT INTO agent_execution_plans (id, tenant_id, session_id, plan_json, summary, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', unixepoch(), unixepoch())`
+            `INSERT INTO agentsam_plans (id, tenant_id, session_id, plan_json, summary, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', unixepoch(), unixepoch())`
           ).bind(planId, tenantId, conversationId ?? '', planJson, summary.slice(0, 2000)).run();
           resultText = JSON.stringify({ plan_id: planId, status: 'pending', message: 'Plan created; user can approve or reject in the UI.' });
           }
@@ -11772,7 +11770,7 @@ async function runToolLoop(env, request, provider, modelKey, systemWithBlurb, ap
           r2_dashboard: 'agent-sam',
         });
       } else if (toolName === 'list_workers' && env.DB) {
-        const rows = await env.DB.prepare(`SELECT worker_id, name FROM agent_roles WHERE is_active = 1 AND worker_id IS NOT NULL ORDER BY name LIMIT 50`).all();
+        const rows = await env.DB.prepare(`SELECT worker_id, name FROM agentsam_subagent_profile WHERE is_active = 1 AND worker_id IS NOT NULL ORDER BY name LIMIT 50`).all();
         resultText = JSON.stringify(rows.results ?? []);
       } else if (toolName === 'worker_deploy') {
         const wn = params.worker_name || params.workerName;
@@ -11782,20 +11780,36 @@ async function runToolLoop(env, request, provider, modelKey, systemWithBlurb, ap
         if (!toolTenantId) {
           resultText = JSON.stringify({ error: 'TENANT_ID not configured on worker' });
         } else {
-          await env.DB.prepare(`INSERT INTO agent_audit_log (id, tenant_id, event_type, message, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, unixepoch())`).bind(crypto.randomUUID(), toolTenantId, event_type, message, JSON.stringify(metadata)).run().catch(() => { });
+          await env.DB.prepare(
+            `INSERT INTO agentsam_hook_execution (id, hook_id, ran_at, status, error_message) VALUES (?, ?, unixepoch(), ?, ?)`,
+          )
+            .bind(
+              crypto.randomUUID(),
+              `telemetry_${String(event_type).replace(/[^a-zA-Z0-9_:-]/g, '_').slice(0, 60)}`,
+              String(event_type).slice(0, 120),
+              `${String(message).slice(0, 400)} ${JSON.stringify({ tenant_id: toolTenantId, ...metadata }).slice(0, 800)}`,
+            )
+            .run()
+            .catch(() => { });
           resultText = 'logged';
         }
       } else if (toolName === 'telemetry_query' && env.DB) {
-        const rows = await env.DB.prepare(`SELECT event_type, message, created_at FROM agent_audit_log ORDER BY created_at DESC LIMIT ?`).bind(params.limit || 20).all();
+        const rows = await env.DB.prepare(
+          `SELECT hook_id AS event_type, error_message AS message, ran_at AS created_at FROM agentsam_hook_execution ORDER BY ran_at DESC LIMIT ?`,
+        )
+          .bind(params.limit || 20)
+          .all();
         resultText = JSON.stringify(rows.results ?? []);
       } else if (toolName === 'telemetry_stats' && env.DB) {
-        const rows = await env.DB.prepare(`SELECT event_type, COUNT(*) as count FROM agent_audit_log GROUP BY event_type ORDER BY count DESC LIMIT 20`).all();
+        const rows = await env.DB.prepare(
+          `SELECT hook_id AS event_type, COUNT(*) as count FROM agentsam_hook_execution GROUP BY hook_id ORDER BY count DESC LIMIT 20`,
+        ).all();
         resultText = JSON.stringify(rows.results ?? []);
       } else if (toolName === 'human_context_list' && env.DB) {
         if (!toolTenantId) {
           resultText = JSON.stringify({ error: 'TENANT_ID not configured on worker' });
         } else {
-          const rows = await env.DB.prepare(`SELECT key, value, importance_score FROM agent_memory_index WHERE tenant_id = ? ORDER BY importance_score DESC LIMIT 30`).bind(toolTenantId).all();
+          const rows = await env.DB.prepare(`SELECT key, value, importance_score FROM agentsam_memory WHERE tenant_id = ? ORDER BY importance_score DESC LIMIT 30`).bind(toolTenantId).all();
           resultText = JSON.stringify(rows.results ?? []);
         }
       } else if (toolName === 'human_context_add' && env.DB) {
@@ -11804,7 +11818,7 @@ async function runToolLoop(env, request, provider, modelKey, systemWithBlurb, ap
         else if (!toolTenantId) {
           resultText = JSON.stringify({ error: 'TENANT_ID not configured on worker' });
         } else {
-          await env.DB.prepare(`INSERT INTO agent_memory_index (id, tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, 'agent-sam-primary', 'user_context', ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`).bind(crypto.randomUUID(), toolTenantId, key, value, importance_score).run();
+          await env.DB.prepare(`INSERT INTO agentsam_memory (id, tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, 'agent-sam-primary', 'user_context', ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`).bind(crypto.randomUUID(), toolTenantId, key, value, importance_score).run();
           resultText = `Stored: ${key}`;
         }
       } else if (toolName === 'a11y_audit_webpage' && env.MYBROWSER) {
@@ -11831,7 +11845,7 @@ async function runToolLoop(env, request, provider, modelKey, systemWithBlurb, ap
         if (!toolTenantId) {
           resultText = JSON.stringify({ error: 'TENANT_ID not configured on worker' });
         } else {
-          const rows = await env.DB.prepare(`SELECT key, value FROM agent_memory_index WHERE tenant_id = ? AND (key LIKE ? OR value LIKE ?) ORDER BY importance_score DESC LIMIT 10`).bind(toolTenantId, `%${q}%`, `%${q}%`).all();
+          const rows = await env.DB.prepare(`SELECT key, value FROM agentsam_memory WHERE tenant_id = ? AND (key LIKE ? OR value LIKE ?) ORDER BY importance_score DESC LIMIT 10`).bind(toolTenantId, `%${q}%`, `%${q}%`).all();
           resultText = JSON.stringify(rows.results ?? []);
         }
       } else if (toolName === 'context_optimize') {
@@ -11899,7 +11913,7 @@ async function runToolLoop(env, request, provider, modelKey, systemWithBlurb, ap
         try {
           let category = 'builtin';
           if (!BUILTIN_TOOLS.has(toolName) && !toolName.startsWith('cdt_') && !toolName.startsWith('resend_')) {
-            const toolRow = await env.DB.prepare('SELECT tool_category FROM mcp_registered_tools WHERE tool_name = ? AND enabled = 1').bind(toolName).first();
+            const toolRow = await env.DB.prepare('SELECT tool_category FROM agentsam_mcp_tools WHERE tool_name = ? AND enabled = 1').bind(toolName).first();
             category = toolRow?.tool_category ?? 'execute';
           } else if (toolName.startsWith('cdt_')) {
             category = 'browser';
@@ -12276,7 +12290,7 @@ function workspaceSafeGrepQuery(raw) {
   return t;
 }
 
-/** Log every workspace_* disk tool to mcp_tool_calls (invokeMcpToolFromChat and runToolLoop both hit runWorkspaceDiskTool). */
+/** Log every workspace_* disk tool to agentsam_mcp_tool_execution (invokeMcpToolFromChat and runToolLoop both hit runWorkspaceDiskTool). */
 async function logWorkspaceDiskToolMcp(env, conversationId, toolName, params, resultJson, errorMessage, executionCtx) {
   if (!env.DB) return;
   try {
@@ -12917,7 +12931,7 @@ async function chatWithToolsGoogle(env, systemWithBlurb, apiMessages, modelRow, 
   let toolDeclarations = [];
   try {
     const r = await env.DB.prepare(
-      `SELECT tool_name, description, input_schema, tool_category FROM mcp_registered_tools WHERE enabled = 1
+      `SELECT tool_name, description, input_schema, tool_category FROM agentsam_mcp_tools WHERE enabled = 1
        AND (modes_json LIKE '%"' || ? || '"%')
        AND is_degraded = 0`
     ).bind(mode).all();
@@ -17263,7 +17277,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
             }
             const [globalWs, personalWs] = await Promise.all([
               env.DB.prepare(`SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`).bind(wsPathId, wsPathId).first().catch(() => null),
-              env.DB.prepare(`SELECT state_json FROM agent_workspace_state WHERE id = ?`).bind(uwsIdWs).first().catch(() => null),
+              env.DB.prepare(`SELECT state_json FROM agentsam_workspace_state WHERE id = ?`).bind(uwsIdWs).first().catch(() => null),
             ]);
             const row = globalWs || (personalWs ? { id: wsPathId, state_json: personalWs.state_json, name: 'Personal' } : null);
             if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
@@ -17321,7 +17335,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
             }
             await Promise.allSettled([
               env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`).bind(stateStrPut, wsPathId).run(),
-              env.DB.prepare(`UPDATE agent_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`).bind(stateStrPut, uwsIdWs).run(),
+              env.DB.prepare(`UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`).bind(stateStrPut, uwsIdWs).run(),
             ]);
             return jsonResponse({ ok: true, id: wsPathId });
           } catch (e) {
@@ -17467,7 +17481,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
              AVG((julianday(completed_at) - julianday(invoked_at)) * 86400000.0) AS avg_latency_ms,
              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failure_count
-           FROM mcp_tool_calls
+           FROM agentsam_mcp_tool_execution
            WHERE created_at >= CAST(strftime('%s', 'now', '-7 days') AS INTEGER)
            GROUP BY tool_name
            ORDER BY call_count DESC
@@ -17599,7 +17613,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       try {
         const mcpQ = await env.DB.prepare(
           `SELECT id, tool_name, status, error_message, session_id, created_at, invoked_at
-           FROM mcp_tool_calls
+           FROM agentsam_mcp_tool_execution
            WHERE lower(COALESCE(status,'')) IN ('error','failed')
               OR (error_message IS NOT NULL AND length(trim(error_message)) > 0)
            ORDER BY COALESCE(created_at, invoked_at) DESC
@@ -17607,12 +17621,12 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         ).all();
         mcp_tool_errors = mcpQ.results || [];
       } catch (e) {
-        console.warn('[api/agent/problems] mcp_tool_calls', e?.message ?? e);
+        console.warn('[api/agent/problems] agentsam_mcp_tool_execution', e?.message ?? e);
       }
       try {
         const audQ = await env.DB.prepare(
           `SELECT id, event_type, message, created_at, metadata_json, run_id
-           FROM agent_audit_log
+           FROM agentsam_hook_execution
            WHERE lower(COALESCE(event_type,'')) LIKE '%fail%'
               OR lower(COALESCE(event_type,'')) LIKE '%error%'
               OR lower(COALESCE(event_type,'')) LIKE '%denied%'
@@ -17622,7 +17636,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         ).all();
         audit_failures = audQ.results || [];
       } catch (e) {
-        console.warn('[api/agent/problems] agent_audit_log', e?.message ?? e);
+        console.warn('[api/agent/problems] agentsam_hook_execution', e?.message ?? e);
       }
       try {
         const wxQ = await env.DB.prepare(
@@ -17777,14 +17791,14 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       }
       try {
         const wq = await env.DB.prepare(
-          `SELECT id, name FROM ai_workflow_pipelines ORDER BY COALESCE(name, id) LIMIT 100`
+          `SELECT id, name FROM agentsam_mcp_workflows ORDER BY COALESCE(name, id) LIMIT 100`
         ).all();
         workflows = (wq.results || []).map((r) => ({
           id: r.id != null ? String(r.id) : '',
           name: r.name != null ? String(r.name) : '',
         }));
       } catch (e) {
-        console.warn('[context-picker/catalog] ai_workflow_pipelines', e?.message ?? e);
+        console.warn('[context-picker/catalog] agentsam_mcp_workflows', e?.message ?? e);
       }
       try {
         const cq = tenantId
@@ -17817,13 +17831,13 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       try {
         const mq = tenantId
           ? await env.DB.prepare(
-            `SELECT key FROM agent_memory_index
+            `SELECT key FROM agentsam_memory
                WHERE tenant_id = ? ORDER BY COALESCE(importance_score, 0) DESC LIMIT 150`
           ).bind(tenantId).all()
           : { results: [] };
         memory_keys = (mq.results || []).map((r) => String(r.key || '').trim()).filter(Boolean);
       } catch (e) {
-        console.warn('[context-picker/catalog] agent_memory_index', e?.message ?? e);
+        console.warn('[context-picker/catalog] agentsam_memory', e?.message ?? e);
       }
       let workspaces = [];
       try {
@@ -17849,7 +17863,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       if (!tenantId) return jsonResponse({ items: [] }, 200);
       try {
         const mq = await env.DB.prepare(
-          `SELECT key, memory_type, importance_score FROM agent_memory_index
+          `SELECT key, memory_type, importance_score FROM agentsam_memory
            WHERE tenant_id = ? ORDER BY COALESCE(importance_score, 0) DESC LIMIT 200`
         ).bind(tenantId).all();
         const items = (mq.results || [])
@@ -17903,7 +17917,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const _memTid = tenantIdFromEnv(env);
         if (!_memTid) return jsonResponse({ error: 'TENANT_ID not configured on worker' }, 503);
         const { results } = await env.DB.prepare(
-          `SELECT key, value, memory_type, importance_score FROM agent_memory_index WHERE tenant_id = ? ORDER BY importance_score DESC LIMIT 20`
+          `SELECT key, value, memory_type, importance_score FROM agentsam_memory WHERE tenant_id = ? ORDER BY importance_score DESC LIMIT 20`
         ).bind(_memTid).all();
         return jsonResponse({ ok: true, rows: results || [] });
       } catch (e) {
@@ -18315,7 +18329,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const execId = crypto.randomUUID();
         try {
           await env.DB.prepare(
-            `INSERT INTO agent_command_executions 
+            `INSERT INTO agentsam_command_run 
    (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
    VALUES (?, 'system', ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
           ).bind(execId, IAM_DEFAULT_WORKSPACE_ID, session_id || null, runCommand, output).run();
@@ -18343,7 +18357,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       if (executionId && (status === 'completed' || status === 'failed')) {
         try {
           await env.DB.prepare(
-            "UPDATE agent_command_executions SET status = ?, output_text = ?, exit_code = ?, duration_ms = ?, completed_at = ?, terminal_session_id = ? WHERE id = ?"
+            "UPDATE agentsam_command_run SET status = ?, output_text = ?, exit_code = ?, duration_ms = ?, completed_at = ?, terminal_session_id = ? WHERE id = ?"
           ).bind(status, outputText, exitCode, durationMs, now, terminalSessionIdComplete, executionId).run();
         } catch (_) { }
       }
@@ -18378,7 +18392,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       const { mode, command, context, output, exit_code, session_id } = body || {};
       const rule = await env.DB.prepare(
         `SELECT primary_model, fallback_model, provider, max_output_tokens
-         FROM model_routing_rules
+         FROM agentsam_routing_arms
          WHERE task_type = 'terminal_assist' AND is_active = 1
          LIMIT 1`
       ).first();
@@ -18487,7 +18501,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       const { context, language, mode } = body || {};
       const rule = await env.DB.prepare(
         `SELECT primary_model, fallback_model, provider, max_output_tokens
-         FROM model_routing_rules
+         FROM agentsam_routing_arms
          WHERE task_type = 'terminal_assist' AND is_active = 1
          LIMIT 1`
       ).first();
@@ -18751,7 +18765,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const stateJson = typeof payload === 'string' ? payload : JSON.stringify(payload ?? {});
         try {
           await env.DB.prepare(
-            `INSERT INTO agent_workspace_state (id, conversation_id, workspace_type, state_json, created_at, updated_at) VALUES (?, '', 'ide', ?, unixepoch(), unixepoch())
+            `INSERT INTO agentsam_workspace_state (id, conversation_id, workspace_type, state_json, created_at, updated_at) VALUES (?, '', 'ide', ?, unixepoch(), unixepoch())
              ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`
           )
             .bind(rowId, stateJson)
@@ -18769,7 +18783,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       }
       if (method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405);
 
-      const ws = await env.DB.prepare('SELECT * FROM agent_workspace_state WHERE id=?').bind(rowId).first();
+      const ws = await env.DB.prepare('SELECT * FROM agentsam_workspace_state WHERE id=?').bind(rowId).first();
       return ws ? jsonResponse(ws) : jsonResponse({ error: 'Not found' }, 404);
     }
 
@@ -19417,7 +19431,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const planId = body.plan_id || '';
         if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
         const r = await env.DB.prepare(
-          "UPDATE agent_execution_plans SET status = 'approved', updated_at = unixepoch() WHERE id = ? AND status = 'pending'"
+          "UPDATE agentsam_plans SET status = 'approved', updated_at = unixepoch() WHERE id = ? AND status = 'pending'"
         ).bind(planId).run();
         if (r.meta?.changes === 0) return jsonResponse({ error: 'Plan not found or already approved/rejected' }, 404);
         return jsonResponse({ plan_id: planId, status: 'approved' });
@@ -19434,7 +19448,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const planId = body.plan_id || '';
         if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
         const r = await env.DB.prepare(
-          "UPDATE agent_execution_plans SET status = 'rejected', updated_at = unixepoch() WHERE id = ? AND status = 'pending'"
+          "UPDATE agentsam_plans SET status = 'rejected', updated_at = unixepoch() WHERE id = ? AND status = 'pending'"
         ).bind(planId).run();
         if (r.meta?.changes === 0) return jsonResponse({ error: 'Plan not found or already approved/rejected' }, 404);
         return jsonResponse({ plan_id: planId, status: 'rejected' });
@@ -19740,7 +19754,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         let markdown = '';
         const todayTid = tenantIdFromEnv(env);
         if (env.DB && todayTid) {
-          const row = await env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'today_todo' AND tenant_id = ?").bind(todayTid).first();
+          const row = await env.DB.prepare("SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?").bind(todayTid).first();
           if (row?.value) markdown = String(row.value);
         }
         if (!markdown && env.R2) {
@@ -19750,7 +19764,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
               markdown = await o.text();
               if (markdown && env.DB && todayTid) {
                 await env.DB.prepare(
-                  `INSERT INTO agent_memory_index (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
+                  `INSERT INTO agentsam_memory (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
                 ).bind(todayTid, 'agent-sam-primary', 'user_context', 'today_todo', markdown, 0.95).run();
               }
             }
@@ -19776,7 +19790,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         if (!putTid) return jsonResponse({ error: 'TENANT_ID not configured on worker' }, 503);
         if (env.DB) {
           await env.DB.prepare(
-            `INSERT INTO agent_memory_index (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
+            `INSERT INTO agentsam_memory (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
           ).bind(putTid, 'agent-sam-primary', 'user_context', 'today_todo', markdown, 0.95).run();
         }
         if (env.R2 && markdown) {
@@ -19850,9 +19864,9 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         let codebaseManifest = null, workspaceIndexStatus = null;
         if (env.DB && bootTidTodo) {
           const [todoRow, manifestRow, wsRow] = await Promise.all([
-            !todayTodo ? env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'today_todo' AND tenant_id = ?").bind(bootTidTodo).first() : Promise.resolve(null),
-            env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'codebase_asset_manifest' AND tenant_id = ?").bind(bootTidTodo).first(),
-            env.DB.prepare("SELECT value FROM agent_memory_index WHERE key = 'workspace_index_status' AND tenant_id = ?").bind(bootTidTodo).first(),
+            !todayTodo ? env.DB.prepare("SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?").bind(bootTidTodo).first() : Promise.resolve(null),
+            env.DB.prepare("SELECT value FROM agentsam_memory WHERE key = 'codebase_asset_manifest' AND tenant_id = ?").bind(bootTidTodo).first(),
+            env.DB.prepare("SELECT value FROM agentsam_memory WHERE key = 'workspace_index_status' AND tenant_id = ?").bind(bootTidTodo).first(),
           ]);
           if (todoRow?.value) todayTodo = String(todoRow.value);
           if (manifestRow?.value) codebaseManifest = String(manifestRow.value);
@@ -19866,7 +19880,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
           codebase_asset_manifest: codebaseManifest || null,
           workspace_index_status: workspaceIndexStatus || null,
           date: today,
-          hint: 'AI Search indexes from R2 automatically. Store daily logs in R2 at memory/daily/YYYY-MM-DD.md. Store schema/records memory at memory/schema-and-records.md. Store today\'s to-do at memory/today-todo.md or agent_memory_index key today_todo.',
+          hint: 'AI Search indexes from R2 automatically. Store daily logs in R2 at memory/daily/YYYY-MM-DD.md. Store schema/records memory at memory/schema-and-records.md. Store today\'s to-do at memory/today-todo.md or agentsam_memory key today_todo.',
         };
         if (env.DB && ctx && typeof ctx.waitUntil === 'function') {
           ctx.waitUntil(
@@ -20032,7 +20046,7 @@ async function triggerWorkflowRun(env, ctx, workflow_id, session_id, triggered_b
   ).bind(workflow_id, MCP_WF_TENANT).run();
 
   try {
-    assertD1Write(bump, 'agentsam_mcp_workflows run_count');
+    assertD1Write(bump, 'agentsam_agentsam_mcp_workflows run_count');
   } catch (e) {
     const msg = String(e?.message || e);
     try {
@@ -20068,11 +20082,11 @@ const MCP_WORKFLOW_STEP_DEFAULTS = {
   ],
   wf_table_health_report: [
     { tool: 'd1_query', params: { sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name" } },
-    { tool: 'd1_query', params: { sql: "SELECT COUNT(*) as rows, 'terminal_sessions' as tbl FROM terminal_sessions UNION ALL SELECT COUNT(*), 'mcp_tool_calls' FROM mcp_tool_calls UNION ALL SELECT COUNT(*), 'agent_telemetry' FROM agent_telemetry" } },
+    { tool: 'd1_query', params: { sql: "SELECT COUNT(*) as rows, 'terminal_sessions' as tbl FROM terminal_sessions UNION ALL SELECT COUNT(*), 'agentsam_mcp_tool_execution' FROM agentsam_mcp_tool_execution UNION ALL SELECT COUNT(*), 'agent_telemetry' FROM agent_telemetry" } },
   ],
   wf_db_cleanup: [
     { tool: 'd1_query', params: { sql: "UPDATE terminal_sessions SET status='closed' WHERE user_id='system_terminal' AND created_at < (unixepoch()-3600)" } },
-    { tool: 'd1_query', params: { sql: "DELETE FROM mcp_tool_calls WHERE created_at < datetime('now','-30 days')" } },
+    { tool: 'd1_query', params: { sql: "DELETE FROM agentsam_mcp_tool_execution WHERE created_at < datetime('now','-30 days')" } },
   ],
   wf_mcp_auth_token_rotate: [
     { tool: 'terminal_execute', params: { command: 'npx wrangler secret put MCP_AUTH_TOKEN --name inneranimalmedia' }, requires_approval: true },
@@ -20102,7 +20116,7 @@ const AGENTSAM_DB_QUERY_DEFAULTS = {
   sc_agents: "SELECT id, slug, display_name, allowed_tool_globs FROM agentsam_subagent_profile WHERE is_active=1 ORDER BY id",
   sc_model: "SELECT id, provider, model_key, display_name FROM ai_models WHERE is_active=1 ORDER BY provider, display_name",
   sc_memory: "SELECT key, value_text, created_at FROM context_memory WHERE workspace_id=$workspace_id ORDER BY created_at DESC LIMIT 20",
-  sc_tools: "SELECT tool_name, tool_category, description FROM mcp_registered_tools WHERE enabled=1 ORDER BY tool_category, tool_name",
+  sc_tools: "SELECT tool_name, tool_category, description FROM agentsam_mcp_tools WHERE enabled=1 ORDER BY tool_category, tool_name",
   sc_cost: "SELECT SUM(total_cost_usd) as total, COUNT(*) as calls FROM agent_telemetry WHERE tenant_id=$tenant_id AND created_at > datetime('now','-7 days')",
   sc_status: "SELECT name FROM sqlite_master WHERE type='table' LIMIT 1",
   sc_ollama: "SELECT id, model_key, display_name, is_active FROM ai_models WHERE provider='ollama'",
@@ -20246,7 +20260,7 @@ async function executeAgentsamSlashCommand(request, env, ctx) {
     } else if (handlerType === 'tool_invoke') {
       const toolName = handlerRef;
       const tool = await env.DB.prepare(
-        `SELECT * FROM mcp_registered_tools WHERE tool_name = ? AND enabled = 1 LIMIT 1`
+        `SELECT * FROM agentsam_mcp_tools WHERE tool_name = ? AND enabled = 1 LIMIT 1`
       ).bind(toolName).first();
       if (!tool) {
         result = { error: 'Tool not found', tool: toolName };
@@ -20649,7 +20663,7 @@ async function handleAgentsamApi(request, url, env) {
     if (pathLower === '/api/agentsam/tools-registry' && method === 'GET') {
       const { results } = await env.DB.prepare(
         `SELECT id, tool_name, tool_category, description, enabled
-         FROM mcp_registered_tools
+         FROM agentsam_mcp_tools
          ORDER BY tool_category, tool_name`
       ).all();
       return jsonResponse(results || []);
@@ -21437,7 +21451,7 @@ async function handleMcpApi(req, u, e, ctx) {
       const au = await getAuthUser(req, e);
       if (!au) return jsonResponse({ error: 'Unauthorized' }, 401);
       const { results } = await e.DB.prepare(
-        'SELECT * FROM mcp_server_allowlist ORDER BY server_name ASC LIMIT 500'
+        'SELECT * FROM agentsam_mcp_allowlist ORDER BY server_name ASC LIMIT 500'
       ).all();
       return jsonResponse({ allowlist: results || [] });
     }
@@ -21454,7 +21468,7 @@ async function handleMcpApi(req, u, e, ctx) {
       if (!au) return jsonResponse({ error: 'Unauthorized' }, 401);
       const lim = Math.min(500, Math.max(1, parseInt(u.searchParams.get('limit') || '200', 10) || 200));
       const { results } = await e.DB.prepare(
-        'SELECT * FROM mcp_audit_log ORDER BY created_at DESC LIMIT ?'
+        'SELECT * FROM agentsam_mcp_tool_execution ORDER BY created_at DESC LIMIT ?'
       ).bind(lim).all();
       return jsonResponse({ audit: results || [] });
     }
@@ -21463,7 +21477,7 @@ async function handleMcpApi(req, u, e, ctx) {
       if (!au) return jsonResponse({ error: 'Unauthorized' }, 401);
       const lim = Math.min(500, Math.max(1, parseInt(u.searchParams.get('limit') || '200', 10) || 200));
       const { results } = await e.DB.prepare(
-        'SELECT * FROM mcp_tool_call_stats ORDER BY date DESC, call_count DESC LIMIT ?'
+        'SELECT * FROM agentsam_tool_stats_compacted ORDER BY date DESC, call_count DESC LIMIT ?'
       ).bind(lim).all();
       return jsonResponse({ stats: results || [] });
     }
@@ -21497,12 +21511,12 @@ async function handleMcpApi(req, u, e, ctx) {
       const panelAgent = u.searchParams.get('agent_id');
       let tools = [];
       try {
-        const r = await e.DB.prepare('SELECT tool_name, description, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name').all();
+        const r = await e.DB.prepare('SELECT tool_name, description, tool_category FROM agentsam_mcp_tools WHERE enabled = 1 ORDER BY tool_name').all();
         const rows = filterToolRowsByPanel(panelAgent, r.results || []);
         tools = rows.map((t) => ({ tool_name: t.tool_name, description: t.description || '', category: t.tool_category || 'execute' }));
       } catch (_) {
         try {
-          const r = await e.DB.prepare('SELECT tool_name, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name').all();
+          const r = await e.DB.prepare('SELECT tool_name, tool_category FROM agentsam_mcp_tools WHERE enabled = 1 ORDER BY tool_name').all();
           const rows = filterToolRowsByPanel(panelAgent, r.results || []);
           tools = rows.map((t) => ({ tool_name: t.tool_name, description: '', category: t.tool_category || 'execute' }));
         } catch (__) { }
@@ -21547,7 +21561,7 @@ async function handleMcpApi(req, u, e, ctx) {
       }
       try {
         if (routedBy === 'default') {
-          const patterns = await e.DB.prepare("SELECT workflow_agent AS agent_id, triggers_json FROM agent_intent_patterns WHERE is_active=1").all();
+          const patterns = await e.DB.prepare("SELECT workflow_agent AS agent_id, triggers_json FROM agentsam_routing_arms WHERE is_active=1").all();
           const low = prompt.toLowerCase();
           for (const p of (patterns.results || [])) {
             let triggers = [];
@@ -22386,7 +22400,7 @@ function fireForgetPtyHealthEvent(env, ctx, eventType, terminalSessionId) {
   else void p;
 }
 
-/** Record MCP tool call to mcp_tool_calls, mcp_usage_log, and mcp_services. All DB writes in try/catch so missing tables/columns do not break flow. */
+/** Record MCP tool call to agentsam_mcp_tool_execution, mcp_usage_log, and mcp_services. All DB writes in try/catch so missing tables/columns do not break flow. */
 async function recordMcpToolCall(env, opts) {
   const {
     conversationId, toolName, toolCategory, toolInput, result, error, serviceName,
@@ -22402,7 +22416,7 @@ async function recordMcpToolCall(env, opts) {
     tenantIdFromEnv(env) ||
     null;
   if (!tenant) {
-    console.warn('[mcp_tool_calls] missing tenant_id; skip');
+    console.warn('[agentsam_mcp_tool_execution] missing tenant_id; skip');
     return;
   }
   const sessionId = conversationId ?? '';
@@ -22429,7 +22443,7 @@ async function recordMcpToolCall(env, opts) {
   const outTok = Number(optOutTok) || 0;
   try {
     await env.DB.prepare(
-      `INSERT INTO mcp_tool_calls (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
+      `INSERT INTO agentsam_mcp_tool_execution (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'agent_sam', ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       id,
@@ -22470,8 +22484,8 @@ async function recordMcpToolCall(env, opts) {
       costUsd: toolCostUsd,
       tenantId: tenant,
     });
-  } catch (e) { console.warn('[recordMcpToolCall] mcp_tool_calls', e?.message ?? e); }
-  /* mcp_usage_log: rolled up by trg_mcp_tool_calls_usage (migration 161) after INSERT into mcp_tool_calls */
+  } catch (e) { console.warn('[recordMcpToolCall] agentsam_mcp_tool_execution', e?.message ?? e); }
+  /* mcp_usage_log: rolled up by trg_agentsam_mcp_tool_execution_usage (migration 161) after INSERT into agentsam_mcp_tool_execution */
   if (serviceName) {
     try {
       await env.DB.prepare(
@@ -23568,7 +23582,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
       const tenantId = 'system';
       const planJson = JSON.stringify({ summary, steps });
       await env.DB.prepare(
-        `INSERT INTO agent_execution_plans (id, tenant_id, session_id, plan_json, summary, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', unixepoch(), unixepoch())`
+        `INSERT INTO agentsam_plans (id, tenant_id, session_id, plan_json, summary, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', unixepoch(), unixepoch())`
       ).bind(planId, tenantId, conversationId ?? '', planJson, summary.slice(0, 2000)).run();
       const resultText = JSON.stringify({ plan_id: planId, status: 'pending', message: 'Plan created; user can approve or reject in the UI.' });
       await rec({ conversationId, toolName: tool_name, toolCategory: 'plan', toolInput: params, result: resultText, error: null, serviceName: 'builtin' });
@@ -23798,7 +23812,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
   if (tool_name === 'list_workers' && env.DB) {
     try {
       const rows = await env.DB.prepare(
-        `SELECT worker_id, name FROM agent_roles WHERE is_active = 1 AND worker_id IS NOT NULL ORDER BY name LIMIT 50`
+        `SELECT worker_id, name FROM agentsam_subagent_profile WHERE is_active = 1 AND worker_id IS NOT NULL ORDER BY name LIMIT 50`
       ).all();
       const resultText = JSON.stringify(rows.results ?? []);
       await rec({ conversationId, toolName: tool_name, toolCategory: 'platform', toolInput: params, result: resultText, error: null, serviceName: 'builtin' });
@@ -23826,7 +23840,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
     return { result: resultText };
   }
 
-  // telemetry (agent_audit_log via writeAuditLog)
+  // telemetry (agentsam_hook_execution via writeAuditLog)
   if (tool_name === 'telemetry_log' && env.DB) {
     const event_type = params.event_type ?? 'log';
     const message = params.message ?? '';
@@ -23840,7 +23854,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
     try {
       const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
       const rows = await env.DB.prepare(
-        `SELECT event_type, message, created_at FROM agent_audit_log
+        `SELECT event_type, message, created_at FROM agentsam_hook_execution
          ORDER BY created_at DESC LIMIT ?`
       ).bind(limit).all();
       const resultText = JSON.stringify(rows.results ?? []);
@@ -23855,7 +23869,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
   if (tool_name === 'telemetry_stats' && env.DB) {
     try {
       const rows = await env.DB.prepare(
-        `SELECT event_type, COUNT(*) as count FROM agent_audit_log
+        `SELECT event_type, COUNT(*) as count FROM agentsam_hook_execution
          GROUP BY event_type ORDER BY count DESC LIMIT 20`
       ).all();
       const resultText = JSON.stringify(rows.results ?? []);
@@ -23876,7 +23890,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
         return { error: 'TENANT_ID not configured on worker' };
       }
       const rows = await env.DB.prepare(
-        `SELECT key, value, importance_score FROM agent_memory_index
+        `SELECT key, value, importance_score FROM agentsam_memory
          WHERE tenant_id = ?
          ORDER BY importance_score DESC LIMIT 30`
       ).bind(_hclTid).all();
@@ -23904,7 +23918,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
         return { error: 'TENANT_ID not configured on worker' };
       }
       await env.DB.prepare(
-        `INSERT INTO agent_memory_index (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
+        `INSERT INTO agentsam_memory (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()`
       ).bind(_hcaTid, 'agent-sam-primary', 'user_context', String(key), String(value), importance_score).run();
       const resultText = `Stored: ${key}`;
       await rec({ conversationId, toolName: tool_name, toolCategory: 'memory', toolInput: params, result: resultText, error: null, serviceName: 'builtin' });
@@ -23962,7 +23976,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
       }
       const query = String(params.query ?? '');
       const rows = await env.DB.prepare(
-        `SELECT key, value FROM agent_memory_index
+        `SELECT key, value FROM agentsam_memory
          WHERE tenant_id = ?
          AND (key LIKE ? OR value LIKE ?)
          ORDER BY importance_score DESC LIMIT 10`
@@ -24046,7 +24060,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
       safeAll(
         env.DB.prepare(
           `SELECT tool_name, COUNT(*) as calls, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as success
-           FROM mcp_tool_calls WHERE datetime(created_at) > datetime('now', '-1 day') GROUP BY tool_name ORDER BY calls DESC LIMIT 8`
+           FROM agentsam_mcp_tool_execution WHERE datetime(created_at) > datetime('now', '-1 day') GROUP BY tool_name ORDER BY calls DESC LIMIT 8`
         ).all()
       ),
       safeAll(
@@ -24445,7 +24459,7 @@ Return ONLY the HTML email body (no doctype/html/head tags). Keep it tight — r
     return { result: outResult };
   }
 
-  const toolRow = await env.DB.prepare('SELECT * FROM mcp_registered_tools WHERE tool_name = ? AND enabled = 1').bind(tool_name).first();
+  const toolRow = await env.DB.prepare('SELECT * FROM agentsam_mcp_tools WHERE tool_name = ? AND enabled = 1').bind(tool_name).first();
   if (!toolRow) {
     await rec({ conversationId, toolName: tool_name, toolCategory: 'mcp', toolInput: params, result: null, error: 'Tool not found', serviceName: null });
     return { error: 'Tool not found' };
@@ -25454,7 +25468,7 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
       try {
         const toolRow = await env.DB.prepare(
           `SELECT tool_name, tool_category, handler_config, input_schema, requires_approval, is_degraded, failure_rate
-           FROM mcp_registered_tools
+           FROM agentsam_mcp_tools
            WHERE tool_name = ? AND enabled = 1
            LIMIT 1`
         ).bind(tool_name).first();
@@ -25525,7 +25539,7 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
       const outSlice = output != null ? String(output).slice(0, 50000) : null;
       const stepNow = new Date().toISOString().slice(0, 19).replace('T', ' ');
       const tcIns = await env.DB.prepare(
-        `INSERT INTO mcp_tool_calls
+        `INSERT INTO agentsam_mcp_tool_execution
            (id, tenant_id, session_id, tool_name, tool_category, input_schema,
             output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'workflow_runner', ?, ?, ?, ?, ?)`
@@ -25544,7 +25558,7 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
         stepNow,
         errorMsg ? String(errorMsg).slice(0, 8000) : null
       ).run();
-      assertD1Write(tcIns, 'mcp_tool_calls workflow step');
+      assertD1Write(tcIns, 'agentsam_mcp_tool_execution workflow step');
       prevToolChainId =
         (await fireForgetAgentToolChainRow(env, {
           toolName: tool_name,
@@ -25603,7 +25617,7 @@ async function executeWorkflowSteps(env, workflow, run_id, session_id, supabaseR
          last_run_status = 'success',
          updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`
       ).bind(workflow.id, MCP_WF_TENANT).run();
-      assertD1Write(defUp, 'agentsam_mcp_workflows success_count');
+      assertD1Write(defUp, 'agentsam_agentsam_mcp_workflows success_count');
     }
 
     const supPatch = failed
@@ -26908,7 +26922,7 @@ async function chatWithToolsOpenAI(env, systemWithBlurb, apiMessages, model, con
       });
     } else {
       const r = await env.DB.prepare(
-        `SELECT tool_name, description, input_schema, tool_category FROM mcp_registered_tools WHERE enabled = 1
+        `SELECT tool_name, description, input_schema, tool_category FROM agentsam_mcp_tools WHERE enabled = 1
          AND (modes_json LIKE '%"' || ? || '"%')
          AND is_degraded = 0
          ORDER BY tool_name`
@@ -27561,7 +27575,7 @@ async function chatWithToolsAnthropic(env, request, provider, modelKey, systemWi
       console.log('[chatWithToolsAnthropic] Using pre-filtered tools:', tools.length);
     } else {
       const r = await env.DB.prepare(
-        `SELECT tool_name, description, input_schema, tool_category FROM mcp_registered_tools WHERE enabled = 1
+        `SELECT tool_name, description, input_schema, tool_category FROM agentsam_mcp_tools WHERE enabled = 1
        AND (modes_json LIKE '%"' || ? || '"%')
        AND is_degraded = 0
        ORDER BY tool_name`
@@ -28222,23 +28236,23 @@ async function processQueues(env) {
   }
 }
 
-/** Nightly: update model_routing_rules performance scores from routing_decisions telemetry. */
+/** Nightly: update agentsam_routing_arms performance scores from routing_decisions telemetry. */
 async function updateRoutingPerformanceScores(env) {
   if (!env.DB) return;
   try {
     await env.DB.prepare(`
-      UPDATE model_routing_rules
+      UPDATE agentsam_routing_arms
       SET
         performance_score = (
           SELECT ROUND(AVG(CASE WHEN had_error = 0 THEN 100.0 ELSE 0.0 END), 2)
           FROM routing_decisions
-          WHERE task_type = model_routing_rules.task_type
+          WHERE task_type = agentsam_routing_arms.task_type
             AND created_at > unixepoch('now', '-7 days')
         ),
         avg_latency_ms = (
           SELECT ROUND(AVG(latency_ms), 0)
           FROM routing_decisions
-          WHERE task_type = model_routing_rules.task_type
+          WHERE task_type = agentsam_routing_arms.task_type
             AND latency_ms IS NOT NULL
             AND created_at > unixepoch('now', '-7 days')
         )
@@ -28276,16 +28290,16 @@ async function runAgentMemoryDecay(env) {
   if (!tid) return;
   try {
     const r = await env.DB.prepare(
-      `UPDATE agent_memory_index
+      `UPDATE agentsam_memory
        SET importance_score = importance_score * decay_rate,
            updated_at = unixepoch()
        WHERE last_accessed_at < unixepoch() - 604800
        AND importance_score > 0.1
        AND tenant_id = ?`
     ).bind(tid).run();
-    console.log('[cron] agent_memory_index decay changes:', r.meta?.changes ?? r.changes ?? 0);
+    console.log('[cron] agentsam_memory decay changes:', r.meta?.changes ?? r.changes ?? 0);
   } catch (e) {
-    console.warn('[cron] agent_memory_index decay', e?.message ?? e);
+    console.warn('[cron] agentsam_memory decay', e?.message ?? e);
   }
 }
 
@@ -28338,23 +28352,21 @@ async function runFinancialCommandCron(env, ctx) {
 /**
  * Allowlisted tables for D1 data_retention_policies purge (column + compare mode).
  * compare: datetime | unix | date_col (TEXT YYYY-MM-DD day bucket: date(col) < date('now','-Nd'))
- * Do NOT add config/registry tables here (mcp_registered_tools, mcp_services, agentsam_mcp_workflows,
- * mcp_server_allowlist, mcp_service_credentials, terminal_connections) — policies on those names are skipped.
+ * Do NOT add config/registry tables here (agentsam_mcp_tools, mcp_services, agentsam_mcp_workflows,
+ * agentsam_mcp_allowlist, mcp_service_credentials, terminal_connections) — policies on those names are skipped.
  */
 const RETENTION_PURGE_TABLE_CONFIG = {
-  github_webhook_events: { dateColumn: 'received_at', compare: 'datetime' },
-  webhook_events: { dateColumn: 'processed_at', compare: 'datetime' },
-  hook_executions: { dateColumn: 'completed_at', compare: 'datetime' },
+  agentsam_webhook_events: { dateColumn: 'processed_at', compare: 'datetime' },
+  agentsam_hook_execution: { dateColumn: 'completed_at', compare: 'datetime' },
   worker_analytics_events: { dateColumn: 'timestamp', compare: 'unix' },
   worker_analytics_errors: { dateColumn: 'created_at', compare: 'unix' },
   notifications: { dateColumn: 'created_at', compare: 'datetime' },
   deployment_notifications: { dateColumn: 'created_at', compare: 'datetime' },
   terminal_history: { dateColumn: 'created_at', compare: 'unix' },
-  mcp_tool_calls: { dateColumn: 'created_at', compare: 'datetime' },
+  agentsam_mcp_tool_execution: { dateColumn: 'created_at', compare: 'datetime' },
   mcp_usage_log: { dateColumn: 'date', compare: 'date_col' },
-  mcp_audit_log: { dateColumn: 'created_at', compare: 'unix' },
   mcp_agent_sessions: { dateColumn: 'created_at', compare: 'unix' },
-  mcp_tool_call_stats: { dateColumn: 'date', compare: 'date_col' },
+  agentsam_tool_stats_compacted: { dateColumn: 'date', compare: 'date_col' },
   agentsam_workflow_runs: { dateColumn: 'created_at', compare: 'unix' },
   mcp_command_suggestions: { dateColumn: 'created_at', compare: 'unix' },
   terminal_sessions: { dateColumn: 'updated_at', compare: 'unix' },
@@ -28464,47 +28476,47 @@ async function runWebhookEventsMaintenanceCron(env) {
   if (!env.DB) return;
   try {
     const del = await env.DB.prepare(
-      `DELETE FROM webhook_events
-       WHERE received_at < datetime('now', '-30 days')
+      `DELETE FROM agentsam_webhook_events
+       WHERE processed_at < datetime('now', '-30 days')
        AND status IN ('processed','ignored','duplicate')`
     ).run();
-    console.log('[cron] webhook_events cleanup changes:', del.meta?.changes ?? del.changes ?? 0);
+    console.log('[cron] agentsam_webhook_events cleanup changes:', del.meta?.changes ?? del.changes ?? 0);
   } catch (e) {
-    console.warn('[cron] webhook_events DELETE cleanup', e?.message ?? e);
+    console.warn('[cron] agentsam_webhook_events DELETE cleanup', e?.message ?? e);
   }
   try {
     const upd = await env.DB.prepare(
-      `UPDATE webhook_events
-       SET payload_json = NULL, headers_json = NULL
-       WHERE received_at < datetime('now', '-7 days')
+      `UPDATE agentsam_webhook_events
+       SET payload_json = NULL
+       WHERE processed_at < datetime('now', '-7 days')
        AND status = 'processed'
        AND payload_json IS NOT NULL`
     ).run();
-    console.log('[cron] webhook_events payload compression changes:', upd.meta?.changes ?? upd.changes ?? 0);
+    console.log('[cron] agentsam_webhook_events payload compression changes:', upd.meta?.changes ?? upd.changes ?? 0);
   } catch (e) {
-    console.warn('[cron] webhook_events payload compress', e?.message ?? e);
+    console.warn('[cron] agentsam_webhook_events payload compress', e?.message ?? e);
   }
   try {
     const _bjId = 'bj_' + Date.now();
-    await env.DB.prepare("INSERT OR IGNORE INTO backfill_jobs (id,job_name,target_table,source_type,status,started_at,created_by) VALUES (?,?,?,'cron','running',unixepoch(),?)")
+    await env.DB.prepare("INSERT OR IGNORE INTO agentsam_code_index_job (id,job_name,target_table,source_type,status,started_at,created_by) VALUES (?,?,?,'cron','running',unixepoch(),?)")
       .bind(_bjId, 'webhook_event_stats_rollup', 'webhook_event_stats', 'system')
       .run().catch(() => { });
     const _res = await env.DB.prepare(
       `INSERT OR REPLACE INTO webhook_event_stats
         (date, source, event_type, total, succeeded, failed)
        SELECT
-        date(received_at) as date,
-        source,
+        date(COALESCE(processed_at, datetime('now'))) AS date,
+        provider AS source,
         event_type,
-        COUNT(*) as total,
-        SUM(CASE WHEN status='processed' THEN 1 ELSE 0 END) as succeeded,
-        SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed
-       FROM webhook_events
-       WHERE date(received_at) = date('now', '-1 day')
-       GROUP BY date, source, event_type`
+        COUNT(*) AS total,
+        SUM(CASE WHEN status='processed' THEN 1 ELSE 0 END) AS succeeded,
+        SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+       FROM agentsam_webhook_events
+       WHERE date(COALESCE(processed_at, datetime('now'))) = date('now', '-1 day')
+       GROUP BY date, provider, event_type`
     ).run().catch(() => null);
     const inserted = Number(_res?.meta?.changes ?? _res?.changes ?? 0) || 0;
-    await env.DB.prepare("UPDATE backfill_jobs SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?")
+    await env.DB.prepare("UPDATE agentsam_code_index_job SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?")
       .bind(inserted, inserted, _bjId)
       .run().catch(() => { });
     console.log('[cron] webhook_event_stats rollup completed');
@@ -28597,24 +28609,24 @@ async function runAgentsamWebhookWeeklyRollup(env) {
         COUNT(*) AS total,
         SUM(CASE WHEN status='processed' THEN 1 ELSE 0 END) AS processed,
         SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
-      FROM webhook_events
-      WHERE datetime(received_at) >= datetime(?)
-        AND datetime(received_at) < datetime(?)
+      FROM agentsam_webhook_events
+      WHERE datetime(COALESCE(processed_at, datetime('now'))) >= datetime(?)
+        AND datetime(COALESCE(processed_at, datetime('now'))) < datetime(?)
     `).bind(weekStart, weekEnd).first().catch(() => null);
     const bySource = await env.DB.prepare(`
-      SELECT source, COUNT(*) AS c
-      FROM webhook_events
-      WHERE datetime(received_at) >= datetime(?)
-        AND datetime(received_at) < datetime(?)
-      GROUP BY source
+      SELECT provider AS source, COUNT(*) AS c
+      FROM agentsam_webhook_events
+      WHERE datetime(COALESCE(processed_at, datetime('now'))) >= datetime(?)
+        AND datetime(COALESCE(processed_at, datetime('now'))) < datetime(?)
+      GROUP BY provider
       ORDER BY c DESC
       LIMIT 50
     `).bind(weekStart, weekEnd).all().catch(() => ({ results: [] }));
     const byType = await env.DB.prepare(`
       SELECT event_type, COUNT(*) AS c
-      FROM webhook_events
-      WHERE datetime(received_at) >= datetime(?)
-        AND datetime(received_at) < datetime(?)
+      FROM agentsam_webhook_events
+      WHERE datetime(COALESCE(processed_at, datetime('now'))) >= datetime(?)
+        AND datetime(COALESCE(processed_at, datetime('now'))) < datetime(?)
       GROUP BY event_type
       ORDER BY c DESC
       LIMIT 100
@@ -28654,7 +28666,7 @@ worker.scheduled = async function scheduled(event, env, ctx) {
         Promise.allSettled([
           runMasterDailyRetention(env),
           runSecurityScan(env, {
-            scanSources: ['agent_messages', 'terminal_history', 'mcp_audit_log'],
+            scanSources: ['agent_messages', 'terminal_history', 'agentsam_mcp_tool_execution'],
             triggeredBy: 'nightly_cron',
           }),
         ]).then((results) => {
@@ -29977,8 +29989,8 @@ async function vaultWriteAudit(db, { secret_id, event_type, triggered_by, previo
   const ip = request?.headers?.get('CF-Connecting-IP') || null;
   const ua = request?.headers?.get('User-Agent')?.slice(0, 200) || null;
   await db.prepare(
-    `INSERT INTO secret_audit_log (id, secret_id, event_type, triggered_by, previous_last4, new_last4, notes, ip_address, user_agent, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+    `INSERT INTO secret_audit_log (id, secret_id, tenant_id, user_id, event_type, triggered_by, previous_last4, new_last4, notes, ip_address, user_agent, created_at, secret_source)
+     VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, unixepoch(), 'user_secrets')`
   ).bind(id, secret_id, event_type, triggered_by || VAULT_USER_ID, previous_last4 || null, new_last4 || null, notes || null, ip, ua).run();
 }
 
@@ -30462,13 +30474,13 @@ async function knowledgeSearch(env, query, opts = {}) {
 async function ensureRagSearchToolRegistered(env) {
   if (_ragSearchToolEnsured || !env.DB) return;
   try {
-    const exists = await env.DB.prepare('SELECT id FROM mcp_registered_tools WHERE id = ?').bind('tool_rag_search').first();
+    const exists = await env.DB.prepare('SELECT id FROM agentsam_mcp_tools WHERE id = ?').bind('tool_rag_search').first();
     if (exists) {
       _ragSearchToolEnsured = true;
       return;
     }
     await env.DB.prepare(
-      `INSERT INTO mcp_registered_tools (id, tool_name, tool_category, mcp_service_url, description, input_schema, requires_approval, enabled, created_at, updated_at)
+      `INSERT INTO agentsam_mcp_tools (id, tool_name, tool_category, mcp_service_url, description, input_schema, requires_approval, enabled, created_at, updated_at)
        VALUES ('tool_rag_search', 'rag_search', 'query', 'builtin', ?, ?, 0, 1, unixepoch(), unixepoch())`
     )
       .bind(
@@ -30684,7 +30696,7 @@ async function unifiedRagSearch(env, query, opts = {}) {
       .catch(() => ({ results: [] })),
     env.DB.prepare(
       `SELECT id, title, doc_type, summary, inline_content, keywords, tags
-       FROM context_index
+       FROM agentsam_project_context
        WHERE is_active = 1 AND is_stale = 0
          AND (title LIKE ? OR summary LIKE ? OR keywords LIKE ? OR tags LIKE ?)
        LIMIT 30`
@@ -30716,7 +30728,7 @@ async function unifiedRagSearch(env, query, opts = {}) {
     r2Promise,
   ]);
 
-  const sourcesSearched = ['ai_knowledge_chunks', 'context_index', 'agent_platform_context', 'agentsam_project_context'];
+  const sourcesSearched = ['ai_knowledge_chunks', 'agentsam_project_context', 'agent_platform_context', 'agentsam_project_context'];
   if (env.VECTORIZE_INDEX) sourcesSearched.push('vectorize_index');
   if (federated) {
     sourcesSearched.push('autorag', 'r2_objects');
@@ -30755,7 +30767,7 @@ async function unifiedRagSearch(env, query, opts = {}) {
     raw.push({
       text,
       source: String(r.id || ''),
-      source_type: 'context_index',
+      source_type: 'agentsam_project_context',
       score,
       doc_type: r.doc_type ? String(r.doc_type) : 'context_rule',
       url: null,
@@ -30954,7 +30966,7 @@ async function getRagStatusPayload(env) {
       .first()
       .catch(() => ({ c: 0 })),
     env.DB.prepare(`SELECT COUNT(*) AS c FROM autorag WHERE index_status = 'indexed'`).first().catch(() => ({ c: 0 })),
-    env.DB.prepare(`SELECT COUNT(*) AS c FROM context_index WHERE is_active = 1`).first().catch(() => ({ c: 0 })),
+    env.DB.prepare(`SELECT COUNT(*) AS c FROM agentsam_project_context WHERE is_active = 1`).first().catch(() => ({ c: 0 })),
     env.DB.prepare(`SELECT COUNT(*) AS c FROM agent_platform_context`).first().catch(() => ({ c: 0 })),
   ]);
   return {
@@ -31242,11 +31254,11 @@ async function writeKnowledgePostDeploy(env, body = {}) {
   let toolsList = [];
   if (env.DB) {
     try {
-      const r = await env.DB.prepare('SELECT tool_name, tool_category FROM mcp_registered_tools WHERE enabled = 1 ORDER BY tool_name').all();
+      const r = await env.DB.prepare('SELECT tool_name, tool_category FROM agentsam_mcp_tools WHERE enabled = 1 ORDER BY tool_name').all();
       toolsList = (r.results || []).map(t => `${t.tool_name} (${t.tool_category || 'execute'})`);
     } catch (_) { }
   }
-  const workerMd = `# Worker structure\n\nGenerated: ${new Date().toISOString()}\n\n## Routes\n${routes.map(route => `- ${route}`).join('\n')}\n\n## Tools (mcp_registered_tools)\n${toolsList.length ? toolsList.map(t => `- ${t}`).join('\n') : '- (none)'}\n`;
+  const workerMd = `# Worker structure\n\nGenerated: ${new Date().toISOString()}\n\n## Routes\n${routes.map(route => `- ${route}`).join('\n')}\n\n## Tools (agentsam_mcp_tools)\n${toolsList.length ? toolsList.map(t => `- ${t}`).join('\n') : '- (none)'}\n`;
   await env.R2.put('knowledge/architecture/worker-structure.md', workerMd, { httpMetadata: { contentType: 'text/markdown' } });
   keys.push('knowledge/architecture/worker-structure.md');
 
@@ -31269,7 +31281,7 @@ async function writeKnowledgePostDeploy(env, body = {}) {
 }
 
 /**
- * Daily knowledge sync: write agent_memory_index (score >= 7) and active roadmap_steps to R2 knowledge/.
+ * Daily knowledge sync: write agentsam_memory (score >= 7) and active roadmap_steps to R2 knowledge/.
  * Called from cron 0 6 * * *.
  */
 async function runKnowledgeDailySync(env) {
@@ -31281,7 +31293,7 @@ async function runKnowledgeDailySync(env) {
   if (env.DB && ksTid) {
     try {
       const r = await env.DB.prepare(
-        "SELECT key, value, importance_score FROM agent_memory_index WHERE importance_score >= 7 AND tenant_id = ? ORDER BY importance_score DESC"
+        "SELECT key, value, importance_score FROM agentsam_memory WHERE importance_score >= 7 AND tenant_id = ? ORDER BY importance_score DESC"
       ).bind(ksTid).all();
       for (const row of (r.results || [])) {
         memoryMd += `## ${row.key} (score: ${row.importance_score})\n${(row.value || '').trim()}\n\n`;
@@ -31873,12 +31885,12 @@ async function sendDailyDigest(env) {
       ).all()),
       safe(env.DB.prepare(
         `SELECT COUNT(*) AS calls, COUNT(DISTINCT tool_name) AS unique_tools
-         FROM mcp_tool_calls
+         FROM agentsam_mcp_tool_execution
          WHERE created_at > CAST(strftime('%s', 'now', '-1 day') AS INTEGER)`
       ).first()),
       safe(env.DB.prepare(
         `SELECT tool_name, COUNT(*) AS c
-         FROM mcp_tool_calls
+         FROM agentsam_mcp_tool_execution
          WHERE created_at > CAST(strftime('%s', 'now', '-1 day') AS INTEGER)
          GROUP BY tool_name
          ORDER BY c DESC
@@ -32067,7 +32079,7 @@ Write 3-5 sentences: AI spend and deploy activity, then one sentence on what to 
 <p>Total ${esc(dt.total)} | Prod ${esc(dt.prod)} | Success ${esc(dt.success)} | Failed ${esc(dt.failed)}</p>
 <p>Failed: ${esc(failedList)}</p>
 
-<h2>3. MCP tool usage (mcp_tool_calls)</h2>
+<h2>3. MCP tool usage (agentsam_mcp_tool_execution)</h2>
 <p>Calls: ${esc(mcpToday?.calls)} | Unique tools: ${esc(mcpToday?.unique_tools)}</p>
 <h3>Top 3 tools</h3>${toolsHtml}
 
@@ -32161,7 +32173,7 @@ ${hookHtml}
       if (digestMemTid) {
         for (const f of memFacts) {
           await env.DB.prepare(
-            'INSERT INTO agent_memory_index (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()'
+            'INSERT INTO agentsam_memory (tenant_id, agent_config_id, memory_type, key, value, importance_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, importance_score=excluded.importance_score, updated_at=unixepoch()'
           ).bind(digestMemTid, 'agent-sam-primary', f.type, f.key, f.value, f.score).run().catch(() => { });
         }
       }
@@ -32203,7 +32215,7 @@ async function sendDailyPlanEmail(env) {
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
   try {
     const [tasks, cicdPipelines, sprintMemory, deployments, velocity, projects, memory, proposals, overnightSuite, telemetryToday, todayPlan, blockedProviders] = await Promise.all([
-      env.DB.prepare(`SELECT title, description, priority, status, tags FROM tasks
+      env.DB.prepare(`SELECT title, description, priority, status, tags FROM agentsam_todo
         WHERE tenant_id=? AND status IN ('todo','in_progress','blocked')
         ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, updated_at DESC LIMIT 10`).bind(planTid).all(),
       env.DB.prepare(
@@ -32251,10 +32263,10 @@ async function sendDailyPlanEmail(env) {
          GROUP BY p.id
          LIMIT 1`
       ).first()),
-      // Blocked providers from model_routing_rules
+      // Blocked providers from agentsam_routing_arms
       safe(env.DB.prepare(
         `SELECT GROUP_CONCAT(DISTINCT provider) AS blocked
-         FROM model_routing_rules
+         FROM agentsam_routing_arms
          WHERE is_active = 0
          GROUP BY 1`
       ).first()),
@@ -32519,9 +32531,9 @@ async function handleOverviewKpiStrip(request, env) {
       overviewQuery(env, failed, 'project_time_entries', `SELECT COALESCE(SUM(duration_seconds),0)/3600.0 AS total FROM project_time_entries WHERE start_time >= date('now','weekday 0','-6 days') AND COALESCE(is_active,0) = 0`, [], 'first'),
       overviewQuery(env, failed, 'project_time_entries', `SELECT date(start_time) AS day, COALESCE(SUM(duration_seconds),0)/3600.0 AS value FROM project_time_entries WHERE start_time >= date('now','-6 days') AND COALESCE(is_active,0) = 0 GROUP BY day ORDER BY day`, []),
       overviewQuery(env, failed, 'active_timers', `SELECT id, project_id, started_at AS start_time, status FROM active_timers WHERE tenant_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`, [tenantId], 'first'),
-      overviewQuery(env, failed, 'mcp_tool_call_stats', `SELECT COALESCE(SUM(call_count),0) AS total, COALESCE(SUM(success_count),0) AS successes FROM mcp_tool_call_stats WHERE tenant_id = ? AND date = date('now')`, [tenantId], 'first'),
-      overviewQuery(env, failed, 'mcp_tool_call_stats', `SELECT date AS day, COALESCE(SUM(call_count),0) AS value FROM mcp_tool_call_stats WHERE tenant_id = ? AND date >= date('now','-6 days') GROUP BY date ORDER BY date`, [tenantId]),
-      overviewQuery(env, failed, 'tasks', `SELECT status, COUNT(*) AS count FROM tasks WHERE tenant_id = ? AND status IN ('todo','in_progress','blocked') GROUP BY status`, [tenantId]),
+      overviewQuery(env, failed, 'agentsam_tool_stats_compacted', `SELECT COALESCE(SUM(call_count),0) AS total, COALESCE(SUM(success_count),0) AS successes FROM agentsam_tool_stats_compacted WHERE tenant_id = ? AND date = date('now')`, [tenantId], 'first'),
+      overviewQuery(env, failed, 'agentsam_tool_stats_compacted', `SELECT date AS day, COALESCE(SUM(call_count),0) AS value FROM agentsam_tool_stats_compacted WHERE tenant_id = ? AND date >= date('now','-6 days') GROUP BY date ORDER BY date`, [tenantId]),
+      overviewQuery(env, failed, 'agentsam_todo', `SELECT status, COUNT(*) AS count FROM agentsam_todo WHERE tenant_id = ? AND status IN ('todo','in_progress','blocked') GROUP BY status`, [tenantId]),
       overviewQuery(env, failed, 'provider_colors', `SELECT slug, css_var, color FROM provider_colors`),
     ]);
     const tasks = { todo: 0, in_progress: 0, blocked: 0 };
@@ -32563,7 +32575,7 @@ async function handleOverviewAgentActivity(request, env) {
       overviewQuery(env, failed, 'agentsam_executions', `SELECT date(created_at,'unixepoch') AS day, execution_type, COUNT(*) AS count FROM agentsam_executions WHERE created_at >= unixepoch('now','-13 days') GROUP BY day, execution_type ORDER BY day`, []),
       overviewQuery(env, failed, 'agentsam_executions', `SELECT execution_type, command, duration_ms, created_at FROM agentsam_executions ORDER BY created_at DESC LIMIT 5`, []),
       overviewQuery(env, failed, 'agent_telemetry', `SELECT date(created_at,'unixepoch') AS day, COALESCE(model_used, 'unknown') AS model, COUNT(*) AS calls FROM agent_telemetry WHERE tenant_id = ? AND created_at >= unixepoch('now','-6 days') GROUP BY day, model ORDER BY day`, [tenantId]),
-      overviewQuery(env, failed, 'model_performance_scores', `SELECT model, calls, avg_cost_usd AS avg_cost, total_cost_usd AS total_cost, avg_latency_ms AS avg_latency, is_recommended_for_task FROM model_performance_scores WHERE tenant_id = ? AND period_end >= unixepoch('now','-7 days') ORDER BY total_cost_usd DESC LIMIT 8`, [tenantId]),
+      overviewQuery(env, failed, 'agentsam_model_drift_signals', `SELECT model, calls, avg_cost_usd AS avg_cost, total_cost_usd AS total_cost, avg_latency_ms AS avg_latency, is_recommended_for_task FROM agentsam_model_drift_signals WHERE tenant_id = ? AND period_end >= unixepoch('now','-7 days') ORDER BY total_cost_usd DESC LIMIT 8`, [tenantId]),
     ]);
     return { executions_by_day: executions, recent_executions: recent, model_usage: usage, model_leaderboard: leaderboard };
   });
@@ -32596,10 +32608,10 @@ async function handleOverviewTimeFounder(request, env) {
 async function handleOverviewMcpHealth(request, env) {
   return overviewCachedResponse(request, env, 'mcp-health', async ({ tenantId, failed }) => {
     const [topTools, categories, totals, degraded] = await Promise.all([
-      overviewQuery(env, failed, 'mcp_tool_call_stats', `SELECT s.tool_name, COALESCE(s.tool_category, t.tool_category, 'uncategorized') AS category, s.call_count AS calls_today, CASE WHEN s.call_count > 0 THEN ROUND((s.success_count * 100.0) / s.call_count, 1) ELSE 0 END AS success_rate, COALESCE(t.avg_latency_ms, s.avg_duration_ms, 0) AS avg_latency, s.total_cost_usd AS cost_today, COALESCE(t.is_degraded,0) AS is_degraded, COALESCE(t.failure_rate,0) AS failure_rate FROM mcp_tool_call_stats s LEFT JOIN mcp_registered_tools t ON t.tool_name = s.tool_name WHERE s.tenant_id = ? AND s.date = date('now') ORDER BY s.call_count DESC LIMIT 15`, [tenantId]),
-      overviewQuery(env, failed, 'mcp_tool_call_stats', `SELECT COALESCE(tool_category, 'uncategorized') AS category, COALESCE(SUM(call_count),0) AS calls FROM mcp_tool_call_stats WHERE tenant_id = ? AND date = date('now') GROUP BY COALESCE(tool_category, 'uncategorized') ORDER BY calls DESC`, [tenantId]),
-      overviewQuery(env, failed, 'mcp_tool_call_stats', `SELECT COALESCE(SUM(call_count),0) AS calls, COALESCE(SUM(total_cost_usd),0) AS cost FROM mcp_tool_call_stats WHERE tenant_id = ? AND date = date('now')`, [tenantId], 'first'),
-      overviewQuery(env, failed, 'mcp_registered_tools', `SELECT COUNT(*) AS count FROM mcp_registered_tools WHERE COALESCE(is_degraded,0) = 1 OR COALESCE(failure_rate,0) > 0.2`, [], 'first'),
+      overviewQuery(env, failed, 'agentsam_tool_stats_compacted', `SELECT s.tool_name, COALESCE(s.tool_category, t.tool_category, 'uncategorized') AS category, s.call_count AS calls_today, CASE WHEN s.call_count > 0 THEN ROUND((s.success_count * 100.0) / s.call_count, 1) ELSE 0 END AS success_rate, COALESCE(t.avg_latency_ms, s.avg_duration_ms, 0) AS avg_latency, s.total_cost_usd AS cost_today, COALESCE(t.is_degraded,0) AS is_degraded, COALESCE(t.failure_rate,0) AS failure_rate FROM agentsam_tool_stats_compacted s LEFT JOIN agentsam_mcp_tools t ON t.tool_name = s.tool_name WHERE s.tenant_id = ? AND s.date = date('now') ORDER BY s.call_count DESC LIMIT 15`, [tenantId]),
+      overviewQuery(env, failed, 'agentsam_tool_stats_compacted', `SELECT COALESCE(tool_category, 'uncategorized') AS category, COALESCE(SUM(call_count),0) AS calls FROM agentsam_tool_stats_compacted WHERE tenant_id = ? AND date = date('now') GROUP BY COALESCE(tool_category, 'uncategorized') ORDER BY calls DESC`, [tenantId]),
+      overviewQuery(env, failed, 'agentsam_tool_stats_compacted', `SELECT COALESCE(SUM(call_count),0) AS calls, COALESCE(SUM(total_cost_usd),0) AS cost FROM agentsam_tool_stats_compacted WHERE tenant_id = ? AND date = date('now')`, [tenantId], 'first'),
+      overviewQuery(env, failed, 'agentsam_mcp_tools', `SELECT COUNT(*) AS count FROM agentsam_mcp_tools WHERE COALESCE(is_degraded,0) = 1 OR COALESCE(failure_rate,0) > 0.2`, [], 'first'),
     ]);
     return { top_tools: topTools, category_breakdown: categories, degraded_count: overviewNumber(degraded?.count), totals: { calls: overviewNumber(totals?.calls), cost: overviewNumber(totals?.cost) } };
   });
@@ -32611,7 +32623,7 @@ async function handleOverviewCommandsWorkflows(request, env) {
       overviewQuery(env, failed, 'agentsam_slash_commands', `SELECT slug, display_name, call_count FROM agentsam_slash_commands ORDER BY call_count DESC LIMIT 10`, []),
       overviewQuery(env, failed, 'agentsam_slash_commands', `SELECT slug, display_name FROM agentsam_slash_commands WHERE COALESCE(call_count,0) = 0 AND COALESCE(is_active,1) = 1 ORDER BY sort_order ASC LIMIT 12`, []),
       overviewQuery(env, failed, 'agentsam_workflow_runs', `SELECT w.display_name AS workflow_name, r.status, r.started_at, r.completed_at, r.duration_ms, r.step_results_json, r.error_message FROM ${AGENTSAM_WORKFLOW_RUNS_TABLE} r LEFT JOIN ${AGENTSAM_MCP_WORKFLOWS} w ON w.id = r.workflow_id WHERE r.tenant_id = ? ORDER BY r.started_at DESC LIMIT 10`, [tenantId]),
-      overviewQuery(env, failed, 'agentsam_mcp_workflows', `SELECT COUNT(*) AS total FROM ${AGENTSAM_MCP_WORKFLOWS} WHERE tenant_id = ?`, [tenantId], 'first'),
+      overviewQuery(env, failed, 'agentsam_agentsam_mcp_workflows', `SELECT COUNT(*) AS total FROM ${AGENTSAM_MCP_WORKFLOWS} WHERE tenant_id = ?`, [tenantId], 'first'),
       overviewQuery(env, failed, 'agentsam_workflow_runs', `SELECT COUNT(DISTINCT workflow_id) AS run_once FROM ${AGENTSAM_WORKFLOW_RUNS_TABLE} WHERE tenant_id = ?`, [tenantId], 'first'),
       overviewQuery(env, failed, 'execution_dependency_graph', `SELECT execution_id, depends_on_execution_id, dependency_type, condition_expression, compensation_execution_id FROM execution_dependency_graph WHERE tenant_id = ? ORDER BY created_at ASC LIMIT 12`, [tenantId]),
     ]);
@@ -32679,7 +32691,7 @@ function overviewStatsPayload(overrides = {}) {
     pipeline_runs: overrides.pipeline_runs ?? 0,
     agent_conversations: overrides.agent_conversations ?? 0,
     agent_last_activity: overrides.agent_last_activity ?? null,
-    mcp_tool_calls_today: overrides.mcp_tool_calls_today ?? 0,
+    agentsam_mcp_tool_execution_today: overrides.agentsam_mcp_tool_execution_today ?? 0,
     mcp_tool_success_rate_today: overrides.mcp_tool_success_rate_today ?? 0,
     latest_migration: overrides.latest_migration ?? null,
   };
@@ -32713,7 +32725,7 @@ async function handleOverviewStats(request, url, env) {
       safe(env.DB.prepare(`SELECT provider, SUM(amount_usd) as total FROM spend_ledger GROUP BY provider ORDER BY total DESC LIMIT 5`).all()),
       safe(env.DB.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM financial_transactions WHERE amount > 0`).first()),
       safe(env.DB.prepare(`SELECT COALESCE(SUM(ABS(amount)),0) as total FROM financial_transactions WHERE amount < 0`).first()),
-      safe(env.DB.prepare(`SELECT COALESCE(SUM(call_count),0) AS calls, COALESCE(SUM(success_count),0) AS successes FROM mcp_tool_call_stats WHERE date = date('now')`).first()),
+      safe(env.DB.prepare(`SELECT COALESCE(SUM(call_count),0) AS calls, COALESCE(SUM(success_count),0) AS successes FROM agentsam_tool_stats_compacted WHERE date = date('now')`).first()),
     ]);
 
     const spendTotal = sum(spendRow, 'total');
@@ -32742,7 +32754,7 @@ async function handleOverviewStats(request, url, env) {
       pipeline_runs: 0,
       agent_conversations: num(agentTelemetryRow),
       agent_last_activity: agentTelemetryRow?.last_at ? String(agentTelemetryRow.last_at).slice(0, 19) : null,
-      mcp_tool_calls_today: mcpCalls,
+      agentsam_mcp_tool_execution_today: mcpCalls,
       mcp_tool_success_rate_today: mcpCalls > 0 ? Math.round((sum(mcpTodayRow, 'successes') / mcpCalls) * 100) : 0,
       latest_migration: deployRow ? { name: deployRow.deployment_id?.slice(0, 8) || 'deploy', applied_at: deployRow.deployed_at } : null,
     });
@@ -33827,7 +33839,7 @@ async function handleHubTasks(request, env) {
   try {
     const r = await env.DB.prepare(`
       SELECT id, title, status, priority, project_id, due_date
-      FROM tasks
+      FROM agentsam_todo
       WHERE status NOT IN ('done','cancelled') AND (tenant_id = 'system' OR tenant_id IS NULL)
       ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'urgent' THEN 2 WHEN 'high' THEN 3 WHEN 'medium' THEN 4 ELSE 5 END, created_at DESC
       LIMIT 20
@@ -33878,7 +33890,7 @@ async function handleHubTaskCreate(request, env) {
     const priority = body.priority || 'medium';
     const project_id = body.project_id || null;
     await env.DB.prepare(
-      `INSERT INTO tasks (id, title, status, priority, project_id, tenant_id, created_at) VALUES (?, ?, 'todo', ?, ?, 'system', unixepoch())`
+      `INSERT INTO agentsam_todo (id, title, status, priority, project_id, tenant_id, created_at) VALUES (?, ?, 'todo', ?, ?, 'system', unixepoch())`
     ).bind(id, title, priority, project_id).run();
     return Response.json({ ok: true, id });
   } catch (e) {
@@ -33894,7 +33906,7 @@ async function handleHubTaskUpdate(request, env, taskId) {
     const status = body.status;
     if (!status || !['todo', 'in_progress', 'review', 'blocked', 'done', 'cancelled'].includes(status))
       return Response.json({ error: 'status required (todo|in_progress|review|blocked|done|cancelled)' }, { status: 400 });
-    const r = await env.DB.prepare(`UPDATE tasks SET status = ? WHERE id = ?`).bind(status, taskId).run();
+    const r = await env.DB.prepare(`UPDATE agentsam_todo SET status = ? WHERE id = ?`).bind(status, taskId).run();
     return Response.json({ ok: true });
   } catch (e) {
     return Response.json({ error: String(e?.message || e) }, { status: 500 });

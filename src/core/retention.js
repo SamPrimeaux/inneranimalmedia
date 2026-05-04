@@ -93,7 +93,7 @@ export async function rollupAgentsamUsageDaily(env) {
       ? `date(datetime(created_at, 'unixepoch')) = date('now','-1 day')`
       : '1=0';
 
-  const whCols = await pragmaTableInfo(env.DB, 'webhook_events');
+  const whCols = await pragmaTableInfo(env.DB, 'agentsam_webhook_events');
   const whCol = pickDateColumn(whCols, ['received_at', 'processed_at', 'created_at']);
   const whDay = whCol ? `date(${whCol}) = date('now','-1 day')` : '1=0';
 
@@ -122,7 +122,7 @@ export async function rollupAgentsamUsageDaily(env) {
       (SELECT ${succExpr ? `COUNT(*) FROM agentsam_tool_call_log WHERE ${toolDay} AND NOT (${succExpr})` : '0'}) AS tool_failures,
       (SELECT COUNT(*) FROM agentsam_tool_call_log WHERE ${toolDay} AND COALESCE(tool_category,'') = 'mcp') AS mcp_calls,
       (SELECT COUNT(*) FROM deployments WHERE ${depDay}) AS deployments,
-      (SELECT COUNT(*) FROM webhook_events WHERE ${whDay}) AS webhook_events,
+      (SELECT COUNT(*) FROM agentsam_webhook_events WHERE ${whDay}) AS webhook_events,
       (SELECT COUNT(*) FROM worker_analytics_errors WHERE ${errDay}) AS error_count,
       '{}' AS provider_breakdown_json,
       '[]' AS top_tools_json,
@@ -159,13 +159,13 @@ export async function rollupAgentsamUsageDaily(env) {
 
 export async function rollupMcpToolCallStats(env) {
   if (!env?.DB) return { ok: false, skipped: true };
-  const cols = await pragmaTableInfo(env.DB, 'mcp_tool_call_stats');
-  const src = await pragmaTableInfo(env.DB, 'agentsam_tool_call_log');
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_tool_stats_compacted');
+  const src = await pragmaTableInfo(env.DB, 'agentsam_mcp_tool_execution');
   if (!cols.size || !src.has('tool_name') || !src.has('created_at')) {
     return { ok: false, skipped: true, reason: 'missing_tables_or_columns' };
   }
   if (!cols.has('date') || !cols.has('tool_name') || !cols.has('tenant_id')) {
-    return { ok: false, skipped: true, reason: 'mcp_tool_call_stats_schema' };
+    return { ok: false, skipped: true, reason: 'agentsam_tool_stats_compacted_schema' };
   }
 
   const tenantSel = src.has('tenant_id')
@@ -244,9 +244,9 @@ export async function rollupMcpToolCallStats(env) {
       : `ON CONFLICT(date, tool_name, tenant_id) DO NOTHING`;
 
   const sql = `
-    INSERT INTO mcp_tool_call_stats (${insertCols.join(', ')})
+    INSERT INTO agentsam_tool_stats_compacted (${insertCols.join(', ')})
     SELECT ${selectExprs.join(', ')}
-    FROM agentsam_tool_call_log
+    FROM agentsam_mcp_tool_execution
     WHERE date(datetime(created_at, 'unixepoch')) = date('now','-1 day')
     GROUP BY ${groupBy.join(', ')}
     ${conflictTail}
@@ -352,7 +352,7 @@ export async function rollupWorkspaceUsageMetrics(env) {
 
 export async function rollupModelPerformanceScores(env) {
   if (!env?.DB) return { ok: false, skipped: true };
-  const out = await pragmaTableInfo(env.DB, 'model_performance_scores');
+  const out = await pragmaTableInfo(env.DB, 'agentsam_model_drift_signals');
   const tel = await pragmaTableInfo(env.DB, 'agent_telemetry');
   if (!out.size || !tel.has('created_at') || !tel.has('model_used')) {
     return { ok: false, skipped: true, reason: 'schema' };
@@ -436,7 +436,7 @@ export async function rollupModelPerformanceScores(env) {
   if (tel.has('metric_type')) groupParts.push('metric_type');
 
   const sql = `
-    INSERT INTO model_performance_scores (${insertCols.join(', ')})
+    INSERT INTO agentsam_model_drift_signals (${insertCols.join(', ')})
     SELECT ${selectExprs.join(', ')}
     FROM agent_telemetry
     WHERE created_at >= unixepoch(date('now','-7 days'))
@@ -454,8 +454,8 @@ export async function rollupModelPerformanceScores(env) {
 
 export async function updateModelRoutingRulesFromScores(env) {
   if (!env?.DB) return { ok: false, skipped: true };
-  const rules = await pragmaTableInfo(env.DB, 'model_routing_rules');
-  const scores = await pragmaTableInfo(env.DB, 'model_performance_scores');
+  const rules = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
+  const scores = await pragmaTableInfo(env.DB, 'agentsam_model_drift_signals');
   if (!rules.has('task_type') || !scores.has('task_type')) {
     return { ok: false, skipped: true };
   }
@@ -474,17 +474,17 @@ export async function updateModelRoutingRulesFromScores(env) {
     if (!orderCol) return { ok: false, skipped: true, reason: 'no_score_order_column' };
 
     const sql = `
-      UPDATE model_routing_rules SET
+      UPDATE agentsam_routing_arms SET
         is_active = CASE
           WHEN ${primaryCol} IN (
-            SELECT ${modelCol} FROM model_performance_scores
+            SELECT ${modelCol} FROM agentsam_model_drift_signals
             WHERE ${scores.has('data_quality') ? "data_quality = 'sufficient' AND" : ''}
               ${scores.has('error_rate') ? 'error_rate < 0.1 AND' : ''}
-              task_type = model_routing_rules.task_type
+              task_type = agentsam_routing_arms.task_type
             ORDER BY ${orderCol} DESC
             LIMIT 1
           ) THEN 1 ELSE is_active END
-      WHERE task_type IN (SELECT DISTINCT task_type FROM model_performance_scores WHERE task_type IS NOT NULL)
+      WHERE task_type IN (SELECT DISTINCT task_type FROM agentsam_model_drift_signals WHERE task_type IS NOT NULL)
     `;
     const r = await env.DB.prepare(sql).run();
     return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
@@ -714,10 +714,9 @@ export async function purgeHotLogs(env) {
   const purges = {};
   const specs = [
     { table: 'agent_telemetry', days: 7, prefs: ['created_at'] },
-    { table: 'ai_usage_log', days: 7, prefs: ['created_at'] },
-    { table: 'agentsam_tool_call_log', days: 7, prefs: ['created_at'] },
-    { table: 'webhook_events', days: 14, prefs: ['received_at', 'processed_at', 'created_at'] },
-    { table: 'github_webhook_events', days: 30, prefs: ['received_at', 'created_at'] },
+    { table: 'agentsam_usage_events', days: 7, prefs: ['created_at'] },
+    { table: 'agentsam_mcp_tool_execution', days: 7, prefs: ['created_at'] },
+    { table: 'agentsam_webhook_events', days: 7, prefs: ['received_at', 'processed_at'] },
     { table: 'spend_ledger', days: 30, prefs: ['occurred_at', 'created_at'] },
     { table: 'worker_analytics_events', days: 7, prefs: ['timestamp', 'created_at'] },
     { table: 'worker_analytics_errors', days: 30, prefs: ['created_at'] },
@@ -774,7 +773,7 @@ export async function offloadRetentionToSupabase(env) {
       .catch(() => ({ results: [] }));
 
     const perf = await env.DB.prepare(
-      `SELECT * FROM model_performance_scores LIMIT 100`,
+      `SELECT * FROM agentsam_model_drift_signals LIMIT 100`,
     )
       .all()
       .catch(() => ({ results: [] }));
@@ -807,7 +806,7 @@ export async function offloadRetentionToSupabase(env) {
         body: JSON.stringify(
           perf.results.map((row) => ({
             ...row,
-            offload_source: 'model_performance_scores',
+            offload_source: 'agentsam_model_drift_signals',
           })),
         ),
       }).catch(() => {});
@@ -823,10 +822,10 @@ export async function runMasterDailyRetention(env) {
   const started = Date.now();
   const rollups = {
     agentsam_usage_rollups_daily: await rollupAgentsamUsageDaily(env),
-    mcp_tool_call_stats: await rollupMcpToolCallStats(env),
+    agentsam_tool_stats_compacted: await rollupMcpToolCallStats(env),
     workspace_usage_metrics: await rollupWorkspaceUsageMetrics(env),
-    model_performance_scores: await rollupModelPerformanceScores(env),
-    model_routing_rules: await updateModelRoutingRulesFromScores(env),
+    agentsam_model_drift_signals: await rollupModelPerformanceScores(env),
+    agentsam_routing_arms: await updateModelRoutingRulesFromScores(env),
     agentsam_health_daily: await rollupAgentsamHealthDaily(env),
     deployments_weekly_rollup: await rollupDeploymentsWeekly(env),
   };

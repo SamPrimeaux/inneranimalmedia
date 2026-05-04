@@ -192,7 +192,7 @@ export async function insertAiGenerationLog(env, opts) {
   
   try {
     await env.DB.prepare(
-      `INSERT INTO ai_generation_log (
+      `INSERT INTO agentsam_usage_events (
         id, tenant_id, generation_type, prompt, model, response_text,
         input_tokens, output_tokens, computed_cost_usd, status, created_by, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`

@@ -661,7 +661,7 @@ export default {
         Promise.allSettled([
           runMasterDailyRetention(env),
           runSecurityScan(env, {
-            scanSources: ['agent_messages', 'terminal_history', 'mcp_audit_log'],
+            scanSources: ['agent_messages', 'terminal_history', 'agentsam_mcp_tool_execution'],
             triggeredBy: 'nightly_cron',
           }),
           env?.DB

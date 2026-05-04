@@ -466,8 +466,8 @@ function oauthTokenStatus(expiresAt) {
 }
 
 async function getMcpToolCounts(env) {
-    const total = await safeFirst(env.DB, `SELECT COUNT(*) AS total, SUM(CASE WHEN COALESCE(enabled, 0) = 1 THEN 1 ELSE 0 END) AS enabled FROM mcp_registered_tools`, []);
-    const by = await safeAll(env.DB, `SELECT COALESCE(tool_category, 'uncategorized') AS category, COUNT(*) AS total, SUM(CASE WHEN COALESCE(enabled, 0) = 1 THEN 1 ELSE 0 END) AS enabled FROM mcp_registered_tools GROUP BY COALESCE(tool_category, 'uncategorized') ORDER BY category`, []);
+    const total = await safeFirst(env.DB, `SELECT COUNT(*) AS total, SUM(CASE WHEN COALESCE(enabled, 0) = 1 THEN 1 ELSE 0 END) AS enabled FROM agentsam_mcp_tools`, []);
+    const by = await safeAll(env.DB, `SELECT COALESCE(tool_category, 'uncategorized') AS category, COUNT(*) AS total, SUM(CASE WHEN COALESCE(enabled, 0) = 1 THEN 1 ELSE 0 END) AS enabled FROM agentsam_mcp_tools GROUP BY COALESCE(tool_category, 'uncategorized') ORDER BY category`, []);
     const byCategory = {};
     for (const row of by.results || []) byCategory[row.category] = { total: Number(row.total || 0), enabled: Number(row.enabled || 0) };
     return { total: Number(total?.total || 0), enabled: Number(total?.enabled || 0), by_category: by.results || [], byCategory };
@@ -499,7 +499,7 @@ async function handleProviderDetail(env, authUser, provider) {
         safeAll(env.DB, `SELECT * FROM integration_health_checks WHERE tenant_id = ? AND provider_key = ? ORDER BY checked_at DESC LIMIT 5`, [tenantId, provider]),
         safeAll(env.DB, `SELECT * FROM integration_events WHERE tenant_id = ? AND provider_key = ? ORDER BY created_at DESC LIMIT 10`, [tenantId, provider]),
         safeAll(env.DB, `SELECT provider, account_identifier, scope, expires_at, created_at, updated_at FROM user_oauth_tokens WHERE user_id = ? AND provider = ?`, [userId, OAUTH_PROVIDER_ALIASES[provider] || provider]),
-        safeAll(env.DB, `SELECT id, tool_name, tool_category, description, enabled FROM mcp_registered_tools WHERE (? = 'mcp_servers' OR tool_category = 'integrations') ORDER BY tool_category, tool_name LIMIT 100`, [provider]),
+        safeAll(env.DB, `SELECT id, tool_name, tool_category, description, enabled FROM agentsam_mcp_tools WHERE (? = 'mcp_servers' OR tool_category = 'integrations') ORDER BY tool_category, tool_name LIMIT 100`, [provider]),
         loadProviderColors(env),
     ]);
     const colorSlug = colorSlugForProvider(provider);
@@ -536,7 +536,7 @@ async function handleWebhooks(env, authUser) {
 }
 
 async function handleMcpTools(env) {
-    const rows = await safeAll(env.DB, `SELECT id, tool_name, tool_category, description, enabled, is_degraded FROM mcp_registered_tools ORDER BY tool_category, tool_name`, []);
+    const rows = await safeAll(env.DB, `SELECT id, tool_name, tool_category, description, enabled, is_degraded FROM agentsam_mcp_tools ORDER BY tool_category, tool_name`, []);
     const counts = await getMcpToolCounts(env);
     return jsonResponse({ tools: rows.results || [], counts });
 }

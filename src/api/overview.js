@@ -254,7 +254,7 @@ async function handleOverviewKpiStrip(authUser, env) {
       safeFirst(`SELECT COUNT(*) as c FROM worker_analytics WHERE date(created_at) = date(?)`, today),
       safeFirst(`SELECT COALESCE(SUM(COALESCE(tokens_in,0)+COALESCE(tokens_out,0)),0) as t FROM spend_ledger WHERE date(occurred_at) = date(?)`, today),
       safeFirst(`SELECT COALESCE(SUM(COALESCE(amount_usd,0)),0) as c FROM spend_ledger WHERE date(occurred_at) = date(?)`, today),
-      safeFirst(`SELECT COUNT(*) as c FROM mcp_tool_calls WHERE date(created_at) = date(?)`, today),
+      safeFirst(`SELECT COUNT(*) as c FROM agentsam_mcp_tool_execution WHERE date(created_at) = date(?)`, today),
       safeFirst(`SELECT COUNT(*) as c FROM mcp_usage_log WHERE date(created_at) = date(?)`, today),
       safeFirst(`SELECT COUNT(*) as c FROM deployments WHERE date(timestamp) = date(?) AND status = 'success'`, today),
     ]);

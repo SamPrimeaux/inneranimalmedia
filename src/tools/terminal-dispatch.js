@@ -20,7 +20,7 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
     // Audit execution to D1
     try {
       await env.DB.prepare(
-        `INSERT INTO agent_command_executions 
+        `INSERT INTO agentsam_command_run 
          (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
          VALUES (?, 'system', 'ws_inneranimalmedia', ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
       ).bind(execId, session_id || null, runCommand, output).run();
@@ -38,7 +38,7 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
     if (executionId && (status === 'completed' || status === 'failed')) {
       try {
         await env.DB.prepare(
-          "UPDATE agent_command_executions SET status = ?, completed_at = ? WHERE id = ?"
+          "UPDATE agentsam_command_run SET status = ?, completed_at = ? WHERE id = ?"
         ).bind(status, now, executionId).run();
       } catch (_) {}
     }
