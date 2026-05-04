@@ -14,3 +14,9 @@ NEVER reference or write to:
 Every file edit must be in /Users/samprimeaux/Downloads/inneranimalmedia/
 Every git command runs from /Users/samprimeaux/Downloads/inneranimalmedia/
 CF Builds auto-deploys on push to main branch.
+
+## Deploy — never guess (wrong command = wasted work)
+- `npm run deploy:full` — Any change under `dashboard/` (Vite build + R2 upload + Worker deploy). Required for frontend; push-to-main alone may not refresh R2 static assets the same way.
+- `npm run deploy` — Worker/API only (`src/`, `worker.js`). No R2 dashboard bundle upload.
+- `npm run deploy:ingest` — Route map + D1 schema doc + doc/memory ingest + Worker deploy. Not a replacement for `deploy:full` for dashboard UI changes.
+Do not invent alternate deploy directories, hardcode model names in deploy scripts, or run autonomous deploy commands unless the user explicitly asks.

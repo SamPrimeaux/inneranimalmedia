@@ -94,17 +94,27 @@ open dist/bundle-stats.html
 
 Use `NODE_ENV=development` when installing dashboard deps if your shell forces production mode (otherwise devDependencies such as Vite may be skipped).
 
-Deploy Worker:
+### Production deploy (canonical)
+
+Pick the smallest command that matches what you changed. **Wrong choice wastes time:** frontend edits not uploaded to R2 look “deployed” locally but users still see the old bundle.
+
+| Command | When to use |
+|---------|-------------|
+| `npm run deploy:full` | **Anything under `dashboard/`** (Vite build → R2 upload `static/dashboard/agent/*` → Worker deploy via `scripts/deploy-frontend.sh`). This is the default for UI work. |
+| `npm run deploy` | **Worker/API only** — changes under `src/`, `worker.js`, or backend-only assets. **No** dashboard build or R2 static sync. |
+| `npm run deploy:ingest` | Regenerate route map + D1 schema doc + doc/memory ingest, then Worker deploy. Not a substitute for `deploy:full` when you only changed React/CSS. |
+
+Equivalent Wrangler one-liner for worker-only (same as `npm run deploy`):
 
 ```bash
 ./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml
 ```
 
-Deploy full CF Builds / dashboard flow if applicable:
+`deploy:full` loads `.env.cloudflare` when present, runs `npm run build:vite-only`, uploads `dashboard/dist` to bucket `inneranimalmedia`, deploys with `wrangler.production.toml`, writes a build manifest under `analytics/app-builds/`, and may notify via email if configured.
 
-```bash
-bash scripts/deploy-cf-builds-prod.sh
-```
+**GitHub:** pushing to `main` triggers your connected Cloudflare / CI deploy; still run **`deploy:full`** locally when you need the dashboard bundle on R2 immediately or outside that pipeline.
+
+A separate **Cloudflare Workers Builds** path may call `scripts/deploy-cf-builds-prod.sh` (different Wrangler config / branch). Do not confuse it with `npm run deploy:full` above.
 
 If terminal PATH breaks, use absolute system tools:
 
