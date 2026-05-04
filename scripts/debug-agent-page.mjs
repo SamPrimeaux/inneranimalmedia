@@ -54,9 +54,10 @@ async function main() {
     const cc = fullRes.headers.get('cache-control') || '';
     ok('Cache-Control (no-cache preferred)', cc.includes('no-cache') || cc.includes('no-store'), cc || '(none)');
 
-    // Markers that indicate "fresh" deploy (not stale)
-    ok('Has .agent-sam-root', fullHtml.includes('agent-sam-root'));
-    const workstationCollapsed = fullHtml.includes('id="agentSamWorkstation"') && fullHtml.includes('agent-sam-workstation collapsed">');
+    // Markers that indicate "fresh" deploy (not stale) — avoid legacy bucket-class prefixes in this script
+    ok('Has agent shell ids', fullHtml.includes('id="agentSamWorkstation"') && fullHtml.includes('id="agentSamMessages"'));
+    const wsTag = fullHtml.split('id="agentSamWorkstation"')[1]?.split('>')[0] || '';
+    const workstationCollapsed = wsTag.includes('collapsed');
     ok('Workstation NOT collapsed by default', !workstationCollapsed, workstationCollapsed ? 'STALE: workstation has collapsed class' : 'workstation visible by default');
     ok('Root min-height safeguard', fullHtml.includes('min-height: 400px') || fullHtml.includes('min-height: 60vh'), fullHtml.includes('min-height: 400px') ? '400px' : fullHtml.includes('min-height: 60vh') ? '60vh only' : 'missing');
     ok('Footer chat pane markup', fullHtml.includes('agent-footer-chat'));
@@ -71,8 +72,9 @@ async function main() {
     const { res: fragRes, text: fragHtml } = await fetchText(`${FRAGMENT_URL}${CACHE_BUST}`);
     ok('Fetch fragment (pages/agent.html)', fragRes.status === 200, `status ${fragRes.status}`);
     if (fragRes.status === 200) {
-      ok('Fragment has main content', fragHtml.includes('<main') && fragHtml.includes('agent-sam-root'));
-      const fragWorkstationCollapsed = fragHtml.includes('agent-sam-workstation collapsed">');
+      ok('Fragment has main content', fragHtml.includes('<main') && fragHtml.includes('id="agentSamWorkstation"'));
+      const fragTag = fragHtml.split('id="agentSamWorkstation"')[1]?.split('>')[0] || '';
+      const fragWorkstationCollapsed = fragTag.includes('collapsed');
       ok('Fragment workstation not collapsed', !fragWorkstationCollapsed, fragWorkstationCollapsed ? 'STALE' : 'ok');
     }
   } catch (e) {

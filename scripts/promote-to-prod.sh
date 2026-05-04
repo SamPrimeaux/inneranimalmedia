@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # promote-to-prod.sh — pull dashboard assets from a source R2 bucket → push to production R2 → deploy worker
-# Default source bucket: agent-sam-sandbox-cicd (legacy object prefix; not a separate “user environment”).
+# Default source bucket: inneranimalmedia-sandbox-cicd (legacy object prefix; not a separate “user environment”).
 # Override: SOURCE_ASSETS_BUCKET=my-bucket ./scripts/promote-to-prod.sh (legacy env: SANDBOX_BUCKET)
 # Usage: ./scripts/promote-to-prod.sh [--worker-only]
 # After deploy: logs cicd_* tables including cicd_runs via scripts/lib/cicd-d1-log.sh; optional
@@ -35,7 +35,7 @@ PROMOTE_GIT_HASH=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "unkno
 export WORKER_NAME="${WORKER_NAME:-inneranimalmedia}"
 
 DEPLOY_TS="$(date -u +%Y%m%d%H%M%S)"
-SOURCE_ASSETS_BUCKET="${SOURCE_ASSETS_BUCKET:-${SANDBOX_BUCKET:-agent-sam-sandbox-cicd}}"
+SOURCE_ASSETS_BUCKET="${SOURCE_ASSETS_BUCKET:-${SANDBOX_BUCKET:-inneranimalmedia-sandbox-cicd}}"
 PROD_BUCKET="inneranimalmedia"
 PROD_CFG="wrangler.production.toml"
 WRANGLER=(./scripts/with-cloudflare-env.sh npx wrangler)
@@ -433,7 +433,7 @@ _cicd_sql_escape() {
     'deployment',
     'manual',
     '[{\"stage_number\":1,\"stage_name\":\"r2_pull\",\"tool_role\":\"wrangler_r2\"},{\"stage_number\":2,\"stage_name\":\"quality_checks\",\"tool_role\":\"internal\"},{\"stage_number\":3,\"stage_name\":\"r2_push\",\"tool_role\":\"wrangler_r2\"},{\"stage_number\":4,\"stage_name\":\"worker_deploy\",\"tool_role\":\"wrangler_deploy\"},{\"stage_number\":5,\"stage_name\":\"health_check\",\"tool_role\":\"curl\"},{\"stage_number\":6,\"stage_name\":\"d1_log_notify\",\"tool_role\":\"resend\"}]',
-    '{\"default_variables\":{\"environment\":\"production\",\"bucket\":\"agent-sam\",\"worker\":\"inneranimalmedia\"},\"required_variables\":[\"RESEND_API_KEY\"]}',
+    '{\"default_variables\":{\"environment\":\"production\",\"bucket\":\"inneranimalmedia\",\"worker\":\"inneranimalmedia\"},\"required_variables\":[\"RESEND_API_KEY\"]}',
     'health_check=200, worker version ID captured, all D1 tables written',
     1,
     'active',

@@ -6,7 +6,7 @@
 # MANDATORY: If you changed any file under dashboard/ (e.g. cloud.html, agent.html), upload it to R2
 # BEFORE running this script, or production will serve stale pages. See .cursor/rules/dashboard-r2-before-deploy.mdc.
 # Example (always use --remote so upload goes to production; without it, uploads go to local only):
-#   ./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/cloud.html --file=dashboard/cloud.html --content-type=text/html --remote -c wrangler.production.toml
+#   ./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/dashboard/cloud.html --file=dashboard/cloud.html --content-type=text/html --remote -c wrangler.production.toml
 #
 # For agent-initiated deploys, set TRIGGERED_BY=agent and optionally DEPLOYMENT_NOTES before running:
 #   TRIGGERED_BY=agent DEPLOYMENT_NOTES='AI Gateway + R2 upload' npm run deploy
@@ -64,10 +64,10 @@ else
   sed -i '' "s/?v=${CURRENT_V}/?v=${NEXT_V}/g" dashboard/agent.html
   echo "Cache bust: v${CURRENT_V} -> v${NEXT_V}"
 
-  # Upload agent-dashboard assets to R2 (agent-sam)
-  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/agent/agent-dashboard.js --file agent-dashboard/dist/agent-dashboard.js --content-type "application/javascript" --config wrangler.production.toml --remote
-  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/agent/agent-dashboard.css --file agent-dashboard/dist/agent-dashboard.css --content-type "text/css" --config wrangler.production.toml --remote
-  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/agent.html --file dashboard/agent.html --content-type "text/html" --config wrangler.production.toml --remote
+  # Upload agent-dashboard assets to R2 (inneranimalmedia)
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/dashboard/agent/agent-dashboard.js --file agent-dashboard/dist/agent-dashboard.js --content-type "application/javascript" --config wrangler.production.toml --remote
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/dashboard/agent/agent-dashboard.css --file agent-dashboard/dist/agent-dashboard.css --content-type "text/css" --config wrangler.production.toml --remote
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/dashboard/agent.html --file dashboard/agent.html --content-type "text/html" --config wrangler.production.toml --remote
 
   # Log agent dashboard R2 uploads to dashboard_versions (D1)
   JS_HASH=$(md5 -q agent-dashboard/dist/agent-dashboard.js 2>/dev/null || md5sum agent-dashboard/dist/agent-dashboard.js | awk '{print $1}')
@@ -84,12 +84,12 @@ fi
 
 # Upload source files for AI indexing (Vectorize codebase search)
 echo "Uploading source files for AI indexing..."
-./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/source/worker.js --file=worker.js --content-type="application/javascript" --config wrangler.production.toml --remote
+./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/source/worker.js --file=worker.js --content-type="application/javascript" --config wrangler.production.toml --remote
 find agent-dashboard/src -type f \( -name "*.jsx" -o -name "*.js" \) | while read -r file; do
-  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "agent-sam/source/${file}" --file="${file}" --content-type="application/javascript" --config wrangler.production.toml --remote
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "inneranimalmedia/source/${file}" --file="${file}" --content-type="application/javascript" --config wrangler.production.toml --remote
 done
 find inneranimalmedia-mcp-server/src -type f -name "*.js" | while read -r file; do
-  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "agent-sam/source/${file}" --file="${file}" --content-type="application/javascript" --config wrangler.production.toml --remote
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "inneranimalmedia/source/${file}" --file="${file}" --content-type="application/javascript" --config wrangler.production.toml --remote
 done
 if [[ "$SKIP_DOCS" -eq 1 ]]; then
   echo "Skipping docs R2 upload (--skip-docs)"
@@ -102,7 +102,7 @@ elif [[ -d "$REPO_ROOT/.git" ]]; then
       [[ -z "$file" ]] && continue
       [[ "$file" == *.md ]] || continue
       [[ -f "$REPO_ROOT/$file" ]] || continue
-      ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "agent-sam/source/${file}" --file="${file}" --content-type="text/markdown" --config wrangler.production.toml --remote
+      ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "inneranimalmedia/source/${file}" --file="${file}" --content-type="text/markdown" --config wrangler.production.toml --remote
       DOCS_CHANGED=$((DOCS_CHANGED + 1))
     done < <(git -C "$REPO_ROOT" diff --name-only "$OLD" -- docs/ 2>/dev/null || true)
     if [[ "$DOCS_CHANGED" -eq 0 ]]; then
@@ -117,13 +117,13 @@ elif [[ -d "$REPO_ROOT/.git" ]]; then
       echo "No .deploy-docs-baseline; uploading all docs (first run or delete file to force full sync)"
     fi
     find docs -type f -name "*.md" 2>/dev/null | while read -r file; do
-      ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "agent-sam/source/${file}" --file="${file}" --content-type="text/markdown" --config wrangler.production.toml --remote
+      ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "inneranimalmedia/source/${file}" --file="${file}" --content-type="text/markdown" --config wrangler.production.toml --remote
     done
   fi
 else
   echo "Not a git checkout; uploading all docs"
   find docs -type f -name "*.md" 2>/dev/null | while read -r file; do
-    ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "agent-sam/source/${file}" --file="${file}" --content-type="text/markdown" --config wrangler.production.toml --remote
+    ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "inneranimalmedia/source/${file}" --file="${file}" --content-type="text/markdown" --config wrangler.production.toml --remote
   done
 fi
 node scripts/generate-worker-function-index.mjs --upload --project inneranimalmedia

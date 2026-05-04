@@ -54,7 +54,7 @@ INSERT OR REPLACE INTO agent_memory_index (id, tenant_id, agent_config_id, memor
 VALUES (
   ''ami_dashboard_version_note'',
   ''system'',
-  ''agent-sam-primary'',
+  ''inneranimalmedia-primary'',
   ''user_context'',
   ''dashboard_version'',
   ''dashboard_versions D1: latest production agent bundle v120 (agent + agent-css + agent-html rows). HTML cache-bust query param on dashboard/agent.html may read v122 in repo until next R2 upload + deploy-with-record. See scripts/deploy-with-record.sh for logging.'',
@@ -67,7 +67,7 @@ INSERT OR REPLACE INTO agent_memory_index (id, tenant_id, agent_config_id, memor
 VALUES (
   ''ami_today_todo_20260322'',
   ''system'',
-  ''agent-sam-primary'',
+  ''inneranimalmedia-primary'',
   ''user_context'',
   ''today_todo'',
   ''1) Sprint1: Fix terminal sessionId (grep FloatingPreviewPanel + worker runTerminalCommand; align WS registration key). 2) Sprint2: SettingsPanel two-column nav + live saves + tabs Environment/Agents/Providers/Webhooks/Deploy/Cursor. 3) Sprint3: Agent dock CSS vars, icon states, multi-panel tabs, welcome cards; v123 after R2. Reference: docs/plans/TOMORROW_2026-03-23_UI_SETTINGS_TERMINAL_PLAN.md'',
@@ -159,7 +159,7 @@ INSERT OR REPLACE INTO agent_memory_index (id, tenant_id, agent_config_id, memor
 VALUES (
   ''ami_dashboard_version_note'',
   ''system'',
-  ''agent-sam-primary'',
+  ''inneranimalmedia-primary'',
   ''user_context'',
   ''dashboard_version'',
   ''dashboard_versions D1: latest production agent bundle v120 (agent + agent-css + agent-html rows). HTML cache-bust query param on dashboard/agent.html may read v122 in repo until next R2 upload + deploy-with-record. See scripts/deploy-with-record.sh for logging.'',
@@ -172,7 +172,7 @@ INSERT OR REPLACE INTO agent_memory_index (id, tenant_id, agent_config_id, memor
 VALUES (
   ''ami_today_todo_20260322'',
   ''system'',
-  ''agent-sam-primary'',
+  ''inneranimalmedia-primary'',
   ''user_context'',
   ''today_todo'',
   ''1) Sprint1: Fix terminal sessionId (grep FloatingPreviewPanel + worker runTerminalCommand; align WS registration key). 2) Sprint2: SettingsPanel two-column nav + live saves + tabs Environment/Agents/Providers/Webhooks/Deploy/Cursor. 3) Sprint3: Agent dock CSS vars, icon states, multi-panel tabs, welcome cards; v123 after R2. Reference: docs/plans/TOMORROW_2026-03-23_UI_SETTINGS_TERMINAL_PLAN.md'',

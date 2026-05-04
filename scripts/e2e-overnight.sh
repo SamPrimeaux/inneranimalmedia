@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # E2E overnight: Vite build -> TOOLS R2 (full dist/ or single entry) -> overnight-api-suite -> D1 token gate.
-# TOOLS bucket only — never writes agent-sam or agent-sam-sandbox-cicd.
+# TOOLS bucket only — never writes inneranimalmedia or inneranimalmedia-sandbox-cicd.
 # Requires: .env.cloudflare with export lines for CLOUDFLARE_API_TOKEN, INTERNAL_API_SECRET, SESSION_COOKIE
 # Env:
 #   E2E_TOOLS_MODE=full|entry   (default: full) — full = entire dashboard/dist; entry = agent-dashboard.js only

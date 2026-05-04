@@ -22,7 +22,7 @@ INSERT OR REPLACE INTO roadmap_steps (
   'plan_iam_dashboard_v1',
   29,
   'Sandbox agent UI to production — scripts and Agent workflow',
-  'Sandbox: inneranimal-dashboard + R2 agent-sam-sandbox-cicd. Iterate with upload-repo-to-r2-sandbox.sh. Production agent bundle: PROMOTE_OK=1 ./scripts/promote-agent-dashboard-to-production.sh then Sam deploy approved if worker changes. Future: wire Agent /workflow or slash command to run promotion checklist (multistep CI/CD) — document in agent_commands or recipes.',
+  'Sandbox: inneranimal-dashboard + R2 inneranimalmedia-sandbox-cicd. Iterate with upload-repo-to-r2-sandbox.sh. Production agent bundle: PROMOTE_OK=1 ./scripts/promote-agent-dashboard-to-production.sh then Sam deploy approved if worker changes. Future: wire Agent /workflow or slash command to run promotion checklist (multistep CI/CD) — document in agent_commands or recipes.',
   NULL,
   NULL,
   'in_progress',

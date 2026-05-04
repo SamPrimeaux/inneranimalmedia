@@ -13,7 +13,7 @@ import { getR2Binding, listBoundR2BucketNames, r2LiveBucketStats } from './r2-ap
 const KNOWN_R2_BINDINGS = [
   { binding: 'ASSETS', storage_name: 'inneranimalmedia-assets', public: true },
   { binding: 'AUTORAG_BUCKET', storage_name: 'autorag', public: true, url: 'https://autorag.inneranimalmedia.com' },
-  { binding: 'DASHBOARD', storage_name: 'agent-sam', public: false },
+  { binding: 'DASHBOARD', storage_name: 'inneranimalmedia', public: false },
   { binding: 'TOOLS', storage_name: 'tools', public: true, url: 'https://tools.inneranimalmedia.com' },
   { binding: 'R2', storage_name: 'iam-platform', public: false },
   { binding: 'DOCS_BUCKET', storage_name: 'iam-docs', public: false },
@@ -131,7 +131,7 @@ async function requireStorageSuperadmin(env, authUser) {
   }
 }
 
-/** Dedupe stats when multiple logical names map to the same R2 binding (e.g. agent-sam + tools → DASHBOARD). */
+/** Dedupe stats when multiple logical names map to the same R2 binding (e.g. inneranimalmedia + tools → DASHBOARD). */
 function bindingIdentity(env, logicalName) {
   const b = getR2Binding(env, logicalName);
   if (b === env.ASSETS) return 'ASSETS';

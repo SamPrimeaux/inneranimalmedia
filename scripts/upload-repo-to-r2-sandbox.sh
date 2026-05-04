@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Upload dashboard MPA + agent bundle + worker snapshot to R2 sandbox bucket.
-# Keys mirror production agent-sam layout (static/dashboard/...) so URLs stay predictable.
+# Keys mirror production R2 layout (static/dashboard/...) so URLs stay predictable.
 #
 # Usage:
 #   ./scripts/upload-repo-to-r2-sandbox.sh
 # Env:
-#   SANDBOX_BUCKET=agent-sam-sandbox-cicd   (default)
+#   SANDBOX_BUCKET=inneranimalmedia-sandbox-cicd   (default)
 #
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
-BUCKET="${SANDBOX_BUCKET:-agent-sam-sandbox-cicd}"
+BUCKET="${SANDBOX_BUCKET:-inneranimalmedia-sandbox-cicd}"
 CONFIG="wrangler.production.toml"
 WRAP=(./scripts/with-cloudflare-env.sh npx wrangler r2 object put)
 
@@ -47,7 +47,7 @@ echo "=== Sandbox bucket: $BUCKET (production-parity keys under static/) ==="
 # --- 0) Manifest (plain text for easy read in dashboard)
 MANIFEST="$(mktemp)"
 {
-  echo "agent-sam-sandbox-cicd — mirror of production R2 key layout (agent-sam)"
+  echo "inneranimalmedia-sandbox-cicd — mirror of production R2 key layout (inneranimalmedia)"
   echo "Same paths as prod: /dashboard/<page> -> static/dashboard/<page>.html"
   echo "Agent app: static/dashboard/agent.html + static/dashboard/agent/agent-dashboard.{js,css}"
   echo "Generated: $(date -u +%Y-%m-%dT%H:%MZ)"
@@ -56,17 +56,10 @@ MANIFEST="$(mktemp)"
 put_file "$MANIFEST" "_sandbox/MANIFEST.txt"
 rm -f "$MANIFEST"
 
-# --- 1) Legacy / build tree under agent-sam/static (page fragments, shell-v2, etc.)
-# R2 key = path after agent-sam/  (e.g. static/dashboard/pages/mail.html)
-if [[ -d agent-sam/static ]]; then
-  while IFS= read -r -d '' file; do
-    rel="${file#agent-sam/}"
-    put_file "$file" "$rel"
-  done < <(find agent-sam/static -type f ! -name '.DS_Store' -print0 2>/dev/null)
-fi
+# --- 1) (Removed) legacy static tree; all assets come from repo paths below.
 
 # --- 2) Repo static/dashboard (mcp-workflows-panel.js, draw, glb-viewer, etc.)
-# R2 key must include static/ prefix (same as production agent-sam)
+# R2 key must include static/ prefix (same as production inneranimalmedia DASHBOARD)
 if [[ -d static/dashboard ]]; then
   while IFS= read -r -d '' file; do
     put_file "$file" "$file"
@@ -105,7 +98,7 @@ if [[ -d overview-dashboard/dist ]]; then
 fi
 
 # --- 4c) Finance MPA (dashboard/finance.html loads /static/dashboard/Finance.js; Vite chunks must sit beside it)
-# Without this, sandbox /dashboard/finance shows shell only. Production agent-sam uses same keys.
+# Without this, sandbox /dashboard/finance shows shell only. Production R2 uses same keys.
 if [[ -d overview-dashboard/dist ]]; then
   for file in overview-dashboard/dist/Finance.js overview-dashboard/dist/overview-dashboard-*.js; do
     [[ -f "$file" ]] || continue

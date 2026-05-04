@@ -7,7 +7,7 @@ if [[ -f ".env.cloudflare" ]]; then
   set -o allexport && source .env.cloudflare && set +o allexport
 fi
 
-BUCKET="agent-sam-sandbox-cicd"
+BUCKET="inneranimalmedia-sandbox-cicd"
 CFG="wrangler.jsonc"
 DIST="dashboard/dist"
 PREFIX="static/dashboard/agent"

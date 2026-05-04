@@ -52,7 +52,7 @@ Single Worker (`worker.js`) serves public marketing routes, dashboard HTML and A
 ## Bindings (see wrangler.production.toml)
 
 - `ASSETS`: public site assets.
-- `DASHBOARD` / `agent-sam`: dashboard static files.
+- `DASHBOARD` / `inneranimalmedia`: dashboard static files.
 - `R2` / `iam-platform`: long-form memory, knowledge paths, docs (not the `autorag` bucket).
 - `DB`: D1 `inneranimalmedia-business`.
 - `AI`, `VECTORIZE` / `VECTORIZE_INDEX`: embeddings and retrieval.
@@ -105,7 +105,7 @@ updated: 2026-03-22
 
 | Bucket | Role |
 |--------|------|
-| **agent-sam** | Dashboard static assets, worker source backup keys, screenshots pipeline. |
+| **inneranimalmedia** | Dashboard static assets, worker source backup keys, screenshots pipeline. |
 | **iam-platform** | Memory and knowledge: `memory/`, `knowledge/`, `docs/` for compiled context and tooling. |
 | **autorag** | Curated markdown for AI Search indexing only (this tree). |
 | **inneranimalmedia-assets** | Public marketing assets (ASSETS binding). |
@@ -212,7 +212,7 @@ Used in the agent dashboard for code-style editing. Alignment with panels, theme
 
 ## Guidance
 
-- Follow dashboard patterns for loading static assets from `agent-sam` / Vite build output.
+- Follow dashboard patterns for loading static assets from `inneranimalmedia` / Vite build output.
 - Large refactors go through the same deploy and R2 upload rules as other dashboard files.
 EOF
 
@@ -252,7 +252,7 @@ Only run when Sam types **deploy approved**. Never deploy unnamed workers or cre
 
 ## Dashboard HTML
 
-If `dashboard/*.html` changes, upload to `agent-sam` under `static/dashboard/` before deploy (see `.cursor/rules/dashboard-r2-before-deploy.mdc`).
+If `dashboard/*.html` changes, upload to `inneranimalmedia` under `static/dashboard/` before deploy (see `.cursor/rules/dashboard-r2-before-deploy.mdc`).
 
 ## MCP server
 
@@ -276,7 +276,7 @@ Always use `./scripts/with-cloudflare-env.sh` so the API token loads.
 
 Example (dashboard file):
 
-`./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/example.html --file=dashboard/example.html --content-type=text/html --remote -c wrangler.production.toml`
+`./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/dashboard/example.html --file=dashboard/example.html --content-type=text/html --remote -c wrangler.production.toml`
 
 Example (this bucket):
 

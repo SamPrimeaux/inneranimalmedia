@@ -249,9 +249,9 @@ export function getR2Binding(env, bucketName) {
   const map = {
     'inneranimalmedia-assets': env.ASSETS,
     autorag: env.AUTORAG_BUCKET,
-    'agent-sam': env.DASHBOARD,
+    inneranimalmedia: env.DASHBOARD,
     dashboard: env.DASHBOARD,
-    'agent-sam-sandbox-cicd': env.ASSETS,
+    'inneranimalmedia-sandbox-cicd': env.ASSETS,
     'iam-platform': env.R2,
     'iam-docs': env.DOCS_BUCKET,
     tools: env.DASHBOARD,
@@ -264,7 +264,7 @@ export function listBoundR2BucketNames(env) {
   if (env.ASSETS) names.push('inneranimalmedia-assets');
   if (env.AUTORAG_BUCKET) names.push('autorag');
   if (env.DASHBOARD) {
-    names.push('agent-sam');
+    names.push('inneranimalmedia');
     names.push('tools');
   }
   if (env.R2) names.push('iam-platform');

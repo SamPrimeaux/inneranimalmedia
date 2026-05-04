@@ -23,7 +23,7 @@ VALUES
   'plan_iam_dashboard_v1',
   'tenant_sam_primeaux',
   'MCP finish — upload dashboard/mcp.html to prod R2 + UI smoke',
-  'wrangler r2 object put (agent-sam, static/dashboard/mcp.html) per deploy-with-record pattern. Browser: /dashboard/mcp workspace phrases github repos, cf images list, resend list domains; optional resend_send_email via DevTools fetch. Doc: TOMORROW plan Block 1.',
+  'wrangler r2 object put (inneranimalmedia, static/dashboard/mcp.html) per deploy-with-record pattern. Browser: /dashboard/mcp workspace phrases github repos, cf images list, resend list domains; optional resend_send_email via DevTools fetch. Doc: TOMORROW plan Block 1.',
   'not_started',
   1011,
   datetime('now'),

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Clone objects from production R2 bucket agent-sam into agent-sam-sandbox-cicd.
+# Clone objects from production R2 bucket inneranimalmedia into inneranimalmedia-sandbox-cicd.
 #
 # Wrangler cannot list objects or copy bucket-to-bucket; use S3-compatible API (AWS CLI v2).
 #
 # Prereqs:
 #   - aws CLI v2 installed (`aws --version`)
-#   - R2 API token (Dashboard: R2 > Manage R2 API Tokens) with permission to READ agent-sam
-#     and WRITE agent-sam-sandbox-cicd (or broader admin read/write on both).
+#   - R2 API token (Dashboard: R2 > Manage R2 API Tokens) with permission to READ inneranimalmedia
+#     and WRITE inneranimalmedia-sandbox-cicd (or broader admin read/write on both).
 #   - NOT the same credential as CLOUDFLARE_API_TOKEN (that is the HTTP API token).
 #
 # Env (required for sync):
@@ -20,17 +20,17 @@
 #   DELETE=1                        # --delete on dest (makes sandbox mirror source; destructive on dest)
 #
 # Examples:
-#   ./scripts/with-cloudflare-env.sh ./scripts/r2-clone-agent-sam-to-sandbox.sh
-#   SYNC_PREFIX=static/dashboard/ DRY_RUN=1 ./scripts/with-cloudflare-env.sh ./scripts/r2-clone-agent-sam-to-sandbox.sh
+#   ./scripts/with-cloudflare-env.sh ./scripts/r2-clone-inneranimalmedia-to-sandbox.sh
+#   SYNC_PREFIX=static/dashboard/ DRY_RUN=1 ./scripts/with-cloudflare-env.sh ./scripts/r2-clone-inneranimalmedia-to-sandbox.sh
 #
 # rclone alternative (same keys):
-#   rclone copy r2src:agent-sam r2dst:agent-sam-sandbox-cicd --progress
+#   rclone copy r2src:inneranimalmedia r2dst:inneranimalmedia-sandbox-cicd --progress
 #   # Configure both remotes with endpoint https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com
 #
 set -euo pipefail
 
-SRC_BUCKET="agent-sam"
-DST_BUCKET="${DST_BUCKET:-agent-sam-sandbox-cicd}"
+SRC_BUCKET="inneranimalmedia"
+DST_BUCKET="${DST_BUCKET:-inneranimalmedia-sandbox-cicd}"
 
 if ! command -v aws >/dev/null 2>&1; then
   echo "aws CLI not found. Install AWS CLI v2, or use rclone with R2 S3 API." >&2

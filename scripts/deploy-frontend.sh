@@ -8,6 +8,10 @@ if [ -f "$REPO_ROOT/.env.cloudflare" ]; then
   source "$REPO_ROOT/.env.cloudflare"
   set +a
 fi
+if [ -f "$REPO_ROOT/.env.cloudflare" ] && { ! grep -qE '^[[:space:]]*SUPABASE_URL=' "$REPO_ROOT/.env.cloudflare" || ! grep -qE '^[[:space:]]*SUPABASE_SERVICE_ROLE_KEY=' "$REPO_ROOT/.env.cloudflare"; }; then
+  echo "⚠️  Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to .env.cloudflare"
+  echo "    These are needed for build_deploy_events Supabase sync on deploy."
+fi
 
 DIST="dashboard/dist"
 BUCKET="inneranimalmedia"
@@ -36,6 +40,26 @@ done
 echo "→ Deploying worker..."
 ./scripts/with-cloudflare-env.sh npx wrangler deploy -c "$TOML"
 echo "✓ Worker deployed"
+
+# After successful wrangler deploy: record in Supabase (set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.cloudflare)
+if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+  echo "→ Recording deploy in Supabase build_deploy_events..."
+  curl -s -X POST "$SUPABASE_URL/rest/v1/build_deploy_events" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"event_type\": \"deploy\",
+      \"git_commit_sha\": \"$(git -C "$REPO_ROOT" rev-parse HEAD)\",
+      \"git_branch\": \"$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)\",
+      \"status\": \"success\",
+      \"deployed_by\": \"sam_primeaux\",
+      \"worker_name\": \"inneranimalmedia\"
+    }" | jq .
+else
+  echo "⚠️  Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to .env.cloudflare"
+  echo "    These are needed for build_deploy_events Supabase sync on deploy."
+fi
 
 # Build manifest → R2 (dashboard build history under analytics/app-builds/)
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")

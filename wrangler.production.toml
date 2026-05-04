@@ -52,7 +52,7 @@ binding = "MYBROWSER"
 binding = "ASSETS"
 bucket_name = "inneranimalmedia"
 
-# Dashboard JS/HTML/CSS served on inneranimalmedia.com — production R2 (`agent-sam`) only.
+# Dashboard JS/HTML/CSS served on inneranimalmedia.com — production R2 (DASHBOARD = inneranimalmedia).
 [[r2_buckets]]
 binding = "DASHBOARD"
 bucket_name = "inneranimalmedia"
@@ -152,7 +152,7 @@ OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 SUPABASE_S3_ENDPOINT = "https://dpmuvynqixblxsilnlut.storage.supabase.co/storage/v1/s3"
 SUPABASE_S3_REGION = "us-east-2"
 RAG_DOCUMENTS_PROJECT_ID = "inneranimalmedia"
-RAG_AGENT_ID = "agent-sam"
+RAG_AGENT_ID = "inneranimalmedia"
 RAG_OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"
 RAG_EMBEDDING_DIMENSIONS = "1024"
 R2_AUTORAG_BUCKET_NAME = "inneranimalmedia-autorag"

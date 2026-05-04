@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy-sandbox.sh — build + upload to sandbox R2 + deploy inneranimal-dashboard
-# Sandbox bucket: agent-sam-sandbox-cicd
+# Sandbox bucket: inneranimalmedia-sandbox-cicd
 # Usage: ./scripts/deploy-sandbox.sh [--skip-build] [--worker-only]
 # Env overrides: SANDBOX_BUCKET | CICD_D1_LOG=0 | CICD_SKIP_HEALTH_CURL=1 | CICD_SKIP_RESEND=1
 set -euo pipefail
@@ -42,7 +42,7 @@ fi
 # ── Constants ─────────────────────────────────────────────────────────────────
 CFG="wrangler.jsonc"
 PROD_CFG="wrangler.production.toml"
-SANDBOX_BUCKET="${SANDBOX_BUCKET:-agent-sam-sandbox-cicd}"
+SANDBOX_BUCKET="${SANDBOX_BUCKET:-inneranimalmedia-sandbox-cicd}"
 WRANGLER=(./scripts/with-cloudflare-env.sh npx wrangler)
 DIST_DIR="${REPO_ROOT}/dashboard/dist"
 MANIFEST_NAME=".deploy-manifest"

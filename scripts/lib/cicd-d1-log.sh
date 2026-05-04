@@ -350,7 +350,7 @@ cicd_log_sandbox_deploy() {
   [ "${CICD_D1_LOG:-1}" = "0" ] && return 0
   local worker_vid="${1:?worker version id}"
   local dash_v="${2:?dashboard v number}"
-  local bucket="${3:-agent-sam-sandbox-cicd}"
+  local bucket="${3:-inneranimalmedia-sandbox-cicd}"
   local r2_files="${4:-0}"
   local r2_bytes="${5:-0}"
   local ms_build="${6:-}"
@@ -685,9 +685,9 @@ cicd_log_prod_promote() {
   }
 
   local notes_esc wv_esc bucket_esc
-  notes_esc=$(cicd_sql_escape "promote-to-prod.sh | v${dash_v} | worker ${worker_vid} | ${r2_files} R2 objects | agent-sam")
+  notes_esc=$(cicd_sql_escape "promote-to-prod.sh | v${dash_v} | worker ${worker_vid} | ${r2_files} R2 objects | inneranimalmedia")
   wv_esc=$(cicd_sql_escape "$worker_vid")
-  bucket_esc=$(cicd_sql_escape "agent-sam")
+  bucket_esc=$(cicd_sql_escape "inneranimalmedia")
 
   cicd_d1_nf "
 INSERT OR IGNORE INTO cicd_github_runs (
@@ -757,8 +757,8 @@ INSERT INTO pipeline_runs (
 INSERT OR IGNORE INTO cicd_run_steps
   (id, run_id, tool_name, test_type, status, latency_ms, http_status, error, response_preview, tested_at)
 VALUES
-  ('step_${ts}_pr_pull', '${pipe_id}', 'r2_pull_sandbox_manifest',   'r2',     '${step_pull}',   ${ms_pull:-NULL},   NULL, NULL, 'agent-sam-sandbox-cicd -> dist',              '${completed}'),
-  ('step_${ts}_pr_push', '${pipe_id}', 'r2_put_production',          'r2',     '${step_push}',   ${ms_push:-NULL},   NULL, NULL, '${r2_files} objects -> agent-sam',            '${completed}'),
+  ('step_${ts}_pr_pull', '${pipe_id}', 'r2_pull_sandbox_manifest',   'r2',     '${step_pull}',   ${ms_pull:-NULL},   NULL, NULL, 'inneranimalmedia-sandbox-cicd -> dist',              '${completed}'),
+  ('step_${ts}_pr_push', '${pipe_id}', 'r2_put_production',          'r2',     '${step_push}',   ${ms_push:-NULL},   NULL, NULL, '${r2_files} objects -> inneranimalmedia',            '${completed}'),
   ('step_${ts}_pr_wr',   '${pipe_id}', 'wrangler_deploy_production',  'invoke', '${step_worker}', ${ms_worker:-NULL}, NULL, NULL, 'inneranimalmedia @ ${worker_vid}',            '${completed}'),
   ('step_${ts}_pr_d1',   '${pipe_id}', 'd1_dashboard_versions_prod',  'd1',     '${step_d1}',     ${ms_d1:-NULL},     NULL, NULL, 'dashboard_versions + deployments',           '${completed}'),
   ('step_${ts}_pr_hc',   '${pipe_id}', 'prod_health_check',           'route',  '${step_hc}',     NULL, ${health_http}, NULL, 'https://inneranimalmedia.com/dashboard/agent', '${completed}');
@@ -772,7 +772,7 @@ INSERT OR IGNORE INTO cicd_events
   (id, source, event_type, repo_name, git_branch, git_commit_sha, git_commit_message, git_actor, worker_name, r2_bucket, r2_key)
 VALUES
   ('${ev1}', 'manual', 'push',                 '${CICD_REPO_NAME}', '${CICD_GIT_BRANCH}', '${CICD_GIT_SHA}', '${CICD_GIT_MSG_ESC}', '${CICD_ACTOR_ESC}', NULL,              NULL,        'promote:git'),
-  ('${ev2}', 'manual', 'r2_bundle_updated',     '${CICD_REPO_NAME}', '${CICD_GIT_BRANCH}', '${CICD_GIT_SHA}', '${CICD_GIT_MSG_ESC}', '${CICD_ACTOR_ESC}', 'inneranimalmedia','agent-sam', 'static/dashboard/agent/'),
+  ('${ev2}', 'manual', 'r2_bundle_updated',     '${CICD_REPO_NAME}', '${CICD_GIT_BRANCH}', '${CICD_GIT_SHA}', '${CICD_GIT_MSG_ESC}', '${CICD_ACTOR_ESC}', 'inneranimalmedia','inneranimalmedia', 'static/dashboard/agent/'),
   ('${ev3}', 'manual', 'worker_script_updated', '${CICD_REPO_NAME}', '${CICD_GIT_BRANCH}', '${CICD_GIT_SHA}', '${CICD_GIT_MSG_ESC}', '${CICD_ACTOR_ESC}', 'inneranimalmedia', NULL,       'version:${worker_vid}');
 "
 

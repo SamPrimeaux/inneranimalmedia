@@ -8,7 +8,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 DIST_DIR="dashboard/dist"
-BUCKET="${SANDBOX_BUCKET:-agent-sam-sandbox-cicd}"
+BUCKET="${SANDBOX_BUCKET:-inneranimalmedia-sandbox-cicd}"
 R2_PREFIX="static/dashboard/agent"
 
 echo "=== CF Builds: worker deploy ==="

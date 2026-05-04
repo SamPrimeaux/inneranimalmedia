@@ -5,7 +5,7 @@
 --   ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --file=./scripts/d1-backfill-dashboard_assets-20260324.sql
 --
 -- Includes:
--- - 13 dashboard HTML pages under agent-sam static/dashboard/ (sizes from API)
+-- - 13 dashboard HTML pages under inneranimalmedia static/dashboard/ (sizes from API)
 -- - agent bundle JS/CSS v137 + shell.css (sizes from API / dashboard_versions)
 -- - All non-empty iam-docs bucket objects (27 files; skipped zero-byte agents/ prefix key)
 

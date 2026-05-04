@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build 8 full dashboard pages: shell from cloud.html + fragment from agent-sam/static/dashboard/pages/<name>.html
+ * Build 8 full dashboard pages: shell from cloud.html + fragment from dashboard/public/static/dashboard/pages/<name>.html
  * Output: dashboard/<name>.html (for upload to R2 static/dashboard/<name>.html)
  */
 const fs = require('fs');
@@ -8,7 +8,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const CLOUD = path.join(ROOT, 'dashboard', 'cloud.html');
-const PAGES_DIR = path.join(ROOT, 'agent-sam', 'static', 'dashboard', 'pages');
+const PAGES_DIR = path.join(ROOT, 'dashboard', 'public', 'static', 'dashboard', 'pages');
 const OUT_DIR = path.join(ROOT, 'dashboard');
 
 const PAGES = [

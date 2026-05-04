@@ -26,7 +26,7 @@ updated: 2026-03-18
 - API: /api/agent/chat, /api/r2, /api/search, /api/agent/rag/query
 
 ## Bindings
-- R2: agent-sam (DASHBOARD), iam-platform (R2 - memory/knowledge)
+- R2: inneranimalmedia (DASHBOARD), iam-platform (R2 - memory/knowledge)
 - D1: inneranimalmedia-business
 - AutoRAG: iam-autorag (migrated from inneranimalmedia-aisearch)
 

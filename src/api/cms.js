@@ -15,9 +15,9 @@ import { getAuthUser, jsonResponse } from '../core/auth.js';
 // --- R2 Helpers ---
 
 function getCmsR2Binding(env, bucketName) {
-  // R2 bucket: 'iam-docs' for client sites, 'agent-sam' for internal
+  // R2: 'iam-docs' for client sites; DASHBOARD bucket (inneranimalmedia) for internal dashboard assets
   if (bucketName === 'iam-docs') return env.DOCS_BUCKET || env.R2;
-  if (bucketName === 'agent-sam') return env.DASHBOARD || env.R2;
+  if (bucketName === 'inneranimalmedia' || bucketName === 'dashboard') return env.DASHBOARD || env.R2;
   return env.R2;
 }
 

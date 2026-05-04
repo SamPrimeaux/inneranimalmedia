@@ -805,7 +805,7 @@ async function createApprovalRequest(env, opts) {
         requires_confirmation, expires_at, created_at, updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`
     ).bind(
-      proposalId, tenantId, sessionId, 'agent-sam', 'agent_generated',
+      proposalId, tenantId, sessionId, 'iam_agent', 'agent_generated',
       toolName, `${toolName}(${argsStr.slice(0, 500)})`, argsStr,
       rationale || `Tool call requires approval: ${toolName}`,
       riskLevel || 'medium', toolName, 'pending', expiresAt, now, now
@@ -817,7 +817,7 @@ async function createApprovalRequest(env, opts) {
        VALUES (?,?,?,?,?,?,'awaiting_approval',?,?,datetime('now'),datetime('now'),datetime('now'))`
     ).bind(
       toolCallRow, tenantId, sessionId, toolName, 'builtin',
-      argsStr.slice(0, 10000), proposalId, userId || 'agent-sam', toolCallId || null
+      argsStr.slice(0, 10000), proposalId, userId || 'iam_agent', toolCallId || null
     ).run().catch(() => {});
   } catch (e) { console.warn('[agent] createApprovalRequest:', e?.message); }
   return proposalId;
@@ -828,7 +828,7 @@ async function auditToolDecision(env, opts) {
   try {
     await env.DB.prepare(
       `INSERT INTO agentsam_hook_execution (id, tenant_id, actor_role_id, event_type, message, metadata_json)
-       VALUES (?, ?, 'agent-sam', ?, ?, ?)`
+       VALUES (?, ?, 'iam_agent', ?, ?, ?)`
     ).bind(
       crypto.randomUUID(), opts.tenantId || 'system', opts.eventType, opts.message,
       JSON.stringify({ tool: opts.toolName, reason: opts.reason, risk: opts.riskLevel })
@@ -860,7 +860,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
          cost_usd, status, ref_table, ref_id, created_at)
       VALUES
         ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
-         'agent-sam',?,?,?,?,?,?,
+         'iam_agent',?,?,?,?,?,?,
          'agent_chat_sse',?,unixepoch())
     `).bind(
       tenantId ?? 'tenant_sam_primeaux',
@@ -1184,7 +1184,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
            (id, tenant_id, session_id, tool_name, tool_category, input_schema,
             output, status, invoked_by, invoked_at, completed_at, created_at, updated_at)
            VALUES (?,?,?,?,?,?,?,'completed',?,datetime('now'),datetime('now'),datetime('now'),datetime('now'))`
-        ).bind('mtc_' + crypto.randomUUID().replace(/-/g,'').slice(0,16), tenantId, sessionId, call.name, 'builtin', JSON.stringify(call.input||{}), toolOutput.slice(0,50000), userId||'agent-sam').run().catch(() => {});
+        ).bind('mtc_' + crypto.randomUUID().replace(/-/g,'').slice(0,16), tenantId, sessionId, call.name, 'builtin', JSON.stringify(call.input||{}), toolOutput.slice(0,50000), userId||'iam_agent').run().catch(() => {});
       }
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
@@ -2495,7 +2495,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     const proposalId = 'prop_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
     const now        = Math.floor(Date.now() / 1000);
     const iamOrigin  = (env.IAM_ORIGIN || '').replace(/\/$/,'');
-    await env.DB.prepare(`INSERT INTO agent_command_proposals (id, tenant_id, agent_session_id, proposed_by, command_source, command_name, command_text, filled_template, rationale, risk_level, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(proposalId, tenantId, body.session_id||null, 'agent-sam', 'agent_generated', String(body.command_name||'proposed').slice(0,200), commandText, commandText, String(body.rationale||'Agent proposed command').slice(0,8000), 'medium', 'pending', now, now).run();
+    await env.DB.prepare(`INSERT INTO agent_command_proposals (id, tenant_id, agent_session_id, proposed_by, command_source, command_name, command_text, filled_template, rationale, risk_level, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(proposalId, tenantId, body.session_id||null, 'iam_agent', 'agent_generated', String(body.command_name||'proposed').slice(0,200), commandText, commandText, String(body.rationale||'Agent proposed command').slice(0,8000), 'medium', 'pending', now, now).run();
     notifySam(env, { subject: `Proposal pending: ${commandText.slice(0,80)}`, body: `ID: ${proposalId}\nApprove: ${iamOrigin}/dashboard/overview?proposal=${proposalId}`, category: 'proposal' }, ctx);
     return jsonResponse({ ok: true, proposal_id: proposalId });
   }
@@ -2554,7 +2554,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
     if (!tenantId) return jsonResponse({ error: 'Tenant could not be resolved' }, 403);
     const runId        = 'wfr_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
-    await env.DB.prepare(`INSERT INTO workflow_runs (id, tenant_id, workflow_id, workflow_name, trigger_source, triggered_by, status, input_data, created_at, updated_at) VALUES (?,?,?,?,'api','agent-sam','pending',?,datetime('now'),datetime('now'))`).bind(runId, tenantId, body.workflow_id||null, workflowName, body.input_data ? JSON.stringify(body.input_data) : null).run();
+    await env.DB.prepare(`INSERT INTO workflow_runs (id, tenant_id, workflow_id, workflow_name, trigger_source, triggered_by, status, input_data, created_at, updated_at) VALUES (?,?,?,?,'api','iam_agent','pending',?,datetime('now'),datetime('now'))`).bind(runId, tenantId, body.workflow_id||null, workflowName, body.input_data ? JSON.stringify(body.input_data) : null).run();
     return jsonResponse({ ok: true, run_id: runId, status: 'pending' });
   }
 

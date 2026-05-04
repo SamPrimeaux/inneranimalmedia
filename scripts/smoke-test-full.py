@@ -295,7 +295,7 @@ section("6 — MCP TOOL TESTS")
 
 mcp_tests = [
     ("D1 query via MCP",   "Use the d1_query tool to count rows in ai_models and tell me the count"),
-    ("R2 list via MCP",    "Use the r2_list tool to list files in the agent-sam bucket prefix static/dashboard"),
+    ("R2 list via MCP",    "Use the r2_list tool to list files in the inneranimalmedia bucket prefix static/dashboard"),
     ("Knowledge search",   "Use the knowledge_search tool to find information about Agent Sam deployment"),
     ("Git status",         "Use the github_get_repo_info tool or check git status of the current repo"),
 ]

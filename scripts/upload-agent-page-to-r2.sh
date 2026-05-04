@@ -41,12 +41,12 @@ fi
 
 if [ "$FAILED" -ne 0 ]; then
   echo ""
-  echo "Manual upload (Cloudflare Dashboard → R2 → bucket agent-sam):"
+  echo "Manual upload (Cloudflare Dashboard → R2 → bucket inneranimalmedia):"
   echo "  1. Key: static/dashboard/agent.html     ← file: $(pwd)/dashboard/agent.html (Content-Type: text/html)"
   echo "  2. Key: static/dashboard/pages/agent.html ← file: $(pwd)/dashboard/pages/agent.html (Content-Type: text/html)"
   echo ""
 fi
 
 echo ""
-echo "Verify: curl -sS 'https://inneranimalmedia.com/dashboard/agent' | grep -o 'agent-sam-root\\|agent-footer-chat' | head -3"
+echo "Verify: curl -sS 'https://inneranimalmedia.com/dashboard/agent' | grep -o 'agentSamMessages\\|agent-footer-chat' | head -3"
 echo "See docs/AGENT_PAGE_DEBUG_SUMMARY.md for full deploy steps."

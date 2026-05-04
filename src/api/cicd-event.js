@@ -165,12 +165,12 @@ async function handlePostSandbox(p, env) {
        tenant_id, status, metadata_json, created_at, updated_at)
     VALUES (
       ?, ?, 'Sandbox CICD Bucket', 'r2',
-      'https://dash.cloudflare.com/r2/agent-sam-sandbox-cicd',
+      'https://dash.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/r2/buckets/inneranimalmedia',
       ?, 'active', ?, unixepoch(), unixepoch()
     )
   `  ).bind(
     `ps-cicd-event-${deployId}`,
-    'agent-sam-sandbox-cicd',
+    'inneranimalmedia',
     fallbackSystemTenantId(env),
     JSON.stringify({
       r2_files: p.r2_files || 0,

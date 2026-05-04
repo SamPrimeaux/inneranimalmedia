@@ -18,7 +18,7 @@ INSERT INTO agentsam_rules_document (
   'IAM — Universal sync and safety (core)',
   '# Inner Animal Media — agent rules (D1-backed)
 
-This document mirrors repo governance. Full detail: `docs/AGENT_SAM_UNIVERSAL_SYNC_LAW.md`, `.cursorrules`, `.cursor/rules/`.
+This document mirrors repo governance. Full detail: see universal sync law doc under `docs/`, `.cursorrules`, `.cursor/rules/`.
 
 ## Non-negotiables
 
@@ -168,7 +168,7 @@ INSERT INTO agentsam_subagent_profile (
   '',
   'cicd-lane',
   'CI/CD promotion lane',
-  'Guide sandbox-to-production: `wrangler.jsonc` inneranimal-dashboard vs `wrangler.production.toml`. R2 sandbox bucket vs agent-sam. Require human gates: PROMOTE_OK, deploy approved. Log activity narrative in `cicd_events` when changing workflow state.',
+  'Guide sandbox-to-production: `wrangler.jsonc` inneranimal-dashboard vs `wrangler.production.toml`. R2 sandbox bucket vs production inneranimalmedia. Require human gates: PROMOTE_OK, deploy approved. Log activity narrative in `cicd_events` when changing workflow state.',
   '["read","deploy-docs"]',
   NULL,
   1,
