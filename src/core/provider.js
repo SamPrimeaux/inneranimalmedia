@@ -1,6 +1,6 @@
 /**
  * IAM — Unified Provider Dispatch
- * Routes agent calls to correct provider based on ai_models.api_platform.
+ * Routes agent calls to correct provider based on agentsam_ai.api_platform.
  * No hardcoded model strings or provider names.
  */
 import { chatWithAnthropic }   from '../integrations/anthropic.js';
@@ -17,8 +17,15 @@ export async function resolveModelMeta(env, modelKey) {
   if (!env.DB || !modelKey) return null;
   try {
     return await env.DB.prepare(
-      `SELECT provider, api_platform, secret_key_name
-       FROM ai_models WHERE model_key = ? LIMIT 1`
+      `SELECT id, name, model_key, api_platform, provider,
+       secret_key_name, supports_tools, supports_vision,
+       context_max_tokens, output_max_tokens,
+       input_rate_per_mtok, output_rate_per_mtok,
+       tool_invocation_style, thinking_mode, effort
+       FROM agentsam_ai
+       WHERE model_key = ?
+         AND mode = 'model' AND status = 'active'
+       LIMIT 1`
     ).bind(modelKey).first();
   } catch (_) { return null; }
 }

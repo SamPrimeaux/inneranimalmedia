@@ -3,7 +3,7 @@
  * Handles all /api/agent/* routes.
  *
  * Key notes:
- *  - Canonical production catalog: D1 ai_models only (routing, picker metadata, pricing, dispatch).
+ *  - Canonical production catalog: D1 agentsam_ai only (routing, picker metadata, pricing, dispatch).
  *  - agent_model_registry is legacy/staging/enrichment — never used for chat routing or billing math here.
  *  - No hardcoded model strings — always resolved from DB
  *  - Tool definitions loaded per-request via classifyIntent + loadToolsForRequest
@@ -323,44 +323,63 @@ async function loadUserPolicy(env, userId, workspaceId = '') {
 
 async function resolveDefaultModel(env) {
   if (!env.DB) return null;
+  const tenantId = 'tenant_sam_primeaux';
   try {
     const row = await env.DB.prepare(
-      `SELECT model_key FROM ai_models
-       WHERE COALESCE(is_active, 1) = 1
+      `SELECT model_key FROM agentsam_ai
+       WHERE mode = 'model' AND status = 'active'
          AND COALESCE(supports_tools, 0) = 1
          AND LOWER(COALESCE(api_platform, '')) != 'workers_ai'
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
        ORDER BY COALESCE(input_rate_per_mtok, 999999) ASC
        LIMIT 1`,
-    ).first();
+    ).bind(tenantId).first();
     if (row?.model_key) return row.model_key;
     const fb = await env.DB.prepare(
-      `SELECT model_key FROM ai_models
-       WHERE COALESCE(is_active, 1) = 1 AND COALESCE(supports_tools, 0) = 1
+      `SELECT model_key FROM agentsam_ai
+       WHERE mode = 'model' AND status = 'active'
+         AND COALESCE(supports_tools, 0) = 1
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
        ORDER BY COALESCE(input_rate_per_mtok, 999999) ASC LIMIT 1`,
-    ).first();
+    ).bind(tenantId).first();
     return fb?.model_key || null;
   } catch (_) {
     return null;
   }
 }
 
-const AI_MODEL_ROW_SQL = `id, provider, model_key, api_platform, secret_key_name,
-  supports_tools, metadata_json, COALESCE(is_active, 1) AS is_active`;
+const AI_MODEL_ROW_SQL = `id, name, provider, model_key, api_platform,
+  secret_key_name, supports_tools, supports_vision,
+  supports_cache, context_max_tokens, output_max_tokens,
+  input_rate_per_mtok, output_rate_per_mtok,
+  cache_write_rate_per_mtok, cache_read_rate_per_mtok,
+  size_class, sort_order, tool_invocation_style,
+  thinking_mode, effort, system_prompt,
+  features_json, picker_group, is_global,
+  allowed_tenants_json`;
 
-async function resolveAiModelRowById(env, id) {
+async function resolveAiModelRowById(env, id, tenantIdOpt) {
   if (!env.DB || id == null || id === '') return null;
+  const tenantId =
+    tenantIdOpt != null && String(tenantIdOpt).trim() !== ''
+      ? String(tenantIdOpt).trim()
+      : 'tenant_sam_primeaux';
   try {
     return await env.DB.prepare(
       `SELECT ${AI_MODEL_ROW_SQL}
-       FROM ai_models WHERE id = ? AND COALESCE(is_active, 0) = 1 LIMIT 1`,
-    ).bind(id).first();
+       FROM agentsam_ai
+       WHERE id = ?
+         AND mode = 'model' AND status = 'active'
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+       LIMIT 1`,
+    ).bind(id, tenantId).first();
   } catch (_) {
     return null;
   }
 }
 
 function metadataObject(row) {
-  return parseJsonSafe(row?.metadata_json, {}) || {};
+  return parseJsonSafe(row?.features_json ?? row?.metadata_json, {}) || {};
 }
 
 function rowIsGranite(row) {
@@ -380,6 +399,10 @@ function rowIsExternalProvider(row) {
 }
 
 async function resolveAiModelFromRequest(env, body) {
+  const tenantId =
+    body?.tenant_id != null && String(body.tenant_id).trim() !== ''
+      ? String(body.tenant_id).trim()
+      : 'tenant_sam_primeaux';
   const rawId =
     body?.model_id != null && String(body.model_id).trim() !== ''
       ? String(body.model_id).trim()
@@ -397,23 +420,24 @@ async function resolveAiModelFromRequest(env, body) {
   if (/^auto$/i.test(rawKey)) rawKey = '';
   if (!env.DB) return { row: null, rawRequestedKey: rawKey || null, rawRequestedId: rawId || null };
   try {
-    if (rawId) {
+    if (rawId || rawKey) {
+      const needle = rawId || rawKey;
       const row = await env.DB.prepare(
-        `SELECT ${AI_MODEL_ROW_SQL} FROM ai_models WHERE id = ? LIMIT 1`,
+        `SELECT ${AI_MODEL_ROW_SQL}
+         FROM agentsam_ai
+         WHERE (id = ? OR model_key = ?)
+           AND mode = 'model' AND status = 'active'
+           AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+         LIMIT 1`,
       )
-        .bind(rawId)
+        .bind(needle, needle, tenantId)
         .first();
-      if (row && Number(row.is_active) !== 0) {
-        return { row, rawRequestedKey: rawKey || row.model_key, rawRequestedId: rawId };
+      if (row) {
+        if (rawId) {
+          return { row, rawRequestedKey: rawKey || row.model_key, rawRequestedId: rawId };
+        }
+        return { row, rawRequestedKey: rawKey, rawRequestedId: rawId || null };
       }
-    }
-    if (rawKey) {
-      const row = await env.DB.prepare(
-        `SELECT ${AI_MODEL_ROW_SQL} FROM ai_models WHERE model_key = ? AND COALESCE(is_active, 0) = 1 LIMIT 1`,
-      )
-        .bind(rawKey)
-        .first();
-      if (row) return { row, rawRequestedKey: rawKey, rawRequestedId: rawId || null };
     }
   } catch (_) {
     /* fallthrough */
@@ -483,13 +507,20 @@ function dedupeModelsByKey(rows) {
 
 async function loadLastResortModels(env, opts = {}) {
   if (!env.DB) return [];
-  const requireTools = !!opts.requireTools;
+  const tenantId =
+    opts.tenantId != null && String(opts.tenantId).trim() !== ''
+      ? String(opts.tenantId).trim()
+      : 'tenant_sam_primeaux';
   try {
-    let sql = `SELECT ${AI_MODEL_ROW_SQL}
-       FROM ai_models WHERE COALESCE(is_active, 1) = 1`;
-    if (requireTools) sql += ` AND COALESCE(supports_tools, 0) = 1`;
-    sql += ` ORDER BY COALESCE(input_rate_per_mtok, 999999) ASC LIMIT 8`;
-    const { results } = await env.DB.prepare(sql).all();
+    const sql = `SELECT ${AI_MODEL_ROW_SQL}
+       FROM agentsam_ai
+       WHERE mode = 'model' AND status = 'active'
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+         AND api_platform NOT IN ('workers_ai', 'ollama')
+         AND supports_tools = 1
+       ORDER BY sort_order ASC
+       LIMIT 5`;
+    const { results } = await env.DB.prepare(sql).bind(tenantId).all();
     return results || [];
   } catch (_) {
     return [];
@@ -638,6 +669,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
 
 async function runAgentToolLoop(env, ctx, emit, params) {
   const {
+    request,
     messages, tools, systemPrompt, modelKey,
     temperature, maxToolCalls,
     mode, modeConfig, userPolicy,
@@ -657,8 +689,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     let stream;
     let isWorkersAiStream = false;
     try {
-      // Provider resolved inside dispatchStream from ai_models.api_platform (Workers AI → OAI-shaped SSE).
-      stream = await dispatchStream(env, null, {
+      // Provider resolved inside dispatchStream from agentsam_ai.api_platform (Workers AI → OAI-shaped SSE).
+      stream = await dispatchStream(env, request, {
         modelKey,
         systemPrompt,
         messages: conversationMessages,
@@ -1020,12 +1052,12 @@ export async function agentChatSseHandler(env, request, ctx, session) {
   }
   const thompsonRow =
     routingPick?.source === 'thompson' && routingPick?.modelId
-      ? await resolveAiModelRowById(env, routingPick.modelId)
+      ? await resolveAiModelRowById(env, routingPick.modelId, tenantId)
       : null;
 
-  const primaryRow = await resolveAiModelRowById(env, modeConfig?.model_preference ?? null);
-  const escalationRow = await resolveAiModelRowById(env, modeConfig?.escalation_model ?? null);
-  const lastResort = await loadLastResortModels(env, { requireTools });
+  const primaryRow = await resolveAiModelRowById(env, modeConfig?.model_preference ?? null, tenantId);
+  const escalationRow = await resolveAiModelRowById(env, modeConfig?.escalation_model ?? null, tenantId);
+  const lastResort = await loadLastResortModels(env, { requireTools, tenantId });
   let poolRows = dedupeModelsByKey(
     [...(thompsonRow ? [thompsonRow] : []), primaryRow, escalationRow, ...(lastResort || [])].filter(Boolean),
   );
@@ -1142,6 +1174,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
           };
           lastLoopStats = await withTimeout(
             runAgentToolLoop(env, ctx, emitWrapped, {
+              request,
               messages: body.messages || [{ role: 'user', content: gate.rewritten_query || message }],
               tools, systemPrompt, modelKey,
               temperature:  modeConfig.temperature || 0.7,
@@ -1177,7 +1210,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
         const prefStr = String(modeConfig?.model_preference_key || '').trim();
         if (prefStr) finalKey = prefStr;
         if (!finalKey && modeConfig?.gate_model) {
-          const gateRow = await resolveAiModelRowById(env, modeConfig.gate_model);
+          const gateRow = await resolveAiModelRowById(env, modeConfig.gate_model, tenantId);
           if (gateRow?.model_key) finalKey = gateRow.model_key;
         }
         const alreadyTried = new Set(tried);
@@ -1192,6 +1225,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
             };
             lastLoopStats = await withTimeout(
               runAgentToolLoop(env, ctx, emitWrapped, {
+                request,
                 messages: body.messages || [{ role: 'user', content: gate.rewritten_query || message }],
                 tools, systemPrompt, modelKey: finalKey,
                 temperature:  modeConfig.temperature || 0.7,
@@ -1434,23 +1468,25 @@ export async function handleAgentApi(request, url, env, ctx) {
     });
   }
 
-  // ── /api/agent/models — canonical ai_models rows (picker + routing metadata)
+  // ── /api/agent/models — canonical agentsam_ai rows (picker + routing metadata)
   if (path === '/api/agent/models') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     if (method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405);
     const showInPicker = url.searchParams.get('show_in_picker') === '1';
+    const tenantForModels = url.searchParams.get('tenant_id') || 'tenant_sam_primeaux';
     try {
       const { results } = await env.DB.prepare(
-        `SELECT id, display_name AS name, provider, model_key, api_platform, show_in_picker,
+        `SELECT id, name, provider, model_key, api_platform, show_in_picker,
                 picker_eligible, picker_group,
                 input_rate_per_mtok, output_rate_per_mtok, sort_order, context_max_tokens,
                 size_class, supports_tools, supports_vision
-         FROM ai_models
-         WHERE COALESCE(is_active, 0) = 1
+         FROM agentsam_ai
+         WHERE mode = 'model' AND status = 'active'
            AND COALESCE(picker_eligible, 1) = 1
+           AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
            ${showInPicker ? 'AND COALESCE(show_in_picker, 0) = 1' : ''}
-         ORDER BY sort_order ASC, display_name ASC`,
-      ).all();
+         ORDER BY sort_order ASC, name ASC`,
+      ).bind(tenantForModels).all();
       return jsonResponse(results || []);
     } catch (e) {
       return jsonResponse({ error: e?.message }, 500);
@@ -1803,7 +1839,7 @@ export async function handleAgentApi(request, url, env, ctx) {
       const batch = await env.DB.batch([
         env.DB.prepare(`SELECT id, name, role_name, mode, thinking_mode, effort FROM agentsam_ai WHERE status='active' ORDER BY sort_order, name`),
         env.DB.prepare(`SELECT id, service_name, service_type, endpoint_url, is_active, health_status FROM mcp_services WHERE is_active=1 ORDER BY service_name`),
-        env.DB.prepare(`SELECT id, model_key, provider, display_name,
+        env.DB.prepare(`SELECT id, model_key, provider, name,
             size_class AS role,
             size_class AS cost_tier,
             input_rate_per_mtok AS input_cost_per_1m,
@@ -1812,9 +1848,10 @@ export async function handleAgentApi(request, url, env, ctx) {
             supports_tools AS supports_function_calling,
             supports_vision,
             0 AS supports_reasoning
-          FROM ai_models
-          WHERE COALESCE(is_active, 1) = 1
-          ORDER BY provider, COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC`),
+          FROM agentsam_ai
+          WHERE mode = 'model' AND status = 'active'
+            AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+          ORDER BY provider, COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC`).bind('tenant_sam_primeaux'),
         env.DB.prepare(`SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20`),
       ]);
       return jsonResponse({ agents: batch[0]?.results||[], mcp_services: batch[1]?.results||[], models: batch[2]?.results||[], sessions: batch[3]?.results||[] });
@@ -2120,32 +2157,36 @@ export async function handleAgentApi(request, url, env, ctx) {
     const prompt = String(body.prompt || '').trim();
     if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
     let modelRow = await env.DB.prepare(
-      `SELECT model_key FROM ai_models
-       WHERE COALESCE(is_active, 1) = 1
+      `SELECT model_key FROM agentsam_ai
+       WHERE mode = 'model' AND status = 'active'
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
          AND LOWER(COALESCE(api_platform, '')) = 'workers_ai'
          AND (
-           LOWER(COALESCE(display_name, '')) LIKE '%image%'
+           LOWER(COALESCE(name, '')) LIKE '%image%'
            OR LOWER(model_key) LIKE '%flux%'
          )
        ORDER BY COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC
        LIMIT 1`,
     )
+      .bind('tenant_sam_primeaux')
       .first()
       .catch(() => null);
     let model = modelRow?.model_key;
     if (!model) {
       modelRow = await env.DB.prepare(
-        `SELECT model_key FROM ai_models
-         WHERE COALESCE(is_active, 1) = 1
+        `SELECT model_key FROM agentsam_ai
+         WHERE mode = 'model' AND status = 'active'
+           AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
            AND LOWER(COALESCE(api_platform, '')) = 'workers_ai'
          ORDER BY COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC
          LIMIT 1`,
       )
+        .bind('tenant_sam_primeaux')
         .first()
         .catch(() => null);
       model = modelRow?.model_key;
     }
-    if (!model) return jsonResponse({ error: 'No active Workers AI image model in ai_models' }, 503);
+    if (!model) return jsonResponse({ error: 'No active Workers AI image model in agentsam_ai' }, 503);
     try {
       const result = await env.AI.run(model, { prompt });
       const bytes  = result instanceof ArrayBuffer ? new Uint8Array(result) : result;
