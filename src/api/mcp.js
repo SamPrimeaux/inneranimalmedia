@@ -3,6 +3,7 @@
  * Handles agent session tracking, tool registration listings, and intent-based routing.
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
+import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
 
@@ -114,6 +115,28 @@ export async function handleMcpApi(request, url, env, ctx) {
   if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
   try {
+    // JSON-RPC MCP endpoint (Bearer: HMAC user token, legacy hash, or master env token).
+    // Validated here, then proxied to dedicated MCP worker with the same Authorization header.
+    if (pathLower === '/mcp' && method === 'POST') {
+      const auth = request.headers.get('Authorization') || '';
+      const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+      const mcpIdentity = await validateMcpToken(env, bearer);
+      if (!mcpIdentity) {
+        return new Response(
+          JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized' } }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      const upstream = String(env.MCP_SERVICE_URL || 'https://mcp.inneranimalmedia.com/mcp').trim();
+      const res = await fetch(upstream, {
+        method: 'POST',
+        headers: request.headers,
+        body: request.body,
+        redirect: 'manual',
+      });
+      return res;
+    }
+
     if (pathLower === '/api/mcp/status' && method === 'GET') {
       return jsonResponse({ ok: true, service: 'mcp', status: 'connected' }, 200);
     }

@@ -243,6 +243,8 @@ function vaultRegistry() {
     { name: 'INGEST_SECRET', type: 'secret', description: 'X-Ingest-Secret bypass for /api/rag/ingest, /api/rag/query, /api/rag/feedback (MCP)' },
     { name: 'INTERNAL_WEBHOOK_SECRET', type: 'secret', description: '/api/webhooks/internal X-IAM-Signature HMAC' },
     { name: 'MCP_AUTH_TOKEN', type: 'secret', description: 'MCP server auth' },
+    { name: 'TOKEN_SIGNING_KEY', type: 'secret', description: 'HMAC signing key for per-user MCP bearer tokens (32-byte)' },
+    { name: 'MCP_AUTH_IDENTITY_USER_ID', type: 'secret', description: 'IAM user id for MCP_AUTH_TOKEN / AGENTSAM_BRIDGE_KEY legacy bearer identity' },
     { name: 'OPENAI_API_KEY', type: 'secret', description: 'OpenAI API' },
     { name: 'OPENAI_WEBHOOK_SECRET', type: 'secret', description: 'OpenAI webhooks (X-OpenAI-Signature HMAC)' },
     { name: 'PTY_AUTH_TOKEN', type: 'secret', description: 'PTY / terminal' },

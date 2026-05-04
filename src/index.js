@@ -28,6 +28,7 @@ import { handleCidiApi } from './api/cicd';
 import { handleDeploymentsApi } from './api/deployments';
 import { handleFinanceApi } from './api/finance';
 import { handleMcpApi } from './api/mcp';
+import { generateMcpToken } from './core/mcp-auth.js';
 import { handleNotifyDeployComplete } from './api/notify-deploy';
 import { handleDrawApi } from './api/draw';
 import { handleThemesApi } from './api/themes';
@@ -409,6 +410,46 @@ export default {
       // 2. Global Request Context
       const authUser = await getAuthUser(request, env);
 
+      if (pathLower === '/api/mcp/token/create' && methodUpper === 'POST') {
+        if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+        if (!identity) return jsonResponse({ error: 'unauthenticated' }, 401);
+        if (!identity.workspaceId) {
+          return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+        }
+        const { label, allowedTools, expiresInDays } = await request.json().catch(() => ({}));
+        try {
+          const result = await generateMcpToken(env, {
+            userId: identity.userId,
+            workspaceId: identity.workspaceId,
+            tenantId: identity.tenantId,
+            label: label || `${identity.name || 'User'} MCP token`,
+            allowedTools: allowedTools || null,
+            rateLimitPerHour: identity.isAdmin ? 10000 : 1000,
+            expiresInDays: expiresInDays || null,
+          });
+          return jsonResponse({
+            ok: true,
+            bearer: result.bearer,
+            tokenId: result.tokenId,
+            warning: 'Save this bearer — it will not be shown again.',
+          });
+        } catch (e) {
+          return jsonResponse({ error: e?.message || String(e) }, 500);
+        }
+      }
+
+      if (pathLower === '/api/mcp/token/revoke' && methodUpper === 'POST') {
+        if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+        if (!identity) return jsonResponse({ error: 'unauthenticated' }, 401);
+        const { tokenId } = await request.json().catch(() => ({}));
+        if (!tokenId) return jsonResponse({ error: 'tokenId required' }, 400);
+        await env.DB.prepare(`
+      UPDATE mcp_workspace_tokens SET is_active = 0
+      WHERE id = ? AND (tenant_id = ? OR ? = 1)
+    `).bind(tokenId, identity.tenantId, identity.isAdmin ? 1 : 0).run();
+        return jsonResponse({ ok: true });
+      }
+
       if (pathLower === '/api/agent/execute' && methodUpper === 'POST') {
         const { executeCommand } = await import('./api/command-run-telemetry.js');
         const ingestBypass = isIngestSecretAuthorized(request, env);
@@ -648,7 +689,7 @@ export default {
         return handleNotifyDeployComplete(request, env, ctx);
       }
 
-      if (pathLower.startsWith('/api/mcp')) {
+      if (pathLower.startsWith('/api/mcp') || pathLower === '/mcp') {
         return handleMcpApi(request, url, env, ctx);
       }
 
