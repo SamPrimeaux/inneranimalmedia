@@ -1539,7 +1539,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             } else if (delta) {
               emptyRun = 0;
             }
-            if (delta && !fileEchoSuppress) {
+            if (!fileEchoSuppress) {
               const trialBuf = assistantStreamBuf + normalizeAssistantSseText(data);
               const extracted = extractMonacoInvokesFromBuffer(trialBuf);
               const nextBuf = extracted.text;
