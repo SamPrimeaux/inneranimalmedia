@@ -463,18 +463,18 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
       setSessionId(convId);
     }
 
-    const form = new FormData();
-    form.append('message', text);
-    form.append('mode', currentMode);
-    form.append('model', agentModelKey);
-    form.append('agent', agentId);
-    form.append('conversationId', convId);
-
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
-        body: form,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          mode: currentMode,
+          model: agentModelKey,
+          agent: agentId,
+          conversationId: convId,
+        }),
         credentials: 'same-origin',
       });
 

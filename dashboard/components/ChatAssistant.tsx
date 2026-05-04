@@ -1389,8 +1389,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       });
 
       if (!response.ok) {
-        const errText = await response.text();
-        applyAssistantError(formatHttpErrorMessage(response.status, errText));
+        applyAssistantError(formatHttpErrorMessage(response.status, response.statusText || ''));
         return;
       }
       if (!response.body) {
@@ -1541,7 +1540,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               emptyRun = 0;
             }
             if (delta && !fileEchoSuppress) {
-              const trialBuf = assistantStreamBuf + delta;
+              const trialBuf = assistantStreamBuf + normalizeAssistantSseText(data);
               const extracted = extractMonacoInvokesFromBuffer(trialBuf);
               const nextBuf = extracted.text;
               const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);

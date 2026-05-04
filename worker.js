@@ -13490,7 +13490,7 @@ async function streamGoogle(env, systemWithBlurb, apiMessages, modelRow, images,
  */
 async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conversationId, agent_id, ctx, agentsamAgentRunId = null, routingOpts = null, toolDefinitions = []) {
   const messages = [{ role: 'system', content: systemWithBlurb }, ...apiMessages];
-  const modelKey = (modelRow && modelRow.model_key) ? modelRow.model_key : '@cf/meta/llama-3.1-8b-instruct';
+  const modelKey = String(modelRow?.model_key || '').trim();
   const inputCharCount = messages.reduce((acc, m) => acc + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content || '').length), 0);
 
   const { readable, writable } = new TransformStream();
@@ -13501,6 +13501,10 @@ async function streamWorkersAI(env, systemWithBlurb, apiMessages, modelRow, conv
   // Fire the AI call in background — return stream immediately to avoid runtime hang
   (async () => {
     try {
+      if (!modelKey) {
+        await emit({ type: 'error', error: 'model required' });
+        return;
+      }
       const WAI_TIMEOUT_MS = 60000;
       let result;
       const modelSupportsTools = modelRow?.supports_tools === 1;
@@ -14435,6 +14439,10 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
     } catch (escErr) {
       console.warn('[agent/chat-sse] workers_ai tool-capable fallback skipped', escErr?.message ?? escErr);
     }
+  }
+
+  if (!String(modelRow.model_key || '').trim()) {
+    return jsonResponse({ error: 'model required' }, 400);
   }
 
   let modelRatesMap = {};
