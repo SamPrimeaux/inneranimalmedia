@@ -1018,12 +1018,11 @@ export async function agentChatSseHandler(env, request, ctx, session) {
     return {
       name: t.name,
       description: t.description || t.name,
-      input_schema: {
-        type: 'object',
-        properties: {},
-        ...raw,
-        type: 'object',
-      }
+      input_schema: Object.assign(
+        { type: 'object', properties: {} },
+        raw,
+        { type: 'object' },
+      ),
     };
   });
   const toolsFromPattern = parseJsonSafe(intentPattern?.tools_json, null);

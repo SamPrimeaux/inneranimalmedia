@@ -51,7 +51,7 @@ import { handleStudioSessionApi } from './api/studio-session';
 import { handleStatusBundle } from './api/status-bundle';
 import { handleCursorAgentApi } from './api/cursor-agent';
 import { handleCalendarApi } from './api/calendar.js';
-import { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './core/router.js';
+import { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './core/tunnel-status.js';
 import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
 import {
   runAgentsamMemoryDecay,
