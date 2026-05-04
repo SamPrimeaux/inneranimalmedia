@@ -1,3 +1,5 @@
+import { resolveApiKey } from '../core/vault.js';
+
 export async function getIntegrationToken(DB, userId, provider, accountId) {
   if (!DB || !userId || !provider) return null;
   const aid = accountId != null ? String(accountId) : '';
@@ -13,26 +15,40 @@ export async function getIntegrationToken(DB, userId, provider, accountId) {
   return row || null;
 }
 
-export async function resolveModelApiKey(env, provider, modelKey) {
+export async function resolveModelApiKey(env, provider, modelKey, userId) {
   const p = String(provider || '').trim().toLowerCase();
-  if (p === 'openai' && env?.OPENAI_API_KEY) return env.OPENAI_API_KEY;
-  if (p === 'anthropic' && env?.ANTHROPIC_API_KEY) return env.ANTHROPIC_API_KEY;
-  if ((p === 'google' || p === 'gemini') && (env?.GOOGLE_AI_API_KEY || env?.GEMINI_API_KEY)) {
-    return env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY;
+  const uid = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
+
+  const defaultName =
+    p === 'openai' ? 'OPENAI_API_KEY' :
+    p === 'anthropic' ? 'ANTHROPIC_API_KEY' :
+    (p === 'google' || p === 'gemini') ? 'GOOGLE_AI_API_KEY' : null;
+
+  if (defaultName) {
+    const fromDefault = await resolveApiKey(env, uid, defaultName);
+    if (fromDefault) return fromDefault;
+    if (p === 'google' || p === 'gemini') {
+      const geminiAlias = await resolveApiKey(env, uid, 'GEMINI_API_KEY');
+      if (geminiAlias) return geminiAlias;
+    }
   }
+
   if (env?.DB && modelKey) {
     try {
       const row = await env.DB.prepare(
         `SELECT secret_key_name
-         FROM ai_models
+         FROM agentsam_ai
          WHERE (provider = ? OR api_platform = ? OR model_key = ?)
          ORDER BY COALESCE(is_active, 1) DESC
          LIMIT 1`
       ).bind(provider, provider, modelKey).first();
       const keyName = row?.secret_key_name ? String(row.secret_key_name).trim() : '';
-      if (keyName && env[keyName]) return env[keyName];
+      if (keyName) {
+        const fromRow = await resolveApiKey(env, uid, keyName);
+        if (fromRow) return fromRow;
+      }
     } catch (_) {
-      // fallback below
+      /* no row */
     }
   }
   return null;

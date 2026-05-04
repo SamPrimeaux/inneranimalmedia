@@ -63,3 +63,33 @@ export async function getPublicConfig(env) {
     return {};
   }
 }
+
+/**
+ * Resolve an API key: user's vault secret (user_secrets) first, then Worker secret env fallback.
+ * @param {object} env
+ * @param {string | null | undefined} userId
+ * @param {string} keyName — e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_AI_API_KEY
+ * @returns {Promise<string | null>}
+ */
+export async function resolveApiKey(env, userId, keyName) {
+  if (userId && env?.DB && keyName) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT secret_value_encrypted FROM user_secrets
+         WHERE user_id = ? AND secret_name = ? AND is_active = 1
+         LIMIT 1`,
+      )
+        .bind(String(userId), String(keyName))
+        .first();
+      if (row?.secret_value_encrypted) {
+        const { vaultDecrypt } = await import('../api/vault.js');
+        const decrypted = await vaultDecrypt(env, row.secret_value_encrypted);
+        if (decrypted) return String(decrypted).trim() || null;
+      }
+    } catch {
+      /* fall through to env */
+    }
+  }
+  const v = env?.[keyName];
+  return v != null && String(v).trim() !== '' ? String(v) : null;
+}

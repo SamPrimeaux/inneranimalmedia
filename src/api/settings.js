@@ -644,12 +644,12 @@ export async function handleSettingsRequest(request, env, ctx) {
     }
   }
 
-  // ── GET /api/ai/models — D1 ai_models (Settings + admin) ─────────────────
+  // ── GET /api/ai/models — D1 agentsam_ai (Settings + admin) ─────────────────
   if (pathLower === '/api/ai/models' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
       const { results } = await env.DB.prepare(
-        'SELECT * FROM ai_models ORDER BY provider ASC, display_name ASC',
+        'SELECT * FROM agentsam_ai ORDER BY provider ASC, display_name ASC',
       ).all();
       return jsonResponse({ models: results || [] });
     } catch (e) {
@@ -673,14 +673,14 @@ export async function handleSettingsRequest(request, env, ctx) {
       body.enabled === 'true';
     try {
       const r = await env.DB.prepare(
-        `UPDATE ai_models SET show_in_picker = ?, updated_at = unixepoch()
+        `UPDATE agentsam_ai SET show_in_picker = ?, updated_at = unixepoch()
          WHERE model_key = ?`,
       )
         .bind(enabled ? 1 : 0, modelKey)
         .run();
       if (!r.meta?.changes) return jsonResponse({ error: 'Model not found' }, 404);
       const row = await env.DB.prepare(
-        'SELECT * FROM ai_models WHERE model_key = ? LIMIT 1',
+        'SELECT * FROM agentsam_ai WHERE model_key = ? LIMIT 1',
       )
         .bind(modelKey)
         .first();
@@ -1090,7 +1090,7 @@ export async function handleSettingsRequest(request, env, ctx) {
                   context_max_tokens AS context_window,
                   input_rate_per_mtok AS cost_per_input_mtok,
                   output_rate_per_mtok AS cost_per_output_mtok
-           FROM ai_models
+           FROM agentsam_ai
            ORDER BY provider, display_name`,
         )
           .all()
@@ -1127,7 +1127,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       const hasSP = body && Object.prototype.hasOwnProperty.call(body, 'show_in_picker');
       if (!hasIA && !hasSP) return jsonResponse({ error: 'No fields to update' }, 400);
       const existing = await env.DB.prepare(
-        `SELECT is_active, show_in_picker FROM ai_models WHERE id = ? LIMIT 1`,
+        `SELECT is_active, show_in_picker FROM agentsam_ai WHERE id = ? LIMIT 1`,
       )
         .bind(id)
         .first();
@@ -1137,7 +1137,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       const ia = iaRaw === true || iaRaw === 1 || iaRaw === '1' ? 1 : 0;
       const sp = spRaw === true || spRaw === 1 || spRaw === '1' ? 1 : 0;
       await env.DB.prepare(
-        `UPDATE ai_models SET is_active = ?, show_in_picker = ?, updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE agentsam_ai SET is_active = ?, show_in_picker = ?, updated_at = datetime('now') WHERE id = ?`,
       )
         .bind(ia, sp, id)
         .run();

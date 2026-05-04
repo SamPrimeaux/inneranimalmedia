@@ -466,7 +466,7 @@ export async function encryptApiKeyForStorage(env, plaintext) {
 }
 
 /**
- * Map ai_models.api_platform to user_api_keys.provider slug for BYOK lookup.
+ * Map agentsam_ai.api_platform to user_api_keys.provider slug for BYOK lookup.
  */
 export function byokProviderSlugFromApiPlatform(apiPlatform) {
   const p = String(apiPlatform || '').trim();

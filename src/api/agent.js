@@ -911,6 +911,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         tools,
         reasoningEffort: modeConfig?.gate_reasoning_effort || null,
         temperature,
+        userId,
       });
       isWorkersAiStream = false;
     } catch (e) {

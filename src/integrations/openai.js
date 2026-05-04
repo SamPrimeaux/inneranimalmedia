@@ -1,7 +1,7 @@
 /**
  * Integration Layer: OpenAI
  * Streaming chat completions via api.openai.com.
- * Key resolved from ai_models.secret_key_name → env.OPENAI_API_KEY fallback.
+ * Key resolved from agentsam_ai.secret_key_name and resolveApiKey (user_secrets + env).
  * Proxies OpenAI SSE stream directly — frontend handles choices[0].delta.content format.
  */
 import { resolveModelApiKey } from './tokens.js';
@@ -91,9 +91,9 @@ function buildOpenAIMessages(systemPrompt, messages) {
  * Returns a Response with the OpenAI SSE stream proxied directly.
  */
 export async function chatWithToolsOpenAI(env, request, params) {
-  const { modelKey, systemPrompt, messages = [], tools = [] } = params;
+  const { modelKey, systemPrompt, messages = [], tools = [], userId } = params;
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey);
+  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
   if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);
   if (!modelKey) return jsonResponse({ error: 'modelKey required' }, 400);
 
@@ -148,9 +148,9 @@ export async function chatWithToolsOpenAI(env, request, params) {
  * Use for batch / background tasks where streaming is not needed.
  */
 export async function completeWithOpenAI(env, params) {
-  const { modelKey, systemPrompt, messages = [], tools = [] } = params;
+  const { modelKey, systemPrompt, messages = [], tools = [], userId } = params;
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey);
+  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
   const oaiMessages = buildOpenAIMessages(systemPrompt, messages);
@@ -179,9 +179,9 @@ export async function completeWithOpenAI(env, params) {
  * Returns { url, revised_prompt } or throws on error.
  */
 export async function generateImageOpenAI(env, params) {
-  const { modelKey = 'dall-e-3', prompt, size = '1024x1024', quality = 'standard', n = 1 } = params;
+  const { modelKey = 'dall-e-3', prompt, size = '1024x1024', quality = 'standard', n = 1, userId } = params;
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey);
+  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
   const res = await fetch(`${OPENAI_BASE}/images/generations`, {

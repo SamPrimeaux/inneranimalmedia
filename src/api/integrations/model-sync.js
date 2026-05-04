@@ -1,5 +1,5 @@
 /**
- * Best-effort ai_models sync after user BYOK save. Failures are logged only.
+ * Best-effort agentsam_ai sync after user BYOK save. Failures are logged only.
  */
 function genModelId(provider, modelKey) {
   const h = modelKey.replace(/[^a-z0-9]+/gi, '_').slice(0, 80);
@@ -46,7 +46,7 @@ export async function syncProviderModels(env, provider, apiKey) {
       if (!m.key) continue;
       const id = genModelId(p, m.key);
       await env.DB.prepare(
-        `INSERT OR IGNORE INTO ai_models (id, provider, model_key, display_name, billing_unit, is_active, show_in_picker, picker_eligible, api_platform, pricing_unit)
+        `INSERT OR IGNORE INTO agentsam_ai (id, provider, model_key, display_name, billing_unit, is_active, show_in_picker, picker_eligible, api_platform, pricing_unit)
          VALUES (?, ?, ?, ?, 'tokens', 1, 1, 1, ?, 'usd_per_mtok')`,
       )
         .bind(id, p, m.key, m.name || m.key, p)
@@ -54,7 +54,7 @@ export async function syncProviderModels(env, provider, apiKey) {
         .catch(() => {});
     }
     await env.DB.prepare(
-      `UPDATE ai_models SET show_in_picker = 1, updated_at = unixepoch() WHERE provider = ?`,
+      `UPDATE agentsam_ai SET show_in_picker = 1, updated_at = unixepoch() WHERE provider = ?`,
     )
       .bind(p)
       .run()

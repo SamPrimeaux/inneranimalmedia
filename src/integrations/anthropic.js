@@ -7,20 +7,21 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { handlers as dbHandlers } from '../tools/db.js';
+import { resolveApiKey } from '../core/vault.js';
 
 /**
  * Executes a tool-aware chat completion using the official Anthropic SDK.
  */
-export async function chatWithAnthropic({ messages, tools, env, options = {} }) {
-  const apiKey = env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing from environment');
+export async function chatWithAnthropic({ messages, tools, env, userId, options = {} }) {
+  const apiKey = await resolveApiKey(env, userId, 'ANTHROPIC_API_KEY');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured for this user');
 
   const client = new Anthropic({ apiKey });
   const modelKey = options.model || 'claude-3-5-sonnet-20240620';
   
   // Dynamic feature and rate lookup from D1 (Zero-Hardcoding Compliance)
   const modelInfo = await dbHandlers.d1_query({ 
-    sql: "SELECT * FROM ai_models WHERE model_key = ?", 
+    sql: "SELECT * FROM agentsam_ai WHERE model_key = ?", 
     params: [modelKey] 
   }, env);
   
@@ -92,8 +93,9 @@ export async function chatWithAnthropic({ messages, tools, env, options = {} }) 
  * Asynchronous Message Batch handler.
  * Leverages the SDK's batches namespace for high-volume background tasks.
  */
-export async function createAnthropicBatch({ requests, env }) {
-  const apiKey = env.ANTHROPIC_API_KEY;
+export async function createAnthropicBatch({ requests, env, userId }) {
+  const apiKey = await resolveApiKey(env, userId, 'ANTHROPIC_API_KEY');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured for this user');
   const client = new Anthropic({ apiKey });
   
   return await client.messages.batches.create({ requests });

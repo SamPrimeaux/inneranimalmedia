@@ -972,20 +972,20 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
     );
 
     let model = await env.DB.prepare(
-      'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
+      'SELECT * FROM agentsam_ai WHERE model_key = ? AND is_active = 1'
     ).bind(autoModel).first();
 
     if (!model && routingRule?.fallback_model_key) {
       console.log('[Auto Mode] primary model missing in DB, trying fallback:', routingRule.fallback_model_key);
       model = await env.DB.prepare(
-        'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
+        'SELECT * FROM agentsam_ai WHERE model_key = ? AND is_active = 1'
       ).bind(routingRule.fallback_model_key).first();
     }
 
     if (!model) {
       console.warn('[Auto Mode] Model not found in DB:', autoModel, '- falling back to Haiku');
       model = await env.DB.prepare(
-        'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
+        'SELECT * FROM agentsam_ai WHERE model_key = ? AND is_active = 1'
       ).bind('gpt-5.4-nano').first();
     }
 
@@ -995,12 +995,12 @@ async function selectAutoModel(env, lastUserContent, returnIntent = false) {
   } catch (error) {
     console.error('[Auto Mode] Selection failed:', error);
     return await env.DB.prepare(
-      'SELECT * FROM ai_models WHERE model_key = ? AND is_active = 1'
+      'SELECT * FROM agentsam_ai WHERE model_key = ? AND is_active = 1'
     ).bind('gpt-5.4-nano').first();
   }
 }
 
-/** Synthetic ai_models rows when D1 has not yet seeded these Workers AI chat keys. */
+/** Synthetic agentsam_ai rows when D1 has not yet seeded these Workers AI chat keys. */
 const WORKERS_AI_CHAT_SYNTHETIC = {
   '@cf/meta/llama-4-scout-17b-16e-instruct': {
     display_name: 'Llama 4 Scout 17B 131k (Workers AI)',
@@ -2627,7 +2627,7 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
       return jsonResponse({ guardrails: results || [] });
     }
     if (pathLower === '/api/ai/models' && method === 'GET') {
-      const { results } = await env.DB.prepare('SELECT * FROM ai_models ORDER BY provider ASC, display_name ASC').all();
+      const { results } = await env.DB.prepare('SELECT * FROM agentsam_ai ORDER BY provider ASC, display_name ASC').all();
       return jsonResponse({ models: results || [] });
     }
     const modelPatch = pathLower.match(/^\/api\/ai\/models\/([^/]+)$/);
@@ -2649,9 +2649,9 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
       }
       setParts.push('updated_at = unixepoch()');
       vals.push(id);
-      const r = await env.DB.prepare(`UPDATE ai_models SET ${setParts.join(', ')} WHERE id = ?`).bind(...vals).run();
+      const r = await env.DB.prepare(`UPDATE agentsam_ai SET ${setParts.join(', ')} WHERE id = ?`).bind(...vals).run();
       if (!r.meta?.changes) return jsonResponse({ error: 'Not found' }, 404);
-      const row = await env.DB.prepare('SELECT * FROM ai_models WHERE id = ?').bind(id).first();
+      const row = await env.DB.prepare('SELECT * FROM agentsam_ai WHERE id = ?').bind(id).first();
       return jsonResponse({ model: row });
     }
     if (pathLower === '/api/ai/routing-rules' && method === 'GET') {
@@ -2743,7 +2743,7 @@ async function handlePhase1PlatformD1Routes(request, url, env, pathLower) {
       if (body.default_model_id != null && String(body.default_model_id).trim() !== '') {
         default_model_id = String(body.default_model_id).trim();
         const cnt = await env.DB.prepare(
-          `SELECT COUNT(*) AS c FROM ai_models WHERE id = ? OR model_key = ?`
+          `SELECT COUNT(*) AS c FROM agentsam_ai WHERE id = ? OR model_key = ?`
         ).bind(default_model_id, default_model_id).first();
         if (!cnt || Number(cnt.c) === 0) return jsonResponse({ error: 'Unknown model' }, 400);
       }
@@ -7237,7 +7237,7 @@ function resolveAnthropicModelKey(modelKey) {
   return MODEL_MAP[modelKey] || modelKey || 'claude-sonnet-4-20250514';
 }
 
-/** Compute cost from ai_models row (D1). Never use a hardcoded map. */
+/** Compute cost from agentsam_ai row (D1). Never use a hardcoded map. */
 function calculateCost(model, inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) {
   if (!model || (inputTokens == null && outputTokens == null)) return 0;
   return computeUsdFromModelRatesRow(model.model_key, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
@@ -7251,7 +7251,7 @@ function getGatewayModel(provider, modelKey) {
   return null;
 }
 
-/** Per-token rates (USD) for spend_ledger. Used when ai_models row lacks input_rate_per_mtok. */
+/** Per-token rates (USD) for spend_ledger. Used when agentsam_ai row lacks input_rate_per_mtok. */
 function getSpendRates(provider, modelKey) {
   const p = (provider || '').toLowerCase();
   const m = (String(modelKey || '')).toLowerCase().trim();
@@ -7273,7 +7273,7 @@ function getSpendRates(provider, modelKey) {
   return { rateIn: 0, rateOut: 0 };
 }
 
-/** USD per MTok for agent_telemetry.input_rate_per_mtok / output_rate_per_mtok when ai_models row lacks rates. Longer prefixes first. */
+/** USD per MTok for agent_telemetry.input_rate_per_mtok / output_rate_per_mtok when agentsam_ai row lacks rates. Longer prefixes first. */
 const TELEMETRY_FALLBACK_RATE_ENTRIES = [
   ['gpt-5.4-nano', { in: 0.075, out: 0.3 }],
   ['gpt-5.4-mini', { in: 0.4, out: 1.6 }],
@@ -8080,7 +8080,7 @@ async function loadAiModelRatesMap(env) {
       `SELECT model_key, input_rate_per_mtok, output_rate_per_mtok,
               cache_read_rate_per_mtok, cache_write_rate_per_mtok,
               pricing_unit, cost_per_unit
-       FROM ai_models WHERE COALESCE(is_active, 0) = 1`
+       FROM agentsam_ai WHERE COALESCE(is_active, 0) = 1`
     ).all();
     const map = {};
     for (const r of results || []) {
@@ -10514,7 +10514,7 @@ Example: {"intent":"mixed","tasks":[{"type":"shell","content":"ls -la"},{"type":
 Known schemas (use exact column names in SQL):
 - agentsam_ai: id, name, status ('active'/'inactive'), model_policy_json
 - agentsam_mcp_tools: tool_name, tool_category, enabled (0/1), input_schema
-- ai_models: id, provider, model_key, is_active (0/1), show_in_picker (0/1)
+- agentsam_ai: id, provider, model_key, is_active (0/1), show_in_picker (0/1)
 Always use exact column names from these schemas.
 For large queries spanning many tables, break into multiple sequential d1_query calls of max 5 tables each.
 Reply with only the JSON object.`;
@@ -10566,14 +10566,14 @@ function mergeGeminiStreamUsageFromChunk(data, inputTokens, outputTokens) {
   return { inputTokens: inTok, outputTokens: outTok };
 }
 
-/** Prefer ai_models row with api_platform=vertex_ai for pricing when routing to Vertex (rates differ from Gemini API). */
+/** Prefer agentsam_ai row with api_platform=vertex_ai for pricing when routing to Vertex (rates differ from Gemini API). */
 async function resolveGoogleModelRowForVertexAi(env, modelRow) {
   if (!modelRow || !env?.DB) return modelRow;
   const mk = (modelRow.model_key || '').trim();
   if (!mk || !shouldUseVertexForGoogleModel(env, mk)) return modelRow;
   try {
     const vr = await env.DB.prepare(
-      `SELECT * FROM ai_models WHERE model_key = ? AND provider = 'google' AND api_platform = 'vertex_ai' AND COALESCE(is_active,1) = 1 LIMIT 1`
+      `SELECT * FROM agentsam_ai WHERE model_key = ? AND provider = 'google' AND api_platform = 'vertex_ai' AND COALESCE(is_active,1) = 1 LIMIT 1`
     ).bind(mk).first();
     if (vr) return { ...modelRow, ...vr };
   } catch (e) {
@@ -10660,7 +10660,7 @@ function vertexGeminiUrl(modelId, stream) {
   return `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT_ID}/locations/${VERTEX_LOCATION}/publishers/google/models/${modelId}:${action}${q}`;
 }
 
-/** Map D1 / UI model keys to Vertex publisher model IDs (preview IDs are not on Vertex; see ai_models.model_key). */
+/** Map D1 / UI model keys to Vertex publisher model IDs (preview IDs are not on Vertex; see agentsam_ai.model_key). */
 function toVertexModelId(modelKey) {
   const map = {
     'gemini-3.1-flash': 'gemini-2.5-flash',
@@ -17452,7 +17452,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
              COUNT(*) AS call_count,
              AVG(CAST(json_extract(at.metadata_json, '$.request_latency_ms') AS REAL)) AS avg_latency_ms
            FROM agent_telemetry at
-           LEFT JOIN ai_models m ON m.model_key = at.model_used
+           LEFT JOIN agentsam_ai m ON m.model_key = at.model_used
            WHERE at.created_at >= CAST(strftime('%s', 'now', '-30 days') AS INTEGER)
            GROUP BY day, at.provider, at.model_used
            ORDER BY day DESC, at.provider, at.model_used
@@ -18020,7 +18020,7 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         const batch = await env.DB.batch([
           env.DB.prepare("SELECT id, name, role_name, mode FROM agentsam_ai WHERE status='active' ORDER BY CASE id WHEN 'ai_sam_v1' THEN 0 ELSE 1 END, name"),
           env.DB.prepare("SELECT id, service_name, service_type, endpoint_url, authentication_type, token_secret_name, is_active, health_status FROM mcp_services WHERE is_active=1 ORDER BY service_name"),
-          env.DB.prepare("SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens, picker_group FROM ai_models WHERE COALESCE(is_active,0)=1 AND COALESCE(show_in_picker,0)=1 AND COALESCE(picker_eligible,1)=1 ORDER BY sort_order ASC, name ASC"),
+          env.DB.prepare("SELECT id, provider, model_key, display_name, input_rate_per_mtok, output_rate_per_mtok, context_max_tokens, picker_group FROM agentsam_ai WHERE COALESCE(is_active,0)=1 AND COALESCE(show_in_picker,0)=1 AND COALESCE(picker_eligible,1)=1 ORDER BY sort_order ASC, name ASC"),
           env.DB.prepare("SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20"),
           env.DB.prepare("SELECT id, role, content, variant, ab_weight, agent_id FROM iam_agent_sam_prompts WHERE is_active=1"),
         ]);
@@ -20109,12 +20109,12 @@ async function ensureMcpWorkflowStepDefaults(env) {
 
 const AGENTSAM_DB_QUERY_DEFAULTS = {
   sc_agents: "SELECT id, slug, display_name, allowed_tool_globs FROM agentsam_subagent_profile WHERE is_active=1 ORDER BY id",
-  sc_model: "SELECT id, provider, model_key, display_name FROM ai_models WHERE is_active=1 ORDER BY provider, display_name",
+  sc_model: "SELECT id, provider, model_key, display_name FROM agentsam_ai WHERE is_active=1 ORDER BY provider, display_name",
   sc_memory: "SELECT key, value_text, created_at FROM context_memory WHERE workspace_id=$workspace_id ORDER BY created_at DESC LIMIT 20",
   sc_tools: "SELECT tool_name, tool_category, description FROM agentsam_mcp_tools WHERE enabled=1 ORDER BY tool_category, tool_name",
   sc_cost: "SELECT SUM(total_cost_usd) as total, COUNT(*) as calls FROM agent_telemetry WHERE tenant_id=$tenant_id AND created_at > datetime('now','-7 days')",
   sc_status: "SELECT name FROM sqlite_master WHERE type='table' LIMIT 1",
-  sc_ollama: "SELECT id, model_key, display_name, is_active FROM ai_models WHERE provider='ollama'",
+  sc_ollama: "SELECT id, model_key, display_name, is_active FROM agentsam_ai WHERE provider='ollama'",
   sc_assign: "SELECT * FROM course_assignments WHERE user_id=$user_id ORDER BY due_date ASC LIMIT 5",
   sc_courses: "SELECT * FROM course_enrollments WHERE user_id=$user_id ORDER BY created_at DESC",
   sc_submit: "SELECT * FROM course_submissions WHERE user_id=$user_id ORDER BY submitted_at DESC LIMIT 10",
@@ -28749,7 +28749,7 @@ function isIngestSecretAuthorized(request, env, secretFn) {
   return !!(ingestSecret && h && h === ingestSecret);
 }
 
-/** spend_ledger CHECK expects cloudflare_workers_ai; ai_models may still say workers_ai. */
+/** spend_ledger CHECK expects cloudflare_workers_ai; agentsam_ai may still say workers_ai. */
 function spendLedgerProvider(provider) {
   return provider === 'workers_ai' ? 'cloudflare_workers_ai' : provider;
 }

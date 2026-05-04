@@ -32,7 +32,7 @@ async function vaultEncrypt(env, plaintext) {
   return aesGcmEncryptToB64(plaintext, key);
 }
 
-async function vaultDecrypt(env, encryptedB64) {
+export async function vaultDecrypt(env, encryptedB64) {
   const key = await getAESKey(env, ['decrypt']);
   return aesGcmDecryptFromB64(encryptedB64, key);
 }

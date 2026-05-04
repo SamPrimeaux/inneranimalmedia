@@ -9,6 +9,7 @@ import { chatWithToolsOpenAI,
 import { chatWithToolsGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
+import { resolveApiKey }       from './vault.js';
 
 /** Thrown when Ollama is skipped so the agent model chain can try the next provider (no SSE error text). */
 export const OLLAMA_SKIP_MESSAGE = 'ollama_skip';
@@ -31,10 +32,10 @@ export async function resolveModelMeta(env, modelKey) {
 }
 
 export async function dispatchStream(env, request, params) {
-  const { modelKey, systemPrompt, messages, tools = [], options = {} } = params;
+  const { modelKey, systemPrompt, messages, tools = [], options = {}, userId } = params;
   const meta     = await resolveModelMeta(env, modelKey);
   const platform = meta?.api_platform || 'anthropic';
-  const dp       = { modelKey, systemPrompt, messages, tools, ...options };
+  const dp       = { modelKey, systemPrompt, messages, tools, userId, ...options };
 
   switch (platform) {
     case 'openai':
@@ -50,20 +51,20 @@ export async function dispatchStream(env, request, params) {
     case 'anthropic':
     default:
       return chatWithAnthropic({
-        messages, tools, env,
+        messages, tools, env, userId,
         options: { model: modelKey, systemPrompt, ...options },
       });
   }
 }
 
 export async function dispatchComplete(env, params) {
-  const { modelKey, systemPrompt, messages, tools = [], options = {} } = params;
+  const { modelKey, systemPrompt, messages, tools = [], options = {}, userId } = params;
   const meta     = await resolveModelMeta(env, modelKey);
   const platform = meta?.api_platform || 'anthropic';
 
   if (platform === 'openai') {
     return completeWithOpenAI(env, {
-      modelKey, systemPrompt, messages, tools,
+      modelKey, systemPrompt, messages, tools, userId,
       reasoningEffort: options.reasoningEffort || 'none',
       verbosity:       options.verbosity       || 'low',
     });
@@ -71,7 +72,7 @@ export async function dispatchComplete(env, params) {
 
   // Fallback non-streaming via Anthropic
   const res = await chatWithAnthropic({
-    messages, tools, env,
+    messages, tools, env, userId,
     options: { model: modelKey, systemPrompt, stream: false },
   });
   if (res instanceof Response) {
@@ -96,7 +97,7 @@ function extractWorkersAiSseToken(obj) {
 }
 
 async function dispatchWorkersAI(env, request, params) {
-  const { modelKey, systemPrompt, messages } = params;
+  const { modelKey, systemPrompt, messages, userId } = params;
   const waiMessages = [
     ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
     ...messages,
@@ -104,7 +105,8 @@ async function dispatchWorkersAI(env, request, params) {
 
   const openAiFallback = async (reason) => {
     console.warn('[provider] Workers AI → OpenAI fallback', WORKERS_AI_OPENAI_FALLBACK_MODEL, reason?.message || String(reason));
-    if (!env?.OPENAI_API_KEY) {
+    const openaiKey = await resolveApiKey(env, userId, 'OPENAI_API_KEY');
+    if (!openaiKey) {
       return jsonResponse(
         { error: 'Workers AI failed and OpenAI is not configured', detail: String(reason?.message || reason) },
         503,

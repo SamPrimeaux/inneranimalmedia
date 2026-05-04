@@ -4,7 +4,7 @@
  * Schema is discovered via PRAGMA table_info(agentsam_routing_arms) before reads/writes.
  * Expected columns (any subset; routing adapts):
  *   - id | arm_id          — arm identifier (required for outcome updates)
- *   - model_id | ai_model_id — FK to ai_models.id
+ *   - model_id | ai_model_id — FK to agentsam_ai.id
  *   - task_key | intent_slug | task_type — filter for task (optional)
  *   - tenant_id           — optional scope
  *   - alpha, beta         — Beta prior/posterior parameters (must stay > 0)

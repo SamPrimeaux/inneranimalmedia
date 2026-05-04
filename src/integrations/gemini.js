@@ -1,6 +1,7 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { runBuiltinTool } from '../tools/ai-dispatch.js';
+import { resolveApiKey } from '../core/vault.js';
 
 /**
  * Google Gemini Service Integration (Modular Port).
@@ -47,8 +48,9 @@ export async function chatWithToolsGemini(env, request, params) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-    const apiKey = (env.GOOGLE_API_KEY || '').trim();
-    if (!apiKey) return jsonResponse({ error: 'Google API key not configured' }, 503);
+    const userId = params.userId != null ? String(params.userId) : String(authUser.id);
+    const apiKey = (await resolveApiKey(env, userId, 'GOOGLE_AI_API_KEY')) || '';
+    if (!apiKey.trim()) return jsonResponse({ error: 'Google AI API key not configured' }, 503);
 
     const geminiTools = normalizeGeminiTools(toolDefinitions);
     const resolvedModel = modelKey || 'gemini-1.5-pro-latest';
