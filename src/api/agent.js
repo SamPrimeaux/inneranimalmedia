@@ -28,7 +28,12 @@ import { notifySam }                                    from '../core/notificati
 import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
 import { runBuiltinTool }                               from '../tools/ai-dispatch.js';
-import { getDefaultModelForTask, scheduleRoutingArmBanditUpdate } from '../core/routing.js';
+import {
+  getDefaultModelForTask,
+  scheduleRoutingArmBanditUpdate,
+  loadChatRoutingArmsModelKeyOrder,
+  CHAT_ROUTING_STATIC_FALLBACK_KEYS,
+} from '../core/routing.js';
 import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
@@ -759,12 +764,66 @@ async function loadToolFallbackChain(env, opts = {}) {
   }
 }
 
-async function loadLastResortModels(env, opts = {}) {
-  return loadToolFallbackChain(env, {
-    tenantId: opts.tenantId,
-    excludeModelKeys: opts.excludeModelKeys,
-    limit: 3,
-  });
+async function resolveAgentsamAiRowByModelKey(env, tenantId, modelKey) {
+  if (!env.DB || !tenantId || !modelKey) return null;
+  const mk = String(modelKey).trim();
+  if (!mk) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT ${AI_MODEL_ROW_SQL}
+       FROM agentsam_ai
+       WHERE model_key = ?
+         AND mode = 'model' AND status = 'active'
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+       LIMIT 1`,
+    ).bind(mk, tenantId).first();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Chat SSE tail of the model chain: `agentsam_routing_arms` (chat + mode + is_eligible, decayed_score),
+ * resolved to `agentsam_ai` rows; falls back to static keys if D1 yields no resolvable rows.
+ */
+async function loadChatRoutingFallbackRows(env, opts = {}) {
+  const tenantId =
+    opts.tenantId != null && String(opts.tenantId).trim() !== ''
+      ? String(opts.tenantId).trim()
+      : '';
+  if (!tenantId) return [];
+  const mode = opts.mode;
+  const excludeModelKeys = Array.isArray(opts.excludeModelKeys)
+    ? opts.excludeModelKeys.map((k) => String(k || '').trim()).filter(Boolean)
+    : [];
+  const excludeSet = new Set(excludeModelKeys);
+  const requireTools = !!opts.requireTools;
+
+  let keyOrder = await loadChatRoutingArmsModelKeyOrder(env, mode);
+  keyOrder = keyOrder.filter((k) => !excludeSet.has(k));
+
+  const rows = [];
+  const seen = new Set();
+  for (const mk of keyOrder) {
+    const r = await resolveAgentsamAiRowByModelKey(env, tenantId, mk);
+    if (r?.model_key && !seen.has(r.model_key)) {
+      seen.add(r.model_key);
+      rows.push(r);
+    }
+  }
+
+  if (!rows.length) {
+    for (const mk of CHAT_ROUTING_STATIC_FALLBACK_KEYS) {
+      if (excludeSet.has(mk)) continue;
+      const r = await resolveAgentsamAiRowByModelKey(env, tenantId, mk);
+      if (r?.model_key && !seen.has(r.model_key)) {
+        seen.add(r.model_key);
+        rows.push(r);
+      }
+    }
+  }
+
+  return filterChainToolPolicy(rows, requireTools);
 }
 
 function filterChainToolPolicy(rows, requireTools) {
@@ -1464,9 +1523,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     primaryRow?.model_key,
     escalationRow?.model_key,
   ].filter(Boolean);
-  const lastResort = await loadLastResortModels(env, {
+  const lastResort = await loadChatRoutingFallbackRows(env, {
     tenantId,
+    mode: requestedMode,
     excludeModelKeys: reservedForFallback,
+    requireTools,
   });
   let poolRows = dedupeModelsByKey(
     [...(thompsonRow ? [thompsonRow] : []), primaryRow, escalationRow, ...(lastResort || [])].filter(Boolean),
@@ -2509,6 +2570,11 @@ export async function handleAgentApi(request, url, env, ctx) {
               env.DB.prepare(`UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`)
                 .bind(stateStr, uwsId).run()
             ]);
+            results.forEach((r, i) => {
+              if (r.status === 'rejected') {
+                console.warn('[agent] workspace update op', i, 'rejected:', r.reason);
+              }
+            });
             console.log('[agent] workspace update results:', results.map(r => r.status));
           }
         } catch (dbErr) {

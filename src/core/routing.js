@@ -239,6 +239,43 @@ export async function getDefaultModelForTask(env, ctx = {}) {
   }
 }
 
+/** OpenAI chat SKUs used only when `agentsam_routing_arms` lookup fails or returns no rows. */
+export const CHAT_ROUTING_STATIC_FALLBACK_KEYS = Object.freeze([
+  'gpt-5.4-nano',
+  'gpt-5.4-mini',
+  'gpt-5.4',
+]);
+
+/**
+ * Ordered model_key list for SSE chat fallback chain from D1 routing arms (per-mode decayed scores).
+ * Falls back to {@link CHAT_ROUTING_STATIC_FALLBACK_KEYS} when the query fails or is empty.
+ *
+ * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
+ * @param {string} [mode] agent mode slug (must match `agentsam_routing_arms.mode`)
+ */
+export async function loadChatRoutingArmsModelKeyOrder(env, mode) {
+  const db = env?.DB;
+  const m = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
+  if (!db) return [...CHAT_ROUTING_STATIC_FALLBACK_KEYS];
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT model_key FROM agentsam_routing_arms
+         WHERE task_type = 'chat' AND mode = ? AND is_eligible = 1
+         ORDER BY decayed_score DESC`,
+      )
+      .bind(m)
+      .all();
+    const keys = (results || [])
+      .map((r) => String(r?.model_key ?? '').trim())
+      .filter(Boolean);
+    if (keys.length) return keys;
+  } catch (_) {
+    /* schema drift or D1 error */
+  }
+  return [...CHAT_ROUTING_STATIC_FALLBACK_KEYS];
+}
+
 /**
  * Update arm statistics after an observed outcome (success / failure).
  * Runs PRAGMA table_info before any write; only updates columns that exist.

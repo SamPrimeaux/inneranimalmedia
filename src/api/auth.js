@@ -900,15 +900,19 @@ export async function handleSupabaseOAuthCallback(request, env) {
     );
   }
 
+  const basicAuth = btoa(
+    `${env.SUPABASE_OAUTH_CLIENT_ID}:${env.SUPABASE_OAUTH_CLIENT_SECRET}`,
+  );
   const tokenRes = await fetch(tokenUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
       redirect_uri: tokenRedirectUri,
-      client_id: env.SUPABASE_OAUTH_CLIENT_ID,
-      client_secret: env.SUPABASE_OAUTH_CLIENT_SECRET,
       code_verifier,
     }),
   });
