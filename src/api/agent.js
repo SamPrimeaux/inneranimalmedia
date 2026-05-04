@@ -1010,40 +1010,38 @@ export async function agentChatSseHandler(env, request, ctx, session) {
         ? String(body.workspace_id).trim()
         : null;
 
-  if (String(body.message || '').trim().startsWith('/')) {
-    const cmdResult = await resolveAgentCommand(env, {
-      message: body.message,
-      userId: session?.user_id,
-      workspaceId: resolvedWorkspaceId,
-      tenantId: session?.tenant_id ?? null,
-      mode: body.mode || 'agent',
-    });
+  const cmdResult = await resolveAgentCommand(env, {
+    message: body.message,
+    userId: session?.user_id,
+    workspaceId: resolvedWorkspaceId,
+    tenantId: session?.tenant_id ?? null,
+    mode: body.mode || 'agent',
+  });
 
-    if (cmdResult.resolved) {
-      if (cmdResult.blocked) {
-        return jsonResponse(
-          {
-            error: cmdResult.blockReason,
-            command: cmdResult.mappedCommand,
-          },
-          403,
-        );
-      }
-      if (cmdResult.requiresConfirmation) {
-        return jsonResponse(
-          {
-            requires_confirmation: true,
-            command: cmdResult.mappedCommand,
-            risk_level: cmdResult.riskLevel,
-            message: 'Confirm execution of: ' + cmdResult.mappedCommand,
-          },
-          202,
-        );
-      }
-      body.message = cmdResult.mappedCommand;
-      body._resolved_command_id = cmdResult.command?.id || null;
-      body._resolved_command_slug = cmdResult.command?.slug || null;
+  if (cmdResult.resolved) {
+    if (cmdResult.blocked) {
+      return jsonResponse(
+        {
+          error: cmdResult.blockReason,
+          command: cmdResult.mappedCommand,
+        },
+        403,
+      );
     }
+    if (cmdResult.requiresConfirmation) {
+      return jsonResponse(
+        {
+          requires_confirmation: true,
+          command: cmdResult.mappedCommand,
+          risk_level: cmdResult.riskLevel,
+          message: 'Confirm execution of: ' + cmdResult.mappedCommand,
+        },
+        202,
+      );
+    }
+    body.message = cmdResult.mappedCommand;
+    body._resolved_command_id = cmdResult.command?.id || null;
+    body._resolved_command_slug = cmdResult.command?.slug || null;
   }
 
   message = (body.message || '').trim();
