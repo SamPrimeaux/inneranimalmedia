@@ -21,6 +21,141 @@ function sanitizeIntentCategoryForCommandRun(raw) {
   return VALID_INTENT_CATEGORIES.includes(s) ? s : 'misc';
 }
 
+function unresolvedCommandResult() {
+  return {
+    resolved: false,
+    command: null,
+    mappedCommand: null,
+    blocked: false,
+    blockReason: null,
+    requiresConfirmation: false,
+    riskLevel: 'low',
+  };
+}
+
+/**
+ * Resolve slash / pattern input to agentsam_commands + allowlist (D1).
+ * @param {any} env
+ * @param {{ message?: string, userId?: string | null, workspaceId?: string | null, tenantId?: string | null, mode?: string }} opts
+ */
+export async function resolveAgentCommand(env, opts) {
+  const msg = String(opts?.message || '').trim();
+  if (!msg) return unresolvedCommandResult();
+
+  const ws =
+    opts?.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : null;
+  if (!ws) return unresolvedCommandResult();
+
+  if (!env?.DB) return unresolvedCommandResult();
+
+  const patterns = await env.DB.prepare(
+    `
+    SELECT pattern, pattern_type, mapped_command,
+           risk_level, requires_confirmation
+    FROM agentsam_command_pattern
+    WHERE workspace_id = ? AND is_active = 1
+    ORDER BY use_count DESC, created_at ASC
+  `,
+  )
+    .bind(ws)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  let mappedCommand = null;
+  let patternRow = null;
+  for (const p of patterns.results || []) {
+    const pt = String(p.pattern_type || 'exact');
+    const pat = String(p.pattern || '');
+    let hit = false;
+    if (pt === 'exact') hit = msg === pat;
+    else if (pt === 'prefix') hit = msg.startsWith(pat);
+    else if (pt === 'regex') {
+      try {
+        hit = new RegExp(pat).test(msg);
+      } catch {
+        hit = false;
+      }
+    } else if (pt === 'glob') {
+      try {
+        const rx = new RegExp(
+          `^${pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`,
+        );
+        hit = rx.test(msg);
+      } catch {
+        hit = false;
+      }
+    }
+    if (hit) {
+      mappedCommand = p.mapped_command != null ? String(p.mapped_command) : null;
+      patternRow = p;
+      break;
+    }
+  }
+
+  let commandRow = null;
+  if (!mappedCommand && msg.startsWith('/')) {
+    commandRow = await env.DB.prepare(
+      `
+      SELECT id, slug, display_name, mapped_command,
+             risk_level, requires_confirmation, category,
+             modes_json, show_in_slash
+      FROM agentsam_commands
+      WHERE slug = ? AND is_active = 1
+      LIMIT 1
+    `,
+    )
+      .bind(msg)
+      .first()
+      .catch(() => null);
+    if (commandRow) mappedCommand = String(commandRow.mapped_command || '');
+  }
+
+  if (!mappedCommand) return unresolvedCommandResult();
+
+  const riskLevel = String((patternRow || commandRow)?.risk_level || 'low');
+  const requiresConfirmation = !!(
+    Number((patternRow || commandRow)?.requires_confirmation || 0) ||
+    riskLevel === 'high' ||
+    riskLevel === 'critical'
+  );
+
+  const uid = opts?.userId != null ? String(opts.userId) : '';
+  const allowed = await env.DB.prepare(
+    `
+    SELECT 1 FROM agentsam_command_allowlist
+    WHERE user_id = ? AND workspace_id = ? AND command = ?
+    LIMIT 1
+  `,
+  )
+    .bind(uid, ws, mappedCommand)
+    .first()
+    .catch(() => null);
+
+  if (!allowed) {
+    return {
+      resolved: true,
+      command: commandRow,
+      mappedCommand,
+      blocked: true,
+      blockReason: 'Command not in your allowlist for this workspace',
+      requiresConfirmation: false,
+      riskLevel,
+    };
+  }
+
+  return {
+    resolved: true,
+    command: commandRow,
+    mappedCommand,
+    blocked: false,
+    blockReason: null,
+    requiresConfirmation,
+    riskLevel,
+  };
+}
+
 /** Same default as IAM_DEFAULT_WORKSPACE_ID in worker — agentsam_tool_chain.workspace_id. */
 const DEFAULT_AGENT_TOOL_CHAIN_WORKSPACE_ID = 'ws_inneranimalmedia';
 

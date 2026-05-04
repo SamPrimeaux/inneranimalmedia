@@ -31,6 +31,7 @@ import { getDefaultModelForTask, scheduleRoutingArmBanditUpdate } from '../core/
 import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
+  resolveAgentCommand,
 } from './command-run-telemetry.js';
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
@@ -999,8 +1000,53 @@ export async function agentChatSseHandler(env, request, ctx, session) {
     body = await request.json().catch(() => ({}));
   }
 
-  const message = (body.message || '').trim();
+  let message = (body.message || '').trim();
   if (!message) return jsonResponse({ error: 'message required' }, 400);
+
+  const resolvedWorkspaceId =
+    session?.workspace_id != null && String(session.workspace_id).trim() !== ''
+      ? String(session.workspace_id).trim()
+      : body.workspace_id != null && String(body.workspace_id).trim() !== ''
+        ? String(body.workspace_id).trim()
+        : null;
+
+  if (String(body.message || '').trim().startsWith('/')) {
+    const cmdResult = await resolveAgentCommand(env, {
+      message: body.message,
+      userId: session?.user_id,
+      workspaceId: resolvedWorkspaceId,
+      tenantId: session?.tenant_id ?? null,
+      mode: body.mode || 'agent',
+    });
+
+    if (cmdResult.resolved) {
+      if (cmdResult.blocked) {
+        return jsonResponse(
+          {
+            error: cmdResult.blockReason,
+            command: cmdResult.mappedCommand,
+          },
+          403,
+        );
+      }
+      if (cmdResult.requiresConfirmation) {
+        return jsonResponse(
+          {
+            requires_confirmation: true,
+            command: cmdResult.mappedCommand,
+            risk_level: cmdResult.riskLevel,
+            message: 'Confirm execution of: ' + cmdResult.mappedCommand,
+          },
+          202,
+        );
+      }
+      body.message = cmdResult.mappedCommand;
+      body._resolved_command_id = cmdResult.command?.id || null;
+      body._resolved_command_slug = cmdResult.command?.slug || null;
+    }
+  }
+
+  message = (body.message || '').trim();
 
   const sessionId     = body.conversationId || body.session_id || body.sessionId || null;
   const requestedMode = String(body.mode || 'auto').toLowerCase().trim() || 'auto';
@@ -1280,7 +1326,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
       }
 
       scheduleAgentsamCommandRunInsert(env, ctx, {
-        workspaceId: String(workspaceId || '').trim(),
+        workspaceId: resolvedWorkspaceId ?? '',
         sessionId: sessionId ? String(sessionId) : null,
         conversationId: sessionId ? String(sessionId) : null,
         userInput: message,
@@ -1328,7 +1374,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
       emit('error', { message: 'Agent loop failed' });
       scheduleAgentsamCommandRunInsert(env, ctx, {
-        workspaceId: String(workspaceId || '').trim(),
+        workspaceId: resolvedWorkspaceId ?? '',
         sessionId: sessionId ? String(sessionId) : null,
         conversationId: sessionId ? String(sessionId) : null,
         userInput: message,
