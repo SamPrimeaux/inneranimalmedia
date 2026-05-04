@@ -191,6 +191,150 @@ export function getApexDomain(hostname) {
 }
 
 /**
+ * Loads merged feature flags (global defaults + per-user overrides). Cached ~60s under `ff:{userId}`.
+ * Uses agentsam_feature_flag.enabled_globally and agentsam_user_feature_override — schema-driven columns only.
+ * @returns {Promise<Record<string, boolean>>}
+ */
+export async function loadFeatureFlags(env, userId, tenantId) {
+  void tenantId;
+  const uid = userId != null ? String(userId).trim() : '';
+  if (!uid || !env?.DB) return {};
+  const kv = env.KV || env.SESSION_CACHE;
+  const cacheKey = `ff:${uid}`;
+  try {
+    if (kv?.get) {
+      const raw = await kv.get(cacheKey);
+      if (raw) {
+        const j = JSON.parse(raw);
+        if (j && typeof j === 'object' && j.flags && typeof j.ts === 'number' && Date.now() - j.ts < 60000) {
+          return j.flags && typeof j.flags === 'object' ? j.flags : {};
+        }
+      }
+    }
+  } catch {
+    /* cold cache */
+  }
+  const out = {};
+  try {
+    const gRes = await env.DB.prepare(
+      `SELECT flag_key FROM agentsam_feature_flag WHERE enabled_globally = 1`,
+    ).all();
+    for (const r of gRes.results || []) {
+      if (r?.flag_key != null && String(r.flag_key).trim() !== '') {
+        out[String(r.flag_key)] = true;
+      }
+    }
+    const oRes = await env.DB.prepare(
+      `SELECT flag_key, enabled FROM agentsam_user_feature_override WHERE user_id = ?`,
+    )
+      .bind(uid)
+      .all();
+    for (const r of oRes.results || []) {
+      if (r?.flag_key != null && String(r.flag_key).trim() !== '') {
+        out[String(r.flag_key)] = Number(r.enabled) === 1;
+      }
+    }
+  } catch (e) {
+    console.warn('[loadFeatureFlags]', e?.message ?? e);
+    return {};
+  }
+  try {
+    if (kv?.put) {
+      await kv.put(cacheKey, JSON.stringify({ flags: out, ts: Date.now() }), { expirationTtl: 120 });
+    }
+  } catch {
+    /* non-fatal */
+  }
+  return out;
+}
+
+async function attachFeatureFlagsToSession(env, session) {
+  if (!session?.user_id) return session;
+  try {
+    const feature_flags = await loadFeatureFlags(env, session.user_id, session.tenant_id);
+    return { ...session, feature_flags };
+  } catch {
+    return { ...session, feature_flags: {} };
+  }
+}
+
+/**
+ * Outbound fetch gate: when allowlist rows exist for (user, workspace), hostname must match.
+ */
+export async function assertFetchDomainAllowed(env, userId, workspaceId, targetUrl) {
+  const uid = userId != null ? String(userId).trim() : '';
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!uid || !ws || !env?.DB || !targetUrl) return { ok: true };
+  let hostname = '';
+  try {
+    hostname = new URL(String(targetUrl)).hostname.toLowerCase();
+  } catch {
+    return { ok: false, error: 'Invalid URL' };
+  }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT host FROM agentsam_fetch_domain_allowlist WHERE user_id = ? AND workspace_id = ?`,
+    )
+      .bind(uid, ws)
+      .all();
+    const rows = results || [];
+    if (!rows.length) return { ok: true };
+    const ok = rows.some((r) => String(r.host || '').toLowerCase() === hostname);
+    if (!ok) return { ok: false, error: 'Domain not in your fetch allowlist' };
+  } catch (e) {
+    console.warn('[assertFetchDomainAllowed]', e?.message ?? e);
+    return { ok: true };
+  }
+  return { ok: true };
+}
+
+function pathMatchesIgnorePattern(filePath, patternRaw) {
+  const pathStr = String(filePath || '');
+  const pattern = String(patternRaw || '');
+  if (!pattern) return false;
+  if (pattern.includes('*') || pattern.includes('?')) {
+    try {
+      const esc = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+      return new RegExp(`^${esc}$`).test(pathStr);
+    } catch {
+      return false;
+    }
+  }
+  return pathStr === pattern || pathStr.includes(pattern) || pathStr.endsWith(pattern);
+}
+
+/**
+ * agentsam_ignore_pattern: ordered rules; negation clears a prior deny.
+ */
+export async function assertPathAllowedByIgnorePatterns(env, userId, workspaceId, filePath) {
+  const uid = userId != null ? String(userId).trim() : '';
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!uid || !ws || !env?.DB) return { ok: true };
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT pattern, is_negation FROM agentsam_ignore_pattern
+       WHERE user_id = ? AND workspace_id = ?
+       ORDER BY order_index ASC`,
+    )
+      .bind(uid, ws)
+      .all();
+    const rows = results || [];
+    if (!rows.length) return { ok: true };
+    let denied = false;
+    for (const r of rows) {
+      if (!pathMatchesIgnorePattern(filePath, r.pattern)) continue;
+      if (Number(r.is_negation) === 1) denied = false;
+      else denied = true;
+    }
+    if (denied) return { ok: false, error: 'Path blocked by ignore patterns' };
+  } catch (e) {
+    console.warn('[assertPathAllowedByIgnorePatterns]', e?.message ?? e);
+    return { ok: true };
+  }
+  return { ok: true };
+}
+
+/**
  * Global Session Retrieval (KV + Context)
  */
 export async function getSession(env, request) {
@@ -209,7 +353,7 @@ export async function getSession(env, request) {
         const data = await env.SESSION_CACHE.get(IAM_KV_SESSION_KEY_PREFIX + sessionId);
         if (data) {
           const parsed = JSON.parse(data);
-          return { ...parsed, session_id: sessionId };
+          return attachFeatureFlagsToSession(env, { ...parsed, session_id: sessionId });
         }
       } catch (e) { }
     }
@@ -239,7 +383,7 @@ export async function getSession(env, request) {
               { expirationTtl: 3600 }
             );
           }
-          return payload;
+          return attachFeatureFlagsToSession(env, payload);
         }
       } catch (e) { }
     }

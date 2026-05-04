@@ -3,12 +3,16 @@
  * Standardized CRUD operations for local and virtual workspace files.
  */
 
+import { assertPathAllowedByIgnorePatterns } from '../core/auth.js';
+
 export const handlers = {
   /**
    * list_dir: Recursive directory scanner for workspace mapping.
    */
-  async list_dir({ path = '.', recursive = false }, env) {
+  async list_dir({ path = '.', recursive = false, user_id, workspace_id }, env) {
     try {
+      const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
+      if (!ign.ok) return { error: ign.error };
       // In CF Workers/D1 context, we proxy to the shell or a R2/D1 registry
       // For this dashboard, we primarily use the /api/fs/list endpoint
       const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
@@ -32,8 +36,10 @@ export const handlers = {
   /**
    * read_file: Fetch content of a specific file.
    */
-  async read_file({ path }, env) {
+  async read_file({ path, user_id, workspace_id }, env) {
     try {
+      const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
+      if (!ign.ok) return { error: ign.error };
       const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
       const res = await fetch(`${origin}/api/fs/read`, {
         method: 'POST',
@@ -49,8 +55,10 @@ export const handlers = {
   /**
    * write_file: Save content to a file.
    */
-  async write_file({ path, content }, env) {
+  async write_file({ path, content, user_id, workspace_id }, env) {
     try {
+      const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
+      if (!ign.ok) return { error: ign.error };
       const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
       const res = await fetch(`${origin}/api/fs/write`, {
         method: 'POST',

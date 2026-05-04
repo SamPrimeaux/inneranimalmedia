@@ -411,7 +411,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
           tokensConsumed: (p.inputTokens ?? 0) + (p.outputTokens ?? 0),
         });
 
-        await env.DB
+        void env.DB
           .prepare(
             `INSERT INTO agentsam_execution_context
               (command_run_id, cwd, files_json, recent_error, goal, context_tokens)
@@ -426,7 +426,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
             p.contextTokenEstimate ?? 0,
           )
           .run()
-          .catch(() => {});
+          .catch((e) => console.warn('[agentsam_execution_context]', e?.message ?? e));
       } catch (e) {
         console.warn('[command_run] insert failed', e?.message ?? e);
       }

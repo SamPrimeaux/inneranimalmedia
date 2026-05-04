@@ -3,18 +3,22 @@
  * Agent Sam: HTTP Network Dispatcher
  * Orchestrates isolated external API requests.
  */
-import { jsonResponse } from '../core/auth.js';
+import { assertFetchDomainAllowed, jsonResponse } from '../core/auth.js';
 
 /**
  * Main dispatcher for External HTTP tasks.
  */
 export async function handleHttpDispatch(request, env, ctx, authUser) {
     const method = request.method.toUpperCase();
+    const requestUrl = new URL(request.url);
     
     try {
         if (method === 'GET') {
-            const urlParam = new URL(request.url).searchParams.get('url');
+            const urlParam = requestUrl.searchParams.get('url');
             if (!urlParam) return jsonResponse({ error: 'Missing url parameter' }, 400);
+            const workspaceId = requestUrl.searchParams.get('workspace_id') || '';
+            const gate = await assertFetchDomainAllowed(env, authUser?.id, workspaceId, urlParam);
+            if (!gate.ok) return jsonResponse({ error: gate.error }, 403);
             
             const response = await fetch(urlParam, {
                 headers: { 'User-Agent': 'AgentSam-Worker/2.0' }
@@ -26,6 +30,9 @@ export async function handleHttpDispatch(request, env, ctx, authUser) {
         if (method === 'POST') {
             const body = await request.json();
             if (!body.url) return jsonResponse({ error: 'Missing url in body' }, 400);
+            const workspaceId = body.workspace_id != null ? String(body.workspace_id) : '';
+            const gate = await assertFetchDomainAllowed(env, authUser?.id, workspaceId, body.url);
+            if (!gate.ok) return jsonResponse({ error: gate.error }, 403);
 
             const response = await fetch(body.url, {
                 method: 'POST',

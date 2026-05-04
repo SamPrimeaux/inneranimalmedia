@@ -60,6 +60,195 @@ const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
  * @param {string|null|undefined} userId
  * @param {Record<string, unknown>} [cache]
  */
+/** Derives cost tier label from agentsam_ai.features_json for workspace tier gating. */
+function modelCostTierFromRow(row) {
+  const meta = parseJsonSafe(row?.features_json ?? row?.metadata_json, {}) || {};
+  const t = meta.cost_tier;
+  if (t != null && String(t).trim() !== '') return String(t).trim();
+  return 'free';
+}
+
+/**
+ * Restricts the candidate model chain to tiers allowed for this workspace (agentsam_model_tier).
+ */
+async function filterWorkspaceModelTierPool(env, workspaceId, chainRows) {
+  if (!env?.DB || !workspaceId || !chainRows?.length) return chainRows || [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT cost_tier FROM agentsam_model_tier
+       WHERE workspace_id = ? AND is_active = 1
+       ORDER BY tier_level ASC`,
+    )
+      .bind(String(workspaceId).trim())
+      .all();
+    const rows = results || [];
+    if (!rows.length) return chainRows;
+    const allowed = new Set(
+      rows
+        .map((r) => r?.cost_tier)
+        .filter((t) => t != null && String(t).trim() !== '')
+        .map((t) => String(t).trim()),
+    );
+    if (!allowed.size) return chainRows;
+    return chainRows.filter((r) => allowed.has(modelCostTierFromRow(r)));
+  } catch (e) {
+    console.warn('[agent] model tier filter', e?.message ?? e);
+    return chainRows;
+  }
+}
+
+/**
+ * Appends active skills + rules to the system prompt; records skill invocations (waitUntil).
+ */
+async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) {
+  const {
+    userId, workspaceId, conversationId,
+  } = opts;
+  if (!env?.DB) return systemPrompt;
+  const uid = userId != null ? String(userId).trim() : '';
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!uid || !ws) return systemPrompt;
+  let extra = '';
+  let skillRows = [];
+  try {
+    const sRes = await env.DB.prepare(
+      `SELECT id, name, content_markdown FROM agentsam_skill
+       WHERE user_id = ? AND is_active = 1
+         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+       ORDER BY sort_order ASC`,
+    )
+      .bind(uid, ws)
+      .all();
+    skillRows = sRes.results || [];
+    if (skillRows.length) {
+      const blocks = skillRows.map((r) => {
+        const title = String(r.name || r.id || 'skill');
+        const body = String(r.content_markdown || '');
+        return `### ${title}\n${body}`;
+      });
+      extra += `\n## Skills\n${blocks.join('\n\n')}\n`;
+    }
+  } catch (e) {
+    console.warn('[agent] skills prompt query', e?.message ?? e);
+  }
+
+  try {
+    const rRes = await env.DB.prepare(
+      `SELECT title, body_markdown FROM agentsam_rules_document
+       WHERE is_active = 1
+         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+       ORDER BY updated_at DESC`,
+    )
+      .bind(ws)
+      .all();
+    const rules = rRes.results || [];
+    if (rules.length) {
+      const blocks = rules.map((r) => {
+        const title = String(r.title || 'Rule');
+        const body = String(r.body_markdown || '');
+        return `### ${title}\n${body}`;
+      });
+      extra += `\n## Rules\n${blocks.join('\n\n')}\n`;
+    }
+  } catch (e) {
+    console.warn('[agent] rules prompt query', e?.message ?? e);
+  }
+
+  if (skillRows.length && ctx?.waitUntil) {
+    const conv = conversationId != null ? String(conversationId) : null;
+    ctx.waitUntil(
+      Promise.all(
+        skillRows.map((row) =>
+          env.DB.prepare(
+            `INSERT INTO agentsam_skill_invocation
+             (skill_id, user_id, workspace_id, conversation_id, trigger_method, success)
+             VALUES (?, ?, ?, ?, 'auto', 1)`,
+          )
+            .bind(String(row.id), uid, ws, conv)
+            .run()
+            .catch((e) => console.warn('[agentsam_skill_invocation]', e?.message ?? e)),
+        ),
+      ).catch(() => {}),
+    );
+  }
+
+  return extra ? `${systemPrompt}${extra}` : systemPrompt;
+}
+
+function inferArtifactFromAssistantText(text) {
+  if (!text || typeof text !== 'string' || !text.includes('```')) return null;
+  const m = text.match(/```([\w+#.-]*)/);
+  const rawLang = m && m[1] ? String(m[1]).toLowerCase().replace(/^language-/, '') : '';
+  let artifact_type = 'other';
+  if (rawLang.includes('html')) artifact_type = 'html';
+  else if (rawLang === 'js' || rawLang === 'javascript') artifact_type = 'js';
+  else if (rawLang === 'ts' || rawLang === 'typescript') artifact_type = 'ts';
+  else if (rawLang === 'css') artifact_type = 'css';
+  else if (rawLang === 'json') artifact_type = 'json';
+  else if (rawLang === 'sql') artifact_type = 'sql';
+  const name =
+    rawLang && rawLang.length > 0 && rawLang.length < 80 ? rawLang : 'untitled';
+  return { artifact_type, name };
+}
+
+function scheduleAgentsamArtifactFromChatOutput(env, ctx, opts) {
+  if (!env?.DB || !ctx?.waitUntil) return;
+  const { outputText, userId, tenantId, workspaceId } = opts;
+  const meta = inferArtifactFromAssistantText(outputText || '');
+  if (!meta) return;
+  const uid = userId != null ? String(userId).trim() : '';
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  if (!uid || !tid) return;
+  const ws = workspaceId != null ? String(workspaceId).trim() : null;
+  ctx.waitUntil(
+    env.DB
+      .prepare(
+        `INSERT INTO agentsam_artifacts
+         (user_id, tenant_id, workspace_id, name, artifact_type, r2_key, source)
+         VALUES (?, ?, ?, ?, ?, '', 'agent_response')`,
+      )
+      .bind(uid, tid, ws, meta.name, meta.artifact_type)
+      .run()
+      .catch((e) => console.warn('[agentsam_artifacts]', e?.message ?? e)),
+  );
+}
+
+function scheduleAgentsamToolCallLog(env, ctx, fields) {
+  if (!env?.DB) return;
+  const {
+    tenantId,
+    sessionId,
+    toolName,
+    status,
+    durationMs,
+    costUsd,
+    inputTokens,
+    outputTokens,
+    userId,
+  } = fields;
+  const p = env.DB
+    .prepare(
+      `INSERT INTO agentsam_tool_call_log
+       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      tenantId != null ? String(tenantId) : 'system',
+      sessionId ?? null,
+      String(toolName || 'unknown'),
+      status === 'error' ? 'error' : 'success',
+      Math.max(0, Math.floor(Number(durationMs) || 0)),
+      Number(costUsd) || 0,
+      Math.max(0, Math.floor(Number(inputTokens) || 0)),
+      Math.max(0, Math.floor(Number(outputTokens) || 0)),
+      userId ?? null,
+    )
+    .run()
+    .catch((e) => console.warn('[agentsam_tool_call_log]', e?.message ?? e));
+  if (ctx?.waitUntil) ctx.waitUntil(p);
+  else p.catch(() => {});
+}
+
 async function resolveBootstrapWorkspaceIdForAgentApi(env, userId, cache) {
   const uid = userId != null ? String(userId).trim() : '';
   if (!uid || !env?.DB) return IAM_DEFAULT_WORKSPACE_ID;
@@ -212,6 +401,25 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
      LIMIT ?`
   ).bind(lim).all().catch(() => ({ results: [] }));
   let rows = Array.isArray(results) ? results : [];
+  const uid = opts.userId != null ? String(opts.userId).trim() : '';
+  const wsId = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  if (uid && wsId) {
+    try {
+      const allowRes = await env.DB.prepare(
+        `SELECT tool_key FROM agentsam_mcp_allowlist WHERE user_id = ? AND workspace_id = ?`,
+      )
+        .bind(uid, wsId)
+        .all();
+      const keys = new Set(
+        (allowRes.results || []).map((r) => String(r.tool_key || '').trim()).filter(Boolean),
+      );
+      if (keys.size) {
+        rows = rows.filter((r) => keys.has(String(r.tool_name || '').trim()));
+      }
+    } catch (e) {
+      console.warn('[agent] mcp allowlist', e?.message ?? e);
+    }
+  }
   if (policy.allowTools.length) {
     const allow = new Set(policy.allowTools);
     rows = rows.filter((r) => allow.has(String(r.tool_name)));
@@ -274,6 +482,7 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
     session_id: context.sessionId || input?.session_id || null,
     tenant_id: context.tenantId || input?.tenant_id || null,
     user_id: context.userId || input?.user_id || null,
+    workspace_id: context.workspaceId ?? input?.workspace_id ?? null,
   };
   const out = await runBuiltinTool(env, toolName, params);
   if (out && typeof out === 'object' && out.error) {
@@ -678,6 +887,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     temperature, maxToolCalls,
     mode, modeConfig, userPolicy,
     sessionId, tenantId, userId,
+    workspaceId,
     routingTaskType,
   } = params;
 
@@ -929,7 +1139,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       let toolOutput = '';
       let execErr = null;
       try {
-        const execResult = await dispatchToolCall(env, call.name, call.input, { sessionId, tenantId, userId });
+        const execResult = await dispatchToolCall(env, call.name, call.input, {
+          sessionId,
+          tenantId,
+          userId,
+          workspaceId,
+        });
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
       } catch (e) {
         execErr = e;
@@ -938,6 +1153,17 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         emit('tool_error', { tool: call.name, error: 'Tool execution failed' });
       }
       const toolDurMs = Date.now() - toolT0;
+      scheduleAgentsamToolCallLog(env, ctx, {
+        tenantId,
+        sessionId,
+        toolName: call.name,
+        status: execErr ? 'error' : 'success',
+        durationMs: toolDurMs,
+        costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        userId,
+      });
       previousToolChainId = await fireForgetAgentToolChainRow(env, {
         toolName: call.name,
         agentSessionId: sessionId,
@@ -1075,7 +1301,12 @@ export async function agentChatSseHandler(env, request, ctx, session) {
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
-  const { tools: dbTools } = await loadToolsForRequest(env, requestedMode, intentSlug, { limit: modeConfig.max_tool_calls || 20, includeSchemas: true });
+  const { tools: dbTools } = await loadToolsForRequest(env, requestedMode, intentSlug, {
+    limit: modeConfig.max_tool_calls || 20,
+    includeSchemas: true,
+    userId,
+    workspaceId,
+  });
   let tools = dbTools.map(t => {
     const raw = t.input_schema && typeof t.input_schema === 'object'
       ? t.input_schema : {};
@@ -1154,6 +1385,8 @@ export async function agentChatSseHandler(env, request, ctx, session) {
     chainRows = filterGraniteAutoChain(poolRows, externalNonGraniteExists);
   }
 
+  chainRows = await filterWorkspaceModelTierPool(env, workspaceId, chainRows);
+
   const fallbackModelKeys = chainRows.map((r) => r.model_key).filter(Boolean);
   if (!fallbackModelKeys.length) {
     return jsonResponse({ error: 'All providers exhausted', tried: [] }, 503);
@@ -1206,6 +1439,16 @@ export async function agentChatSseHandler(env, request, ctx, session) {
     }
   } catch (_) { /* memory must not break sessions */ }
 
+  try {
+    systemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, {
+      userId,
+      workspaceId,
+      conversationId: sessionId,
+    });
+  } catch (e) {
+    console.warn('[agent] skills/rules prompt enrich', e?.message ?? e);
+  }
+
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer  = writable.getWriter();
@@ -1236,6 +1479,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
       const startIdx = (confidence < escalationThreshold && fallbackModelKeys.length > 1) ? 1 : 0;
       let succeeded = false;
       let lastLoopStats = null;
+      let lastAssistantStreamText = '';
 
       for (let i = startIdx; i < chainRows.length; i++) {
         const row = chainRows[i];
@@ -1244,8 +1488,13 @@ export async function agentChatSseHandler(env, request, ctx, session) {
         tried.push(modelKey);
         try {
           let textEmitted = 0;
+          let streamAccum = '';
           const emitWrapped = (type, payload) => {
-            if (type === 'text' && payload?.text) textEmitted += String(payload.text).length;
+            if (type === 'text' && payload?.text) {
+              const piece = String(payload.text);
+              textEmitted += piece.length;
+              streamAccum += piece;
+            }
             emit(type, payload);
           };
           lastLoopStats = await withTimeout(
@@ -1257,12 +1506,14 @@ export async function agentChatSseHandler(env, request, ctx, session) {
               maxToolCalls: modeConfig.max_tool_calls || 20,
               mode: requestedMode, modeConfig, userPolicy,
               sessionId, tenantId, userId,
+              workspaceId,
               routingTaskType: intentSlug,
             }),
             15000
           );
           if (textEmitted <= 0) throw new Error('empty_stream');
           succeeded = true;
+          lastAssistantStreamText = streamAccum;
           console.log(
             '[agent] routing_model',
             JSON.stringify({
@@ -1295,8 +1546,13 @@ export async function agentChatSseHandler(env, request, ctx, session) {
           console.log('[agent] routing_model', JSON.stringify({ final_fallback: finalKey }));
           try {
             let textEmitted = 0;
+            let streamAccum = '';
             const emitWrapped = (type, payload) => {
-              if (type === 'text' && payload?.text) textEmitted += String(payload.text).length;
+              if (type === 'text' && payload?.text) {
+                const piece = String(payload.text);
+                textEmitted += piece.length;
+                streamAccum += piece;
+              }
               emit(type, payload);
             };
             lastLoopStats = await withTimeout(
@@ -1308,11 +1564,15 @@ export async function agentChatSseHandler(env, request, ctx, session) {
                 maxToolCalls: modeConfig.max_tool_calls || 20,
                 mode: requestedMode, modeConfig, userPolicy,
                 sessionId, tenantId, userId,
+                workspaceId,
                 routingTaskType: intentSlug,
               }),
               15000
             );
-            if (textEmitted > 0) succeeded = true;
+            if (textEmitted > 0) {
+              succeeded = true;
+              lastAssistantStreamText = streamAccum;
+            }
           } catch (e) {
             console.warn('[agent] final fallback failed:', { model_key: finalKey, error: e?.message });
           }
@@ -1321,6 +1581,15 @@ export async function agentChatSseHandler(env, request, ctx, session) {
 
       if (!succeeded) {
         emit('error', { message: 'All providers exhausted', tried });
+      }
+
+      if (succeeded && lastAssistantStreamText && inferArtifactFromAssistantText(lastAssistantStreamText)) {
+        scheduleAgentsamArtifactFromChatOutput(env, ctx, {
+          outputText: lastAssistantStreamText,
+          userId,
+          tenantId,
+          workspaceId,
+        });
       }
 
       scheduleAgentsamCommandRunInsert(env, ctx, {
@@ -1350,7 +1619,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
         cwd: null,
         filesOpen: [],
         recentError: succeeded ? null : 'all_providers_exhausted',
-        goal: null,
+        goal: message,
         contextTokenEstimate:
           (lastLoopStats?.totalUsage?.input_tokens ?? 0) +
           (lastLoopStats?.totalUsage?.output_tokens ?? 0),
@@ -1398,7 +1667,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
         cwd: null,
         filesOpen: [],
         recentError: e?.message != null ? String(e.message).slice(0, 2000) : null,
-        goal: null,
+        goal: message,
         contextTokenEstimate: 0,
       });
       scheduleAgentsamUsageEventFromChat(env, ctx, {

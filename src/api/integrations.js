@@ -68,6 +68,37 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
     const pathLower = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
+    if (method === 'POST' && request.headers.get('X-GitHub-Event')) {
+        const eventType = request.headers.get('X-GitHub-Event') || 'unknown';
+        const eventId = request.headers.get('X-GitHub-Delivery') || null;
+        const raw = await request.text().catch(() => '');
+        let body = {};
+        try {
+            body = raw ? JSON.parse(raw) : {};
+        } catch {
+            body = { _unparsed: raw.slice(0, 8000) };
+        }
+        const tid = fallbackSystemTenantId(env);
+        if (env?.DB && ctx?.waitUntil) {
+            ctx.waitUntil(
+                env.DB.prepare(
+                    `INSERT INTO agentsam_webhook_events
+                     (tenant_id, provider, event_type, event_id, payload_json, status)
+                     VALUES (?, 'github', ?, ?, ?, 'received')`,
+                )
+                    .bind(
+                        tid,
+                        eventType,
+                        eventId,
+                        JSON.stringify(body),
+                    )
+                    .run()
+                    .catch((e) => console.warn('[agentsam_webhook_events github]', e?.message ?? e)),
+            );
+        }
+        return jsonResponse({ ok: true });
+    }
+
     // 1. BlueBubbles Webhook Gate
     if (pathLower === '/api/integrations/bluebubbles/webhook' && method === 'POST') {
         return handleBlueBubblesWebhook(request, env, ctx);

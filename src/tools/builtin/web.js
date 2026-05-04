@@ -3,6 +3,8 @@
  * Implements 31 tools for browser automation and intelligence.
  */
 
+import { assertFetchDomainAllowed } from '../../core/auth.js';
+
 /**
  * Common fetch bridge for all browser-related operations.
  * Proxies to the worker's browser runner via internal dashboard API.
@@ -28,6 +30,13 @@ export const handlers = {
     async search_web(params, env) {
         const apiKey = env.TAVILY_API_KEY || env.SEARCH_API_KEY;
         if (!apiKey) return { error: 'Search API key missing' };
+        const gate = await assertFetchDomainAllowed(
+            env,
+            params.user_id ?? params.session?.user_id,
+            params.workspace_id ?? params.session?.workspace_id ?? params.session?.workspaceId,
+            'https://api.tavily.com/search',
+        );
+        if (!gate.ok) return { error: gate.error };
         const res = await fetch('https://api.tavily.com/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
