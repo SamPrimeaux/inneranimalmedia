@@ -1,0 +1,16 @@
+WORKING DIRECTORY: /Users/samprimeaux/Downloads/inneranimalmedia
+This is the repo root. All files live here flat.
+- Worker source: src/
+- React dashboard: dashboard/
+- Production wrangler config: wrangler.production.toml
+- GitHub remote: https://github.com/SamPrimeaux/inneranimalmedia
+
+NEVER reference or write to:
+- /Users/samprimeaux/inneranimalmedia-agentsam-dashboard
+- /Users/samprimeaux/inneranimalmedia
+- ~/march1st-inneranimalmedia
+- Any nested inneranimalmedia-agentsam-dashboard path
+
+Every file edit must be in /Users/samprimeaux/Downloads/inneranimalmedia/
+Every git command runs from /Users/samprimeaux/Downloads/inneranimalmedia/
+CF Builds auto-deploys on push to main branch.
