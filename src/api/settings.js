@@ -8,8 +8,10 @@ import {
   jsonResponse,
   fetchAuthUserTenantId,
   fallbackSystemTenantId,
+  authUserIsSuperadmin,
 } from '../core/auth.js';
 import { handleSettingsIntegrationsApi } from './settings-integrations.js';
+import { encryptApiKeyForStorage } from './provisioning.js';
 
 const AGENTSAM_POLICY_COLS = [
   'auto_run_mode',
@@ -1085,6 +1087,346 @@ export async function handleSettingsRequest(request, env, ctx) {
         .bind(agentsamUserId, workspaceId || '', tool_key)
         .run();
       return jsonResponse({ ok: true });
+    }
+  }
+
+  // ── AI Models catalog + BYOK (/api/settings/ai-models*) ───────────────────
+  const normalizeAiProviderSlug = (p) => {
+    const s = String(p || '').trim().toLowerCase();
+    if (s === 'google' || s === 'gemini' || s === 'google_ai') return 'google_ai';
+    if (s === 'anthropic') return 'anthropic';
+    if (s === 'openai' || s === 'cursor') return 'openai';
+    if (s === 'cloudflare' || s === 'workers_ai' || s === 'cloudflare_workers_ai') return 'cloudflare';
+    if (s === 'ollama') return 'ollama';
+    return s;
+  };
+
+  const providerUiOrder = (slug) => {
+    const k = normalizeAiProviderSlug(slug);
+    const order = { openai: 0, anthropic: 1, google_ai: 2, google: 2, cloudflare: 3, ollama: 4 };
+    return order[k] != null ? order[k] : 100 + k.charCodeAt(0);
+  };
+
+  async function validateAiKeyProbe(providerNorm, rawKey) {
+    const k = String(rawKey || '');
+    if (!k.trim()) return { ok: false, error: 'Key required' };
+    if (providerNorm === 'openai' || providerNorm === 'cursor') {
+      const r = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${k}` },
+      });
+      return r.ok ? { ok: true } : { ok: false, error: `OpenAI validation failed (${r.status})` };
+    }
+    if (providerNorm === 'anthropic') {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': k,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }],
+        }),
+      });
+      return r.ok ? { ok: true } : { ok: false, error: `Anthropic validation failed (${r.status})` };
+    }
+    if (providerNorm === 'google_ai' || providerNorm === 'google') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(k)}`;
+      const r = await fetch(url);
+      return r.ok ? { ok: true } : { ok: false, error: `Google AI validation failed (${r.status})` };
+    }
+    return { ok: true };
+  }
+
+  if (pathLower === '/api/settings/ai-models/usage' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const tenantId = await resolveAuthTenantId(env, authUser);
+    if (!tenantId) return jsonResponse({ error: 'tenant required' }, 400);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT provider, model,
+            SUM(cost_usd) AS cost_30d,
+            SUM(tokens_in + tokens_out) AS tokens_30d,
+            COUNT(*) AS calls_30d
+         FROM agentsam_usage_events
+         WHERE tenant_id = ? AND created_at > unixepoch() - 2592000
+         GROUP BY provider, model
+         ORDER BY cost_30d DESC`,
+      )
+        .bind(tenantId)
+        .all();
+      const usage = (results || []).map((row) => ({
+        provider: row.provider != null ? String(row.provider) : '',
+        model: row.model != null ? String(row.model) : '',
+        cost_30d: Number(row.cost_30d) || 0,
+        tokens_30d: Number(row.tokens_30d) || 0,
+        calls_30d: Number(row.calls_30d) || 0,
+      }));
+      return jsonResponse({ usage });
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  if (pathLower === '/api/settings/ai-models' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const tenantId = await resolveAuthTenantId(env, authUser);
+    if (!tenantId) return jsonResponse({ error: 'tenant required' }, 400);
+    const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
+    const storeUserId = canonicalUserId != null && String(canonicalUserId).trim() !== ''
+      ? String(canonicalUserId).trim()
+      : String(authUser.id || '').trim();
+    try {
+      const { results: modelRows } = await env.DB.prepare(
+        `SELECT *
+         FROM agentsam_ai
+         WHERE model_key IS NOT NULL
+         ORDER BY provider, sort_order, model_key`,
+      ).all();
+
+      const { results: usageRows } = await env.DB.prepare(
+        `SELECT provider,
+            SUM(cost_usd) AS cost_30d,
+            SUM(tokens_in + tokens_out) AS tokens_30d,
+            COUNT(*) AS calls_30d
+         FROM agentsam_usage_events
+         WHERE tenant_id = ? AND created_at > unixepoch() - 2592000
+         GROUP BY provider`,
+      )
+        .bind(tenantId)
+        .all();
+
+      let keyRows = [];
+      try {
+        const q = await env.DB.prepare(
+          `SELECT provider, key_name, key_preview, is_active, last_used_at
+           FROM user_api_keys
+           WHERE user_id = ? AND COALESCE(is_active, 1) = 1`,
+        )
+          .bind(storeUserId)
+          .all();
+        keyRows = q?.results || [];
+      } catch (_) {
+        keyRows = [];
+      }
+
+      const usageByProv = new Map();
+      for (const r of usageRows || []) {
+        usageByProv.set(
+          normalizeAiProviderSlug(r.provider),
+          {
+            cost_30d: Number(r.cost_30d) || 0,
+            tokens_30d: Number(r.tokens_30d) || 0,
+            calls_30d: Number(r.calls_30d) || 0,
+          },
+        );
+      }
+
+      const keysByProv = new Map();
+      for (const r of keyRows) {
+        const slug = normalizeAiProviderSlug(r.provider);
+        if (!keysByProv.has(slug)) keysByProv.set(slug, r);
+      }
+
+      const bySlug = new Map();
+      for (const m of modelRows || []) {
+        const slug = normalizeAiProviderSlug(m.provider);
+        if (!bySlug.has(slug)) {
+          bySlug.set(slug, {
+            provider: slug,
+            api_platform: m.api_platform != null ? String(m.api_platform) : '',
+            has_personal_key: !!keysByProv.get(slug),
+            key_preview: keysByProv.get(slug)?.key_preview != null ? String(keysByProv.get(slug).key_preview) : null,
+            cost_30d: usageByProv.get(slug)?.cost_30d ?? 0,
+            tokens_30d: usageByProv.get(slug)?.tokens_30d ?? 0,
+            calls_30d: usageByProv.get(slug)?.calls_30d ?? 0,
+            models: [],
+          });
+        }
+        const bucket = bySlug.get(slug);
+        if (!bucket.api_platform && m.api_platform) bucket.api_platform = String(m.api_platform);
+        const disp = m.display_name != null && String(m.display_name).trim() !== ''
+          ? String(m.display_name)
+          : (m.name != null ? String(m.name) : '');
+        bucket.models.push({
+          model_key: m.model_key != null ? String(m.model_key) : '',
+          display_name: disp,
+          status: m.status != null ? String(m.status) : '',
+          show_in_picker: Number(m.show_in_picker) === 1,
+          picker_eligible: Number(m.picker_eligible) !== 0,
+          supports_tools: Number(m.supports_tools) === 1,
+          supports_vision: Number(m.supports_vision) === 1,
+          supports_cache: Number(m.supports_cache) === 1,
+          supports_thinking: Number(m.supports_thinking) === 1,
+          supports_structured_output: Number(m.supports_structured_output) === 1,
+          supports_responses_api: Number(m.supports_responses_api) === 1,
+          context_max_tokens:
+            m.context_max_tokens != null && m.context_max_tokens !== ''
+              ? Number(m.context_max_tokens)
+              : null,
+          input_rate_per_mtok:
+            m.input_rate_per_mtok != null && m.input_rate_per_mtok !== ''
+              ? Number(m.input_rate_per_mtok)
+              : null,
+          output_rate_per_mtok:
+            m.output_rate_per_mtok != null && m.output_rate_per_mtok !== ''
+              ? Number(m.output_rate_per_mtok)
+              : null,
+          size_class: m.size_class != null ? String(m.size_class) : '',
+          sort_order: m.sort_order != null ? Number(m.sort_order) : 0,
+        });
+      }
+
+      const providers = Array.from(bySlug.values()).sort(
+        (a, b) => providerUiOrder(a.provider) - providerUiOrder(b.provider) || a.provider.localeCompare(b.provider),
+      );
+
+      for (const p of providers) {
+        const kr = keysByProv.get(p.provider);
+        p.has_personal_key = !!kr;
+        p.key_preview = kr?.key_preview != null ? String(kr.key_preview) : null;
+      }
+
+      return jsonResponse({ providers });
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  if (pathLower === '/api/settings/ai-models/keys' && method === 'POST') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!env.VAULT_MASTER_KEY && !env.VAULT_KEY) {
+      return jsonResponse({ error: 'Vault not configured' }, 503);
+    }
+    const tenantId = await resolveAuthTenantId(env, authUser);
+    if (!tenantId) return jsonResponse({ error: 'tenant required' }, 400);
+    const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
+    const storeUserId = canonicalUserId != null && String(canonicalUserId).trim() !== ''
+      ? String(canonicalUserId).trim()
+      : String(authUser.id || '').trim();
+    const body = await request.json().catch(() => ({}));
+    const providerRaw = String(body.provider || '').trim();
+    const keyName = String(body.keyName || body.key_name || 'default').trim() || 'default';
+    const rawKey = String(body.rawKey || body.raw_key || '').trim();
+    const provNorm = normalizeAiProviderSlug(providerRaw);
+    if (!provNorm) return jsonResponse({ error: 'provider required' }, 400);
+
+    const probe = await validateAiKeyProbe(provNorm, rawKey);
+    if (!probe.ok) return jsonResponse({ error: probe.error || 'Validation failed' }, 400);
+
+    let encrypted;
+    try {
+      encrypted = await encryptApiKeyForStorage(env, rawKey);
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? 'Encrypt failed' }, 500);
+    }
+
+    const preview =
+      rawKey.length <= 12 ? '************' : `${rawKey.slice(0, 12)}****`;
+
+    const uakId = `uak_${crypto.randomUUID().replace(/-/g, '')}`;
+    try {
+      await env.DB.prepare(
+        `UPDATE user_api_keys SET is_active = 0, updated_at = datetime('now')
+         WHERE user_id = ? AND tenant_id = ? AND LOWER(provider) = LOWER(?)`,
+      )
+        .bind(storeUserId, tenantId, provNorm)
+        .run();
+    } catch (_) {
+      try {
+        await env.DB.prepare(
+          `UPDATE user_api_keys SET is_active = 0
+           WHERE user_id = ? AND tenant_id = ? AND LOWER(provider) = LOWER(?)`,
+        )
+          .bind(storeUserId, tenantId, provNorm)
+          .run();
+      } catch (__) {
+        /* schema without updated_at */
+      }
+    }
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO user_api_keys (id, tenant_id, user_id, provider, key_name, key_preview, key_hash, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+      )
+        .bind(uakId, tenantId, storeUserId, provNorm, keyName, preview, encrypted)
+        .run();
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? 'Failed to store key' }, 500);
+    }
+
+    return jsonResponse({ ok: true, key_preview: preview, provider: provNorm });
+  }
+
+  {
+    const m = pathLower.match(/^\/api\/settings\/ai-models\/keys\/([^/]+)$/);
+    if (m && method === 'DELETE') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const tenantId = await resolveAuthTenantId(env, authUser);
+      if (!tenantId) return jsonResponse({ error: 'tenant required' }, 400);
+      const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
+      const storeUserId = canonicalUserId != null && String(canonicalUserId).trim() !== ''
+        ? String(canonicalUserId).trim()
+        : String(authUser.id || '').trim();
+      const providerSeg = decodeURIComponent(m[1] || '').trim();
+      const provNorm = normalizeAiProviderSlug(providerSeg);
+      try {
+        await env.DB.prepare(
+          `UPDATE user_api_keys SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND LOWER(provider) = LOWER(?)`,
+        )
+          .bind(storeUserId, tenantId, provNorm)
+          .run();
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? 'Failed to remove key' }, 500);
+      }
+      return jsonResponse({ ok: true });
+    }
+  }
+
+  {
+    const m = pathLower.match(/^\/api\/settings\/ai-models\/([^/]+)$/);
+    if (m && method === 'PATCH') {
+      const seg = decodeURIComponent(m[1] || '').trim();
+      if (seg === 'keys' || seg === 'usage') {
+        /* handled above */
+      } else if (seg) {
+        if (!authUserIsSuperadmin(authUser)) {
+          return jsonResponse({ error: 'Forbidden' }, 403);
+        }
+        if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+        const modelKey = seg;
+        const body = await request.json().catch(() => ({}));
+        const hasPicker = body && Object.prototype.hasOwnProperty.call(body, 'show_in_picker');
+        const hasStatus = body && Object.prototype.hasOwnProperty.call(body, 'status');
+        if (!hasPicker && !hasStatus) return jsonResponse({ error: 'No fields to update' }, 400);
+        const sets = [];
+        const vals = [];
+        if (hasPicker) {
+          const v = !!body.show_in_picker;
+          sets.push('show_in_picker = ?');
+          vals.push(v ? 1 : 0);
+        }
+        if (hasStatus) {
+          const st = String(body.status || '').toLowerCase();
+          if (st !== 'active' && st !== 'inactive') {
+            return jsonResponse({ error: 'status must be active or inactive' }, 400);
+          }
+          sets.push('status = ?');
+          vals.push(st);
+        }
+        sets.push("updated_at = datetime('now')");
+        try {
+          await env.DB.prepare(`UPDATE agentsam_ai SET ${sets.join(', ')} WHERE model_key = ?`)
+            .bind(...vals, modelKey)
+            .run();
+        } catch (e) {
+          return jsonResponse({ error: e?.message ?? 'Update failed' }, 500);
+        }
+        return jsonResponse({ ok: true, model_key: modelKey });
+      }
     }
   }
 
