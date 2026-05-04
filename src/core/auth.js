@@ -335,6 +335,47 @@ export async function assertPathAllowedByIgnorePatterns(env, userId, workspaceId
 }
 
 /**
+ * When the user has trusted-origin rows in D1, navigation targets must match one of them (open if none).
+ */
+export async function assertBrowserOriginTrusted(env, opts) {
+  const { userId, workspaceId, origin } = opts || {};
+  void workspaceId;
+  if (!userId || !origin || !env?.DB) return;
+
+  let parsedOrigin;
+  try {
+    const raw = String(origin);
+    parsedOrigin = new URL(raw.startsWith('http') ? raw : `https://${raw}`).origin;
+  } catch {
+    throw new Error('Browser origin blocked: invalid URL');
+  }
+
+  const rows = await env.DB.prepare(
+    `
+      SELECT origin, trust_scope
+      FROM agentsam_browser_trusted_origin
+      WHERE user_id = ?
+      LIMIT 100
+    `,
+  )
+    .bind(userId)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  const trusted = rows.results || [];
+  if (trusted.length === 0) return;
+
+  const match = trusted.find((r) => String(r.origin || '') === parsedOrigin);
+
+  if (!match) {
+    throw new Error(
+      `Browser origin not trusted: ${parsedOrigin}. ` +
+        'Add it to your trusted origins in settings.',
+    );
+  }
+}
+
+/**
  * Global Session Retrieval (KV + Context)
  */
 export async function getSession(env, request) {

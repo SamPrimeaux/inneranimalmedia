@@ -3,13 +3,29 @@
  * Implements 31 tools for browser automation and intelligence.
  */
 
-import { assertFetchDomainAllowed } from '../../core/auth.js';
+import { assertBrowserOriginTrusted, assertFetchDomainAllowed } from '../../core/auth.js';
 
 /**
  * Common fetch bridge for all browser-related operations.
  * Proxies to the worker's browser runner via internal dashboard API.
  */
 async function invokeBrowserOp(env, toolName, params) {
+    const targetOriginInput =
+        params.url ?? params.origin ?? params.href ?? params.target_url ?? params.page_url;
+    const uid = params.user_id ?? params.session?.user_id;
+    const ws =
+        params.workspace_id ?? params.session?.workspace_id ?? params.session?.workspaceId;
+    if (targetOriginInput && uid) {
+        try {
+            await assertBrowserOriginTrusted(env, {
+                userId: uid,
+                workspaceId: ws,
+                origin: targetOriginInput,
+            });
+        } catch (e) {
+            return { error: e.message, blocked: true };
+        }
+    }
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
     try {
         const res = await fetch(`${origin}/api/browser/invoke`, {
