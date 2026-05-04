@@ -415,7 +415,7 @@ export async function handleStorageApi(request, url, env) {
   if (pathLower === '/api/storage/analytics' && method === 'GET') {
     if (!env.DB) return jsonResponse({ source: 'd1_registry', data_quality: 'partial', last_synced_at: null, failed: ['DB'], ...baseMeta });
     return cachedStorageResponse(env, 'analytics', tenantId, async (failed) => {
-      const workspaceId = url.searchParams.get('workspace_id') || 'ws_inneranimalmedia';
+      const workspaceId = url.searchParams.get('workspace_id') || env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
       const [summaries, syncRow, trends, errors, usage] = await Promise.all([
         q(env, failed, 'r2_bucket_summary', `SELECT * FROM r2_bucket_summary ORDER BY COALESCE(priority,999), bucket_name`),
         q(env, failed, 'r2_bucket_summary', `SELECT MAX(last_inventoried_at) AS last_synced_at FROM r2_bucket_summary`, [], 'first'),

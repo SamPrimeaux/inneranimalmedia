@@ -183,6 +183,7 @@ export async function handleCodebaseIndexSyncFromQueue(env, body, _ctx) {
   const workspace_id =
     (body?.workspace_id != null && String(body.workspace_id).trim()) ||
     (env?.WORKSPACE_ID != null && String(env.WORKSPACE_ID).trim()) ||
+    (env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim()) ||
     'ws_inneranimalmedia';
   const tenant_id =
     (body?.tenant_id != null && String(body.tenant_id).trim()) ||

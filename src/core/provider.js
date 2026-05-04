@@ -11,6 +11,7 @@ import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
 import { resolveApiKey }       from './vault.js';
 import { thompsonSample }      from './thompson.js';
+import { isFeatureEnabled }    from './features.js';
 
 /** Thrown when Ollama is skipped so the agent model chain can try the next provider (no SSE error text). */
 export const OLLAMA_SKIP_MESSAGE = 'ollama_skip';
@@ -20,9 +21,32 @@ async function resolveAutoModelKey(env, params) {
   let modelKey = params.modelKey;
   const mk = modelKey != null ? String(modelKey).trim() : '';
   if (mk && mk.toLowerCase() !== 'auto') return modelKey;
-  const arm = await thompsonSample(env, params.taskType || 'chat', params.mode || 'auto');
-  if (arm?.model_key) return arm.model_key;
-  return modelKey;
+
+  const thompsonEnabled = await isFeatureEnabled(env, 'thompson_sampling', {
+    userId: params.userId,
+    tenantId: params.tenantId,
+  });
+
+  if (thompsonEnabled) {
+    const arm = await thompsonSample(env, params.taskType || 'chat', params.mode || 'auto').catch(() => null);
+    if (arm?.model_key) {
+      params.model = arm.model_key;
+      params.provider = arm.provider;
+      params.routing_arm_id = arm.id;
+      return arm.model_key;
+    }
+  }
+
+  const fallback = await env?.DB?.prepare(
+    `SELECT model_key FROM agentsam_ai
+     WHERE mode = 'model' AND status = 'active'
+     ORDER BY sort_order ASC, name ASC
+     LIMIT 1`,
+  )
+    .first()
+    .catch(() => null);
+  if (fallback?.model_key) return String(fallback.model_key);
+  return 'gpt-4.1-mini';
 }
 
 export async function resolveModelMeta(env, modelKey) {

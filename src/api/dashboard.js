@@ -257,7 +257,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
                 ).bind(
                     execId,
                     tenantId,
-                    (url.searchParams.get('workspace_id') || 'ws_inneranimalmedia'),
+                    (url.searchParams.get('workspace_id') || env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia'),
                     session_id || null,
                     runCommand,
                     output,

@@ -207,7 +207,7 @@ export async function syncWorkflowRunToSupabase(env, run) {
         p_workflow_key: run.workflow_key ?? '',
         p_display_name: run.display_name ?? '',
         p_tenant_id: run.tenant_id ?? '',
-        p_workspace_id: run.workspace_id || 'ws_inneranimalmedia',
+        p_workspace_id: run.workspace_id || env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia',
         p_status: status || 'unknown',
         p_started_at: secToIso(run.started_at),
         p_completed_at: secToIso(run.completed_at),

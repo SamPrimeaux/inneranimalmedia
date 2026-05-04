@@ -19,10 +19,11 @@ export async function handleGamesApi(request, url, env, _ctx, authUser) {
   // POST /api/games/rooms — create a room
   if (path === '/api/games/rooms' && method === 'POST') {
     const roomId = `room_${crypto.randomUUID().replace(/-/g,'').slice(0,12)}`;
+    const wsId = env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
     await env.DB.prepare(`
       INSERT INTO game_rooms (id, game_type, status, host_player_id, host_display_name, workspace_id)
-      VALUES (?, 'chess', 'open', ?, ?, 'ws_inneranimalmedia')
-    `).bind(roomId, authUser?.id ?? 'guest', authUser?.name ?? 'Guest').run();
+      VALUES (?, 'chess', 'open', ?, ?, ?)
+    `).bind(roomId, authUser?.id ?? 'guest', authUser?.name ?? 'Guest', wsId).run();
     return jsonResponse({ roomId });
   }
 

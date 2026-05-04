@@ -246,9 +246,10 @@ export async function runTerminalCommand(env, request, command, sessionId = null
 export async function resolveIamWorkspaceRoot(env) {
   if (!env?.DB) throw new Error('DB not configured');
 
+  const wid = env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
   const workspaceSettingsRow = await env.DB
     .prepare('SELECT settings_json FROM workspace_settings WHERE workspace_id = ?')
-    .bind('ws_inneranimalmedia')
+    .bind(wid)
     .first()
     .catch(() => null);
 

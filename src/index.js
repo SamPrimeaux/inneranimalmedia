@@ -12,7 +12,13 @@ import { handleR2Api } from './api/r2-api';
 import { handleStorageApi } from './api/storage';
 import { handleIntegrationsRequest } from './api/integrations';
 import { recordWorkerAnalyticsError, writeTelemetry } from './api/telemetry';
-import { getAuthUser, jsonResponse } from './core/auth';
+import {
+  getAuthUser,
+  jsonResponse,
+  getSession,
+  isIngestSecretAuthorized,
+  fetchAuthUserTenantId,
+} from './core/auth';
 import { handleSettingsRequest } from './api/settings';
 import { handleWorkspaceApi } from './api/workspace';
 import { handleCicdEvent } from './api/cicd-event';
@@ -401,6 +407,66 @@ export default {
       // 2. Global Request Context
       const authUser = await getAuthUser(request, env);
 
+      if (pathLower === '/api/agent/execute' && methodUpper === 'POST') {
+        const { executeCommand } = await import('./api/command-run-telemetry.js');
+        const ingestBypass = isIngestSecretAuthorized(request, env);
+        let session = null;
+        if (!ingestBypass) {
+          session = await getSession(env, request).catch(() => null);
+          if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        const body = await request.json().catch(() => ({}));
+        const userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;
+        let tenantId = body.tenantId ?? authUser?.tenant_id ?? session?.tenant_id ?? null;
+        if (!tenantId && userId) {
+          tenantId = await fetchAuthUserTenantId(env, userId).catch(() => null);
+        }
+        const sessionId = body.sessionId ?? session?.session_id ?? null;
+        const result = await executeCommand(env, ctx, { ...body, userId, tenantId, sessionId });
+        return jsonResponse(result);
+      }
+
+      if (pathLower === '/api/agent/approve' && methodUpper === 'POST') {
+        const { handleAgentApprovalDecision } = await import('./api/command-run-telemetry.js');
+        const body = await request.json().catch(() => ({}));
+        const { approval_id, decision } = body;
+        if (!approval_id || !['approved', 'denied'].includes(String(decision || '').toLowerCase())) {
+          return jsonResponse({ error: 'invalid params' }, 400);
+        }
+        const ingestBypass = isIngestSecretAuthorized(request, env);
+        let session = null;
+        if (!ingestBypass) {
+          session = await getSession(env, request).catch(() => null);
+          if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        const userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;
+        const result = await handleAgentApprovalDecision(env, ctx, {
+          approval_id,
+          decision: String(decision).toLowerCase(),
+          userId,
+        });
+        return jsonResponse(result);
+      }
+
+      if (pathLower === '/api/agent/workflow/start' && methodUpper === 'POST') {
+        const { startWorkflow } = await import('./core/workflows.js');
+        const body = await request.json().catch(() => ({}));
+        const ingestBypass = isIngestSecretAuthorized(request, env);
+        let session = null;
+        if (!ingestBypass) {
+          session = await getSession(env, request).catch(() => null);
+          if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        const userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;
+        let tenantId = body.tenantId ?? authUser?.tenant_id ?? session?.tenant_id ?? null;
+        if (!tenantId && userId) {
+          tenantId = await fetchAuthUserTenantId(env, userId).catch(() => null);
+        }
+        const sessionId = body.sessionId ?? session?.session_id ?? null;
+        const result = await startWorkflow(env, ctx, { ...body, userId, sessionId, tenantId });
+        return jsonResponse(result);
+      }
+
       // 2b. Dashboard shell: require session before HTML/SPA
       if (!pathLower.startsWith('/api/')) {
         const needsDashAuth =
@@ -734,7 +800,10 @@ export default {
               body?.type ?? 'unknown',
               JSON.stringify({
                 ...(typeof body === 'object' && body ? body : {}),
-                workspace_id: body?.workspace_id ?? 'ws_inneranimalmedia',
+                workspace_id:
+                  body?.workspace_id ??
+                  env.DEFAULT_WORKSPACE_ID ??
+                  'ws_inneranimalmedia',
               }),
             ).run().catch(() => {});
           }
@@ -755,7 +824,8 @@ export default {
           body?.type ?? 'unknown',
           JSON.stringify({
             ...(typeof body === 'object' && body ? body : {}),
-            workspace_id: body?.workspace_id ?? 'ws_inneranimalmedia',
+            workspace_id:
+              body?.workspace_id ?? env.DEFAULT_WORKSPACE_ID ?? 'ws_inneranimalmedia',
           }),
         ).run().catch(() => {});
       }

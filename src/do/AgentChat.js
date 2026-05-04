@@ -107,7 +107,10 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptyConnectPromise = null;
     this.cachedTerminalSessionId = null;
     this.terminalLineBuffers = new Map();
-    this.workspaceId = "ws_inneranimalmedia";
+    this.workspaceId =
+      env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ""
+        ? String(env.DEFAULT_WORKSPACE_ID).trim()
+        : "ws_inneranimalmedia";
     this.workspaceSettings = {};
     this.workspaceSettingsPromise = null;
     this.historySequence = 0;
@@ -213,7 +216,11 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   async ensureWorkspaceSettingsLoaded(workspaceId) {
-    const nextWorkspaceId = String(workspaceId || "").trim() || "ws_inneranimalmedia";
+    const nextWorkspaceId =
+      String(workspaceId || "").trim() ||
+      (this.env?.DEFAULT_WORKSPACE_ID != null && String(this.env.DEFAULT_WORKSPACE_ID).trim() !== ""
+        ? String(this.env.DEFAULT_WORKSPACE_ID).trim()
+        : "ws_inneranimalmedia");
     if (this.workspaceId !== nextWorkspaceId) {
       this.workspaceId = nextWorkspaceId;
       this.workspaceSettings = {};
@@ -460,9 +467,9 @@ export class AgentChatSqlV1 extends DurableObject {
         ).bind(sid, doId).run().catch(() => {});
         await this.env.DB.prepare(
           `INSERT INTO agentsam_workspace_state (workspace_id, agent_session_id, workspace_type, updated_at)
-           VALUES ('ws_inneranimalmedia', ?, 'ide', unixepoch())
+           VALUES (?, ?, 'ide', unixepoch())
            ON CONFLICT(id) DO UPDATE SET agent_session_id = excluded.agent_session_id, updated_at = excluded.updated_at`
-        ).bind(doId).run().catch(() => {});
+        ).bind(this.workspaceId, doId).run().catch(() => {});
       }
       this.sendStateToWebSocket(server, "connected");
       void this.insertTerminalHistoryRow("system", "terminal session opened", { triggeredBy: "system" });

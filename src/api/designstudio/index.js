@@ -14,22 +14,23 @@ const WORKFLOW_RUNS = 'agentsam_workflow_runs';
 const BLUEPRINTS = 'designstudio_design_blueprints';
 const MCP_WORKFLOWS = 'agentsam_mcp_workflows';
 const WORKSPACE_TABLE = 'agentsam_workspace';
-/** Matches D1 default on designstudio_design_blueprints.workspace_id */
-const DEFAULT_WS = 'ws_inneranimalmedia';
+function defaultWorkspaceId(env) {
+  return env?.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
+}
 
 async function resolveWorkspaceId(env, tenantId, explicit) {
   const ex = explicit != null && String(explicit).trim() !== '' ? String(explicit).trim() : null;
   if (ex) return ex;
-  if (!env?.DB) return DEFAULT_WS;
+  if (!env?.DB) return defaultWorkspaceId(env);
   try {
     const row = await env.DB.prepare(
       `SELECT id FROM ${WORKSPACE_TABLE} WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 1`,
     )
       .bind(tenantId)
       .first();
-    return row?.id ? String(row.id) : DEFAULT_WS;
+    return row?.id ? String(row.id) : defaultWorkspaceId(env);
   } catch (_) {
-    return DEFAULT_WS;
+    return defaultWorkspaceId(env);
   }
 }
 
@@ -493,11 +494,11 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
         );
         const text = await res.text();
         const rows = text ? JSON.parse(text) : [];
-        const ws = (url.searchParams.get('workspace_id') || '').trim() || DEFAULT_WS;
+        const ws = (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env);
         const prefix = buildCadCreationsPrefix(tenantId, ws, runId);
         return jsonResponse({ workflow_run_id: runId, r2_prefix: prefix, assets: Array.isArray(rows) ? rows : [] }, 200);
       } catch (e) {
-        const ws = (url.searchParams.get('workspace_id') || '').trim() || DEFAULT_WS;
+        const ws = (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env);
         const prefix = buildCadCreationsPrefix(tenantId, ws, runId);
         return jsonResponse(
           { workflow_run_id: runId, r2_prefix: prefix, assets: [], supabase_error: String(e?.message || e) },

@@ -575,7 +575,9 @@ async function handleSchedule(request, env) {
 
   const tenant_id = resolveTenantIdLoose(user);
   const workspace_id =
-    resolveWorkspaceIdLoose(user, env, body, url) || 'ws_inneranimalmedia';
+    resolveWorkspaceIdLoose(user, env, body, url) ||
+    env.DEFAULT_WORKSPACE_ID ||
+    'ws_inneranimalmedia';
 
   const roomId = genRoomId();
   const schedId = `msched_${roomId}`;

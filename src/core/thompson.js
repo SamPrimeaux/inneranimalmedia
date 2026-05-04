@@ -124,6 +124,51 @@ export async function updateArmsFromMetrics(env) {
   }
 }
 
+/**
+ * Incremental routing-arm feedback after a tool/command completes (Thompson/Beta update).
+ * @param {any} env
+ * @param {{ taskType: string, mode?: string, modelKey: string, provider?: string, success: boolean, costUsd?: number, durationMs?: number }} payload
+ */
+export async function recordCallOutcome(env, payload) {
+  if (!env?.DB) return;
+  const taskType = payload?.taskType != null ? String(payload.taskType).trim() : '';
+  const modelKey = payload?.modelKey != null ? String(payload.modelKey).trim() : '';
+  if (!taskType || !modelKey) return;
+  const mode = payload?.mode != null ? String(payload.mode).trim() : 'auto';
+  const success = !!payload?.success;
+  const costUsd = Number(payload?.costUsd) || 0;
+  const durationMs = Number(payload?.durationMs) || 0;
+  try {
+    if (success) {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms SET
+          success_alpha = success_alpha + 1,
+          cost_n        = cost_n + 1,
+          cost_mean     = CASE WHEN cost_n = 0 THEN ?
+                  ELSE (cost_mean * cost_n + ?) / (cost_n + 1) END,
+          latency_n     = latency_n + 1,
+          latency_mean  = CASE WHEN latency_n = 0 THEN ?
+                  ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
+          updated_at    = unixepoch()
+         WHERE task_type = ? AND mode = ? AND model_key = ?`,
+      )
+        .bind(costUsd, costUsd, durationMs, durationMs, taskType, mode, modelKey)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms SET
+          success_beta = success_beta + 1,
+          updated_at = unixepoch()
+         WHERE task_type = ? AND mode = ? AND model_key = ?`,
+      )
+        .bind(taskType, mode, modelKey)
+        .run();
+    }
+  } catch (e) {
+    console.warn('[thompson] recordCallOutcome', e?.message ?? e);
+  }
+}
+
 export async function decayRoutingArms(env) {
   if (!env?.DB) return;
   await env.DB

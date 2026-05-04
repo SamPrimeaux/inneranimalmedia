@@ -6,7 +6,6 @@
 import { jsonResponse } from '../core/auth.js';
 import { handleAgentsamWorkspacesApi } from './workspaces.js';
 
-const IAM_EXPLORER_WS_SANDBOX = 'ws_inneranimalmedia';
 
 /**
  * Main dispatcher for Workspace-related API routes (/api/workspaces/*, /api/workspace/*).
@@ -141,7 +140,7 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
     // ── /api/workspaces/current/shell ───────────────────────────────────────
     if (pathLower === '/api/workspaces/current/shell' && method === 'GET') {
         return jsonResponse({
-            workspace_id: IAM_EXPLORER_WS_SANDBOX,
+            workspace_id: env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia',
             product_name: 'IAM Explorer',
             version: 'v6'
         });

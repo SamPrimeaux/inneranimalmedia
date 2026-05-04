@@ -1,6 +1,8 @@
 /**
  * agentsam_command_run + agentsam_execution_context — async telemetry (waitUntil).
  */
+import { isFeatureEnabled } from '../core/features.js';
+import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
 
 /** Must match CHECK on agentsam_command_run.intent_category (or NULL). */
 const VALID_INTENT_CATEGORIES = [
@@ -156,8 +158,15 @@ export async function resolveAgentCommand(env, opts) {
   };
 }
 
-/** Same default as IAM_DEFAULT_WORKSPACE_ID in worker — agentsam_tool_chain.workspace_id. */
-const DEFAULT_AGENT_TOOL_CHAIN_WORKSPACE_ID = 'ws_inneranimalmedia';
+/** Resolve workspace for runtime telemetry (env override → explicit → default). */
+export function resolveRuntimeWorkspaceId(env, workspaceId) {
+  const w = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+  if (w) return w;
+  const def = env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+    ? String(env.DEFAULT_WORKSPACE_ID).trim()
+    : '';
+  return def || 'ws_inneranimalmedia';
+}
 
 /** Sequential dependency edge for tool_chain steps (D1). */
 export async function insertExecutionDependencyGraphEdge(env, tenantId, executionId, dependsOnExecutionId) {
@@ -215,7 +224,7 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     )
     .bind(
       chainId,
-      DEFAULT_AGENT_TOOL_CHAIN_WORKSPACE_ID,
+      resolveRuntimeWorkspaceId(env, opts?.workspaceId),
       agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
       toolName,
       toolStatus,
@@ -432,4 +441,370 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
       }
     })(),
   );
+}
+
+/**
+ * Link sequential plan/todo steps in execution_dependency_graph (after prior tool_chain in same plan).
+ * @param {any} env
+ * @param {string} chainId
+ * @param {string} planId
+ * @param {string} [todoId]
+ * @param {string} [tenantId]
+ */
+export async function registerExecutionDependency(env, chainId, planId, todoId, tenantId) {
+  void todoId;
+  if (!env?.DB || !chainId || !planId) return;
+  let tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
+  if (!tid) {
+    const p = await env.DB
+      .prepare(`SELECT tenant_id FROM agentsam_plans WHERE id = ? LIMIT 1`)
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    tid = p?.tenant_id != null ? String(p.tenant_id).trim() : null;
+  }
+  if (!tid) return;
+  const prev = await env.DB
+    .prepare(
+      `SELECT id FROM agentsam_tool_chain
+       WHERE plan_id = ? AND id != ?
+       ORDER BY started_at DESC
+       LIMIT 1`,
+    )
+    .bind(planId, chainId)
+    .first()
+    .catch(() => null);
+  if (prev?.id) {
+    await insertExecutionDependencyGraphEdge(env, tid, chainId, String(prev.id));
+  }
+}
+
+/**
+ * Full command execution pipeline: approval queue, Thompson model, tool_chain, Supabase event.
+ * @param {any} env
+ * @param {any} ctx
+ * @param {Record<string, unknown>} o
+ */
+export async function executeCommand(env, ctx, o) {
+  const {
+    commandId,
+    userId,
+    sessionId,
+    tenantId,
+    workspaceId,
+    args = {},
+    planId = null,
+    todoId = null,
+    taskType = null,
+    skipApprovalGate = false,
+  } = o || {};
+  if (!env?.DB || !commandId) return { ok: false, error: 'missing_params' };
+
+  const wid = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null;
+  let sessionWorkspace = null;
+  if (!wid && sessionId) {
+    const srow = await env.DB
+      .prepare(`SELECT workspace_id FROM agent_sessions WHERE id = ? LIMIT 1`)
+      .bind(sessionId)
+      .first()
+      .catch(() => null);
+    sessionWorkspace = srow?.workspace_id != null ? String(srow.workspace_id).trim() : null;
+  }
+  const resolvedWorkspace = resolveRuntimeWorkspaceId(env, wid || sessionWorkspace);
+
+  const cmd = await env.DB
+    .prepare(`SELECT * FROM agentsam_commands WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`)
+    .bind(commandId)
+    .first();
+  if (!cmd) return { ok: false, error: 'command_not_found' };
+
+  const approvalEnabled =
+    !skipApprovalGate && (await isFeatureEnabled(env, 'approval_queue', { userId, tenantId }));
+  const reqApr = Number(cmd.requires_approval) === 1;
+  const critical = String(cmd.risk_level || '').toLowerCase() === 'critical';
+  const needsApproval = approvalEnabled && (reqApr || critical);
+
+  if (needsApproval) {
+    const approvalId = 'appr_' + crypto.randomUUID().slice(0, 16);
+    await env.DB
+      .prepare(
+        `INSERT INTO agentsam_approval_queue
+        (id, tenant_id, user_id, session_id, tool_name, action_summary,
+         risk_level, input_json, expires_at, status)
+        VALUES (?,?,?,?,?,?,?,?, unixepoch() + 300, 'pending')`,
+      )
+      .bind(
+        approvalId,
+        tenantId,
+        userId,
+        sessionId,
+        cmd.mapped_command,
+        `${cmd.display_name}: ${JSON.stringify(args).slice(0, 300)}`,
+        cmd.risk_level,
+        JSON.stringify(args),
+      )
+      .run();
+    return { ok: true, status: 'pending_approval', approval_id: approvalId };
+  }
+
+  const effectiveTaskType = taskType || (cmd.task_type != null ? String(cmd.task_type) : null) || 'tool_use';
+  const arm = await thompsonSample(env, effectiveTaskType, 'agent').catch(() => null);
+  const modelKey = arm?.model_key || 'gpt-4.1-mini';
+  const provider = arm?.provider || 'openai';
+
+  const chainId = 'atc_' + crypto.randomUUID().slice(0, 16);
+
+  await env.DB
+    .prepare(
+      `INSERT INTO agentsam_tool_chain
+      (id, plan_id, todo_id, workspace_id, agent_session_id, tool_name, tool_id,
+       tool_status, input_json, started_at, requires_approval, depth)
+      VALUES (?,?,?,?,?,?,?,?,?, unixepoch(), ?, ?)`,
+    )
+    .bind(
+      chainId,
+      planId,
+      todoId,
+      resolvedWorkspace,
+      sessionId || null,
+      cmd.mapped_command,
+      null,
+      'running',
+      JSON.stringify(args),
+      0,
+      0,
+    )
+    .run();
+
+  if (planId && todoId) {
+    await registerExecutionDependency(env, chainId, planId, todoId, tenantId).catch(() => {});
+  }
+
+  ctx.waitUntil(
+    env.DB
+      .prepare(
+        `UPDATE agentsam_commands SET
+        use_count = COALESCE(use_count, 0) + 1,
+        last_used_at = datetime('now'),
+        updated_at = datetime('now')
+      WHERE id = ?`,
+      )
+      .bind(commandId)
+      .run()
+      .catch(() => {}),
+  );
+
+  const sbUrl = env.SUPABASE_URL;
+  const sbKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (sbUrl && sbKey) {
+    ctx.waitUntil(
+      fetch(`${sbUrl}/rest/v1/agentsam_tool_call_events`, {
+        method: 'POST',
+        headers: {
+          apikey: sbKey,
+          Authorization: `Bearer ${sbKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify({
+          tool_name: cmd.mapped_command,
+          tool_category: cmd.category,
+          session_id: sessionId,
+          workspace_id: resolvedWorkspace,
+          tenant_id: tenantId,
+          provider,
+          model_key: modelKey,
+          success: true,
+          duration_ms: 0,
+          created_at: new Date().toISOString(),
+        }),
+      }).catch(() => {}),
+    );
+  }
+
+  return {
+    ok: true,
+    status: 'running',
+    chain_id: chainId,
+    model_key: modelKey,
+    provider,
+    task_type: effectiveTaskType,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {any} ctx
+ * @param {Record<string, unknown>} o
+ */
+export async function completeCommand(env, ctx, o) {
+  const {
+    chainId,
+    commandId,
+    success,
+    durationMs,
+    costUsd = 0,
+    inputTokens = 0,
+    outputTokens = 0,
+    outputSummary = null,
+    errorMessage = null,
+    taskType = 'tool_use',
+    modelKey = null,
+    provider = null,
+  } = o || {};
+  if (!env?.DB || !chainId) return;
+
+  const status = success ? 'completed' : 'failed';
+
+  await env.DB
+    .prepare(
+      `UPDATE agentsam_tool_chain SET
+      tool_status = ?, completed_at = unixepoch(),
+      duration_ms = ?, cost_usd = ?,
+      input_tokens = ?, output_tokens = ?,
+      output_summary = ?, error_message = ?
+    WHERE id = ?`,
+    )
+    .bind(
+      status,
+      durationMs,
+      costUsd,
+      inputTokens,
+      outputTokens,
+      outputSummary,
+      errorMessage,
+      chainId,
+    )
+    .run()
+    .catch(() => {});
+
+  if (commandId) {
+    ctx.waitUntil(
+      (async () => {
+        try {
+          if (success) {
+            await env.DB
+              .prepare(
+                `UPDATE agentsam_commands SET
+                success_count = COALESCE(success_count, 0) + 1,
+                avg_duration_ms = (
+                  COALESCE(avg_duration_ms, 0) * COALESCE(success_count, 0) + ?
+                ) / (COALESCE(success_count, 0) + 1),
+                updated_at = datetime('now')
+              WHERE id = ?`,
+              )
+              .bind(durationMs, commandId)
+              .run();
+          } else {
+            await env.DB
+              .prepare(
+                `UPDATE agentsam_commands SET
+                failure_count = COALESCE(failure_count, 0) + 1,
+                updated_at = datetime('now')
+              WHERE id = ?`,
+              )
+              .bind(commandId)
+              .run();
+          }
+        } catch {
+          await env.DB
+            .prepare(`UPDATE agentsam_commands SET updated_at = datetime('now') WHERE id = ?`)
+            .bind(commandId)
+            .run()
+            .catch(() => {});
+        }
+      })(),
+    );
+  }
+
+  if (modelKey && taskType) {
+    ctx.waitUntil(
+      recordCallOutcome(env, {
+        taskType,
+        mode: 'agent',
+        modelKey,
+        provider,
+        success,
+        costUsd,
+        durationMs,
+      }),
+    );
+  }
+}
+
+/**
+ * Approve/deny queued action; on approve, re-run through executeCommand when a matching agentsam_commands row exists.
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ approval_id: string, decision: string, userId?: string | null }} opts
+ */
+export async function handleAgentApprovalDecision(env, ctx, opts) {
+  const approval_id = opts?.approval_id != null ? String(opts.approval_id).trim() : '';
+  const decision = opts?.decision != null ? String(opts.decision).trim().toLowerCase() : '';
+  const userId = opts?.userId != null ? String(opts.userId).trim() : '';
+  if (!env?.DB || !approval_id || !['approved', 'denied'].includes(decision)) {
+    return { ok: false, error: 'invalid_params' };
+  }
+
+  const newStatus = decision === 'approved' ? 'approved' : 'denied';
+  const up = await env.DB
+    .prepare(
+      `UPDATE agentsam_approval_queue
+     SET status = ?, approved_by = ?, decided_at = unixepoch()
+     WHERE id = ? AND status = 'pending'`,
+    )
+    .bind(newStatus, userId || null, approval_id)
+    .run()
+    .catch(() => null);
+
+  const changes = up?.meta?.changes ?? up?.meta?.rows_written ?? 0;
+  if (!changes) return { ok: false, error: 'not_found_or_not_pending' };
+
+  if (decision !== 'approved') return { ok: true, decision };
+
+  const row = await env.DB
+    .prepare(`SELECT * FROM agentsam_approval_queue WHERE id = ? LIMIT 1`)
+    .bind(approval_id)
+    .first()
+    .catch(() => null);
+  if (!row) return { ok: true, decision: 'approved' };
+
+  const toolName = row.tool_name != null ? String(row.tool_name) : '';
+  let args = {};
+  try {
+    args = JSON.parse(row.input_json || '{}');
+  } catch {
+    args = {};
+  }
+
+  const cmd =
+    (await env.DB
+      .prepare(
+        `SELECT id FROM agentsam_commands WHERE mapped_command = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      )
+      .bind(toolName)
+      .first()
+      .catch(() => null)) ||
+    (await env.DB
+      .prepare(`SELECT id FROM agentsam_commands WHERE slug = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`)
+      .bind(toolName)
+      .first()
+      .catch(() => null));
+
+  if (!cmd?.id) {
+    return { ok: true, decision: 'approved', rerun: 'skipped_no_command' };
+  }
+
+  const execOut = await executeCommand(env, ctx, {
+    commandId: cmd.id,
+    userId: row.user_id,
+    sessionId: row.session_id,
+    tenantId: row.tenant_id,
+    workspaceId: null,
+    args,
+    taskType: 'tool_use',
+    skipApprovalGate: true,
+  });
+
+  return { ok: true, decision: 'approved', execute: execOut };
 }

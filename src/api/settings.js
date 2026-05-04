@@ -465,7 +465,12 @@ export async function handleSettingsRequest(request, env, ctx) {
 
     if (method === 'GET') {
       if (!env.DB) {
-        return jsonResponse({ data: CORE_WORKSPACES_DATA, current: 'ws_inneranimalmedia', workspaceThemes: {}, workspaces: {} });
+        return jsonResponse({
+          data: CORE_WORKSPACES_DATA,
+          current: env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia',
+          workspaceThemes: {},
+          workspaces: {},
+        });
       }
       try {
         const [wsRows, rows, us] = await Promise.all([
@@ -518,10 +523,14 @@ export async function handleSettingsRequest(request, env, ctx) {
           if (r.theme != null && r.theme.trim()) workspaceThemes[r.workspace_id] = r.theme.trim();
         }
         
-        const current = us?.default_workspace_id || 'ws_inneranimalmedia';
+        const current = us?.default_workspace_id || env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
         return jsonResponse({ data: wsRows.length > 0 ? wsRows : CORE_WORKSPACES_DATA, current, workspaceThemes, workspaces });
       } catch (e) {
-        return jsonResponse({ data: CORE_WORKSPACES_DATA, current: 'ws_inneranimalmedia', error: e?.message }, 500);
+        return jsonResponse({
+          data: CORE_WORKSPACES_DATA,
+          current: env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia',
+          error: e?.message,
+        }, 500);
       }
     }
 

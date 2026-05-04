@@ -16,14 +16,15 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
 
     const { output, command: runCommand } = await runTerminalCommand(env, request, command, session_id, ctx);
     const execId = crypto.randomUUID();
-    
+    const wid = env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
+
     // Audit execution to D1
     try {
       await env.DB.prepare(
         `INSERT INTO agentsam_command_run 
          (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
-         VALUES (?, 'system', 'ws_inneranimalmedia', ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
-      ).bind(execId, session_id || null, runCommand, output).run();
+         VALUES (?, 'system', ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
+      ).bind(execId, wid, session_id || null, runCommand, output).run();
     } catch (_) {}
 
     return { output, command: runCommand, execution_id: execId };

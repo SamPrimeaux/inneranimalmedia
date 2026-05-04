@@ -52,7 +52,13 @@ const TENANT_KNOWLEDGE_PLATFORM = 'tenant_knowledge_platform';
 const TENANT_SHINSHU = 'tenant_jake_waalk';
 
 /** Owner default when session has no workspace and D1 has no bootstrap row. */
-const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
+function iamDefaultWorkspaceId(env) {
+  const d =
+    env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+      ? String(env.DEFAULT_WORKSPACE_ID).trim()
+      : '';
+  return d || 'ws_inneranimalmedia';
+}
 
 /**
  * Resolve workspace_id from agentsam_bootstrap (cached per request object).
@@ -251,7 +257,7 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
 
 async function resolveBootstrapWorkspaceIdForAgentApi(env, userId, cache) {
   const uid = userId != null ? String(userId).trim() : '';
-  if (!uid || !env?.DB) return IAM_DEFAULT_WORKSPACE_ID;
+  if (!uid || !env?.DB) return iamDefaultWorkspaceId(env);
   if (cache && cache.__iamBootWs != null) return cache.__iamBootWs;
   try {
     const row = await env.DB.prepare(
@@ -264,11 +270,11 @@ async function resolveBootstrapWorkspaceIdForAgentApi(env, userId, cache) {
     const ws =
       row?.workspace_id != null && String(row.workspace_id).trim() !== ''
         ? String(row.workspace_id).trim()
-        : IAM_DEFAULT_WORKSPACE_ID;
+        : iamDefaultWorkspaceId(env);
     if (cache && typeof cache === 'object') cache.__iamBootWs = ws;
     return ws;
   } catch {
-    return IAM_DEFAULT_WORKSPACE_ID;
+    return iamDefaultWorkspaceId(env);
   }
 }
 
@@ -823,6 +829,20 @@ async function createApprovalRequest(env, opts) {
   return proposalId;
 }
 
+/** Pending row in agentsam_approval_queue blocks duplicate execution until approved/denied. */
+async function checkApprovalGate(env, userId, toolName) {
+  if (!env?.DB || !userId || !toolName) return null;
+  return env.DB.prepare(
+    `SELECT id, status, expires_at FROM agentsam_approval_queue
+     WHERE user_id = ? AND tool_name = ? AND status = 'pending'
+       AND expires_at > unixepoch()
+     ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(userId, toolName)
+    .first()
+    .catch(() => null);
+}
+
 async function auditToolDecision(env, opts) {
   if (!env.DB) return;
   try {
@@ -864,7 +884,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
          'agent_chat_sse',?,unixepoch())
     `).bind(
       tenantId ?? 'tenant_sam_primeaux',
-      workspaceId ?? 'ws_inneranimalmedia',
+      workspaceId ?? iamDefaultWorkspaceId(env),
       userId ?? null,
       conversationId ?? null,
       resolvedProvider ?? 'unknown',
@@ -912,6 +932,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         reasoningEffort: modeConfig?.gate_reasoning_effort || null,
         temperature,
         userId,
+        tenantId,
         taskType: routingTaskType || 'chat',
         mode: mode || 'auto',
       });
@@ -1127,6 +1148,20 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Tool not available in ${mode} mode: ${validation.reason}` });
         continue;
       }
+      const queuePending = userId ? await checkApprovalGate(env, userId, call.name) : null;
+      if (queuePending?.id) {
+        emit('approval_required', {
+          approval_id: queuePending.id,
+          tool_name: call.name,
+          message: 'This tool already has a pending approval.',
+        });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: `Awaiting approval (approval_id: ${queuePending.id}).`,
+        });
+        continue;
+      }
       if (needsApproval(validation, modeConfig, userPolicy)) {
         const proposalId = await createApprovalRequest(env, { tenantId, sessionId, userId, toolName: call.name, toolArgs: call.input, toolCallId: call.id, riskLevel: validation.riskLevel, rationale: `Agent requested ${call.name} (${validation.riskLevel} risk)` });
         notifySam(env, { subject: `Approval required: ${call.name}`, body: `Tool: ${call.name}\nRisk: ${validation.riskLevel}\nArgs: ${JSON.stringify(call.input||{}).slice(0,500)}\n\nApprove: ${(env.IAM_ORIGIN||'').replace(/\/$/,'')}/dashboard/overview?proposal=${proposalId}`, category: 'approval' }).catch(() => {});
@@ -1285,7 +1320,7 @@ export async function agentChatSseHandler(env, request, ctx, session) {
   }
   const userId = session?.user_id || null;
   const wsCache = {};
-  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, userId, wsCache) : IAM_DEFAULT_WORKSPACE_ID;
+  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, userId, wsCache) : iamDefaultWorkspaceId(env);
   const workspaceId =
     String(body.workspace_id || '').trim() ||
     String(session?.workspace_id || '').trim() ||
@@ -2391,7 +2426,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     }
 
     if (method === 'POST') {
-      const isAgentsamWs = /^ws_/i.test(wsId) || wsId === IAM_DEFAULT_WORKSPACE_ID;
+      const isAgentsamWs = /^ws_/i.test(wsId) || wsId === iamDefaultWorkspaceId(env);
       if (!isAgentsamWs) {
         return jsonResponse(
           { error: 'Use PUT for conversation workspace snapshots; POST merge is for ws_* workspace ids.' },
