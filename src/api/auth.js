@@ -710,6 +710,84 @@ function logSupabaseLoginDebug(payload) {
   } catch (_) {}
 }
 
+/** Decode Supabase access_token JWT payload (no signature verify — already exchanged with Auth server). */
+function parseSupabaseAccessTokenPayload(accessToken) {
+  const raw = String(accessToken || '').trim();
+  if (!raw) return null;
+  const parts = raw.split('.');
+  if (parts.length < 2) return null;
+  let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  try {
+    return JSON.parse(atob(b64));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve canonical IAM row by Supabase Auth user id (JWT `sub`). No email lookup.
+ * Tries auth_users.supabase_user_id, then users.supabase_user_id → auth_users.id.
+ */
+async function resolveIamAuthUserForSupabaseSubject(env, supabaseUserId) {
+  if (!env?.DB || !supabaseUserId) return null;
+
+  const fetchAuthRowById = async (id) => {
+    if (!id) return null;
+    try {
+      return await env.DB.prepare(
+        `SELECT id, email, name, tenant_id, supabase_user_id FROM auth_users WHERE id = ? LIMIT 1`,
+      ).bind(id).first();
+    } catch {
+      try {
+        return await env.DB.prepare(
+          `SELECT id, email, name, tenant_id FROM auth_users WHERE id = ? LIMIT 1`,
+        ).bind(id).first();
+      } catch {
+        return null;
+      }
+    }
+  };
+
+  try {
+    const direct = await env.DB.prepare(
+      `SELECT id, email, name, tenant_id, supabase_user_id FROM auth_users WHERE supabase_user_id = ? LIMIT 1`,
+    ).bind(supabaseUserId).first();
+    if (direct?.id) {
+      const stored = direct.supabase_user_id != null ? String(direct.supabase_user_id).trim() : '';
+      if (stored && stored !== supabaseUserId) {
+        console.error('[supabase_oauth] JWT sub mismatch vs auth_users.supabase_user_id');
+        return null;
+      }
+      return { authRow: direct, needsSupabaseIdBackfill: false };
+    }
+  } catch (e) {
+    console.warn('[supabase_oauth] auth_users.supabase_user_id column/query:', e?.message ?? e);
+  }
+
+  try {
+    const u = await env.DB.prepare(
+      `SELECT id, auth_id, email, supabase_user_id FROM users WHERE supabase_user_id = ? LIMIT 1`,
+    ).bind(supabaseUserId).first();
+    if (!u) return null;
+    const linksId = u.auth_id != null && String(u.auth_id).trim() !== '' ? String(u.auth_id).trim() : null;
+    const candidateId =
+      linksId || (u.id != null && String(u.id).startsWith('au_') ? String(u.id).trim() : null);
+    if (!candidateId) return null;
+    const authRow = await fetchAuthRowById(candidateId);
+    if (!authRow?.id) return null;
+    const stored = authRow.supabase_user_id != null ? String(authRow.supabase_user_id).trim() : '';
+    if (stored && stored !== supabaseUserId) {
+      console.error('[supabase_oauth] JWT sub mismatch vs linked auth_users.supabase_user_id');
+      return null;
+    }
+    return { authRow, needsSupabaseIdBackfill: !stored };
+  } catch (e) {
+    console.warn('[supabase_oauth] users.supabase_user_id lookup:', e?.message ?? e);
+    return null;
+  }
+}
+
 function base64url(buffer) {
   const bytes = new Uint8Array(buffer);
   let str = '';
@@ -925,7 +1003,17 @@ export async function handleSupabaseOAuthCallback(request, env) {
 
   const { access_token, refresh_token, expires_in } = await tokenRes.json();
 
-  let sbUser;
+  const jwtPayload = parseSupabaseAccessTokenPayload(access_token);
+  const supabaseUserId =
+    jwtPayload && typeof jwtPayload.sub === 'string' && jwtPayload.sub.trim()
+      ? jwtPayload.sub.trim()
+      : null;
+  if (!supabaseUserId) {
+    console.error('[supabase_oauth] access token JWT missing sub claim');
+    return redirectToAuthLogin(request, 'error=invalid_token');
+  }
+
+  let sbUser = null;
   const uiRes = await fetch(userinfoUrl, {
     headers: { Authorization: `Bearer ${access_token}` },
   });
@@ -935,36 +1023,64 @@ export async function handleSupabaseOAuthCallback(request, env) {
     const fallbackRes = await fetch(userFallbackUrl, {
       headers: { Authorization: `Bearer ${access_token}` },
     });
-    if (!fallbackRes.ok) return redirectToAuthLogin(request, 'error=userinfo_failed');
-    sbUser = await fallbackRes.json();
+    if (fallbackRes.ok) {
+      sbUser = await fallbackRes.json();
+    }
   }
 
-  const emailRaw = sbUser.email;
-  if (!emailRaw) return redirectToAuthLogin(request, 'error=no_email');
-  const oauthEmail = String(emailRaw).toLowerCase().trim();
-  const providerSubject = sbUser.sub || sbUser.id;
-  const name = sbUser.name || sbUser.user_metadata?.full_name || oauthEmail.split('@')[0];
+  const userinfoSub =
+    sbUser && (sbUser.sub != null || sbUser.id != null)
+      ? String(sbUser.sub ?? sbUser.id).trim()
+      : '';
+  if (userinfoSub && userinfoSub !== supabaseUserId) {
+    console.error('[supabase_oauth] JWT sub vs userinfo subject mismatch', {
+      jwt_sub_tail: supabaseUserId.slice(-8),
+      userinfo_sub_tail: userinfoSub.slice(-8),
+    });
+    return redirectToAuthLogin(request, 'error=identity_mismatch');
+  }
 
-  const existing = await env.DB.prepare(
-    `SELECT id, email, name, tenant_id FROM auth_users WHERE LOWER(email) = ? LIMIT 1`,
-  ).bind(oauthEmail).first();
+  const jwtEmail =
+    jwtPayload && typeof jwtPayload.email === 'string' ? jwtPayload.email.trim() : '';
+  const profileEmail =
+    sbUser?.email != null ? String(sbUser.email).toLowerCase().trim() : '';
+  const emailRaw = profileEmail || jwtEmail;
+  if (!emailRaw) {
+    console.error('[supabase_oauth] no email on userinfo or JWT');
+    return redirectToAuthLogin(request, 'error=no_email');
+  }
+  const oauthEmail = emailRaw.toLowerCase().trim();
+  const name =
+    (sbUser && (sbUser.name || sbUser.user_metadata?.full_name)) ||
+    oauthEmail.split('@')[0];
 
-  const authUserId = existing?.id ?? `au_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const resolved = await resolveIamAuthUserForSupabaseSubject(env, supabaseUserId);
+  if (!resolved?.authRow?.id) {
+    console.error('[supabase_oauth] no IAM user for supabase_user_id', supabaseUserId);
+    return redirectToAuthLogin(request, 'error=supabase_user_not_linked');
+  }
+
+  const authRow = resolved.authRow;
+  const authUserId = String(authRow.id).trim();
 
   try {
-    if (!existing?.id) {
-      await env.DB.prepare(
-        `INSERT INTO auth_users (id, email, name, password_hash, salt, created_at, updated_at)
-         VALUES (?, ?, ?, 'oauth', 'oauth', datetime('now'), datetime('now'))`,
-      ).bind(authUserId, oauthEmail, name).run();
-    } else if (!existing.name || !String(existing.name).trim()) {
+    if (!authRow.name || !String(authRow.name).trim()) {
       await env.DB.prepare(
         `UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`,
       ).bind(name, authUserId).run();
     }
   } catch (e) {
-    console.warn('[Supabase OAuth] auth_users upsert:', e?.message ?? e);
-    return redirectToAuthLogin(request, 'error=provision_failed');
+    console.warn('[Supabase OAuth] auth_users name update:', e?.message ?? e);
+  }
+
+  if (resolved.needsSupabaseIdBackfill) {
+    try {
+      await env.DB.prepare(
+        `UPDATE auth_users SET supabase_user_id = ?, updated_at = datetime('now') WHERE id = ?`,
+      ).bind(supabaseUserId, authUserId).run();
+    } catch (e) {
+      console.warn('[supabase_oauth] auth_users supabase_user_id backfill:', e?.message ?? e);
+    }
   }
 
   await provisionNewUser(env, { email: oauthEmail, name, authUserId });
@@ -976,7 +1092,7 @@ export async function handleSupabaseOAuthCallback(request, env) {
     VALUES (?, 'supabase', ?, ?, ?, ?, 'openid profile email')
   `).bind(
     authUserId,
-    providerSubject,
+    supabaseUserId,
     access_token,
     refresh_token || null,
     expiresAt,
@@ -994,6 +1110,13 @@ export async function handleSupabaseOAuthCallback(request, env) {
     });
     return redirectToAuthLogin(request, 'error=session_failed');
   }
+
+  console.log('[supabase_oauth] session created', {
+    supabase_user_id: supabaseUserId,
+    iam_user_id: authUserId,
+    email_domain: oauthEmail.includes('@') ? oauthEmail.split('@')[1] : '',
+    tenant_id: authRow.tenant_id ?? null,
+  });
 
   const originBase = resolvePublicOriginForOAuth(request, env);
   const destPath = nextAfterLogin || DASHBOARD_AFTER_LOGIN_PATH;
