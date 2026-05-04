@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useEditor } from '../src/EditorContext';
 import type { RecentFileEntry } from '../src/ideWorkspace';
+import { usePlanTasksRealtime } from '../src/hooks/usePlanTasksRealtime';
 
 interface WorkspaceDashboardProps {
   onOpenFolder: () => void;
@@ -34,6 +35,8 @@ interface WorkspaceDashboardProps {
   onOpenEditor?: () => void;
   /** From `agentsam_workspace_state.state_json.next_tasks` */
   workspacePlanTasks?: unknown[];
+  /** When set, next tasks are loaded from Supabase Realtime (`agentsam_plan_tasks`) instead of workspace state. */
+  activePlanId?: string | null;
   workspaceActivity?: unknown[];
   workspaceVerificationCommands?: unknown[];
   activeAgentSlug?: string | null;
@@ -74,10 +77,14 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   onSendMessage,
   onOpenEditor,
   workspacePlanTasks = [],
+  activePlanId = null,
   workspaceActivity = [],
   workspaceVerificationCommands = [],
   activeAgentSlug = null,
 }) => {
+  const { tasks: realtimePlanTasks } = usePlanTasksRealtime(activePlanId ?? null);
+  const displayPlanTasks: unknown[] = activePlanId ? (realtimePlanTasks as unknown[]) : workspacePlanTasks;
+
   const [chatInput, setChatInput] = useState('');
   const [models, setModels] = useState<AIModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
@@ -349,7 +356,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         </div>
       </div>
 
-      {(workspacePlanTasks.length > 0 || workspaceActivity.length > 0 || workspaceVerificationCommands.length > 0 || activeAgentSlug) ? (
+      {(displayPlanTasks.length > 0 || activePlanId || workspaceActivity.length > 0 || workspaceVerificationCommands.length > 0 || activeAgentSlug) ? (
         <div className="w-full max-w-3xl mb-10 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           {activeAgentSlug ? (
             <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 md:col-span-2">
@@ -357,16 +364,25 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
               <p className="text-[13px] font-mono text-[var(--solar-cyan)]">{activeAgentSlug}</p>
             </div>
           ) : null}
-          {workspacePlanTasks.length > 0 ? (
+          {displayPlanTasks.length > 0 ? (
             <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Next tasks</p>
               <ul className="space-y-2 text-[12px] text-[var(--text-main)]">
-                {workspacePlanTasks.slice(0, 12).map((t, i) => (
-                  <li key={i} className="flex gap-2">
+                {displayPlanTasks.slice(0, 12).map((t, i) => {
+                  const rowKey =
+                    t != null &&
+                    typeof t === 'object' &&
+                    'id' in t &&
+                    typeof (t as { id?: unknown }).id === 'string'
+                      ? (t as { id: string }).id
+                      : i;
+                  return (
+                  <li key={rowKey} className="flex gap-2">
                     <Target size={12} className="mt-0.5 shrink-0 text-[var(--solar-yellow)]" />
                     <span className="leading-snug">{summarizeUnknownTask(t)}</span>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           ) : null}

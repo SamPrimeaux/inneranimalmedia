@@ -2181,6 +2181,16 @@ const App: React.FC = () => {
                             onSendMessage={handleSendMessage}
                             onOpenEditor={focusCodeEditorFromChat}
                             workspacePlanTasks={Array.isArray(workspaceSamState?.next_tasks) ? (workspaceSamState!.next_tasks as unknown[]) : []}
+                            activePlanId={(() => {
+                              const st = workspaceSamState;
+                              if (!st || typeof st !== 'object') return null;
+                              const row = st as Record<string, unknown>;
+                              const a = row.active_plan_id;
+                              const b = row.activePlanId;
+                              if (typeof a === 'string' && a.trim()) return a.trim();
+                              if (typeof b === 'string' && b.trim()) return b.trim();
+                              return null;
+                            })()}
                             workspaceActivity={Array.isArray(workspaceSamState?.recent_adjustments) ? (workspaceSamState!.recent_adjustments as unknown[]) : []}
                             workspaceVerificationCommands={Array.isArray(workspaceSamState?.verification_commands) ? (workspaceSamState!.verification_commands as unknown[]) : []}
                             activeAgentSlug={typeof workspaceSamState?.active_agent_slug === 'string' ? workspaceSamState.active_agent_slug : null}
