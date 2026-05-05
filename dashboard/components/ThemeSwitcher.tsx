@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { applyCmsThemeToDocument, type CmsActiveThemePayload } from '../src/applyCmsTheme';
 
 interface CmsTheme {
   id: string;
@@ -14,15 +15,6 @@ interface ThemeSwitcherProps {
   workspaceId?: string | null;
 }
 
-const COLLAB_WORKSPACE_ID = 'global';
-
-function applyTheme(vars: Record<string, string>): void {
-  const root = document.documentElement;
-  Object.entries(vars).forEach(([k, v]) => {
-    root.style.setProperty(k, v);
-  });
-}
-
 function normalizeConfigRaw(theme: CmsTheme): string {
   const c = theme.config as unknown;
   if (typeof c === 'string') return c;
@@ -36,9 +28,9 @@ function normalizeConfigRaw(theme: CmsTheme): string {
   return '{}';
 }
 
-async function selectTheme(theme: CmsTheme): Promise<void> {
-  const preview = await fetch('/api/themes/active', { credentials: 'include' })
-    .then((r) => r.json())
+async function selectTheme(theme: CmsTheme, workspaceId: string | null | undefined): Promise<void> {
+  const preview = await fetch('/api/themes/active', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? r.json() : null))
     .catch(() => null);
 
   const raw = normalizeConfigRaw(theme);
@@ -59,24 +51,29 @@ async function selectTheme(theme: CmsTheme): Promise<void> {
     /* optimistic apply skipped */
   }
 
+  const ws = workspaceId?.trim();
+  const body: Record<string, unknown> = {
+    theme_id: theme.id,
+    scope: 'workspace',
+  };
+  if (ws) body.workspace_id = ws;
+
   const res = await fetch('/api/themes/apply', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ theme_id: theme.id }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok && preview?.data && typeof preview.data === 'object') {
-    applyTheme(preview.data as Record<string, string>);
+    applyCmsThemeToDocument(preview as CmsActiveThemePayload);
     return;
   }
 
-  await fetch(`/api/collab/canvas/theme?workspace_id=${COLLAB_WORKSPACE_ID}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ theme_slug: theme.slug }),
-  }).catch(() => {});
+  const payload = (await res.json().catch(() => null)) as CmsActiveThemePayload | null;
+  if (payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object') {
+    applyCmsThemeToDocument(payload);
+  }
 }
 
 export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({ workspaceId }) => {
@@ -107,8 +104,8 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({ workspaceId }) => 
       })
       .catch(console.error);
 
-    fetch(`/api/themes/active${qs}`)
-      .then((res) => res.json())
+    fetch(`/api/themes/active${qs}`, { credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
       .then((payload: { slug?: string }) => {
         if (payload?.slug) setActiveSlug(String(payload.slug));
       })
@@ -124,7 +121,7 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({ workspaceId }) => 
             key={theme.id}
             type="button"
             onClick={() => {
-              void selectTheme(theme).then(() => {
+              void selectTheme(theme, workspaceId ?? null).then(() => {
                 setActiveSlug(theme.slug);
               });
             }}

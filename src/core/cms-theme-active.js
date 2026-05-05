@@ -144,12 +144,16 @@ export function buildActiveThemeApiPayload(row) {
         ? cfg.is_dark !== 0
         : isDark;
 
-  const monacoFromRow =
+  const slugSafe = String(row.slug || "theme").trim() || "theme";
+  /** Align with D1 `cms_themes.monaco_theme`, R2 monaco.json id, and IAM_COLLAB — `{slug}-monaco`, never `custom:` or built-ins. */
+  const BUILTIN_MONACO = new Set(["vs", "vs-dark", "hc-black", "hc-light"]);
+  let monacoEditorThemeId =
     row.monaco_theme != null && String(row.monaco_theme).trim() !== ""
       ? String(row.monaco_theme).trim()
-      : null;
-  const monacoFromCfg =
-    cfg.monaco != null && String(cfg.monaco).trim() !== "" ? String(cfg.monaco).trim() : null;
+      : "";
+  if (!monacoEditorThemeId || BUILTIN_MONACO.has(monacoEditorThemeId)) {
+    monacoEditorThemeId = `${slugSafe}-monaco`;
+  }
 
   /** @type {Record<string, unknown>} */
   const out = {
@@ -164,7 +168,7 @@ export function buildActiveThemeApiPayload(row) {
     css_url: row.css_url || null,
     compiled_css_hash: row.compiled_css_hash ?? null,
     theme_channel: "live",
-    monaco_theme: monacoFromRow || monacoFromCfg,
+    monaco_theme: monacoEditorThemeId,
     monaco_bg: row.monaco_bg ?? null,
     monaco_theme_data:
       row.monaco_theme_data != null && String(row.monaco_theme_data).trim() !== ""

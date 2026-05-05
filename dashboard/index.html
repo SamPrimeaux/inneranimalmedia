@@ -5,8 +5,28 @@
     <meta charset="UTF-8" />
     <script>
       (function () {
-        var K_CSS = 'inneranimalmedia_theme_css';
-        var K_DARK = 'inneranimalmedia_theme_is_dark';
+        var LAST_WS = 'inneranimalmedia_theme_last_ws';
+        var lastWs = localStorage.getItem(LAST_WS);
+        var K_CSS =
+          lastWs && lastWs.trim()
+            ? 'inneranimalmedia_theme_css:' + lastWs.trim()
+            : 'inneranimalmedia_theme_css';
+        var K_DARK =
+          lastWs && lastWs.trim()
+            ? 'inneranimalmedia_theme_is_dark:' + lastWs.trim()
+            : 'inneranimalmedia_theme_is_dark';
+        var K_SLUG =
+          lastWs && lastWs.trim()
+            ? 'inneranimalmedia_theme_slug:' + lastWs.trim()
+            : 'inneranimalmedia_theme_slug';
+        var K_MONACO =
+          lastWs && lastWs.trim()
+            ? 'inneranimalmedia_theme_monaco:' + lastWs.trim()
+            : 'inneranimalmedia_theme_monaco';
+        var K_MONACO_DATA =
+          lastWs && lastWs.trim()
+            ? 'inneranimalmedia_theme_monaco_data:' + lastWs.trim()
+            : 'inneranimalmedia_theme_monaco_data';
         var L_CSS = 'mcad_theme_css';
         var L_DARK = 'mcad_theme_is_dark';
         try {
@@ -35,8 +55,15 @@
             if (vars[k] != null) root.style.setProperty(k, String(vars[k]));
           });
           root.setAttribute('data-dashboard-theme-ready', 'true');
-          var slug = localStorage.getItem('inneranimalmedia_theme_slug');
+          var slug = localStorage.getItem(K_SLUG);
           if (slug) root.setAttribute('data-cms-theme', slug);
+          var mt = localStorage.getItem(K_MONACO);
+          if (!mt && slug && String(slug).trim()) {
+            mt = String(slug).trim() + '-monaco';
+          }
+          if (mt) root.setAttribute('data-monaco-theme', mt);
+          var md = localStorage.getItem(K_MONACO_DATA);
+          if (md) root.setAttribute('data-monaco-theme-data', md);
         } catch (e) {}
       })();
     </script>

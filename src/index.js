@@ -576,6 +576,33 @@ export default {
         }
       }
 
+      // 2c. Collab canvas API → IAM_COLLAB DO (`canvas:{workspaceId}`) — requires workspace_id query param
+      if (/^\/api\/collab\/canvas/i.test(pathLower)) {
+        if (!env.IAM_COLLAB) {
+          return jsonResponse({ ok: false, reason: 'iam_collab_binding_missing' }, 200);
+        }
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const collabWs =
+          url.searchParams.get('workspace_id')?.trim() ||
+          url.searchParams.get('workspace')?.trim() ||
+          '';
+        if (!collabWs) return jsonResponse({ error: 'workspace_id required' }, 400);
+        const { userCanAccessWorkspace } = await import('./core/cms-theme-resolve.js');
+        const allowed = await userCanAccessWorkspace(env, authUser, collabWs);
+        if (!allowed) return jsonResponse({ error: 'Forbidden' }, 403);
+        const stub = env.IAM_COLLAB.get(env.IAM_COLLAB.idFromName(`canvas:${collabWs}`));
+        const internalPath = path.replace(/^\/api\/collab\/canvas/i, '/canvas');
+        const internalUrl = new URL(`https://collab.internal${internalPath}`);
+        internalUrl.search = url.search;
+        return stub.fetch(
+          new Request(internalUrl.toString(), {
+            method: request.method,
+            headers: request.headers,
+            body: request.body,
+          }),
+        );
+      }
+
       // 3. Domain dispatch — single source: src/core/production-dispatch.js (re-exported from router.js)
       const domainRes = await dispatchProductionDomainRoutes({
         request,

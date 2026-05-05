@@ -36,12 +36,10 @@ import { SHELL_VERSION } from './src/shellVersion';
 import {
   fetchAndApplyActiveCmsTheme,
   applyCachedCmsThemeFallback,
+  applyCachedCmsThemeFallbackForWorkspace,
   migrateLegacyThemeLocalStorage,
   applyCmsThemeToDocument,
-  markDashboardThemeApplied,
   logDashboardThemeDebug,
-  INNERANIMALMEDIA_LS_THEME_CSS,
-  INNERANIMALMEDIA_LS_THEME_SLUG,
   type CmsActiveThemePayload,
 } from './src/applyCmsTheme';
 import {
@@ -162,16 +160,6 @@ const App: React.FC = () => {
   const settingsIntegrationsActive = location.pathname === `/dashboard/settings/${integrationsSlug}`;
   const terminalRef = useRef<XTermShellHandle>(null);
   const collabWsRef = useRef<WebSocket | null>(null);
-
-  useEffect(() => {
-    fetch('/api/themes/active', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((payload: CmsActiveThemePayload | null) => {
-        if (!payload || typeof payload !== 'object') return;
-        applyCmsThemeToDocument(payload);
-      })
-      .catch(() => {});
-  }, []);
 
   // Monaco deep-link handler (Settings → MCP tool config).
   // Opens a new editor tab with payload content, then clears query params.
@@ -301,65 +289,6 @@ const App: React.FC = () => {
     return () => mq.removeEventListener('change', fn);
   }, []);
 
-  // IAM_COLLAB real-time sync — canvas + theme updates
-  useEffect(() => {
-    const workspaceId = 'global';
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${proto}//${window.location.host}/api/collab/room/${workspaceId}`;
-    const ws = new WebSocket(wsUrl);
-    collabWsRef.current = ws;
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'theme_update' && msg.cssVars) {
-          Object.entries(msg.cssVars).forEach(([k, v]) => {
-            document.documentElement.style.setProperty(k, v as string);
-          });
-          try {
-            localStorage.setItem(INNERANIMALMEDIA_LS_THEME_CSS, JSON.stringify(msg.cssVars));
-            if (typeof msg.theme_slug === 'string' && msg.theme_slug.trim() !== '') {
-              localStorage.setItem(INNERANIMALMEDIA_LS_THEME_SLUG, msg.theme_slug.trim());
-            }
-          } catch {
-            /* ignore */
-          }
-          if (typeof msg.monaco_theme === 'string' && msg.monaco_theme.trim() !== '') {
-            document.documentElement.setAttribute('data-monaco-theme', msg.monaco_theme.trim());
-          }
-          if (typeof msg.monaco_bg === 'string' && msg.monaco_bg.trim() !== '') {
-            document.documentElement.setAttribute('data-monaco-bg', msg.monaco_bg.trim());
-          }
-          if ('monaco_theme_data' in msg) {
-            const raw = (msg as { monaco_theme_data?: string | null }).monaco_theme_data;
-            document.documentElement.setAttribute(
-              'data-monaco-theme-data',
-              raw != null && typeof raw === 'string' ? raw : '',
-            );
-          }
-          markDashboardThemeApplied(
-            typeof msg.theme_slug === 'string' ? msg.theme_slug : null,
-          );
-          logDashboardThemeDebug();
-          try {
-            window.dispatchEvent(new CustomEvent('iam:cms-theme-applied'));
-          } catch {
-            /* ignore */
-          }
-        }
-        if (msg.type === 'canvas_update') {
-          window.dispatchEvent(new CustomEvent('iam:canvas_update', { detail: msg.elements }));
-        }
-        if (msg.type === 'iam_excalidraw') {
-          window.dispatchEvent(new CustomEvent('iam:excalidraw_action', { detail: { action: msg.action, params: msg.params } }));
-        }
-      } catch (_) {}
-    };
-    ws.onerror = () => {}; // suppress unhandled rejection noise
-    return () => {
-      try { ws.close(); } catch (_) {}
-    };
-  }, []);
-
   useEffect(() => {
     logDashboardThemeDebug();
   }, [location.search]);
@@ -391,6 +320,51 @@ const App: React.FC = () => {
     if (typeof window === 'undefined') return;
     (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ = authWorkspaceId || 'global';
     window.dispatchEvent(new CustomEvent('iam_workspace_id'));
+  }, [authWorkspaceId]);
+
+  // IAM_COLLAB — same workspace DO room as canvas (`canvas:{workspaceId}`): realtime theme + canvas (D1 is authority).
+  useEffect(() => {
+    const wsId = authWorkspaceId?.trim();
+    if (!wsId) return;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const room = encodeURIComponent(`canvas:${wsId}`);
+    const wsUrl = `${proto}//${window.location.host}/api/collab/room/${room}`;
+    const ws = new WebSocket(wsUrl);
+    collabWsRef.current = ws;
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data) as Record<string, unknown>;
+        if (msg.type === 'theme_update' && msg.cssVars && typeof msg.cssVars === 'object') {
+          applyCmsThemeToDocument({
+            slug: typeof msg.theme_slug === 'string' ? msg.theme_slug : undefined,
+            data: msg.cssVars as Record<string, string>,
+            monaco_theme: typeof msg.monaco_theme === 'string' ? msg.monaco_theme : undefined,
+            monaco_bg: typeof msg.monaco_bg === 'string' ? msg.monaco_bg : undefined,
+            monaco_theme_data:
+              msg.monaco_theme_data != null && typeof msg.monaco_theme_data === 'string'
+                ? msg.monaco_theme_data
+                : undefined,
+            workspace_id: wsId,
+            theme_channel: 'live',
+          });
+          logDashboardThemeDebug();
+        }
+        if (msg.type === 'canvas_update') {
+          window.dispatchEvent(new CustomEvent('iam:canvas_update', { detail: msg.elements }));
+        }
+        if (msg.type === 'iam_excalidraw') {
+          window.dispatchEvent(
+            new CustomEvent('iam:excalidraw_action', { detail: { action: msg.action, params: msg.params } }),
+          );
+        }
+      } catch (_) {}
+    };
+    ws.onerror = () => {};
+    return () => {
+      try {
+        ws.close();
+      } catch (_) {}
+    };
   }, [authWorkspaceId]);
 
   useEffect(() => {
@@ -1631,19 +1605,28 @@ const App: React.FC = () => {
     setTimeout(() => terminalRef.current?.writeToTerminal(text), 100);
   }, [isTerminalOpen]);
 
-  // Themes: cms_themes + settings.appearance.theme via GET /api/themes/active (workspace_id scopes rows)
+  // Themes: D1 cms_theme_preferences + fallbacks via GET /api/themes/active (?workspace_id)
   useEffect(() => {
     migrateLegacyThemeLocalStorage();
-    fetchAndApplyActiveCmsTheme(authWorkspaceId)
+    if (authWorkspaceId?.trim()) {
+      applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
+    } else {
+      applyCachedCmsThemeFallback();
+    }
+    void fetchAndApplyActiveCmsTheme(authWorkspaceId)
       .then((payload) => {
         const hasVars =
           payload?.data &&
           typeof payload.data === 'object' &&
           Object.keys(payload.data).length > 0;
-        if (!hasVars) applyCachedCmsThemeFallback();
+        if (!hasVars) {
+          if (authWorkspaceId?.trim()) applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
+          else applyCachedCmsThemeFallback();
+        }
       })
       .catch(() => {
-        applyCachedCmsThemeFallback();
+        if (authWorkspaceId?.trim()) applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
+        else applyCachedCmsThemeFallback();
       });
   }, [authWorkspaceId]);
 

@@ -8,6 +8,41 @@
 export const INNERANIMALMEDIA_LS_THEME_CSS = 'inneranimalmedia_theme_css';
 export const INNERANIMALMEDIA_LS_THEME_SLUG = 'inneranimalmedia_theme_slug';
 export const INNERANIMALMEDIA_LS_THEME_IS_DARK = 'inneranimalmedia_theme_is_dark';
+/** Last active workspace id used for first-paint cache selection (not authority). */
+export const INNERANIMALMEDIA_LS_THEME_LAST_WS = 'inneranimalmedia_theme_last_ws';
+
+export function themeCssStorageKey(workspaceId: string | null | undefined): string {
+  const w = workspaceId?.trim();
+  return w ? `inneranimalmedia_theme_css:${w}` : INNERANIMALMEDIA_LS_THEME_CSS;
+}
+
+export function themeSlugStorageKey(workspaceId: string | null | undefined): string {
+  const w = workspaceId?.trim();
+  return w ? `inneranimalmedia_theme_slug:${w}` : INNERANIMALMEDIA_LS_THEME_SLUG;
+}
+
+export function themeIsDarkStorageKey(workspaceId: string | null | undefined): string {
+  const w = workspaceId?.trim();
+  return w ? `inneranimalmedia_theme_is_dark:${w}` : INNERANIMALMEDIA_LS_THEME_IS_DARK;
+}
+
+const INNERANIMALMEDIA_LS_THEME_MONACO = 'inneranimalmedia_theme_monaco';
+const INNERANIMALMEDIA_LS_THEME_MONACO_DATA = 'inneranimalmedia_theme_monaco_data';
+
+export function themeMonacoStorageKey(workspaceId: string | null | undefined): string {
+  const w = workspaceId?.trim();
+  return w ? `inneranimalmedia_theme_monaco:${w}` : INNERANIMALMEDIA_LS_THEME_MONACO;
+}
+
+export function themeMonacoDataStorageKey(workspaceId: string | null | undefined): string {
+  const w = workspaceId?.trim();
+  return w ? `inneranimalmedia_theme_monaco_data:${w}` : INNERANIMALMEDIA_LS_THEME_MONACO_DATA;
+}
+
+function monacoThemeIdFallback(slug: string | undefined): string | undefined {
+  const s = slug != null && String(slug).trim() !== '' ? String(slug).trim() : '';
+  return s ? `${s}-monaco` : undefined;
+}
 
 const LEGACY_MCAD_CSS = 'mcad_theme_css';
 const LEGACY_MCAD_SLUG = 'mcad_theme_slug';
@@ -17,11 +52,14 @@ export type CmsActiveThemePayload = {
   slug?: string;
   name?: string;
   is_dark?: boolean;
+  workspace_id?: string | null;
+  project_id?: string | null;
   /** Live D1-backed styling (`live`); R2 snapshot URL is metadata only for published/public consumers. */
   theme_channel?: 'live' | string;
   /** Compiled snapshot URL on R2 — do not fetch for authenticated realtime theme apply; use `data`. */
   css_url?: string | null;
   compiled_css_hash?: string | null;
+  resolved_from?: string;
   /** Monaco theme id (e.g. vs, vs-dark, hc-light, or a custom id registered client-side). */
   monaco_theme?: string | null;
   monaco_bg?: string | null;
@@ -32,13 +70,16 @@ export type CmsActiveThemePayload = {
 
 /** Sets data-monaco-theme / data-monaco-bg for MonacoSurface and notifies listeners. */
 export function syncMonacoHtmlDataAttributes(
-  payload: Pick<CmsActiveThemePayload, 'monaco_theme' | 'monaco_bg' | 'is_dark' | 'monaco_theme_data'>,
+  payload: Pick<CmsActiveThemePayload, 'monaco_theme' | 'monaco_bg' | 'is_dark' | 'monaco_theme_data' | 'slug'>,
   cssVars?: Record<string, string> | null,
 ): void {
   let themeStr =
     payload.monaco_theme != null && String(payload.monaco_theme).trim() !== ''
       ? String(payload.monaco_theme).trim()
       : '';
+  if (!themeStr && payload.slug != null && String(payload.slug).trim() !== '') {
+    themeStr = `${String(payload.slug).trim()}-monaco`;
+  }
   if (!themeStr) {
     themeStr = payload.is_dark === false ? 'vs' : 'vs-dark';
   }
@@ -130,6 +171,28 @@ export function logDashboardThemeDebug(): void {
 }
 
 export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean {
+  const wsCtx =
+    payload.workspace_id != null && String(payload.workspace_id).trim() !== ''
+      ? String(payload.workspace_id).trim()
+      : null;
+  const kCss = themeCssStorageKey(wsCtx);
+  const kSlug = themeSlugStorageKey(wsCtx);
+  const kDark = themeIsDarkStorageKey(wsCtx);
+  const kMonaco = themeMonacoStorageKey(wsCtx);
+  const kMonacoData = themeMonacoDataStorageKey(wsCtx);
+
+  if (wsCtx) {
+    try {
+      localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_CSS);
+      localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_SLUG);
+      localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_IS_DARK);
+      localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_MONACO);
+      localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_MONACO_DATA);
+    } catch {
+      /* ignore */
+    }
+  }
+
   const vars = payload.data;
   let applied = false;
   if (vars && typeof vars === 'object' && Object.keys(vars).length > 0) {
@@ -140,7 +203,10 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
     });
     try {
       /* DB / API wins over any stale first-paint cache */
-      localStorage.setItem(INNERANIMALMEDIA_LS_THEME_CSS, JSON.stringify(vars));
+      localStorage.setItem(kCss, JSON.stringify(vars));
+      if (wsCtx) {
+        localStorage.setItem(INNERANIMALMEDIA_LS_THEME_LAST_WS, wsCtx);
+      }
       localStorage.removeItem(LEGACY_MCAD_CSS);
     } catch {
       /* ignore quota */
@@ -148,17 +214,37 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
   }
   if (payload.slug) {
     try {
-      localStorage.setItem(INNERANIMALMEDIA_LS_THEME_SLUG, payload.slug);
+      localStorage.setItem(kSlug, payload.slug);
       localStorage.removeItem(LEGACY_MCAD_SLUG);
     } catch {
       /* ignore */
     }
   }
+  try {
+    const mt =
+      payload.monaco_theme != null && String(payload.monaco_theme).trim() !== ''
+        ? String(payload.monaco_theme).trim()
+        : monacoThemeIdFallback(payload.slug) ?? '';
+    if (mt) {
+      localStorage.setItem(kMonaco, mt);
+    }
+    const md =
+      payload.monaco_theme_data != null && String(payload.monaco_theme_data).trim() !== ''
+        ? String(payload.monaco_theme_data)
+        : '';
+    if (md) {
+      localStorage.setItem(kMonacoData, md);
+    } else {
+      localStorage.removeItem(kMonacoData);
+    }
+  } catch {
+    /* ignore */
+  }
   if (typeof payload.is_dark === 'boolean') {
     document.documentElement.setAttribute('data-theme', payload.slug ?? (payload.is_dark ? 'dark' : 'light'));
     document.documentElement.classList.toggle('dark', payload.is_dark === true);
     try {
-      localStorage.setItem(INNERANIMALMEDIA_LS_THEME_IS_DARK, payload.is_dark ? '1' : '0');
+      localStorage.setItem(kDark, payload.is_dark ? '1' : '0');
       localStorage.removeItem(LEGACY_MCAD_IS_DARK);
     } catch {
       /* ignore */
@@ -198,8 +284,55 @@ export async function fetchActiveCmsThemeSlug(
   return typeof raw.slug === 'string' ? raw.slug : null;
 }
 
+/** First paint: prefer cache for `inneranimalmedia_theme_last_ws` so the correct workspace bucket loads before React resolves membership. */
 export function applyCachedCmsThemeFallback(): boolean {
   migrateLegacyThemeLocalStorage();
+  try {
+    const last = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_LAST_WS)?.trim();
+    if (last) return applyCachedCmsThemeFallbackForWorkspace(last);
+    return applyCachedLegacyGlobalThemeFallback();
+  } catch {
+    return false;
+  }
+}
+
+/** Temporary paint for a known workspace id (must match active workspace after boot). */
+export function applyCachedCmsThemeFallbackForWorkspace(workspaceId: string | null | undefined): boolean {
+  migrateLegacyThemeLocalStorage();
+  const w = workspaceId?.trim();
+  if (!w) return applyCachedLegacyGlobalThemeFallback();
+  try {
+    const last = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_LAST_WS)?.trim();
+    if (last && last !== w) return false;
+    const cached = localStorage.getItem(themeCssStorageKey(w));
+    if (!cached) return false;
+    const vars = JSON.parse(cached) as Record<string, string>;
+    if (!vars || typeof vars !== 'object') return false;
+    const d = localStorage.getItem(themeIsDarkStorageKey(w));
+    const slug = localStorage.getItem(themeSlugStorageKey(w));
+    const payload: CmsActiveThemePayload = { data: vars, workspace_id: w };
+    if (slug) payload.slug = slug;
+    if (d === '1' || d === '0') payload.is_dark = d === '1';
+    const cachedMt = localStorage.getItem(themeMonacoStorageKey(w))?.trim();
+    const cachedMd = localStorage.getItem(themeMonacoDataStorageKey(w));
+    if (cachedMt) {
+      payload.monaco_theme = cachedMt;
+    } else if (payload.slug) {
+      payload.monaco_theme = monacoThemeIdFallback(payload.slug);
+    }
+    if (cachedMd) {
+      payload.monaco_theme_data = cachedMd;
+    }
+    if (payload.monaco_theme == null || String(payload.monaco_theme).trim() === '') {
+      payload.monaco_theme = payload.is_dark === false ? 'vs' : 'vs-dark';
+    }
+    return applyCmsThemeToDocument(payload);
+  } catch {
+    return false;
+  }
+}
+
+function applyCachedLegacyGlobalThemeFallback(): boolean {
   try {
     const cached = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_CSS);
     if (!cached) return false;
@@ -210,7 +343,17 @@ export function applyCachedCmsThemeFallback(): boolean {
     const payload: CmsActiveThemePayload = { data: vars };
     if (slug) payload.slug = slug;
     if (d === '1' || d === '0') payload.is_dark = d === '1';
-    if (payload.monaco_theme == null) {
+    const cachedMt = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_MONACO)?.trim();
+    const cachedMd = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_MONACO_DATA);
+    if (cachedMt) {
+      payload.monaco_theme = cachedMt;
+    } else if (payload.slug) {
+      payload.monaco_theme = monacoThemeIdFallback(payload.slug);
+    }
+    if (cachedMd) {
+      payload.monaco_theme_data = cachedMd;
+    }
+    if (payload.monaco_theme == null || String(payload.monaco_theme).trim() === '') {
       payload.monaco_theme = payload.is_dark === false ? 'vs' : 'vs-dark';
     }
     return applyCmsThemeToDocument(payload);

@@ -3,7 +3,7 @@
  * Handles WebSocket clients and POST /broadcast from Worker.
  */
 import { DurableObject } from "cloudflare:workers";
-import { getCmsThemeDataVarsFromRow } from "../core/cms-theme-active.js";
+import { buildActiveThemeApiPayload } from "../core/cms-theme-active.js";
 
 export class IAMCollaborationSession extends DurableObject {
   /**
@@ -20,9 +20,13 @@ export class IAMCollaborationSession extends DurableObject {
   /** @param {Request} request */
   async fetch(request) {
     const url = new URL(request.url);
+    let pathname = url.pathname;
+    if (pathname.startsWith("/api/collab/canvas")) {
+      pathname = pathname.replace(/^\/api\/collab\/canvas/, "/canvas");
+    }
 
     // POST /broadcast — send raw text to all connected sockets
-    if (request.method === 'POST' && (url.pathname === '/broadcast' || url.pathname.endsWith('/broadcast'))) {
+    if (request.method === 'POST' && (pathname === '/broadcast' || pathname.endsWith('/broadcast'))) {
       const text = await request.text();
       const sockets = this.ctx.getWebSockets();
       let delivered = 0;
@@ -37,7 +41,7 @@ export class IAMCollaborationSession extends DurableObject {
     }
 
     // GET /canvas/state — return persisted canvas elements + active theme
-    if (request.method === 'GET' && url.pathname === '/canvas/state') {
+    if (request.method === 'GET' && pathname === '/canvas/state') {
       const elements = (await this.ctx.storage.get('canvas_elements')) ?? [];
       const activeTheme = (await this.ctx.storage.get('canvas_active_theme')) ?? null;
       return new Response(JSON.stringify({ canvasElements: elements, activeTheme }), {
@@ -46,7 +50,7 @@ export class IAMCollaborationSession extends DurableObject {
     }
 
     // POST /canvas/elements — persist elements + broadcast canvas_update
-    if (request.method === 'POST' && url.pathname === '/canvas/elements') {
+    if (request.method === 'POST' && pathname === '/canvas/elements') {
       const { elements } = await request.json();
       await this.ctx.storage.put('canvas_elements', elements);
       const msg = JSON.stringify({ type: 'canvas_update', elements });
@@ -56,36 +60,34 @@ export class IAMCollaborationSession extends DurableObject {
       return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // POST /canvas/theme — validate slug against D1, persist, broadcast theme_update
-    if (request.method === 'POST' && url.pathname === '/canvas/theme') {
+    // POST /canvas/theme — legacy path: validate slug in D1, broadcast only (D1 prefs own persistence).
+    if (request.method === 'POST' && pathname === '/canvas/theme') {
       const { theme_slug } = await request.json();
       const row = await this.env.DB.prepare(
-        'SELECT id, name, slug, config, theme_family, monaco_theme, monaco_bg, monaco_theme_data FROM cms_themes WHERE slug = ?'
+        'SELECT * FROM cms_themes WHERE slug = ?'
       ).bind(theme_slug).first();
       if (!row) return new Response(JSON.stringify({ error: 'unknown theme_slug' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
-      const cssVars = getCmsThemeDataVarsFromRow(row);
-      await this.ctx.storage.put('canvas_active_theme', theme_slug);
-      const monaco_theme_data =
-        row.monaco_theme_data != null && String(row.monaco_theme_data).trim() !== ''
-          ? String(row.monaco_theme_data)
-          : null;
+      const payload = buildActiveThemeApiPayload(row);
+      if (!payload?.slug || !payload.data) {
+        return new Response(JSON.stringify({ error: 'theme_payload' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
       const msg = JSON.stringify({
         type: 'theme_update',
-        theme_slug,
-        cssVars,
-        monaco_theme: row.monaco_theme,
-        monaco_bg: row.monaco_bg,
-        monaco_theme_data,
+        theme_slug: payload.slug,
+        cssVars: payload.data,
+        monaco_theme: payload.monaco_theme,
+        monaco_bg: payload.monaco_bg,
+        monaco_theme_data: payload.monaco_theme_data,
       });
       for (const ws of this.ctx.getWebSockets()) {
         try { ws.send(msg); } catch (_) {}
       }
-      return new Response(JSON.stringify({ ok: true, theme_slug }), { headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ ok: true, theme_slug: payload.slug }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     // Non-WebSocket requests fall through here (info endpoint)
     if (request.headers.get('Upgrade') !== 'websocket') {
-      return new Response(JSON.stringify({ do: 'IAMCollaborationSession', ok: true, room: url.pathname }), {
+      return new Response(JSON.stringify({ do: 'IAMCollaborationSession', ok: true, room: pathname }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
