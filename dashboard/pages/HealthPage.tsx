@@ -85,6 +85,7 @@ export const HealthPage: React.FC = () => {
   const chartLc = padChart(lc, 'latency_ms');
 
   return (
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
     <HealthShell
       tab={tab}
       onTab={setTab}
@@ -295,5 +296,6 @@ export const HealthPage: React.FC = () => {
         </div>
       )}
     </HealthShell>
+    </div>
   );
 };

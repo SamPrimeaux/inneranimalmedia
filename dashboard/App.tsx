@@ -2043,7 +2043,7 @@ const App: React.FC = () => {
           >
               {/* Dashboard page routes — non-agent pages render here */}
               {location.pathname !== '/dashboard/agent' ? (
-                <div className="flex-1 min-h-0 overflow-hidden bg-[var(--bg-app)]">
+                <div className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[var(--bg-app)] flex flex-col">
                   <Routes>
                     <Route path="/dashboard/calendar" element={<CalendarPage />} />
                     <Route path="/dashboard/overview" element={<OverviewPage />} />

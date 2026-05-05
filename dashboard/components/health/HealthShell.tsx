@@ -30,7 +30,7 @@ export const HealthShell: React.FC<Props> = ({
   actions,
   children,
 }) => (
-  <div className="ov-wrap h-full min-h-0 flex flex-col overflow-hidden">
+  <div className="ov-wrap flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden w-full">
     <header className="ov-header shrink-0">
       <div className="ov-title">
         <h1 className="ov-h1">{title}</h1>
