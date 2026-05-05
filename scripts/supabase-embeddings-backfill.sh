@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+[ -f "$(dirname "$0")/../.env.cloudflare" ] && source "$(dirname "$0")/../.env.cloudflare" 2>/dev/null || true
 # Call Supabase Edge Function `backfill-embeddings` for each table that the function
 # supports (see TABLE_CONTENT_MAP in the function). Fills NULL `embedding` rows via
 # Workers AI + service role.
