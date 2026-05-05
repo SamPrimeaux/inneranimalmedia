@@ -19,12 +19,14 @@ export type CmsActiveThemePayload = {
   /** Monaco theme id (e.g. vs, vs-dark, hc-light, or a custom id registered client-side). */
   monaco_theme?: string | null;
   monaco_bg?: string | null;
+  /** JSON string of `IStandaloneThemeData` for `monaco.editor.defineTheme` when theme id is custom. */
+  monaco_theme_data?: string | null;
   data?: Record<string, string>;
 };
 
 /** Sets data-monaco-theme / data-monaco-bg for MonacoSurface and notifies listeners. */
 export function syncMonacoHtmlDataAttributes(
-  payload: Pick<CmsActiveThemePayload, 'monaco_theme' | 'monaco_bg' | 'is_dark'>,
+  payload: Pick<CmsActiveThemePayload, 'monaco_theme' | 'monaco_bg' | 'is_dark' | 'monaco_theme_data'>,
   cssVars?: Record<string, string> | null,
 ): void {
   let themeStr =
@@ -46,6 +48,10 @@ export function syncMonacoHtmlDataAttributes(
   if (!bgStr) bgStr = '#1e293b';
   document.documentElement.setAttribute('data-monaco-theme', themeStr);
   document.documentElement.setAttribute('data-monaco-bg', bgStr);
+  document.documentElement.setAttribute(
+    'data-monaco-theme-data',
+    payload.monaco_theme_data ?? '',
+  );
   try {
     window.dispatchEvent(new CustomEvent('iam:cms-theme-applied'));
   } catch {

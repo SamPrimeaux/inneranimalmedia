@@ -4,6 +4,23 @@ import type { editor } from 'monaco-editor';
 
 const MONACO_BUILTIN = new Set(['vs', 'vs-dark', 'hc-black', 'hc-light']);
 
+function rgbToHex(color: string): string {
+  if (color.startsWith('#')) return color;
+  const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!m) return '#1e293b';
+  return `#${[m[1], m[2], m[3]].map((n) => parseInt(n, 10).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function resolveMonacoThemeData(): object | null {
+  const raw = document.documentElement.getAttribute('data-monaco-theme-data')?.trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as object;
+  } catch {
+    return null;
+  }
+}
+
 function resolveMonacoTheme(monacoTheme?: string): string {
   const fromProp = monacoTheme?.trim();
   if (fromProp) return fromProp;
@@ -26,55 +43,31 @@ function resolveMonacoBg(monacoBg?: string): string {
   return fallback || 'transparent';
 }
 
-function pickComputedCss(...varNames: string[]): string {
-  const st = getComputedStyle(document.documentElement);
-  for (const n of varNames) {
-    const v = st.getPropertyValue(n).trim();
-    if (v) return v;
+function isUsableMonacoThemeDefinition(data: object | null): data is Record<string, unknown> {
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    Object.keys(data).length > 0
+  );
+}
+
+function applyNonBuiltinMonacoTheme(monaco: Monaco, resolvedTheme: string, resolvedBg: string): void {
+  if (MONACO_BUILTIN.has(resolvedTheme)) return;
+  const themeData = resolveMonacoThemeData();
+  if (isUsableMonacoThemeDefinition(themeData)) {
+    monaco.editor.defineTheme(resolvedTheme, themeData as any);
+  } else {
+    monaco.editor.defineTheme(resolvedTheme, {
+      base:
+        resolvedTheme.includes('light') || document.documentElement.classList.contains('light')
+          ? 'vs'
+          : 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: { 'editor.background': rgbToHex(resolvedBg) },
+    });
   }
-  return '';
-}
-
-function buildCustomMonacoTheme(editorBg: string): editor.IStandaloneThemeData {
-  const dark = document.documentElement.classList.contains('dark');
-  const colors: Record<string, string> = {};
-
-  const put = (key: string, ...cssNames: string[]) => {
-    const v = pickComputedCss(...cssNames);
-    if (v) colors[key] = v;
-  };
-
-  if (editorBg) colors['editor.background'] = editorBg;
-  else put('editor.background', '--scene-bg', '--bg', '--bg-panel');
-
-  put('editor.foreground', '--solar-base0', '--text-main');
-  put('editor.lineHighlightBackground', '--bg-panel');
-  put('editorCursor.foreground', '--solar-cyan', '--color-accent');
-  put('editorWhitespace.foreground', '--border-subtle');
-  put('editorIndentGuide.background1', '--border-subtle');
-  put('editorIndentGuide.activeBackground1', '--solar-cyan', '--color-accent');
-  put('editor.selectionBackground', '--editor-selection-bg');
-  put('editorGutter.background', '--scene-bg', '--bg');
-  put('editorLineNumber.foreground', '--text-chrome-muted');
-  put('editorLineNumber.activeForeground', '--solar-cyan', '--color-accent');
-  put('scrollbarSlider.background', '--monaco-scrollbar-thumb', '--border-subtle');
-  put('scrollbarSlider.hoverBackground', '--monaco-scrollbar-hover');
-  put('minimap.background', '--scene-bg', '--bg');
-  put('editorOverviewRuler.addedForeground', '--solar-green');
-  put('editorOverviewRuler.deletedForeground', '--solar-red');
-  put('editorOverviewRuler.modifiedForeground', '--solar-yellow');
-
-  return {
-    base: dark ? 'vs-dark' : 'vs',
-    inherit: true,
-    rules: [],
-    colors,
-  };
-}
-
-function registerOrRefreshCustomTheme(monaco: Monaco, themeId: string, editorBg: string) {
-  if (MONACO_BUILTIN.has(themeId)) return;
-  monaco.editor.defineTheme(themeId, buildCustomMonacoTheme(editorBg));
 }
 
 export type MonacoSurfaceProps = {
@@ -111,7 +104,7 @@ export const MonacoSurface: React.FC<MonacoSurfaceProps> = ({
     const mo = new MutationObserver(bump);
     mo.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-monaco-theme', 'data-monaco-bg', 'class'],
+      attributeFilter: ['data-monaco-theme', 'data-monaco-bg', 'data-monaco-theme-data', 'class'],
     });
     return () => {
       window.removeEventListener('iam:cms-theme-applied', bump);
@@ -131,7 +124,7 @@ export const MonacoSurface: React.FC<MonacoSurfaceProps> = ({
       monaco.editor.setTheme(rt);
       return;
     }
-    registerOrRefreshCustomTheme(monaco, rt, bg);
+    applyNonBuiltinMonacoTheme(monaco, rt, bg);
     monaco.editor.setTheme(rt);
   }, [monacoTheme, monacoBg, themeRev]);
 
@@ -143,7 +136,7 @@ export const MonacoSurface: React.FC<MonacoSurfaceProps> = ({
     (monaco: Monaco) => {
       const rt = resolveMonacoTheme(monacoTheme);
       const bg = resolveMonacoBg(monacoBg);
-      registerOrRefreshCustomTheme(monaco, rt, bg);
+      applyNonBuiltinMonacoTheme(monaco, rt, bg);
     },
     [monacoTheme, monacoBg],
   );
