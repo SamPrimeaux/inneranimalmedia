@@ -188,6 +188,11 @@ export default {
         return handleGithubWebhook(request, env, ctx);
       }
 
+      if (pathLower === '/api/webhooks/supabase' || pathLower === '/api/hooks/supabase') {
+        const { handleSupabaseWebhook } = await import('./api/webhooks/supabase.js');
+        return handleSupabaseWebhook(request, env, ctx);
+      }
+
       if (pathLower === '/api/admin/run-retention' && request.method === 'POST') {
         const { verifyInternalApiSecret, jsonResponse } = await import('./core/auth.js');
         if (!verifyInternalApiSecret(request, env)) {
