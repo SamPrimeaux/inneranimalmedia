@@ -3,14 +3,7 @@
  * Orchestrates domain-specific services and handles request routing.
  * Replaces the monolithic worker.js.
  */
-import { handleAgentRequest } from './api/agent';
-import { handleCmsApi } from './api/cms';
-
-import { handleAgentSamRegistryRequest } from './api/agentsam';
-import { handleTimeDispatch } from './tools/time';
-import { handleR2Api } from './api/r2-api';
-import { handleStorageApi } from './api/storage';
-import { handleIntegrationsRequest } from './api/integrations';
+import { dispatchProductionDomainRoutes } from './core/router.js';
 import { recordWorkerAnalyticsError, writeTelemetry } from './api/telemetry';
 import {
   getAuthUser,
@@ -20,45 +13,17 @@ import {
   fetchAuthUserTenantId,
 } from './core/auth';
 import { resolveIdentity } from './core/identity.js';
-import { handleSettingsRequest } from './api/settings';
-import { handleWorkspaceApi } from './api/workspace';
-import { handleCicdEvent } from './api/cicd-event';
-import { handlePostDeploy } from './api/post-deploy';
-import { handleCidiApi } from './api/cicd';
-import { handleDeploymentsApi } from './api/deployments';
-import { handleFinanceApi } from './api/finance';
-import { handleMcpApi } from './api/mcp';
 import { generateMcpToken } from './core/mcp-auth.js';
-import { handleNotifyDeployComplete } from './api/notify-deploy';
-import { handleDrawApi } from './api/draw';
-import { handleThemesApi } from './api/themes';
-import { handleHubApi } from './api/hub';
-import { handleOverviewApi } from './api/overview';
 import {
-  handleAuthApi,
   handleSupabaseOAuthStart,
   handleSupabaseOAuthCallback,
   handleOAuthConsentPage,
 } from './api/auth';
-import { handleHealthCheck, handleHealthApi } from './api/health';
-import { handleVaultApi } from './api/vault';
+import { handleHealthCheck } from './api/health';
 import { runIntegritySnapshot } from './api/integrity';
 import { runMasterDailyRetention } from './core/retention.js';
 import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
-import { handleDashboardApi } from './api/dashboard';
-import { handleMailApi } from './api/mail';
-import { handleEmailApi } from './api/email.js';
-import { handleLearnApi } from './api/learn';
-import { handleOnboardingApi } from './api/onboarding';
 import { handleOAuthApi } from './api/oauth';
-import { handleSearchApi } from './api/search';
-import { handleIntakeApi } from './api/intake';
-import { handleCadApi } from './api/cad';
-import { handleDesignStudioApi } from './api/designstudio/index.js';
-import { handleStudioSessionApi } from './api/studio-session';
-import { handleStatusBundle } from './api/status-bundle';
-import { handleCursorAgentApi } from './api/cursor-agent';
-import { handleCalendarApi } from './api/calendar.js';
 import { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './core/tunnel-status.js';
 import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
 import {
@@ -611,182 +576,19 @@ export default {
         }
       }
 
-      // 3. Domain Dispatching (Surgical Delegation)
-      if (pathLower.startsWith('/api/agentsam/time')) {
-        return handleTimeDispatch(request, env, ctx, authUser);
-      }
-
-      if (pathLower.startsWith('/api/agentsam')) {
-        const res = await handleAgentSamRegistryRequest(request, env, ctx, authUser);
-        if (res && res.status !== 404) return res;
-      }
-
-      if (pathLower.startsWith('/api/cms')) {
-        return handleCmsApi(request, url, env, ctx);
-      }
-      
-      if (pathLower.startsWith('/api/search')) {
-        return handleSearchApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/calendar')) {
-        return handleCalendarApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/storage')) {
-        return handleStorageApi(request, url, env);
-      }
-
-      if (pathLower.startsWith('/api/r2/')) {
-        return handleR2Api(request, url, env);
-      }
-
-      if (pathLower.startsWith('/api/integrations') ||
-          pathLower === '/api/webhooks/resend' ||
-          pathLower === '/api/email/inbound') {
-        const res = await handleIntegrationsRequest(request, env, ctx, authUser);
-        if (res && res.status !== 404) return res;
-      }
-
-      if (pathLower.startsWith('/api/vault')) {
-        return handleVaultApi(request, new URL(request.url), env, ctx);
-      }
-
-      // Agent Sam Studio (before generic /api/agent/* dashboard)
-      if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {
-        return handleStatusBundle(request, url, env, ctx);
-      }
-      if (pathLower.startsWith('/api/agent/intake')) {
-        return handleIntakeApi(request, url, env, ctx);
-      }
-      if (pathLower.startsWith('/api/cad/') || pathLower === '/api/cad') {
-        return handleCadApi(request, url, env, ctx);
-      }
-      if (pathLower.startsWith('/api/studio/') || pathLower === '/api/studio') {
-        return handleStudioSessionApi(request, url, env, ctx);
-      }
-      if (pathLower.startsWith('/api/artifacts')) {
-        return handleStudioSessionApi(request, url, env, ctx);
-      }
-      if (pathLower.startsWith('/api/cursor/')) {
-        return handleCursorAgentApi(request, url, env, ctx);
-      }
-
-      // Dashboard module: must match src/core/router.js (hyperdrive/browser are not under /api/agent/*).
-      if (pathLower.startsWith('/api/hyperdrive') || pathLower.startsWith('/api/browser')) {
-        return handleDashboardApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/agent') || pathLower.startsWith('/api/terminal') || pathLower.startsWith('/api/chat') || pathLower.startsWith('/api/playwright')) {
-        const postAgentFirst = pathLower.startsWith('/api/agent') && methodUpper === 'POST';
-        let postAgentRes = null;
-        if (postAgentFirst) {
-          postAgentRes = await handleAgentRequest(request, env, ctx, authUser);
-          if (postAgentRes.status !== 404) return postAgentRes;
-        }
-        const dashRes = await handleDashboardApi(request, url, env, ctx);
-        if (dashRes.status !== 404) return dashRes;
-        if (pathLower.startsWith('/api/agent')) {
-          if (postAgentFirst && postAgentRes) return postAgentRes;
-          const agentRes = await handleAgentRequest(request, env, ctx, authUser);
-          if (agentRes.status !== 404) return agentRes;
-        }
-      }
-
-      if (
-        pathLower.startsWith('/api/settings') ||
-        pathLower.startsWith('/api/tenant') ||
-        pathLower.startsWith('/api/ai')
-      ) {
-        return handleSettingsRequest(request, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/workspaces') || pathLower.startsWith('/api/workspace')) {
-        return handleWorkspaceApi(request, url, env, ctx, authUser);
-      }
-
-      if (pathLower.startsWith('/api/cicd')) {
-        return handleCidiApi(request, url, env, ctx);
-      }
-
-      if (pathLower === '/api/internal/cicd-event') {
-        return handleCicdEvent(request, env, ctx);
-      }
-
-      if (pathLower === '/api/internal/post-deploy' && request.method === 'POST') {
-        return handlePostDeploy(request, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/internal/designstudio/') || pathLower.startsWith('/api/designstudio/')) {
-        return handleDesignStudioApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/deployments') || pathLower.startsWith('/api/internal/')) {
-        return handleDeploymentsApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/finance') || pathLower.startsWith('/api/clients') ||
-          pathLower.startsWith('/api/projects') || pathLower.startsWith('/api/billing')) {
-        return handleFinanceApi(request, url, env, ctx);
-      }
-
-      if (pathLower === '/api/notify/deploy-complete' && request.method === 'POST') {
-        return handleNotifyDeployComplete(request, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/mcp') || pathLower === '/mcp') {
-        return handleMcpApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/draw')) {
-        return handleDrawApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/themes')) {
-        return handleThemesApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/hub')) {
-        return handleHubApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/health/')) {
-        return handleHealthApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/overview')) {
-        return handleOverviewApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/mail')) {
-        return handleMailApi(request, url, env, ctx);
-      }
-
-      if (pathLower === '/api/email/send' && methodUpper === 'POST') {
-        return handleEmailApi(request, env);
-      }
-
-      if (pathLower === '/api/notifications/email' && methodUpper === 'POST') {
-        const { handleAppNotificationEmail } = await import('./api/notifications/email.js');
-        return handleAppNotificationEmail(request, env);
-      }
-
-      if (pathLower.startsWith('/api/learn')) {
-        return handleLearnApi(request, url, env, ctx);
-      }
-
-      if (pathLower.startsWith('/api/onboarding')) {
-        return handleOnboardingApi(request, url, env);
-      }
-
-      if (pathLower.startsWith('/api/games')) {
-        const { handleGamesApi } = await import('./api/games.js');
-        return handleGamesApi(request, url, env, ctx, authUser);
-      }
-
-      if (pathLower.startsWith('/api/auth') || pathLower === '/api/settings/profile') {
-        return handleAuthApi(request, url, env);
-      }
+      // 3. Domain dispatch — single source: src/core/production-dispatch.js (re-exported from router.js)
+      const domainRes = await dispatchProductionDomainRoutes({
+        request,
+        url,
+        env,
+        ctx,
+        authUser,
+        identity,
+        methodUpper,
+        pathLower,
+        path,
+      });
+      if (domainRes != null) return domainRes;
 
       // 4. Static Assets & SPA Fallback (Dashboard UI)
       if (!pathLower.startsWith('/api/')) {

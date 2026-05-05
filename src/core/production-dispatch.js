@@ -1,0 +1,266 @@
+/**
+ * Production Worker domain dispatch — single source of truth for /api routes that
+ * src/index.js delegates to after auth/session middleware.
+ *
+ * Keep ordering identical to historical src/index.js behavior; add new API prefixes here
+ * so production cannot drift from documentation/tests that reference src/core/router.js.
+ */
+
+import { handleAgentRequest } from '../api/agent.js';
+import { handleCmsApi } from '../api/cms.js';
+import { handleAgentSamRegistryRequest } from '../api/agentsam.js';
+import { handleTimeDispatch } from '../tools/time.js';
+import { handleR2Api } from '../api/r2-api.js';
+import { handleStorageApi } from '../api/storage.js';
+import { handleIntegrationsRequest } from '../api/integrations.js';
+import { handleSettingsRequest } from '../api/settings.js';
+import { handleWorkspaceApi } from '../api/workspace.js';
+import { handleCicdEvent } from '../api/cicd-event.js';
+import { handlePostDeploy } from '../api/post-deploy.js';
+import { handleCidiApi } from '../api/cicd.js';
+import { handleDeploymentsApi } from '../api/deployments.js';
+import { handleFinanceApi } from '../api/finance.js';
+import { handleMcpApi } from '../api/mcp.js';
+import { handleNotifyDeployComplete } from '../api/notify-deploy.js';
+import { handleDrawApi } from '../api/draw.js';
+import { handleThemesApi } from '../api/themes.js';
+import { handleHubApi } from '../api/hub.js';
+import { handleOverviewApi } from '../api/overview.js';
+import { handleDashboardApi } from '../api/dashboard.js';
+import { handleMailApi } from '../api/mail.js';
+import { handleEmailApi } from '../api/email.js';
+import { handleLearnApi } from '../api/learn.js';
+import { handleOnboardingApi } from '../api/onboarding.js';
+import { handleAuthApi } from '../api/auth.js';
+import { handleSearchApi } from '../api/search.js';
+import { handleIntakeApi } from '../api/intake.js';
+import { handleCadApi } from '../api/cad.js';
+import { handleDesignStudioApi } from '../api/designstudio/index.js';
+import { handleStudioSessionApi } from '../api/studio-session.js';
+import { handleStatusBundle } from '../api/status-bundle.js';
+import { handleCursorAgentApi } from '../api/cursor-agent.js';
+import { handleCalendarApi } from '../api/calendar.js';
+import { handleHealthApi } from '../api/health.js';
+import { handleVaultApi } from '../api/vault.js';
+
+/**
+ * @typedef {object} ProductionRouteContext
+ * @property {Request} request
+ * @property {URL} url
+ * @property {object} env
+ * @property {ExecutionContext} ctx
+ * @property {unknown} authUser
+ * @property {unknown} identity
+ * @property {string} methodUpper
+ * @property {string} pathLower Normalized path (lower case)
+ * @property {string} path Normalized path (original casing from pathname collapse)
+ */
+
+/**
+ * Domain dispatch formerly inlined in src/index.js (section "3. Domain Dispatching").
+ * @param {ProductionRouteContext} rc
+ * @returns {Promise<Response | null>} Response if matched; null to fall through to static/HTML handling in index.
+ */
+export async function dispatchProductionDomainRoutes(rc) {
+  const {
+    request,
+    url,
+    env,
+    ctx,
+    authUser,
+    identity,
+    methodUpper,
+    pathLower,
+  } = rc;
+
+  if (pathLower.startsWith('/api/agentsam/time')) {
+    return handleTimeDispatch(request, env, ctx, authUser);
+  }
+
+  if (pathLower.startsWith('/api/agentsam')) {
+    const res = await handleAgentSamRegistryRequest(request, env, ctx, authUser);
+    if (res && res.status !== 404) return res;
+  }
+
+  if (pathLower.startsWith('/api/cms')) {
+    return handleCmsApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/search')) {
+    return handleSearchApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/calendar')) {
+    return handleCalendarApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/storage')) {
+    return handleStorageApi(request, url, env);
+  }
+
+  if (pathLower.startsWith('/api/r2/')) {
+    return handleR2Api(request, url, env);
+  }
+
+  if (
+    pathLower.startsWith('/api/integrations') ||
+    pathLower === '/api/webhooks/resend' ||
+    pathLower === '/api/email/inbound'
+  ) {
+    const res = await handleIntegrationsRequest(request, env, ctx, authUser);
+    if (res && res.status !== 404) return res;
+  }
+
+  if (pathLower.startsWith('/api/vault')) {
+    return handleVaultApi(request, new URL(request.url), env, ctx);
+  }
+
+  if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {
+    return handleStatusBundle(request, url, env, ctx);
+  }
+  if (pathLower.startsWith('/api/agent/intake')) {
+    return handleIntakeApi(request, url, env, ctx);
+  }
+  if (pathLower.startsWith('/api/cad/') || pathLower === '/api/cad') {
+    return handleCadApi(request, url, env, ctx);
+  }
+  if (pathLower.startsWith('/api/studio/') || pathLower === '/api/studio') {
+    return handleStudioSessionApi(request, url, env, ctx);
+  }
+  if (pathLower.startsWith('/api/artifacts')) {
+    return handleStudioSessionApi(request, url, env, ctx);
+  }
+  if (pathLower.startsWith('/api/cursor/')) {
+    return handleCursorAgentApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/hyperdrive') || pathLower.startsWith('/api/browser')) {
+    return handleDashboardApi(request, url, env, ctx);
+  }
+
+  if (
+    pathLower.startsWith('/api/agent') ||
+    pathLower.startsWith('/api/terminal') ||
+    pathLower.startsWith('/api/chat') ||
+    pathLower.startsWith('/api/playwright')
+  ) {
+    const postAgentFirst = pathLower.startsWith('/api/agent') && methodUpper === 'POST';
+    let postAgentRes = null;
+    if (postAgentFirst) {
+      postAgentRes = await handleAgentRequest(request, env, ctx, authUser);
+      if (postAgentRes.status !== 404) return postAgentRes;
+    }
+    const dashRes = await handleDashboardApi(request, url, env, ctx);
+    if (dashRes.status !== 404) return dashRes;
+    if (pathLower.startsWith('/api/agent')) {
+      if (postAgentFirst && postAgentRes) return postAgentRes;
+      const agentRes = await handleAgentRequest(request, env, ctx, authUser);
+      if (agentRes.status !== 404) return agentRes;
+    }
+  }
+
+  if (
+    pathLower.startsWith('/api/settings') ||
+    pathLower.startsWith('/api/tenant') ||
+    pathLower.startsWith('/api/ai')
+  ) {
+    return handleSettingsRequest(request, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/workspaces') || pathLower.startsWith('/api/workspace')) {
+    return handleWorkspaceApi(request, url, env, ctx, authUser);
+  }
+
+  if (pathLower.startsWith('/api/cicd')) {
+    return handleCidiApi(request, url, env, ctx);
+  }
+
+  if (pathLower === '/api/internal/cicd-event') {
+    return handleCicdEvent(request, env, ctx);
+  }
+
+  if (pathLower === '/api/internal/post-deploy' && request.method === 'POST') {
+    return handlePostDeploy(request, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/internal/designstudio/') || pathLower.startsWith('/api/designstudio/')) {
+    return handleDesignStudioApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/deployments') || pathLower.startsWith('/api/internal/')) {
+    return handleDeploymentsApi(request, url, env, ctx);
+  }
+
+  if (
+    pathLower.startsWith('/api/finance') ||
+    pathLower.startsWith('/api/clients') ||
+    pathLower.startsWith('/api/projects') ||
+    pathLower.startsWith('/api/billing')
+  ) {
+    return handleFinanceApi(request, url, env, ctx);
+  }
+
+  if (pathLower === '/api/notify/deploy-complete' && request.method === 'POST') {
+    return handleNotifyDeployComplete(request, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/mcp') || pathLower === '/mcp') {
+    return handleMcpApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/draw')) {
+    return handleDrawApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/themes')) {
+    return handleThemesApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/hub')) {
+    return handleHubApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/health/')) {
+    return handleHealthApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/overview')) {
+    return handleOverviewApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/mail')) {
+    return handleMailApi(request, url, env, ctx);
+  }
+
+  if (pathLower === '/api/email/send' && methodUpper === 'POST') {
+    return handleEmailApi(request, env);
+  }
+
+  if (pathLower === '/api/notifications/email' && methodUpper === 'POST') {
+    const { handleAppNotificationEmail } = await import('../api/notifications/email.js');
+    return handleAppNotificationEmail(request, env);
+  }
+
+  if (pathLower.startsWith('/api/learn')) {
+    return handleLearnApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/onboarding')) {
+    return handleOnboardingApi(request, url, env);
+  }
+
+  if (pathLower.startsWith('/api/games')) {
+    const { handleGamesApi } = await import('../api/games.js');
+    return handleGamesApi(request, url, env, ctx, authUser);
+  }
+
+  if (pathLower.startsWith('/api/auth') || pathLower === '/api/settings/profile') {
+    return handleAuthApi(request, url, env);
+  }
+
+  void identity;
+  return null;
+}
+
+/** Alias for callers expecting `resolveRoute`-style naming (same RouteContext argument). */
+export const resolveRoute = dispatchProductionDomainRoutes;
