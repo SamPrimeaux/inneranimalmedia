@@ -47,6 +47,10 @@ import {
   type IdeWorkspaceSnapshot,
   type RecentFileEntry,
 } from './src/ideWorkspace';
+import {
+  prepareRecentWorkspacesForSession,
+  getTrustedRecentWorkspaceId,
+} from './src/recentWorkspacesStorage';
 import { useEditor } from './src/EditorContext';
 import { CalendarPage } from './components/CalendarPage';
 import { OverviewPage } from './components/OverviewPage';
@@ -323,6 +327,8 @@ const App: React.FC = () => {
     };
   }, []);
 
+  /** Resolved from GET /api/auth/me — used to scope workspace recents in localStorage. */
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   /** From GET /api/settings/workspaces (`current` = default_workspace_id); drives theme ?workspace= */
   const [authWorkspaceId, setAuthWorkspaceId] = useState<string | null>(null);
   /** Rows from same API — used for human-readable workspace name in chrome + chat. */
@@ -382,11 +388,14 @@ const App: React.FC = () => {
   }, [location.pathname, authWorkspaceId]);
 
   useEffect(() => {
-    const applyRecent = (list: Array<{ id: string; display_name?: string; slug?: string }>) => {
+    let cancelled = false;
+
+    const applyRecent = (
+      list: Array<{ id: string; display_name?: string; slug?: string }>,
+      userId: string | null,
+    ) => {
       try {
-        const raw = localStorage.getItem('iam_recent_workspaces');
-        const recent = raw ? (JSON.parse(raw) as Array<{ id?: string }>) : [];
-        const rid = Array.isArray(recent) && recent[0]?.id ? String(recent[0].id).trim() : '';
+        const rid = getTrustedRecentWorkspaceId(userId);
         if (rid && list.some((w) => w.id === rid)) {
           setAuthWorkspaceId(rid);
           const row = list.find((w) => w.id === rid);
@@ -402,9 +411,26 @@ const App: React.FC = () => {
       }
     };
 
-    fetch('/api/workspaces/list', { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { workspaces?: Array<{ id: string; display_name?: string; slug?: string }> } | null) => {
+    void (async () => {
+      let userId: string | null = null;
+      try {
+        const meRes = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (meRes.ok) {
+          const me = (await meRes.json()) as { id?: string | null };
+          const rawId = me?.id;
+          userId = rawId != null && String(rawId).trim() ? String(rawId).trim() : null;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (cancelled) return;
+      setSessionUserId(userId);
+      prepareRecentWorkspacesForSession(userId);
+
+      try {
+        const r = await fetch('/api/workspaces/list', { credentials: 'same-origin' });
+        const d = r.ok ? ((await r.json()) as { workspaces?: Array<{ id: string; display_name?: string; slug?: string }> }) : null;
+        if (cancelled) return;
         const workspaces = Array.isArray(d?.workspaces) ? d.workspaces : [];
         setWorkspaceRows(
           workspaces
@@ -414,18 +440,26 @@ const App: React.FC = () => {
               name: typeof w.display_name === 'string' && w.display_name.trim() ? w.display_name : w.slug || w.id,
             })),
         );
-        applyRecent(workspaces);
-      })
-      .catch(() => {});
+        applyRecent(workspaces, userId);
+      } catch {
+        /* ignore */
+      }
 
-    fetch('/api/settings/workspaces', { credentials: 'same-origin' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { current?: string } | null) => {
+      try {
+        const r = await fetch('/api/settings/workspaces', { credentials: 'same-origin' });
+        const d = r.ok ? ((await r.json()) as { current?: string }) : null;
+        if (cancelled) return;
         if (d?.current && typeof d.current === 'string') {
           setAuthWorkspaceId((prev) => prev || d.current || null);
         }
-      })
-      .catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -2506,6 +2540,7 @@ const App: React.FC = () => {
       {isWorkspaceLauncherOpen && (
         <WorkspaceLauncher
           onClose={() => setWorkspaceLauncherOpen(false)}
+          sessionUserId={sessionUserId}
           authWorkspaceId={authWorkspaceId}
           setAuthWorkspaceId={setAuthWorkspaceId}
           setWorkspaceDisplayName={setWorkspaceDisplayName}

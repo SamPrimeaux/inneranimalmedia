@@ -1331,8 +1331,9 @@
             document.getElementById('profileChangePhoto') && document.getElementById('profileChangePhoto').addEventListener('click', function () { dropdown.classList.remove('open'); /* TODO: change photo */ });
             document.getElementById('logoutBtn') && document.getElementById('logoutBtn').addEventListener('click', function () {
                 dropdown.classList.remove('open');
+                try { localStorage.removeItem('iam_recent_workspaces'); localStorage.removeItem('iam_recent_workspaces_user'); } catch (e) {}
                 fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).then(function () {
-                    window.location.href = '/auth-signin.html';
+                    window.location.href = '/auth/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
                 });
             });
         })();

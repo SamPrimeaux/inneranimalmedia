@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { persistRecentWorkspaceSwitch } from '../src/recentWorkspacesStorage';
 import {
   FolderOpen,
   Github,
@@ -27,6 +28,8 @@ interface WorkspaceLauncherProps {
   onClose: () => void;
   onOpenLocalFolder?: () => void;
   onConnectWorkspace?: () => void;
+  /** Session user from GET /api/auth/me — required to namespace `iam_recent_workspaces` in localStorage. */
+  sessionUserId?: string | null;
   authWorkspaceId?: string | null;
   setAuthWorkspaceId: (id: string) => void;
   setWorkspaceDisplayName?: (name: string | null) => void;
@@ -61,6 +64,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
   onClose,
   onOpenLocalFolder,
   onConnectWorkspace,
+  sessionUserId,
   authWorkspaceId,
   setAuthWorkspaceId,
   setWorkspaceDisplayName,
@@ -143,28 +147,16 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
       if (r.ok && data.success && data.workspace) {
         setAuthWorkspaceId(data.workspace.id);
         setWorkspaceDisplayName?.(data.workspace.display_name);
-        try {
-          const raw = localStorage.getItem('iam_recent_workspaces');
-          const prev = raw ? (JSON.parse(raw) as unknown) : [];
-          const arr = Array.isArray(prev) ? prev : [];
-          const entry = {
-            id: ws.id,
-            display_name: ws.display_name,
-            workspace_type: ws.workspace_type ?? 'ide',
-            slug: ws.slug,
-            updated_at:
-              ws.updated_at != null
-                ? Number(ws.updated_at)
-                : Math.floor(Date.now() / 1000),
-          };
-          const next = [entry, ...arr.filter((x: { id?: string }) => x?.id !== ws.id)].slice(
-            0,
-            5,
-          );
-          localStorage.setItem('iam_recent_workspaces', JSON.stringify(next));
-        } catch {
-          /* ignore */
-        }
+        persistRecentWorkspaceSwitch(sessionUserId, {
+          id: ws.id,
+          display_name: ws.display_name,
+          slug: ws.slug,
+          workspace_type: ws.workspace_type ?? 'ide',
+          updated_at:
+            ws.updated_at != null
+              ? Number(ws.updated_at)
+              : Math.floor(Date.now() / 1000),
+        });
         setToastMsg(`Switched to ${ws.display_name}`);
         onClose();
         return;
@@ -174,22 +166,13 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
       setToastMsg('Workspace saved locally — sync failed.');
       setAuthWorkspaceId(ws.id);
       setWorkspaceDisplayName?.(ws.display_name);
-      try {
-        const raw = localStorage.getItem('iam_recent_workspaces');
-        const prev = raw ? (JSON.parse(raw) as unknown) : [];
-        const arr = Array.isArray(prev) ? prev : [];
-        const entry = {
-          id: ws.id,
-          display_name: ws.display_name,
-          workspace_type: ws.workspace_type ?? 'ide',
-          slug: ws.slug,
-          updated_at: Math.floor(Date.now() / 1000),
-        };
-        const next = [entry, ...arr.filter((x: { id?: string }) => x?.id !== ws.id)].slice(0, 5);
-        localStorage.setItem('iam_recent_workspaces', JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
+      persistRecentWorkspaceSwitch(sessionUserId, {
+        id: ws.id,
+        display_name: ws.display_name,
+        slug: ws.slug,
+        workspace_type: ws.workspace_type ?? 'ide',
+        updated_at: Math.floor(Date.now() / 1000),
+      });
       onClose();
     }
   };

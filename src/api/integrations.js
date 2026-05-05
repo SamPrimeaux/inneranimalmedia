@@ -9,23 +9,23 @@ import { recordWorkerAnalyticsError } from './telemetry.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
 
 const REGISTRY_SEED = [
-    ['int_github', 'github', 'GitHub', 'source_control', 'oauth2', 'connected', 10, null],
-    ['int_google_drive', 'google_drive', 'Google Drive', 'storage', 'oauth2', 'connected', 20, null],
+    ['int_github', 'github', 'GitHub', 'source_control', 'oauth2', 'disconnected', 10, null],
+    ['int_google_drive', 'google_drive', 'Google Drive', 'storage', 'oauth2', 'disconnected', 20, null],
     ['int_cloudflare_oauth', 'cloudflare_oauth', 'Cloudflare (OAuth)', 'deployment', 'oauth2', 'disconnected', 25, 'CLOUDFLARE_OAUTH_CLIENT_ID'],
-    ['int_cloudflare_r2', 'cloudflare_r2', 'Cloudflare R2', 'storage', 'worker_binding', 'connected', 30, 'R2'],
-    ['int_mcp', 'mcp_servers', 'MCP Servers', 'automation', 'api_key', 'connected', 40, null],
-    ['int_resend', 'resend', 'Resend', 'communication', 'api_key', 'connected', 50, 'RESEND_API_KEY'],
-    ['int_anthropic', 'anthropic', 'Anthropic', 'ai_provider', 'api_key', 'connected', 60, 'ANTHROPIC_API_KEY'],
-    ['int_openai', 'openai', 'OpenAI', 'ai_provider', 'api_key', 'connected', 70, 'OPENAI_API_KEY'],
-    ['int_google_ai', 'google_ai', 'Google AI', 'ai_provider', 'api_key', 'connected', 80, 'GOOGLE_AI_API_KEY'],
-    ['int_bluebubbles', 'bluebubbles', 'BlueBubbles', 'communication', 'webhook', 'connected', 90, 'BLUEBUBBLES_WEBHOOK_SECRET'],
-    ['int_cloudflare_images', 'cloudflare_images', 'Cloudflare Images', 'storage', 'worker_binding', 'connected', 100, 'CLOUDFLARE_IMAGES_ACCOUNT_HASH'],
-    ['int_vectorize', 'vectorize', 'Vectorize', 'analytics', 'worker_binding', 'connected', 110, 'VECTORIZE'],
-    ['int_hyperdrive', 'hyperdrive', 'Hyperdrive (Supabase)', 'database', 'worker_binding', 'connected', 120, 'HYPERDRIVE'],
-    ['int_browser_rendering', 'browser_rendering', 'Browser Rendering', 'automation', 'worker_binding', 'connected', 130, 'MYBROWSER'],
-    ['int_supabase', 'supabase', 'Supabase', 'database', 'api_key', 'connected', 140, 'SUPABASE_SERVICE_ROLE_KEY'],
+    ['int_cloudflare_r2', 'cloudflare_r2', 'Cloudflare R2', 'storage', 'worker_binding', 'disconnected', 30, 'R2'],
+    ['int_mcp', 'mcp_servers', 'MCP Servers', 'automation', 'api_key', 'disconnected', 40, null],
+    ['int_resend', 'resend', 'Resend', 'communication', 'api_key', 'disconnected', 50, 'RESEND_API_KEY'],
+    ['int_anthropic', 'anthropic', 'Anthropic', 'ai_provider', 'api_key', 'disconnected', 60, 'ANTHROPIC_API_KEY'],
+    ['int_openai', 'openai', 'OpenAI', 'ai_provider', 'api_key', 'disconnected', 70, 'OPENAI_API_KEY'],
+    ['int_google_ai', 'google_ai', 'Google AI', 'ai_provider', 'api_key', 'disconnected', 80, 'GOOGLE_AI_API_KEY'],
+    ['int_bluebubbles', 'bluebubbles', 'BlueBubbles', 'communication', 'webhook', 'disconnected', 90, 'BLUEBUBBLES_WEBHOOK_SECRET'],
+    ['int_cloudflare_images', 'cloudflare_images', 'Cloudflare Images', 'storage', 'worker_binding', 'disconnected', 100, 'CLOUDFLARE_IMAGES_ACCOUNT_HASH'],
+    ['int_vectorize', 'vectorize', 'Vectorize', 'analytics', 'worker_binding', 'disconnected', 110, 'VECTORIZE'],
+    ['int_hyperdrive', 'hyperdrive', 'Hyperdrive (Supabase)', 'database', 'worker_binding', 'disconnected', 120, 'HYPERDRIVE'],
+    ['int_browser_rendering', 'browser_rendering', 'Browser Rendering', 'automation', 'worker_binding', 'disconnected', 130, 'MYBROWSER'],
+    ['int_supabase', 'supabase', 'Supabase', 'database', 'api_key', 'disconnected', 140, 'SUPABASE_SERVICE_ROLE_KEY'],
     ['int_supabase_oauth', 'supabase_oauth', 'Supabase (OAuth)', 'database', 'oauth2', 'disconnected', 145, 'SUPABASE_MANAGEMENT_OAUTH_CLIENT_ID'],
-    ['int_cursor', 'cursor', 'Cursor', 'automation', 'api_key', 'connected', 150, 'CURSOR_API_KEY'],
+    ['int_cursor', 'cursor', 'Cursor', 'automation', 'api_key', 'disconnected', 150, 'CURSOR_API_KEY'],
     ['int_claude_code', 'claude_code', 'Claude Code', 'automation', 'api_key', 'disconnected', 160, 'CLAUDE_CODE_API_KEY'],
 ];
 
@@ -34,7 +34,7 @@ const OAUTH_PROVIDER_ALIASES = {
     google_drive: 'google_drive',
     google_gmail: 'google_gmail',
     cloudflare_oauth: 'cloudflare',
-    supabase_oauth: 'supabase',
+    supabase_oauth: 'supabase_management',
 };
 
 const PROVIDER_COLOR_SLUGS = {
@@ -186,15 +186,26 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         return handleSupabaseIntegrationDelete(env, authUser);
     }
 
-    const actionMatch = pathLower.match(/^\/api\/integrations\/([^/]+)\/(test|sync|disconnect|settings|detail)$/);
+    const singleIntegrationGet = pathLower.match(/^\/api\/integrations\/([^/]+)$/);
+    if (singleIntegrationGet && method === 'GET') {
+        const key = decodeURIComponent(singleIntegrationGet[1] || '').toLowerCase();
+        const reserved = new Set(['status', 'summary', 'events', 'webhooks', 'mcp-tools', 'api-keys']);
+        if (key && !reserved.has(key)) {
+            return handleProviderDetail(env, authUser, normalizeProviderKey(singleIntegrationGet[1]));
+        }
+    }
+
+    const actionMatch = pathLower.match(/^\/api\/integrations\/([^/]+)\/(test|sync|disconnect|settings|detail|refresh|verify)$/);
     if (actionMatch) {
         const provider = normalizeProviderKey(actionMatch[1]);
         const action = actionMatch[2];
         if (action === 'detail' && method === 'GET') return handleProviderDetail(env, authUser, provider);
         if (action === 'test' && method === 'POST') return handleProviderTest(env, authUser, provider);
+        if (action === 'verify' && method === 'POST') return handleProviderTest(env, authUser, provider);
         if (action === 'sync' && method === 'POST') return handleProviderSync(env, authUser, provider);
         if (action === 'disconnect' && method === 'POST') return handleProviderDisconnect(env, authUser, provider);
         if (action === 'settings' && method === 'PATCH') return handleProviderSettings(env, authUser, provider, request);
+        if (action === 'refresh' && method === 'POST') return handleProviderOauthRefresh(env, authUser, provider);
     }
 
     const rotateMatch = pathLower.match(/^\/api\/integrations\/([^/]+)\/webhook\/rotate-secret$/);
@@ -228,6 +239,7 @@ function normalizeProviderKey(provider) {
     if (p === 'gdrive' || p === 'google') return 'google_drive';
     if (p === 'r2') return 'cloudflare_r2';
     if (p === 'mcp') return 'mcp_servers';
+    if (p === 'supabase_management' || p === 'supabase') return 'supabase_oauth';
     return p;
 }
 
@@ -380,7 +392,10 @@ async function handleSummary(env, authUser) {
         }
         let oauthAccounts = oauthByProvider.get(normalizeProviderKey(regRow.provider_key)) || [];
         if (regRow.provider_key === 'supabase_oauth' && oauthAccounts.length === 0) {
-            oauthAccounts = oauthByProvider.get('supabase') || [];
+            oauthAccounts = [
+                ...(oauthByProvider.get('supabase_management') || []),
+                ...(oauthByProvider.get('supabase') || []),
+            ];
         }
         let status = oauthAccounts.some((a) => a.status === 'expired') ? 'auth_expired' : regRow.status;
         if (oauthAccounts.length > 0 && status !== 'auth_expired') status = 'connected';
@@ -489,6 +504,17 @@ async function getWebhookCounts(env) {
         webhook_endpoints: Number(endpoints?.total || 0),
         agentsam_hooks: Number(hooks?.total || 0),
     };
+}
+
+async function handleProviderOauthRefresh(env, authUser, provider) {
+    const userId = integrationUserId(authUser);
+    if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (provider === 'supabase_oauth' || provider === 'supabase') {
+        const { getUserSupabaseToken } = await import('./oauth.js');
+        const tok = await getUserSupabaseToken(env, userId, null);
+        return jsonResponse({ ok: !!tok?.access_token, provider: 'supabase_management' });
+    }
+    return jsonResponse({ ok: true, provider, note: 'Nothing to refresh for this integration type.' });
 }
 
 async function handleProviderDetail(env, authUser, provider) {

@@ -4,8 +4,9 @@
  *
  * Integration OAuth stays in oauth.js (oauth_state_* + user_id payload).
  */
-import { getAuthUser, writeIamSessionToKv, resolveTenantAtLogin } from '../core/auth.js';
-import { provisionNewUser } from '../core/provisionNewUser.js';
+import { getAuthUser, resolveTenantAtLogin, createLoginSession } from '../core/auth.js';
+import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
+import { ensureAppUser } from '../core/ensureAppUser.js';
 
 function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
@@ -120,14 +121,6 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
   const oauthEmail = String(email || userInfo.login || 'unknown').toLowerCase().trim();
   const name = userInfo.name || userInfo.login || oauthEmail;
 
-  const existing = await env.DB.prepare(
-    `SELECT id, email, name FROM auth_users WHERE LOWER(email) = ? LIMIT 1`,
-  )
-    .bind(oauthEmail)
-    .first();
-
-  const userId = existing?.id ?? `au_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-
   if (connectGitHub) {
     const sessionUser = await getAuthUser(request, env);
     if (!sessionUser) {
@@ -154,39 +147,37 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     );
   }
 
+  const ensuredGh = await ensureAppUser(
+    env,
+    { email: oauthEmail, name, source: 'github_oauth' },
+    { allowCreate: true },
+  );
+  if (!ensuredGh?.authUserId) {
+    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
+  }
+  const userId = ensuredGh.authUserId;
+
   try {
-    if (!existing?.id) {
-      await env.DB.prepare(
-        `INSERT INTO auth_users (id, email, name, password_hash, salt, created_at, updated_at)
-         VALUES (?, ?, ?, 'oauth', 'oauth', datetime('now'), datetime('now'))`,
-      )
-        .bind(userId, oauthEmail, name)
+    const nm = await env.DB.prepare(`SELECT name FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(userId)
+      .first();
+    if (!nm?.name || !String(nm.name).trim()) {
+      await env.DB.prepare(`UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(name, userId)
         .run();
-    } else {
-      if (!existing.name || !String(existing.name).trim()) {
-        await env.DB.prepare(
-          `UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`,
-        )
-          .bind(name, userId)
-          .run();
-      }
     }
   } catch (e) {
-    console.warn('[oauth/github/callback] auth_users upsert failed:', e?.message ?? e);
+    console.warn('[oauth/github/callback] auth_users name update:', e?.message ?? e);
   }
-  await provisionNewUser(env, { email: oauthEmail, name, authUserId: userId });
-  const sessionId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  const ip = request.headers.get('cf-connecting-ip') || '';
-  const ua = request.headers.get('user-agent') || '';
+  await provisionAuthenticatedUser(env, request, {
+    authUserId: userId,
+    email: oauthEmail,
+    name,
+    source: 'github_oauth',
+  });
+  const sessionId = await createLoginSession(request, env, userId, 'github');
   const tidGh = await resolveTenantAtLogin(env, userId).catch(() => null);
-  await env.DB.prepare(
-    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`,
-  )
-    .bind(sessionId, userId, expiresAt, ip, ua, tidGh)
-    .run();
   autoStartWorkSession(env, userId, tidGh, url.pathname).catch(() => {});
-  await writeIamSessionToKv(env, sessionId, userId, tidGh, expiresAt);
   const ghLogin = (userInfo.login || '').toString() || 'github';
   if (tokens.access_token && env.DB) {
     try {
@@ -312,14 +303,6 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     return Response.redirect(`${oauthOrigin(url)}/auth/login?error=no_email`, 302);
   }
 
-  const existing = await env.DB.prepare(
-    `SELECT id, email, name FROM auth_users WHERE LOWER(email) = ? LIMIT 1`,
-  )
-    .bind(oauthEmail)
-    .first();
-
-  const authUserId = existing?.id ?? `au_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-
   if (connectDrive) {
     const sessionUser = await getAuthUser(request, env);
     if (!sessionUser) {
@@ -343,41 +326,38 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     );
   }
 
+  const ensuredGo = await ensureAppUser(
+    env,
+    { email: oauthEmail, name, source: 'google_oauth' },
+    { allowCreate: true },
+  );
+  if (!ensuredGo?.authUserId) {
+    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
+  }
+  const authUserId = ensuredGo.authUserId;
+
   try {
-    if (!existing?.id) {
-      await env.DB.prepare(
-        `INSERT INTO auth_users (id, email, name, password_hash, salt, created_at, updated_at)
-         VALUES (?, ?, ?, 'oauth', 'oauth', datetime('now'), datetime('now'))`,
-      )
-        .bind(authUserId, oauthEmail, name)
+    const nm = await env.DB.prepare(`SELECT name FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(authUserId)
+      .first();
+    if (!nm?.name || !String(nm.name).trim()) {
+      await env.DB.prepare(`UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(name, authUserId)
         .run();
-    } else {
-      if (!existing.name || !String(existing.name).trim()) {
-        await env.DB.prepare(
-          `UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`,
-        )
-          .bind(name, authUserId)
-          .run();
-      }
     }
   } catch (e) {
-    console.warn('[OAuth] auth_users upsert:', e?.message ?? e);
+    console.warn('[OAuth] auth_users name update:', e?.message ?? e);
   }
 
-  await provisionNewUser(env, { email: oauthEmail, name, authUserId });
+  await provisionAuthenticatedUser(env, request, {
+    authUserId,
+    email: oauthEmail,
+    name,
+    source: 'google_oauth',
+  });
 
-  const sessionId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  const ip = request.headers.get('cf-connecting-ip') || '';
-  const ua = request.headers.get('user-agent') || '';
+  const sessionId = await createLoginSession(request, env, authUserId, 'google');
   const tidOauth = await resolveTenantAtLogin(env, authUserId).catch(() => null);
-  await env.DB.prepare(
-    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`,
-  )
-    .bind(sessionId, authUserId, expiresAt, ip, ua, tidOauth)
-    .run();
-
-  await writeIamSessionToKv(env, sessionId, authUserId, tidOauth, expiresAt);
 
   const safeDest =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')

@@ -92,6 +92,22 @@ async function getConnectedIntegrations(env, authUser) {
   }
 
   const legacy = await legacyMapForUser(env.DB, email);
+  const userId = String(authUser.id || '').trim();
+  const tokProviders = new Set();
+  if (userId && env.DB) {
+    try {
+      const tr = await env.DB.prepare(
+        `SELECT DISTINCT lower(provider) AS p FROM user_oauth_tokens WHERE user_id = ?`,
+      )
+        .bind(userId)
+        .all();
+      for (const r of tr.results || []) {
+        if (r?.p) tokProviders.add(String(r.p).toLowerCase());
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   const items = rows.map((row) => {
     const slug = String(row.provider_key || '').toLowerCase();
     const leg = legacy.get(slug) || legacy.get(String(row.catalog_slug || '').toLowerCase());
@@ -137,12 +153,31 @@ async function getConnectedIntegrations(env, authUser) {
       updated_at: row.updated_at,
     };
 
+    const pk = slug;
+    let derived_status = String(row.status || 'disconnected').toLowerCase();
+    if (pk === 'supabase_oauth' && (tokProviders.has('supabase_management') || tokProviders.has('supabase'))) {
+      derived_status = 'connected';
+    } else if (pk === 'github' && tokProviders.has('github')) {
+      derived_status = 'connected';
+    } else if (pk === 'google_drive' && tokProviders.has('google_drive')) {
+      derived_status = 'connected';
+    } else if (pk === 'cloudflare_oauth' && tokProviders.has('cloudflare')) {
+      derived_status = 'connected';
+    } else if (['anthropic', 'openai', 'resend', 'google_ai', 'cursor'].includes(pk) && tokProviders.has(pk)) {
+      derived_status = 'connected';
+    } else if (pk === 'cloudflare_r2' && env.R2) {
+      derived_status = 'available';
+    } else if (pk === 'mcp_servers') {
+      derived_status = tokProviders.size > 0 ? derived_status : 'available';
+    }
+
     return {
       catalog,
-      connection,
+      connection: { ...connection, status: derived_status },
       legacy: leg
         ? { is_connected: leg.is_connected, last_used: leg.last_used }
         : null,
+      derived_status,
       iam_hosted:
         String(row.catalog_category || '').toLowerCase() === 'iam_hosted' ||
         ['agentsam', 'autodidact'].includes(slug),

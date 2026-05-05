@@ -470,6 +470,7 @@ export async function getAuthUser(request, env) {
           email:         row.email,
           name:          row.name,
           tenant_id:     row.tenant_id,
+          supabase_user_id: row.supabase_user_id ?? null,
           is_superadmin: row.is_superadmin ? 1 : 0,
           session_id:    session.session_id,
           expires_at:    session.expires_at ? (typeof session.expires_at === 'number' ? session.expires_at : new Date(session.expires_at).getTime()) : null,
@@ -491,7 +492,7 @@ export async function getAuthUser(request, env) {
   };
 }
 
-export async function establishIamSession(request, env, userId, bodyObj = { ok: true }) {
+export async function establishIamSession(request, env, userId, bodyObj = { ok: true }, sessionProvider = 'iam') {
   if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 500);
   const sessionId = crypto.randomUUID();
   const expiresTs = Date.now() + 30 * 24 * 60 * 60 * 1000;
@@ -501,20 +502,111 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
   
   // Resolve tenant
   let tid = null;
+  let userRow = null;
   try {
-    const u = await env.DB.prepare(`SELECT tenant_id FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
-    tid = u?.tenant_id || null;
+    userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
+    tid = userRow?.tenant_id || null;
   } catch (_) {}
 
   await env.DB.prepare(
     `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`
   ).bind(sessionId, userId, expiresAtIso, ip, ua, tid).run();
+
+  if (userRow) {
+    try {
+      const expiresAtMs = new Date(expiresAtIso).getTime();
+      await env.DB.prepare(`
+        INSERT INTO sessions (
+          id, user_id, tenant_id, person_uuid, email, provider,
+          display_name, ip_address, user_agent,
+          last_active_at, expires_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
+      `).bind(
+        sessionId,
+        userId,
+        tid,
+        userRow.person_uuid,
+        userRow.email,
+        sessionProvider,
+        userRow.name || 'User',
+        ip,
+        ua,
+        Date.now(),
+        expiresAtMs,
+      ).run();
+    } catch (e) {
+      console.warn('[establishIamSession sessions dual-write]', e?.message ?? e);
+    }
+  }
   
   await writeIamSessionToKv(env, sessionId, userId, tid, expiresAtIso);
   
   const response = jsonResponse(bodyObj);
   response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`);
   return response;
+}
+
+/**
+ * Creates auth_sessions + legacy sessions + KV (used by email login, OAuth login, signup).
+ * @returns {Promise<string>} session id
+ */
+export async function createLoginSession(request, env, userId, sessionProvider = 'email') {
+  const sessionId = crypto.randomUUID();
+  const expiresTs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+  const expiresAtIso = new Date(expiresTs).toISOString();
+
+  const ip = request.headers.get('cf-connecting-ip') || '';
+  const ua = request.headers.get('user-agent') || '';
+
+  let userRow = null;
+  try {
+    userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
+  } catch (e) {
+    console.warn('[createLoginSession] auth_users lookup failed', e.message);
+  }
+
+  if (!userRow) {
+    throw new Error('User not found in auth_users during login finalization');
+  }
+
+  const tenantId = userRow.tenant_id;
+  const personUuid = userRow.person_uuid;
+
+  await env.DB.prepare(
+    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`,
+  )
+    .bind(sessionId, userId, expiresAtIso, ip, ua, tenantId)
+    .run();
+
+  try {
+    const expiresAtMs = new Date(expiresAtIso).getTime();
+
+    await env.DB.prepare(`
+      INSERT INTO sessions (
+        id, user_id, tenant_id, person_uuid, email, provider,
+        display_name, ip_address, user_agent,
+        last_active_at, expires_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
+    `).bind(
+      sessionId,
+      userId,
+      tenantId,
+      personUuid,
+      userRow.email,
+      sessionProvider,
+      userRow.name || 'User',
+      ip,
+      ua,
+      Date.now(),
+      expiresAtMs,
+    ).run();
+  } catch (e) {
+    console.warn('[sessions dual-write]', e?.message ?? e);
+  }
+
+  await writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso);
+
+  return sessionId;
 }
 
 export function isIngestSecretAuthorized(request, env) {

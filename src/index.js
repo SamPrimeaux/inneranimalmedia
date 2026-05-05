@@ -87,7 +87,9 @@ export default {
    */
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const path = url.pathname.replace(/\/$/, '') || '/';
+    // Collapse duplicate slashes (e.g. Supabase Site URL `https://host/` + auth path `/api/...` → `//api/...`).
+    const path =
+      (String(url.pathname || '/').replace(/\/{2,}/g, '/').replace(/\/$/, '') || '/') || '/';
     const pathLower = path.toLowerCase();
 
     // 0. Session Self-Healing Middleware
@@ -150,6 +152,23 @@ export default {
       if ((methodUpper === 'GET' || methodUpper === 'HEAD') && pathLower === '/auth/register') {
         const u = new URL(request.url);
         u.pathname = '/auth/signup';
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: u.toString(),
+            'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+          },
+        });
+      }
+      // Legacy / alternate sign-in URLs → canonical login (preserve query e.g. next=, error=)
+      if (
+        (methodUpper === 'GET' || methodUpper === 'HEAD') &&
+        (pathLower === '/auth/signin' ||
+          pathLower === '/auth-signin' ||
+          pathLower === '/auth-signin.html')
+      ) {
+        const u = new URL(request.url);
+        u.pathname = '/auth/login';
         return new Response(null, {
           status: 302,
           headers: {
@@ -252,8 +271,9 @@ export default {
         '/apiguide/providers': 'ApiProviderGuide.tsx',
       };
       const assetHtmlKey = ASSET_ROUTES[pathLower] || ASSET_ROUTES[path];
-      if (assetHtmlKey && env.ASSETS) {
-        const obj = await env.ASSETS.get(assetHtmlKey);
+      if (assetHtmlKey) {
+        let obj = null;
+        if (env.ASSETS) obj = await env.ASSETS.get(assetHtmlKey);
         if (!obj) return new Response('Not found', { status: 404 });
         const fromMeta = obj.httpMetadata?.contentType;
         const k = assetHtmlKey.toLowerCase();
@@ -276,8 +296,8 @@ export default {
         }
         // Inject shared header/footer via HTMLRewriter
         const [headerObj, footerObj] = await Promise.all([
-          env.ASSETS.get('src/components/iam-header.html'),
-          env.ASSETS.get('src/components/iam-footer.html'),
+          env.ASSETS ? env.ASSETS.get('src/components/iam-header.html') : Promise.resolve(null),
+          env.ASSETS ? env.ASSETS.get('src/components/iam-footer.html') : Promise.resolve(null),
         ]);
         const headerHtml = headerObj ? await headerObj.text() : '';
         const footerHtml = footerObj ? await footerObj.text() : '';
@@ -350,7 +370,7 @@ export default {
         const u = new URL(request.url);
         u.pathname = '/api/oauth/cloudflare/start';
         if (!u.searchParams.get('return_to')) {
-          u.searchParams.set('return_to', '/dashboard/settings?section=Integrations');
+          u.searchParams.set('return_to', '/dashboard/settings/integrations');
         }
         return handleOAuthApi(new Request(u.toString(), request), env, ctx);
       }
@@ -361,10 +381,25 @@ export default {
         return handleSupabaseOAuthCallback(request, env);
       }
       if (
+        (pathLower === '/oauth/consent' || pathLower === '/api/auth/oauth/consent/approve' || pathLower === '/api/auth/oauth/consent/deny') &&
+        (methodUpper === 'GET' || methodUpper === 'POST')
+      ) {
+        const u = new URL(request.url);
+        u.pathname = '/api/auth/oauth/consent';
+        if (pathLower.endsWith('/approve')) u.searchParams.set('_consent_action', 'approve');
+        if (pathLower.endsWith('/deny')) u.searchParams.set('_consent_action', 'deny');
+        return handleOAuthConsentPage(new Request(u.toString(), request), env);
+      }
+      if (
         (request.method === 'GET' || request.method === 'POST') &&
         pathLower === '/api/auth/oauth/consent'
       ) {
         return handleOAuthConsentPage(request, env);
+      }
+      if (pathLower.startsWith('/api/auth-hooks/')) {
+        const { handleAuthHooksApi } = await import('./api/auth-hooks.js');
+        const res = await handleAuthHooksApi(request, env);
+        if (res) return res;
       }
 
       // /auth/login, /auth/signup, /auth/reset are ASSET_ROUTES (R2) above — not legacy.
@@ -719,6 +754,11 @@ export default {
 
       if (pathLower === '/api/email/send' && methodUpper === 'POST') {
         return handleEmailApi(request, env);
+      }
+
+      if (pathLower === '/api/notifications/email' && methodUpper === 'POST') {
+        const { handleAppNotificationEmail } = await import('./api/notifications/email.js');
+        return handleAppNotificationEmail(request, env);
       }
 
       if (pathLower.startsWith('/api/learn')) {

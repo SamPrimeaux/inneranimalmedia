@@ -16,9 +16,15 @@ import {
   getSession,
   resolveUserEnrichment,
   establishIamSession,
+  createLoginSession,
 } from '../core/auth';
 
-import { provisionNewUser } from '../core/provisionNewUser.js';
+import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
+import { ensureAppUser } from '../core/ensureAppUser.js';
+import { logAuthEvent } from '../core/auth-events.js';
+import { buildCanonicalAuthMe } from './auth-me.js';
+import { autoStartWorkSession } from './oauth-login-callbacks.js';
+import { upsertOauthToken } from './oauth.js';
 
 /**
  * Primary Auth Dispatcher
@@ -29,6 +35,12 @@ export async function handleAuthApi(request, url, env) {
 
   if (path === '/api/auth/login' && method === 'POST') {
     return handleEmailPasswordLogin(request, url, env);
+  }
+  if (path === '/api/auth/signup' && method === 'POST') {
+    return handleEmailSignup(request, url, env);
+  }
+  if (path === '/api/auth/verify-email' && method === 'GET') {
+    return handleEmailVerification(request, url, env);
   }
   if (path === '/api/auth/me' && method === 'GET') {
     const authUser = await getAuthUser(request, env);
@@ -50,13 +62,9 @@ export async function handleAuthApi(request, url, env) {
       } catch (_) {}
     }
 
+    const canonical = await buildCanonicalAuthMe(env, request, authUser);
     return jsonResponse({
-      id: authUser.id ?? null,
-      email: authUser.email ?? null,
-      name: authUser.name ?? authUser.display_name ?? null,
-      tenant_id: authUser.tenant_id ?? null,
-      role: authUser.role ?? 'user',
-      workspace_id: authUser.workspace_id ?? null,
+      ...canonical,
       passwordMethod,
       passwordUpdatedAt,
     });
@@ -125,7 +133,7 @@ async function handleEmailPasswordLogin(request, url, env) {
   }
 
   const user = await env.DB.prepare(
-    `SELECT id, email, password_hash, salt FROM auth_users WHERE LOWER(id) = ? OR LOWER(email) = ? LIMIT 1`
+    `SELECT id, email, name, password_hash, salt FROM auth_users WHERE LOWER(id) = ? OR LOWER(email) = ? LIMIT 1`
   ).bind(email, email).first();
 
   if (!user || !user.password_hash || !user.salt) {
@@ -138,8 +146,23 @@ async function handleEmailPasswordLogin(request, url, env) {
 
   const ok = await verifyPassword(password, user.salt, user.password_hash);
   if (!ok) {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'auth_login_failed',
+      userId: user.id,
+      status: 'fail',
+      provider: 'email',
+      metadata: { reason: 'bad_password' },
+    });
     return jsonResponse({ error: 'Invalid email or password' }, 401);
   }
+
+  await provisionAuthenticatedUser(env, request, {
+    authUserId: user.id,
+    email,
+    name: user.name || email.split('@')[0],
+    source: 'email',
+  });
 
   return finishLogin(request, url, env, user.id, body.next);
 }
@@ -176,6 +199,15 @@ async function handleBackupCodeLogin(request, _url, env) {
 
   if (code === '19371937') {
     console.log('[Auth] Master backup code used for user:', authUserRow.id);
+    const fullUser = await env.DB.prepare(`SELECT email, name FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(authUserRow.id)
+      .first();
+    await provisionAuthenticatedUser(env, request, {
+      authUserId: authUserRow.id,
+      email: fullUser?.email || email,
+      name: fullUser?.name,
+      source: 'backup_code_master',
+    });
     const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
     return redirectWithLoginSession(request, sessionId);
   }
@@ -209,8 +241,217 @@ async function handleBackupCodeLogin(request, _url, env) {
     .bind(matchedId)
     .run();
 
+  const fullUser = await env.DB.prepare(`SELECT email, name FROM auth_users WHERE id = ? LIMIT 1`)
+    .bind(authUserRow.id)
+    .first();
+  await provisionAuthenticatedUser(env, request, {
+    authUserId: authUserRow.id,
+    email: fullUser?.email || email,
+    name: fullUser?.name,
+    source: 'backup_code',
+  });
+
   const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
   return redirectWithLoginSession(request, sessionId);
+}
+
+/**
+ * GET /api/auth/verify-email?token=
+ */
+async function handleEmailVerification(request, url, env) {
+  const origin = new URL(request.url).origin;
+  const token = url.searchParams.get('token');
+  if (!token || !env.SESSION_CACHE) {
+    return Response.redirect(`${origin}/auth/login?error=invalid_token`, 302);
+  }
+  const raw = await env.SESSION_CACHE.get(`email_verify_${token}`);
+  if (!raw) {
+    return Response.redirect(`${origin}/auth/login?error=token_expired`, 302);
+  }
+  try {
+    const { authUserId } = JSON.parse(raw);
+    await env.DB.prepare(`UPDATE auth_users SET is_verified = 1, updated_at = datetime('now') WHERE id = ?`)
+      .bind(authUserId)
+      .run()
+      .catch(() => {});
+    await env.SESSION_CACHE.delete(`email_verify_${token}`);
+  } catch (e) {
+    console.warn('[verify-email]', e?.message);
+  }
+  return Response.redirect(`${origin}/dashboard/overview`, 302);
+}
+
+const DISPOSABLE_SIGNUP_DOMAINS = new Set([
+  'mailinator.com',
+  'guerrillamail.com',
+  'tempmail.com',
+  'yopmail.com',
+  '10minutemail.com',
+]);
+
+function signupDisposableBlocked(env, email) {
+  const raw = String(env.AUTH_BLOCK_DISPOSABLE_EMAILS || '').toLowerCase().trim();
+  if (raw !== 'true' && raw !== '1') return false;
+  const e = String(email || '').toLowerCase().trim();
+  if (e === 'meauxbility@gmail.com') return false;
+  const domain = e.split('@')[1] || '';
+  return DISPOSABLE_SIGNUP_DOMAINS.has(domain);
+}
+
+/**
+ * POST /api/auth/signup — { name?, email, password, invite_code? }
+ */
+async function handleEmailSignup(request, url, env) {
+  const accept = request.headers.get('Accept') || '';
+  const wantsJson =
+    accept.includes('application/json') || (request.headers.get('Content-Type') || '').includes('application/json');
+
+  function signupErr(msg, status = 400) {
+    return jsonResponse({ ok: false, error: msg }, status);
+  }
+
+  if (!env.DB) return signupErr('Service unavailable', 503);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return signupErr('Invalid request body');
+  }
+
+  const mode = String(env.AUTH_SIGNUP_MODE || 'public').toLowerCase();
+  if (mode === 'invite_only') {
+    const expected = String(env.AUTH_INVITE_CODE || '').trim();
+    const got = String(body.invite_code || '').trim();
+    if (!expected || got !== expected) {
+      await logAuthEvent(env, {
+        request,
+        eventType: 'auth_signup_started',
+        status: 'blocked',
+        metadata: { reason: 'invite_required' },
+      });
+      return signupErr('Valid invite code required', 403);
+    }
+  }
+
+  const name = (body.name || '').toString().trim().slice(0, 100);
+  const email = (body.email || '').toString().toLowerCase().trim();
+  const password = (body.password || '').toString();
+
+  if (!email || !password) return signupErr('Email and password are required');
+  if (password.length < 8) return signupErr('Password must be at least 8 characters');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return signupErr('Invalid email address');
+  if (signupDisposableBlocked(env, email)) {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'auth_signup_started',
+      status: 'blocked',
+      metadata: { reason: 'disposable_email' },
+    });
+    return signupErr('This email domain is not allowed for signup', 400);
+  }
+
+  await logAuthEvent(env, { request, eventType: 'auth_signup_started', status: 'ok', metadata: {} });
+
+  const existing = await env.DB.prepare(`SELECT id FROM auth_users WHERE LOWER(email) = ? LIMIT 1`).bind(email).first();
+  if (existing) return signupErr('An account with this email already exists', 409);
+
+  let passwordHash;
+  let saltHex;
+  try {
+    const result = await hashPassword(password);
+    passwordHash = result.hashHex;
+    saltHex = result.saltHex;
+  } catch (e) {
+    console.error('[signup] hashPassword failed:', e?.message);
+    return signupErr('Account creation failed', 500);
+  }
+
+  const ensured = await ensureAppUser(
+    env,
+    {
+      email,
+      name: name || email.split('@')[0],
+      passwordHash,
+      salt: saltHex,
+      source: 'email_signup',
+    },
+    { allowCreate: true },
+  );
+  if (!ensured?.authUserId) {
+    console.error('[signup] ensureAppUser failed');
+    return signupErr('Account creation failed — email may already be registered', 409);
+  }
+  const authUserId = ensured.authUserId;
+
+  await logAuthEvent(env, {
+    request,
+    eventType: 'auth_user_created',
+    userId: authUserId,
+    metadata: { email_domain: email.includes('@') ? email.split('@')[1] : null },
+  });
+
+  await provisionAuthenticatedUser(env, request, {
+    authUserId,
+    email,
+    name: name || email.split('@')[0],
+    source: 'email_signup',
+  });
+
+  const origin = new URL(request.url).origin;
+  if (env.RESEND_API_KEY) {
+    try {
+      const verifyToken = crypto.randomUUID();
+      await env.SESSION_CACHE?.put(
+        `email_verify_${verifyToken}`,
+        JSON.stringify({ email, authUserId }),
+        { expirationTtl: 86400 },
+      );
+      const verifyUrl = `${origin}/api/auth/verify-email?token=${encodeURIComponent(verifyToken)}`;
+      const fromAddr =
+        (env.RESEND_AUTH_FROM && String(env.RESEND_AUTH_FROM).trim()) ||
+        'InnerAnimalMedia <auth@inneranimalmedia.com>';
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: fromAddr,
+          to: [email],
+          subject: 'Verify your InnerAnimalMedia account',
+          html: `<div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px"><h2>Welcome</h2><p>Verify your email to finish setup.</p><p><a href="${verifyUrl}">Verify email</a></p></div>`,
+        }),
+      });
+    } catch (e) {
+      console.warn('[signup] Resend:', e?.message);
+    }
+  }
+
+  const sessionId = await createLoginSession(request, env, authUserId, 'email_signup');
+  const tid = await resolveTenantAtLogin(env, authUserId).catch(() => null);
+  autoStartWorkSession(env, authUserId, tid, url.pathname).catch(() => {});
+
+  await logAuthEvent(env, {
+    request,
+    eventType: 'auth_session_created',
+    userId: authUserId,
+    provider: 'email_signup',
+  });
+
+  const next = '/dashboard/overview';
+  if (wantsJson) {
+    const res = jsonResponse({ ok: true, redirect: next });
+    res.headers.append(
+      'Set-Cookie',
+      `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+    );
+    return res;
+  }
+  const headers = new Headers({ Location: `${origin}${next}` });
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
+  return new Response(null, { status: 302, headers });
 }
 
 function redirectWithLoginSession(request, sessionId) {
@@ -267,72 +508,6 @@ async function handleLogout(request, url, env) {
   response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`);
 
   return response;
-}
-
-/**
- * Shared auth_sessions + sessions dual-write + KV (same path as email/password login).
- */
-async function createLoginSession(request, env, userId, sessionProvider = 'email') {
-  const sessionId = crypto.randomUUID();
-  const expiresTs = Date.now() + 30 * 24 * 60 * 60 * 1000;
-  const expiresAtIso = new Date(expiresTs).toISOString();
-
-  const ip = request.headers.get('cf-connecting-ip') || '';
-  const ua = request.headers.get('user-agent') || '';
-
-  let userRow = null;
-  try {
-    userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
-  } catch (e) {
-    console.warn('[createLoginSession] auth_users lookup failed', e.message);
-  }
-
-  if (!userRow) {
-    throw new Error('User not found in auth_users during login finalization');
-  }
-
-  const tenantId = userRow.tenant_id;
-  const personUuid = userRow.person_uuid;
-
-  await env.DB.prepare(
-    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`,
-  )
-    .bind(sessionId, userId, expiresAtIso, ip, ua, tenantId)
-    .run();
-
-  try {
-    const expiresAtMs = new Date(expiresAtIso).getTime();
-
-    await env.DB.prepare(`
-      INSERT INTO sessions (
-        id, user_id, tenant_id, person_uuid, email, provider,
-        display_name, ip_address, user_agent,
-        last_active_at, expires_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
-    `).bind(
-      sessionId,
-      userId,
-      tenantId,
-      personUuid,
-      userRow.email,
-      sessionProvider,
-      userRow.name || 'User',
-      ip,
-      ua,
-      Date.now(),
-      expiresAtMs,
-    ).run();
-
-    if (userRow.is_superadmin) {
-      // reserved for superadmin-specific session updates
-    }
-  } catch (e) {
-    console.warn('[sessions dual-write]', e?.message ?? e);
-  }
-
-  await writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso);
-
-  return sessionId;
 }
 
 /**
@@ -725,69 +900,6 @@ function parseSupabaseAccessTokenPayload(accessToken) {
   }
 }
 
-/**
- * Resolve canonical IAM row by Supabase Auth user id (JWT `sub`). No email lookup.
- * Tries auth_users.supabase_user_id, then users.supabase_user_id → auth_users.id.
- */
-async function resolveIamAuthUserForSupabaseSubject(env, supabaseUserId) {
-  if (!env?.DB || !supabaseUserId) return null;
-
-  const fetchAuthRowById = async (id) => {
-    if (!id) return null;
-    try {
-      return await env.DB.prepare(
-        `SELECT id, email, name, tenant_id, supabase_user_id FROM auth_users WHERE id = ? LIMIT 1`,
-      ).bind(id).first();
-    } catch {
-      try {
-        return await env.DB.prepare(
-          `SELECT id, email, name, tenant_id FROM auth_users WHERE id = ? LIMIT 1`,
-        ).bind(id).first();
-      } catch {
-        return null;
-      }
-    }
-  };
-
-  try {
-    const direct = await env.DB.prepare(
-      `SELECT id, email, name, tenant_id, supabase_user_id FROM auth_users WHERE supabase_user_id = ? LIMIT 1`,
-    ).bind(supabaseUserId).first();
-    if (direct?.id) {
-      const stored = direct.supabase_user_id != null ? String(direct.supabase_user_id).trim() : '';
-      if (stored && stored !== supabaseUserId) {
-        console.error('[supabase_oauth] JWT sub mismatch vs auth_users.supabase_user_id');
-        return null;
-      }
-      return { authRow: direct, needsSupabaseIdBackfill: false };
-    }
-  } catch (e) {
-    console.warn('[supabase_oauth] auth_users.supabase_user_id column/query:', e?.message ?? e);
-  }
-
-  try {
-    const u = await env.DB.prepare(
-      `SELECT id, auth_id, email, supabase_user_id FROM users WHERE supabase_user_id = ? LIMIT 1`,
-    ).bind(supabaseUserId).first();
-    if (!u) return null;
-    const linksId = u.auth_id != null && String(u.auth_id).trim() !== '' ? String(u.auth_id).trim() : null;
-    const candidateId =
-      linksId || (u.id != null && String(u.id).startsWith('au_') ? String(u.id).trim() : null);
-    if (!candidateId) return null;
-    const authRow = await fetchAuthRowById(candidateId);
-    if (!authRow?.id) return null;
-    const stored = authRow.supabase_user_id != null ? String(authRow.supabase_user_id).trim() : '';
-    if (stored && stored !== supabaseUserId) {
-      console.error('[supabase_oauth] JWT sub mismatch vs linked auth_users.supabase_user_id');
-      return null;
-    }
-    return { authRow, needsSupabaseIdBackfill: !stored };
-  } catch (e) {
-    console.warn('[supabase_oauth] users.supabase_user_id lookup:', e?.message ?? e);
-    return null;
-  }
-}
-
 function base64url(buffer) {
   const bytes = new Uint8Array(buffer);
   let str = '';
@@ -948,7 +1060,20 @@ export async function handleSupabaseOAuthCallback(request, env) {
 
   if (error) return redirectToAuthLogin(request, 'error=oauth_denied');
   if (!code || !state) return redirectToAuthLogin(request, 'error=invalid_callback');
-  if (!env.SESSION_CACHE || !env.DB || !env.SUPABASE_OAUTH_CLIENT_ID || !env.SUPABASE_OAUTH_CLIENT_SECRET) {
+  if (!env.SESSION_CACHE || !env.DB) {
+    return redirectToAuthLogin(request, 'error=oauth_not_configured');
+  }
+
+  const stateKey = supabaseAuthLoginStateKey(state);
+  const storedRaw = await env.SESSION_CACHE.get(stateKey);
+  if (!storedRaw) {
+    const { handleOAuthApi } = await import('./oauth.js');
+    const internal = new URL(request.url);
+    internal.pathname = '/api/oauth/supabase/callback';
+    return handleOAuthApi(new Request(internal.toString(), request), env, null);
+  }
+
+  if (!env.SUPABASE_OAUTH_CLIENT_ID || !env.SUPABASE_OAUTH_CLIENT_SECRET) {
     return redirectToAuthLogin(request, 'error=oauth_not_configured');
   }
 
@@ -962,9 +1087,6 @@ export async function handleSupabaseOAuthCallback(request, env) {
     has_state: !!state,
   });
 
-  const stateKey = supabaseAuthLoginStateKey(state);
-  const storedRaw = await env.SESSION_CACHE.get(stateKey);
-  if (!storedRaw) return redirectToAuthLogin(request, 'error=state_mismatch');
   await env.SESSION_CACHE.delete(stateKey);
 
   const stored = JSON.parse(storedRaw);
@@ -1055,17 +1177,29 @@ export async function handleSupabaseOAuthCallback(request, env) {
     (sbUser && (sbUser.name || sbUser.user_metadata?.full_name)) ||
     oauthEmail.split('@')[0];
 
-  const resolved = await resolveIamAuthUserForSupabaseSubject(env, supabaseUserId);
-  if (!resolved?.authRow?.id) {
-    console.error('[supabase_oauth] no IAM user for supabase_user_id', supabaseUserId);
-    return redirectToAuthLogin(request, 'error=supabase_user_not_linked');
+  const ensured = await ensureAppUser(
+    env,
+    {
+      email: oauthEmail,
+      name,
+      supabaseUserId,
+      source: 'supabase_auth',
+    },
+    { allowCreate: true },
+  );
+
+  if (!ensured?.authUserId) {
+    console.error('[supabase_oauth] ensureAppUser failed', supabaseUserId);
+    return redirectToAuthLogin(request, 'error=provision_failed');
   }
 
-  const authRow = resolved.authRow;
-  const authUserId = String(authRow.id).trim();
+  const authUserId = String(ensured.authUserId).trim();
 
   try {
-    if (!authRow.name || !String(authRow.name).trim()) {
+    const nm = await env.DB.prepare(`SELECT name FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(authUserId)
+      .first();
+    if (!nm?.name || !String(nm.name).trim()) {
       await env.DB.prepare(
         `UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`,
       ).bind(name, authUserId).run();
@@ -1074,32 +1208,60 @@ export async function handleSupabaseOAuthCallback(request, env) {
     console.warn('[Supabase OAuth] auth_users name update:', e?.message ?? e);
   }
 
-  if (resolved.needsSupabaseIdBackfill) {
-    try {
-      await env.DB.prepare(
-        `UPDATE auth_users SET supabase_user_id = ?, updated_at = datetime('now') WHERE id = ?`,
-      ).bind(supabaseUserId, authUserId).run();
-    } catch (e) {
-      console.warn('[supabase_oauth] auth_users supabase_user_id backfill:', e?.message ?? e);
-    }
-  }
+  await provisionAuthenticatedUser(env, request, {
+    authUserId,
+    email: oauthEmail,
+    name,
+    source: 'supabase_auth',
+    supabaseUserId,
+  });
 
-  await provisionNewUser(env, { email: oauthEmail, name, authUserId });
+  const authRow = await env.DB.prepare(
+    `SELECT id, tenant_id, person_uuid, supabase_user_id FROM auth_users WHERE id = ? LIMIT 1`,
+  )
+    .bind(authUserId)
+    .first();
 
   const expiresAt = Math.floor(Date.now() / 1000) + (expires_in || 3600);
-  await env.DB.prepare(`
-    INSERT OR REPLACE INTO user_oauth_tokens
-      (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope)
-    VALUES (?, 'supabase', ?, ?, ?, ?, 'openid profile email')
-  `).bind(
-    authUserId,
-    supabaseUserId,
-    access_token,
-    refresh_token || null,
-    expiresAt,
-  ).run();
+  if (env.VAULT_MASTER_KEY) {
+    try {
+      await upsertOauthToken(
+        env,
+        {
+          user_id: authUserId,
+        tenant_id: authRow?.tenant_id || '',
+        person_uuid: authRow?.person_uuid || '',
+          provider: 'supabase_auth',
+          access_token,
+          refresh_token: refresh_token || null,
+          expires_at: expiresAt,
+          account_identifier: supabaseUserId,
+          account_email: oauthEmail,
+          account_display: name,
+          scope: 'openid profile email',
+        },
+        { skipRegistry: true },
+      );
+      await logAuthEvent(env, {
+        request,
+        eventType: 'oauth_token_stored',
+        userId: authUserId,
+        tenantId: authRow?.tenant_id,
+        provider: 'supabase_auth',
+        metadata: { account_identifier_tail: supabaseUserId.slice(-8) },
+      });
+    } catch (e) {
+      console.warn('[supabase_oauth] encrypted token store failed', e?.message ?? e);
+    }
+  } else {
+    await env.DB.prepare(`
+      INSERT OR REPLACE INTO user_oauth_tokens
+        (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope)
+      VALUES (?, 'supabase_auth', ?, ?, ?, ?, 'openid profile email')
+    `).bind(authUserId, supabaseUserId, access_token, refresh_token || null, expiresAt).run();
+  }
 
-  const sessionResponse = await establishIamSession(request, env, authUserId, { ok: true });
+  const sessionResponse = await establishIamSession(request, env, authUserId, { ok: true }, 'supabase_auth');
   if (!sessionResponse.ok || sessionResponse.status !== 200) {
     logSupabaseLoginDebug({
       phase: 'session_failed',
@@ -1114,9 +1276,9 @@ export async function handleSupabaseOAuthCallback(request, env) {
 
   console.log('[supabase_oauth] session created', {
     supabase_user_id: supabaseUserId,
-    iam_user_id: authUserId,
+    user_id: authUserId,
     email_domain: oauthEmail.includes('@') ? oauthEmail.split('@')[1] : '',
-    tenant_id: authRow.tenant_id ?? null,
+    tenant_id: authRow?.tenant_id ?? null,
   });
 
   const originBase = resolvePublicOriginForOAuth(request, env);
@@ -1180,7 +1342,7 @@ function authorizationIdTail(id) {
   return s.length <= 6 ? '(short)' : s.slice(-6);
 }
 
-function iamUserIdTail(id) {
+function appUserIdTail(id) {
   const s = String(id || '').trim();
   if (!s) return null;
   return s.length <= 6 ? '(short)' : s.slice(-6);
@@ -1383,11 +1545,23 @@ async function postConsentDecision(env, bearer, authorizationId, action) {
 
 function consentMissingRequestHtml() {
   return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Authorization request</title></head>
-<body>
-<p>Missing authorization request.</p>
-<p><a href="/auth/login">Back to sign in</a></p>
-</body></html>`;
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Invalid OAuth request · InnerAnimalMedia</title>
+<style>
+:root { --bg:#0b1220; --card:#111827; --line:#1f2937; --text:#e5e7eb; --muted:#9ca3af; --accent:#22d3ee; --danger:#f87171; }
+*{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(1200px 600px at 10% -10%,#0e7490 0%,transparent 55%),var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.card{max-width:440px;width:100%;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.45);}
+.badge{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700;}
+h1{font-size:22px;margin:12px 0 8px;line-height:1.25;}
+p{color:var(--muted);font-size:15px;line-height:1.5;margin:0 0 16px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 20px;border-radius:10px;font-weight:600;text-decoration:none;font-size:15px;border:none;cursor:pointer}
+.btn-primary{background:var(--accent);color:#042f2e}
+</style></head>
+<body><div class="card"><div class="badge">InnerAnimalMedia</div>
+<h1>Invalid OAuth request</h1>
+<p>This authorization request is missing an <code style="color:var(--text)">authorization_id</code>. It cannot be completed.</p>
+<a class="btn btn-primary" href="/dashboard/overview">Back to Dashboard</a>
+</div></body></html>`;
 }
 
 function consentConfigErrorHtml(title, detail) {
@@ -1408,34 +1582,79 @@ function consentPageHtml(opts) {
     scopes,
     signedInEmail,
     errorMessage,
+    workspaceLabel,
   } = opts;
   const safeNext = `/api/auth/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`;
   const switchHref = `/auth/login?next=${encodeURIComponent(safeNext)}`;
+  const scopeList = String(scopes || '')
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const scopeItems = scopeList.length
+    ? scopeList.map((s) => `<li>${escapeHtmlConsent(s)}</li>`).join('')
+    : '<li><em>Standard sign-in and profile</em></li>';
   const errBlock = errorMessage
-    ? `<p role="alert">${escapeHtmlConsent(errorMessage)}</p>`
+    ? `<div role="alert" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#fecaca;padding:12px 14px;border-radius:10px;font-size:14px;margin-bottom:16px">${escapeHtmlConsent(errorMessage)}</div>`
     : '';
+  const ws = workspaceLabel ? escapeHtmlConsent(workspaceLabel) : 'Your default workspace';
   return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Authorize InnerAnimalMedia</title></head>
-<body>
-<h1>Authorize InnerAnimalMedia</h1>
-${errBlock}
-<p><strong>${escapeHtmlConsent(clientName || 'OAuth client')}</strong> is requesting access.</p>
-<p>Redirect URI: ${escapeHtmlConsent(redirectUri || '')}</p>
-<p>Requested scopes: ${escapeHtmlConsent(scopes || '')}</p>
-<p>Signed in as ${escapeHtmlConsent(signedInEmail || '')} · <a href="${switchHref}">Switch account</a></p>
-<form method="post" action="/api/auth/oauth/consent" style="margin-top:1rem;">
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Authorize access · InnerAnimalMedia</title>
+<style>
+:root{--bg:#0b1220;--card:#0f172a;--line:#1e293b;--text:#f1f5f9;--muted:#94a3b8;--accent:#38bdf8;--accent2:#22c55e;--btn-no:#475569}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(900px 500px at 80% -20%,rgba(56,189,248,.25),transparent 50%),var(--bg);color:var(--text);min-height:100vh;}
+.shell{max-width:520px;margin:0 auto;padding:32px 20px 48px;}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.02em;font-size:20px;margin-bottom:28px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:28px;box-shadow:0 28px 100px rgba(0,0,0,.5);}
+.client{font-size:18px;font-weight:700;margin:0 0 6px;line-height:1.3}
+.sub{color:var(--muted);font-size:15px;line-height:1.5;margin:0 0 20px}
+.user{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:#020617;border:1px solid var(--line);margin-bottom:20px}
+.avatar{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#6366f1);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px}
+.meta{font-size:14px}.meta strong{display:block;font-size:15px}
+.section-title{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700;margin:0 0 10px}
+ul{margin:0;padding-left:20px;color:var(--muted);font-size:14px;line-height:1.6}
+.note{font-size:13px;color:var(--muted);line-height:1.5;margin:18px 0 0;padding-top:16px;border-top:1px solid var(--line)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+button,a.btn{flex:1;min-width:120px;padding:13px 16px;border-radius:12px;font-weight:700;font-size:15px;border:none;cursor:pointer;text-align:center;text-decoration:none;display:inline-block}
+.btn-cancel{background:var(--btn-no);color:var(--text)}
+.btn-ok{background:linear-gradient(135deg,var(--accent2),#16a34a);color:#052e16}
+.footer-note{font-size:12px;color:var(--muted);margin-top:20px;line-height:1.5}
+a.link{color:var(--accent);text-decoration:none;font-weight:600}
+</style></head>
+<body><div class="shell"><div class="logo">◆ InnerAnimalMedia</div>
+<div class="card">${errBlock}
+<p class="sub" style="margin-top:0"><strong class="client">${escapeHtmlConsent(clientName || 'Application')}</strong> wants to access your InnerAnimalMedia account.</p>
+<div class="user"><div class="avatar">${escapeHtmlConsent((signedInEmail || '?').slice(0, 1).toUpperCase())}</div><div class="meta"><strong>${escapeHtmlConsent(signedInEmail || '')}</strong><span style="color:var(--muted)">Workspace: ${ws}</span></div></div>
+<p class="section-title">Permissions</p>
+<ul>${scopeItems}</ul>
+<p class="note">This may include read access to resources tied to the selected workspace. You can revoke access later from your account security settings.</p>
+<p class="footer-note">Only authorize access if you trust this application.</p>
+<div class="actions">
+<form method="post" action="/api/auth/oauth/consent/deny" style="flex:1;display:block">
   <input type="hidden" name="authorization_id" value="${escapeHtmlConsent(authorizationId)}"/>
-  <button type="submit" name="_action" value="approve">Approve</button>
-  <button type="submit" name="_action" value="deny">Deny</button>
+  <button type="submit" class="btn-cancel" name="_action" value="deny" style="width:100%">Cancel</button>
 </form>
-</body></html>`;
+<form method="post" action="/api/auth/oauth/consent/approve" style="flex:1;display:block">
+  <input type="hidden" name="authorization_id" value="${escapeHtmlConsent(authorizationId)}"/>
+  <button type="submit" class="btn-ok" name="_action" value="approve" style="width:100%">Authorize</button>
+</form>
+</div>
+<p style="margin-top:16px;font-size:13px;color:var(--muted)">Not you? <a class="link" href="${switchHref}">Switch account</a></p>
+<p style="font-size:12px;color:var(--muted);word-break:break-all">Redirect: ${escapeHtmlConsent(redirectUri || '')}</p>
+</div></div></body></html>`;
 }
 
 async function parseConsentInput(request, url) {
+  const pathAction = String(url.searchParams.get('_consent_action') || '')
+    .toLowerCase()
+    .trim();
+  const pathActionNorm =
+    pathAction === 'approve' || pathAction === 'deny' ? pathAction : '';
+
   if (request.method === 'GET') {
     return {
       authorizationId: url.searchParams.get('authorization_id')?.trim() || '',
-      action: '',
+      action: pathActionNorm,
     };
   }
   const ct = (request.headers.get('Content-Type') || '').toLowerCase();
@@ -1443,22 +1662,23 @@ async function parseConsentInput(request, url) {
     try {
       const j = await request.json();
       const a = String(j.action || '').toLowerCase();
+      const fromBody = a === 'approve' || a === 'deny' ? a : '';
       return {
         authorizationId: String(j.authorization_id || '').trim(),
-        action: a === 'approve' || a === 'deny' ? a : '',
+        action: fromBody || pathActionNorm,
       };
     } catch {
-      return { authorizationId: '', action: '' };
+      return { authorizationId: '', action: pathActionNorm };
     }
   }
   try {
     const fd = await request.formData();
     const aid = String(fd.get('authorization_id') || '').trim();
     const raw = String(fd.get('_action') || '').toLowerCase();
-    const action = raw === 'approve' || raw === 'deny' ? raw : '';
+    const action = raw === 'approve' || raw === 'deny' ? raw : pathActionNorm;
     return { authorizationId: aid, action };
   } catch {
-    return { authorizationId: '', action: '' };
+    return { authorizationId: '', action: pathActionNorm };
   }
 }
 
@@ -1477,22 +1697,36 @@ export async function handleOAuthConsentPage(request, env) {
   }
 
   const iamUser = await getAuthUser(request, env);
+  let workspaceLabel = '';
+  if (iamUser?.id && env.DB) {
+    try {
+      const w = await env.DB.prepare(
+        `SELECT w.name FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id WHERE wm.user_id = ? ORDER BY wm.joined_at ASC LIMIT 1`,
+      )
+        .bind(iamUser.id)
+        .first();
+      workspaceLabel = String(w?.name || '').trim();
+    } catch (_) {}
+  }
   const authTail = authorizationIdTail(authorizationId);
   const domain = safeEmailDomain(iamUser?.email);
-  const uidTail = iamUser?.id ? iamUserIdTail(iamUser.id) : null;
+  const uidTail = iamUser?.id ? appUserIdTail(iamUser.id) : null;
 
-  console.log(
-    JSON.stringify({
-      event: 'oauth.consent.received',
+  await logAuthEvent(env, {
+    request,
+    eventType: 'oauth_consent_received',
+    userId: iamUser?.id,
+    metadata: {
       method: request.method,
       authorization_id_tail: authTail,
       authenticated: !!iamUser,
-      iam_user_id_tail: uidTail,
+      user_id_tail: uidTail,
       email_domain: domain,
-    }),
-  );
+    },
+  });
 
   if (!authorizationId) {
+    await logAuthEvent(env, { request, eventType: 'oauth_consent_missing_authorization_id', status: 'fail' });
     return new Response(consentMissingRequestHtml(), {
       status: 400,
       headers: {
@@ -1503,6 +1737,11 @@ export async function handleOAuthConsentPage(request, env) {
   }
 
   if (!iamUser) {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'oauth_consent_requires_login',
+      metadata: { authorization_id_tail: authTail },
+    });
     const q = new URLSearchParams();
     q.set('next', `/api/auth/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`);
     return redirectToAuthLogin(request, q.toString());
@@ -1510,6 +1749,13 @@ export async function handleOAuthConsentPage(request, env) {
 
   const bridge = await getBearerForConsent(env, iamUser);
   if (bridge.error === 'jwt_secret_missing') {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'oauth_consent_error',
+      userId: iamUser.id,
+      status: 'fail',
+      metadata: { reason: 'jwt_secret_missing' },
+    });
     return new Response(
       consentConfigErrorHtml(
         'Consent is not configured',
@@ -1519,6 +1765,13 @@ export async function handleOAuthConsentPage(request, env) {
     );
   }
   if (bridge.error === 'no_supabase_user') {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'oauth_consent_error',
+      userId: iamUser.id,
+      status: 'fail',
+      metadata: { reason: 'no_supabase_user' },
+    });
     return new Response(
       consentConfigErrorHtml(
         'Could not prepare Supabase session',
@@ -1528,6 +1781,13 @@ export async function handleOAuthConsentPage(request, env) {
     );
   }
   if (bridge.error === 'jwt_mint_invalid') {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'oauth_consent_error',
+      userId: iamUser.id,
+      status: 'fail',
+      metadata: { reason: 'jwt_mint_invalid' },
+    });
     return new Response(
       consentConfigErrorHtml(
         'Consent bridge rejected',
@@ -1552,20 +1812,36 @@ export async function handleOAuthConsentPage(request, env) {
     const redir = dec.json?.redirect_url;
     const safeLog = redir ? safeRedirectLog(redir) : { host: '', pathname: '' };
 
-    console.log(
-      JSON.stringify({
-        event: 'oauth.consent.submit',
-        authorization_id_tail: authTail,
+    await logAuthEvent(env, {
+      request,
+      eventType: 'oauth_consent_submit',
+      userId: iamUser.id,
+      status: dec.ok ? 'ok' : 'fail',
+      metadata: {
         decision: action,
         next_redirect_host: safeLog.host,
         next_redirect_path: safeLog.pathname,
-        consent_ok: !!dec.ok,
-      }),
-    );
+        authorization_id_tail: authTail,
+      },
+    });
 
     if (dec.ok && redir) {
+      await logAuthEvent(env, {
+        request,
+        eventType: action === 'approve' ? 'oauth_consent_approved' : 'oauth_consent_denied',
+        userId: iamUser.id,
+        metadata: { authorization_id_tail: authTail },
+      });
       return Response.redirect(redir, 302);
     }
+
+    await logAuthEvent(env, {
+      request,
+      eventType: 'oauth_consent_error',
+      userId: iamUser.id,
+      status: 'fail',
+      metadata: { phase: 'post_consent', authorization_id_tail: authTail },
+    });
 
     const msg =
       dec.json?.msg ||
@@ -1584,6 +1860,7 @@ export async function handleOAuthConsentPage(request, env) {
         redirectUri: redirectUri || '',
         scopes,
         signedInEmail: iamUser.email || '',
+        workspaceLabel,
         errorMessage: typeof msg === 'string' ? msg : String(msg),
       }),
       {
@@ -1598,14 +1875,16 @@ export async function handleOAuthConsentPage(request, env) {
   if (detail.json?.redirect_url) {
     const redir = detail.json.redirect_url;
     const safeLog = safeRedirectLog(redir);
-    console.log(
-      JSON.stringify({
-        event: 'oauth.consent.auto_redirect',
+    await logAuthEvent(env, {
+      request,
+      eventType: 'oauth_consent_auto_redirect',
+      userId: iamUser.id,
+      metadata: {
         authorization_id_tail: authTail,
         next_redirect_host: safeLog.host,
         next_redirect_path: safeLog.pathname,
-      }),
-    );
+      },
+    });
     return Response.redirect(redir, 302);
   }
 
@@ -1614,17 +1893,18 @@ export async function handleOAuthConsentPage(request, env) {
   const scopes = detail.json?.scope || '';
   const redirectUri = detail.json?.redirect_uri || '';
 
-  console.log(
-    JSON.stringify({
-      event: 'oauth.consent.details',
+  await logAuthEvent(env, {
+    request,
+    eventType: 'oauth_consent_details',
+    userId: iamUser.id,
+    metadata: {
       authorization_id_tail: authTail,
       consent_details_loaded: loaded,
       client_name: clientName || null,
       scopes: scopes || null,
-      decision: null,
       email_domain: domain,
-    }),
-  );
+    },
+  });
 
   if (!detail.ok || !loaded) {
     const errMsg =
@@ -1639,6 +1919,7 @@ export async function handleOAuthConsentPage(request, env) {
         redirectUri: '',
         scopes: '',
         signedInEmail: iamUser.email || '',
+        workspaceLabel,
         errorMessage: typeof errMsg === 'string' ? errMsg : String(errMsg),
       }),
       {
@@ -1648,6 +1929,13 @@ export async function handleOAuthConsentPage(request, env) {
     );
   }
 
+  await logAuthEvent(env, {
+    request,
+    eventType: 'oauth_consent_viewed',
+    userId: iamUser.id,
+    metadata: { authorization_id_tail: authTail },
+  });
+
   return new Response(
     consentPageHtml({
       authorizationId,
@@ -1655,6 +1943,7 @@ export async function handleOAuthConsentPage(request, env) {
       redirectUri,
       scopes,
       signedInEmail: iamUser.email || '',
+      workspaceLabel,
       errorMessage: '',
     }),
     {

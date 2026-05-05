@@ -135,7 +135,7 @@ export function IntegrationsSection({
   const onDisconnect = useCallback(
     async (slug: string) => {
       await fetchJson(`/api/integrations/${encodeURIComponent(slug)}/disconnect`, {
-        method: 'DELETE',
+        method: 'POST',
       });
       await loadConnected();
     },

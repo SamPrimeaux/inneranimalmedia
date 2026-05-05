@@ -101,6 +101,7 @@ async function deleteOauthTokensForSlug(DB, userId, slug) {
   } else if (s === 'cloudflare' || s === 'cloudflare_oauth') {
     providers.add('cloudflare');
   } else if (s === 'supabase_oauth' || s === 'supabase') {
+    providers.add('supabase_management');
     providers.add('supabase');
   } else {
     providers.add(s);
@@ -137,7 +138,7 @@ async function touchUserIntegrationsDisconnected(DB, userEmail, slug) {
  */
 export async function handleIntegrationsConnectRoutes(request, env, ctx, authUser, url, pathLower, method) {
   const origin = url.origin;
-  const returnTo = encodeURIComponent('/dashboard/settings?section=Integrations');
+  const returnTo = encodeURIComponent('/dashboard/settings/integrations');
 
   const connectMatch = pathLower.match(/^\/api\/integrations\/([^/]+)\/connect$/);
   if (connectMatch) {
@@ -204,7 +205,7 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
   }
 
   const disconnectMatch = pathLower.match(/^\/api\/integrations\/([^/]+)\/disconnect$/);
-  if (disconnectMatch && method === 'DELETE') {
+  if (disconnectMatch && (method === 'DELETE' || method === 'POST')) {
     if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const slugRaw = decodeURIComponent(disconnectMatch[1] || '');
     const userId = authUser.email || authUser.id;
