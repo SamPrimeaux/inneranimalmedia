@@ -66,6 +66,26 @@ function originOf(url: string): string {
   try { return new URL(url).origin; } catch { return url; }
 }
 
+/** Poll job list until screenshot completes (modular worker exposes GET /api/playwright). */
+async function pollPlaywrightScreenshotJob(jobId: string, signal: AbortSignal): Promise<string | null> {
+  const deadline = Date.now() + 28000;
+  while (Date.now() < deadline) {
+    if (signal.aborted) return null;
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const r = await fetch('/api/playwright', { credentials: 'same-origin', signal });
+      const j = await r.json().catch(() => ({})) as { jobs?: Array<{ id?: string; status?: string; result_url?: string; error?: string }> };
+      const jobs = Array.isArray(j.jobs) ? j.jobs : [];
+      const row = jobs.find((x) => String(x.id) === jobId);
+      if (row?.status === 'completed' && row.result_url) return String(row.result_url);
+      if (row?.status === 'error') throw new Error(row.error || 'Screenshot job failed');
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return null;
+    }
+  }
+  return null;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PaneMode = 'browse' | 'picker' | 'screenshot' | 'area';
@@ -757,6 +777,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   const [screenshotErr,  setScreenshotErr]  = useState<string | null>(null);
   const [screenshotLoad, setScreenshotLoad] = useState(false);
   const [inspectedEl,    setInspectedEl]    = useState<InspectedElement | null>(null);
+  const [inspectEpoch,   setInspectEpoch]   = useState(0);
   const [trustRequest,   setTrustRequest]   = useState<TrustRequest | null>(null);
   const [sessionTrusted, setSessionTrusted] = useState<Set<string>>(new Set());
   const [area,           setArea]           = useState<AreaSelection | null>(null);
@@ -832,19 +853,37 @@ const BrowserPane: React.FC<PaneProps> = ({
         setCurrentUrl(e.data.url);
         setInputVal(e.data.url);
       }
-      if (e.data?.type === 'iam-element-selected') {
-        setInspectedEl(e.data.element);
+      if (e.data?.type === 'iam-element-selected' && e.data.element && typeof e.data.element === 'object') {
+        const el = e.data.element as InspectedElement;
+        setInspectedEl(el);
+        setInspectEpoch((n) => n + 1);
         setDevToolsOpen(true);
         setDevToolsTab('elements');
+        window.dispatchEvent(new CustomEvent('iam-browser-set-inspector', { detail: el }));
         window.dispatchEvent(new CustomEvent('iam-agent-external-send', {
           detail: {
-            message: `Inspected element: \`${e.data.element.tag}${e.data.element.id ? `#${e.data.element.id}` : ''}${e.data.element.className ? `.${e.data.element.className.split(' ')[0]}` : ''}\`\n\nPath: \`${e.data.element.path}\`\n\nKey styles:\n${Object.entries(e.data.element.styles || {}).slice(0, 8).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`,
+            message: `Inspected element: \`${el.tag}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ')[0]}` : ''}\`\n\nPath: \`${el.path}\`\n\nKey styles:\n${Object.entries(el.styles || {}).slice(0, 8).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`,
           },
         }));
       }
     };
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
+  }, []);
+
+  useEffect(() => {
+    const onExternal = (ev: Event) => {
+      const raw = (ev as CustomEvent<unknown>).detail;
+      if (!raw || typeof raw !== 'object') return;
+      const el = raw as InspectedElement;
+      if (typeof el.tag !== 'string') return;
+      setInspectedEl(el);
+      setInspectEpoch((n) => n + 1);
+      setDevToolsOpen(true);
+      setDevToolsTab('elements');
+    };
+    window.addEventListener('iam-browser-set-inspector', onExternal as EventListener);
+    return () => window.removeEventListener('iam-browser-set-inspector', onExternal as EventListener);
   }, []);
 
   // ── Inject picker script when mode = picker ─────────────────────────────────
@@ -900,6 +939,8 @@ const BrowserPane: React.FC<PaneProps> = ({
     setScreenshotLoad(true);
     setScreenshotUrl(null);
     setScreenshotErr(null);
+    const ac = new AbortController();
+    const to = window.setTimeout(() => ac.abort(), 30000);
     try {
       const endpoint = clip ? '/api/mcp/invoke' : '/api/playwright/screenshot';
       const body     = clip
@@ -910,14 +951,39 @@ const BrowserPane: React.FC<PaneProps> = ({
         headers:     { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body:        JSON.stringify(body),
+        signal:      ac.signal,
       });
-      const data = await res.json();
-      const url  = data.screenshot_url || data.screenshotUrl || data.result?.screenshot_url;
-      if (!res.ok || !url) throw new Error(data.error || 'No screenshot URL returned');
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      let url =
+        (data.screenshot_url as string | undefined) ||
+        (data.screenshotUrl as string | undefined) ||
+        (data.result_url as string | undefined) ||
+        ((data.result as Record<string, unknown> | undefined)?.screenshot_url as string | undefined);
+      const statusStr = String(data.status || '');
+      const jobId = data.id != null ? String(data.id) : '';
+      if (!url && statusStr === 'pending' && jobId) {
+        url = (await pollPlaywrightScreenshotJob(jobId, ac.signal)) || undefined;
+      }
+      if (!url && res.ok && statusStr === 'pending') {
+        setScreenshotErr('Capture timed out after 30s. The job may still finish — check recent browser jobs or retry.');
+        return;
+      }
+      if (!res.ok || !url) {
+        if (ac.signal.aborted) {
+          setScreenshotErr('Capture timed out after 30s. Try again or capture a smaller viewport.');
+          return;
+        }
+        throw new Error(String(data.error || 'No screenshot URL returned'));
+      }
       setScreenshotUrl(url);
     } catch (e) {
-      setScreenshotErr(String(e));
+      if (e instanceof Error && e.name === 'AbortError') {
+        setScreenshotErr('Capture timed out after 30s. Try again or use area capture with a smaller region.');
+      } else {
+        setScreenshotErr(String(e));
+      }
     } finally {
+      window.clearTimeout(to);
       setScreenshotLoad(false);
     }
   }, [currentUrl]);
@@ -1244,7 +1310,7 @@ const BrowserPane: React.FC<PaneProps> = ({
                       <div className="p-4 space-y-2">
                         <div className="flex items-center gap-2">
                           <AlertTriangle size={13} className="text-red-400" />
-                          <span className="text-[11px] font-semibold text-red-400">Capture failed</span>
+                          <span className="text-[11px] font-semibold text-red-400">Capture incomplete</span>
                           <button type="button" onClick={() => setMode('browse')} className="ml-auto text-[10px] text-[var(--text-muted)] hover:text-[var(--text-main)] underline">Back</button>
                         </div>
                         <pre className="text-[10px] text-red-400 font-mono bg-[var(--bg-panel)] rounded p-3 whitespace-pre-wrap">{screenshotErr}</pre>
@@ -1287,6 +1353,7 @@ const BrowserPane: React.FC<PaneProps> = ({
                 style={{ width: `${devToolsWidth}%`, minWidth: 280, maxWidth: '70%' }}
               >
                 <DevToolsPanel
+                  key={inspectEpoch}
                   url={currentUrl}
                   onClose={() => setDevToolsOpen(false)}
                   tab={devToolsTab}
@@ -1336,6 +1403,8 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   const [primaryUrl,    setPrimaryUrl]    = useState(urlFromParent || DEFAULT_URL);
   const [secondaryUrl,  setSecondaryUrl]  = useState<string | null>(null);
   const [agentActive,   setAgentActive]   = useState(false);
+  const [collabBridge, setCollabBridge] = useState<'live' | 'offline' | 'unavailable'>('live');
+  const [jobsPollErr, setJobsPollErr] = useState<string | null>(null);
 
   useEffect(() => { if (urlFromParent?.trim()) setPrimaryUrl(urlFromParent); }, [urlFromParent]);
 
@@ -1358,7 +1427,35 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   }, []);
 
   // ── WebSocket bridge to IAM_COLLAB (exponential backoff; no retry storm on stub/503) ─
-  const [collabBridge, setCollabBridge] = useState<'live' | 'offline' | 'unavailable'>('live');
+  useEffect(() => {
+    if (!isActive) {
+      setJobsPollErr(null);
+      return;
+    }
+    let cancelled = false;
+    const pollJobs = async () => {
+      let lastErr: string | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const r = await fetch('/api/playwright', { credentials: 'same-origin' });
+          const j = await r.json().catch(() => ({})) as { error?: string };
+          if (!r.ok) throw new Error(j.error || r.statusText);
+          if (!cancelled) setJobsPollErr(null);
+          return;
+        } catch (e) {
+          lastErr = e instanceof Error ? e.message : String(e);
+          if (attempt < 2) await new Promise((res) => setTimeout(res, 1000));
+        }
+      }
+      if (!cancelled) setJobsPollErr(lastErr);
+    };
+    void pollJobs();
+    const interval = window.setInterval(() => void pollJobs(), 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isActive]);
 
   useEffect(() => {
     if (!isActive) {
@@ -1479,6 +1576,14 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           {collabBridge === 'unavailable'
             ? 'Collaboration bridge unavailable (live sync off).'
             : 'Collaboration offline — live browser sync paused.'}
+        </div>
+      )}
+      {jobsPollErr && (
+        <div
+          className="shrink-0 px-2 py-1 text-[10px] text-center border-b border-[var(--border-subtle)] bg-amber-500/10 text-amber-200"
+          role="status"
+        >
+          Failed to fetch browser jobs after retries: {jobsPollErr}
         </div>
       )}
       <div className="flex w-full min-h-0 flex-1 overflow-hidden">

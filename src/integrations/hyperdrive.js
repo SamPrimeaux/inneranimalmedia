@@ -145,7 +145,11 @@ export async function handleHyperdriveRoutes(request, url, env) {
         .filter((r) => r.name);
       return jsonResponse({ tables });
     } catch (e) {
-      return jsonResponse({ tables: [], error: e?.message ?? String(e) }, 500);
+      return jsonResponse({
+        tables: [],
+        error: e?.message ?? String(e),
+        hint: 'Check Hyperdrive connection',
+      }, 200);
     }
   }
 

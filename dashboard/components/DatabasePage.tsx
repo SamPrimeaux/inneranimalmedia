@@ -203,6 +203,11 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function isTransientFetchError(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /failed to fetch|network|load failed|aborted|timed out|timeout/i.test(m);
+}
+
 function Drawer({
   title,
   subtitle,
@@ -301,6 +306,9 @@ export const DatabasePage: React.FC = () => {
   const [editingCell, setEditingCell] = useState<{ rowKey: string; col: string; value: string } | null>(null);
 
   const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [capLoaded, setCapLoaded] = useState(false);
+  const [pageReady, setPageReady] = useState(false);
+  const [hyperHealthBad, setHyperHealthBad] = useState(false);
 
   const sqlEditorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
   const activeQueryTabIdRef = useRef(activeQueryTabId);
@@ -348,6 +356,8 @@ export const DatabasePage: React.FC = () => {
       setIsSuperadmin(payload.capabilities?.is_superadmin === true);
     } catch {
       setIsSuperadmin(false);
+    } finally {
+      setCapLoaded(true);
     }
   }, []);
 
@@ -355,12 +365,33 @@ export const DatabasePage: React.FC = () => {
     if (target === 'd1') setD1Status('loading');
     else setHyperStatus('loading');
     setLoadingTables(true);
-    try {
-      const url = target === 'd1' ? '/api/d1/tables' : '/api/hyperdrive/tables';
-      const payload = await fetchJson<unknown>(url);
+    const endpoint = target === 'd1' ? '/api/d1/tables' : '/api/hyperdrive/tables';
+
+    const loadOnce = async () => {
+      const res = await fetch(endpoint, { credentials: 'same-origin' });
+      const payload = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setTables((prev) => ({ ...prev, [target]: [] }));
+        if (target === 'd1') setD1Status('ok');
+        else setHyperStatus('ok');
+        return;
+      }
+      if (!res.ok) {
+        throw new Error((payload as { error?: string }).error || res.statusText);
+      }
       setTables((prev) => ({ ...prev, [target]: normalizeTables(payload) }));
       if (target === 'd1') setD1Status('ok');
       else setHyperStatus('ok');
+    };
+
+    try {
+      try {
+        await loadOnce();
+      } catch (first) {
+        if (!isTransientFetchError(first)) throw first;
+        await new Promise((r) => setTimeout(r, 1000));
+        await loadOnce();
+      }
     } catch {
       setTables((prev) => ({ ...prev, [target]: [] }));
       if (target === 'd1') setD1Status('error');
@@ -417,9 +448,44 @@ export const DatabasePage: React.FC = () => {
 
   useEffect(() => {
     void loadThemeAccent();
-    void loadCapabilities();
-    void loadAllTables();
-  }, [loadAllTables, loadCapabilities, loadThemeAccent]);
+  }, [loadThemeAccent]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await loadCapabilities();
+      await loadAllTables();
+      if (!cancelled) setPageReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAllTables, loadCapabilities]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/hyperdrive/health', { credentials: 'same-origin' });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.status === 401) {
+          setHyperHealthBad(false);
+          return;
+        }
+        if (res.status >= 500 || res.status === 503) {
+          setHyperHealthBad(true);
+          return;
+        }
+        setHyperHealthBad(data.ok === false);
+      } catch {
+        if (!cancelled) setHyperHealthBad(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setColumnCache({});
@@ -655,8 +721,12 @@ export const DatabasePage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const dsError = datasource === 'd1' ? d1Status === 'error' : hyperStatus === 'error';
-  const bothDisconnected = d1Status === 'error' && hyperStatus === 'error';
+  const onboardingEligible = capLoaded && pageReady && !isSuperadmin;
+  const showD1Setup = onboardingEligible && d1Status === 'error';
+  const showHyperSetup = onboardingEligible && hyperHealthBad;
+  const dsNeedsSetup = datasource === 'd1' ? showD1Setup : showHyperSetup;
+  const bothDisconnected = showD1Setup && showHyperSetup;
+  const sidebarEmptyMuted = onboardingEligible && (datasource === 'd1' ? showD1Setup : showHyperSetup);
 
   const mainPlaceholder =
     !selectedTable && activeMainTab !== 'sql' ? (
@@ -669,42 +739,49 @@ export const DatabasePage: React.FC = () => {
       </div>
     ) : null;
 
-  const setupContent = bothDisconnected ? (
-    <div className="flex h-full items-stretch justify-center gap-4 p-8">
-      <div className="w-full max-w-md">
-        <SetupCard
-          title="Cloudflare D1 not configured"
-          body="Connect D1 storage for this workspace to browse tables and run queries against the edge database."
-          to="/dashboard/settings/storage"
-        />
-      </div>
-      <div className="w-full max-w-md">
-        <SetupCard
-          title="Supabase not connected"
-          body="Connect Hyperdrive / Supabase in integrations so Postgres tables appear here."
-          to="/dashboard/settings/integrations"
-        />
-      </div>
-    </div>
-  ) : dsError ? (
-    <div className="flex h-full items-center justify-center p-8">
-      <div className="w-full max-w-lg">
-        {datasource === 'd1' ? (
-          <SetupCard
-            title="Cloudflare D1 not configured"
-            body="We could not load the D1 table list. Check storage bindings and try again."
-            to="/dashboard/settings/storage"
-          />
-        ) : (
-          <SetupCard
-            title="Supabase not connected"
-            body="We could not reach Postgres via Hyperdrive. Finish Supabase setup in integrations."
-            to="/dashboard/settings/integrations"
-          />
-        )}
-      </div>
-    </div>
-  ) : null;
+  const setupContent =
+    !pageReady || isSuperadmin
+      ? null
+      : bothDisconnected
+        ? (
+          <div className="flex h-full items-stretch justify-center gap-4 p-8">
+            <div className="w-full max-w-md">
+              <SetupCard
+                title="Cloudflare D1 not configured"
+                body="Connect D1 storage for this workspace to browse tables and run queries against the edge database."
+                to="/dashboard/settings/storage"
+              />
+            </div>
+            <div className="w-full max-w-md">
+              <SetupCard
+                title="Supabase not connected"
+                body="Connect Hyperdrive / Supabase in integrations so Postgres tables appear here."
+                to="/dashboard/settings/integrations"
+              />
+            </div>
+          </div>
+        )
+        : dsNeedsSetup
+          ? (
+            <div className="flex h-full items-center justify-center p-8">
+              <div className="w-full max-w-lg">
+                {datasource === 'd1' ? (
+                  <SetupCard
+                    title="Cloudflare D1 not configured"
+                    body="We could not load the D1 table list. Check storage bindings and try again."
+                    to="/dashboard/settings/storage"
+                  />
+                ) : (
+                  <SetupCard
+                    title="Supabase not connected"
+                    body="We could not reach Postgres via Hyperdrive. Finish Supabase setup in integrations."
+                    to="/dashboard/settings/integrations"
+                  />
+                )}
+              </div>
+            </div>
+          )
+          : null;
 
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-[var(--bg-app)] text-[var(--text-main)]">
@@ -820,7 +897,7 @@ export const DatabasePage: React.FC = () => {
           })}
           {!filteredTables.length && (
             <p className="p-4 text-center font-mono text-[11px] text-[var(--text-muted)]">
-              {loadingTables ? 'Loading tables…' : dsError ? '—' : 'No tables match'}
+              {!pageReady ? 'Loading tables…' : loadingTables ? 'Loading tables…' : sidebarEmptyMuted ? '—' : 'No tables match'}
             </p>
           )}
         </div>

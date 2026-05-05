@@ -42,6 +42,7 @@ import { handleCursorAgentApi } from '../api/cursor-agent.js';
 import { handleCalendarApi } from '../api/calendar.js';
 import { handleHealthApi } from '../api/health/index.js';
 import { handleVaultApi } from '../api/vault.js';
+import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
 
 /**
  * @typedef {object} ProductionRouteContext
@@ -113,6 +114,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/vault')) {
     return handleVaultApi(request, new URL(request.url), env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/d1')) {
+    return handleD1DashboardRoutes(request, url, env);
   }
 
   if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {
