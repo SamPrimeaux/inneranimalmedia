@@ -672,6 +672,11 @@ export default {
         return handleCursorAgentApi(request, url, env, ctx);
       }
 
+      // Dashboard module: must match src/core/router.js (hyperdrive/browser are not under /api/agent/*).
+      if (pathLower.startsWith('/api/hyperdrive') || pathLower.startsWith('/api/browser')) {
+        return handleDashboardApi(request, url, env, ctx);
+      }
+
       if (pathLower.startsWith('/api/agent') || pathLower.startsWith('/api/terminal') || pathLower.startsWith('/api/chat') || pathLower.startsWith('/api/playwright')) {
         const postAgentFirst = pathLower.startsWith('/api/agent') && methodUpper === 'POST';
         let postAgentRes = null;
