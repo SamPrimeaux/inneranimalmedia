@@ -40,7 +40,7 @@ import { handleStudioSessionApi } from '../api/studio-session.js';
 import { handleStatusBundle } from '../api/status-bundle.js';
 import { handleCursorAgentApi } from '../api/cursor-agent.js';
 import { handleCalendarApi } from '../api/calendar.js';
-import { handleHealthApi } from '../api/health.js';
+import { handleHealthApi } from '../api/health/index.js';
 import { handleVaultApi } from '../api/vault.js';
 
 /**
