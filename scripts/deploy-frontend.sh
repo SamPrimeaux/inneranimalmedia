@@ -66,7 +66,14 @@ fi
 # If POST returns 400, add missing columns on build_deploy_events (e.g. git_message, environment, started_at, duration_ms).
 if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
   echo "→ Recording deploy in Supabase build_deploy_events..."
+  DEPLOY_ID="deploy_$(date +%s)"
+  CREATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  TRIGGER_SRC="${TRIGGER_SOURCE:-manual}"
   PAYLOAD="$(jq -n \
+    --arg id "$DEPLOY_ID" \
+    --arg ws "ws_inneranimalmedia" \
+    --arg tid "tenant_sam_primeaux" \
+    --arg ts "$TRIGGER_SRC" \
     --arg sha "$GIT_FULL_SHA" \
     --arg branch "$BRANCH_NAME" \
     --arg wv "${WORKER_VERSION_ID:-}" \
@@ -74,18 +81,24 @@ if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
     --arg env "$DEPLOY_ENV" \
     --arg by "$DEPLOYED_BY" \
     --arg started "$DEPLOY_STARTED_AT" \
+    --arg created "$CREATED_AT" \
     --argjson dur "$DEPLOY_DURATION_MS" \
     '{
+      id: $id,
+      workspace_id: $ws,
+      tenant_id: $tid,
       event_type: "deploy",
+      trigger_source: $ts,
+      script_name: "inneranimalmedia",
       git_commit_sha: $sha,
       git_branch: $branch,
       git_message: $gmsg,
       status: "success",
-      deployed_by: $by,
-      worker_name: "inneranimalmedia",
       environment: $env,
+      deployed_by: $by,
       started_at: $started,
       duration_ms: $dur,
+      created_at: $created,
       worker_version_id: (if ($wv | length) == 0 then null else $wv end)
     }')"
   curl -s -X POST "$SUPABASE_URL/rest/v1/build_deploy_events" \

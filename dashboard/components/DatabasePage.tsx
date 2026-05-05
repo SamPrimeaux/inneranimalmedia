@@ -327,9 +327,37 @@ export const DatabasePage: React.FC = () => {
   const loadTables = useCallback(async (target: Datasource = datasource) => {
     setLoadingTables(true);
     try {
-      const endpoint = target === 'd1' ? '/api/d1/tables' : '/api/hyperdrive/tables';
-      const payload = await fetchJson<unknown>(endpoint);
-      setTables((prev) => ({ ...prev, [target]: normalizeTables(payload) }));
+      if (target === 'd1') {
+        const payload = await fetchJson<unknown>('/api/d1/tables');
+        setTables((prev) => ({ ...prev, [target]: normalizeTables(payload) }));
+      } else {
+        try {
+          const payload = await fetchJson<unknown>('/api/hyperdrive/tables');
+          setTables((prev) => ({ ...prev, [target]: normalizeTables(payload) }));
+        } catch {
+          const disc = await fetchJson<{ results?: Record<string, unknown>[]; rows?: Record<string, unknown>[] }>(
+            '/api/hyperdrive',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sql:
+                  "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
+                params: [],
+              }),
+            },
+          );
+          const rows = disc.results || disc.rows || [];
+          const tables: TableMeta[] = (Array.isArray(rows) ? rows : [])
+            .map((r) => ({
+              name: String((r as { table_name?: string }).table_name || '').trim(),
+              table_schema: 'public',
+            }))
+            .filter((t) => t.name)
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+          setTables((prev) => ({ ...prev, [target]: tables }));
+        }
+      }
     } catch {
       setTables((prev) => ({ ...prev, [target]: [] }));
     } finally {
@@ -682,7 +710,13 @@ export const DatabasePage: React.FC = () => {
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-panel)] px-4 py-2">
           <div className="min-w-0">
             <p className="font-mono text-sm font-semibold">{selectedTable || (sidebarTab === 'infrastructure' ? 'Infrastructure' : 'Select a table')}</p>
-            <p className="text-[11px] text-[var(--text-muted)]">{sidebarTab === 'hyperdrive' ? 'Hyperdrive · Supabase public schema' : sidebarTab === 'd1' ? 'Cloudflare D1' : 'KV · Durable Objects · D1 · Supabase'}</p>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              {sidebarTab === 'hyperdrive'
+                ? 'Hyperdrive pooler · Supabase public schema · full SQL CRUD (SELECT / INSERT / UPDATE / DELETE)'
+                : sidebarTab === 'd1'
+                  ? 'Cloudflare D1'
+                  : 'KV · Durable Objects · D1 · Supabase'}
+            </p>
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-1">
             {(['schema', 'data', 'sql', 'indexes', 'relations'] as MainTab[]).map((tab) => (

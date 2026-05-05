@@ -10,7 +10,7 @@ import { chatWithToolsOpenAI } from '../integrations/openai.js';
 import { chatWithToolsGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { handleCanvasApi } from '../integrations/canvas.js';
-import { handleHyperdriveApi } from '../integrations/hyperdrive.js';
+import { handleHyperdriveRoutes } from '../integrations/hyperdrive.js';
 import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/playwright.js';
 import { handleGitHubApi } from '../integrations/github.js';
 
@@ -356,9 +356,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
         return handleCanvasApi(request, env);
     }
 
-    // ── /api/hyperdrive (Postgres Proxy) ─────────────────────────────────────
-    if (pathLower === '/api/hyperdrive') {
-        return handleHyperdriveApi(request, env);
+    // ── /api/hyperdrive/* (Postgres via Hyperdrive — SQL CRUD + table browser) ─
+    if (pathLower.startsWith('/api/hyperdrive')) {
+        return handleHyperdriveRoutes(request, url, env);
     }
 
     // ── /api/browser (Playwright Rendering) ──────────────────────────────────
