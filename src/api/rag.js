@@ -275,6 +275,54 @@ async function withPg(env, fn) {
   }
 }
 
+/**
+ * Hybrid keyword + vector search against Supabase `agent_memory` via Hyperdrive (pgvector RPC).
+ * Uses OpenAI embeddings (same model/dims as RAG). Returns null on missing bindings or errors.
+ *
+ * @param {any} env
+ * @param {string} query
+ * @param {string|null|undefined} workspaceId
+ * @param {{ matchLimit?: number, keywordWeight?: number, semanticWeight?: number }} [options]
+ * @returns {Promise<Array<{ id: unknown, content: unknown, hybrid_score?: unknown, embedding_distance?: unknown, trigram_similarity?: unknown }>|null>}
+ */
+export async function searchAgentMemoryHybrid(env, query, workspaceId, options = {}) {
+  if (!env.HYPERDRIVE?.connectionString || !env.OPENAI_API_KEY) return null;
+
+  const {
+    matchLimit = 10,
+    keywordWeight = 1.5,
+    semanticWeight = 0.5,
+  } = options;
+
+  let embedding;
+  try {
+    embedding = await openaiCreateEmbedding(env, String(query || '').trim());
+  } catch (e) {
+    console.warn('[rag] searchAgentMemoryHybrid embed:', e?.message ?? e);
+    return null;
+  }
+  if (!embedding?.length) return null;
+
+  const vecLit = vectorLiteral(embedding);
+  const q = String(query || '').trim();
+
+  const sql = `SELECT id, content, hybrid_score, embedding_distance, trigram_similarity
+     FROM public.search_agent_memory($1::vector, $2, $3, $4, $5, $6)`;
+  const params = [vecLit, q, workspaceId, matchLimit, keywordWeight, semanticWeight];
+
+  try {
+    if (typeof env.HYPERDRIVE.query === 'function') {
+      const result = await env.HYPERDRIVE.query(sql, params);
+      return result?.rows ?? [];
+    }
+    const result = await withPg(env, (client) => client.query(sql, params));
+    return result?.rows ?? [];
+  } catch (e) {
+    console.error('[rag] searchAgentMemoryHybrid failed:', e?.message);
+    return null;
+  }
+}
+
 async function upsertDocument(env, { source, title, content, embedding, projectId, metadata }) {
   const vecLit = vectorLiteral(embedding);
   const metaJson = JSON.stringify(metadata ?? {});

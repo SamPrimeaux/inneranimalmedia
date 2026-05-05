@@ -8,6 +8,16 @@ if [ -f "$REPO_ROOT/.env.cloudflare" ]; then
   source "$REPO_ROOT/.env.cloudflare"
   set +a
 fi
+# Drop stale Supabase project URLs from shell env (wrong REST host breaks deploy log + backfill).
+for stale in tcczxkatmodtxfuulvsr sexdnwlyuhkyvseunqlx; do
+  case "${SUPABASE_URL:-}" in
+    *"${stale}"*)
+      echo "⚠️  SUPABASE_URL contains stale ref ${stale}; ignoring for this run. Use https://dpmuvynqixblxsilnlut.supabase.co in .env.cloudflare" >&2
+      SUPABASE_URL=
+      break
+      ;;
+  esac
+done
 if [ -f "$REPO_ROOT/.env.cloudflare" ] && { ! grep -qE '^[[:space:]]*SUPABASE_URL=' "$REPO_ROOT/.env.cloudflare" || ! grep -qE '^[[:space:]]*SUPABASE_SERVICE_ROLE_KEY=' "$REPO_ROOT/.env.cloudflare"; }; then
   echo "⚠️  Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to .env.cloudflare"
   echo "    These are needed for build_deploy_events Supabase sync on deploy."
@@ -38,6 +48,17 @@ find "$DIST" -type f | while read -r file; do
   ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "$BUCKET/$key" \
     --file "$file" --content-type "$ct" -c "$TOML" --remote
 done
+
+# Remove orphaned hashed chunks: wrangler has no `r2 object list`; use S3-compatible ListObjectsV2 (R2 API token).
+echo "→ Pruning stale R2 objects under ${PREFIX}/ ..."
+if [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  node "$REPO_ROOT/scripts/r2-prune-dashboard-prefix.mjs" \
+    --bucket "$BUCKET" \
+    --prefix "$PREFIX" \
+    --dist "$REPO_ROOT/$DIST"
+else
+  echo "⚠️  Skipping R2 stale-chunk prune (set R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY in .env.cloudflare; CLOUDFLARE_ACCOUNT_ID required)"
+fi
 
 echo "→ Deploying worker..."
 DEPLOY_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -122,6 +143,15 @@ printf '{"git_hash":"%s","timestamp":"%s","file_count":%s,"branch":"%s","environ
   "${BUCKET}/analytics/app-builds/${TS}.json" \
   --pipe --content-type application/json -c "$TOML" --remote
 echo "[deploy] build manifest → analytics/app-builds/${TS}.json"
+
+# Expire old build manifests (90 days) under analytics/app-builds/
+echo "→ Ensuring R2 lifecycle rule for analytics/app-builds/ (expire after 90 days)..."
+if ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle list "$BUCKET" -c "$TOML" 2>/dev/null | grep -q 'app-builds-manifests-90d'; then
+  echo "  (lifecycle rule app-builds-manifests-90d already present)"
+else
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle add "$BUCKET" app-builds-manifests-90d analytics/app-builds/ \
+    --expire-days 90 --force -c "$TOML"
+fi
 
 # Post-deploy: Supabase pgvector backfill for rows with NULL embedding (Edge Function).
 # Set SUPABASE_WEBHOOK_SECRET in .env.cloudflare (same value as the function's WEBHOOK_SECRET).

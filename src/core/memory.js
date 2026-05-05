@@ -5,6 +5,8 @@
  * (identity + policy strings). Do not prepend ahead of core system instructions.
  */
 
+import { searchAgentMemoryHybrid } from '../api/rag.js';
+
 const IAM_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
 /** Default REST origin when env.SUPABASE_URL is unset (matches project Postgres RPC). */
 const SUPABASE_REST_FALLBACK = 'https://dpmuvynqixblxsilnlut.supabase.co';
@@ -74,7 +76,31 @@ function formatSemanticRecallBlock(rows) {
 export async function loadAgentMemoryForPrompt(env, tenantId, ctx = {}) {
   const userMessage = ctx?.userMessage != null ? String(ctx.userMessage) : '';
   const fallback = () => loadAgentMemory(env, tenantId);
-  if (!tenantId || !env?.SUPABASE_SERVICE_ROLE_KEY || !env?.AI || !userMessage.trim()) {
+  if (!tenantId || !userMessage.trim()) {
+    return fallback();
+  }
+
+  const workspaceId =
+    ctx.workspaceId != null && String(ctx.workspaceId).trim() !== ''
+      ? String(ctx.workspaceId).trim()
+      : null;
+
+  if (workspaceId) {
+    const hybridRows = await searchAgentMemoryHybrid(env, userMessage, workspaceId, {});
+    if (Array.isArray(hybridRows) && hybridRows.length > 0) {
+      console.log('[rag] memory search via', 'hyperdrive');
+      const mapped = hybridRows.map((r) => ({
+        similarity: r.hybrid_score,
+        content: r.content,
+      }));
+      const block = formatSemanticRecallBlock(mapped);
+      return block || fallback();
+    }
+  }
+
+  console.log('[rag] memory search via', 'vectorize');
+
+  if (!env?.SUPABASE_SERVICE_ROLE_KEY || !env?.AI) {
     return fallback();
   }
   try {
