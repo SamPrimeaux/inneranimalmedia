@@ -153,10 +153,11 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
   if (await tableExists(db, 'agentsam_health_daily')) {
     const cols = await pragmaTableInfo(db, 'agentsam_health_daily');
     const hasTid = cols.has('tenant_id');
+    // Rollups often key tenant_id as 'system' (DEFAULT_TENANT) while sessions use workspace tenants — include both.
     const rows = tid && hasTid
       ? await all(
           db,
-          `SELECT * FROM agentsam_health_daily WHERE tenant_id = ? ORDER BY day DESC LIMIT 14`,
+          `SELECT * FROM agentsam_health_daily WHERE tenant_id IN (?, 'system') ORDER BY day DESC LIMIT 14`,
           [tid],
         )
       : await all(db, `SELECT * FROM agentsam_health_daily ORDER BY day DESC LIMIT 14`);
