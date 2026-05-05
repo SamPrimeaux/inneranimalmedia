@@ -40,6 +40,8 @@ function activeThemeJsonFromCmsRow(row) {
         data: themeVars,
         theme_family: row.theme_family || 'custom',
         wcag_scores: row.wcag_scores || null,
+        monaco_theme: row.monaco_theme ?? null,
+        monaco_bg: row.monaco_bg ?? null,
     };
 }
 
