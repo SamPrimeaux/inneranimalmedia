@@ -4,6 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { buildFinanceAnalyticsExtension } from './analytics.js';
 
 /**
  * Main dispatcher for Finance-related API routes (/api/finance/*, /api/clients, /api/projects, /api/billing/*).
@@ -32,7 +33,7 @@ export async function handleFinanceApi(request, url, env, ctx) {
                 if (method === 'POST') return handleFinanceTransactionCreate(request, env);
             }
 
-            if (segments[0] === 'summary') return handleFinanceSummary(url, env);
+            if (segments[0] === 'summary') return handleFinanceSummary(url, env, authUser);
             if (segments[0] === 'health') return handleFinanceHealth(env);
             if (segments[0] === 'breakdown') return handleFinanceBreakdown(url, env);
             if (segments[0] === 'categories') return handleFinanceCategories(env);
@@ -58,7 +59,7 @@ export async function handleFinanceApi(request, url, env, ctx) {
 
 // --- Implementation Handlers ---
 
-async function handleFinanceSummary(url, env) {
+async function handleFinanceSummary(url, env, authUser) {
     const now = new Date();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
@@ -97,6 +98,9 @@ async function handleFinanceSummary(url, env) {
     const spendTotal = Number(spendLedgerRow?.total ?? 0);
     const totalOutAllTime = (Number(totalOutTxns?.v ?? 0)) + spendTotal;
 
+    const tenantId = authUser?.tenant_id != null ? String(authUser.tenant_id) : null;
+    const analytics_extension = await buildFinanceAnalyticsExtension(env, tenantId).catch(() => null);
+
     return jsonResponse({
         success: true,
         summary: {
@@ -122,6 +126,7 @@ async function handleFinanceSummary(url, env) {
             total_in_all_time: Number(totalInAllTime?.v ?? 0),
             total_out_all_time: totalOutAllTime,
         },
+        analytics: analytics_extension,
     });
 }
 

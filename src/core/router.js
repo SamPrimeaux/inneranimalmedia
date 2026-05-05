@@ -36,7 +36,7 @@ import { handleFinanceApi }          from '../api/finance.js';
 import { handleVaultApi }            from '../api/vault.js';
 import { handleWorkspaceApi }        from '../api/workspace.js';
 import { handleHubApi }              from '../api/hub.js';
-import { handleHealthApi }           from '../api/health.js';
+import { handleHealthApi, handleHealthCheck } from '../api/health/index.js';
 import { handleDrawApi }             from '../api/draw.js';
 import { handleMailApi }             from '../api/mail.js';
 import { handleGitStatusApi }        from '../api/git-status.js';
@@ -455,7 +455,10 @@ export async function handleRequest(request, env, ctx) {
   }
 
   // ── Health ─────────────────────────────────────────────────────────────────
-  if (path === '/health' || path.startsWith('/api/health')) {
+  if (path === '/health' || path === '/api/health') {
+    return handleHealthCheck(request, env);
+  }
+  if (path.startsWith('/api/health/')) {
     return handleHealthApi(request, url, env, ctx);
   }
 

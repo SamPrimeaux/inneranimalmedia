@@ -40,7 +40,7 @@ import {
   handleSupabaseOAuthCallback,
   handleOAuthConsentPage,
 } from './api/auth';
-import { handleHealthCheck } from './api/health';
+import { handleHealthCheck, handleHealthApi } from './api/health';
 import { handleVaultApi } from './api/vault';
 import { runIntegritySnapshot } from './api/integrity';
 import { runMasterDailyRetention } from './core/retention.js';
@@ -703,6 +703,10 @@ export default {
 
       if (pathLower.startsWith('/api/hub')) {
         return handleHubApi(request, url, env, ctx);
+      }
+
+      if (pathLower.startsWith('/api/health/')) {
+        return handleHealthApi(request, url, env, ctx);
       }
 
       if (pathLower.startsWith('/api/overview')) {

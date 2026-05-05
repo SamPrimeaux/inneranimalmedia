@@ -43,6 +43,8 @@ export default defineConfig(({ mode }) => {
         minify: true,
         sourcemap: true,
         outDir: 'dist',
+        // Large vendor libs + shared; use ANALYZE=1 on dashboard for entry/subset-shared.
+        chunkSizeWarningLimit: 600,
         rollupOptions: {
           output: {
             entryFileNames: 'agent-dashboard.js',
@@ -51,11 +53,14 @@ export default defineConfig(({ mode }) => {
               if (assetInfo.name?.endsWith('.css')) return 'agent-dashboard.css';
               return '[name][extname]';
             },
+            // Wardley map chunks are lazy-loaded from mermaid internals (no separate `wardley` package).
             manualChunks: {
               'vendor-react': ['react', 'react-dom', 'react-router-dom'],
               'vendor-editor': ['@monaco-editor/react'],
               'vendor-mermaid': ['mermaid'],
               'vendor-three': ['three'],
+              'vendor-cytoscape': ['cytoscape'],
+              'vendor-katex': ['katex'],
               'agent-core': ['./components/ChatAssistant', './components/McpPage'],
               'settings': ['./components/settings/SettingsPanel'],
               'learn': ['./components/LearnPage'],

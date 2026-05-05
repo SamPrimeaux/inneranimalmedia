@@ -515,6 +515,9 @@ export const OverviewPage: React.FC = () => {
           </div>
           <div className="ov-actions">
             <span className="ov-small">Last refreshed: {lastRefresh ? lastRefresh.toLocaleTimeString() : ''}</span>
+            <button type="button" className="ov-link" onClick={() => navigate('/dashboard/health')}>
+              Health dashboard
+            </button>
             <button className="ov-btn" onClick={() => { fetchProviderColors(); load(); }} disabled={kpiLoading && financeLoading && agentLoading && goalsLoading && commandsLoading}>
               <span className="ov-iconSq" style={{ background: pc('cloudflare') }} aria-hidden="true"><IconArrow size={12} /></span>
               Refresh

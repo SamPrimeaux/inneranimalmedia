@@ -50,6 +50,7 @@ import {
 import { useEditor } from './src/EditorContext';
 import { CalendarPage } from './components/CalendarPage';
 import { OverviewPage } from './components/OverviewPage';
+import { HealthPage } from './pages/HealthPage';
 import { DatabasePage } from './components/DatabasePage';
 import { McpPage } from './components/McpPage';
 import { DesignStudioPage } from './components/DesignStudioPage';
@@ -65,7 +66,7 @@ import { AuthForgotPage } from './components/auth/AuthForgotPage';
 import { AuthResetPage } from './components/auth/AuthResetPage';
 import { AuthOAuthConsentPage } from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, Sparkles } from 'lucide-react';
+import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, Sparkles, HeartPulse } from 'lucide-react';
 
 function escapeHtmlForPreview(s: string): string {
   return s
@@ -1780,6 +1781,13 @@ const App: React.FC = () => {
             style={{ width: sidebarRailExpanded ? 180 : 48 }}
           >
               <ActivityRailItem icon={Home} label="Overview" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/overview'} onClick={() => navigate('/dashboard/overview')} />
+              <ActivityRailItem
+                icon={HeartPulse}
+                label="Health"
+                expanded={sidebarRailExpanded}
+                active={location.pathname === '/dashboard/health'}
+                onClick={() => navigate('/dashboard/health')}
+              />
               <ActivityRailItem icon={Bot} label="Agent" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/agent'} onClick={() => navigate('/dashboard/agent')} />
               <ActivityRailItem icon={GraduationCap} label="Learn" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/learn'} onClick={() => navigate('/dashboard/learn')} />
               <ActivityRailItem
@@ -2039,6 +2047,7 @@ const App: React.FC = () => {
                   <Routes>
                     <Route path="/dashboard/calendar" element={<CalendarPage />} />
                     <Route path="/dashboard/overview" element={<OverviewPage />} />
+                    <Route path="/dashboard/health" element={<HealthPage />} />
                     <Route path="/dashboard/learn" element={<LearnPage />} />
                     <Route path="/dashboard/database" element={<DatabasePage />} />
                     <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
