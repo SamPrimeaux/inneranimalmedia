@@ -37,6 +37,8 @@ import {
   fetchAndApplyActiveCmsTheme,
   applyCachedCmsThemeFallback,
   migrateLegacyThemeLocalStorage,
+  applyCmsThemeToDocument,
+  type CmsActiveThemePayload,
 } from './src/applyCmsTheme';
 import {
   hydrateIdeFromApi,
@@ -160,12 +162,9 @@ const App: React.FC = () => {
   useEffect(() => {
     fetch('/api/themes/active', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((payload: { data?: Record<string, string> } | null) => {
-        if (!payload?.data) return;
-        const root = document.documentElement;
-        Object.entries(payload.data).forEach(([k, v]) => {
-          root.style.setProperty(k, v);
-        });
+      .then((payload: CmsActiveThemePayload | null) => {
+        if (!payload || typeof payload !== 'object') return;
+        applyCmsThemeToDocument(payload);
       })
       .catch(() => {});
   }, []);

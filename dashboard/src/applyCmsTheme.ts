@@ -16,8 +16,42 @@ export type CmsActiveThemePayload = {
   slug?: string;
   name?: string;
   is_dark?: boolean;
+  /** Monaco theme id (e.g. vs, vs-dark, hc-light, or a custom id registered client-side). */
+  monaco_theme?: string | null;
+  monaco_bg?: string | null;
   data?: Record<string, string>;
 };
+
+/** Sets data-monaco-theme / data-monaco-bg for MonacoSurface and notifies listeners. */
+export function syncMonacoHtmlDataAttributes(
+  payload: Pick<CmsActiveThemePayload, 'monaco_theme' | 'monaco_bg' | 'is_dark'>,
+  cssVars?: Record<string, string> | null,
+): void {
+  let themeStr =
+    payload.monaco_theme != null && String(payload.monaco_theme).trim() !== ''
+      ? String(payload.monaco_theme).trim()
+      : '';
+  if (!themeStr) {
+    themeStr = payload.is_dark === false ? 'vs' : 'vs-dark';
+  }
+  let bgStr =
+    payload.monaco_bg != null && String(payload.monaco_bg).trim() !== ''
+      ? String(payload.monaco_bg).trim()
+      : '';
+  if (!bgStr && cssVars && typeof cssVars === 'object') {
+    const scene = cssVars['--scene-bg']?.trim();
+    const bg = cssVars['--bg']?.trim();
+    bgStr = scene || bg || '';
+  }
+  if (!bgStr) bgStr = '#1e293b';
+  document.documentElement.setAttribute('data-monaco-theme', themeStr);
+  document.documentElement.setAttribute('data-monaco-bg', bgStr);
+  try {
+    window.dispatchEvent(new CustomEvent('iam:cms-theme-applied'));
+  } catch {
+    /* ignore */
+  }
+}
 
 /** One-time read: copy legacy mcad_* keys into inneranimalmedia_* then drop legacy. */
 export function migrateLegacyThemeLocalStorage(): void {
@@ -55,16 +89,19 @@ export function migrateLegacyThemeLocalStorage(): void {
 
 export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean {
   const vars = payload.data;
-  if (!vars || typeof vars !== 'object' || Object.keys(vars).length === 0) return false;
-  Object.entries(vars).forEach(([k, v]) => {
-    if (v == null || k == null) return;
-    document.documentElement.style.setProperty(k, String(v));
-  });
-  try {
-    localStorage.setItem(INNERANIMALMEDIA_LS_THEME_CSS, JSON.stringify(vars));
-    localStorage.removeItem(LEGACY_MCAD_CSS);
-  } catch {
-    /* ignore quota */
+  let applied = false;
+  if (vars && typeof vars === 'object' && Object.keys(vars).length > 0) {
+    applied = true;
+    Object.entries(vars).forEach(([k, v]) => {
+      if (v == null || k == null) return;
+      document.documentElement.style.setProperty(k, String(v));
+    });
+    try {
+      localStorage.setItem(INNERANIMALMEDIA_LS_THEME_CSS, JSON.stringify(vars));
+      localStorage.removeItem(LEGACY_MCAD_CSS);
+    } catch {
+      /* ignore quota */
+    }
   }
   if (payload.slug) {
     try {
@@ -84,7 +121,8 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
       /* ignore */
     }
   }
-  return true;
+  syncMonacoHtmlDataAttributes(payload, vars ?? null);
+  return applied;
 }
 
 function activeThemeUrl(workspaceId: string | null | undefined): string {
@@ -125,6 +163,9 @@ export function applyCachedCmsThemeFallback(): boolean {
     const d = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_IS_DARK);
     const payload: CmsActiveThemePayload = { data: vars };
     if (d === '1' || d === '0') payload.is_dark = d === '1';
+    if (payload.monaco_theme == null) {
+      payload.monaco_theme = payload.is_dark === false ? 'vs' : 'vs-dark';
+    }
     return applyCmsThemeToDocument(payload);
   } catch {
     return false;
