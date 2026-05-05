@@ -256,7 +256,13 @@ async function handleBeforeUserCreatedHook(request, env) {
 }
 
 function verifyHookSecret(request, env) {
-  const expected = env.AUTH_HOOK_SECRET && String(env.AUTH_HOOK_SECRET).trim();
+  const path = new URL(request.url).pathname.toLowerCase();
+  const secretMap = {
+    '/api/auth-hooks/send-email': env.AUTH_HOOK_SECRET,
+    '/api/auth-hooks/custom-access-token': env.AUTH_HOOK_SECRET_CAT || env.AUTH_HOOK_SECRET,
+    '/api/auth-hooks/before-user-created': env.AUTH_HOOK_SECRET_BUC || env.AUTH_HOOK_SECRET,
+  };
+  const expected = secretMap[path] && String(secretMap[path]).trim();
   if (!expected) return false;
   const auth = request.headers.get('Authorization') || '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
