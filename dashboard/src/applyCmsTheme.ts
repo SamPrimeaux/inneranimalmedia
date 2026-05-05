@@ -1,6 +1,7 @@
 /**
- * Apply theme variables from GET /api/themes/active (cms_themes + settings.appearance.theme).
- * Source of truth is the database; localStorage caches variables for first paint (see index.html).
+ * Apply theme variables from GET /api/themes/active (live D1 config → `data`, plus Monaco metadata).
+ * Source of truth for preview/edit is always D1 `cms_themes.config` merged server-side — not R2 `theme.css`.
+ * Compiled CSS on R2 (`css_url`) is for public routes, published HTML, exports, and cacheable snapshots only.
  */
 
 /** localStorage keys — Inner Animal Media dashboard only (legacy mcad_* removed on read). */
@@ -16,6 +17,11 @@ export type CmsActiveThemePayload = {
   slug?: string;
   name?: string;
   is_dark?: boolean;
+  /** Live D1-backed styling (`live`); R2 snapshot URL is metadata only for published/public consumers. */
+  theme_channel?: 'live' | string;
+  /** Compiled snapshot URL on R2 — do not fetch for authenticated realtime theme apply; use `data`. */
+  css_url?: string | null;
+  compiled_css_hash?: string | null;
   /** Monaco theme id (e.g. vs, vs-dark, hc-light, or a custom id registered client-side). */
   monaco_theme?: string | null;
   monaco_bg?: string | null;
@@ -93,6 +99,36 @@ export function migrateLegacyThemeLocalStorage(): void {
   }
 }
 
+/** Call after live CMS vars are applied so dashboard alias tokens reject shell.css leakage. */
+export function markDashboardThemeApplied(slug?: string | null): void {
+  document.documentElement.setAttribute('data-dashboard-theme-ready', 'true');
+  const s = slug != null && String(slug).trim() !== '' ? String(slug).trim() : null;
+  if (s) document.documentElement.setAttribute('data-cms-theme', s);
+  else document.documentElement.removeAttribute('data-cms-theme');
+}
+
+/** `?theme_debug=1` — logs resolved tokens (computed) for diagnosing shell vs Agent vs workspace drift. */
+export function logDashboardThemeDebug(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('theme_debug') !== '1') return;
+    const root = document.documentElement;
+    const cs = getComputedStyle(root);
+    console.info('[iam theme_debug]', {
+      slug: root.getAttribute('data-cms-theme'),
+      theme_ready: root.getAttribute('data-dashboard-theme-ready'),
+      '--bg-canvas': cs.getPropertyValue('--bg-canvas').trim(),
+      '--bg-app': cs.getPropertyValue('--bg-app').trim(),
+      '--bg-panel': cs.getPropertyValue('--bg-panel').trim(),
+      '--dashboard-canvas': cs.getPropertyValue('--dashboard-canvas').trim(),
+      '--dashboard-panel': cs.getPropertyValue('--dashboard-panel').trim(),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean {
   const vars = payload.data;
   let applied = false;
@@ -103,6 +139,7 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
       document.documentElement.style.setProperty(k, String(v));
     });
     try {
+      /* DB / API wins over any stale first-paint cache */
       localStorage.setItem(INNERANIMALMEDIA_LS_THEME_CSS, JSON.stringify(vars));
       localStorage.removeItem(LEGACY_MCAD_CSS);
     } catch {
@@ -128,6 +165,8 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
     }
   }
   syncMonacoHtmlDataAttributes(payload, vars ?? null);
+  markDashboardThemeApplied(payload.slug ?? null);
+  logDashboardThemeDebug();
   return applied;
 }
 
@@ -167,7 +206,9 @@ export function applyCachedCmsThemeFallback(): boolean {
     const vars = JSON.parse(cached) as Record<string, string>;
     if (!vars || typeof vars !== 'object') return false;
     const d = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_IS_DARK);
+    const slug = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_SLUG);
     const payload: CmsActiveThemePayload = { data: vars };
+    if (slug) payload.slug = slug;
     if (d === '1' || d === '0') payload.is_dark = d === '1';
     if (payload.monaco_theme == null) {
       payload.monaco_theme = payload.is_dark === false ? 'vs' : 'vs-dark';

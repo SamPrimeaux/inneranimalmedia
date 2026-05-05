@@ -35,7 +35,7 @@ function resolveMonacoBg(monacoBg?: string): string {
   const attr = document.documentElement.getAttribute('data-monaco-bg')?.trim();
   if (attr) return attr;
   const st = getComputedStyle(document.documentElement);
-  for (const name of ['--bg', '--scene-bg', '--bg-panel']) {
+  for (const name of ['--dashboard-panel', '--bg-panel', '--scene-bg', '--bg-canvas', '--bg']) {
     const v = st.getPropertyValue(name).trim();
     if (v) return v;
   }
@@ -104,7 +104,14 @@ export const MonacoSurface: React.FC<MonacoSurfaceProps> = ({
     const mo = new MutationObserver(bump);
     mo.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-monaco-theme', 'data-monaco-bg', 'data-monaco-theme-data', 'class'],
+      attributeFilter: [
+        'data-monaco-theme',
+        'data-monaco-bg',
+        'data-monaco-theme-data',
+        'class',
+        'data-dashboard-theme-ready',
+        'data-cms-theme',
+      ],
     });
     return () => {
       window.removeEventListener('iam:cms-theme-applied', bump);

@@ -2,48 +2,14 @@
  * API Service: Theme Management
  * Handles theme gallery, active theme resolution, and applying new themes.
  * Deconstructed from legacy worker.js.
+ *
+ * GET /api/themes/active always returns live CSS variables merged from D1 `cms_themes.config`
+ * (`theme_channel: live`). R2 `css_url` / compiled CSS on that row are metadata for published/public
+ * snapshots only — the dashboard must keep applying `data` via JS (optimistic + collab), not fetching
+ * `theme.css` for realtime editing.
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
-
-/**
- * Builds `/api/themes/active` payload from a cms_themes row.
- */
-function activeThemeJsonFromCmsRow(row) {
-    if (!row) return null;
-    let configObj = {};
-    try {
-        if (typeof row.config === 'string') configObj = JSON.parse(row.config);
-        else if (row.config && typeof row.config === 'object') configObj = row.config;
-    } catch (_) {
-        configObj = {};
-    }
-    const rawVars = configObj.variables ?? configObj.data ?? configObj ?? {};
-    const themeVars = {};
-    if (rawVars && typeof rawVars === 'object' && !Array.isArray(rawVars)) {
-        for (const [k, v] of Object.entries(rawVars)) {
-            if (v == null || k == null) continue;
-            if (k === 'mode' || k === 'is_dark' || k === 'slug' || k === 'name') continue;
-            const key = String(k).startsWith('--') ? String(k) : `--${String(k).replace(/_/g, '-')}`;
-            themeVars[key] = String(v);
-        }
-    }
-    const is_dark =
-        configObj.mode === 'dark' ||
-        configObj.is_dark === true ||
-        String(row.slug || '').includes('dark');
-    return {
-        id: row.id,
-        name: row.name || 'Custom Theme',
-        slug: row.slug || 'custom',
-        is_dark,
-        css_url: row.css_url || null,
-        data: themeVars,
-        theme_family: row.theme_family || 'custom',
-        wcag_scores: row.wcag_scores || null,
-        monaco_theme: row.monaco_theme ?? null,
-        monaco_bg: row.monaco_bg ?? null,
-    };
-}
+import { buildActiveThemeApiPayload } from '../core/cms-theme-active.js';
 
 /**
  * Main dispatcher for Theme-related API routes (/api/themes/*).
@@ -92,7 +58,7 @@ export async function handleThemesApi(request, url, env, ctx) {
                 themeRow = await env.DB.prepare(`SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`).first();
             }
 
-            const payload = activeThemeJsonFromCmsRow(themeRow) || { name: 'dark', slug: 'dark', is_dark: true, data: {} };
+            const payload = buildActiveThemeApiPayload(themeRow) || { name: 'dark', slug: 'dark', is_dark: true, data: {}, theme_channel: 'live' };
             if (workspaceId) payload.workspace = workspaceId;
             return jsonResponse(payload);
         }

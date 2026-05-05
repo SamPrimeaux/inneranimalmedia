@@ -131,7 +131,7 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({ workspaceId }) => 
             className={`flex items-center gap-3 p-2 rounded-lg border transition-all ${
               activeSlug === theme.slug
                 ? 'border-[var(--solar-cyan)] bg-[var(--bg-hover)]'
-                : 'border-[var(--border-subtle)] bg-[var(--bg-panel)] hover:bg-[var(--bg-hover)]'
+                : 'border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] hover:bg-[var(--bg-hover)]'
             }`}
           >
             <div

@@ -66,7 +66,7 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({ onNavigate, on
 
   return (
     <div className="pointer-events-auto">
-      <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)]/80 backdrop-blur-xl shadow-2xl glass-panel">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/90 backdrop-blur-xl shadow-2xl glass-panel-overlay">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -74,32 +74,32 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({ onNavigate, on
           title="Import GLB Model"
         >
           <Upload size={16} />
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none uppercase tracking-widest font-bold">
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded bg-[var(--dashboard-canvas)] border border-[var(--dashboard-border)] text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none uppercase tracking-widest font-bold">
             Import GLB
           </div>
         </button>
         <input ref={fileInputRef} type="file" accept=".glb" onChange={handleFileChange} className="hidden" />
 
-        <div className="w-px h-4 bg-[var(--border-subtle)] mx-0.5" />
+        <div className="w-px h-4 bg-[var(--dashboard-border)] mx-0.5" />
 
         {tools.map((tool) => (
           <button
             key={tool.id}
             type="button"
             onClick={() => onNavigate(tool.url)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-[var(--bg-hover)] transition-all group relative border border-transparent hover:border-[var(--border-subtle)]"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-[var(--bg-hover)] transition-all group relative border border-transparent hover:border-[var(--dashboard-border)]"
           >
             <div className={`transition-transform group-hover:scale-110 ${tool.color}`}>{tool.icon}</div>
             <span className="text-[11px] font-bold text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors">
               {tool.label}
             </span>
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none uppercase tracking-widest font-bold">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded bg-[var(--dashboard-canvas)] border border-[var(--dashboard-border)] text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none uppercase tracking-widest font-bold">
               Launch {tool.label}
             </div>
           </button>
         ))}
 
-        <div className="w-px h-4 bg-[var(--border-subtle)] mx-0.5" />
+        <div className="w-px h-4 bg-[var(--dashboard-border)] mx-0.5" />
 
         <div className="relative" ref={plusWrapRef}>
           <button
@@ -112,7 +112,7 @@ export const ToolLauncherBar: React.FC<ToolLauncherBarProps> = ({ onNavigate, on
             <Plus size={16} />
           </button>
           {plusOpen && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[11px] text-[var(--text-muted)] shadow-xl whitespace-nowrap z-30">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--bg-elevated)] text-[11px] text-[var(--text-muted)] shadow-xl whitespace-nowrap z-30">
               Coming soon: Add custom tool
             </div>
           )}

@@ -38,6 +38,10 @@ import {
   applyCachedCmsThemeFallback,
   migrateLegacyThemeLocalStorage,
   applyCmsThemeToDocument,
+  markDashboardThemeApplied,
+  logDashboardThemeDebug,
+  INNERANIMALMEDIA_LS_THEME_CSS,
+  INNERANIMALMEDIA_LS_THEME_SLUG,
   type CmsActiveThemePayload,
 } from './src/applyCmsTheme';
 import {
@@ -311,6 +315,36 @@ const App: React.FC = () => {
           Object.entries(msg.cssVars).forEach(([k, v]) => {
             document.documentElement.style.setProperty(k, v as string);
           });
+          try {
+            localStorage.setItem(INNERANIMALMEDIA_LS_THEME_CSS, JSON.stringify(msg.cssVars));
+            if (typeof msg.theme_slug === 'string' && msg.theme_slug.trim() !== '') {
+              localStorage.setItem(INNERANIMALMEDIA_LS_THEME_SLUG, msg.theme_slug.trim());
+            }
+          } catch {
+            /* ignore */
+          }
+          if (typeof msg.monaco_theme === 'string' && msg.monaco_theme.trim() !== '') {
+            document.documentElement.setAttribute('data-monaco-theme', msg.monaco_theme.trim());
+          }
+          if (typeof msg.monaco_bg === 'string' && msg.monaco_bg.trim() !== '') {
+            document.documentElement.setAttribute('data-monaco-bg', msg.monaco_bg.trim());
+          }
+          if ('monaco_theme_data' in msg) {
+            const raw = (msg as { monaco_theme_data?: string | null }).monaco_theme_data;
+            document.documentElement.setAttribute(
+              'data-monaco-theme-data',
+              raw != null && typeof raw === 'string' ? raw : '',
+            );
+          }
+          markDashboardThemeApplied(
+            typeof msg.theme_slug === 'string' ? msg.theme_slug : null,
+          );
+          logDashboardThemeDebug();
+          try {
+            window.dispatchEvent(new CustomEvent('iam:cms-theme-applied'));
+          } catch {
+            /* ignore */
+          }
         }
         if (msg.type === 'canvas_update') {
           window.dispatchEvent(new CustomEvent('iam:canvas_update', { detail: msg.elements }));
@@ -325,6 +359,10 @@ const App: React.FC = () => {
       try { ws.close(); } catch (_) {}
     };
   }, []);
+
+  useEffect(() => {
+    logDashboardThemeDebug();
+  }, [location.search]);
 
   /** Resolved from GET /api/auth/me — used to scope workspace recents in localStorage. */
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
@@ -1649,9 +1687,9 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="w-full h-[100dvh] bg-[var(--bg-app)] overflow-hidden text-[var(--text-main)] font-sans flex flex-col">
+    <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
       {/* 1. TOP WINDOW BAR */}
-      <div className="h-10 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)] flex items-center justify-between px-3 shrink-0">
+      <div className="h-10 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center justify-between px-3 shrink-0">
           <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">
               {narrowNeedsBack && (
                 <button
@@ -1765,7 +1803,7 @@ const App: React.FC = () => {
                       <MoreHorizontal size={15} strokeWidth={1.75} />
                   </button>
                   {topChromeMoreOpen && (
-                      <div className="absolute right-0 top-full mt-1 z-[120] min-w-[200px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-xl py-1">
+                      <div className="absolute right-0 top-full mt-1 z-[120] min-w-[200px] rounded-lg border border-[var(--dashboard-border)] bg-[var(--bg-elevated)] shadow-xl py-1">
                           <button
                               type="button"
                               className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
@@ -1810,7 +1848,7 @@ const App: React.FC = () => {
           {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤768px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           <div
-            className="hidden md:flex flex-col py-3 gap-1 px-1 bg-[var(--bg-panel)] border-r border-[var(--border-subtle)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
+            className="hidden md:flex flex-col py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
             style={{ width: sidebarRailExpanded ? 180 : 48 }}
           >
               <ActivityRailItem icon={Home} label="Overview" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/overview'} onClick={() => navigate('/dashboard/overview')} />
@@ -1881,17 +1919,17 @@ const App: React.FC = () => {
           {agentPosition === 'left' && (
               <>
                 <div 
-                    className={`bg-[var(--bg-panel)] flex flex-col shrink-0 transition-opacity relative group z-30 opacity-100 glass-panel max-md:fixed max-md:inset-0 max-md:z-[45] max-md:w-full max-md:max-w-none max-md:shrink ${
+                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity relative group z-30 opacity-100 max-md:fixed max-md:inset-0 max-md:z-[45] max-md:w-full max-md:max-w-none max-md:shrink ${
                       activeActivity ? 'max-md:hidden' : ''
                     }`}
                     style={
                       isNarrowViewport
-                        ? { borderRight: '1px solid var(--border-subtle)' }
-                        : { width: agentW, borderRight: '1px solid var(--border-subtle)' }
+                        ? { borderRight: '1px solid var(--dashboard-border)' }
+                        : { width: agentW, borderRight: '1px solid var(--dashboard-border)' }
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-md:hidden border-b border-[var(--border-subtle)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
+                    <div className="h-10 max-md:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                     <ChatAssistant 
                         activeProject={activeProject} 
@@ -1934,8 +1972,8 @@ const App: React.FC = () => {
           )}
 
           <div 
-              className={`transition-all duration-75 shrink-0 bg-[var(--bg-panel)] flex flex-col z-40 overflow-hidden shadow-2xl md:shadow-none hover:border-[var(--solar-cyan)] relative group
-              ${activeActivity ? 'absolute inset-y-0 left-0 md:relative md:left-0 max-md:!w-full max-md:z-[46] max-md:inset-0 border-r border-[var(--border-subtle)] opacity-100 pointer-events-auto' : 'border-none opacity-0 pointer-events-none'} glass-panel`}
+              className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl md:shadow-none hover:border-[var(--solar-cyan)] relative group
+              ${activeActivity ? 'absolute inset-y-0 left-0 md:relative md:left-0 max-md:!w-full max-md:z-[46] max-md:inset-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto' : 'border-none opacity-0 pointer-events-none'}`}
               style={{ width: activeActivity ? sidebarW : 0 }}
               {...(narrowNeedsBack && !!activeActivity ? mobileEdgeSwipeHandlers : {})}
           >
@@ -2048,7 +2086,7 @@ const App: React.FC = () => {
                         <p className="text-[12px] text-[var(--text-muted)]">The file explorer is available on the Agent page.</p>
                         <button
                           type="button"
-                          className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
+                          className="text-[11px] px-3 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
                           onClick={() => navigate('/dashboard/agent')}
                         >
                           Go to Agent
@@ -2070,13 +2108,13 @@ const App: React.FC = () => {
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
-              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--bg-app)] relative ${narrowBlocksCenter ? 'max-md:hidden' : ''}`}
+              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative ${narrowBlocksCenter ? 'max-md:hidden' : ''}`}
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
               {/* Dashboard page routes — non-agent pages render here */}
               {location.pathname !== '/dashboard/agent' ? (
-                <div className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[var(--bg-app)] flex flex-col">
+                <div className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)] flex flex-col">
                   <Routes>
                     <Route path="/dashboard/calendar" element={<CalendarPage />} />
                     <Route path="/dashboard/overview" element={<OverviewPage />} />
@@ -2152,7 +2190,7 @@ const App: React.FC = () => {
                                   openEditorPreview();
                               }}
                               title={previewButtonTitle(activeFile.name)}
-                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--bg-hover)] text-[var(--text-main)] hover:bg-[var(--bg-panel)] hover:border-[var(--solar-cyan)]"
+                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-hover)] text-[var(--text-main)] hover:bg-[var(--dashboard-panel)] hover:border-[var(--solar-cyan)]"
                           >
                               <Eye size={15} className="text-[var(--solar-cyan)]" strokeWidth={1.75} aria-hidden />
                               <span className="sr-only">Preview in Browser tab</span>
@@ -2168,7 +2206,7 @@ const App: React.FC = () => {
                                   setToastMsg('R2 path copied');
                               }}
                               title={`Copy R2 path: ${activeFile.r2Bucket!.trim()}/${activeFile.r2Key!.trim()}`}
-                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--bg-hover)] text-[var(--text-main)] hover:bg-[var(--bg-panel)] hover:border-[var(--solar-cyan)]"
+                              className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-hover)] text-[var(--text-main)] hover:bg-[var(--dashboard-panel)] hover:border-[var(--solar-cyan)]"
                           >
                               <Link2 size={14} className="text-[var(--text-muted)]" strokeWidth={1.75} aria-hidden />
                               <span className="sr-only">Copy R2 path</span>
@@ -2201,7 +2239,7 @@ const App: React.FC = () => {
                   </div>
 
                   {/* Decorative line below tabs */}
-                  <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--border-subtle)] z-[-1]" />
+                  <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--dashboard-border)] z-[-1]" />
               </div>
 
               {/* Editor + optional aux bottom + terminal — flex column so drawer respects drag height */}
@@ -2306,8 +2344,8 @@ const App: React.FC = () => {
                   flexDirection: 'column',
                   height: `${terminalDrawerH}px`,
                   flexShrink: 0,
-                  borderTop: '1px solid var(--border-subtle)',
-                  background: 'var(--bg-panel)',
+                  borderTop: '1px solid var(--dashboard-border)',
+                  background: 'var(--dashboard-panel)',
                   position: 'relative',
                   zIndex: 60,
                   width: '100%',
@@ -2320,7 +2358,7 @@ const App: React.FC = () => {
                     height: 4,
                     cursor: 'ns-resize',
                     background: 'transparent',
-                    borderBottom: '1px solid var(--border-subtle)',
+                    borderBottom: '1px solid var(--dashboard-border)',
                   }}
                   onMouseEnter={(e) => {
                     (e.currentTarget as HTMLDivElement).style.background = 'var(--solar-cyan)';
@@ -2357,17 +2395,17 @@ const App: React.FC = () => {
                   onPointerDown={(e) => startResize('agent', e)}
                 />
                 <div 
-                    className={`bg-[var(--bg-panel)] flex flex-col shrink-0 transition-opacity z-30 relative group opacity-100 glass-panel max-md:fixed max-md:inset-0 max-md:z-[45] max-md:w-full max-md:max-w-none max-md:shrink ${
+                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity z-30 relative group opacity-100 max-md:fixed max-md:inset-0 max-md:z-[45] max-md:w-full max-md:max-w-none max-md:shrink ${
                       isNarrowViewport && activeActivity ? 'max-md:hidden' : ''
                     }`}
                     style={
                       isNarrowViewport
-                        ? { borderLeft: '1px solid var(--border-subtle)' }
-                        : { width: agentW, borderLeft: '1px solid var(--border-subtle)' }
+                        ? { borderLeft: '1px solid var(--dashboard-border)' }
+                        : { width: agentW, borderLeft: '1px solid var(--dashboard-border)' }
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-md:hidden border-b border-[var(--border-subtle)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
+                    <div className="h-10 max-md:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                          <ChatAssistant 
                             activeProject={activeProject} 
@@ -2407,7 +2445,7 @@ const App: React.FC = () => {
       {/* 8. STATUS BAR (FOOTER) */}
       {toastMsg && (
         <div
-          className="fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center max-md:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]"
+          className="fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center max-md:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]"
           role="status"
         >
           {toastMsg}
@@ -2416,7 +2454,7 @@ const App: React.FC = () => {
 
       {/* Mobile (≤768px): bottom tab bar above StatusBar */}
       <nav
-        className="md:hidden fixed inset-x-0 z-[90] flex items-stretch justify-around gap-0 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-sm"
+        className="md:hidden fixed inset-x-0 z-[90] flex items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/95 backdrop-blur-sm"
         style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
         aria-label="Primary"
       >
@@ -2471,10 +2509,10 @@ const App: React.FC = () => {
             onClick={() => setMobileMoreOpen(false)}
           />
           <div
-            className="md:hidden fixed left-2 right-2 z-[96] max-h-[min(72vh,calc(100dvh-10rem))] flex flex-col rounded-t-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-2xl overflow-hidden"
+            className="md:hidden fixed left-2 right-2 z-[96] max-h-[min(72vh,calc(100dvh-10rem))] flex flex-col rounded-t-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-2xl overflow-hidden"
             style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px) + 52px)' }}
           >
-            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] shrink-0">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--dashboard-border)] shrink-0">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">More</span>
               <button
                 type="button"
@@ -2562,7 +2600,7 @@ type LucideLike = React.ComponentType<{ size?: number; strokeWidth?: number; cla
 const MobileMoreRow: React.FC<{ icon: LucideLike; label: string; onClick: () => void }> = ({ icon: Icon, label, onClick }) => (
   <button
     type="button"
-    className="flex w-full items-center gap-3 min-h-[44px] rounded-lg px-3 text-left text-[13px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+    className="flex w-full items-center gap-3 min-h-[44px] rounded-lg px-3 text-left text-[13px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--dashboard-border)]"
     onClick={onClick}
   >
     <Icon size={20} strokeWidth={1.5} className="shrink-0 text-[var(--text-muted)]" />
@@ -2596,10 +2634,10 @@ const ActivityRailItem: React.FC<{
 const Tab: React.FC<{ title: React.ReactNode, icon: React.ReactNode, active: boolean, onClick: () => void, onClose?: (e: React.MouseEvent) => void }> = ({ title, icon, active, onClick, onClose }) => (
     <div 
         onClick={onClick}
-        className={`h-full flex items-center gap-1.5 pl-3 pr-2 text-[12px] select-none cursor-pointer border-r border-[var(--border-subtle)] relative group whitespace-nowrap shrink-0 ${
+        className={`h-full flex items-center gap-1.5 pl-3 pr-2 text-[12px] select-none cursor-pointer border-r border-[var(--dashboard-border)] relative group whitespace-nowrap shrink-0 ${
             active 
-                ? 'bg-[var(--bg-app)] text-[var(--solar-cyan)]' 
-                : 'bg-[var(--bg-panel)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                ? 'bg-[var(--dashboard-canvas)] text-[var(--solar-cyan)]' 
+                : 'bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
         }`}
     >
         {active && <div className="absolute top-0 left-0 right-0 h-[2px] bg-[var(--solar-cyan)]" />}
@@ -2616,14 +2654,14 @@ const Tab: React.FC<{ title: React.ReactNode, icon: React.ReactNode, active: boo
                 <XIcon size={11} />
             </button>
         )}
-        {!active && <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--border-subtle)]" />}
+        {!active && <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-[var(--dashboard-border)]" />}
     </div>
 );
 
 const QuickOpen: React.FC<{ label: string, onClick: () => void }> = ({ label, onClick }) => (
     <button
         onClick={onClick}
-        className="text-[10px] px-2 py-0.5 rounded text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-subtle)] font-sans"
+        className="text-[10px] px-2 py-0.5 rounded text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--dashboard-border)] font-sans"
         title={`Open ${label}`}
     >
         + {label}

@@ -134,8 +134,8 @@ export default function SettingsPanel({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-panel)] text-[var(--text-main)] overflow-hidden">
-      <div className="h-10 flex items-center justify-between px-4 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] shrink-0">
+    <div className="flex flex-col h-full bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] overflow-hidden">
+      <div className="h-10 flex items-center justify-between px-4 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] shrink-0">
         <span className="font-semibold text-[12px] tracking-widest uppercase text-[var(--text-heading)]">
           Settings
         </span>
@@ -152,10 +152,10 @@ export default function SettingsPanel({
         {!nav.isMobile && (
           <div
             ref={nav.navRef}
-            className="shrink-0 border-r border-[var(--border-subtle)] flex flex-col overflow-hidden relative"
+            className="shrink-0 border-r border-[var(--dashboard-border)] flex flex-col overflow-hidden relative"
             style={{ width: nav.navWidth }}
           >
-            <div className="flex items-center gap-2.5 px-3 py-3 border-b border-[var(--border-subtle)]">
+            <div className="flex items-center gap-2.5 px-3 py-3 border-b border-[var(--dashboard-border)]">
               <div className="w-7 h-7 rounded-full bg-[var(--solar-blue)] flex items-center justify-center text-[var(--toggle-knob)] font-bold text-[11px] shrink-0">
                 {initialsFromDisplayName(data.profileDisplayName)}
               </div>
@@ -193,7 +193,7 @@ export default function SettingsPanel({
               <select
                 value={resolvedLabel}
                 onChange={(e) => handleSectionSelect(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[12px] text-[var(--text-main)]"
+                className="flex-1 px-3 py-2 rounded-xl bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] text-[12px] text-[var(--dashboard-text)]"
               >
                 {nav.filteredMenu.map((m) => (
                   <option key={m.id} value={m.id}>

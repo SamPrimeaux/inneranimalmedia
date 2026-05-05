@@ -34,6 +34,9 @@
           Object.keys(vars).forEach(function (k) {
             if (vars[k] != null) root.style.setProperty(k, String(vars[k]));
           });
+          root.setAttribute('data-dashboard-theme-ready', 'true');
+          var slug = localStorage.getItem('inneranimalmedia_theme_slug');
+          if (slug) root.setAttribute('data-cms-theme', slug);
         } catch (e) {}
       })();
     </script>
@@ -50,8 +53,8 @@
         margin: 0;
         overflow: hidden;
         font-family: system-ui, -apple-system, sans-serif;
-        background-color: var(--bg-app);
-        color: var(--text-main);
+        background-color: var(--dashboard-canvas, var(--bg-app));
+        color: var(--dashboard-text, var(--text-main));
       }
     </style>
     <!-- No importmap: bare-specifier maps to CDN caused a second React copy at runtime (minified error #525) alongside the Vite bundle. -->

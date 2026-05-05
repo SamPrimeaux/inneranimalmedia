@@ -167,7 +167,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
       <div className="relative mb-4 z-[80]" ref={workspaceRef}>
         <button 
           onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--bg-panel)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all font-medium text-[13px]"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--dashboard-card)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] transition-all font-medium text-[13px]"
         >
           <span>{activeWorkspace.name}</span>
           <ChevronDown size={14} className={`opacity-60 transition-transform ${isWorkspaceOpen ? 'rotate-180' : ''}`} />
@@ -175,8 +175,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         </button>
 
         {isWorkspaceOpen && (
-          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] z-[90] overflow-hidden py-2 animate-in fade-in slide-in-from-top-2">
-            <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[var(--text-muted)] opacity-60 border-b border-[var(--border-subtle)]/30 mb-1">
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] z-[90] overflow-hidden py-2 animate-in fade-in slide-in-from-top-2">
+            <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[var(--dashboard-muted)] opacity-60 border-b border-[var(--dashboard-border)]/30 mb-1">
               Cloud Workspaces
             </div>
             {workspaceRows.map((ws) => (
@@ -186,7 +186,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                   onSwitchWorkspace(ws.id);
                   setIsWorkspaceOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2 text-[12px] transition-colors ${authWorkspaceId === ws.id ? 'text-[var(--solar-cyan)] bg-[var(--bg-app)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-app)]'}`}
+                className={`w-full flex items-center justify-between px-3 py-2 text-[12px] transition-colors ${authWorkspaceId === ws.id ? 'text-[var(--solar-cyan)] bg-[var(--dashboard-canvas)]' : 'text-[var(--dashboard-text)] hover:bg-[var(--dashboard-canvas)]'}`}
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-1.5 h-1.5 rounded-full ${ws.id.includes('sandbox') ? 'bg-[var(--solar-cyan)]' : 'bg-[var(--solar-green)] shadow-[0_0_8px_var(--solar-green)]'}`} />
@@ -201,7 +201,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
 
       {/* ── Centered Chat Interaction (HEAVILY REVISED) ── */}
       <div className="w-full max-w-2xl mb-8 animate-in fade-in slide-in-from-bottom-6 duration-1000">
-        <div className="relative group p-[1px] rounded-3xl bg-gradient-to-br from-[var(--border-subtle)]/40 to-transparent hover:from-[var(--border-subtle)] transition-all duration-500 shadow-2xl">
+        <div className="relative group p-[1px] rounded-3xl bg-gradient-to-br from-[var(--dashboard-border)]/40 to-transparent hover:from-[var(--dashboard-border)] transition-all duration-500 shadow-2xl">
           <div className="relative bg-[#111] rounded-[22px] border border-white/5">
             
             {/* Input Row */}
@@ -217,7 +217,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                   }
                 }}
                 placeholder="Plan, Build, / for commands, @ for context"
-                className="flex-1 bg-transparent border-none outline-none resize-none py-1 text-[16px] text-[var(--text-main)] placeholder:text-[var(--text-muted)]/40 min-h-[48px] max-h-[300px] leading-relaxed"
+                className="flex-1 bg-transparent border-none outline-none resize-none py-1 text-[16px] text-[var(--dashboard-text)] placeholder:text-[var(--dashboard-muted)]/40 min-h-[48px] max-h-[300px] leading-relaxed"
               />
             </div>
 
@@ -228,13 +228,13 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                 <div className="relative" ref={plusRef}>
                   <button 
                     onClick={() => setIsPlusOpen(!isPlusOpen)}
-                    className="flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--bg-panel)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-subtle)] transition-colors"
+                    className="flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--dashboard-card)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] border border-[var(--dashboard-border)] transition-colors"
                   >
                     <Plus size={16} />
                   </button>
                   {isPlusOpen && (
-                    <div className="absolute left-0 bottom-full mb-3 w-56 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-in fade-in slide-in-from-bottom-2">
-                      <div className="px-3 py-2 text-[10px] text-[var(--text-muted)] font-medium opacity-60">Add agents, context, tools...</div>
+                    <div className="absolute left-0 bottom-full mb-3 w-56 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-in fade-in slide-in-from-bottom-2">
+                      <div className="px-3 py-2 text-[10px] text-[var(--dashboard-muted)] font-medium opacity-60">Add agents, context, tools...</div>
                       {[
                         { icon: FileText, label: 'Plan', slug: 'plan' },
                         { icon: Bug, label: 'Debug', slug: 'debug' },
@@ -251,9 +251,9 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                               if ('action' in item) item.action?.();
                               setIsPlusOpen(false);
                             }}
-                            className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-app)] transition-colors text-left"
+                            className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-[var(--dashboard-text)] hover:bg-[var(--dashboard-canvas)] transition-colors text-left"
                           >
-                            <Icon size={14} className="text-[var(--text-muted)]" />
+                            <Icon size={14} className="text-[var(--dashboard-muted)]" />
                             <span>{item.label}</span>
                           </button>
                         );
@@ -265,18 +265,18 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                 <div className="relative" ref={dropdownRef}>
                   <button 
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] hover:bg-[var(--bg-app)] transition-all text-[12px] font-medium text-[var(--text-muted)]"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-card)] hover:bg-[var(--dashboard-canvas)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)]"
                   >
                     <span>{selectedModel?.name || 'Auto'}</span>
                     <ChevronDown size={14} className={`opacity-60 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
                   </button>
 
                   {isDropdownOpen && (
-                    <div className="absolute left-0 bottom-full mb-3 w-64 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-[70] overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-2">
-                      <div className="px-3 py-2 flex items-center justify-between border-b border-[var(--border-subtle)]/30 mb-1">
-                        <span className="text-[11px] font-bold text-[var(--text-main)]">Search models</span>
+                    <div className="absolute left-0 bottom-full mb-3 w-64 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-[70] overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-2">
+                      <div className="px-3 py-2 flex items-center justify-between border-b border-[var(--dashboard-border)]/30 mb-1">
+                        <span className="text-[11px] font-bold text-[var(--dashboard-text)]">Search models</span>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-[var(--text-muted)]">Auto</span>
+                          <span className="text-[10px] text-[var(--dashboard-muted)]">Auto</span>
                           <div className="w-8 h-4 bg-[var(--solar-cyan)]/20 rounded-full relative p-0.5">
                             <div className="w-3 h-3 bg-[var(--solar-cyan)] rounded-full float-right" />
                           </div>
@@ -290,7 +290,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                               setSelectedModel(m);
                               setIsDropdownOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-[12px] transition-all flex items-center justify-between group ${selectedModel?.model_key === m.model_key ? 'bg-[var(--solar-cyan)]/5 text-[var(--solar-cyan)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-app)]'}`}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-[12px] transition-all flex items-center justify-between group ${selectedModel?.model_key === m.model_key ? 'bg-[var(--solar-cyan)]/5 text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)] hover:bg-[var(--dashboard-canvas)]'}`}
                           >
                             <div className="min-w-0">
                               <div className="font-bold truncate">{m.name}</div>
@@ -307,7 +307,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
 
               <div className="flex items-center gap-3">
                 <button 
-                  className="p-1 px-2 text-[var(--text-muted)] hover:text-white transition-colors"
+                  className="p-1 px-2 text-[var(--dashboard-muted)] hover:text-white transition-colors"
                   title="Voice Command"
                 >
                   <Mic size={18} />
@@ -326,31 +326,31 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
 
         {/* ── Secondary Pill Buttons (NEW) ── */}
         <div className="mt-4 flex items-center justify-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1200 delay-300">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)]/50 hover:bg-[var(--bg-panel)] transition-all text-[12px] font-medium text-[var(--text-muted)] hover:text-white">
+          <button className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-white">
             <span>Plan New Idea</span>
             <span className="opacity-40 text-[10px]">⇧ Tab</span>
           </button>
           <button
             type="button"
             onClick={() => onOpenEditor?.()}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)]/50 hover:bg-[var(--bg-panel)] transition-all text-[12px] font-medium text-[var(--text-muted)] hover:text-white"
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-white"
           >
             <span>Open Editor Window</span>
           </button>
         </div>
 
         {/* ── IDE Shortcuts Hint (Adjusted) ── */}
-        <div className="mt-12 flex flex-wrap justify-center gap-10 text-[10px] text-[var(--text-muted)] uppercase tracking-[0.2em] font-black opacity-20">
+        <div className="mt-12 flex flex-wrap justify-center gap-10 text-[10px] text-[var(--dashboard-muted)] uppercase tracking-[0.2em] font-black opacity-20">
           <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded border border-[var(--border-subtle)]">P</span>
+            <span className="px-2 py-0.5 rounded border border-[var(--dashboard-border)]">P</span>
             <span>Files</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded border border-[var(--border-subtle)]">I</span>
+            <span className="px-2 py-0.5 rounded border border-[var(--dashboard-border)]">I</span>
             <span>Refactor</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded border border-[var(--border-subtle)]">J</span>
+            <span className="px-2 py-0.5 rounded border border-[var(--dashboard-border)]">J</span>
             <span>Terminal</span>
           </div>
         </div>
@@ -359,15 +359,15 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
       {(displayPlanTasks.length > 0 || activePlanId || workspaceActivity.length > 0 || workspaceVerificationCommands.length > 0 || activeAgentSlug) ? (
         <div className="w-full max-w-3xl mb-10 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           {activeAgentSlug ? (
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 md:col-span-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-1">Active subagent</p>
+            <div className="rounded-2xl border border-[var(--dashboard-border)] bg-[var(--dashboard-card)] p-4 md:col-span-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--dashboard-muted)] mb-1">Active subagent</p>
               <p className="text-[13px] font-mono text-[var(--solar-cyan)]">{activeAgentSlug}</p>
             </div>
           ) : null}
           {displayPlanTasks.length > 0 ? (
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Next tasks</p>
-              <ul className="space-y-2 text-[12px] text-[var(--text-main)]">
+            <div className="rounded-2xl border border-[var(--dashboard-border)] bg-[var(--dashboard-card)] p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--dashboard-muted)] mb-2">Next tasks</p>
+              <ul className="space-y-2 text-[12px] text-[var(--dashboard-text)]">
                 {displayPlanTasks.slice(0, 12).map((t, i) => {
                   const rowKey =
                     t != null &&
@@ -387,9 +387,9 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
             </div>
           ) : null}
           {workspaceActivity.length > 0 ? (
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Recent activity</p>
-              <ul className="space-y-2 text-[11px] text-[var(--text-muted)] font-mono">
+            <div className="rounded-2xl border border-[var(--dashboard-border)] bg-[var(--dashboard-card)] p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--dashboard-muted)] mb-2">Recent activity</p>
+              <ul className="space-y-2 text-[11px] text-[var(--dashboard-muted)] font-mono">
                 {workspaceActivity.slice(0, 12).map((a, i) => (
                   <li key={i} className="truncate">{summarizeUnknownTask(a)}</li>
                 ))}
@@ -397,8 +397,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
             </div>
           ) : null}
           {workspaceVerificationCommands.length > 0 ? (
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 md:col-span-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">Verification commands</p>
+            <div className="rounded-2xl border border-[var(--dashboard-border)] bg-[var(--dashboard-card)] p-4 md:col-span-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--dashboard-muted)] mb-2">Verification commands</p>
               <div className="flex flex-wrap gap-2">
                 {workspaceVerificationCommands.slice(0, 16).map((c, i) => {
                   const cmd = typeof c === 'string' ? c : summarizeUnknownTask(c);
@@ -407,7 +407,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                       key={i}
                       type="button"
                       onClick={() => onSendMessage(`Run in terminal: ${cmd}`)}
-                      className="px-2 py-1 rounded-lg border border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-main)] hover:border-[var(--solar-cyan)]"
+                      className="px-2 py-1 rounded-lg border border-[var(--dashboard-border)] text-[11px] font-mono text-[var(--dashboard-text)] hover:border-[var(--solar-cyan)]"
                     >
                       {cmd}
                     </button>
@@ -423,67 +423,67 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mb-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
         <button 
           onClick={onOpenFolder}
-          className="group flex flex-col items-start p-6 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
+          className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
         >
-          <div className="p-3 rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
+          <div className="p-3 rounded-xl bg-[var(--dashboard-canvas)] text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
             <FolderOpen size={24} />
           </div>
-          <h3 className="text-sm font-bold text-[var(--text-main)] mb-1">Open Local Project</h3>
-          <p className="text-[11px] text-[var(--text-muted)] text-left">Browse your local filesystem to pick a repository</p>
+          <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Open Local Project</h3>
+          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Browse your local filesystem to pick a repository</p>
         </button>
 
         <button 
           onClick={onConnectWorkspace}
-          className="group flex flex-col items-start p-6 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
+          className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
         >
-          <div className="p-3 rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
+          <div className="p-3 rounded-xl bg-[var(--dashboard-canvas)] text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
             <Globe size={24} />
           </div>
-          <h3 className="text-sm font-bold text-[var(--text-main)] mb-1">Connect Workspace</h3>
-          <p className="text-[11px] text-[var(--text-muted)] text-left">Switch to a D1-backed remote control plane</p>
+          <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Connect Workspace</h3>
+          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Switch to a D1-backed remote control plane</p>
         </button>
 
         <button 
           onClick={onGithubSync}
-          className="group flex flex-col items-start p-6 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
+          className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
         >
-          <div className="p-3 rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
+          <div className="p-3 rounded-xl bg-[var(--dashboard-canvas)] text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
             <Github size={24} />
           </div>
-          <h3 className="text-sm font-bold text-[var(--text-main)] mb-1">Clone Repository</h3>
-          <p className="text-[11px] text-[var(--text-muted)] text-left">Import your projects directly from GitHub</p>
+          <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Clone Repository</h3>
+          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Import your projects directly from GitHub</p>
         </button>
       </div>
 
       {/* ── Recent Projects (Preserved) ── */}
       <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
         <div className="flex items-center gap-2 mb-4 px-2">
-            <HistoryIcon size={14} className="text-[var(--text-muted)]" />
-            <h2 className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-widest">Recently Opened</h2>
+            <HistoryIcon size={14} className="text-[var(--dashboard-muted)]" />
+            <h2 className="text-[11px] font-bold text-[var(--dashboard-muted)] uppercase tracking-widest">Recently Opened</h2>
         </div>
         
-        <div className="bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-2xl divide-y divide-[var(--border-subtle)] overflow-hidden">
+        <div className="bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl divide-y divide-[var(--dashboard-border)] overflow-hidden">
           {recentFiles.length > 0 ? (
             recentFiles.slice(0, 6).map((file) => (
               <div 
                 key={file.id}
-                className="group flex items-center justify-between p-4 hover:bg-[var(--bg-app)] transition-colors cursor-pointer"
+                className="group flex items-center justify-between p-4 hover:bg-[var(--dashboard-canvas)] transition-colors cursor-pointer"
                 onClick={() => { /* Handled via App.tsx */ }}
               >
                 <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-[var(--bg-app)] flex items-center justify-center text-[var(--text-muted)] group-hover:text-[var(--solar-cyan)] transition-colors">
+                  <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors">
                     <Terminal size={14} />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[13px] font-bold text-[var(--text-main)] truncate">{file.name}</div>
-                    <div className="text-[10px] text-[var(--text-muted)] font-mono truncate">{file.label}</div>
+                    <div className="text-[13px] font-bold text-[var(--dashboard-text)] truncate">{file.name}</div>
+                    <div className="text-[10px] text-[var(--dashboard-muted)] font-mono truncate">{file.label}</div>
                   </div>
                 </div>
-                <ArrowRight size={14} className="text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition-all" />
+                <ArrowRight size={14} className="text-[var(--dashboard-muted)] opacity-0 group-hover:opacity-100 transition-all" />
               </div>
             ))
           ) : (
-            <div className="p-8 text-center text-[var(--text-muted)] italic text-[12px]">
+            <div className="p-8 text-center text-[var(--dashboard-muted)] italic text-[12px]">
               No recent projects found.
             </div>
           )}

@@ -3,6 +3,7 @@
  * Handles WebSocket clients and POST /broadcast from Worker.
  */
 import { DurableObject } from "cloudflare:workers";
+import { getCmsThemeDataVarsFromRow } from "../core/cms-theme-active.js";
 
 export class IAMCollaborationSession extends DurableObject {
   /**
@@ -59,13 +60,23 @@ export class IAMCollaborationSession extends DurableObject {
     if (request.method === 'POST' && url.pathname === '/canvas/theme') {
       const { theme_slug } = await request.json();
       const row = await this.env.DB.prepare(
-        'SELECT id, name, slug, config, theme_family, monaco_theme, monaco_bg FROM cms_themes WHERE slug = ?'
+        'SELECT id, name, slug, config, theme_family, monaco_theme, monaco_bg, monaco_theme_data FROM cms_themes WHERE slug = ?'
       ).bind(theme_slug).first();
       if (!row) return new Response(JSON.stringify({ error: 'unknown theme_slug' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
-      let cssVars = {};
-      try { cssVars = JSON.parse(row.config).cssVars ?? {}; } catch (_) {}
+      const cssVars = getCmsThemeDataVarsFromRow(row);
       await this.ctx.storage.put('canvas_active_theme', theme_slug);
-      const msg = JSON.stringify({ type: 'theme_update', theme_slug, cssVars, monaco_theme: row.monaco_theme, monaco_bg: row.monaco_bg });
+      const monaco_theme_data =
+        row.monaco_theme_data != null && String(row.monaco_theme_data).trim() !== ''
+          ? String(row.monaco_theme_data)
+          : null;
+      const msg = JSON.stringify({
+        type: 'theme_update',
+        theme_slug,
+        cssVars,
+        monaco_theme: row.monaco_theme,
+        monaco_bg: row.monaco_bg,
+        monaco_theme_data,
+      });
       for (const ws of this.ctx.getWebSockets()) {
         try { ws.send(msg); } catch (_) {}
       }

@@ -31,6 +31,9 @@
   --solar-green:   #a3b800;
 
   /* Semantic layout (override via cms_themes.data) */
+  /* shell.css (linked on index.html) sets light marketing defaults for --bg-canvas; keep canvas aligned
+     with dashboard chrome so translucent panels (glass) and body chains match cms_themes before/without JS. */
+  --bg-canvas:     var(--solar-base03);
   --bg-app:        var(--solar-base03);
   --bg-panel:      var(--solar-base02);
   --bg-hover:      rgba(42, 161, 152, 0.08);
@@ -65,11 +68,38 @@
   --accent-secondary: var(--solar-cyan);
   --accent-warning:   var(--solar-yellow);
   --accent-danger:    var(--solar-red);
+
+  /*
+   * Authenticated dashboard aliases — always derived from CMS/live tokens on :root.
+   * shell.css loads before this file and sets light marketing defaults; these names must not
+   * self-reference. Use fallbacks only to earlier tokens in this block.
+   */
+  --dashboard-canvas: var(--bg-app, var(--bg-canvas, #02080b));
+  --dashboard-panel: var(--bg-panel, var(--bg-surface, var(--bg-elevated, #0a1620)));
+  --dashboard-card: var(--bg-card, var(--bg-elevated, var(--bg-panel, #0a1620)));
+  --dashboard-border: var(--border, var(--color-border, var(--border-subtle, rgba(148, 163, 184, 0.14))));
+  --dashboard-text: var(--color-text, var(--text-primary, var(--text-main, #e5eef2)));
+  --dashboard-muted: var(--text-muted, #8aa0aa);
+}
+
+/*
+ * When CMS theme vars are applied (inline on :root), re-bind dashboard aliases so nothing
+ * resolves through shell.css marketing defaults. Presence of data-cms-theme / bootstrap flag
+ * keeps overlays and late-loaded surfaces aligned with /api/themes/active.
+ */
+:root[data-dashboard-theme-ready="true"],
+:root[data-cms-theme] {
+  --dashboard-canvas: var(--bg-app, var(--bg-canvas, #02080b));
+  --dashboard-panel: var(--bg-panel, var(--bg-surface, var(--bg-elevated, #0a1620)));
+  --dashboard-card: var(--bg-card, var(--bg-elevated, var(--bg-panel, #0a1620)));
+  --dashboard-border: var(--border, var(--color-border, var(--border-subtle, rgba(148, 163, 184, 0.14))));
+  --dashboard-text: var(--color-text, var(--text-primary, var(--text-main, #e5eef2)));
+  --dashboard-muted: var(--text-muted, #8aa0aa);
 }
 
 body {
-  background: var(--bg-app);
-  color: var(--text-main);
+  background: var(--dashboard-canvas);
+  color: var(--dashboard-text);
   margin: 0;
   overflow: hidden;
   font-family: system-ui, -apple-system, sans-serif;
@@ -85,10 +115,10 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-app);
+  background: var(--dashboard-canvas);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-panel);
+  background: var(--dashboard-panel);
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-subtle);
@@ -106,8 +136,12 @@ body {
   animation: pulse-dirty 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-.glass-panel {
-  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+/*
+ * Glass blur — use only on transient overlays (dropdowns, popovers, small floating controls).
+ * Do not apply to main shell: nav rail, Agent Sam column, workspace root, settings canvas, Monaco host.
+ */
+.glass-panel-overlay {
+  background: color-mix(in srgb, var(--dashboard-panel) 82%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }

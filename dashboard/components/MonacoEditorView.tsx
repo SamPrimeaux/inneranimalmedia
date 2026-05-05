@@ -80,8 +80,8 @@ function monacoColorsFromDocument(): Record<string, string> {
     return raw || fallback;
   };
   const scene = g('--scene-bg', '#060e14');
-  const panel = g('--bg-panel', '#0a2d38');
-  const border = g('--border-subtle', '#1e3e4a');
+  const panel = g('--dashboard-panel', g('--bg-panel', '#0a2d38'));
+  const border = g('--dashboard-border', g('--border-subtle', '#1e3e4a'));
   const cyan = g('--solar-cyan', '#2dd4bf');
   const fg = g('--solar-base0', '#839496');
   const lineNum = g('--text-chrome-muted', '#2a4d58');
@@ -377,15 +377,15 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   return (
     <div className="flex flex-col h-full w-full bg-[var(--scene-bg)] overflow-hidden">
       {/* ── Tab Header ── */}
-      <div className="h-9 flex items-center border-b border-[var(--border-subtle)] bg-[var(--bg-panel)] shrink-0 overflow-x-auto no-scrollbar">
+      <div className="h-9 flex items-center border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shrink-0 overflow-x-auto no-scrollbar">
         {tabs.map((tab) => (
           <div
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-3 h-full border-r border-[var(--border-subtle)] cursor-pointer select-none transition-all group min-w-[120px] max-w-[200px] ${
+            className={`flex items-center gap-2 px-3 h-full border-r border-[var(--dashboard-border)] cursor-pointer select-none transition-all group min-w-[120px] max-w-[200px] ${
               activeTabId === tab.id 
                 ? 'bg-[var(--scene-bg)] text-[var(--solar-cyan)] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[var(--solar-cyan)] relative' 
-                : 'text-[var(--text-muted)] hover:bg-[var(--bg-app)]'
+                : 'text-[var(--text-muted)] hover:bg-[var(--dashboard-canvas)]'
             }`}
           >
             <FileCode2 size={12} className={activeTabId === tab.id ? 'text-[var(--solar-cyan)]' : 'text-inherit'} />
@@ -403,7 +403,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       </div>
 
       {/* ── Editor Toolbar (Active Tab Stats) ── */}
-      <div className="h-8 flex items-center justify-between px-3 bg-[var(--scene-bg)] border-b border-[var(--border-subtle)] shrink-0">
+      <div className="h-8 flex items-center justify-between px-3 bg-[var(--scene-bg)] border-b border-[var(--dashboard-border)] shrink-0">
         <div className="flex items-center gap-4 text-[10px] uppercase tracking-widest text-[var(--text-muted)] font-bold">
            <span>{language}</span>
            <span className="opacity-50">UTF-8</span>
@@ -411,7 +411,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
         </div>
         <div className="flex items-center gap-2">
            {hasDiffData && (
-             <button onClick={() => setShowDiff(!showDiff)} className={`px-2 py-0.5 rounded border transition-all ${showDiff ? 'bg-[var(--solar-cyan)] text-black border-[var(--solar-cyan)]' : 'border-[var(--border-subtle)]'}`}>
+             <button onClick={() => setShowDiff(!showDiff)} className={`px-2 py-0.5 rounded border transition-all ${showDiff ? 'bg-[var(--solar-cyan)] text-black border-[var(--solar-cyan)]' : 'border-[var(--dashboard-border)]'}`}>
                Diff
              </button>
            )}
