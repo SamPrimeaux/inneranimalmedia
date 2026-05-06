@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Cancel stale Supabase build_deploy_events (deploy_started + running past cutoff).
+ * Stale cutoff uses `created_at` (Postgres row creation). Summary age_minutes prefers `started_at`.
  * Optional D1 agentsam_cron_run ledger via record-d1-cron-run.mjs.
  *
  * Env: TENANT_ID, WORKSPACE_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY

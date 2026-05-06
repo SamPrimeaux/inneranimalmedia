@@ -2,6 +2,10 @@
  * Cancel stale Supabase build_deploy_events stuck in deploy_started/running past cutoff.
  * Uses fetch only — safe for Cloudflare Workers and Node.
  *
+ * Ledger hygiene: stale detection uses `created_at < cutoff` (row insertion time is stable for timeouts).
+ * Deploy duration elsewhere should use `started_at` / `completed_at`; here we prefer `started_at` when
+ * computing `age_minutes` in output_summary (fallback to `created_at`).
+ *
  * @param {{
  *   supabaseUrl: string,
  *   serviceKey: string,
@@ -115,9 +119,7 @@ export async function finalizeStaleDeployEvents(opts) {
       continue;
     }
 
-    const createdAt = row.created_at ? Date.parse(String(row.created_at)) : NaN;
-    const ageMinutes =
-      Number.isFinite(createdAt) ? Math.max(0, Math.round((Date.now() - createdAt) / 60000)) : 0;
+    const ageMinutes = deployAgeMinutesForSummary(row);
 
     let meta = {};
     try {
@@ -186,6 +188,19 @@ export async function finalizeStaleDeployEvents(opts) {
     ids_cancelled,
     cutoff_iso: cutoffIso,
   };
+}
+
+/** Prefer started_at (deploy clock); fallback created_at for summary age only — not used for cutoff. */
+function deployAgeMinutesForSummary(row) {
+  const started = row?.started_at ? Date.parse(String(row.started_at)) : NaN;
+  if (Number.isFinite(started)) {
+    return Math.max(0, Math.round((Date.now() - started) / 60000));
+  }
+  const created = row?.created_at ? Date.parse(String(row.created_at)) : NaN;
+  if (Number.isFinite(created)) {
+    return Math.max(0, Math.round((Date.now() - created) / 60000));
+  }
+  return 0;
 }
 
 function extractRunGroupId(row) {
