@@ -35,6 +35,18 @@ type RecentFileRow = { type: 'file'; id: string; title: string; subtitle?: strin
 
 type UnifiedRow = DeployRow | SnippetRow | QueryRow | TableRow | ColumnRow | ConvRow | KnowRow | CommandRow | RecentFileRow;
 
+/** Must stay in sync with `src/core/unified-source-filters.js` ALLOWED_SOURCE_FILTERS (except `all`). */
+const SOURCE_FACETS: { id: string; label: string }[] = [
+  { id: 'docs', label: 'Docs' },
+  { id: 'd1', label: 'D1' },
+  { id: 'commands', label: 'Commands' },
+  { id: 'rules', label: 'Rules' },
+  { id: 'guardrails', label: 'Guardrails' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'codebase', label: 'Code' },
+  { id: 'scripts', label: 'Scripts' },
+];
+
 const IDE_COMMANDS: CommandRow[] = [
   { type: 'command', id: 'fmt', title: 'Format Document', subtitle: 'Run Prettier on active file', cmd: 'editor.format' },
   { type: 'command', id: 'debug', title: 'Start Debugging', subtitle: 'Attach debugger to local process', cmd: 'debug.start' },
@@ -118,6 +130,8 @@ export const UnifiedSearchBar: React.FC<{
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<UnifiedRow[]>([]);
   const [recentSearches, setRecentSearches] = useState<{ query?: string; result_kind?: string; opened_id?: string }[]>([]);
+  /** Empty = search all document sources (server default). */
+  const [sourceFacets, setSourceFacets] = useState<string[]>([]);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -147,11 +161,15 @@ export const UnifiedSearchBar: React.FC<{
     }
     setLoading(true);
     try {
+      const payload: Record<string, unknown> = { query: t, limit: 22 };
+      if (sourceFacets.length > 0) {
+        payload.source_filters = sourceFacets;
+      }
       const res = await fetch('/api/unified-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ query: t, limit: 22 }),
+        body: JSON.stringify(payload),
       });
       const data = res.ok ? await res.json() : {};
       setRows(normalizeSearchRows(data && typeof data === 'object' ? (data as Record<string, unknown>) : {}));
@@ -161,7 +179,7 @@ export const UnifiedSearchBar: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sourceFacets]);
 
   useEffect(() => {
     if (!open) return;
@@ -170,7 +188,7 @@ export const UnifiedSearchBar: React.FC<{
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [q, open, runSearch]);
+  }, [q, open, runSearch, sourceFacets]);
 
   const applyRow = useCallback(
     (row: UnifiedRow, searchQuery: string) => {
@@ -283,6 +301,40 @@ export const UnifiedSearchBar: React.FC<{
                   className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-[var(--text-main)] placeholder:text-[var(--text-muted)]"
                 />
                 {loading ? <Loader2 size={16} className="animate-spin text-[var(--solar-cyan)] shrink-0" /> : null}
+              </div>
+              <div className="flex flex-wrap gap-1 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSourceFacets([])}
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium border transition-colors ${
+                    sourceFacets.length === 0
+                      ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--text-main)]'
+                      : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  All sources
+                </button>
+                {SOURCE_FACETS.map((f) => {
+                  const on = sourceFacets.includes(f.id);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() =>
+                        setSourceFacets((prev) =>
+                          prev.includes(f.id) ? prev.filter((x) => x !== f.id) : [...prev, f.id],
+                        )
+                      }
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium border transition-colors ${
+                        on
+                          ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--text-main)]'
+                          : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

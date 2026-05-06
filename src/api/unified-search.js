@@ -3,8 +3,24 @@
  */
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
+import { documentsSourceFilterSql, normalizeSourceFilters } from '../core/unified-source-filters.js';
 
-const BGE_MODEL = '@cf/baai/bge-base-en-v1.5';
+/**
+ * Must match `public.documents.embed_model` + `vector(1024)` ingest (Workers AI bge-large).
+ * Optional override: env.UNIFIED_SEARCH_EMBED_MODEL (same dims as stored rows only).
+ */
+function unifiedSearchEmbedModel(env) {
+  const o =
+    typeof env?.UNIFIED_SEARCH_EMBED_MODEL === 'string' ? env.UNIFIED_SEARCH_EMBED_MODEL.trim() : '';
+  return o || '@cf/baai/bge-large-en-v1.5';
+}
+
+/** @param {any} env */
+function ragDocumentsProjectId(env) {
+  return typeof env?.RAG_DOCUMENTS_PROJECT_ID === 'string' && env.RAG_DOCUMENTS_PROJECT_ID.trim()
+    ? env.RAG_DOCUMENTS_PROJECT_ID.trim()
+    : null;
+}
 
 /**
  * @param {any} env
@@ -23,15 +39,157 @@ async function hyperdriveQuery(env, sql, params) {
 }
 
 /**
+ * Single-facet → RPC prefix / LIKE (must match DB convention: prefix without trailing %).
+ * `scripts` uses OR patterns → caller uses raw SQL path instead of RPC.
+ *
+ * @param {string} facetId
+ * @returns {{ prefix: string | null, like: string | null }}
+ */
+function facetToRpcPrefixLike(facetId) {
+  switch (facetId) {
+    case 'docs':
+      return { prefix: 'docs:', like: null };
+    case 'd1':
+      return { prefix: 'd1:', like: null };
+    case 'commands':
+      return { prefix: 'd1:commands', like: null };
+    case 'rules':
+      return { prefix: null, like: '%agent_rules%' };
+    case 'guardrails':
+      return { prefix: null, like: '%guardrails%' };
+    case 'memory':
+      return { prefix: null, like: '%project_memory%' };
+    case 'codebase':
+      return { prefix: null, like: '%codebase%' };
+    case 'scripts':
+      return { prefix: null, like: null };
+    default:
+      return { prefix: null, like: null };
+  }
+}
+
+/**
+ * Multi-facet OR + scripts bucket need legacy WHERE; scoped RPC supports one prefix XOR one like.
+ *
+ * @param {string[]} facetIds
+ */
+function useScopedRpcForFacets(facetIds) {
+  if (facetIds.length > 1) return false;
+  if (facetIds.length === 1 && facetIds[0] === 'scripts') return false;
+  return true;
+}
+
+/**
+ * @param {Record<string, unknown>} row
+ */
+function mapDocumentRowToHit(row) {
+  const sim = Number(row.similarity ?? 0);
+  let meta = row.metadata;
+  if (typeof meta === 'string') {
+    try {
+      meta = JSON.parse(meta);
+    } catch {
+      meta = {};
+    }
+  }
+  const m = meta && typeof meta === 'object' ? meta : {};
+  const src = typeof row.source === 'string' ? row.source : '';
+  const previewRaw =
+    typeof row.content_preview === 'string'
+      ? row.content_preview
+      : typeof row.content === 'string'
+        ? row.content
+        : '';
+  const title =
+    (typeof row.title === 'string' && row.title.trim()) ||
+    (typeof m.title === 'string' && m.title) ||
+    (previewRaw ? previewRaw.slice(0, 120) : 'Document');
+  const metaSrc =
+    (typeof m.source === 'string' && m.source) ||
+    (typeof m.snippet === 'string' && m.snippet) ||
+    '';
+  const previewLine = previewRaw ? previewRaw.slice(0, 160) : '';
+  const subtitle = [src || null, metaSrc || previewLine].filter(Boolean).join(' · ') || undefined;
+  const url = typeof m.url === 'string' ? m.url : null;
+  return {
+    type: 'knowledge',
+    id: String(row.id ?? ''),
+    title,
+    subtitle,
+    score: sim,
+    url,
+    source: src,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {object} args
+ */
+async function logSemanticSearch(env, args) {
+  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') return;
+  const {
+    searchFn,
+    tenantId,
+    sessionId,
+    queryPreview,
+    matchThreshold,
+    matchCountRequested,
+    matchCountReturned,
+    topSimilarity,
+    avgSimilarity,
+    sourcesHit,
+    latencyMs,
+    metadata,
+  } = args;
+  try {
+    await env.HYPERDRIVE.query(
+      `SELECT public.log_semantic_search(
+        $1::text, $2::text, $3::text, $4::text,
+        $5::double precision, $6::integer, $7::integer,
+        $8::double precision, $9::double precision,
+        $10::jsonb, $11::integer, $12::jsonb
+      )`,
+      [
+        searchFn,
+        tenantId ?? null,
+        sessionId ?? null,
+        String(queryPreview ?? '').slice(0, 500),
+        matchThreshold,
+        matchCountRequested,
+        matchCountReturned,
+        topSimilarity ?? null,
+        avgSimilarity ?? null,
+        JSON.stringify(Array.isArray(sourcesHit) ? sourcesHit : []),
+        Math.max(0, Math.floor(latencyMs ?? 0)),
+        JSON.stringify(metadata && typeof metadata === 'object' ? metadata : {}),
+      ],
+    );
+  } catch (e) {
+    console.warn('[unified-search] log_semantic_search', e?.message ?? e);
+  }
+}
+
+/**
  * @param {any} env
  * @param {string} query
  * @param {number} limit
+ * @param {{
+ *   sourceFilters?: unknown,
+ *   matchThreshold?: number,
+ *   tenantId?: string | null,
+ *   workspaceId?: string | null,
+ *   projectId?: string | null,
+ *   sessionId?: string | null,
+ *   queryPreview?: string,
+ * }} [opts]
  */
-async function searchDocumentsVector(env, query, limit) {
+async function searchDocumentsVector(env, query, limit, opts = {}) {
   if (!env?.AI || !env?.HYPERDRIVE) return [];
+  const t0 = Date.now();
   let embResult;
   try {
-    embResult = await env.AI.run(BGE_MODEL, { text: String(query || '').trim() });
+    embResult = await env.AI.run(unifiedSearchEmbedModel(env), { text: String(query || '').trim() });
   } catch (e) {
     console.warn('[unified-search] embed', e?.message ?? e);
     return [];
@@ -41,46 +199,128 @@ async function searchDocumentsVector(env, query, limit) {
 
   const embedding = JSON.stringify(vec);
   const lim = Math.min(Math.max(1, limit), 50);
-  const rows = await hyperdriveQuery(
-    env,
-    `SELECT id, content_preview, metadata,
-            1 - (embedding <=> $1::vector) AS similarity
-     FROM public.documents
-     ORDER BY embedding <=> $1::vector
-     LIMIT $2`,
-    [embedding, lim],
-  );
+  const thresholdRaw = Number(opts.matchThreshold);
+  const threshold =
+    Number.isFinite(thresholdRaw) && thresholdRaw >= 0 && thresholdRaw <= 1 ? thresholdRaw : 0.45;
 
+  const facetIds = normalizeSourceFilters(opts.sourceFilters);
+  const sourceSql = documentsSourceFilterSql(facetIds);
+  const embedModel = unifiedSearchEmbedModel(env);
+
+  const tid = opts.tenantId != null ? String(opts.tenantId).trim() : '';
+  const ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  const pid = opts.projectId != null ? String(opts.projectId).trim() : '';
+
+  /** @type {Record<string, unknown>[]} */
+  let rows = [];
+  let filledBy = /** @type {'none' | 'match_documents_scoped' | 'documents_sql_fallback'} */ ('none');
+
+  const tryRpc = useScopedRpcForFacets(facetIds);
+  if (tryRpc) {
+    let prefix = /** @type {string | null} */ (null);
+    let like = /** @type {string | null} */ (null);
+    if (facetIds.length === 1) {
+      const fl = facetToRpcPrefixLike(facetIds[0]);
+      prefix = fl.prefix;
+      like = fl.like;
+    }
+
+    rows = await hyperdriveQuery(
+      env,
+      `SELECT * FROM public.match_documents_scoped(
+        $1::vector(1024),
+        $2::double precision,
+        $3::integer,
+        $4::text,
+        $5::text,
+        $6::text,
+        $7::text,
+        $8::text,
+        $9::text
+      )`,
+      [
+        embedding,
+        threshold,
+        lim,
+        tid || null,
+        ws || null,
+        pid || null,
+        embedModel,
+        prefix,
+        like,
+      ],
+    );
+    if (rows.length) filledBy = 'match_documents_scoped';
+  }
+
+  if (!tryRpc || rows.length === 0) {
+    const params = /** @type {unknown[]} */ ([embedding, threshold]);
+    let scopeSql = '';
+    if (tid) {
+      params.push(tid);
+      scopeSql += ` AND tenant_id = $${params.length}`;
+    }
+    if (ws) {
+      params.push(ws);
+      scopeSql += ` AND workspace_id = $${params.length}`;
+    }
+    if (pid) {
+      params.push(pid);
+      scopeSql += ` AND project_id = $${params.length}`;
+    }
+
+    params.push(lim);
+    const limitIdx = params.length;
+
+    rows = await hyperdriveQuery(
+      env,
+      `SELECT id, source, title,
+            COALESCE(content_preview, LEFT(content, 280)) AS content_preview,
+            metadata,
+            1 - (embedding <=> $1::vector(1024)) AS similarity
+     FROM public.documents
+     WHERE (1 - (embedding <=> $1::vector(1024))) >= $2
+     ${scopeSql}${sourceSql}
+     ORDER BY embedding <=> $1::vector(1024)
+     LIMIT $${limitIdx}`,
+      params,
+    );
+    if (rows.length) filledBy = filledBy === 'match_documents_scoped' ? 'match_documents_scoped' : 'documents_sql_fallback';
+  }
+
+  /** @type {{ type: string, id: string, title: string, subtitle?: string, score: number, url?: string | null, source?: string }[]} */
   const out = [];
   for (const row of rows) {
-    const sim = Number(row.similarity ?? 0);
-    let meta = row.metadata;
-    if (typeof meta === 'string') {
-      try {
-        meta = JSON.parse(meta);
-      } catch {
-        meta = {};
-      }
-    }
-    const m = meta && typeof meta === 'object' ? meta : {};
-    const title =
-      (typeof m.title === 'string' && m.title) ||
-      (typeof row.content_preview === 'string' ? row.content_preview.slice(0, 120) : 'Document');
-    const subtitle =
-      (typeof m.source === 'string' && m.source) ||
-      (typeof m.snippet === 'string' && m.snippet) ||
-      '';
-    const url = typeof m.url === 'string' ? m.url : null;
-    out.push({
-      type: 'knowledge',
-      id: String(row.id ?? ''),
-      title,
-      subtitle: subtitle || undefined,
-      score: sim,
-      url,
-    });
+    out.push(mapDocumentRowToHit(row));
   }
-  return out;
+
+  const scores = out.map((r) => r.score).filter((s) => Number.isFinite(s));
+  const topSim = scores.length ? Math.max(...scores) : null;
+  const avgSim = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+  const sourcesDistinct = [...new Set(out.map((r) => r.source).filter(Boolean))];
+
+  await logSemanticSearch(env, {
+    searchFn: 'unified_search.documents',
+    tenantId: tid || null,
+    sessionId: opts.sessionId ?? null,
+    queryPreview: opts.queryPreview ?? query,
+    matchThreshold: threshold,
+    matchCountRequested: lim,
+    matchCountReturned: out.length,
+    topSimilarity: topSim,
+    avgSimilarity: avgSim,
+    sourcesHit: sourcesDistinct,
+    latencyMs: Date.now() - t0,
+    metadata: {
+      workspace_id: ws || null,
+      project_id: pid || null,
+      embed_model: embedModel,
+      facet_ids: facetIds,
+      filled_by: filledBy,
+    },
+  });
+
+  return out.map(({ source: _s, ...rest }) => rest);
 }
 
 /**
@@ -162,10 +402,28 @@ export async function handleUnifiedSearchApi(request, url, env) {
     }
     const limit = Math.min(Math.max(1, Number(body.limit) || 22), 50);
     const qLow = `%${String(rawQ).toLowerCase()}%`;
+    const sourceFilters = body.source_filters ?? body.sourceFilters ?? [];
+    const matchThreshold = Number(body.match_threshold ?? body.matchThreshold);
 
     if (!env.DB) {
       return jsonResponse({ results: [], warning: 'DB not configured' });
     }
+
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim()
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId && typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) {
+      tenantId = env.TENANT_ID.trim();
+    }
+    let workspaceId =
+      authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim()
+        ? String(authUser.active_workspace_id).trim()
+        : null;
+    if (!workspaceId && typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) {
+      workspaceId = env.WORKSPACE_ID.trim();
+    }
+    const projectId = ragDocumentsProjectId(env);
 
     const [
       tableRows,
@@ -228,7 +486,15 @@ export async function handleUnifiedSearchApi(request, url, env) {
         .all()
         .then((r) => r.results || [])
         .catch(() => []),
-      searchDocumentsVector(env, rawQ, Math.min(limit, 8)),
+      searchDocumentsVector(env, rawQ, Math.min(limit, 8), {
+        sourceFilters,
+        matchThreshold,
+        tenantId,
+        workspaceId,
+        projectId,
+        sessionId: authUser.session_id ?? null,
+        queryPreview: rawQ,
+      }),
     ]);
 
     /** @type {{ type: string, id: string, title: string, subtitle?: string, score: number, url?: string|null, sql_text?: string }[]} */
