@@ -406,7 +406,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
 
     // ── /api/playwright (Browser Jobs) ───────────────────────────────────────
     if (pathLower.startsWith('/api/playwright')) {
-        return handlePlaywrightJobApi(request, env);
+        return handlePlaywrightJobApi(request, env, url);
     }
 
     // ── /api/agent/github (GitHub Bridge) ────────────────────────────────────
