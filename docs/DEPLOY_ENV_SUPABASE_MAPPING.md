@@ -38,6 +38,17 @@ Optional for semantic smoke + direct SQL during reingest:
 |----------|---------|
 | `SUPABASE_DB_URL` | Postgres connection for `run-deploy-eval.mjs` RPC (`log_semantic_search`) and `reingest-supabase-documents.mjs` embeddings path |
 
+### Deploy email: audit actor vs notification recipient
+
+These are **different**:
+
+| Variable | Role |
+|----------|------|
+| `DEPLOY_USER_EMAIL` | **Deploy actor / audit identity** for Supabase ledger rows (`user_email` on eval, tool, error tables). Should align with D1 `auth_users.email` when possible. |
+| `DEPLOY_NOTIFY_EMAIL` | **Primary recipient** for the HTML deploy summary email sent by `scripts/deploy-frontend.sh` (`POST /api/email/send` body `to`). |
+| `RESEND_NOTIFY_EMAIL` | **Fallback** if `DEPLOY_NOTIFY_EMAIL` is unset (same shell resolution order). |
+| `DEPLOY_NOTIFY_EMAILS` | Comma/newline list for Worker `POST /api/notify/deploy-complete` only; otherwise that route uses `DEPLOY_NOTIFY_EMAIL` or `RESEND_NOTIFY_EMAIL` first (`src/api/notify-deploy.js`). |
+
 ---
 
 ## Optional deploy context variables

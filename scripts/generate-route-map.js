@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Scans worker.js and writes docs/route-map.md with one ## section per route (for ingest chunking).
+ * Scans the Worker entry (src/index.js, or worker.js if present) and writes docs/route-map.md
+ * with one ## section per route (for ingest chunking). Matches wrangler `main` (src/index.js).
  * Run from repo root: node scripts/generate-route-map.js
  */
 import { readFileSync } from 'fs';
@@ -25,7 +26,12 @@ import fs from 'fs';
 import pathMod from 'path';
 
 const root = pathMod.join(__dirname, '..');
-const workerPath = pathMod.join(root, 'worker.js');
+const workerCandidates = [pathMod.join(root, 'src', 'index.js'), pathMod.join(root, 'worker.js')];
+const workerPath = workerCandidates.find((p) => fs.existsSync(p));
+if (!workerPath) {
+  console.error('[route-map] No Worker entry found (tried src/index.js, worker.js)');
+  process.exit(1);
+}
 const outPath = pathMod.join(root, 'docs', 'route-map.md');
 
 const src = fs.readFileSync(workerPath, 'utf8');

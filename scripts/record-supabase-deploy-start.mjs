@@ -13,6 +13,7 @@
  * If Supabase creds are unset, exits 0 (skip). If creds set but scope incomplete, exits 1.
  */
 import { writeFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
 import { resolveDeployScope, requireSupabaseRest } from './lib/supabase-deploy-context.mjs';
 import { sbRequest } from './lib/supabase-rest.mjs';
 import {

@@ -192,10 +192,14 @@ _SHA_DISP="${GIT_FULL_SHA:-—}"
 _MSG_DISP="${GIT_MSG_LINE:-—}"
 _ENV_DISP="${DEPLOY_ENV:-—}"
 _BY_DISP="${DEPLOYED_BY:-—}"
+# Notification recipient (Resend delivery) — not the deploy audit actor; see DEPLOY_USER_EMAIL.
+_NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_NOTIFY_EMAIL:-info@inneranimals.com}}"
+_DEPLOY_ACTOR="${DEPLOY_USER_EMAIL:-—}"
 
-echo "→ Sending deploy notification (POST /api/email/send)..."
+echo "→ Sending deploy notification (POST /api/email/send) → ${_NOTIFY_TO} ..."
 NOTIFY_JSON="$(jq -n \
-  --arg to "info@inneranimals.com" \
+  --arg to "${_NOTIFY_TO}" \
+  --arg actor "${_DEPLOY_ACTOR}" \
   --arg env "$DEPLOY_ENV" \
   --arg br "$BRANCH_NAME" \
   --arg wv "$_WV_DISP" \
@@ -228,6 +232,7 @@ NOTIFY_JSON="$(jq -n \
       "<tr style=\"border-bottom:1px solid #1e293b;\"><td style=\"padding:10px 8px;color:#94a3b8;\">Git Commit</td><td style=\"padding:10px 8px;color:#f1f5f9;word-break:break-all;\">" + $sha + " — " + $msg + "</td></tr>" +
       "<tr style=\"border-bottom:1px solid #1e293b;\"><td style=\"padding:10px 8px;color:#94a3b8;\">Branch</td><td style=\"padding:10px 8px;color:#f1f5f9;\">" + $br + "</td></tr>" +
       "<tr style=\"border-bottom:1px solid #1e293b;\"><td style=\"padding:10px 8px;color:#94a3b8;\">Environment</td><td style=\"padding:10px 8px;color:#f1f5f9;\">" + $envl + "</td></tr>" +
+      "<tr style=\"border-bottom:1px solid #1e293b;\"><td style=\"padding:10px 8px;color:#94a3b8;\">Deploy actor (audit)</td><td style=\"padding:10px 8px;color:#f1f5f9;word-break:break-all;\">" + $actor + "</td></tr>" +
       "<tr style=\"border-bottom:1px solid #1e293b;\"><td style=\"padding:10px 8px;color:#94a3b8;\">Triggered By</td><td style=\"padding:10px 8px;color:#f1f5f9;\">" + $by + "</td></tr>" +
       "<tr style=\"border-bottom:1px solid #1e293b;\"><td style=\"padding:10px 8px;color:#94a3b8;\">Duration</td><td style=\"padding:10px 8px;color:#f1f5f9;\">" + $dur + "ms</td></tr>" +
       "<tr style=\"border-bottom:1px solid #1e293b;\"><td style=\"padding:10px 8px;color:#94a3b8;\">Timestamp</td><td style=\"padding:10px 8px;color:#f1f5f9;\">" + $started + "</td></tr>" +

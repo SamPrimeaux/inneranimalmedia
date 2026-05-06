@@ -43,6 +43,8 @@ async function sendResendEmail(env, { to, subject, html }) {
 }
 
 function parseNotifyRecipients(env) {
+  const single = String(env.DEPLOY_NOTIFY_EMAIL || env.RESEND_NOTIFY_EMAIL || '').trim();
+  if (single) return [single];
   const raw = String(env.DEPLOY_NOTIFY_EMAILS || '').trim();
   if (!raw) return [];
   return raw
