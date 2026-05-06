@@ -2,20 +2,11 @@
  * Thompson/Beta bandit over agentsam_routing_arms + nightly updates from execution_performance_metrics.
  */
 
-export async function thompsonSample(env, taskType, mode) {
-  if (!env?.DB) return null;
-  const { results } = await env.DB.prepare(
-    `
-    SELECT id, model_key, provider, success_alpha, success_beta,
-           cost_mean, latency_mean
-    FROM agentsam_routing_arms
-    WHERE task_type = ? AND mode = ?
-      AND is_eligible = 1 AND is_paused = 0
-    `,
-  )
-    .bind(taskType, mode || 'auto')
-    .all()
-    .catch(() => ({ results: [] }));
+/**
+ * Thompson-style pick from pre-fetched routing arm rows (cost/latency penalties).
+ * @param {Array<Record<string, unknown>> | null | undefined} results
+ */
+export function pickRoutingArmByThompson(results) {
   if (!results?.length) return null;
   let best = null;
   let bestScore = -1;
@@ -31,6 +22,23 @@ export async function thompsonSample(env, taskType, mode) {
     }
   }
   return best;
+}
+
+export async function thompsonSample(env, taskType, mode) {
+  if (!env?.DB) return null;
+  const { results } = await env.DB.prepare(
+    `
+    SELECT id, model_key, provider, success_alpha, success_beta,
+           cost_mean, latency_mean
+    FROM agentsam_routing_arms
+    WHERE task_type = ? AND mode = ?
+      AND is_eligible = 1 AND is_paused = 0
+    `,
+  )
+    .bind(taskType, mode || 'auto')
+    .all()
+    .catch(() => ({ results: [] }));
+  return pickRoutingArmByThompson(results);
 }
 
 export async function updateArmsFromMetrics(env) {

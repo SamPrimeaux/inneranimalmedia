@@ -32,7 +32,7 @@ import {
   isSubagentToolName,
   collectAllowlistToolKeysForScope,
 } from '../core/agent-policy.js';
-import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
@@ -41,7 +41,9 @@ import { runBuiltinTool }                               from '../tools/ai-dispat
 import {
   getDefaultModelForTask,
   scheduleRoutingArmBanditUpdate,
+  scheduleRoutingArmQualityUpdate,
   loadChatRoutingArmsModelKeyOrder,
+  resolveRoutingTaskType,
   CHAT_ROUTING_STATIC_FALLBACK_KEYS,
 } from '../core/routing.js';
 import {
@@ -239,28 +241,40 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     inputTokens,
     outputTokens,
     userId,
+    workspaceId,
+    errorMessage,
+    inputSummary,
   } = fields;
+  let stat = 'success';
+  if (status === 'error') stat = 'error';
+  else if (status === 'blocked') stat = 'blocked';
+  else if (status === 'pending') stat = 'pending';
+  const summary = String(inputSummary ?? '').slice(0, 200);
+  const errMsg = errorMessage != null ? String(errorMessage).slice(0, 8000) : null;
   const p = env.DB
     .prepare(
       `INSERT INTO agentsam_tool_call_log
-       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .bind(
       tenantId != null ? String(tenantId) : 'system',
       sessionId ?? null,
       String(toolName || 'unknown'),
-      status === 'error' ? 'error' : 'success',
+      stat,
       Math.max(0, Math.floor(Number(durationMs) || 0)),
       Number(costUsd) || 0,
       Math.max(0, Math.floor(Number(inputTokens) || 0)),
       Math.max(0, Math.floor(Number(outputTokens) || 0)),
       userId ?? null,
+      workspaceId ?? null,
+      errMsg,
+      summary,
     )
     .run()
     .catch((e) => console.warn('[agentsam_tool_call_log]', e?.message ?? e));
   if (ctx?.waitUntil) ctx.waitUntil(p);
-  else p.catch(() => {});
+  else void p;
 }
 
 async function resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, cache) {
@@ -900,7 +914,13 @@ async function loadChatRoutingFallbackRows(env, opts = {}) {
   const excludeSet = new Set(excludeModelKeys);
   const requireTools = !!opts.requireTools;
 
-  let keyOrder = await loadChatRoutingArmsModelKeyOrder(env, mode);
+  const ws =
+    opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : '';
+  let keyOrder = await loadChatRoutingArmsModelKeyOrder(env, mode, ws, {
+    toolRequired: requireTools,
+  });
   keyOrder = keyOrder.filter((k) => !excludeSet.has(k));
 
   const rows = [];
@@ -976,7 +996,7 @@ function needsApproval(validationResult, modeConfig, userPolicy) {
   return true;
 }
 
-async function createApprovalRequest(env, opts) {
+async function createApprovalRequest(env, ctx, opts) {
   const { tenantId, sessionId, userId, workspaceId, personUuid, toolName, toolArgs, toolCallId, riskLevel, rationale } = opts;
   const proposalId  = 'prop_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now         = Math.floor(Date.now() / 1000);
@@ -999,21 +1019,34 @@ async function createApprovalRequest(env, opts) {
       rationale || `Tool call requires approval: ${toolName}`,
       riskLevel || 'medium', toolName, 'pending', expiresAt, now, now
     ).run();
-    await recordMcpToolExecution(env, {
+    scheduleRecordMcpToolExecution(env, ctx, {
       tenant_id: tenantId,
       workspace_id: workspaceId,
       user_id: userId,
       person_uuid: personUuid,
       session_id: sessionId,
       tool_name: toolName,
-      tool_category: 'builtin',
       input_json: argsStr.slice(0, 10000),
       output_json: '',
       success: false,
       status: 'awaiting_approval',
       requires_approval: 1,
       error_message: null,
-    }).catch(() => {});
+    });
+    scheduleAgentsamToolCallLog(env, ctx, {
+      tenantId,
+      sessionId,
+      toolName,
+      status: 'pending',
+      durationMs: 0,
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      userId,
+      workspaceId,
+      errorMessage: null,
+      inputSummary: argsStr.slice(0, 200),
+    });
   } catch (e) { console.warn('[agent] createApprovalRequest:', e?.message); }
   return proposalId;
 }
@@ -1099,8 +1132,10 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     sessionId, tenantId, userId,
     workspaceId,
     routingTaskType,
+    qualityScore,
     mcpRuntimeContext,
   } = params;
+  const routingWs = workspaceId != null ? String(workspaceId).trim() : '';
 
   const modeMax = Math.max(1, Math.floor(Number(maxToolCalls) || 15));
   const polMax = Math.floor(Number(userPolicy?.max_tool_chain_depth));
@@ -1137,12 +1172,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) throw e;
       console.warn('[agent] model call failed:', e?.message ?? e);
       scheduleRoutingArmBanditUpdate(env, ctx, {
-        taskType: routingTaskType || 'auto',
+        taskType: routingTaskType || 'chat',
         mode: mode || 'ask',
         modelKey,
+        workspaceId: routingWs,
         success: false,
-        costUsd: 0,
-        durationMs: Date.now() - modelT0,
+        lastChainId: null,
       });
       emit('error', { message: 'Model call failed' });
       break;
@@ -1246,12 +1281,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         const detail = await stream.text().catch(() => '');
         console.warn('[agent] model stream HTTP error', stream.status);
         scheduleRoutingArmBanditUpdate(env, ctx, {
-          taskType: routingTaskType || 'auto',
+          taskType: routingTaskType || 'chat',
           mode: mode || 'ask',
           modelKey,
+          workspaceId: routingWs,
           success: false,
-          costUsd: 0,
-          durationMs: Date.now() - modelT0,
+          lastChainId: null,
         });
         emit('error', { message: 'Model stream failed' });
         break;
@@ -1310,15 +1345,6 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       }
     }
 
-    scheduleRoutingArmBanditUpdate(env, ctx, {
-      taskType: routingTaskType || 'auto',
-      mode: mode || 'ask',
-      modelKey,
-      success: true,
-      costUsd: 0,
-      durationMs: Date.now() - modelT0,
-    });
-
     if (turnUsage) {
       totalUsage.input_tokens                += turnUsage.input_tokens                || 0;
       totalUsage.output_tokens               += turnUsage.output_tokens               || 0;
@@ -1327,7 +1353,29 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
 
     conversationMessages.push({ role: 'assistant', content: assistantContent });
-    if (!pendingToolCalls.length || stopReason === 'end_turn') break;
+    if (!pendingToolCalls.length || stopReason === 'end_turn') {
+      if (routingWs) {
+        scheduleRoutingArmBanditUpdate(env, ctx, {
+          taskType: routingTaskType || 'chat',
+          mode: mode || 'ask',
+          modelKey,
+          workspaceId: routingWs,
+          success: true,
+          lastChainId: null,
+        });
+        const qs = Number(qualityScore);
+        if (Number.isFinite(qs)) {
+          scheduleRoutingArmQualityUpdate(env, ctx, {
+            taskType: routingTaskType || 'chat',
+            mode: mode || 'ask',
+            modelKey,
+            workspaceId: routingWs,
+            qualityScore: qs,
+          });
+        }
+      }
+      break;
+    }
 
     const toolResults = [];
     let previousToolChainId = null;
@@ -1339,7 +1387,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       }
       const validation = await validateToolCall(env, mode, call.name, mcpRuntimeContext, userPolicy);
       if (!validation.allowed) {
-        await recordMcpToolExecution(env, {
+        scheduleRecordMcpToolExecution(env, ctx, {
           tenant_id: tenantId,
           workspace_id: workspaceId,
           user_id: userId,
@@ -1352,6 +1400,20 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           duration_ms: 0,
           status: 'error',
         });
+        scheduleAgentsamToolCallLog(env, ctx, {
+          tenantId,
+          sessionId,
+          toolName: call.name,
+          status: 'blocked',
+          durationMs: 0,
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          userId,
+          workspaceId,
+          errorMessage: validation.reason,
+          inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+        });
         await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_blocked', message: `Blocked: ${call.name} — ${validation.reason}`, riskLevel: 'blocked', reason: validation.reason });
         emit('tool_blocked', { tool: call.name, reason: validation.reason });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Tool not available in ${mode} mode: ${validation.reason}` });
@@ -1359,6 +1421,33 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       }
       const queuePending = userId ? await checkApprovalGate(env, userId, call.name) : null;
       if (queuePending?.id) {
+        scheduleRecordMcpToolExecution(env, ctx, {
+          tenant_id: tenantId,
+          workspace_id: workspaceId,
+          user_id: userId,
+          session_id: sessionId,
+          tool_name: call.name,
+          tool_id: validation.mcpToolId ?? null,
+          input_json: JSON.stringify(call.input || {}),
+          success: false,
+          error_message: 'duplicate_pending_approval',
+          duration_ms: 0,
+          status: 'blocked',
+        });
+        scheduleAgentsamToolCallLog(env, ctx, {
+          tenantId,
+          sessionId,
+          toolName: call.name,
+          status: 'pending',
+          durationMs: 0,
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          userId,
+          workspaceId,
+          errorMessage: 'duplicate_pending_approval',
+          inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+        });
         emit('approval_required', {
           approval_id: queuePending.id,
           tool_name: call.name,
@@ -1372,7 +1461,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         continue;
       }
       if (needsApproval(validation, modeConfig, userPolicy)) {
-        const proposalId = await createApprovalRequest(env, {
+        const proposalId = await createApprovalRequest(env, ctx, {
           tenantId,
           sessionId,
           userId,
@@ -1424,14 +1513,16 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         inputTokens: 0,
         outputTokens: 0,
         userId,
+        workspaceId,
+        errorMessage: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
+        inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
       });
-      const mcpExecId = await recordMcpToolExecution(env, {
+      const mcpExecId = scheduleRecordMcpToolExecution(env, ctx, {
         tenant_id: tenantId,
         workspace_id: workspaceId,
         session_id: sessionId,
         tool_name: call.name,
         tool_id: validation.mcpToolId ?? null,
-        tool_category: 'builtin',
         input_json: JSON.stringify(call.input || {}),
         output_json: toolOutput.slice(0, 50000),
         success: !execErr,
@@ -1459,6 +1550,28 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: toolOutput });
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
+
+    if (routingWs) {
+      scheduleRoutingArmBanditUpdate(env, ctx, {
+        taskType: routingTaskType || 'chat',
+        mode: mode || 'ask',
+        modelKey,
+        workspaceId: routingWs,
+        success: true,
+        lastChainId: previousToolChainId,
+      });
+      const qs = Number(qualityScore);
+      if (Number.isFinite(qs)) {
+        scheduleRoutingArmQualityUpdate(env, ctx, {
+          taskType: routingTaskType || 'chat',
+          mode: mode || 'ask',
+          modelKey,
+          workspaceId: routingWs,
+          qualityScore: qs,
+        });
+      }
+    }
+
     if (stopReason === 'end_turn') break;
   }
 
@@ -1515,7 +1628,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   } else {
     if (!identity) return jsonResponse({ error: 'unauthenticated' }, 401);
     if (!identity.workspaceId) {
-      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+      return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING', redirect: '/onboarding' }, 400);
     }
     session = {
       user_id: identity.userId,
@@ -1685,12 +1798,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const isAutoModel = !explicitRow;
 
+  const resolvedRoutingTaskType = resolveRoutingTaskType({
+    intentSlug,
+    requireTools,
+    body,
+  });
+
   let routingPick = null;
   try {
     routingPick = await getDefaultModelForTask(env, {
-      taskKey: intentSlug,
+      taskKey: resolvedRoutingTaskType,
       tenantId,
       mode: requestedMode,
+      workspaceId,
+      toolRequired: requireTools,
     });
   } catch (_) {
     routingPick = null;
@@ -1706,15 +1827,32 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     thompsonRow?.model_key,
     primaryRow?.model_key,
     escalationRow?.model_key,
+    routingPick?.fallbackModelKey,
   ].filter(Boolean);
+  let explicitArmFallbackRow = null;
+  if (routingPick?.fallbackModelKey) {
+    explicitArmFallbackRow = await resolveAgentsamAiRowByModelKey(
+      env,
+      tenantId,
+      routingPick.fallbackModelKey,
+    );
+  }
+
   const lastResort = await loadChatRoutingFallbackRows(env, {
     tenantId,
+    workspaceId,
     mode: requestedMode,
     excludeModelKeys: reservedForFallback,
     requireTools,
   });
   let poolRows = dedupeModelsByKey(
-    [...(thompsonRow ? [thompsonRow] : []), primaryRow, escalationRow, ...(lastResort || [])].filter(Boolean),
+    [
+      ...(thompsonRow ? [thompsonRow] : []),
+      primaryRow,
+      escalationRow,
+      ...(explicitArmFallbackRow ? [explicitArmFallbackRow] : []),
+      ...(lastResort || []),
+    ].filter(Boolean),
   );
   poolRows = filterChainToolPolicy(poolRows, requireTools);
 
@@ -1895,7 +2033,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               mode: requestedMode, modeConfig, userPolicy,
               sessionId, tenantId, userId,
               workspaceId,
-              routingTaskType: intentSlug,
+              routingTaskType: resolvedRoutingTaskType,
+              qualityScore: confidence,
               mcpRuntimeContext,
             }),
             15000
@@ -1967,7 +2106,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 mode: requestedMode, modeConfig, userPolicy,
                 sessionId, tenantId, userId,
                 workspaceId,
-                routingTaskType: intentSlug,
+                routingTaskType: resolvedRoutingTaskType,
+                qualityScore: confidence,
                 mcpRuntimeContext,
               }),
               15000
@@ -2237,26 +2377,6 @@ export async function handleAgentApi(request, url, env, ctx) {
     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
 
     const tools = [];
-    try {
-      const a = await env.DB.prepare(
-        `SELECT name, description, category, handler_type, is_active, risk_level
-         FROM agentsam_tools
-         WHERE COALESCE(is_active, 0) = 1
-         ORDER BY category ASC, name ASC
-         LIMIT 500`,
-      ).all().catch(() => ({ results: [] }));
-      for (const r of a.results || []) {
-        if (!r) continue;
-        tools.push({
-          name: String(r.name || ''),
-          description: String(r.description || ''),
-          category: String(r.category || 'builtin'),
-          handler_type: String(r.handler_type || 'builtin'),
-          is_active: 1,
-          risk_level: String(r.risk_level || 'low'),
-        });
-      }
-    } catch (_) {}
 
     try {
       const mcpRows = await selectAgentsamMcpToolsList(

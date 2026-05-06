@@ -13,7 +13,7 @@
  *   - is_active | active  — optional eligibility gate
  */
 
-import { thompsonSample } from './thompson.js';
+import { pickRoutingArmByThompson } from './thompson.js';
 
 const TABLE = 'agentsam_routing_arms';
 
@@ -185,12 +185,81 @@ export function thompsonSelectArm(arms, cols) {
 }
 
 /**
+ * Load candidate routing arms for Thompson sampling (workspace-scoped first, then global).
+ * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
+ * @param {{ taskType: string, mode: string, workspaceId: string, toolRequired?: boolean }} q
+ */
+export async function queryRoutingArmsCandidates(env, q) {
+  const db = env?.DB;
+  if (!db) return [];
+  const tt = q.taskType != null ? String(q.taskType).trim() : 'chat';
+  const m = q.mode != null && String(q.mode).trim() !== '' ? String(q.mode).trim() : 'auto';
+  const toolReq = !!q.toolRequired;
+  const toolsClause = toolReq ? ' AND supports_tools = 1' : '';
+  const baseWhere = `task_type = ? AND mode = ? AND is_active = 1 AND is_eligible = 1 AND is_paused = 0 AND budget_exhausted = 0${toolsClause}`;
+  const ws = q.workspaceId != null ? String(q.workspaceId).trim() : '';
+  try {
+    if (ws) {
+      const sqlWs = `SELECT * FROM ${TABLE} WHERE ${baseWhere} AND workspace_id = ? ORDER BY decayed_score DESC, priority ASC LIMIT 10`;
+      const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
+      if (r1.results?.length) return r1.results;
+    }
+    const sqlGlobal = `SELECT * FROM ${TABLE} WHERE ${baseWhere} ORDER BY decayed_score DESC LIMIT 10`;
+    const r2 = await db.prepare(sqlGlobal).bind(tt, m).all();
+    return r2.results || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Map gate intent + request flags to `agentsam_routing_arms.task_type` (no tenant/workspace literals).
+ * @param {{ intentSlug?: string, requireTools?: boolean, body?: Record<string, unknown> | null }} ctx
+ */
+export function resolveRoutingTaskType(ctx = {}) {
+  const body = ctx.body && typeof ctx.body === 'object' ? ctx.body : {};
+  if (body.debug === true || String(body.mode || '').toLowerCase() === 'debug') return 'debug';
+  if (body.subagent === true || (body.subagent_profile_id != null && String(body.subagent_profile_id).trim() !== '')) {
+    return 'subagent_dispatch';
+  }
+  if (body.workflow_step === true || body.workflow_run_id != null) return 'workflow_orchestration';
+  if (body.terminal_session_id != null || body.pty_session_id != null) return 'terminal_execution';
+  if (body.intent_classification_only === true) return 'intent_classification';
+  if (body.rag_only === true || body.memory_search_only === true) return 'rag_query';
+  if (body.skill_pick_only === true) return 'skill_invocation';
+  if (ctx.requireTools) return 'tool_use';
+  const slug = String(ctx.intentSlug ?? 'auto').toLowerCase().trim() || 'auto';
+  return INTENT_SLUG_TO_ROUTING_TASK[slug] ?? 'chat';
+}
+
+/** Gate intent slugs → `task_type` rows (seeded / expanded schema). */
+const INTENT_SLUG_TO_ROUTING_TASK = {
+  auto: 'chat',
+  question: 'chat',
+  explain: 'chat',
+  code_help: 'code/build',
+  fix_bug: 'code/debug',
+  write_code: 'code/build',
+  plan: 'plan',
+  deploy: 'deploy',
+  sql: 'sql_d1_generation',
+  summarize: 'summary',
+  rag: 'rag_query',
+};
+
+/**
  * Resolve default model for a task using Thompson sampling over D1 arms.
  * Falls back to static routing when table missing, empty, or on error (caller unchanged).
  *
  * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
- * @param {{ taskKey?: string, tenantId?: string | null }} ctx
- * @returns {Promise<{ modelId: string | null, armId: string | null, source: 'thompson' | 'fallback', fallbackReason?: string }>}
+ * @param {{
+ *   taskKey?: string,
+ *   tenantId?: string | null,
+ *   workspaceId?: string | null,
+ *   mode?: string,
+ *   toolRequired?: boolean,
+ * }} ctx
+ * @returns {Promise<{ modelId: string | null, armId: string | null, source: 'thompson' | 'fallback', fallbackReason?: string, fallbackModelKey?: string | null }>}
  */
 export async function getDefaultModelForTask(env, ctx = {}) {
   try {
@@ -198,12 +267,22 @@ export async function getDefaultModelForTask(env, ctx = {}) {
     if (!db) {
       return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_db' };
     }
+    const workspaceId = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
+    if (!workspaceId) {
+      return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'missing_workspace' };
+    }
     const taskType =
       ctx.taskKey != null && String(ctx.taskKey).trim() !== ''
         ? String(ctx.taskKey).trim()
         : 'chat';
     const mode = ctx.mode != null && String(ctx.mode).trim() !== '' ? String(ctx.mode).trim() : 'auto';
-    const arm = await thompsonSample(env, taskType, mode);
+    const arms = await queryRoutingArmsCandidates(env, {
+      taskType,
+      mode,
+      workspaceId,
+      toolRequired: !!ctx.toolRequired,
+    });
+    const arm = pickRoutingArmByThompson(arms);
     if (!arm?.model_key) {
       return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_eligible_arms' };
     }
@@ -216,18 +295,24 @@ export async function getDefaultModelForTask(env, ctx = {}) {
       .catch(() => null);
     const modelId = row?.id != null ? String(row.id).trim() : '';
     const armId = arm.id != null ? String(arm.id).trim() : '';
+    const fallbackModelKey =
+      arm.fallback_model_key != null && String(arm.fallback_model_key).trim() !== ''
+        ? String(arm.fallback_model_key).trim()
+        : null;
     if (!modelId) {
       return {
         modelId: null,
         armId: armId || null,
         source: 'fallback',
         fallbackReason: 'unknown_model_key',
+        fallbackModelKey,
       };
     }
     return {
       modelId,
       armId: armId || null,
       source: 'thompson',
+      fallbackModelKey,
     };
   } catch (e) {
     return {
@@ -252,108 +337,105 @@ export const CHAT_ROUTING_STATIC_FALLBACK_KEYS = Object.freeze([
  *
  * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
  * @param {string} [mode] agent mode slug (must match `agentsam_routing_arms.mode`)
+ * @param {string} [workspaceId] session workspace (never a hardcoded literal from callers)
+ * @param {{ toolRequired?: boolean }} [opts]
  */
-export async function loadChatRoutingArmsModelKeyOrder(env, mode) {
-  const db = env?.DB;
+export async function loadChatRoutingArmsModelKeyOrder(env, mode, workspaceId, opts = {}) {
   const m = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
-  if (!db) return [...CHAT_ROUTING_STATIC_FALLBACK_KEYS];
-  try {
-    const { results } = await db
-      .prepare(
-        `SELECT model_key FROM agentsam_routing_arms
-         WHERE task_type = 'chat' AND mode = ? AND is_eligible = 1
-         ORDER BY decayed_score DESC`,
-      )
-      .bind(m)
-      .all();
-    const keys = (results || [])
-      .map((r) => String(r?.model_key ?? '').trim())
-      .filter(Boolean);
-    if (keys.length) return keys;
-  } catch (_) {
-    /* schema drift or D1 error */
-  }
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  const rows = await queryRoutingArmsCandidates(env, {
+    taskType: 'chat',
+    mode: m,
+    workspaceId: ws,
+    toolRequired: !!opts.toolRequired,
+  });
+  const keys = rows.map((r) => String(r?.model_key ?? '').trim()).filter(Boolean);
+  if (keys.length) return keys;
   return [...CHAT_ROUTING_STATIC_FALLBACK_KEYS];
 }
 
-/** Maps gate intent slugs from classify/gate to `agentsam_routing_arms.task_type` seeds. */
-const INTENT_TO_TASK_TYPE = {
-  auto: 'chat',
-  question: 'chat',
-  explain: 'chat',
-  code_help: 'code',
-  fix_bug: 'code',
-  write_code: 'code',
-  plan: 'plan',
-  deploy: 'deploy',
-  sql: 'sql_d1_generation',
-  summarize: 'summary',
-  rag: 'rag_query',
-};
-
 /**
- * Bayesian bandit incremental update (success_alpha / success_beta + online means).
- * Fire-and-forget via ctx.waitUntil from callers.
+ * Execution + Thompson feedback on `agentsam_routing_arms` (fire-and-forget).
  * @param {any} env
  * @param {any} ctx
  * @param {{
  *   taskType: string,
  *   mode: string,
  *   modelKey: string,
+ *   workspaceId: string,
  *   success: boolean,
- *   costUsd?: number,
- *   durationMs?: number,
+ *   lastChainId?: string | null,
  * }} o
  */
 export function scheduleRoutingArmBanditUpdate(env, ctx, o) {
   if (!env?.DB || !ctx?.waitUntil) return;
-  const rawIntent = o?.taskType != null ? String(o.taskType).trim() : '';
+  const taskType = o?.taskType != null ? String(o.taskType).trim() : '';
   const mode = o?.mode != null ? String(o.mode).trim() : '';
   const modelKey = o?.modelKey != null ? String(o.modelKey).trim() : '';
-  if (!rawIntent || !mode || !modelKey) return;
-
-  const normalizedTaskType =
-    INTENT_TO_TASK_TYPE[rawIntent] ??
-    INTENT_TO_TASK_TYPE[rawIntent.toLowerCase()] ??
-    'chat';
-
-  const costUsd = Number(o.costUsd) || 0;
-  const durationMs = Number(o.durationMs) || 0;
+  const workspaceId = o?.workspaceId != null ? String(o.workspaceId).trim() : '';
+  if (!taskType || !mode || !modelKey || !workspaceId) return;
   const success = !!o.success;
+  const succInt = success ? 1 : 0;
+  const lastChainId = o?.lastChainId != null ? String(o.lastChainId).trim() : '';
 
   ctx.waitUntil(
     (async () => {
       try {
-        if (success) {
-          await env.DB.prepare(
-            `UPDATE agentsam_routing_arms SET
-              success_alpha = success_alpha + 1,
-              cost_n        = cost_n + 1,
-              cost_mean     = CASE WHEN cost_n = 0 THEN ?
-                      ELSE (cost_mean * cost_n + ?) / (cost_n + 1) END,
-              latency_n     = latency_n + 1,
-              latency_mean  = CASE WHEN latency_n = 0 THEN ?
-                      ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
-              updated_at    = unixepoch(),
-              total_executions = COALESCE(total_executions, 0) + 1
-             WHERE task_type = ? AND mode = ? AND model_key = ?`,
-          )
-            .bind(costUsd, costUsd, durationMs, durationMs, normalizedTaskType, mode, modelKey)
-            .run();
-        } else {
-          await env.DB.prepare(
-            `UPDATE agentsam_routing_arms SET
-              success_beta = success_beta + 1,
-              is_paused = CASE WHEN COALESCE(success_beta, 0) + 1 > 10 THEN 1 ELSE COALESCE(is_paused, 0) END,
-              updated_at = unixepoch(),
-              total_executions = COALESCE(total_executions, 0) + 1
-             WHERE task_type = ? AND mode = ? AND model_key = ?`,
-          )
-            .bind(normalizedTaskType, mode, modelKey)
-            .run();
-        }
+        await env.DB.prepare(
+          `UPDATE ${TABLE}
+           SET total_executions = total_executions + 1,
+               success_alpha = success_alpha + CASE WHEN ? THEN 0.8 ELSE 0 END,
+               success_beta  = success_beta  + CASE WHEN ? THEN 0 ELSE 0.8 END,
+               last_chain_id = ?,
+               updated_at    = unixepoch()
+           WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`,
+        )
+          .bind(succInt, succInt, lastChainId || null, taskType, mode, modelKey, workspaceId)
+          .run();
       } catch (e) {
         console.warn('[routing_arms] bandit update failed', e?.message ?? e);
+      }
+    })(),
+  );
+}
+
+/**
+ * Rolling mean quality score on the routing arm row (fire-and-forget).
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{
+ *   taskType: string,
+ *   mode: string,
+ *   modelKey: string,
+ *   workspaceId: string,
+ *   qualityScore: number,
+ * }} o
+ */
+export function scheduleRoutingArmQualityUpdate(env, ctx, o) {
+  if (!env?.DB || !ctx?.waitUntil) return;
+  const taskType = o?.taskType != null ? String(o.taskType).trim() : '';
+  const mode = o?.mode != null ? String(o.mode).trim() : '';
+  const modelKey = o?.modelKey != null ? String(o.modelKey).trim() : '';
+  const workspaceId = o?.workspaceId != null ? String(o.workspaceId).trim() : '';
+  const q = Number(o?.qualityScore);
+  if (!taskType || !mode || !modelKey || !workspaceId || !Number.isFinite(q)) return;
+
+  ctx.waitUntil(
+    (async () => {
+      try {
+        await env.DB.prepare(
+          `UPDATE ${TABLE}
+           SET avg_quality_score =
+                 ((COALESCE(avg_quality_score, 0) * COALESCE(quality_n, 0)) + ?)
+                 / (COALESCE(quality_n, 0) + 1),
+               quality_n = COALESCE(quality_n, 0) + 1,
+               updated_at = unixepoch()
+           WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`,
+        )
+          .bind(q, taskType, mode, modelKey, workspaceId)
+          .run();
+      } catch (e) {
+        console.warn('[routing_arms] quality update failed', e?.message ?? e);
       }
     })(),
   );
