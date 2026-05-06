@@ -1,8 +1,7 @@
 WORKING DIRECTORY: /Users/samprimeaux/inneranimalmedia
 This is the ONLY valid repo root. Confirm with pwd before every command.
 
-- Worker entry: src/index.js (production)
-- Legacy fallback: worker.js (do not grow — modularize into src/)
+- Worker entry: src/index.js (production; sole bundle entry per wrangler.production.toml)
 - React dashboard: dashboard/
 - Dashboard components: dashboard/components/
 - Production wrangler config: wrangler.production.toml
@@ -19,15 +18,13 @@ Every file edit must be in /Users/samprimeaux/inneranimalmedia/
 Every git command runs from /Users/samprimeaux/inneranimalmedia/
 
 ## Architecture rules
-- src/index.js is the production entry point. worker.js isOT deployed directly.
-- All new business logic goes in src/ as focused modules.
-- worker.js gets max one import + one route delegation per module. Nothing else.
-- When touching any worker.js reference: extract logic into src/ at the same time.
+- src/index.js is the production entry point (Wrangler `main`).
+- All business logic lives in src/ as focused modules.
 - Never hardcode workspace_id, tenant_id, email addresses, or secret values.
 
 ## Deploy — never guess (wrong command = wasted work)
 - `npm run deploy:full` — DEFAULT. Route map + D1 schema doc + Vite build + docs ingest + D1 memory ingest (incl. post-deploy memory row) + `deploy-frontend.sh` (R2 upload + Worker deploy + Supabase deploy log / hooks).
-- `npm run deploy` — Worker/API only (src/, worker.js backend changes). No R2 upload.
+- `npm run deploy` — Worker/API only (src/). No R2 upload.
 - `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` — Worker-only one-liner.
 
 ## Sandbox is DISCONTINUED

@@ -85,7 +85,7 @@ fi
 
 # Upload source files for AI indexing (Vectorize codebase search)
 echo "Uploading source files for AI indexing..."
-./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/source/worker.js --file=worker.js --content-type="application/javascript" --config wrangler.production.toml --remote
+./scripts/with-cloudflare-env.sh npx wrangler r2 object put inneranimalmedia/static/source/src/index.js --file=src/index.js --content-type="application/javascript" --config wrangler.production.toml --remote
 find agent-dashboard/src -type f \( -name "*.jsx" -o -name "*.js" \) | while read -r file; do
   ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "inneranimalmedia/static/source/${file}" --file="${file}" --content-type="application/javascript" --config wrangler.production.toml --remote
 done

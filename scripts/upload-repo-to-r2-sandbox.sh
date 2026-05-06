@@ -111,6 +111,6 @@ put_file "dashboard/dist/agent-dashboard.js" "static/dashboard/agent/agent-dashb
 put_file "dashboard/dist/agent-dashboard.css" "static/dashboard/agent/agent-dashboard.css"
 
 # --- 6) Worker snapshot (reference only; not served from R2 in prod)
-put_file "worker.js" "source/worker.js"
+put_file "src/index.js" "source/src/index.js"
 
 echo "=== Done. Agent keys: static/dashboard/agent.html, static/dashboard/agent/agent-dashboard.{js,css} ==="

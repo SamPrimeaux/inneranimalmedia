@@ -61,7 +61,7 @@ echo ""
 echo "== Remaining high-risk stale references =="
 grep -RIn \
 "dashboard/dist\|dashboard/dist\|cd agent-dashboard && npm run build:vite-only\|cd agent-dashboard && npm ci\|npm run build --workspace=agent-dashboard" \
-scripts package.json wrangler*.toml wrangler*.jsonc worker.js src 2>/dev/null || true
+scripts package.json wrangler*.toml wrangler*.jsonc src 2>/dev/null || true
 
 echo ""
 echo "== Build flat dashboard =="
