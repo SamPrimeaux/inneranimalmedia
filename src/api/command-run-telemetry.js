@@ -429,7 +429,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
       try {
         const ins = await env.DB.prepare(
           `INSERT INTO agentsam_command_run
-            (id, workspace_id, session_id, conversation_id,
+            (id, tenant_id, workspace_id, session_id, conversation_id,
              user_input, normalized_intent, intent_category,
              model_id, commands_json, result_json, output_text,
              confidence_score, success, exit_code, duration_ms,
@@ -437,10 +437,11 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
              selected_command_id, selected_command_slug,
              risk_level, requires_confirmation, approval_status)
            VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
           .bind(
             commandRunId,
+            String(p.tenantId),
             ws,
             p.sessionId ?? null,
             p.conversationId ?? null,

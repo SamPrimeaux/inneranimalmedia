@@ -18336,12 +18336,20 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         if (!command) return jsonResponse({ error: 'No command' }, 400);
         const { output, command: runCommand } = await runTerminalCommand(env, request, command, session_id, ctx);
         const execId = crypto.randomUUID();
+        const tenantIdForRun =
+          authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+            ? String(authUser.tenant_id).trim()
+            : env.DEFAULT_TENANT_ID ?? null;
+        const workspaceIdForRun =
+          env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+            ? String(env.DEFAULT_WORKSPACE_ID).trim()
+            : null;
         try {
           await env.DB.prepare(
             `INSERT INTO agentsam_command_run 
    (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
-   VALUES (?, 'system', ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
-          ).bind(execId, IAM_DEFAULT_WORKSPACE_ID, session_id || null, runCommand, output).run();
+   VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
+          ).bind(execId, tenantIdForRun, workspaceIdForRun, session_id || null, runCommand, output).run();
         } catch (_) { }
         return jsonResponse({ output, command: runCommand, execution_id: execId });
       } catch (err) {

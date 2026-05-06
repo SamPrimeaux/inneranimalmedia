@@ -20,6 +20,7 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
       env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
         ? String(env.DEFAULT_WORKSPACE_ID).trim()
         : null;
+    const tenantId = env.DEFAULT_TENANT_ID ?? null;
 
     // Audit execution to D1
     if (wid) {
@@ -27,8 +28,8 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
         await env.DB.prepare(
           `INSERT INTO agentsam_command_run 
          (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
-         VALUES (?, 'system', ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
-        ).bind(execId, wid, session_id || null, runCommand, output).run();
+         VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
+        ).bind(execId, tenantId, wid, session_id || null, runCommand, output).run();
       } catch (_) {}
     }
 
