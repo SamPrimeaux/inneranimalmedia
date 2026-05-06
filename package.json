@@ -10,7 +10,6 @@
     "start": "node server.js",
     "deploy": "./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml",
     "generate:route-map": "node scripts/generate-route-map.js",
-    "generate:d1-schema-doc": "node scripts/generate-d1-agentic-schema.js",
     "ingest:docs": "./scripts/with-cloudflare-env.sh node scripts/ingest-docs.js",
     "ingest:d1-memory": "./scripts/with-cloudflare-env.sh node scripts/ingest-d1-memory.js",
     "deploy:full": "./scripts/deploy-full.sh",

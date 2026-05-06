@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * One-shot: embed docs/route-map.md and docs/d1-agentic-schema.md into Supabase `documents`
+ * One-shot: embed docs/route-map.md into Supabase `documents`
  * via pg (direct Postgres URL). Embeddings via Cloudflare Workers AI REST API (not Worker env.AI).
  *
  * Required env:
@@ -277,7 +277,6 @@ const client = new pg.Client(pgClientOptions());
 await client.connect();
 try {
   const nRoute = await ingestFile(client, 'docs/route-map.md', 'docs:route-map');
-  const nSchema = await ingestFile(client, 'docs/d1-agentic-schema.md', 'docs:d1-schema');
 
   const cmdRows = runD1Sql(
     `SELECT name, command_text, description, category FROM agent_commands WHERE status = 'active' AND tenant_id = 'tenant_sam_primeaux'`
