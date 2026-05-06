@@ -1,10 +1,12 @@
 /**
  * Canonical writer for agentsam_tool_stats_compacted.
  *
- * V1 constraint: table's current unique key is tenant_id + tool_name (not workspace-aware).
- * Until migration 263 rebuilds the unique key, this module writes **tenant-level** rows only:
- * - workspace_id is set to NULL (when column exists)
- * - metadata_json includes { scope: "tenant" } when column exists
+ * Post-migration 263: unique key is workspace-aware:
+ *   UNIQUE(tenant_id, workspace_id, tool_name)
+ *
+ * Writers must normalize workspace_id:
+ * - use '__tenant__' only when source workspace_id is NULL/blank
+ * - never use ws_inneranimalmedia as fallback
  */
 
 async function pragmaTableInfo(db, tableName) {
@@ -64,13 +66,13 @@ export async function compactToolStatsCompacted(env, opts = {}) {
   const destCols = [];
   const selectExprs = [];
 
-  // Keys (tenant-level only until unique key is rebuilt)
+  // Keys (workspace-aware)
   destCols.push('tenant_id');
   selectExprs.push(`COALESCE(tenant_id,'system')`);
 
   if (cols.has('workspace_id')) {
     destCols.push('workspace_id');
-    selectExprs.push('NULL');
+    selectExprs.push(`COALESCE(NULLIF(workspace_id,''), '__tenant__')`);
   }
 
   destCols.push('tool_name');
@@ -159,20 +161,23 @@ export async function compactToolStatsCompacted(env, opts = {}) {
   }
 
   const metadataJson = cols.has('metadata_json')
-    ? safeJsonStringify({ scope: 'tenant', ...(opts.metadata && typeof opts.metadata === 'object' ? opts.metadata : {}) })
+    ? safeJsonStringify({ scope: 'workspace', ...(opts.metadata && typeof opts.metadata === 'object' ? opts.metadata : {}) })
     : null;
 
   const binds = [...bindTenant];
   if (cols.has('metadata_json')) binds.push(metadataJson);
 
-  const groupByParts = [`COALESCE(tenant_id,'system')`, 'tool_name'];
+  const wsGroup = src.has('workspace_id') ? `COALESCE(NULLIF(workspace_id,''), '__tenant__')` : `'__tenant__'`;
+  const groupByParts = [`COALESCE(tenant_id,'system')`, wsGroup, 'tool_name'];
 
-  // Tenant-level upsert only until migration 263 rebuilds unique key to include workspace_id.
-  const updateCols = destCols.filter((c) => !['tenant_id', 'tool_name'].includes(c));
+  const conflictKeys = cols.has('workspace_id')
+    ? ['tenant_id', 'workspace_id', 'tool_name']
+    : ['tenant_id', 'tool_name'];
+  const updateCols = destCols.filter((c) => !conflictKeys.includes(c));
   const conflictTail =
     updateCols.length > 0
-      ? `ON CONFLICT(tenant_id, tool_name) DO UPDATE SET ${updateCols.map((c) => `${c} = excluded.${c}`).join(', ')}`
-      : `ON CONFLICT(tenant_id, tool_name) DO NOTHING`;
+      ? `ON CONFLICT(${conflictKeys.join(', ')}) DO UPDATE SET ${updateCols.map((c) => `${c} = excluded.${c}`).join(', ')}`
+      : `ON CONFLICT(${conflictKeys.join(', ')}) DO NOTHING`;
 
   const sql = `
     INSERT INTO agentsam_tool_stats_compacted (${destCols.join(', ')})
@@ -185,7 +190,7 @@ export async function compactToolStatsCompacted(env, opts = {}) {
 
   try {
     const r = await env.DB.prepare(sql).bind(...binds).run();
-    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0, scope: 'tenant' };
+    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0, scope: 'workspace' };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }

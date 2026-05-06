@@ -29,7 +29,7 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
     cronExpression,
     tenantId: null,
     workspaceId: null,
-    metadata: { scope: 'tenant', note: 'tenant-level until workspace unique migration (263)' },
+    metadata: { scope: 'workspace', note: 'workspace-aware (263 applied); blank workspace -> __tenant__' },
   });
 
   const now = new Date();
@@ -43,11 +43,12 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
   let rowsWritten = 0;
 
   try {
-    // Tenant-level aggregate (workspace_id = NULL) over last complete UTC week.
+    // Workspace-aware aggregate over last complete UTC week (blank workspace -> __tenant__).
     const { results: groups = [] } = await env.DB.prepare(
       `
       SELECT
         COALESCE(tenant_id, 'system') AS tenant_id,
+        COALESCE(NULLIF(workspace_id, ''), '__tenant__') AS workspace_id,
         COALESCE(provider, 'unknown') AS provider,
         COUNT(*) AS total_received,
         SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END) AS total_processed,
@@ -56,7 +57,7 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
       FROM agentsam_webhook_events
       WHERE datetime(COALESCE(processed_at, received_at, created_at, datetime('now'))) >= datetime(?)
         AND datetime(COALESCE(processed_at, received_at, created_at, datetime('now'))) < datetime(?)
-      GROUP BY COALESCE(tenant_id, 'system'), COALESCE(provider, 'unknown')
+      GROUP BY COALESCE(tenant_id, 'system'), COALESCE(NULLIF(workspace_id, ''), '__tenant__'), COALESCE(provider, 'unknown')
       `,
     )
       .bind(weekStart, weekEnd)
@@ -68,7 +69,9 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
     for (const g of groups) {
       const tenantId = g?.tenant_id != null ? String(g.tenant_id) : 'system';
       const provider = normalizeProvider(g?.provider);
-      const workspaceId = null;
+      const workspaceId = g?.workspace_id != null && String(g.workspace_id).trim() !== ''
+        ? String(g.workspace_id).trim()
+        : '__tenant__';
 
       const topEventTypes = await env.DB.prepare(
         `
@@ -77,13 +80,14 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
         WHERE datetime(COALESCE(processed_at, received_at, created_at, datetime('now'))) >= datetime(?)
           AND datetime(COALESCE(processed_at, received_at, created_at, datetime('now'))) < datetime(?)
           AND COALESCE(tenant_id, 'system') = ?
+          AND COALESCE(NULLIF(workspace_id, ''), '__tenant__') = ?
           AND COALESCE(provider, 'unknown') = ?
         GROUP BY COALESCE(event_type, 'unknown')
         ORDER BY c DESC
         LIMIT 20
         `,
       )
-        .bind(weekStart, weekEnd, tenantId, provider)
+        .bind(weekStart, weekEnd, tenantId, workspaceId, provider)
         .all()
         .catch(() => ({ results: [] }));
 
@@ -94,13 +98,14 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
         WHERE datetime(COALESCE(processed_at, received_at, created_at, datetime('now'))) >= datetime(?)
           AND datetime(COALESCE(processed_at, received_at, created_at, datetime('now'))) < datetime(?)
           AND COALESCE(tenant_id, 'system') = ?
+          AND COALESCE(NULLIF(workspace_id, ''), '__tenant__') = ?
           AND COALESCE(provider, 'unknown') = ?
         GROUP BY COALESCE(repo, 'unknown')
         ORDER BY c DESC
         LIMIT 20
         `,
       )
-        .bind(weekStart, weekEnd, tenantId, provider)
+        .bind(weekStart, weekEnd, tenantId, workspaceId, provider)
         .all()
         .catch(() => ({ results: [] }));
 
@@ -111,7 +116,6 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
         (topRepos.results || []).map((r) => ({ key: r.key, count: Number(r.c) || 0 })),
       );
 
-      // Live unique key is UNIQUE(tenant_id, week_start, provider). Keep tenant-level only until 263.
       const ins = await env.DB.prepare(
         `
         INSERT INTO agentsam_webhook_weekly (
@@ -129,8 +133,7 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
           notes,
           rolled_up_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
-        ON CONFLICT(tenant_id, week_start, provider) DO UPDATE SET
-          workspace_id = excluded.workspace_id,
+        ON CONFLICT(tenant_id, workspace_id, week_start, provider) DO UPDATE SET
           week_end = excluded.week_end,
           total_received = excluded.total_received,
           total_processed = excluded.total_processed,
@@ -154,7 +157,7 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
           Number(g?.total_cost_usd) || 0,
           topEventTypesJson,
           topReposJson,
-          'tenant_level_until_workspace_unique_migration_263',
+          workspaceId === '__tenant__' ? '__tenant__ weekly aggregate' : null,
         )
         .run()
         .catch(() => null);
