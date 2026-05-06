@@ -142,6 +142,20 @@ function mcpDashboardConfigFromRow(row) {
   };
 }
 
+async function resolveWorkspaceDisplayName(env, workspaceId) {
+  const wsId = String(workspaceId || '').trim();
+  if (!wsId) return { id: '', name: '' };
+  const core = CORE_WORKSPACES_DATA.find((w) => String(w.id) === wsId);
+  if (core) return { id: wsId, name: String(core.name || wsId) };
+  if (!env?.DB) return { id: wsId, name: wsId };
+  try {
+    const row = await env.DB.prepare('SELECT id, name FROM workspaces WHERE id = ? LIMIT 1').bind(wsId).first();
+    return { id: wsId, name: row?.name != null && String(row.name).trim() ? String(row.name).trim() : wsId };
+  } catch {
+    return { id: wsId, name: wsId };
+  }
+}
+
 async function mcpFetchJsonRpcPing(env, endpointUrl, headersObj) {
   const t0 = Date.now();
   const headers = {
@@ -1571,9 +1585,35 @@ export async function handleSettingsRequest(request, env, ctx) {
   if (pathLower === '/api/settings/mcp/status' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT id, health_status, last_health_check, metadata FROM mcp_services ORDER BY service_name`,
-      ).all();
+      const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+      const tenantId = await resolveAuthTenantId(env, authUser);
+      let results = [];
+      try {
+        if (workspaceId || tenantId) {
+          const r = await env.DB.prepare(
+            `SELECT id, health_status, last_health_check, metadata
+             FROM mcp_services
+             WHERE (workspace_id = ? OR tenant_id = ?)
+             ORDER BY service_name`,
+          )
+            .bind(workspaceId || '', tenantId || '')
+            .all();
+          results = r.results || [];
+        } else {
+          const r = await env.DB.prepare(
+            `SELECT id, health_status, last_health_check, metadata
+             FROM mcp_services
+             WHERE workspace_id IS NULL
+             ORDER BY service_name`,
+          ).all();
+          results = r.results || [];
+        }
+      } catch {
+        const r = await env.DB.prepare(
+          `SELECT id, health_status, last_health_check, metadata FROM mcp_services ORDER BY service_name`,
+        ).all();
+        results = r.results || [];
+      }
       const servers = (results || []).map((row) => {
         const meta = parseJsonSafe(row.metadata, {});
         const lat = meta.last_latency_ms;
@@ -1790,6 +1830,115 @@ export async function handleSettingsRequest(request, env, ctx) {
   if (pathLower === '/api/settings/mcp' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
+      const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+      const tenantId = await resolveAuthTenantId(env, authUser);
+      const wsDisplay = await resolveWorkspaceDisplayName(env, workspaceId);
+
+      // New schema (Sprint 1): workspace-scoped MCP servers + tool registry.
+      try {
+        const serverRow = await (async () => {
+          if (workspaceId) {
+            const r = await env.DB.prepare(
+              `SELECT url
+               FROM agentsam_mcp_servers
+               WHERE is_active = 1 AND workspace_id = ?
+               ORDER BY updated_at DESC
+               LIMIT 1`,
+            )
+              .bind(workspaceId)
+              .first()
+              .catch(() => null);
+            if (r?.url) return r;
+          }
+          if (tenantId) {
+            const r = await env.DB.prepare(
+              `SELECT url
+               FROM agentsam_mcp_servers
+               WHERE is_active = 1 AND tenant_id = ?
+               ORDER BY updated_at DESC
+               LIMIT 1`,
+            )
+              .bind(tenantId)
+              .first()
+              .catch(() => null);
+            if (r?.url) return r;
+          }
+          const r = await env.DB.prepare(
+            `SELECT url
+             FROM agentsam_mcp_servers
+             WHERE is_active = 1 AND workspace_id IS NULL
+             ORDER BY updated_at DESC
+             LIMIT 1`,
+          )
+            .first()
+            .catch(() => null);
+          return r;
+        })();
+
+        // Workspace scoping: tools are visible when workspace_scope contains ws OR tenant_id matches.
+        // Fallback (no workspace/tenant): only tools with NULL workspace_scope (rare).
+        let toolRows = [];
+        try {
+          if (workspaceId || tenantId) {
+            const { results } = await env.DB.prepare(
+              `SELECT
+                 tool_key,
+                 handler_type,
+                 description,
+                 input_schema,
+                 modes_json,
+                 risk_level,
+                 handler_config,
+                 is_active
+               FROM agentsam_mcp_tools
+               WHERE is_active = 1
+                 AND (
+                   (? != '' AND EXISTS (SELECT 1 FROM json_each(COALESCE(workspace_scope, '[]')) WHERE value = ?))
+                   OR (? != '' AND tenant_id = ?)
+                 )
+               ORDER BY COALESCE(sort_priority, 9999), tool_key ASC`,
+            )
+              .bind(
+                workspaceId ? String(workspaceId) : '',
+                workspaceId ? String(workspaceId) : '',
+                tenantId ? String(tenantId) : '',
+                tenantId ? String(tenantId) : '',
+              )
+              .all();
+            toolRows = results || [];
+          } else {
+            const { results } = await env.DB.prepare(
+              `SELECT
+                 tool_key,
+                 handler_type,
+                 description,
+                 input_schema,
+                 modes_json,
+                 risk_level,
+                 handler_config,
+                 is_active
+               FROM agentsam_mcp_tools
+               WHERE is_active = 1 AND workspace_scope IS NULL
+               ORDER BY COALESCE(sort_priority, 9999), tool_key ASC`,
+            ).all();
+            toolRows = results || [];
+          }
+        } catch {
+          toolRows = [];
+        }
+
+        return jsonResponse({
+          workspace: { id: wsDisplay.id, name: wsDisplay.name },
+          connected: {
+            url: serverRow?.url != null ? String(serverRow.url) : '',
+          },
+          tools: toolRows || [],
+        });
+      } catch {
+        // Fall through to legacy surface below.
+      }
+
+      // Legacy surface (older dashboard): mcp_services + agentsam_mcp_tools.
       const [servers, tools, stats] = await Promise.all([
         env.DB.prepare(
           `SELECT s.*, COUNT(t.id) AS tool_count
@@ -1815,48 +1964,120 @@ export async function handleSettingsRequest(request, env, ctx) {
           .all()
           .catch(() => ({ results: [] })),
       ]);
-      const statsMap = Object.fromEntries(
-        (stats.results || []).map((s) => [String(s.tool_name), s]),
-      );
+      const statsMap = Object.fromEntries((stats.results || []).map((s) => [String(s.tool_name), s]));
       const toolsWithStats = (tools.results || []).map((t) => ({
         ...t,
         stats: statsMap[String(t.tool_name)] || null,
       }));
 
-      let commandPerformance = [];
-      try {
-        const tenantIdForPerf =
-          (await resolveAuthTenantId(env, authUser)) || fallbackSystemTenantId(env);
-        const perfResult = await env.DB.prepare(
-          `SELECT
-             epm.command_id,
-             COALESCE(MAX(ac.display_name), CAST(epm.command_id AS TEXT)) AS display_name,
-             SUM(epm.execution_count) AS total_executions,
-             ROUND(AVG(epm.success_rate_percent), 1) AS avg_success_rate,
-             ROUND(AVG(epm.avg_duration_ms), 0) AS avg_duration_ms,
-             ROUND(SUM(COALESCE(epm.total_cost_cents, 0)) / 100.0, 4) AS total_cost_usd,
-             MAX(epm.metric_date) AS last_active_date
-           FROM execution_performance_metrics epm
-           LEFT JOIN agentsam_commands ac ON ac.id = epm.command_id
-           WHERE epm.tenant_id = ?
-             AND epm.metric_date >= date('now', '-7 days')
-           GROUP BY epm.command_id
-           ORDER BY SUM(epm.execution_count) DESC`,
-        )
-          .bind(tenantIdForPerf)
-          .all();
-        commandPerformance = perfResult?.results || [];
-      } catch {
-        commandPerformance = [];
-      }
-
       return jsonResponse({
         servers: servers.results || [],
         tools: toolsWithStats,
-        commandPerformance,
+        commandPerformance: [],
       });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  {
+    const m = pathLower.match(/^\/api\/settings\/tools\/([^/]+)$/);
+    if (m && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const toolKey = decodeURIComponent(m[1] || '').trim();
+      if (!toolKey) return jsonResponse({ error: 'tool_key required' }, 400);
+      const body = await request.json().catch(() => ({}));
+      if (!body || typeof body !== 'object') return jsonResponse({ error: 'JSON body required' }, 400);
+
+      // Only allow the requested editable fields.
+      const allowed = [
+        'handler_type',
+        'description',
+        'input_schema',
+        'modes_json',
+        'risk_level',
+        'handler_config',
+        'tool_key',
+      ];
+      const keys = allowed.filter((k) => Object.prototype.hasOwnProperty.call(body, k));
+      if (!keys.length) return jsonResponse({ error: 'No allowed fields to update' }, 400);
+
+      // Normalize JSON-ish fields (accept object/array or string).
+      const normalizeJsonField = (val, fallback) => {
+        if (val == null) return fallback;
+        if (typeof val === 'string') return val;
+        try {
+          return JSON.stringify(val);
+        } catch {
+          return fallback;
+        }
+      };
+
+      const sets = [];
+      const binds = [];
+      for (const k of keys) {
+        if (k === 'input_schema') {
+          sets.push('input_schema = ?');
+          binds.push(normalizeJsonField(body.input_schema, '{}'));
+          continue;
+        }
+        if (k === 'modes_json') {
+          sets.push('modes_json = ?');
+          binds.push(normalizeJsonField(body.modes_json, '[]'));
+          continue;
+        }
+        if (k === 'handler_config') {
+          sets.push('handler_config = ?');
+          binds.push(normalizeJsonField(body.handler_config, '{}'));
+          continue;
+        }
+        if (k === 'tool_key') {
+          // tool_key is editable only for rename-like operations; keep it strict.
+          const next = String(body.tool_key || '').trim();
+          if (!next) return jsonResponse({ error: 'tool_key cannot be empty' }, 400);
+          sets.push('tool_key = ?');
+          binds.push(next);
+          continue;
+        }
+        sets.push(`${k} = ?`);
+        binds.push(body[k]);
+      }
+      sets.push('updated_at = unixepoch()');
+
+      // Scope: update only within the caller's workspace/tenant visibility.
+      const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+      const tenantId = await resolveAuthTenantId(env, authUser);
+      const ws = workspaceId ? String(workspaceId) : '';
+      const tid = tenantId ? String(tenantId) : '';
+
+      try {
+        // Primary: new schema table.
+        const res = await env.DB.prepare(
+          `UPDATE agentsam_mcp_tools
+           SET ${sets.join(', ')}
+           WHERE tool_key = ?
+             AND is_active = 1
+             AND (
+               (? != '' AND EXISTS (SELECT 1 FROM json_each(COALESCE(workspace_scope, '[]')) WHERE value = ?))
+               OR (? != '' AND tenant_id = ?)
+             )`,
+        )
+          .bind(...binds, toolKey, ws, ws, tid, tid)
+          .run();
+        if (!res?.meta?.changes) return jsonResponse({ error: 'Tool not found' }, 404);
+        const updated = await env.DB.prepare(
+          `SELECT tool_key, handler_type, description, input_schema, modes_json, risk_level, handler_config, is_active
+           FROM agentsam_mcp_tools
+           WHERE tool_key = ?
+           LIMIT 1`,
+        )
+          .bind(body.tool_key ? String(body.tool_key).trim() : toolKey)
+          .first()
+          .catch(() => null);
+        return jsonResponse({ ok: true, tool: updated });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
     }
   }
 

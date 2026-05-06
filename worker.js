@@ -12212,9 +12212,11 @@ async function runTerminalCommand(env, request, command, sessionId = null, execu
   return out;
 }
 
-/** Canonical Agent Sam repo root on the PTY host (iam-pty) if DB has no workspace_root. */
-const IAM_WORKSPACE_ROOT_FALLBACK =
-  '/Users/samprimeaux/Downloads/inneranimalmedia/inneranimalmedia-agentsam-dashboard';
+/**
+ * Canonical Agent Sam repo root on the PTY host (iam-pty).
+ * CRITICAL: do not hardcode local user paths; configure via env.IAM_WORKSPACE_ROOT or D1 workspace_settings.workspace_root.
+ */
+const IAM_WORKSPACE_ROOT_FALLBACK = '';
 
 let iamWorkspaceRootCache = null;
 let iamWorkspaceRootLoadPromise = null;
@@ -12223,7 +12225,11 @@ async function resolveIamWorkspaceRoot(env) {
   if (iamWorkspaceRootCache != null) return iamWorkspaceRootCache;
   if (!iamWorkspaceRootLoadPromise) {
     iamWorkspaceRootLoadPromise = (async () => {
-      let root = IAM_WORKSPACE_ROOT_FALLBACK;
+      const envRoot =
+        env?.IAM_WORKSPACE_ROOT != null && String(env.IAM_WORKSPACE_ROOT).trim() !== ''
+          ? String(env.IAM_WORKSPACE_ROOT).trim()
+          : '';
+      let root = envRoot || IAM_WORKSPACE_ROOT_FALLBACK;
       if (env?.DB) {
         try {
           const row = await env.DB.prepare('SELECT settings_json FROM workspace_settings WHERE workspace_id = ?')
@@ -12237,7 +12243,7 @@ async function resolveIamWorkspaceRoot(env) {
           }
         } catch (_) { }
       }
-      return root;
+      return String(root || '').trim();
     })().then((r) => {
       iamWorkspaceRootCache = r;
       return r;
@@ -12248,6 +12254,9 @@ async function resolveIamWorkspaceRoot(env) {
 
 function normalizeWorkspaceAbsolutePath(rootBase, raw) {
   const root = String(rootBase).replace(/\/+$/, '');
+  if (!root || root === '/' || root.length < 3) {
+    return { ok: false, error: 'IAM_WORKSPACE_ROOT not configured (set env.IAM_WORKSPACE_ROOT or workspace_settings.workspace_root)' };
+  }
   let s = String(raw ?? '').trim();
   if (!s) return { ok: true, path: root };
   if (!s.startsWith('/')) {

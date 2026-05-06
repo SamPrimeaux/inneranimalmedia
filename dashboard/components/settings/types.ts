@@ -100,10 +100,14 @@ export type SettingsModelsResponse = {
 };
 
 export type SettingsMcpResponse = {
-  servers: Array<Record<string, unknown>>;
-  tools: Array<
-    Record<string, unknown> & { tool_name?: string; stats?: Record<string, unknown> | null }
-  >;
+  // New (Sprint 1): workspace-scoped Tools & MCP view.
+  workspace?: { id: string; name: string };
+  connected?: { url: string };
+  tools: Array<Record<string, unknown>>;
+
+  // Legacy: older MCP settings surface (still returned by API as fallback).
+  servers?: Array<Record<string, unknown>>;
+  commandPerformance?: Array<Record<string, unknown>>;
 };
 
 export interface GitRepo {
