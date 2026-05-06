@@ -113,6 +113,8 @@ export class AgentChatSqlV1 extends DurableObject {
         : "";
     this.workspaceSettings = {};
     this.workspaceSettingsPromise = null;
+    /** Auth user id from /terminal/ws or /terminal/exec (for upstream PTY tenant isolation). */
+    this.ptSessionUserId = "default";
     this.historySequence = 0;
     this._ptyOutBuf = "";
     this._ptyOutFlushTimer = null;
@@ -446,6 +448,7 @@ export class AgentChatSqlV1 extends DurableObject {
 
     const executionMode = normalizeExecutionMode(url.searchParams.get("execution_mode"));
     const workspaceId = (url.searchParams.get("workspace_id") || "").trim();
+    this.ptSessionUserId = (url.searchParams.get("user_id") || "").trim() || "default";
     await this.ensureWorkspaceSettingsLoaded(workspaceId);
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
@@ -484,6 +487,9 @@ export class AgentChatSqlV1 extends DurableObject {
     const body = await request.json().catch(() => ({}));
     const executionMode = normalizeExecutionMode(body?.execution_mode || url.searchParams.get("execution_mode"));
     const workspaceId = String(body?.workspace_id || url.searchParams.get("workspace_id") || "").trim();
+    const uid =
+      String(url.searchParams.get("user_id") || body?.user_id || "").trim();
+    if (uid) this.ptSessionUserId = uid;
     await this.ensureWorkspaceSettingsLoaded(workspaceId);
     const command = String(body?.command || "").trim();
 
@@ -622,8 +628,13 @@ export class AgentChatSqlV1 extends DurableObject {
     // VPC Service path (private — `PTY_SERVICE` tunnels to localhost:3099; no worker-side auth headers)
     if (this.env?.PTY_SERVICE) {
       try {
+        const tid = String(this.workspaceId || "").trim() || "default";
+        const uid = String(this.ptSessionUserId || "default").trim() || "default";
+        const vpcUrl = new URL("http://localhost:3099/terminal");
+        vpcUrl.searchParams.set("tenant_id", tid);
+        vpcUrl.searchParams.set("user_id", uid);
         const resp = await this.env.PTY_SERVICE.fetch(
-          new Request("http://localhost:3099/terminal", {
+          new Request(vpcUrl.toString(), {
             headers: {
               Upgrade: "websocket",
               Connection: "Upgrade",
@@ -685,7 +696,9 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     let wsUrl = normalizeWebSocketUrl(rawUrl);
     const sep = wsUrl.includes("?") ? "&" : "?";
-    wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}`;
+    const tid = String(this.workspaceId || "").trim() || "default";
+    const uid = String(this.ptSessionUserId || "default").trim() || "default";
+    wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tid)}&user_id=${encodeURIComponent(uid)}`;
     const wsResp = await fetch(wsUrl, {
       headers: {
         "Upgrade": "websocket",
