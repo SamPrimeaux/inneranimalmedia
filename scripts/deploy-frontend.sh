@@ -38,7 +38,27 @@ else
 fi
 
 echo "→ Syncing dist to R2 $BUCKET/$PREFIX ..."
-find "$DIST" -type f | while read -r file; do
+r2_put_with_retry() {
+  local file="$1"
+  local key="$2"
+  local ct="$3"
+  local attempt=1
+  local max=3
+  while [ "$attempt" -le "$max" ]; do
+    if ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "$BUCKET/$key" \
+      --file "$file" --content-type "$ct" -c "$TOML" --remote; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$max" ]; then
+      sleep 2
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+FAILED_FILES=()
+while IFS= read -r file; do
   key="$PREFIX/${file#$DIST/}"
   case "$file" in
     *.js)   ct="application/javascript" ;;
@@ -49,9 +69,16 @@ find "$DIST" -type f | while read -r file; do
     *)      ct="application/octet-stream" ;;
   esac
   echo "  PUT $key"
-  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "$BUCKET/$key" \
-    --file "$file" --content-type "$ct" -c "$TOML" --remote
-done
+  if ! r2_put_with_retry "$file" "$key" "$ct"; then
+    FAILED_FILES+=("$key")
+  fi
+done < <(find "$DIST" -type f -print)
+
+if [ ${#FAILED_FILES[@]} -gt 0 ]; then
+  echo "✗ R2 upload failed after 3 attempts for ${#FAILED_FILES[@]} object(s):"
+  printf '  %s\n' "${FAILED_FILES[@]}"
+  exit 1
+fi
 
 # Remove orphaned hashed chunks: wrangler has no `r2 object list`; use S3-compatible ListObjectsV2 (R2 API token).
 echo "→ Pruning stale R2 objects under ${PREFIX}/ ..."
