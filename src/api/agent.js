@@ -32,7 +32,10 @@ import {
   isSubagentToolName,
   collectAllowlistToolKeysForScope,
 } from '../core/agent-policy.js';
+import { scheduleInsertAgentCost } from '../core/agent-costs.js';
+import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { scheduleInsertRoutingDecision } from '../core/routing-decisions-writer.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
@@ -245,12 +248,17 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     errorMessage,
     inputSummary,
   } = fields;
+  const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
+  const ws =
+    workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+  if (!tid || !ws) return;
   let stat = 'success';
   if (status === 'error') stat = 'error';
   else if (status === 'blocked') stat = 'blocked';
   else if (status === 'pending') stat = 'pending';
   const summary = String(inputSummary ?? '').slice(0, 200);
   const errMsg = errorMessage != null ? String(errorMessage).slice(0, 8000) : null;
+  const correlationId = `tcl_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const p = env.DB
     .prepare(
       `INSERT INTO agentsam_tool_call_log
@@ -258,7 +266,7 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .bind(
-      tenantId != null ? String(tenantId) : 'system',
+      tid,
       sessionId ?? null,
       String(toolName || 'unknown'),
       stat,
@@ -267,7 +275,7 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
       Math.max(0, Math.floor(Number(inputTokens) || 0)),
       Math.max(0, Math.floor(Number(outputTokens) || 0)),
       userId ?? null,
-      workspaceId ?? null,
+      ws,
       errMsg,
       summary,
     )
@@ -275,6 +283,19 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     .catch((e) => console.warn('[agentsam_tool_call_log]', e?.message ?? e));
   if (ctx?.waitUntil) ctx.waitUntil(p);
   else void p;
+  if (stat === 'error' && errMsg && ctx?.waitUntil) {
+    scheduleAgentsamErrorLog(env, ctx, {
+      workspaceId: ws,
+      tenantId: tid,
+      sessionId: sessionId ?? null,
+      errorCode: 'tool_call_log_error',
+      errorType: 'tool_execution',
+      errorMessage: errMsg,
+      source: 'tool_call_log',
+      sourceId: correlationId,
+      contextJson: JSON.stringify({ tool_name: toolName, input_summary: summary, correlation_id: correlationId }),
+    });
+  }
 }
 
 async function resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, cache) {
@@ -1067,12 +1088,14 @@ async function checkApprovalGate(env, userId, toolName) {
 
 async function auditToolDecision(env, opts) {
   if (!env.DB) return;
+  const tid = opts.tenantId != null && String(opts.tenantId).trim() !== '' ? String(opts.tenantId).trim() : '';
+  if (!tid) return;
   try {
     await env.DB.prepare(
       `INSERT INTO agentsam_hook_execution (id, tenant_id, actor_role_id, event_type, message, metadata_json)
        VALUES (?, ?, 'iam_agent', ?, ?, ?)`
     ).bind(
-      crypto.randomUUID(), opts.tenantId || 'system', opts.eventType, opts.message,
+      crypto.randomUUID(), tid, opts.eventType, opts.message,
       JSON.stringify({ tool: opts.toolName, reason: opts.reason, risk: opts.riskLevel })
     ).run();
   } catch (_) {}
@@ -1544,6 +1567,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         terminalSessionId: null,
         tenantId,
         parentChainId: previousToolChainId,
+        toolInputJson: JSON.stringify(call.input || {}),
         ctx,
       });
       emit('tool_result', { tool: call.name, output: toolOutput.slice(0, 2000) });
@@ -1936,6 +1960,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }),
   );
 
+  if (tenantId && workspaceId) {
+    const pickMk = chainRows[0]?.model_key ?? fallbackModelKeys[0] ?? null;
+    const pickPv = chainRows[0]?.provider ?? null;
+    const armId =
+      routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
+    scheduleInsertRoutingDecision(env, ctx, {
+      workspaceId,
+      tenantId,
+      sessionId: sessionId ?? null,
+      routingArmId: armId,
+      armTaskType: resolvedRoutingTaskType,
+      modelKey: pickMk || 'unknown',
+      provider: pickPv,
+    });
+  }
+
   const ragResult    = await unifiedRagSearch(env, message, {
     topK: modeConfig.context_strategy === 'minimal' ? 3 : 8,
     tenantId,
@@ -2181,6 +2221,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         streamFailed: !succeeded,
         refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
       });
+      if (tenantId) {
+        scheduleInsertAgentCost(env, ctx, {
+          workspaceId,
+          tenantId,
+          sessionId: sessionId ? String(sessionId) : null,
+          routingArmId:
+            routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null,
+          modelUsed: lastLoopStats?.modelKey || fallbackModelKeys[0] || 'unknown',
+          tokensIn: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+          tokensOut: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+          costUsd: 0,
+          taskType: resolvedRoutingTaskType,
+          userId: userId ?? null,
+          isStreaming: true,
+          errorType: succeeded ? null : 'all_providers_exhausted',
+        });
+      }
     } catch (e) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
       emit('error', { message: 'Agent loop failed' });
@@ -2228,6 +2285,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         streamFailed: true,
         refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
       });
+      if (tenantId) {
+        scheduleInsertAgentCost(env, ctx, {
+          workspaceId,
+          tenantId,
+          sessionId: sessionId ? String(sessionId) : null,
+          routingArmId:
+            routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null,
+          modelUsed: fallbackModelKeys[0] || 'unknown',
+          tokensIn: 0,
+          tokensOut: 0,
+          costUsd: 0,
+          taskType: resolvedRoutingTaskType,
+          userId: userId ?? null,
+          isStreaming: true,
+          errorType: 'agent_loop_failed',
+        });
+      }
     } finally {
       await writer.close().catch(() => {});
     }
