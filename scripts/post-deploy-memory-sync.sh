@@ -46,6 +46,16 @@ WHERE workspace_id = '${WORKSPACE_ID}' AND status = 'active';
 
 # ── 3. Supabase build_deploy_events → triggers agent_memory auto-embed ───
 SUPABASE_URL="${SUPABASE_URL:-https://dpmuvynqixblxsilnlut.supabase.co}"
+# Guard against stale refs lingering in the shell env (wrong host causes curl DNS failures).
+for stale in tcczxkatmodtxfuulvsr sexdnwlyuhkyvseunqlx; do
+  case "${SUPABASE_URL:-}" in
+    *"${stale}"*)
+      echo "[post-deploy] ⚠️  SUPABASE_URL contains stale ref ${stale}; using https://dpmuvynqixblxsilnlut.supabase.co for this run." >&2
+      SUPABASE_URL="https://dpmuvynqixblxsilnlut.supabase.co"
+      break
+      ;;
+  esac
+done
 SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 
 if [ -z "$SUPABASE_SERVICE_KEY" ]; then

@@ -164,7 +164,12 @@ export async function handleDashboardApi(request, url, env, ctx) {
 
         const executionModeRaw = (url.searchParams.get('execution_mode') || 'pty').trim().toLowerCase();
         const executionMode = ['pty', 'ssh', 'mcp'].includes(executionModeRaw) ? executionModeRaw : 'pty';
-        const workspaceId = (url.searchParams.get('workspace_id') || authUser.tenant_id || 'default').trim();
+        const resolvedWorkspaceId = String(
+            authUser.workspace_id || authUser.workspaceId || ''
+        ).trim();
+        const workspaceId = String(
+            url.searchParams.get('workspace_id') || resolvedWorkspaceId || 'default'
+        ).trim();
         const sessionName = `terminal:v2:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -172,6 +177,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.pathname = '/terminal/ws';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
+        if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
+            doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
+        }
         doUrl.searchParams.set('user_id', String(authUser.id || 'anonymous'));
         return stub.fetch(new Request(doUrl.toString(), request));
     }
@@ -187,7 +195,12 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (!env.AGENT_SESSION) return jsonResponse({ error: 'AGENT_SESSION binding missing' }, 503);
         const executionModeRaw = (url.searchParams.get('execution_mode') || 'pty').trim().toLowerCase();
         const executionMode = ['pty', 'ssh', 'mcp'].includes(executionModeRaw) ? executionModeRaw : 'pty';
-        const workspaceId = (url.searchParams.get('workspace_id') || authUser.tenant_id || 'default').trim();
+        const resolvedWorkspaceId = String(
+            authUser.workspace_id || authUser.workspaceId || ''
+        ).trim();
+        const workspaceId = String(
+            url.searchParams.get('workspace_id') || resolvedWorkspaceId || 'default'
+        ).trim();
         const sessionName = `terminal:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -195,6 +208,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.pathname = '/terminal/status';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
+        if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
+            doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
+        }
         doUrl.searchParams.set('user_id', String(authUser.id || 'anonymous'));
         return stub.fetch(new Request(doUrl.toString(), { method: 'GET', headers: request.headers }));
     }
@@ -212,12 +228,15 @@ export async function handleDashboardApi(request, url, env, ctx) {
         const executionModeRaw = String(body?.execution_mode || url.searchParams.get('execution_mode') || 'pty')
             .trim().toLowerCase();
         const executionMode = ['pty', 'ssh', 'mcp'].includes(executionModeRaw) ? executionModeRaw : 'pty';
-        const workspaceId = (
+        const resolvedWorkspaceId = String(
+            authUser.workspace_id || authUser.workspaceId || ''
+        ).trim();
+        const workspaceId = String(
             body?.workspace_id ||
             url.searchParams.get('workspace_id') ||
-            authUser.tenant_id ||
+            resolvedWorkspaceId ||
             'default'
-        ).toString().trim();
+        ).trim();
         const sessionName = `terminal:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -225,6 +244,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.pathname = '/terminal/exec';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
+        if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
+            doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
+        }
         doUrl.searchParams.set('user_id', String(authUser.id || 'anonymous'));
         return stub.fetch(new Request(doUrl.toString(), {
             method: 'POST',

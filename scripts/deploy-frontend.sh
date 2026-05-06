@@ -258,9 +258,20 @@ NOTIFY_JSON="$(jq -n \
       "</div></body></html>"
     )
   }')"
-curl -sS -X POST "https://inneranimalmedia.com/api/email/send" \
+# Notification should never block deploy success; treat failures as warnings.
+NOTIFY_RESP="$(curl -sS -X POST "https://inneranimalmedia.com/api/email/send" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${INTERNAL_API_SECRET:-}" \
-  -d "$NOTIFY_JSON"
+  -d "$NOTIFY_JSON" || true)"
+if command -v jq >/dev/null 2>&1; then
+  _notify_err="$(echo "$NOTIFY_RESP" | jq -r '.error // empty' 2>/dev/null || true)"
+else
+  _notify_err=""
+fi
+if [ -n "${_notify_err:-}" ]; then
+  echo "⚠️  Deploy notification failed: ${_notify_err}" >&2
+  echo "    Fix: set worker secret RESEND_FROM (verified sender). Example:" >&2
+  echo "    npx wrangler secret put RESEND_FROM -c ./wrangler.production.toml" >&2
+fi
 
 echo "✓ Done (manifest + embeddings backfill + notification)"
