@@ -43,6 +43,7 @@ try {
 } catch { /* no .env.cloudflare in CI */ }
 
 import { existsSync } from 'fs';
+import { createHash } from 'crypto';
 import { execFileSync } from 'child_process';
 import pathMod from 'path';
 import pg from 'pg';
@@ -74,6 +75,47 @@ if (!dbUrl) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function contentHash(str) {
+  return createHash('sha256').update(str, 'utf8').digest('hex');
+}
+
+/** Route-map ## titles: extract first path token starting with `/`. */
+function extractPathFromRouteTitle(title) {
+  const parts = String(title).trim().split(/\s+/);
+  for (const p of parts) {
+    if (p.startsWith('/')) return p;
+  }
+  return '';
+}
+
+/** First two URL segments as group key (e.g. `/api/settings/foo` → `/api/settings`). */
+function routeGroupKey(path) {
+  if (!path || path === '/') return '/';
+  const segs = path.split('/').filter(Boolean);
+  if (segs.length <= 1) return '/' + segs[0];
+  return '/' + segs[0] + '/' + segs[1];
+}
+
+/** Collapse route-map chunks (~400) into ~20–30 groups by path prefix. */
+function groupRouteMapChunks(chunks) {
+  const groups = new Map();
+  for (const ch of chunks) {
+    const path = extractPathFromRouteTitle(ch.title);
+    const key = routeGroupKey(path);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(ch);
+  }
+  const out = [];
+  for (const [key, arr] of groups) {
+    out.push({
+      title: key,
+      content: arr.map((c) => c.content).join('\n\n'),
+    });
+  }
+  out.sort((a, b) => a.title.localeCompare(b.title));
+  return out;
 }
 
 /**
@@ -127,12 +169,12 @@ async function clearSource(client, source) {
   await client.query('DELETE FROM documents WHERE source = $1 AND project_id = $2', [source, PROJECT_ID]);
 }
 
-async function insertRow(client, source, title, content, vector) {
+async function insertRow(client, source, title, content, vector, metadata = {}) {
   const literal = '[' + vector.join(',') + ']';
   await client.query(
-    `INSERT INTO documents (source, title, content, embedding, project_id, workspace_id, tenant_id)
-     VALUES ($1, $2, $3, $4::vector, $5, $6, $7)`,
-    [source, title, content, literal, PROJECT_ID, WORKSPACE_ID, TENANT_ID]
+    `INSERT INTO documents (source, title, content, embedding, project_id, workspace_id, tenant_id, metadata)
+     VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8::jsonb)`,
+    [source, title, content, literal, PROJECT_ID, WORKSPACE_ID, TENANT_ID, JSON.stringify(metadata)]
   );
 }
 
@@ -174,7 +216,7 @@ async function ingestD1Rows(client, label, source, rows, buildTitleContent) {
     n += 1;
     const { title, content } = buildTitleContent(row);
     const vec = await embedText(content);
-    await insertRow(client, source, title, content, vec);
+    await insertRow(client, source, title, content, vec, {});
     if (n % 20 === 0) console.log(`  ... ${n}/${rows.length}`);
     await sleep(DELAY_MS);
   }
@@ -189,14 +231,30 @@ async function ingestFile(client, relPath, sourceLabel) {
     process.exit(1);
   }
   const md = readFileSync(full, 'utf8');
-  const chunks = splitMarkdownH2(md);
-  console.log(`Ingest ${relPath}: ${chunks.length} chunks (source=${sourceLabel})`);
+  const hash = contentHash(md);
+  const unchanged = await client.query(
+    `SELECT id FROM documents WHERE source = $1 AND project_id = $2 AND metadata->>'content_hash' = $3 LIMIT 1`,
+    [sourceLabel, PROJECT_ID, hash]
+  );
+  if (unchanged.rows.length) {
+    console.log(`[ingest] ${sourceLabel} unchanged — skipping`);
+    return 0;
+  }
+
+  let chunks = splitMarkdownH2(md);
+  if (relPath === 'docs/route-map.md' || relPath.endsWith('/route-map.md')) {
+    chunks = groupRouteMapChunks(chunks);
+    console.log(`Ingest ${relPath}: grouped into ${chunks.length} chunks (source=${sourceLabel})`);
+  } else {
+    console.log(`Ingest ${relPath}: ${chunks.length} chunks (source=${sourceLabel})`);
+  }
   await clearSource(client, sourceLabel);
+  const meta = { content_hash: hash };
   let n = 0;
   for (const { title, content } of chunks) {
     n += 1;
     const vec = await embedText(content);
-    await insertRow(client, sourceLabel, title, content, vec);
+    await insertRow(client, sourceLabel, title, content, vec, meta);
     if (n % 20 === 0) console.log(`  ... ${n}/${chunks.length}`);
     await sleep(DELAY_MS);
   }
