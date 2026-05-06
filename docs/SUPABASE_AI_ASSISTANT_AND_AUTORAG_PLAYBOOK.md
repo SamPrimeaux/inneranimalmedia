@@ -41,6 +41,21 @@ When answering questions or proposing changes, ground checks in:
 - State **which table/RPC** applies, **which filters are mandatory**, and **what empty or skewed data implies**.
 - Prefer **measurable** recommendations (thresholds from logs, index DDL, migration sketches) over generic “improve RAG.”
 
+### 1.5 `semantic_search_log` — tenant RLS + JWT (production)
+
+Custom Access Token hook puts **`tenant_id` in `claims.app_metadata`** (`src/api/auth-hooks.js`). **Do not** use `auth.jwt() ->> 'tenant_id'` (top-level) in policies.
+
+| Item | Detail |
+|------|--------|
+| **Tenant claim in RLS** | `(select auth.jwt() -> 'app_metadata' ->> 'tenant_id')` compared to **`semantic_search_log.tenant_id`** (**text**). Fail-closed: claim **`IS NOT NULL`** AND equality. |
+| **Policies** | **`semantic_search_log_authenticated_select`** / **`semantic_search_log_authenticated_insert`** on **`authenticated`**; existing **`service_role_all`** unchanged for **`service_role`**. |
+| **`anon`** | **`REVOKE ALL`** on this table (was overly granted). |
+| **`authenticated` table privs** | **`DELETE`/`UPDATE`/`TRUNCATE`** revoked — append-only via privilege layer; no UPDATE/DELETE RLS policies needed for JWT clients. |
+| **`log_semantic_search` RPC** | **`SECURITY INVOKER`** (not definer); **`EXECUTE`** granted to **`authenticated`** + **`service_role`** only (**`PUBLIC`** revoked). |
+| **Validate policies** | Run queries **as a real user JWT** (app or dashboard “run as user”) — not bare `auth.jwt()` snippets in the SQL editor. |
+
+Remote migrations: **`semantic_search_log_rls_app_metadata_tenant`**, **`log_semantic_search_revoke_public_execute`**.
+
 ---
 
 ## Part 2 — Codebase / Cloudflare Worker side (industry-standard documenting & AutoRAG)
