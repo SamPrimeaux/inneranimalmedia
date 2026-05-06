@@ -205,6 +205,21 @@ export async function handleEmailApi(request, env) {
   if (!from) {
     return jsonResponse({ error: 'from required', detail: 'Set RESEND_FROM or provide from in body' }, 400);
   }
+  // Safety: block self-send unless explicitly allowed (used only for self-tests).
+  const allowSelf =
+    String(env.ALLOW_SELF_SEND_EMAILS || '').trim().toLowerCase() === 'true' ||
+    String(env.ALLOW_SELF_SEND_EMAILS || '').trim() === '1';
+  const extractFromEmail = (v) => {
+    const s = String(v || '').trim();
+    const m = /<([^>]+)>/.exec(s);
+    return (m && m[1] ? m[1] : s).trim().toLowerCase();
+  };
+  if (!allowSelf) {
+    const fromEmail = extractFromEmail(from);
+    if (fromEmail && to.toLowerCase() === fromEmail) {
+      return jsonResponse({ error: 'self_send_blocked' }, 400);
+    }
+  }
 
   try {
     await sendViaResend(env, { from, to, subject, html, text });
