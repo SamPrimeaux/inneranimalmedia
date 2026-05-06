@@ -22,10 +22,12 @@ import {
 import { handleHealthCheck } from './api/health';
 import { runIntegritySnapshot } from './api/integrity';
 import { runMasterDailyRetention } from './core/retention.js';
+import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
 import { handleOAuthApi } from './api/oauth';
 import { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './core/tunnel-status.js';
 import { handleScheduled } from './cron/scheduled.js';
 import { dispatchQueueMessage } from './queue/dispatcher.js';
+import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
 import { handleCatalogApi } from './api/catalog.js';
 import {
   handleGoogleLoginOAuthCallback,
@@ -37,7 +39,6 @@ import { handleGithubWebhook } from './api/webhooks/github.js';
 export { IAMCollaborationSession } from './do/Collaboration.js';
 export { AgentChatSqlV1 } from './do/AgentChat.js';
 export { ChessRoom } from './do/Legacy.js';
-export { runSecurityScan, logSecretAudit } from './core/security-scan.js';
 
 export default {
 
@@ -703,6 +704,56 @@ export default {
   async queue(batch, env, ctx) {
     const messages = batch?.messages || [];
     for (const msg of messages) {
+      let body = {};
+      try {
+        body =
+          msg.body && typeof msg.body === 'object'
+            ? msg.body
+            : typeof msg.body === 'string'
+              ? JSON.parse(msg.body || '{}')
+              : {};
+      } catch {
+        body = {};
+      }
+      let tenantId = body?.tenantId ?? body?.tenant_id;
+      let workspaceId = body?.workspaceId ?? body?.workspace_id;
+      const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
+      if (isCfSystem) {
+        tenantId = 'tenant_sam_primeaux';
+        workspaceId = 'ws_inneranimalmedia';
+      }
+
+      if (body?.type === 'codebase_index_sync') {
+        try {
+          if (!tenantId || !workspaceId) {
+            console.warn('[queue] missing tenantId/workspaceId in payload, skipping codebase_index_sync');
+            msg.ack();
+            continue;
+          }
+          await handleCodebaseIndexSyncFromQueue(env, body, ctx);
+          msg.ack();
+          if (env?.DB) {
+            env.DB.prepare(`
+              INSERT INTO agentsam_webhook_events
+                (id, tenant_id, provider, event_type, payload_json, status, processed_at)
+              VALUES
+                ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
+            `).bind(
+              tenantId,
+              body?.type ?? 'unknown',
+              JSON.stringify({
+                ...(typeof body === 'object' && body ? body : {}),
+                workspace_id: workspaceId,
+              }),
+            ).run().catch(() => {});
+          }
+        } catch (e) {
+          console.warn('[queue codebase_index_sync]', e?.message ?? e);
+          msg.retry();
+        }
+        continue;
+      }
+
       ctx.waitUntil(
         dispatchQueueMessage(env, ctx, msg)
           .then(() => msg.ack())

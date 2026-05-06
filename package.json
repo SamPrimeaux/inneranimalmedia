@@ -13,7 +13,7 @@
     "generate:d1-schema-doc": "node scripts/generate-d1-agentic-schema.js",
     "ingest:docs": "./scripts/with-cloudflare-env.sh node scripts/ingest-docs.js",
     "ingest:d1-memory": "./scripts/with-cloudflare-env.sh node scripts/ingest-d1-memory.js",
-    "deploy:full": "npm run generate:route-map && npm run generate:d1-schema-doc && npm run build:vite-only && npm run ingest:docs && npm run ingest:d1-memory && ./scripts/deploy-frontend.sh",
+    "deploy:full": "npm run generate:route-map && npm run generate:d1-schema-doc && npm run build:vite-only && npm run ingest:docs && npm run ingest:d1-memory && ./scripts/deploy-frontend.sh && ./scripts/post-deploy-memory-sync.sh",
     "promote:prod": "./scripts/promote-to-prod.sh",
     "smoke:ai": "node scripts/ai-smoke-report.mjs",
     "smoke:mcp": "node scripts/mcp-smoke.mjs",
