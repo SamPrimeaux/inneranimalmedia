@@ -46,10 +46,20 @@ export async function insertDeploymentHealth(root, row) {
   const cols = pragmaTableInfo(root, 'agentsam_deployment_health');
   if (!cols.size) return { skipped: true };
 
+  const normalizedRow = {
+    ...row,
+    worker_name: row?.worker_name || resolveWorkerName(root),
+    checked_by: row?.checked_by || process.env.DEPLOY_SCRIPT_NAME || 'deploy:full',
+  };
+
+  if (cols.has('worker_name') && !normalizedRow.worker_name) {
+    throw new Error('[d1-health] missing required worker_name for agentsam_deployment_health');
+  }
+
   const parts = [];
   const vals = [];
 
-  for (const [k, v] of Object.entries(row)) {
+  for (const [k, v] of Object.entries(normalizedRow)) {
     if (v === undefined || !cols.has(k)) continue;
     parts.push(k);
     if (v === null) vals.push('NULL');

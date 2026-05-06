@@ -5,6 +5,7 @@
  *
  * Modes: --start | --complete | --fail | --skip (one required)
  */
+import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'crypto';
 import { repoRoot } from './lib/supabase-deploy-paths.mjs';
 import { loadDotEnvCloudflare } from './lib/supabase-deploy-context.mjs';
@@ -312,4 +313,11 @@ async function main() {
   }
 }
 
-main();
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isMain) {
+  main().catch((err) => {
+    console.error(err?.message || err);
+    process.exit(1);
+  });
+}
