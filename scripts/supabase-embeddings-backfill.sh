@@ -27,7 +27,19 @@ if [ -z "$SECRET" ]; then
   exit 0
 fi
 
-BASE="${SUPABASE_FUNCTIONS_URL:-https://dpmuvynqixblxsilnlut.supabase.co/functions/v1}"
+DEFAULT_FUNCTIONS_BASE='https://dpmuvynqixblxsilnlut.supabase.co/functions/v1'
+# Ignore known stale/test project refs if they linger in .env.cloudflare (deploy log showed wrong host).
+for stale in 'tcczxkatmodtxfuulvsr' 'sexdnwlyuhkyvseunqlx'; do
+  case "${SUPABASE_FUNCTIONS_URL:-}" in
+    *"${stale}"*)
+      echo "[supabase-embeddings-backfill] Clearing stale SUPABASE_FUNCTIONS_URL (contains ${stale}); using ${DEFAULT_FUNCTIONS_BASE}" >&2
+      SUPABASE_FUNCTIONS_URL=''
+      break
+      ;;
+  esac
+done
+
+BASE="${SUPABASE_FUNCTIONS_URL:-$DEFAULT_FUNCTIONS_BASE}"
 BATCH="${SUPABASE_EMBEDDINGS_BATCH_SIZE:-25}"
 # Order: smaller / agent-context tables first; session_summaries last (often largest).
 TABLES_DEFAULT="agent_context_snapshots agent_decisions agent_memory documents session_summaries"
