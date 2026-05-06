@@ -24,6 +24,7 @@ import { getAuthUser, getSession,
          platformTenantIdFromEnv }    from '../core/auth.js';
 import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
 import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
+import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
@@ -59,8 +60,9 @@ const TENANT_KNOWLEDGE_PLATFORM = 'tenant_knowledge_platform';
 const TENANT_SHINSHU = 'tenant_jake_waalk';
 
 /**
- * Resolve workspace_id from agentsam_bootstrap (cached per request object).
+ * Effective workspace_id via resolveEffectiveWorkspaceId (header/session/tenant/membership).
  * @param {any} env
+ * @param {Request} request
  * @param {string|null|undefined} userId
  * @param {Record<string, unknown>} [cache]
  */
@@ -253,21 +255,16 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
   else p.catch(() => {});
 }
 
-async function resolveBootstrapWorkspaceIdForAgentApi(env, userId, cache) {
+async function resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, cache) {
   const uid = userId != null ? String(userId).trim() : '';
-  if (!uid || !env?.DB) return null;
+  if (!uid || !env?.DB || !request) return null;
   if (cache && cache.__iamBootWs != null) return cache.__iamBootWs;
   try {
-    const row = await env.DB.prepare(
-      `SELECT workspace_id FROM agentsam_bootstrap
-       WHERE user_id = ? AND COALESCE(is_active, 1) = 1
-       ORDER BY updated_at DESC LIMIT 1`,
-    )
-      .bind(uid)
-      .first();
+    const authUser = await getAuthUser(request, env).catch(() => null);
+    const wr = await resolveEffectiveWorkspaceId(env, request, authUser, cache || {});
     const ws =
-      row?.workspace_id != null && String(row.workspace_id).trim() !== ''
-        ? String(row.workspace_id).trim()
+      wr.workspaceId != null && String(wr.workspaceId).trim() !== ''
+        ? String(wr.workspaceId).trim()
         : null;
     if (cache && typeof cache === 'object') cache.__iamBootWs = ws;
     return ws;
@@ -1442,7 +1439,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
   const userId = session?.user_id || actorCtx?.userId || null;
   const wsCache = {};
-  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, userId, wsCache) : null;
+  const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, wsCache) : null;
   const workspaceId =
     (actorCtx?.workspaceId != null && String(actorCtx.workspaceId).trim() !== ''
       ? String(actorCtx.workspaceId).trim()

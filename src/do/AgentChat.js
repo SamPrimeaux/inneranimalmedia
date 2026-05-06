@@ -4,6 +4,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { getDefaultTerminalConnection } from "../core/terminal.js";
+import { resolveTenantIdForWorkspace, resolveActiveBootstrap } from "../core/bootstrap.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
 const TERMINAL_WS_TAG = "terminal";
@@ -465,9 +466,33 @@ export class AgentChatSqlV1 extends DurableObject {
       await this.ensureModeReady(executionMode);
       if (executionMode === "pty" && this.env?.DB) {
         const doId = this.ctx.id.toString();
-        await this.env.DB.prepare(
-          `UPDATE agentsam_bootstrap SET terminal_session_id = ?, agent_session_id = ?, updated_at = datetime('now') WHERE id = 'asb_sam_iam_prod_v1'`
-        ).bind(sid, doId).run().catch(() => {});
+        const wid = String(this.workspaceId || "").trim();
+        let personUuid = null;
+        if (this.ptSessionUserId && this.ptSessionUserId !== "default") {
+          try {
+            const ur = await this.env.DB.prepare(
+              `SELECT person_uuid FROM auth_users WHERE id = ? LIMIT 1`,
+            )
+              .bind(this.ptSessionUserId)
+              .first();
+            personUuid = ur?.person_uuid ? String(ur.person_uuid).trim() || null : null;
+          } catch (_) {}
+        }
+        const tid = await resolveTenantIdForWorkspace(this.env, wid);
+        const boot = await resolveActiveBootstrap(this.env, {
+          userId: this.ptSessionUserId,
+          personUuid,
+          tenantId: tid,
+          workspaceId: wid,
+        });
+        if (boot?.id) {
+          await this.env.DB.prepare(
+            `UPDATE agentsam_bootstrap SET terminal_session_id = ?, agent_session_id = ?, updated_at = datetime('now') WHERE id = ?`,
+          )
+            .bind(sid, doId, boot.id)
+            .run()
+            .catch(() => {});
+        }
         await this.env.DB.prepare(
           `INSERT INTO agentsam_workspace_state (workspace_id, agent_session_id, workspace_type, updated_at)
            VALUES (?, ?, 'ide', unixepoch())

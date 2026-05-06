@@ -6,7 +6,13 @@
  * GET  /api/terminal/session/validate — validate PTY auth token via KV
  */
 import { jsonResponse }      from '../core/responses.js';
-import { getAuthUser }       from '../core/auth.js';
+import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
+import {
+  resolveEffectiveWorkspaceId,
+  resolveActiveBootstrap,
+  WORKSPACE_CONTEXT_MISSING,
+  resolveTenantIdForWorkspace,
+} from '../core/bootstrap.js';
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
 
@@ -66,21 +72,63 @@ export async function handleTerminalApi(request, url, env, ctx) {
     try { body = await request.json(); } catch (_) {}
 
     const { session_id, tunnel_url, cols, rows, shell, cwd } = body;
-    if (!session_id) return jsonResponse({ error: 'session_id required' }, 400);
+    if (!session_id || !tunnel_url) return jsonResponse({ error: 'session_id and tunnel_url required' }, 400);
 
     const now = Math.floor(Date.now() / 1000);
     const authUser = await getAuthUser(request, env);
-    const tenantId = authUser?.tenant_id ?? 'system';
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+    if (wsRes.error || !wsRes.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    const regWorkspaceId = wsRes.workspaceId;
+    const regUid = String(authUser.id || '').trim();
+    let regTid =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : '';
+    if (!regTid) regTid = await resolveTenantIdForWorkspace(env, regWorkspaceId);
+    if (!regTid) regTid = await fetchAuthUserTenantId(env, regUid);
+    if (!regTid) return jsonResponse({ error: 'Tenant not resolved for terminal session' }, 403);
+
+    const bootstrap = await resolveActiveBootstrap(env, {
+      userId: regUid,
+      personUuid: authUser.person_uuid || null,
+      tenantId: regTid,
+      workspaceId: regWorkspaceId,
+    });
+    if (!bootstrap) return jsonResponse({ error: 'Terminal not permitted' }, 403);
+
+    let capabilities = {};
+    let executionModes = [];
+    try { capabilities = JSON.parse(bootstrap.capabilities_json || '{}'); } catch (_) { capabilities = {}; }
+    try { executionModes = JSON.parse(bootstrap.allowed_execution_modes_json || '[]'); } catch (_) { executionModes = []; }
+    const canPty = capabilities.can_run_pty === true || capabilities.terminal === true;
+    if (!canPty) return jsonResponse({ error: 'Terminal not permitted' }, 403);
+    if (!Array.isArray(executionModes) || !executionModes.includes('pty')) {
+      return jsonResponse({ error: 'Terminal execution mode not permitted' }, 403);
+    }
 
     await env.DB?.prepare(
       `INSERT INTO terminal_sessions
        (id, tenant_id, user_id, tunnel_url, cols, rows, shell, cwd, status, created_at, updated_at)
-       VALUES (?, ?, 'sam', ?, ?, ?, ?, ?, 'active', ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          status=excluded.status, updated_at=excluded.updated_at,
          tunnel_url=excluded.tunnel_url`
-    ).bind(session_id, tenantId, tunnel_url || '', cols || 220, rows || 50,
-           shell || '/bin/zsh', cwd || '', now, now)
+    ).bind(
+      session_id,
+      regTid,
+      regUid,
+      tunnel_url || '',
+      cols || 220,
+      rows || 50,
+      shell || '/bin/zsh',
+      cwd || '',
+      now,
+      now,
+    )
      .run().catch(() => {});
 
     return jsonResponse({ ok: true, session_id });

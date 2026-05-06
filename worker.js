@@ -18,6 +18,14 @@ import { handleWorkspaceApi } from "./src/api/workspace.js";
 import { handleMeetApi } from "./src/api/meet.js";
 import { handleBillingApi } from "./src/api/billing.js";
 import { authUserIsSuperadmin } from "./src/core/auth.js";
+import {
+  resolveBootstrapWorkspaceContext,
+  resolveEffectiveWorkspaceId,
+  resolveActiveBootstrap,
+  IAM_SAM_FALLBACK_WORKSPACE_ID,
+  WORKSPACE_CONTEXT_MISSING,
+  resolveTenantIdForWorkspace,
+} from "./src/core/bootstrap.js";
 import { getAESKey } from "./src/core/crypto-vault.js";
 import { handleVaultApi } from "./src/api/vault.js";
 import { getVaultSecrets } from "./src/core/vault.js";
@@ -261,46 +269,8 @@ function resolveTelemetryTenantId(_env, explicitTenantId) {
   return null;
 }
 
-/** Default D1 workspace_id when no user or no bootstrap row (owner / legacy). */
-const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
-
-/**
- * Latest agentsam_bootstrap row for a user (request-scope cache to avoid duplicate D1 reads).
- * @param {any} env
- * @param {string|null|undefined} userId
- * @param {Record<string, unknown>} [cache] request-scoped object; set cache.__bootstrapRow
- * @returns {Promise<{ workspace_id: string, bootstrap: Record<string, unknown>|null }>}
- */
-async function resolveBootstrapWorkspaceContext(env, userId, cache) {
-  const uid = userId != null ? String(userId).trim() : '';
-  if (!uid) {
-    return { workspace_id: IAM_DEFAULT_WORKSPACE_ID, bootstrap: null };
-  }
-  if (cache && cache.__bootstrapCtx != null) return cache.__bootstrapCtx;
-  let bootstrap = null;
-  if (env?.DB) {
-    try {
-      bootstrap = await env.DB.prepare(
-        `SELECT workspace_id, capabilities_json, feature_flags_json, ui_preferences_json
-         FROM agentsam_bootstrap
-         WHERE user_id = ? AND COALESCE(is_active, 1) = 1
-         ORDER BY updated_at DESC
-         LIMIT 1`
-      )
-        .bind(uid)
-        .first();
-    } catch (_) {
-      bootstrap = null;
-    }
-  }
-  const ws =
-    bootstrap?.workspace_id != null && String(bootstrap.workspace_id).trim() !== ''
-      ? String(bootstrap.workspace_id).trim()
-      : IAM_DEFAULT_WORKSPACE_ID;
-  const out = { workspace_id: ws, bootstrap: bootstrap || null };
-  if (cache && typeof cache === 'object') cache.__bootstrapCtx = out;
-  return out;
-}
+/** Sam/superadmin fallback workspace id — alias for backward-compatible worker symbols. */
+const IAM_DEFAULT_WORKSPACE_ID = IAM_SAM_FALLBACK_WORKSPACE_ID;
 
 /**
  * Keys for agentsam_routing_arms (task_type + mode columns, per prod seed e.g. chat/agent → task_type=chat, mode=agent).
@@ -12811,7 +12781,7 @@ async function runCursorCloudAgentBuiltinTool(env, toolName, params, opts = {}) 
     let cursorWorkspaceId = tenantIdFromEnv(env) || IAM_DEFAULT_WORKSPACE_ID;
     if (oauthUserId) {
       try {
-        const bc = await resolveBootstrapWorkspaceContext(env, oauthUserId, cursorWsCache);
+        const bc = await resolveBootstrapWorkspaceContext(env, null, oauthUserId, cursorWsCache);
         if (bc?.workspace_id) cursorWorkspaceId = bc.workspace_id;
       } catch (_) { /* keep tenant/env default */ }
     }
@@ -14365,13 +14335,22 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   const reqWsCache = {};
   const bootCtx =
     !ingestBypass && chatSseSession?.user_id
-      ? await resolveBootstrapWorkspaceContext(env, chatSseSession.user_id, reqWsCache)
-      : { workspace_id: IAM_DEFAULT_WORKSPACE_ID, bootstrap: null };
+      ? await resolveBootstrapWorkspaceContext(env, request, chatSseSession.user_id, reqWsCache)
+      : { workspace_id: IAM_DEFAULT_WORKSPACE_ID, bootstrap: null, error: null };
   const sessionWs =
     chatSseSession?.workspace_id != null && String(chatSseSession.workspace_id).trim() !== ''
       ? String(chatSseSession.workspace_id).trim()
       : '';
-  const effectiveWorkspaceId = sessionWs || bootCtx.workspace_id || IAM_DEFAULT_WORKSPACE_ID;
+  let effectiveWorkspaceId = sessionWs || bootCtx.workspace_id || '';
+  if (!effectiveWorkspaceId && !ingestBypass) {
+    return jsonResponse(
+      { error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING },
+      400,
+    );
+  }
+  if (!effectiveWorkspaceId) {
+    effectiveWorkspaceId = IAM_DEFAULT_WORKSPACE_ID;
+  }
   const chatSseSessionEffective =
     chatSseSession && typeof chatSseSession === 'object'
       ? { ...chatSseSession, workspace_id: effectiveWorkspaceId }
@@ -14380,10 +14359,28 @@ async function agentChatDirectSseHandler(env, request, ctx, secretFn) {
   console.log('[agent:sse] request_start', JSON.stringify({ mode, requested_model: modelParam }));
   waitUntilAgentSseLifecycle(env, ctx, 'request_start', { mode, requested_model: String(modelParam || '') });
 
-  const tenantIdForAgentsamAi =
+  let tenantIdForAgentsamAi =
     chatSseSession?.tenant_id != null && String(chatSseSession.tenant_id).trim() !== ''
       ? String(chatSseSession.tenant_id).trim()
-      : 'tenant_sam_primeaux';
+      : '';
+  if (!tenantIdForAgentsamAi && ingestBypass) {
+    const rawTid = parsed?.tenant_id ?? parsed?.tenantId ?? '';
+    if (rawTid != null && String(rawTid).trim() !== '') tenantIdForAgentsamAi = String(rawTid).trim();
+  }
+  if (!tenantIdForAgentsamAi && effectiveWorkspaceId && env.DB) {
+    tenantIdForAgentsamAi =
+      (await resolveTenantIdForWorkspace(env, effectiveWorkspaceId)) ||
+      (chatSseSession?.user_id
+        ? await fetchAuthUserTenantId(env, chatSseSession.user_id)
+        : '') ||
+      '';
+  }
+  if (!tenantIdForAgentsamAi) {
+    return jsonResponse(
+      { error: 'Tenant could not be resolved for this workspace', code: 'TENANT_CONTEXT_MISSING' },
+      400,
+    );
+  }
 
   let modelRow;
   try {
@@ -18156,22 +18153,34 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
       }
       const authUser = await getAuthUser(request, env);
       if (!authUser) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
-      const regTid = authUser.tenant_id || tenantIdFromEnv(env);
       const regUid = String(authUser.id || '').trim();
-      const regWorkspaceId = authUser.workspace_id || env.WORKSPACE_ID || IAM_DEFAULT_WORKSPACE_ID;
-      if (!regTid) {
-        return new Response(JSON.stringify({ error: 'Tenant not resolved for terminal session' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
-      }
       if (!regUid) {
         return new Response(JSON.stringify({ error: 'User not resolved for terminal session' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
       }
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      if (wsRes.error || !wsRes.workspaceId) {
+        return new Response(JSON.stringify({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const regWorkspaceId = wsRes.workspaceId;
+      let regTid =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : '';
+      if (!regTid) regTid = await resolveTenantIdForWorkspace(env, regWorkspaceId);
+      if (!regTid) regTid = await fetchAuthUserTenantId(env, regUid);
+      if (!regTid) {
+        return new Response(JSON.stringify({ error: 'Tenant not resolved for terminal session' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+      }
       try {
-        const bootstrap = await env.DB.prepare(
-          `SELECT user_id, capabilities_json, allowed_execution_modes_json
-           FROM agentsam_bootstrap
-           WHERE user_id = ? AND COALESCE(is_active, 1) = 1
-           LIMIT 1`
-        ).bind(regUid).first();
+        const bootstrap = await resolveActiveBootstrap(env, {
+          userId: regUid,
+          personUuid: authUser.person_uuid || null,
+          tenantId: regTid,
+          workspaceId: regWorkspaceId,
+        });
         if (!bootstrap) {
           return new Response(JSON.stringify({ error: 'Terminal not permitted' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
         }
@@ -18179,7 +18188,8 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
         let executionModes = [];
         try { capabilities = JSON.parse(bootstrap.capabilities_json || '{}'); } catch (_) { capabilities = {}; }
         try { executionModes = JSON.parse(bootstrap.allowed_execution_modes_json || '[]'); } catch (_) { executionModes = []; }
-        if (capabilities.can_run_pty !== true) {
+        const canPty = capabilities.can_run_pty === true || capabilities.terminal === true;
+        if (!canPty) {
           return new Response(JSON.stringify({ error: 'Terminal not permitted' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
         }
         if (!Array.isArray(executionModes) || !executionModes.includes('pty')) {
@@ -18191,11 +18201,6 @@ async function handleAgentApi(request, url, env, ctx, secretFn) {
            WHERE user_id = 'system_terminal'
              AND workspace_id = ?
              AND created_at < (unixepoch() - 3600)`
-        ).bind(regWorkspaceId).run();
-        await env.DB.prepare(
-          `UPDATE agentsam_mcp_allowlist
-           SET workspace_id = ?
-           WHERE workspace_id = '' AND user_id = 'au_871d920d1233cbd1'`
         ).bind(regWorkspaceId).run();
         const tokenHash = await sha256hex(crypto.randomUUID());
         await env.DB.prepare(
@@ -23838,7 +23843,7 @@ async function invokeMcpToolFromChat(env, tool_name, params, conversationId, opt
       ).bind(workerName, deployId, description).run();
     } catch (e) { console.warn('[worker_deploy] tracking insert', e?.message); }
     // Return deploy command for terminal execution + tracking ID
-    const deployCmd = `cd /Users/samprimeaux/Downloads/inneranimalmedia/inneranimalmedia-agentsam-dashboard && ./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml 2>&1 | tee /tmp/deploy_out.txt && VERSION=$(grep 'Current Version ID:' /tmp/deploy_out.txt | awk '{print $NF}') && curl -s -X POST https://inneranimalmedia.com/api/internal/deploy-complete -H 'Content-Type: application/json' -d "{\"deploy_id\":\"${deployId}\",\"version_id\":\"$VERSION\",\"status\":\"success\"}"`;
+    const deployCmd = `cd /Users/samprimeaux/inneranimalmedia && ./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml 2>&1 | tee /tmp/deploy_out.txt && VERSION=$(grep 'Current Version ID:' /tmp/deploy_out.txt | awk '{print $NF}') && curl -s -X POST https://inneranimalmedia.com/api/internal/deploy-complete -H 'Content-Type: application/json' -d "{\"deploy_id\":\"${deployId}\",\"version_id\":\"$VERSION\",\"status\":\"success\"}"`;
     const resultText = JSON.stringify({ deploy_id: deployId, command: deployCmd, status: 'pending', message: `Run the deploy command in terminal. Tracking ID: ${deployId}` });
     await rec({ conversationId, toolName: tool_name, toolCategory: 'platform', toolInput: params, result: resultText, error: null, serviceName: 'builtin' });
     return { result: resultText };

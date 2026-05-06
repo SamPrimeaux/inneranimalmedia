@@ -5,6 +5,12 @@
  */
 import { handlers as db } from '../tools/db.js';
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { resolveIamActorContext } from '../core/identity.js';
+import {
+  resolveEffectiveWorkspaceId,
+  resolveActiveBootstrap,
+  WORKSPACE_CONTEXT_MISSING,
+} from '../core/bootstrap.js';
 
 /**
  * HTTP entry for /api/agentsam/* (registry, prompts, etc.).
@@ -30,11 +36,22 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
       if (!env.DB) return jsonResponse({});
       try {
-        const row = await env.DB.prepare(
-          `SELECT * FROM agentsam_bootstrap
-           WHERE user_id = ? AND is_active = 1
-           ORDER BY updated_at DESC LIMIT 1`,
-        ).bind(String(authUser.id)).first();
+        const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+        if (wsRes.error === WORKSPACE_CONTEXT_MISSING || !wsRes.workspaceId) {
+          return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+        }
+        const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+        const tid =
+          actorCtx?.tenantId ||
+          (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+            ? String(authUser.tenant_id).trim()
+            : null);
+        const row = await resolveActiveBootstrap(env, {
+          userId: authUser.id,
+          personUuid: actorCtx?.personUuid ?? authUser.person_uuid ?? null,
+          tenantId: tid,
+          workspaceId: wsRes.workspaceId,
+        });
         return jsonResponse(row || {});
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);

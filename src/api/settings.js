@@ -10,6 +10,11 @@ import {
   fallbackSystemTenantId,
   authUserIsSuperadmin,
 } from '../core/auth.js';
+import {
+  resolveEffectiveWorkspaceId,
+  resolveActiveBootstrap,
+  WORKSPACE_CONTEXT_MISSING,
+} from '../core/bootstrap.js';
 import { handleSettingsIntegrationsApi } from './settings-integrations.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 
@@ -2651,12 +2656,18 @@ export async function handleSettingsRequest(request, env, ctx) {
   if (pathLower === '/api/settings/default-model' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
-      const row = await env.DB.prepare(
-        `SELECT ui_preferences_json FROM agentsam_bootstrap WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1`,
-      )
-        .bind(sessionUserId)
-        .first();
-      const prefs = parseJsonSafe(row?.ui_preferences_json, {});
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      if (wsRes.error === WORKSPACE_CONTEXT_MISSING || !wsRes.workspaceId) {
+        return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+      }
+      const tid = await resolveAuthTenantId(env, authUser);
+      const boot = await resolveActiveBootstrap(env, {
+        userId: sessionUserId,
+        personUuid: authUser.person_uuid ?? null,
+        tenantId: tid,
+        workspaceId: wsRes.workspaceId,
+      });
+      const prefs = parseJsonSafe(boot?.ui_preferences_json, {});
       const default_model =
         typeof prefs.default_model === 'string' && prefs.default_model.trim()
           ? prefs.default_model.trim()
@@ -2677,11 +2688,17 @@ export async function handleSettingsRequest(request, env, ctx) {
     const modelKey = String(body.model_key || '').trim();
     if (!modelKey) return jsonResponse({ error: 'model_key required' }, 400);
     try {
-      const row = await env.DB.prepare(
-        `SELECT id, ui_preferences_json FROM agentsam_bootstrap WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1`,
-      )
-        .bind(sessionUserId)
-        .first();
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      if (wsRes.error === WORKSPACE_CONTEXT_MISSING || !wsRes.workspaceId) {
+        return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+      }
+      const tid = await resolveAuthTenantId(env, authUser);
+      const row = await resolveActiveBootstrap(env, {
+        userId: sessionUserId,
+        personUuid: authUser.person_uuid ?? null,
+        tenantId: tid,
+        workspaceId: wsRes.workspaceId,
+      });
       const prefs = parseJsonSafe(row?.ui_preferences_json, {});
       prefs.default_model = modelKey;
       const prefsJson = JSON.stringify(prefs);
@@ -2693,19 +2710,7 @@ export async function handleSettingsRequest(request, env, ctx) {
           .run();
       } else {
         const bid = `asb_${sessionUserId}`.slice(0, 80);
-        let workspaceId = '';
-        try {
-          const urow = await env.DB.prepare(
-            `SELECT default_workspace_id FROM users WHERE id = ? LIMIT 1`,
-          )
-            .bind(sessionUserId)
-            .first();
-          workspaceId =
-            String(urow?.default_workspace_id || '').trim() ||
-            `ws_${String(sessionUserId).replace(/^au_/, '').slice(0, 28)}`;
-        } catch {
-          workspaceId = `ws_${String(sessionUserId).replace(/^au_/, '').slice(0, 28)}`;
-        }
+        const workspaceId = wsRes.workspaceId;
         await env.DB.prepare(
           `INSERT INTO agentsam_bootstrap (
              id, workspace_id, tenant_id, user_id, email, display_name,
@@ -2719,7 +2724,7 @@ export async function handleSettingsRequest(request, env, ctx) {
           .bind(
             bid,
             workspaceId,
-            tenantId,
+            tid,
             sessionUserId,
             String(authUser.email || '').trim() || null,
             String(authUser.display_name || authUser.name || '').trim() || null,
