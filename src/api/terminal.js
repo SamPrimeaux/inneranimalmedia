@@ -112,15 +112,19 @@ export async function handleTerminalApi(request, url, env, ctx) {
 
     await env.DB?.prepare(
       `INSERT INTO terminal_sessions
-       (id, tenant_id, user_id, tunnel_url, cols, rows, shell, cwd, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+       (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          status=excluded.status, updated_at=excluded.updated_at,
-         tunnel_url=excluded.tunnel_url`
+         tunnel_url=excluded.tunnel_url,
+         workspace_id=excluded.workspace_id,
+         person_uuid=excluded.person_uuid`
     ).bind(
       session_id,
       regTid,
       regUid,
+      regWorkspaceId,
+      authUser.person_uuid || null,
       tunnel_url || '',
       cols || 220,
       rows || 50,

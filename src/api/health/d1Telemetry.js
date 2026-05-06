@@ -223,14 +223,19 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
   if (await tableExists(db, 'agentsam_tool_stats_compacted')) {
     const cols = await pragmaTableInfo(db, 'agentsam_tool_stats_compacted');
     const hasTid = cols.has('tenant_id');
+    const orderExpr = cols.has('day')
+      ? 'day'
+      : cols.has('date')
+        ? 'date'
+        : 'COALESCE(last_seen_at, compacted_at)';
     const rows =
       tid && hasTid
         ? await all(
             db,
-            `SELECT * FROM agentsam_tool_stats_compacted WHERE tenant_id = ? ORDER BY day DESC LIMIT 30`,
+            `SELECT * FROM agentsam_tool_stats_compacted WHERE tenant_id = ? ORDER BY ${orderExpr} DESC LIMIT 30`,
             [tid],
           )
-        : await all(db, `SELECT * FROM agentsam_tool_stats_compacted ORDER BY day DESC LIMIT 30`);
+        : await all(db, `SELECT * FROM agentsam_tool_stats_compacted ORDER BY ${orderExpr} DESC LIMIT 30`);
     out.tables.agentsam_tool_stats_compacted = { available: true, recent: rows };
   } else {
     out.tables.agentsam_tool_stats_compacted = { available: false, recent: [] };

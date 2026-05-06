@@ -8,6 +8,8 @@ import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/ag
 import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
+import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { resolveMcpServerForTool } from '../core/mcp-servers.js';
 
 const MCP_CARD_AGENT_IDS = [
   'mcp_agent_architect',
@@ -174,7 +176,26 @@ export async function handleMcpApi(request, url, env, ctx) {
       const args = body.arguments && typeof body.arguments === 'object' ? body.arguments : (body.params && typeof body.params === 'object' ? body.params : {});
       if (!toolName) return jsonResponse({ error: 'tool_name required' }, 400);
 
-      const endpoint = String(env.MCP_SERVICE_URL || 'https://mcp.inneranimalmedia.com/mcp').trim();
+      const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+      let toolRow = null;
+      try {
+        toolRow = await selectAgentsamMcpToolRow(env.DB, {
+          userId: actorCtx?.userId,
+          tenantId: actorCtx?.tenantId,
+          workspaceId: actorCtx?.workspaceId,
+          personUuid: actorCtx?.personUuid,
+        }, toolName);
+      } catch (_) {}
+      const resolved = await resolveMcpServerForTool(env, {
+        tenantId: actorCtx?.tenantId,
+        workspaceId: actorCtx?.workspaceId,
+      }, toolRow || {});
+      let endpoint = resolved.url;
+      if (!endpoint) {
+        endpoint = String(env.MCP_SERVICE_URL || 'https://mcp.inneranimalmedia.com/mcp').trim();
+      } else if (!/\/mcp/i.test(endpoint)) {
+        endpoint = String(endpoint).replace(/\/$/, '') + '/mcp';
+      }
       const token = env.MCP_AUTH_TOKEN ? String(env.MCP_AUTH_TOKEN).trim() : '';
       if (!token) return jsonResponse({ error: 'MCP_AUTH_TOKEN not configured' }, 503);
 
@@ -229,7 +250,8 @@ export async function handleMcpApi(request, url, env, ctx) {
     if (pathLower === '/api/mcp/stats' && method === 'GET') {
       const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
       const { results } = await env.DB.prepare(
-        'SELECT * FROM agentsam_tool_stats_compacted ORDER BY date DESC, call_count DESC LIMIT ?'
+        `SELECT * FROM agentsam_tool_stats_compacted
+         ORDER BY COALESCE(last_seen_at, compacted_at) DESC, total_calls DESC LIMIT ?`
       ).bind(lim).all();
       return jsonResponse({ stats: results || [] });
     }
@@ -354,7 +376,6 @@ export async function handleMcpApi(request, url, env, ctx) {
       const sessionId = crypto.randomUUID();
       const toolCallId = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
-      const nowIso = new Date().toISOString();
       const messagesJson = JSON.stringify([{ role: 'user', content: task }]);
 
       try {
@@ -369,14 +390,18 @@ export async function handleMcpApi(request, url, env, ctx) {
         );
       }
 
-      try {
-        await env.DB.prepare(
-          `INSERT INTO agentsam_mcp_tool_execution (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
-               VALUES (?, ?, ?, 'mcp_dispatch', 'orchestration', '{}', '', 'pending', 'dashboard', ?, ?, ?, ?, NULL, 0, 0, 0)`
-        ).bind(toolCallId, tenantId, sessionId, nowIso, nowIso, nowIso, nowIso).run();
-      } catch (err) {
-        console.warn('[mcp/agents/dispatch] agentsam_mcp_tool_execution insert failed', err?.message ?? err);
-      }
+      await recordMcpToolExecution(env, {
+        id: toolCallId,
+        tenant_id: tenantId,
+        session_id: sessionId,
+        tool_name: 'mcp_dispatch',
+        tool_category: 'orchestration',
+        input_json: '{}',
+        output_json: '',
+        success: true,
+        invoked_by: 'dashboard',
+        status: 'pending',
+      });
 
       return jsonResponse({ ok: true, session_id: sessionId, tool_call_id: toolCallId, agent_id: agentId });
     }
@@ -570,7 +595,6 @@ export async function handleMcpApi(request, url, env, ctx) {
       const sessionId = crypto.randomUUID();
       const toolCallId = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
-      const nowIso = new Date().toISOString();
       const messagesJson = JSON.stringify([{ role: 'user', content: prompt }]);
       try {
         await env.DB.prepare(
@@ -583,14 +607,18 @@ export async function handleMcpApi(request, url, env, ctx) {
           503
         );
       }
-      try {
-        await env.DB.prepare(
-          `INSERT INTO agentsam_mcp_tool_execution (id, tenant_id, session_id, tool_name, tool_category, input_schema, output, status, invoked_by, invoked_at, completed_at, created_at, updated_at, error_message, cost_usd, input_tokens, output_tokens)
-               VALUES (?, ?, ?, 'mcp_dispatch', 'orchestration', '{}', '', 'pending', 'dashboard', ?, ?, ?, ?, NULL, 0, 0, 0)`
-        ).bind(toolCallId, tenantId, sessionId, nowIso, nowIso, nowIso, nowIso).run();
-      } catch (err) {
-        console.warn('[mcp/dispatch] agentsam_mcp_tool_execution insert failed', err?.message ?? err);
-      }
+      await recordMcpToolExecution(env, {
+        id: toolCallId,
+        tenant_id: tenantId,
+        session_id: sessionId,
+        tool_name: 'mcp_dispatch',
+        tool_category: 'orchestration',
+        input_json: '{}',
+        output_json: '',
+        success: true,
+        invoked_by: 'dashboard',
+        status: 'pending',
+      });
       return jsonResponse({
         ok: true,
         session_id: sessionId,

@@ -7,16 +7,20 @@ export const handlers = {
   /**
    * run_command: Execute a single shell command and return the output.
    */
-  async run_command({ command }, env) {
+  async run_command({ command, request, session_id, sessionId }, env) {
     try {
       const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
-      // In CF Workers context, we connect to the PTY bridge via the /api/terminal/run endpoint
+      const headers = { 'Content-Type': 'application/json' };
+      const cookie = request?.headers?.get?.('Cookie');
+      if (cookie) headers.Cookie = cookie;
+      const sid = session_id || sessionId || env.PTY_SESSION_ID || null;
+      // CF Workers: forward session cookie so /api/agent/terminal/run resolves the same user/workspace.
       const res = await fetch(`${origin}/api/agent/terminal/run`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        headers,
+        body: JSON.stringify({
           command,
-          session_id: env.PTY_SESSION_ID || 'default' 
+          session_id: sid,
         }),
       });
       

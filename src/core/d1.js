@@ -4,20 +4,19 @@
  * Deconstructed from legacy worker.js.
  */
 
+import { assertD1ReadOnlySelect, stripSqlComments } from './d1-read-validator.js';
+
+export { stripSqlComments, assertD1ReadOnlySelect } from './d1-read-validator.js';
+
 /**
- * Standard D1 SELECT query handler.
+ * Standard D1 read query handler (SELECT / read-only WITH).
  * Ensures consistent error handling and parameter binding.
  */
 export async function d1_query({ query, sql, params }, env) {
   if (!env.DB) throw new Error('Database unavailable');
   const sqlString = (query ?? sql ?? '').trim();
-  if (!sqlString) throw new Error('d1_query: sql required');
-
-  // Security Gate: Ensure only SELECT queries are routed here
-  const normalized = sqlString.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').trim().toUpperCase();
-  if (!normalized.startsWith('SELECT')) {
-    throw new Error('Only SELECT queries allowed via d1_query');
-  }
+  const gate = assertD1ReadOnlySelect(sqlString);
+  if (!gate.ok) throw new Error(gate.error || 'd1_query blocked');
 
   try {
     const bindParams = Array.isArray(params) ? params : [];

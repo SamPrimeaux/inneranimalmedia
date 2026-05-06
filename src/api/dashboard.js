@@ -2,7 +2,8 @@ import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, authUserIsSuperadmin } from '../core/auth.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { getWorkspaceTheme, normalizeThemeSlug } from '../core/themes.js';
-import { runTerminalCommand, getDefaultTerminalConnection } from '../core/terminal.js';
+import { getDefaultTerminalConnection } from '../core/terminal.js';
+import { executeScopedAgentTerminalRun } from '../core/agent-terminal-run.js';
 
 // Integrations
 import { chatWithAnthropic } from '../integrations/anthropic.js';
@@ -235,35 +236,17 @@ export async function handleDashboardApi(request, url, env, ctx) {
     // ACTIVE PATH: compatibility command runner; internally routes to control plane first.
     // ── /api/agent/terminal/run (consistent session-auth model) ──────────────
     if (pathLower === '/api/agent/terminal/run' && method === 'POST') {
-        const authUser = await getAuthUser(request, env);
-        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
-            return jsonResponse({ terminal_enabled: false, error: 'Forbidden' }, 403);
-        }
-        if (!authUser?.tenant_id) return jsonResponse({ error: 'tenant_required' }, 403);
-        const tenantId = authUser.tenant_id;
         try {
             const body = await request.json().catch(() => ({}));
-            const command = typeof body?.command === 'string' ? body.command.trim() : '';
-            const session_id = body?.session_id ?? null;
-            if (!command) return jsonResponse({ error: 'No command' }, 400);
-            const { output, command: runCommand } = await runTerminalCommand(env, request, command, session_id, ctx);
-            const execId = crypto.randomUUID();
-            const wsForAudit =
-              url.searchParams.get('workspace_id') ||
-              (env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-                ? String(env.DEFAULT_WORKSPACE_ID).trim()
-                : null);
-            if (wsForAudit) {
-              try {
-                await env.DB?.prepare(
-                    `INSERT INTO agentsam_command_run
-                     (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
-                     VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
-                ).bind(execId, tenantId, wsForAudit, session_id || null, runCommand, output).run();
-              } catch (_) {}
-            }
-            return jsonResponse({ output, command: runCommand, execution_id: execId });
+            const { response, error, status, execution_id } = await executeScopedAgentTerminalRun(
+                request,
+                env,
+                ctx,
+                url,
+                body,
+            );
+            if (response) return jsonResponse({ ...response, execution_id: execution_id || response.execution_id });
+            return jsonResponse({ terminal_enabled: false, error: error || 'terminal run failed' }, status || 500);
         } catch (e) {
             return jsonResponse({ error: e?.message || 'terminal run failed' }, 500);
         }

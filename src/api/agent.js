@@ -25,6 +25,14 @@ import { getAuthUser, getSession,
 import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
 import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
+import {
+  loadAgentSamUserPolicy,
+  BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST,
+  isToolAllowedByAllowlist,
+  isToolAllowedByPolicyRisk,
+  isSubagentToolName,
+} from '../core/agent-policy.js';
+import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
@@ -448,9 +456,18 @@ function inferRiskLevel(toolName, category = '') {
   return 'low';
 }
 
-async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {}) {
+async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {}, userPolicy = null) {
   const name = String(toolName || '').trim();
   if (!name) return { allowed: false, reason: 'missing tool name', riskLevel: 'blocked', requiresConfirmation: false };
+  const uid = mcpRuntimeContext.userId != null ? String(mcpRuntimeContext.userId).trim() : '';
+  const ws =
+    mcpRuntimeContext.workspaceId != null ? String(mcpRuntimeContext.workspaceId).trim() : '';
+  const policyRow = userPolicy || (await loadAgentSamUserPolicy(env, uid, ws));
+
+  if (isSubagentToolName(name) && Number(policyRow.allow_subagent_spawn ?? 1) !== 1) {
+    return { allowed: false, reason: 'subagent spawn disabled by policy', riskLevel: 'blocked', requiresConfirmation: false };
+  }
+
   const policy = await loadModeToolPolicy(env, modeSlug);
   if (policy.denyTools.includes(name)) {
     return { allowed: false, reason: 'blocked by mode policy', riskLevel: 'blocked', requiresConfirmation: false };
@@ -471,7 +488,28 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {})
       return { allowed: false, reason: 'tool disabled', riskLevel: 'blocked', requiresConfirmation: false };
     }
   }
+
+  const allowRes = await isToolAllowedByAllowlist(
+    env,
+    policyRow,
+    { userId: mcpRuntimeContext.userId, workspaceId: mcpRuntimeContext.workspaceId },
+    name,
+    row,
+  );
+  if (!allowRes.allowed && !BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST.has(name)) {
+    return {
+      allowed: false,
+      reason: allowRes.reason || 'blocked by MCP allowlist policy',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+    };
+  }
+
   const riskLevel = inferRiskLevel(name, row?.tool_category);
+  if (!isToolAllowedByPolicyRisk(policyRow, riskLevel)) {
+    return { allowed: false, reason: 'blocked by tool_risk_level_max', riskLevel: 'blocked', requiresConfirmation: false };
+  }
+
   const requiresConfirmation =
     Number(row?.requires_approval || 0) === 1 ||
     policy.requireApprovalTools.includes(name) ||
@@ -487,6 +525,7 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
     tenant_id: context.tenantId || input?.tenant_id || null,
     user_id: context.userId || input?.user_id || null,
     workspace_id: context.workspaceId ?? input?.workspace_id ?? null,
+    request: context.request || null,
   };
   const out = await runBuiltinTool(env, toolName, params);
   if (out && typeof out === 'object' && out.error) {
@@ -523,18 +562,6 @@ async function loadModeConfig(env, modeSlug) {
     ).bind(slug).first();
     const cfg = row || {};
     return { ...defaults, ...cfg, slug };
-  } catch (_) { return defaults; }
-}
-
-async function loadUserPolicy(env, userId, workspaceId = '') {
-  const defaults = { auto_run_mode: 'allowlist', mcp_tools_protection: 1, file_deletion_protection: 1, external_file_protection: 1 };
-  if (!env.DB || !userId) return defaults;
-  try {
-    const row = await env.DB.prepare(
-      `SELECT auto_run_mode, mcp_tools_protection, file_deletion_protection, external_file_protection
-       FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`
-    ).bind(userId, workspaceId || '').first();
-    return row || defaults;
   } catch (_) { return defaults; }
 }
 
@@ -994,6 +1021,11 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     mcpRuntimeContext,
   } = params;
 
+  const modeMax = Math.max(1, Math.floor(Number(maxToolCalls) || 15));
+  const polMax = Math.floor(Number(userPolicy?.max_tool_chain_depth));
+  const effectiveMaxToolCalls =
+    Number.isFinite(polMax) && polMax > 0 ? Math.min(modeMax, polMax) : modeMax;
+
   const conversationMessages = [...messages];
   let toolCallsUsed = 0;
   const executedToolNames = [];
@@ -1219,12 +1251,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     const toolResults = [];
     let previousToolChainId = null;
     for (const call of pendingToolCalls) {
-      if (toolCallsUsed >= maxToolCalls) {
+      if (toolCallsUsed >= effectiveMaxToolCalls) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached.' });
         continue;
       }
-      const validation = await validateToolCall(env, mode, call.name, mcpRuntimeContext);
+      const validation = await validateToolCall(env, mode, call.name, mcpRuntimeContext, userPolicy);
       if (!validation.allowed) {
         await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_blocked', message: `Blocked: ${call.name} — ${validation.reason}`, riskLevel: 'blocked', reason: validation.reason });
         emit('tool_blocked', { tool: call.name, reason: validation.reason });
@@ -1265,6 +1297,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           tenantId,
           userId,
           workspaceId,
+          request,
         });
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
       } catch (e) {
@@ -1285,13 +1318,28 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         outputTokens: 0,
         userId,
       });
+      const mcpExecId = await recordMcpToolExecution(env, {
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        session_id: sessionId,
+        tool_name: call.name,
+        tool_category: 'builtin',
+        input_json: JSON.stringify(call.input || {}),
+        output_json: toolOutput.slice(0, 50000),
+        success: !execErr,
+        error_message: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
+        duration_ms: toolDurMs,
+        user_id: userId,
+        invoked_by: userId || 'iam_agent',
+        status: execErr ? 'error' : 'completed',
+      });
       previousToolChainId = await fireForgetAgentToolChainRow(env, {
         toolName: call.name,
         agentSessionId: sessionId,
         workspaceId,
         error: execErr,
         costUsd: 0,
-        mcpToolCallId: null,
+        mcpToolCallId: mcpExecId,
         durationMs: toolDurMs,
         terminalSessionId: null,
         tenantId,
@@ -1300,14 +1348,6 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       });
       emit('tool_result', { tool: call.name, output: toolOutput.slice(0, 2000) });
       toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: toolOutput });
-      if (env.DB) {
-        env.DB.prepare(
-          `INSERT OR IGNORE INTO agentsam_mcp_tool_execution
-           (id, tenant_id, session_id, tool_name, tool_category, input_schema,
-            output, status, invoked_by, invoked_at, completed_at, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,'completed',?,datetime('now'),datetime('now'),datetime('now'),datetime('now'))`
-        ).bind('mtc_' + crypto.randomUUID().replace(/-/g,'').slice(0,16), tenantId, sessionId, call.name, 'builtin', JSON.stringify(call.input||{}), toolOutput.slice(0,50000), userId||'iam_agent').run().catch(() => {});
-      }
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
     if (stopReason === 'end_turn') break;
@@ -1453,7 +1493,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
     loadModeConfig(env, requestedMode),
-    loadUserPolicy(env, userId, workspaceId),
+    loadAgentSamUserPolicy(env, userId, workspaceId),
     body.agentId ? getAgentMetadata(env, body.agentId) : Promise.resolve(null),
   ]);
 
@@ -1942,7 +1982,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
 function isAgentApiPublic(path, method) {
   if (path === '/api/agent/health' && method === 'GET') return true;
-  if (path === '/api/agent/subagent-profiles' && method === 'GET') return true;
   if (path === '/api/agent/modes' && method === 'GET') return true;
   if (path === '/api/agent/commands' && method === 'GET') return true;
   if (path === '/api/agent/conversations/search' && method === 'GET') return true;
@@ -1971,17 +2010,99 @@ export async function handleAgentApi(request, url, env, ctx) {
   }
 
   if (path === '/api/agent/subagent-profiles' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    const { results } = await env.DB.prepare(
-      `SELECT id, slug, display_name, description, icon,
-              agent_type, default_model_id, is_active,
-              sort_order, sandbox_mode, mcp_servers_json,
-              modes_json, tool_invocation_style
-       FROM agentsam_subagent_profile
+    const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+    if (wsRes.error || !wsRes.workspaceId) {
+      return jsonResponse({ error: wsRes.error || 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const effectiveWs = String(wsRes.workspaceId).trim();
+    const uid = String(authUser.id || '').trim();
+    let tid =
+      actorCtx?.tenantId != null && String(actorCtx.tenantId).trim() !== ''
+        ? String(actorCtx.tenantId).trim()
+        : authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : '';
+    if (!tid) tid = await fetchAuthUserTenantId(env, uid);
+    const personUuid =
+      actorCtx?.personUuid != null && String(actorCtx.personUuid).trim() !== ''
+        ? String(actorCtx.personUuid).trim()
+        : authUser.person_uuid != null && String(authUser.person_uuid).trim() !== ''
+          ? String(authUser.person_uuid).trim()
+          : '';
+    const scopedSql = `
+      SELECT id, slug, display_name,
+             COALESCE(description, '') AS description,
+             COALESCE(icon, '') AS icon,
+             COALESCE(agent_type, 'custom') AS agent_type,
+             default_model_id, is_active,
+             COALESCE(sort_order, 0) AS sort_order,
+             COALESCE(sandbox_mode, '') AS sandbox_mode,
+             mcp_servers_json, modes_json, tool_invocation_style,
+             instructions_markdown, allowed_tool_globs, user_id, workspace_id,
+             tenant_id, person_uuid
+        FROM agentsam_subagent_profile
        WHERE is_active = 1
-       ORDER BY sort_order ASC`
-    ).all().catch(() => ({ results: [] }));
-    return jsonResponse(results || []);
+         AND (
+              (user_id = ? AND (workspace_id = ? OR workspace_id = ''))
+           OR (tenant_id IS NOT NULL AND tenant_id != '' AND tenant_id = ? AND (workspace_id = ? OR workspace_id = ''))
+           OR (person_uuid IS NOT NULL AND person_uuid != '' AND person_uuid = ?)
+         )
+       ORDER BY sort_order ASC`;
+
+    let rows = [];
+    try {
+      const q = await env.DB.prepare(scopedSql)
+        .bind(uid, effectiveWs, tid, effectiveWs, personUuid)
+        .all();
+      rows = q.results || [];
+    } catch (e) {
+      console.warn('[subagent-profiles] scoped query failed, falling back', e?.message ?? e);
+      const fb = await env.DB.prepare(
+        `SELECT * FROM agentsam_subagent_profile
+         WHERE is_active = 1 AND user_id = ? AND (workspace_id = ? OR workspace_id = '')
+         ORDER BY COALESCE(sort_order, 9999) ASC`,
+      )
+        .bind(uid, effectiveWs)
+        .all()
+        .catch(() => ({ results: [] }));
+      rows = fb.results || [];
+    }
+
+    try {
+      const q2 = await env.DB.prepare(
+        `SELECT id, slug, display_name,
+                COALESCE(description, '') AS description,
+                COALESCE(icon, '') AS icon,
+                COALESCE(agent_type, 'custom') AS agent_type,
+                default_model_id, is_active,
+                COALESCE(sort_order, 0) AS sort_order,
+                COALESCE(sandbox_mode, '') AS sandbox_mode,
+                mcp_servers_json, modes_json, tool_invocation_style,
+                instructions_markdown, allowed_tool_globs, user_id, workspace_id,
+                tenant_id, person_uuid, COALESCE(is_platform_global, 0) AS is_platform_global
+           FROM agentsam_subagent_profile
+          WHERE is_active = 1 AND COALESCE(is_platform_global, 0) = 1
+            AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)
+            AND (? = 1)`,
+      )
+        .bind(tid, authUserIsSuperadmin(authUser) ? 1 : 0)
+        .all();
+      const extra = q2.results || [];
+      const seen = new Set(rows.map((r) => r.id));
+      for (const r of extra) {
+        if (r?.id && !seen.has(r.id)) {
+          seen.add(r.id);
+          rows.push(r);
+        }
+      }
+    } catch (_) {
+      /* is_platform_global not migrated yet */
+    }
+    return jsonResponse(rows);
   }
 
   // GET /api/agent/tools — combined tool exposure (builtin + registered MCP)
