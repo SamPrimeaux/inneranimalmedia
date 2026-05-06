@@ -1,0 +1,17 @@
+{
+  "id": "theme-mil-desert",
+  "name": "IAM Desert Field",
+  "slug": "iam-desert-field",
+  "theme_family": "light",
+  "sort_order": 7,
+  "status": "active",
+  "visibility": "public",
+  "monaco_theme": "iam-desert-field-monaco",
+  "monaco_bg": "#dccfb2",
+  "css_r2_bucket": "inneranimalmedia",
+  "css_r2_key": "cms/themes/iam-desert-field/theme.css",
+  "css_url": "https://inneranimalmedia.com/cms/themes/iam-desert-field/theme.css",
+  "compiled_css_hash": "444f2995936dceb5b78f1be358aa4a627865278be14c56da7e5bc920c373e73f",
+  "preview_image_url": "https://assets.inneranimalmedia.com/cms/themes/iam-desert-field/preview.png",
+  "config_ok": true
+}

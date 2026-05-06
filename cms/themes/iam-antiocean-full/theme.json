@@ -1,0 +1,17 @@
+{
+  "id": "theme-iam-antiocean-full",
+  "name": "IAM AntiOcean",
+  "slug": "iam-antiocean-full",
+  "theme_family": "dark",
+  "sort_order": 3,
+  "status": "active",
+  "visibility": "public",
+  "monaco_theme": "iam-antiocean-full-monaco",
+  "monaco_bg": "#061A1F",
+  "css_r2_bucket": "inneranimalmedia",
+  "css_r2_key": "cms/themes/iam-antiocean-full/theme.css",
+  "css_url": "https://inneranimalmedia.com/cms/themes/iam-antiocean-full/theme.css",
+  "compiled_css_hash": "7570ea446bd7a0724cae1954aff4ada6e79ac7cc9aa6027a1be13c6ff26f9724",
+  "preview_image_url": "https://assets.inneranimalmedia.com/cms/themes/iam-antiocean-full/preview.png",
+  "config_ok": true
+}

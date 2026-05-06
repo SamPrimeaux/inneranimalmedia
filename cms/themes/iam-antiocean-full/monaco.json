@@ -1,0 +1,14 @@
+{
+  "base": "vs-dark",
+  "inherit": true,
+  "rules": [],
+  "colors": {
+    "editor.background": "#061A1F",
+    "editor.foreground": "#D6F4F8",
+    "editorCursor.foreground": "#2EC4D6",
+    "editor.selectionBackground": "#14424A",
+    "editor.lineHighlightBackground": "#0B262C",
+    "editorLineNumber.foreground": "#6FAAB2",
+    "editorGutter.background": "#061A1F"
+  }
+}

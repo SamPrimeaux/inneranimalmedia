@@ -1,0 +1,40 @@
+:root[data-cms-theme="iam-antiocean-full"] {
+  --accent-danger: #EF4444;
+  --accent-info: #2EC4D6;
+  --accent-success: #22C55E;
+  --accent-warning: #F59E0B;
+  --bg-canvas: #061A1F;
+  --bg-card: #10343A;
+  --bg-elevated: #14424A;
+  --bg-header: rgba(8,31,36,0.75);
+  --bg-input: #0C2A30;
+  --bg-modal: #102E34;
+  --bg-nav: rgba(8,31,36,0.75);
+  --bg-panel: #0B262C;
+  --bg-secondary: #0B262C;
+  --bg-sidebar: #081F24;
+  --bg-surface: #0B262C;
+  --blur-glass: 12px;
+  --border: rgba(120,200,210,0.12);
+  --border-strong: rgba(120,200,210,0.18);
+  --border-subtle: rgba(120,200,210,0.06);
+  --color-border: rgba(120,200,210,0.12);
+  --color-primary: #2EC4D6;
+  --color-text: #D6F4F8;
+  --primary: #2EC4D6;
+  --primary-dim: rgba(46,196,214,0.12);
+  --primary-hover: #38D8EC;
+  --radius: 10px;
+  --shadow: 0 2px 12px rgba(0,0,0,0.6);
+  --text-disabled: #4A7A82;
+  --text-muted: #6FAAB2;
+  --text-primary: #D6F4F8;
+  --text-secondary: #9FD3DA;
+  --text-strong: #EAF9FC;
+  --transition: all 0.2s ease;
+}
+
+:root[data-cms-theme="iam-antiocean-full"] body {
+  background: var(--bg-canvas);
+  color: var(--color-text);
+}

@@ -1,0 +1,17 @@
+{
+  "id": "theme-mil-ghost",
+  "name": "IAM Ghost Tactical",
+  "slug": "iam-ghost-tactical",
+  "theme_family": "dark",
+  "sort_order": 5,
+  "status": "active",
+  "visibility": "public",
+  "monaco_theme": "iam-ghost-tactical-monaco",
+  "monaco_bg": "#0b0c0d",
+  "css_r2_bucket": "inneranimalmedia",
+  "css_r2_key": "cms/themes/iam-ghost-tactical/theme.css",
+  "css_url": "https://inneranimalmedia.com/cms/themes/iam-ghost-tactical/theme.css",
+  "compiled_css_hash": "6038f78d0b52c388e5138dea6e259410d9629fbfefaa400869d31deb77c0c1fe",
+  "preview_image_url": "https://assets.inneranimalmedia.com/cms/themes/iam-ghost-tactical/preview.png",
+  "config_ok": true
+}

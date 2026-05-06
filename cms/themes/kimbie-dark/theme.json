@@ -1,0 +1,17 @@
+{
+  "id": "theme-kimbie-dark",
+  "name": "Kimbie Dark",
+  "slug": "kimbie-dark",
+  "theme_family": "dark",
+  "sort_order": 5,
+  "status": "active",
+  "visibility": "public",
+  "monaco_theme": "kimbie-dark-monaco",
+  "monaco_bg": "#18120d",
+  "css_r2_bucket": "inneranimalmedia",
+  "css_r2_key": "cms/themes/kimbie-dark/theme.css",
+  "css_url": "https://inneranimalmedia.com/cms/themes/kimbie-dark/theme.css",
+  "compiled_css_hash": "8d36d57e0437169d9dc9ec13ab5d7ca3b583d3c03c6ba7eb5f29f0baa0d1c0d0",
+  "preview_image_url": "https://assets.inneranimalmedia.com/cms/themes/kimbie-dark/preview.png",
+  "config_ok": true
+}

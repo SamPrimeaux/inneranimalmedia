@@ -1,0 +1,17 @@
+{
+  "id": "theme-mil-forest",
+  "name": "IAM Forest Recon",
+  "slug": "iam-forest-recon",
+  "theme_family": "dark",
+  "sort_order": 6,
+  "status": "active",
+  "visibility": "public",
+  "monaco_theme": "iam-forest-recon-monaco",
+  "monaco_bg": "#1b241b",
+  "css_r2_bucket": "inneranimalmedia",
+  "css_r2_key": "cms/themes/iam-forest-recon/theme.css",
+  "css_url": "https://inneranimalmedia.com/cms/themes/iam-forest-recon/theme.css",
+  "compiled_css_hash": "7fab0cce24f685e1d208540dfe4fdc1a64f42ac7bf95e650c2efa793a07d1e95",
+  "preview_image_url": "https://assets.inneranimalmedia.com/cms/themes/iam-forest-recon/preview.png",
+  "config_ok": true
+}
