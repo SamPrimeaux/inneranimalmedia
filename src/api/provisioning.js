@@ -95,11 +95,20 @@ export async function provisionUserWorkspace(env, { userId, email, tenantId: ten
   let hadExistingWs = false;
 
   try {
-    const existingWs = await env.DB.prepare(
-      `SELECT id FROM agentsam_workspace WHERE tenant_id = ? LIMIT 1`,
-    )
-      .bind(tenantId)
-      .first();
+    // `agentsam_workspace` exists in two shapes:
+    // - New: (id, workspace_slug, tenant_id, name, ...)
+    // - Legacy compat (migration 244): (workspace_id, display_name, created_at)
+    //
+    // Provisioning must not assume `id` or `tenant_id` exist.
+    let existingWs = null;
+    try {
+      existingWs = await env.DB.prepare(`SELECT id FROM agentsam_workspace WHERE tenant_id = ? LIMIT 1`)
+        .bind(tenantId)
+        .first();
+    } catch (_) {
+      // Fall back to deterministic wsSlug. Legacy table can't be queried by tenant_id.
+      existingWs = null;
+    }
 
     const workspaceId = existingWs?.id ? String(existingWs.id) : wsSlug;
     hadExistingWs = !!existingWs?.id;
