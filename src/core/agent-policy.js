@@ -5,6 +5,14 @@
  * Treat registered agentsam_mcp_tools rows for this tenant/workspace/user scope
  * as the effective allowlist (workspace-owned tool registrations). Builtins that are not
  * MCP-backed are governed by mode policy only, not the MCP allowlist table.
+ *
+ * Allowlist match order (require_allowlist_for_mcp = 1):
+ *   a) user_id + workspace_id + tool_key (+ tenant consistent when row has tenant_id)
+ *   b) person_uuid + workspace_id + tool_key (+ tenant consistent)
+ *   c) tenant_id + workspace_id + tool_key (workspace-scoped tenant row)
+ *   d) superadmin: active agentsam_mcp_tools row for actor tenant + workspace (no user allowlist required)
+ *   e) scoped agentsam_mcp_tools enabled row (normal users)
+ *   f) baseline builtins (BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST)
  */
 
 const RISK_ORDER = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
@@ -12,6 +20,11 @@ const RISK_ORDER = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
 function riskRank(level) {
   const k = String(level || 'low').toLowerCase();
   return RISK_ORDER[k] ?? 1;
+}
+
+function trimId(v) {
+  if (v == null) return '';
+  return String(v).trim();
 }
 
 /** Builtins that remain callable when require_allowlist_for_mcp is on (read-only / platform meta). */
@@ -73,71 +86,218 @@ export async function loadAgentSamUserPolicy(env, userId, workspaceId = '') {
   }
 }
 
+function tenantMatchesRow(actorTenant, rowTenant) {
+  const r = trimId(rowTenant);
+  if (!r) return true;
+  const a = trimId(actorTenant);
+  if (!a) return false;
+  return r === a;
+}
+
 /**
+ * All tool_key values allowed for this actor on this workspace (visibility for model tool list).
  * @param {import('@cloudflare/workers-types').D1Database} db
- * @param {{ userId?: string, workspaceId?: string }} scope
- * @param {string} toolName
- * @returns {Promise<boolean>}
+ * @param {{ userId?: string, workspaceId?: string, tenantId?: string|null, personUuid?: string|null }} scope
+ * @returns {Promise<Set<string>>}
  */
-export async function isToolOnMcpAllowlistTable(db, scope, toolName) {
-  const name = String(toolName || '').trim();
-  const uid = scope?.userId != null ? String(scope.userId).trim() : '';
-  const ws = scope?.workspaceId != null ? String(scope.workspaceId).trim() : '';
-  if (!db || !name || !uid || !ws) return false;
+export async function collectAllowlistToolKeysForScope(db, scope) {
+  const out = new Set();
+  const ws = trimId(scope?.workspaceId);
+  const uid = trimId(scope?.userId);
+  const tid = trimId(scope?.tenantId);
+  const pid = trimId(scope?.personUuid);
+  if (!db || !ws) return out;
   try {
-    const hit = await db.prepare(
-      `SELECT 1 FROM agentsam_mcp_allowlist WHERE user_id = ? AND workspace_id = ? AND tool_key = ? LIMIT 1`,
-    )
-      .bind(uid, ws, name)
-      .first();
-    return !!hit;
-  } catch (_) {
-    return false;
+    const { results } = await db
+      .prepare(
+        `SELECT DISTINCT tool_key FROM agentsam_mcp_allowlist
+         WHERE workspace_id = ?
+           AND COALESCE(is_allowed, 1) = 1
+           AND (
+             (user_id = ? AND trim(user_id) != '')
+             OR (person_uuid = ? AND trim(person_uuid) != '')
+             OR (tenant_id = ? AND trim(tenant_id) != '')
+           )
+           AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)`,
+      )
+      .bind(ws, uid, pid, tid, tid || '')
+      .all();
+    for (const r of results || []) {
+      const k = trimId(r?.tool_key);
+      if (k) out.add(k);
+    }
+  } catch (_) {}
+  return out;
+}
+
+export async function findMcpAllowlistMatch(db, scope, toolKey) {
+  const name = trimId(toolKey);
+  const uid = trimId(scope?.userId);
+  const ws = trimId(scope?.workspaceId);
+  const tid = trimId(scope?.tenantId);
+  const pid = trimId(scope?.personUuid);
+  if (!db || !name || !ws) return { matched: false, path: null };
+
+  const tryHit = async (sql, binds, path) => {
+    try {
+      const hit = await db.prepare(sql).bind(...binds).first();
+      return hit ? { matched: true, path } : { matched: false, path: null };
+    } catch {
+      return { matched: false, path: null };
+    }
+  };
+
+  if (uid) {
+    const a = await tryHit(
+      `SELECT 1 FROM agentsam_mcp_allowlist
+       WHERE user_id = ? AND workspace_id = ? AND tool_key = ?
+         AND COALESCE(is_allowed, 1) = 1
+         AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)
+       LIMIT 1`,
+      [uid, ws, name, tid || ''],
+      'allowlist_user_workspace_tool',
+    );
+    if (a.matched) return a;
   }
+
+  if (pid) {
+    const b = await tryHit(
+      `SELECT 1 FROM agentsam_mcp_allowlist
+       WHERE person_uuid = ? AND workspace_id = ? AND tool_key = ?
+         AND COALESCE(is_allowed, 1) = 1
+         AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)
+       LIMIT 1`,
+      [pid, ws, name, tid || ''],
+      'allowlist_person_workspace_tool',
+    );
+    if (b.matched) return b;
+  }
+
+  if (tid) {
+    const c = await tryHit(
+      `SELECT 1 FROM agentsam_mcp_allowlist
+       WHERE tenant_id = ? AND workspace_id = ? AND tool_key = ?
+         AND COALESCE(is_allowed, 1) = 1
+       LIMIT 1`,
+      [tid, ws, name],
+      'allowlist_tenant_workspace_tool',
+    );
+    if (c.matched) return c;
+  }
+
+  return { matched: false, path: null };
 }
 
 /**
  * @param {import('@cloudflare/workers-types').D1Database} db
- * @param {{ userId?: string, workspaceId?: string }} scope
+ * @param {{ userId?: string, workspaceId?: string, tenantId?: string|null }} scope
  */
 export async function mcpAllowlistRowCount(db, scope) {
-  const uid = scope?.userId != null ? String(scope.userId).trim() : '';
-  const ws = scope?.workspaceId != null ? String(scope.workspaceId).trim() : '';
-  if (!db || !uid || !ws) return 0;
+  const uid = trimId(scope?.userId);
+  const ws = trimId(scope?.workspaceId);
+  const tid = trimId(scope?.tenantId);
+  if (!db || !ws) return 0;
   try {
-    const r = await db.prepare(
-      `SELECT COUNT(*) AS c FROM agentsam_mcp_allowlist WHERE user_id = ? AND workspace_id = ?`,
-    )
-      .bind(uid, ws)
-      .first();
-    return Number(r?.c || 0) || 0;
+    if (uid) {
+      const r = await db.prepare(
+        `SELECT COUNT(*) AS c FROM agentsam_mcp_allowlist
+         WHERE workspace_id = ? AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)
+           AND (user_id = ? OR person_uuid IS NOT NULL OR tenant_id IS NOT NULL)`,
+      )
+        .bind(ws, tid || '', uid)
+        .first();
+      const n = Number(r?.c || 0) || 0;
+      if (n > 0) return n;
+    }
+    if (tid) {
+      const r2 = await db.prepare(
+        `SELECT COUNT(*) AS c FROM agentsam_mcp_allowlist WHERE workspace_id = ? AND tenant_id = ?`,
+      )
+        .bind(ws, tid)
+        .first();
+      return Number(r2?.c || 0) || 0;
+    }
+    return 0;
   } catch (_) {
     return 0;
   }
 }
 
 /**
- * When require_allowlist_for_mcp is on: tool must appear on agentsam_mcp_allowlist OR
- * be a registered scoped agentsam_mcp_tools row (enabled).
+ * @param {string} toolKey
+ * @param {object} scope
+ * @param {string|null} pathTried
+ * @param {string} reason
+ */
+export function logMcpPolicyDenial(toolKey, scope, pathTried, reason) {
+  try {
+    console.warn(
+      '[agent_policy] mcp_allowlist_denied',
+      JSON.stringify({
+        tool_key: toolKey,
+        tenant_id: trimId(scope?.tenantId) || null,
+        workspace_id: trimId(scope?.workspaceId) || null,
+        user_id_present: !!trimId(scope?.userId),
+        person_uuid_present: !!trimId(scope?.personUuid),
+        is_superadmin: !!scope?.isSuperadmin,
+        allowlist_path_attempted: pathTried,
+        reason,
+      }),
+    );
+  } catch (_) {}
+}
+
+/**
+ * @param {any} env
+ * @param {object} policy
+ * @param {{ userId?: string|null, workspaceId?: string|null, tenantId?: string|null, personUuid?: string|null, isSuperadmin?: boolean }} scope
+ * @param {string} toolName
+ * @param {object|null} mcpRow
  */
 export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcpRow) {
-  if (!policy || Number(policy.require_allowlist_for_mcp || 0) !== 1) return { allowed: true, reason: null };
-  const name = String(toolName || '').trim();
-  if (!name) return { allowed: false, reason: 'missing_tool' };
+  if (!policy || Number(policy.require_allowlist_for_mcp || 0) !== 1) {
+    return { allowed: true, reason: null, path: null };
+  }
+  const name = trimId(toolName);
+  if (!name) return { allowed: false, reason: 'missing_tool', path: null };
 
-  const onTable = await isToolOnMcpAllowlistTable(env?.DB, scope, name);
-  if (onTable) return { allowed: true, reason: 'mcp_allowlist_table' };
+  if (BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST.has(name)) {
+    return { allowed: true, reason: 'baseline_builtin', path: 'baseline_builtin' };
+  }
+
+  const ws = trimId(scope?.workspaceId);
+  const tid = trimId(scope?.tenantId);
+  if (!ws || !tid) {
+    logMcpPolicyDenial(name, scope, null, 'missing_workspace_or_tenant_for_allowlist');
+    return { allowed: false, reason: 'tool not in allowlist', path: null };
+  }
+
+  const { matched, path } = await findMcpAllowlistMatch(env?.DB, scope, name);
+  if (matched) return { allowed: true, reason: null, path };
+
+  if (scope?.isSuperadmin && mcpRow && Number(mcpRow.enabled ?? 0) === 1) {
+    if (tenantMatchesRow(tid, mcpRow.tenant_id) && (!trimId(mcpRow.workspace_id) || trimId(mcpRow.workspace_id) === ws)) {
+      return { allowed: true, reason: null, path: 'superadmin_scoped_mcp_tool' };
+    }
+  }
 
   const n = await mcpAllowlistRowCount(env?.DB, scope);
-  if (n === 0 && mcpRow && Number(mcpRow.enabled ?? 0) === 1) {
-    return { allowed: true, reason: 'workspace_mcp_registry_fallback' };
+  if (n === 0 && mcpRow && Number(mcpRow.enabled ?? 0) === 1 && tenantMatchesRow(tid, mcpRow.tenant_id)) {
+    const rw = trimId(mcpRow.workspace_id);
+    if (!rw || rw === ws) {
+      return { allowed: true, reason: null, path: 'workspace_mcp_registry_fallback' };
+    }
   }
 
-  if (mcpRow && Number(mcpRow.enabled ?? 0) === 1) {
-    return { allowed: true, reason: 'scoped_mcp_tool_row' };
+  if (mcpRow && Number(mcpRow.enabled ?? 0) === 1 && tenantMatchesRow(tid, mcpRow.tenant_id)) {
+    const rw = trimId(mcpRow.workspace_id);
+    if (!rw || rw === ws) {
+      return { allowed: true, reason: null, path: 'scoped_mcp_tool_row' };
+    }
   }
 
-  return { allowed: false, reason: 'mcp_allowlist_enforced' };
+  logMcpPolicyDenial(name, scope, path, 'no_allowlist_or_mcp_match');
+  return { allowed: false, reason: 'tool not in allowlist', path: null };
 }
 
 export function isToolAllowedByPolicyRisk(policy, inferredRisk) {

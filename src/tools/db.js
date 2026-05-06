@@ -16,6 +16,7 @@ async function logPolicyBlock(env, fields) {
   try {
     await recordMcpToolExecution(env, {
       tenant_id: tenantId,
+      workspace_id: fields.workspace_id != null ? String(fields.workspace_id) : null,
       session_id: sessionId,
       tool_name: 'd1_query',
       tool_category: 'd1',
@@ -53,6 +54,7 @@ export const handlers = {
         error: gate.error || 'policy_block',
         tenant_id: tenant_id ?? null,
         user_id: user_id ?? null,
+        workspace_id: workspace_id ?? null,
         session_id: session_id ?? null,
       });
       return {

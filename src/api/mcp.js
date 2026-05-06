@@ -390,16 +390,29 @@ export async function handleMcpApi(request, url, env, ctx) {
         );
       }
 
+      const actorCtxAd = await resolveIamActorContext(request, env).catch(() => null);
+      const wsAd =
+        actorCtxAd?.workspaceId != null && String(actorCtxAd.workspaceId).trim() !== ''
+          ? String(actorCtxAd.workspaceId).trim()
+          : null;
+      const uidAd =
+        actorCtxAd?.userId != null && String(actorCtxAd.userId).trim() !== ''
+          ? String(actorCtxAd.userId).trim()
+          : authUser?.id != null
+            ? String(authUser.id).trim()
+            : null;
       await recordMcpToolExecution(env, {
         id: toolCallId,
         tenant_id: tenantId,
+        workspace_id: wsAd,
+        user_id: uidAd,
         session_id: sessionId,
         tool_name: 'mcp_dispatch',
         tool_category: 'orchestration',
         input_json: '{}',
         output_json: '',
-        success: true,
-        invoked_by: 'dashboard',
+        success: false,
+        invoked_by: uidAd || 'dashboard',
         status: 'pending',
       });
 
@@ -607,16 +620,29 @@ export async function handleMcpApi(request, url, env, ctx) {
           503
         );
       }
+      const actorCtxDp = await resolveIamActorContext(request, env).catch(() => null);
+      const wsDp =
+        actorCtxDp?.workspaceId != null && String(actorCtxDp.workspaceId).trim() !== ''
+          ? String(actorCtxDp.workspaceId).trim()
+          : null;
+      const uidDp =
+        actorCtxDp?.userId != null && String(actorCtxDp.userId).trim() !== ''
+          ? String(actorCtxDp.userId).trim()
+          : authUser?.id != null
+            ? String(authUser.id).trim()
+            : null;
       await recordMcpToolExecution(env, {
         id: toolCallId,
         tenant_id: tenantId,
+        workspace_id: wsDp,
+        user_id: uidDp,
         session_id: sessionId,
         tool_name: 'mcp_dispatch',
         tool_category: 'orchestration',
         input_json: '{}',
         output_json: '',
-        success: true,
-        invoked_by: 'dashboard',
+        success: false,
+        invoked_by: uidDp || 'dashboard',
         status: 'pending',
       });
       return jsonResponse({

@@ -193,6 +193,7 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     durationMs,
     terminalSessionId,
     tenantId = null,
+    userId = null,
     parentChainId = null,
     ctx = null,
   } = opts || {};
@@ -209,17 +210,21 @@ export async function fireForgetAgentToolChainRow(env, opts) {
   const chainId = `atc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const tenant =
     tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
+  const uid =
+    userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
   const parentId =
     parentChainId != null && String(parentChainId).trim() !== '' ? String(parentChainId).trim() : null;
 
-  const p = env.DB
-    .prepare(
-      `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
+  const tryInsert = (sql, binds) => env.DB.prepare(sql).bind(...binds).run();
+
+  const p = tryInsert(
+    `INSERT INTO agentsam_tool_chain (id, workspace_id, tenant_id, user_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
       chainId,
       ws,
+      tenant,
+      uid,
       agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
       toolName,
       toolStatus,
@@ -229,8 +234,27 @@ export async function fireForgetAgentToolChainRow(env, opts) {
       mcpToolCallId || null,
       terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
       parentId,
+    ],
+  )
+    .catch(() =>
+      tryInsert(
+        `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          chainId,
+          ws,
+          agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
+          toolName,
+          toolStatus,
+          startedAt,
+          completedAt,
+          costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
+          mcpToolCallId || null,
+          terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
+          parentId,
+        ],
+      ),
     )
-    .run()
     .then(() => {
       if (tenant && parentId) {
         return insertExecutionDependencyGraphEdge(env, tenant, chainId, parentId);

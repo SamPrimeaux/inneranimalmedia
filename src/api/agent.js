@@ -27,10 +27,10 @@ import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/ag
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import {
   loadAgentSamUserPolicy,
-  BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST,
   isToolAllowedByAllowlist,
   isToolAllowedByPolicyRisk,
   isSubagentToolName,
+  collectAllowlistToolKeysForScope,
 } from '../core/agent-policy.js';
 import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
@@ -411,16 +411,16 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   let rows = await selectAgentsamMcpToolsList(env.DB, mcpScope, lim);
   const uid = opts.userId != null ? String(opts.userId).trim() : '';
   const wsId = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
-  if (uid && wsId) {
+  const tid = opts.tenantId != null ? String(opts.tenantId).trim() : '';
+  const pid = opts.personUuid != null ? String(opts.personUuid).trim() : '';
+  if (wsId && (uid || tid || pid)) {
     try {
-      const allowRes = await env.DB.prepare(
-        `SELECT tool_key FROM agentsam_mcp_allowlist WHERE user_id = ? AND workspace_id = ?`,
-      )
-        .bind(uid, wsId)
-        .all();
-      const keys = new Set(
-        (allowRes.results || []).map((r) => String(r.tool_key || '').trim()).filter(Boolean),
-      );
+      const keys = await collectAllowlistToolKeysForScope(env.DB, {
+        userId: uid,
+        workspaceId: wsId,
+        tenantId: tid,
+        personUuid: pid,
+      });
       if (keys.size) {
         rows = rows.filter((r) => keys.has(String(r.tool_name || '').trim()));
       }
@@ -446,7 +446,9 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   return { tools };
 }
 
-function inferRiskLevel(toolName, category = '') {
+function inferRiskLevel(toolName, category = '', rowRiskLevel = '') {
+  const r = String(rowRiskLevel || '').toLowerCase();
+  if (r === 'critical' || r === 'high') return r;
   const t = String(toolName || '').toLowerCase();
   const c = String(category || '').toLowerCase();
   if (WRITE_LIKE_PREFIXES.some((p) => t.startsWith(p))) return 'high';
@@ -458,22 +460,48 @@ function inferRiskLevel(toolName, category = '') {
 
 async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {}, userPolicy = null) {
   const name = String(toolName || '').trim();
-  if (!name) return { allowed: false, reason: 'missing tool name', riskLevel: 'blocked', requiresConfirmation: false };
+  if (!name) {
+    return {
+      allowed: false,
+      reason: 'missing tool name',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+    };
+  }
   const uid = mcpRuntimeContext.userId != null ? String(mcpRuntimeContext.userId).trim() : '';
   const ws =
     mcpRuntimeContext.workspaceId != null ? String(mcpRuntimeContext.workspaceId).trim() : '';
   const policyRow = userPolicy || (await loadAgentSamUserPolicy(env, uid, ws));
 
   if (isSubagentToolName(name) && Number(policyRow.allow_subagent_spawn ?? 1) !== 1) {
-    return { allowed: false, reason: 'subagent spawn disabled by policy', riskLevel: 'blocked', requiresConfirmation: false };
+    return {
+      allowed: false,
+      reason: 'subagent spawn disabled by policy',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+    };
   }
 
   const policy = await loadModeToolPolicy(env, modeSlug);
   if (policy.denyTools.includes(name)) {
-    return { allowed: false, reason: 'blocked by mode policy', riskLevel: 'blocked', requiresConfirmation: false };
+    return {
+      allowed: false,
+      reason: 'blocked by mode policy',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+    };
   }
   if (policy.allowTools.length && !policy.allowTools.includes(name)) {
-    return { allowed: false, reason: 'not in mode allowlist', riskLevel: 'blocked', requiresConfirmation: false };
+    return {
+      allowed: false,
+      reason: 'not in mode allowlist',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+    };
   }
   let row = null;
   if (env.DB) {
@@ -485,46 +513,82 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     };
     row = await selectAgentsamMcpToolRow(env.DB, scope, name);
     if (row && Number(row.enabled || 0) !== 1) {
-      return { allowed: false, reason: 'tool disabled', riskLevel: 'blocked', requiresConfirmation: false };
+      return {
+        allowed: false,
+        reason: 'tool disabled',
+        riskLevel: 'blocked',
+        requiresConfirmation: false,
+        mcpToolId: row?.id ?? null,
+      };
     }
   }
 
   const allowRes = await isToolAllowedByAllowlist(
     env,
     policyRow,
-    { userId: mcpRuntimeContext.userId, workspaceId: mcpRuntimeContext.workspaceId },
+    {
+      userId: mcpRuntimeContext.userId,
+      workspaceId: mcpRuntimeContext.workspaceId,
+      tenantId: mcpRuntimeContext.tenantId,
+      personUuid: mcpRuntimeContext.personUuid,
+      isSuperadmin: !!mcpRuntimeContext.isSuperadmin,
+    },
     name,
     row,
   );
-  if (!allowRes.allowed && !BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST.has(name)) {
+  if (!allowRes.allowed) {
     return {
       allowed: false,
-      reason: allowRes.reason || 'blocked by MCP allowlist policy',
+      reason: allowRes.reason || 'tool not in allowlist',
       riskLevel: 'blocked',
       requiresConfirmation: false,
+      mcpToolId: row?.id ?? null,
     };
   }
 
-  const riskLevel = inferRiskLevel(name, row?.tool_category);
+  const riskLevel = inferRiskLevel(name, row?.tool_category, row?.risk_level);
   if (!isToolAllowedByPolicyRisk(policyRow, riskLevel)) {
-    return { allowed: false, reason: 'blocked by tool_risk_level_max', riskLevel: 'blocked', requiresConfirmation: false };
+    return {
+      allowed: false,
+      reason: 'blocked by tool_risk_level_max',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: row?.id ?? null,
+    };
   }
 
   const requiresConfirmation =
     Number(row?.requires_approval || 0) === 1 ||
     policy.requireApprovalTools.includes(name) ||
-    riskLevel === 'high';
-  return { allowed: true, reason: 'allowed', riskLevel, requiresConfirmation };
+    riskLevel === 'high' ||
+    riskLevel === 'critical';
+  return {
+    allowed: true,
+    reason: 'allowed',
+    riskLevel,
+    requiresConfirmation,
+    mcpToolId: row?.id ?? null,
+  };
 }
 
 async function dispatchToolCall(env, toolName, input, context = {}) {
+  const sess = {
+    user_id: context.userId,
+    workspace_id: context.workspaceId,
+    workspaceId: context.workspaceId,
+    tenant_id: context.tenantId,
+    session_id: context.sessionId,
+    person_uuid: context.personUuid,
+    is_superadmin: context.isSuperadmin,
+  };
   const params = {
     ...(input && typeof input === 'object' ? input : {}),
-    session: context,
+    session: sess,
     session_id: context.sessionId || input?.session_id || null,
     tenant_id: context.tenantId || input?.tenant_id || null,
     user_id: context.userId || input?.user_id || null,
     workspace_id: context.workspaceId ?? input?.workspace_id ?? null,
+    person_uuid: context.personUuid ?? input?.person_uuid ?? null,
     request: context.request || null,
   };
   const out = await runBuiltinTool(env, toolName, params);
@@ -1258,6 +1322,19 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       }
       const validation = await validateToolCall(env, mode, call.name, mcpRuntimeContext, userPolicy);
       if (!validation.allowed) {
+        await recordMcpToolExecution(env, {
+          tenant_id: tenantId,
+          workspace_id: workspaceId,
+          user_id: userId,
+          session_id: sessionId,
+          tool_name: call.name,
+          tool_id: validation.mcpToolId ?? null,
+          input_json: JSON.stringify(call.input || {}),
+          success: false,
+          error_message: validation.reason,
+          duration_ms: 0,
+          status: 'error',
+        });
         await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_blocked', message: `Blocked: ${call.name} — ${validation.reason}`, riskLevel: 'blocked', reason: validation.reason });
         emit('tool_blocked', { tool: call.name, reason: validation.reason });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Tool not available in ${mode} mode: ${validation.reason}` });
@@ -1297,6 +1374,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           tenantId,
           userId,
           workspaceId,
+          personUuid: mcpRuntimeContext.personUuid,
+          isSuperadmin: mcpRuntimeContext.isSuperadmin,
           request,
         });
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
@@ -1323,6 +1402,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         workspace_id: workspaceId,
         session_id: sessionId,
         tool_name: call.name,
+        tool_id: validation.mcpToolId ?? null,
         tool_category: 'builtin',
         input_json: JSON.stringify(call.input || {}),
         output_json: toolOutput.slice(0, 50000),
@@ -1337,6 +1417,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         toolName: call.name,
         agentSessionId: sessionId,
         workspaceId,
+        userId,
         error: execErr,
         costUsd: 0,
         mcpToolCallId: mcpExecId,
@@ -1466,29 +1547,36 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const requestedMode = String(body.mode || 'auto').toLowerCase().trim() || 'auto';
 
   const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+  const authUser = ingestBypass ? null : await getAuthUser(request, env).catch(() => null);
 
   let tenantId =
-    (actorCtx?.tenantId != null && String(actorCtx.tenantId).trim() !== ''
-      ? String(actorCtx.tenantId).trim()
-      : null) ||
     (session?.tenant_id != null && String(session.tenant_id).trim() !== ''
       ? String(session.tenant_id).trim()
+      : null) ||
+    (actorCtx?.tenantId != null && String(actorCtx.tenantId).trim() !== ''
+      ? String(actorCtx.tenantId).trim()
       : null);
   if (!tenantId && session?.user_id) {
     tenantId = await fetchAuthUserTenantId(env, session.user_id);
   }
-  const userId = session?.user_id || actorCtx?.userId || null;
+  const userId =
+    session?.user_id ||
+    (ingestBypass ? null : identity?.userId) ||
+    actorCtx?.userId ||
+    null;
   const wsCache = {};
   const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, wsCache) : null;
-  const workspaceId =
+  let workspaceId =
+    String(session?.workspace_id || '').trim() ||
+    String(body.workspace_id || '').trim() ||
     (actorCtx?.workspaceId != null && String(actorCtx.workspaceId).trim() !== ''
       ? String(actorCtx.workspaceId).trim()
       : '') ||
-    String(body.workspace_id || '').trim() ||
-    String(session?.workspace_id || '').trim() ||
-    String(env.WORKSPACE_ID || '').trim() ||
-    bootstrapWorkspaceId ||
     '';
+  if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
+  if (!workspaceId && !ingestBypass && authUserIsSuperadmin(authUser)) {
+    workspaceId = String(env.WORKSPACE_ID || '').trim();
+  }
   if (!workspaceId) return jsonResponse({ error: 'workspace required' }, 400);
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
@@ -1503,11 +1591,21 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
+  const personUuid =
+    (actorCtx?.personUuid != null && String(actorCtx.personUuid).trim() !== ''
+      ? String(actorCtx.personUuid).trim()
+      : null) ||
+    (ingestBypass ? null : identity?.personUuid != null && String(identity.personUuid).trim() !== ''
+      ? String(identity.personUuid).trim()
+      : null);
+
   const mcpRuntimeContext = {
     userId,
     tenantId,
     workspaceId,
-    personUuid: actorCtx?.personUuid ?? null,
+    personUuid,
+    sessionId,
+    isSuperadmin: !ingestBypass && authUserIsSuperadmin(authUser),
   };
 
   const { tools: dbTools } = await loadToolsForRequest(env, requestedMode, intentSlug, {

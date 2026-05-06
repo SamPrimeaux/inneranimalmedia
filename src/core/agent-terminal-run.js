@@ -182,6 +182,7 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
 
     await recordMcpToolExecution(env, {
       tenant_id: tenantId,
+      workspace_id: targetWorkspace,
       session_id: sessionId,
       tool_name: 'terminal_run',
       tool_category: 'terminal',
