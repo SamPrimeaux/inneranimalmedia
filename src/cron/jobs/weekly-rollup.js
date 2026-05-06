@@ -51,7 +51,7 @@ export async function runWeeklyRollup(env) {
 
   const begun = await startCronRun(env, {
     jobName: 'weekly_unified_rollup',
-    cronExpression: '0 1 * * 0',
+    cronExpression: '0 1 ? * SUN',
     tenantId: null,
     workspaceId: null,
   });

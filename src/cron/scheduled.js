@@ -66,6 +66,7 @@ export async function handleScheduled(event, env, ctx) {
       );
       break;
 
+    case '0 1 ? * SUN':
     case '0 1 * * 0':
       if (env?.DB) {
         ctx.waitUntil(runWeeklyRollup(env));
