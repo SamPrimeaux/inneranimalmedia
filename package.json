@@ -46,7 +46,11 @@
     "designstudio:smoke": "bash scripts/designstudio/pipeline-smoke.sh",
     "build:vite-only": "npm --prefix dashboard run build",
     "dev:dashboard": "npm --prefix dashboard run dev",
-    "preview:dashboard": "npm --prefix dashboard run preview"
+    "preview:dashboard": "npm --prefix dashboard run preview",
+    "agentsam:scripts:register:dry-run": "./scripts/with-cloudflare-env.sh node scripts/register-agentsam-scripts.mjs --dry-run",
+    "agentsam:scripts:register": "./scripts/with-cloudflare-env.sh node scripts/register-agentsam-scripts.mjs --apply",
+    "agentsam:scripts:upload-r2:dry-run": "./scripts/with-cloudflare-env.sh node scripts/upload-agentsam-shell-scripts-r2.mjs --dry-run",
+    "agentsam:scripts:upload-r2": "./scripts/with-cloudflare-env.sh node scripts/upload-agentsam-shell-scripts-r2.mjs"
   },
   "keywords": [],
   "author": "",
