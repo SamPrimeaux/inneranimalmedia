@@ -17,6 +17,7 @@
     "verify:supabase-documents": "./scripts/with-cloudflare-env.sh node scripts/verify-supabase-documents.mjs",
     "smoke:supabase-documents-dry-run": "./scripts/with-cloudflare-env.sh node scripts/reingest-supabase-documents.mjs --dry-run --verbose",
     "r2:inventory:inneranimalmedia": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket inneranimalmedia",
+    "r2:inventory:upsert": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket inneranimalmedia --upsert-d1",
     "r2:inventory:autorag": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket autorag",
     "r2:inventory:leadership-legacy": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket leadership-legacy --tenant-id tenant_connor_mcneely --workspace-id ws_connor_mcneely --project-id leadership-legacy --edited-by au_5d17673408aaebc7",
     "r2:deploy-manifest": "node scripts/build-r2-deploy-manifest.mjs --dist dashboard/dist --bucket inneranimalmedia --prefix static/dashboard/agent --deploy-id manual_manifest",

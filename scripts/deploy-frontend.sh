@@ -30,6 +30,24 @@ TOML="wrangler.production.toml"
 DEPLOY_ENV="${DEPLOY_ENV:-production}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
 
+# Wrangler wall-clock guard (GNU coreutils `timeout`, or `gtimeout` on macOS Homebrew).
+run_with_timeout_secs() {
+  local sec="$1"
+  shift
+  if [ "${sec:-0}" -eq 0 ] 2>/dev/null || [ -z "${sec}" ]; then
+    "$@"
+    return $?
+  fi
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${sec}s" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "${sec}s" "$@"
+  else
+    echo "[deploy-frontend] warning: no timeout/gtimeout — running without wall-clock limit for: $*" >&2
+    "$@"
+  fi
+}
+
 if [[ -z "${SKIP_VITE_BUILD:-}" ]]; then
   echo "→ Building frontend..."
   npm run build:vite-only
@@ -68,14 +86,21 @@ echo "→ R2 sync complete"
 # R2 inventory: manifest + D1 upsert + stale marking (no object deletes — use npm run r2:prune:dry-run separately)
 DEPLOY_ID="${DEPLOY_ID:-deploy_$(date +%s)_$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo local)}"
 export DEPLOY_ID
+MANIFEST_PATH="$REPO_ROOT/analytics/deploys/$DEPLOY_ID/r2-manifest.json"
 R2_RECONCILE_STATUS=skipped
 R2_OBJECT_COUNT=""
 R2_BYTE_COUNT=""
 if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1; then
   echo "→ R2 deploy manifest + inventory reconcile (no R2 deletes; prune remains manual)"
   R2_RECONCILE_STATUS=passed
+  R2_MANIFEST_TIMEOUT_SEC="${R2_MANIFEST_TIMEOUT_SEC:-1200}"
+  R2_INVENTORY_TIMEOUT_SEC="${R2_INVENTORY_TIMEOUT_SEC:-7200}"
+  R2_RECONCILE_TIMEOUT_SEC="${R2_RECONCILE_TIMEOUT_SEC:-3600}"
+
+  echo "[r2-manifest] start deploy_id=$DEPLOY_ID"
   MF=0
-  node "$REPO_ROOT/scripts/build-r2-deploy-manifest.mjs" \
+  run_with_timeout_secs "$R2_MANIFEST_TIMEOUT_SEC" \
+    node "$REPO_ROOT/scripts/build-r2-deploy-manifest.mjs" \
     --dist "$REPO_ROOT/$DIST" \
     --bucket "$BUCKET" \
     --prefix "$PREFIX" \
@@ -84,33 +109,62 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
     --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
     --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
     || MF=$?
+  if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
+    R2_OBJECT_COUNT=$(jq -r '.object_count // empty' "$MANIFEST_PATH" 2>/dev/null || true)
+    R2_BYTE_COUNT=$(jq -r '.total_size_bytes // empty' "$MANIFEST_PATH" 2>/dev/null || true)
+  fi
+  echo "[r2-manifest] end objects=${R2_OBJECT_COUNT:-?} bytes=${R2_BYTE_COUNT:-?}"
+
+  echo "[r2-inventory] start bucket=$BUCKET"
   IF=0
-  node "$REPO_ROOT/scripts/inventory-r2-bucket.mjs" \
+  set +e
+  set -o pipefail
+  run_with_timeout_secs "$R2_INVENTORY_TIMEOUT_SEC" \
+    node "$REPO_ROOT/scripts/inventory-r2-bucket.mjs" \
     --bucket "$BUCKET" \
     --upsert-d1 \
     --deploy-id "$DEPLOY_ID" \
     --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
     --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
     --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
-    || IF=$?
+    2>&1 | tee "${TMPDIR:-/tmp}/iam-r2-inventory-${DEPLOY_ID}.log"
+  IF=${PIPESTATUS[0]}
+  set +o pipefail
+  set -e
+
+  echo "[r2-reconcile] start"
   RF=0
-  node "$REPO_ROOT/scripts/reconcile-r2-deploy.mjs" \
-    --manifest "$REPO_ROOT/analytics/deploys/$DEPLOY_ID/r2-manifest.json" \
+  REC_LOG="${TMPDIR:-/tmp}/iam-r2-reconcile-${DEPLOY_ID}.log"
+  set +e
+  set -o pipefail
+  run_with_timeout_secs "$R2_RECONCILE_TIMEOUT_SEC" \
+    node "$REPO_ROOT/scripts/reconcile-r2-deploy.mjs" \
+    --manifest "$MANIFEST_PATH" \
     --bucket "$BUCKET" \
     --deploy-id "$DEPLOY_ID" \
     --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
     --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
     --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
     --apply-stale \
-    || RF=$?
+    2>&1 | tee "$REC_LOG"
+  RF=${PIPESTATUS[0]}
+  set +o pipefail
+  set -e
+  STALE_HINT=""
+  if [ -f "$REC_LOG" ]; then
+    STALE_HINT=$(grep -oE '"keys_to_mark_stale":[[:space:]]*[0-9]+' "$REC_LOG" | head -1 | tr -dc '0-9' || true)
+  fi
+  REC_STATUS=passed
+  if [ "$RF" -ne 0 ]; then REC_STATUS=failed; fi
+  echo "[r2-reconcile] end status=$REC_STATUS rc=$RF stale_candidates=${STALE_HINT:-unknown}"
+
   if [ "$MF" -ne 0 ] || [ "$IF" -ne 0 ] || [ "$RF" -ne 0 ]; then
     R2_RECONCILE_STATUS=failed
     echo "⚠️  R2 reconcile steps had failures (manifest=$MF inventory=$IF reconcile=$RF)"
   fi
-  MANIFEST_PATH="$REPO_ROOT/analytics/deploys/$DEPLOY_ID/r2-manifest.json"
-  if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
-    R2_OBJECT_COUNT=$(jq -r '.object_count // empty' "$MANIFEST_PATH" 2>/dev/null || true)
-    R2_BYTE_COUNT=$(jq -r '.total_size_bytes // empty' "$MANIFEST_PATH" 2>/dev/null || true)
+  if [ "${STRICT_R2_RECONCILE:-0}" = "1" ] && [ "$R2_RECONCILE_STATUS" = "failed" ]; then
+    echo "✗ STRICT_R2_RECONCILE=1 — aborting before worker deploy"
+    exit 1
   fi
 fi
 

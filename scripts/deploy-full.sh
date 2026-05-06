@@ -12,6 +12,13 @@ if [[ -f "$REPO_ROOT/.env.cloudflare" ]]; then
 fi
 set +a
 
+if [[ "${ALLOW_UNSAFE_R2_RECONCILE:-0}" != "1" && "${SKIP_R2_DEPLOY_RECONCILE:-0}" != "1" ]]; then
+  echo "[deploy-full] Refusing to run unsafe R2 reconcile path."
+  echo "[deploy-full] Use: npm run deploy:full:safe"
+  echo "[deploy-full] Or set ALLOW_UNSAFE_R2_RECONCILE=1 only after R2 batching/timeouts are fixed."
+  exit 1
+fi
+
 export RUN_GROUP_ID="${RUN_GROUP_ID:-rg_$(date +%s)_$(git rev-parse --short HEAD)}"
 
 rm -f "$REPO_ROOT/.deploy-tool-events.jsonl"
