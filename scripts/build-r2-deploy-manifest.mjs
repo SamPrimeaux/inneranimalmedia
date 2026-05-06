@@ -11,7 +11,15 @@
 import { readdirSync, statSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import pathMod from 'path';
 import { fileURLToPath } from 'url';
-import { repoRootDefault, sha256File, loadEnvCloudflare } from './lib/r2-inventory-core.mjs';
+import {
+  repoRootDefault,
+  sha256File,
+  loadEnvCloudflare,
+  resolveTenantId,
+  resolveWorkspaceId,
+  resolveProjectId,
+  exitUnlessManifestScope,
+} from './lib/r2-inventory-core.mjs';
 
 const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
 const root = repoRootDefault;
@@ -27,9 +35,9 @@ function parseArgs() {
     bucket: get('--bucket', 'inneranimalmedia'),
     prefix: get('--prefix', 'static/dashboard/agent').replace(/^\/+|\/+$/g, ''),
     deployId: get('--deploy-id', `deploy_${Date.now()}`),
-    tenantId: get('--tenant-id', process.env.TENANT_ID || 'tenant_sam_primeaux'),
-    workspaceId: get('--workspace-id', process.env.WORKSPACE_ID || 'ws_inneranimalmedia'),
-    projectId: get('--project-id', process.env.DOCUMENTS_PROJECT_ID || 'inneranimalmedia'),
+    tenantIdRaw: get('--tenant-id', ''),
+    workspaceIdRaw: get('--workspace-id', ''),
+    projectIdRaw: get('--project-id', ''),
     outDir: get('--out-dir', ''),
   };
 }
@@ -61,6 +69,11 @@ function contentTypeForKey(key) {
 function main() {
   loadEnvCloudflare(root);
   const o = parseArgs();
+  const tenantId = resolveTenantId(o.tenantIdRaw);
+  const workspaceId = resolveWorkspaceId(o.workspaceIdRaw);
+  const projectId = resolveProjectId(o.projectIdRaw);
+  exitUnlessManifestScope(tenantId, workspaceId, projectId, '[r2-manifest]');
+
   const absDist = pathMod.isAbsolute(o.dist) ? o.dist : pathMod.join(root, o.dist);
   const outRoot = o.outDir || pathMod.join(root, 'analytics', 'deploys', o.deployId);
   mkdirSync(outRoot, { recursive: true });
@@ -88,9 +101,9 @@ function main() {
     deploy_id: o.deployId,
     bucket_name: o.bucket,
     prefix: o.prefix,
-    tenant_id: o.tenantId,
-    workspace_id: o.workspaceId,
-    project_id: o.projectId,
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    project_id: projectId,
     created_at: new Date().toISOString(),
     objects,
     object_count: objects.length,

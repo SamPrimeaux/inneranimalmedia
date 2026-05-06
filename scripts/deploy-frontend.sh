@@ -99,15 +99,16 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
 
   echo "[r2-manifest] start deploy_id=$DEPLOY_ID"
   MF=0
+  _R2_PROJECT_ID="${DEPLOY_PROJECT_ID:-${DOCUMENTS_PROJECT_ID:-}}"
   run_with_timeout_secs "$R2_MANIFEST_TIMEOUT_SEC" \
     node "$REPO_ROOT/scripts/build-r2-deploy-manifest.mjs" \
     --dist "$REPO_ROOT/$DIST" \
     --bucket "$BUCKET" \
     --prefix "$PREFIX" \
     --deploy-id "$DEPLOY_ID" \
-    --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
-    --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
-    --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
+    --tenant-id "${TENANT_ID}" \
+    --workspace-id "${WORKSPACE_ID}" \
+    --project-id "${_R2_PROJECT_ID}" \
     || MF=$?
   if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
     R2_OBJECT_COUNT=$(jq -r '.object_count // empty' "$MANIFEST_PATH" 2>/dev/null || true)
@@ -117,6 +118,7 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
 
   echo "[r2-inventory] start bucket=$BUCKET"
   IF=0
+  _R2_EDITED_BY="${D1_AUTH_USER_ID:-${DEPLOY_USER_EMAIL:-}}"
   set +e
   set -o pipefail
   run_with_timeout_secs "$R2_INVENTORY_TIMEOUT_SEC" \
@@ -124,9 +126,10 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
     --bucket "$BUCKET" \
     --upsert-d1 \
     --deploy-id "$DEPLOY_ID" \
-    --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
-    --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
-    --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
+    --tenant-id "${TENANT_ID}" \
+    --workspace-id "${WORKSPACE_ID}" \
+    --project-id "${_R2_PROJECT_ID}" \
+    --edited-by "${_R2_EDITED_BY}" \
     2>&1 | tee "${TMPDIR:-/tmp}/iam-r2-inventory-${DEPLOY_ID}.log"
   IF=${PIPESTATUS[0]}
   set +o pipefail
@@ -142,9 +145,9 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
     --manifest "$MANIFEST_PATH" \
     --bucket "$BUCKET" \
     --deploy-id "$DEPLOY_ID" \
-    --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
-    --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
-    --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
+    --tenant-id "${TENANT_ID}" \
+    --workspace-id "${WORKSPACE_ID}" \
+    --project-id "${_R2_PROJECT_ID}" \
     --apply-stale \
     2>&1 | tee "$REC_LOG"
   RF=${PIPESTATUS[0]}

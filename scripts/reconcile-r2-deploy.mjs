@@ -16,6 +16,10 @@ import {
   loadEnvCloudflare,
   escapeSqlString,
   isProtectedObjectKey,
+  resolveTenantId,
+  resolveWorkspaceId,
+  resolveProjectId,
+  exitUnlessReconcileScope,
 } from './lib/r2-inventory-core.mjs';
 
 const root = repoRootDefault;
@@ -32,9 +36,9 @@ function parseArgs() {
     manifest: get('--manifest', ''),
     bucket: get('--bucket', ''),
     deployId: get('--deploy-id', ''),
-    tenantId: get('--tenant-id', process.env.TENANT_ID || 'tenant_sam_primeaux'),
-    workspaceId: get('--workspace-id', process.env.WORKSPACE_ID || 'ws_inneranimalmedia'),
-    projectId: get('--project-id', process.env.DOCUMENTS_PROJECT_ID || 'inneranimalmedia'),
+    tenantIdRaw: get('--tenant-id', ''),
+    workspaceIdRaw: get('--workspace-id', ''),
+    projectIdRaw: get('--project-id', ''),
     dryRun: a.includes('--dry-run'),
     applyStale: a.includes('--apply-stale'),
     recordManifest: a.includes('--record-manifest'),
@@ -81,13 +85,18 @@ function main() {
     process.exit(1);
   }
 
+  const tenantId = resolveTenantId(o.tenantIdRaw);
+  const workspaceId = resolveWorkspaceId(o.workspaceIdRaw);
+  const projectId = resolveProjectId(o.projectIdRaw);
+  exitUnlessReconcileScope(tenantId, workspaceId, projectId, '[r2-reconcile]');
+
   const raw = JSON.parse(readFileSync(o.manifest, 'utf8'));
   const objects = Array.isArray(raw.objects) ? raw.objects : [];
   const manifestKeys = new Set(objects.map((x) => String(x.object_key || '').replace(/^\/+/, '')));
   const deployId = o.deployId || raw.deploy_id || 'unknown';
-  const tid = escapeSqlString(o.tenantId);
-  const ws = escapeSqlString(o.workspaceId);
-  const pid = escapeSqlString(o.projectId);
+  const tid = escapeSqlString(tenantId);
+  const ws = escapeSqlString(workspaceId);
+  const pid = escapeSqlString(projectId);
   const b = escapeSqlString(o.bucket);
   const dep = escapeSqlString(deployId);
 

@@ -101,3 +101,61 @@ export function rcloneLsJson(repoRoot, bucket) {
 export function stableInventoryId(bucketName, objectKey) {
   return createHash('sha256').update(`${bucketName}\n${objectKey}`, 'utf8').digest('hex').slice(0, 40);
 }
+
+/** Resolve tenant/workspace/project from CLI flag or env — never hardcode tenant defaults here. */
+export function resolveTenantId(cliFlag) {
+  return String(cliFlag || process.env.TENANT_ID || '').trim();
+}
+
+export function resolveWorkspaceId(cliFlag) {
+  return String(cliFlag || process.env.WORKSPACE_ID || '').trim();
+}
+
+export function resolveProjectId(cliFlag) {
+  return String(cliFlag || process.env.DEPLOY_PROJECT_ID || process.env.DOCUMENTS_PROJECT_ID || '').trim();
+}
+
+/** Inventory upserts only — actor metadata for D1 row attribution. */
+export function resolveInventoryEditedBy(cliFlag) {
+  return String(cliFlag || process.env.D1_AUTH_USER_ID || process.env.DEPLOY_USER_EMAIL || '').trim();
+}
+
+function printMissing(label, lines) {
+  console.error(`${label} missing required TENANT_ID/WORKSPACE_ID/PROJECT_ID`);
+  for (const line of lines) console.error(`  - ${line}`);
+}
+
+/** Exit if tenant/workspace/project missing (manifest build + reconcile). */
+export function exitUnlessManifestScope(tenantId, workspaceId, projectId, label = '[r2-manifest]') {
+  const missing = [];
+  if (!tenantId) missing.push('TENANT_ID or --tenant-id');
+  if (!workspaceId) missing.push('WORKSPACE_ID or --workspace-id');
+  if (!projectId) missing.push('DEPLOY_PROJECT_ID, DOCUMENTS_PROJECT_ID, or --project-id');
+  if (!missing.length) return;
+  printMissing(label, missing);
+  process.exit(1);
+}
+
+/** Exit if reconcile scope missing (same three IDs as manifest). */
+export function exitUnlessReconcileScope(tenantId, workspaceId, projectId, label = '[r2-reconcile]') {
+  const missing = [];
+  if (!tenantId) missing.push('TENANT_ID or --tenant-id');
+  if (!workspaceId) missing.push('WORKSPACE_ID or --workspace-id');
+  if (!projectId) missing.push('DEPLOY_PROJECT_ID, DOCUMENTS_PROJECT_ID, or --project-id');
+  if (!missing.length) return;
+  printMissing(label, missing);
+  process.exit(1);
+}
+
+/** Exit if D1 inventory upsert scope missing (includes edited_by). */
+export function exitUnlessInventoryUpsertScope(tenantId, workspaceId, projectId, editedBy, label = '[r2-inventory]') {
+  const missing = [];
+  if (!tenantId) missing.push('TENANT_ID or --tenant-id');
+  if (!workspaceId) missing.push('WORKSPACE_ID or --workspace-id');
+  if (!projectId) missing.push('DEPLOY_PROJECT_ID, DOCUMENTS_PROJECT_ID, or --project-id');
+  if (!editedBy) missing.push('D1_AUTH_USER_ID, DEPLOY_USER_EMAIL, or --edited-by');
+  if (!missing.length) return;
+  console.error(`${label} missing required TENANT_ID/WORKSPACE_ID/PROJECT_ID`);
+  for (const line of missing) console.error(`  - ${line}`);
+  process.exit(1);
+}

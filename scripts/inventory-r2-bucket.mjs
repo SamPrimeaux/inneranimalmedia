@@ -6,6 +6,10 @@
  * Usage:
  *   ./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket inneranimalmedia
  *   ./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket autorag --upsert-d1
+ *
+ * For --upsert-d1, scope must be set via flags or env (no hardcoded tenant defaults):
+ *   TENANT_ID, WORKSPACE_ID, DEPLOY_PROJECT_ID or DOCUMENTS_PROJECT_ID,
+ *   and D1_AUTH_USER_ID or DEPLOY_USER_EMAIL (or --edited-by).
  */
 import { execFileSync } from 'child_process';
 import { writeFileSync, unlinkSync } from 'fs';
@@ -18,6 +22,11 @@ import {
   escapeSqlString,
   rcloneLsJson,
   isProtectedObjectKey,
+  resolveTenantId,
+  resolveWorkspaceId,
+  resolveProjectId,
+  resolveInventoryEditedBy,
+  exitUnlessInventoryUpsertScope,
 } from './lib/r2-inventory-core.mjs';
 
 const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
@@ -36,11 +45,11 @@ function parseArgs() {
   return {
     bucket: get('--bucket', ''),
     upsertD1: a.includes('--upsert-d1'),
-    tenantId: get('--tenant-id', process.env.TENANT_ID || 'tenant_sam_primeaux'),
-    workspaceId: get('--workspace-id', process.env.WORKSPACE_ID || 'ws_inneranimalmedia'),
-    projectId: get('--project-id', process.env.DOCUMENTS_PROJECT_ID || 'inneranimalmedia'),
+    tenantIdRaw: get('--tenant-id', ''),
+    workspaceIdRaw: get('--workspace-id', ''),
+    projectIdRaw: get('--project-id', ''),
     deployId: get('--deploy-id', ''),
-    editedBy: get('--edited-by', process.env.DEPLOYED_BY || 'sam_primeaux'),
+    editedByRaw: get('--edited-by', ''),
   };
 }
 
@@ -122,6 +131,15 @@ function main() {
     process.exit(1);
   }
 
+  const tenantId = resolveTenantId(o.tenantIdRaw);
+  const workspaceId = resolveWorkspaceId(o.workspaceIdRaw);
+  const projectId = resolveProjectId(o.projectIdRaw);
+  const editedBy = resolveInventoryEditedBy(o.editedByRaw);
+
+  if (o.upsertD1) {
+    exitUnlessInventoryUpsertScope(tenantId, workspaceId, projectId, editedBy, '[r2-inventory]');
+  }
+
   const listed = rcloneLsJson(root, o.bucket);
   let bytes = 0;
   for (const row of listed) {
@@ -134,10 +152,10 @@ function main() {
   const t0 = Date.now();
   const now = new Date().toISOString();
   const deployEsc = o.deployId ? escapeSqlString(o.deployId) : '';
-  const tid = escapeSqlString(o.tenantId);
-  const ws = escapeSqlString(o.workspaceId);
-  const pid = escapeSqlString(o.projectId);
-  const editor = escapeSqlString(o.editedBy);
+  const tid = escapeSqlString(tenantId);
+  const ws = escapeSqlString(workspaceId);
+  const pid = escapeSqlString(projectId);
+  const editor = escapeSqlString(editedBy);
 
   const objectRows = listed.filter((row) => {
     const key = String(row.Path || '').replace(/^\/+/, '');
