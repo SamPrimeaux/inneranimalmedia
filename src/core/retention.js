@@ -659,7 +659,7 @@ export async function rollupDeploymentsWeekly(env) {
   if (tenantId && workspaceId && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     finBegun = await startCronRun(env, {
       jobName: 'finalize_stale_deploy_events',
-      cronExpression: '0 1 ? * SUN',
+      cronExpression: '0 1 * * sun',
       tenantId,
       workspaceId,
     });
@@ -691,7 +691,7 @@ export async function rollupDeploymentsWeekly(env) {
 
   const rollBegun = await startCronRun(env, {
     jobName: 'deployments_weekly_rollup',
-    cronExpression: '0 1 ? * SUN',
+    cronExpression: '0 1 * * sun',
     tenantId,
     workspaceId,
   });

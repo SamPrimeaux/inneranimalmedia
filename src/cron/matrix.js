@@ -12,7 +12,7 @@
  * | `0 6 * * *`     | `scheduleSixAmRagJobs` — RAG compact/sync/index + webhook events maintenance + 6am snapshot |
  * | `0 9 * * *`     | `runFinancialCommandCron` |
  * | `0 9 * * 1`     | `runIntegritySnapshot(env, 'cron')` |
- * | `0 1 ? * SUN`   | `runWeeklyRollup` — active workspaces → `agentsam_analytics` |
+ * | `0 1 * * sun`   | `runWeeklyRollup` — active workspaces → `agentsam_analytics` |
  * | `30 13 * * *`   | `sendDailyPlanEmail` |
  * | `0 0 1 * *`     | `runSpendLedgerRollup` |
  */

@@ -46,7 +46,7 @@ function cronExprForMode(mode) {
     case 'post-deploy':
       return 'manual/post-deploy';
     case 'weekly-rollup':
-      return '0 1 ? * SUN';
+      return '0 1 * * sun';
     default:
       return 'manual/cli';
   }
