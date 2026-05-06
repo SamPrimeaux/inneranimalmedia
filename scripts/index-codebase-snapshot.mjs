@@ -5,11 +5,15 @@
  *
  * Usage: node scripts/index-codebase-snapshot.mjs [--apply]
  */
-import { readFileSync, existsSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, appendFileSync } from 'fs';
 import { join, relative } from 'path';
 import { resolveDeployScope, requireSupabaseRest } from './lib/supabase-deploy-context.mjs';
 import { sbRequest } from './lib/supabase-rest.mjs';
-import { repoRoot, DEPLOY_CONTEXT_FILE } from './lib/supabase-deploy-paths.mjs';
+import {
+  repoRoot,
+  DEPLOY_CONTEXT_FILE,
+  DEPLOY_TOOL_EVENTS_FILE,
+} from './lib/supabase-deploy-paths.mjs';
 
 const MODEL = '@cf/baai/bge-large-en-v1.5';
 
@@ -239,6 +243,7 @@ async function main() {
     symbol_rows: symbols.length,
   };
 
+  /** public.codebase_snapshots.upload_status CHECK: uploading | complete | failed | stale */
   await sbRequest('POST', `${base}/rest/v1/codebase_snapshots`, key, {
     snapshot_id: snapshotId,
     tenant_id: tenantId,
@@ -251,87 +256,132 @@ async function main() {
     total_bytes: totalBytes,
     chunk_count: 0,
     r2_prefix: 'static/dashboard/agent',
-    upload_status: 'uploaded',
+    upload_status: 'uploading',
     metadata: snapMeta,
   });
 
-  const batchSize = 80;
-  for (let i = 0; i < fileRows.length; i += batchSize) {
-    const chunk = fileRows.slice(i, i + batchSize);
-    await sbRequest('POST', `${base}/rest/v1/codebase_files`, key, chunk, {
+  const snapPatchUrl = `${base}/rest/v1/codebase_snapshots?snapshot_id=eq.${encodeURIComponent(snapshotId)}`;
+
+  async function setSnapshotUploadStatus(status, extra = {}) {
+    await sbRequest('PATCH', snapPatchUrl, key, { upload_status: status, ...extra }, {
       Prefer: 'return=minimal',
     });
   }
 
-  const symPayload = symbols.map((s) => ({
-    snapshot_id: snapshotId,
-    tenant_id: tenantId,
-    workspace_id: workspaceId,
-    file_path: s.file_path,
-    symbol_type: s.symbol_type,
-    symbol_name: s.symbol_name,
-    http_method: s.http_method,
-    line_number: s.line_number,
-    signature: s.signature,
-    metadata: {},
-  }));
-  for (let i = 0; i < symPayload.length; i += batchSize) {
-    await sbRequest('POST', `${base}/rest/v1/codebase_symbols`, key, symPayload.slice(i, i + batchSize), {
-      Prefer: 'return=minimal',
-    });
+  function appendToolFailureEvent(errMsg) {
+    try {
+      let ctx = {};
+      if (existsSync(ctxPath)) ctx = JSON.parse(readFileSync(ctxPath, 'utf8'));
+      const line = JSON.stringify({
+        ts: new Date().toISOString(),
+        run_group_id: ctx.run_group_id || process.env.RUN_GROUP_ID || null,
+        tenant_id: ctx.tenant_id || tenantId,
+        workspace_id: ctx.workspace_id || workspaceId,
+        d1_auth_user_id: ctx.d1_auth_user_id || process.env.D1_AUTH_USER_ID || null,
+        user_email: ctx.user_email || process.env.DEPLOY_USER_EMAIL || null,
+        agent_tool: 'deploy_automation',
+        tool_name: 'index_codebase_snapshot',
+        tool_category: 'deploy',
+        tool_source: 'script',
+        duration_ms: 0,
+        success: false,
+        error_message: String(errMsg || '').slice(0, 1200),
+        input_preview: snapshotId,
+        output_preview: null,
+        input_json: { snapshot_id: snapshotId },
+        output_json: {},
+        metadata: { phase: 'index_codebase_snapshot' },
+      });
+      appendFileSync(join(root, DEPLOY_TOOL_EVENTS_FILE), `${line}\n`, 'utf8');
+    } catch {
+      /* optional */
+    }
   }
 
-  if (priorityFiles.length && token && accountId) {
-    let chunkTotal = 0;
-    for (const fp of priorityFiles) {
-      const rel = relative(root, fp).replace(/\\/g, '/');
-      const body = readFileSync(fp, 'utf8');
-      const parts = chunkText(body, 5200);
-      let idx = 0;
-      for (const part of parts) {
-        const vec = await embedText(token, accountId, part);
-        await new Promise((r) => setTimeout(r, Number(process.env.INGEST_DELAY_MS || 120)));
-        const row = {
-          snapshot_id: snapshotId,
-          file_id: null,
-          tenant_id: tenantId,
-          workspace_id: workspaceId,
-          file_path: rel,
-          chunk_index: idx,
-          chunk_type: 'code',
-          content: part.slice(0, 12000),
-          embedding: vec,
-          line_start: null,
-          line_end: null,
-          symbol_name: null,
-          language: langFromPath(rel),
-          embed_model: MODEL,
-          metadata: { deploy_index: true },
-        };
-        await sbRequest('POST', `${base}/rest/v1/codebase_chunks`, key, row, {
-          Prefer: 'return=minimal',
-        });
-        chunkTotal += 1;
-        idx += 1;
-        if (chunkTotal >= 80) break;
-      }
-      if (chunkTotal >= 80) break;
+  try {
+    const batchSize = 80;
+    for (let i = 0; i < fileRows.length; i += batchSize) {
+      const chunk = fileRows.slice(i, i + batchSize);
+      await sbRequest('POST', `${base}/rest/v1/codebase_files`, key, chunk, {
+        Prefer: 'return=minimal',
+      });
     }
 
-    await sbRequest(
-      'PATCH',
-      `${base}/rest/v1/codebase_snapshots?snapshot_id=eq.${encodeURIComponent(snapshotId)}`,
-      key,
-      { chunk_count: chunkTotal },
-      { Prefer: 'return=minimal' },
-    );
-  } else if (!token || !accountId) {
-    console.warn('[index-codebase] No CLOUDFLARE_API_TOKEN/ACCOUNT_ID — skipped chunk embeddings');
-  }
+    const symPayload = symbols.map((s) => ({
+      snapshot_id: snapshotId,
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      file_path: s.file_path,
+      symbol_type: s.symbol_type,
+      symbol_name: s.symbol_name,
+      http_method: s.http_method,
+      line_number: s.line_number,
+      signature: s.signature,
+      metadata: {},
+    }));
+    for (let i = 0; i < symPayload.length; i += batchSize) {
+      await sbRequest('POST', `${base}/rest/v1/codebase_symbols`, key, symPayload.slice(i, i + batchSize), {
+        Prefer: 'return=minimal',
+      });
+    }
 
-  console.log(
-    `[index-codebase] snapshot ${snapshotId} files=${fileRows.length} symbols=${symbols.length}`,
-  );
+    let chunkTotal = 0;
+    if (priorityFiles.length && token && accountId) {
+      for (const fp of priorityFiles) {
+        const rel = relative(root, fp).replace(/\\/g, '/');
+        const body = readFileSync(fp, 'utf8');
+        const parts = chunkText(body, 5200);
+        let idx = 0;
+        for (const part of parts) {
+          const vec = await embedText(token, accountId, part);
+          await new Promise((r) => setTimeout(r, Number(process.env.INGEST_DELAY_MS || 120)));
+          const row = {
+            snapshot_id: snapshotId,
+            file_id: null,
+            tenant_id: tenantId,
+            workspace_id: workspaceId,
+            file_path: rel,
+            chunk_index: idx,
+            chunk_type: 'code',
+            content: part.slice(0, 12000),
+            embedding: vec,
+            line_start: null,
+            line_end: null,
+            symbol_name: null,
+            language: langFromPath(rel),
+            embed_model: MODEL,
+            metadata: { deploy_index: true },
+          };
+          await sbRequest('POST', `${base}/rest/v1/codebase_chunks`, key, row, {
+            Prefer: 'return=minimal',
+          });
+          chunkTotal += 1;
+          idx += 1;
+          if (chunkTotal >= 80) break;
+        }
+        if (chunkTotal >= 80) break;
+      }
+    } else if (!token || !accountId) {
+      console.warn('[index-codebase] No CLOUDFLARE_API_TOKEN/ACCOUNT_ID — skipped chunk embeddings');
+    }
+
+    await setSnapshotUploadStatus('complete', { chunk_count: chunkTotal });
+
+    console.log(
+      `[index-codebase] snapshot ${snapshotId} files=${fileRows.length} symbols=${symbols.length} chunks=${chunkTotal} upload_status=complete`,
+    );
+  } catch (e) {
+    const msg = String(e?.message || e);
+    try {
+      await setSnapshotUploadStatus('failed');
+    } catch {
+      /* ignore */
+    }
+    appendToolFailureEvent(msg);
+    console.error('[index-codebase] FAILED:', msg);
+    if (e?.stack) console.error(e.stack.split('\n').slice(0, 8).join('\n'));
+    process.exit(1);
+  }
 }
 
 main().catch((e) => {
