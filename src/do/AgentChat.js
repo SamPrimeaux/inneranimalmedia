@@ -138,7 +138,21 @@ export class AgentChatSqlV1 extends DurableObject {
     if (!this.env?.DB || !this.cachedTerminalSessionId) return;
     const tenantId = String(this.env?.TENANT_ID || "system").trim();
     const truncated = String(content || "").slice(0, 4000);
-    this.historySequence = (this.historySequence || 0) + 1;
+    // Prevent duplicate sequence after DO restart: initialize from DB max once per session.
+    if (!this.historySequence || this.historySequence < 1) {
+      try {
+        const row = await this.env.DB.prepare(
+          "SELECT COALESCE(MAX(sequence), 0) AS m FROM terminal_history WHERE terminal_session_id = ?",
+        )
+          .bind(this.cachedTerminalSessionId)
+          .first();
+        const m = Number(row?.m ?? 0);
+        this.historySequence = Number.isFinite(m) && m > 0 ? m : 0;
+      } catch (_) {
+        this.historySequence = 0;
+      }
+    }
+    this.historySequence = this.historySequence + 1;
     const seq = this.historySequence;
     const id = "th_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
     const triggeredBy = opts.triggeredBy || "user";

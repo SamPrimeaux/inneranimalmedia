@@ -6,8 +6,6 @@
 import { getAuthUser, fetchAuthUserTenantId } from './auth';
 import { notifySam } from './notifications';
 
-export const HEADLESS_TERMINAL_SESSION_ID = 'term_headless_sam';
-
 /**
  * Default PTY bridge from D1 (terminal_connections). Falls back to env.TERMINAL_WS_URL when absent.
  */
@@ -201,14 +199,48 @@ async function writeTerminalHistory(env, request, sessionId, commandText, output
   if (!tenantId && authUser?.id) {
     tenantId = await fetchAuthUserTenantId(env, authUser.id).catch(() => null);
   }
-  if (!terminalSessionId || !tenantId) return;
+  if (!terminalSessionId || !tenantId) {
+    console.warn('[terminal_history] skip: terminal_session_missing', {
+      terminalSessionId: terminalSessionId || null,
+      tenantId: tenantId || null,
+      agentSessionId: sessionId || null,
+    });
+    return;
+  }
+
+  // Validate FK target exists (terminal_sessions.id). If it doesn't, avoid FK violations.
+  try {
+    const exists = await env.DB.prepare('SELECT 1 AS ok FROM terminal_sessions WHERE id = ? LIMIT 1')
+      .bind(terminalSessionId)
+      .first();
+    if (!exists?.ok) {
+      console.warn('[terminal_history] skip: parent_missing', { terminalSessionId, tenantId, agentSessionId: sessionId || null });
+      return;
+    }
+  } catch (e) {
+    console.warn('[terminal_history] skip: terminal_session_check_failed', { terminalSessionId, error: e?.message ?? String(e) });
+    return;
+  }
+
   const now = Math.floor(Date.now() / 1000);
+  let seq = 0;
+  try {
+    const seqRow = await env.DB.prepare(
+      'SELECT COALESCE(MAX(sequence), 0) AS m FROM terminal_history WHERE terminal_session_id = ?'
+    ).bind(terminalSessionId).first();
+    seq = Number(seqRow?.m ?? 0);
+    if (!Number.isFinite(seq)) seq = 0;
+  } catch (_) {
+    seq = 0;
+  }
+  seq += 1;
   await env.DB.prepare(
-    `INSERT INTO terminal_history (id, terminal_session_id, tenant_id, direction, content, triggered_by, agent_session_id, recorded_at) VALUES (?,?,?,?,?,?,?,?)`
-  ).bind('th_' + crypto.randomUUID().slice(0, 16), terminalSessionId, tenantId, 'input', commandText.slice(0, 5000), 'agent', sessionId, now).run();
+    `INSERT INTO terminal_history (id, terminal_session_id, tenant_id, sequence, direction, content, triggered_by, agent_session_id, recorded_at) VALUES (?,?,?,?,?,?,?,?,?)`
+  ).bind('th_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16), terminalSessionId, tenantId, seq, 'input', commandText.slice(0, 5000), 'agent', sessionId, now).run();
+  seq += 1;
   await env.DB.prepare(
-    `INSERT INTO terminal_history (id, terminal_session_id, tenant_id, direction, content, exit_code, triggered_by, agent_session_id, recorded_at) VALUES (?,?,?,?,?,?,?,?,?)`
-  ).bind('th_' + crypto.randomUUID().slice(0, 16), terminalSessionId, tenantId, 'output', outputText.slice(0, 10000), exitCode ?? null, 'agent', sessionId, now).run();
+    `INSERT INTO terminal_history (id, terminal_session_id, tenant_id, sequence, direction, content, exit_code, triggered_by, agent_session_id, recorded_at) VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).bind('th_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16), terminalSessionId, tenantId, seq, 'output', outputText.slice(0, 10000), exitCode ?? null, 'agent', sessionId, now).run();
 }
 
 /**
@@ -272,18 +304,12 @@ export async function resolveTerminalSessionIdForHistory(env, request) {
   try {
     const authUser = await getAuthUser(request, env);
     if (authUser?.id) {
-       const tsRow = await env.DB.prepare(`SELECT id FROM terminal_sessions WHERE user_id = ? AND status = 'active' LIMIT 1`).bind(authUser.id).first();
-       if (tsRow?.id) return tsRow.id;
+      const tsRow = await env.DB
+        .prepare(`SELECT id FROM terminal_sessions WHERE user_id = ? AND status = 'active' LIMIT 1`)
+        .bind(authUser.id)
+        .first();
+      if (tsRow?.id) return tsRow.id;
     }
   } catch (_) {}
-  await ensureHeadlessTerminalSessionForHistory(env);
-  return HEADLESS_TERMINAL_SESSION_ID;
-}
-
-export async function ensureHeadlessTerminalSessionForHistory(env) {
-  if (!env.DB) return;
-  const tid = 'system';
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO terminal_sessions (id, tenant_id, user_id, status, shell, created_at, updated_at) VALUES (?, ?, 'headless_session', 'active', '/bin/zsh', unixepoch(), unixepoch())`
-  ).bind(HEADLESS_TERMINAL_SESSION_ID, tid).run();
+  return null;
 }
