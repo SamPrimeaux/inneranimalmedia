@@ -2,6 +2,7 @@
  * agentsam_command_run + agentsam_execution_context — async telemetry (waitUntil).
  */
 import { isFeatureEnabled } from '../core/features.js';
+import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
 
 /** Must match CHECK on agentsam_command_run.intent_category (or NULL). */
@@ -196,6 +197,7 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     userId = null,
     parentChainId = null,
     ctx = null,
+    toolInputJson = null,
   } = opts || {};
   if (!env?.DB) return null;
   const ws =
@@ -214,12 +216,22 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
   const parentId =
     parentChainId != null && String(parentChainId).trim() !== '' ? String(parentChainId).trim() : null;
+  const errorMessage =
+    error != null
+      ? String(error?.message ?? error).slice(0, 8000)
+      : null;
+  const errorType =
+    error != null && typeof error === 'object' && error?.name
+      ? String(error.name).slice(0, 120)
+      : error != null
+        ? 'Error'
+        : null;
 
   const tryInsert = (sql, binds) => env.DB.prepare(sql).bind(...binds).run();
 
   const p = tryInsert(
-    `INSERT INTO agentsam_tool_chain (id, workspace_id, tenant_id, user_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO agentsam_tool_chain (id, workspace_id, tenant_id, user_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       chainId,
       ws,
@@ -234,12 +246,14 @@ export async function fireForgetAgentToolChainRow(env, opts) {
       mcpToolCallId || null,
       terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
       parentId,
+      errorMessage,
+      errorType,
     ],
   )
     .catch(() =>
       tryInsert(
-        `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           chainId,
           ws,
@@ -252,6 +266,8 @@ export async function fireForgetAgentToolChainRow(env, opts) {
           mcpToolCallId || null,
           terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
           parentId,
+          errorMessage,
+          errorType,
         ],
       ),
     )
@@ -259,6 +275,26 @@ export async function fireForgetAgentToolChainRow(env, opts) {
       if (tenant && parentId) {
         return insertExecutionDependencyGraphEdge(env, tenant, chainId, parentId);
       }
+    })
+    .then(() => {
+      if (!error || !ctx || typeof ctx.waitUntil !== 'function' || !tenant || !ws) return;
+      scheduleAgentsamErrorLog(env, ctx, {
+        workspaceId: ws,
+        tenantId: tenant,
+        sessionId: agentSessionId != null ? String(agentSessionId) : null,
+        errorCode: 'tool_chain_failed',
+        errorType: 'tool_execution',
+        errorMessage: errorMessage || 'tool_execution_failed',
+        source: 'tool_chain',
+        sourceId: chainId,
+        contextJson: JSON.stringify({
+          tool_name: toolName,
+          input_json:
+            toolInputJson != null
+              ? String(toolInputJson).slice(0, 8000)
+              : null,
+        }),
+      });
     })
     .catch((e) => console.warn('[agentsam_tool_chain]', e?.message ?? e));
 
@@ -440,6 +476,23 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
           costUsd: p.costUsd ?? 0,
           tokensConsumed: (p.inputTokens ?? 0) + (p.outputTokens ?? 0),
         });
+
+        if (!p.success && p.errorMessage != null && String(p.errorMessage).trim() !== '') {
+          scheduleAgentsamErrorLog(env, ctx, {
+            workspaceId: ws,
+            tenantId: String(p.tenantId),
+            sessionId: p.sessionId ?? null,
+            errorCode: 'command_run_failed',
+            errorType: 'agent_run',
+            errorMessage: String(p.errorMessage).slice(0, 8000),
+            source: 'agent_run',
+            sourceId: commandRunId,
+            contextJson: JSON.stringify({
+              normalized_intent: p.normalizedIntent,
+              intent_category: p.intentCategory,
+            }),
+          });
+        }
 
         void env.DB
           .prepare(
@@ -672,6 +725,7 @@ export async function completeCommand(env, ctx, o) {
     outputTokens = 0,
     outputSummary = null,
     errorMessage = null,
+    errorType = null,
     taskType = 'tool_use',
     modelKey = null,
     provider = null,
@@ -679,6 +733,12 @@ export async function completeCommand(env, ctx, o) {
   if (!env?.DB || !chainId) return;
 
   const status = success ? 'completed' : 'failed';
+  const errTypeFinal =
+    success || errorMessage == null
+      ? null
+      : errorType != null && String(errorType).trim() !== ''
+        ? String(errorType).slice(0, 120)
+        : 'tool_execution_failed';
 
   await env.DB
     .prepare(
@@ -686,7 +746,7 @@ export async function completeCommand(env, ctx, o) {
       tool_status = ?, completed_at = unixepoch(),
       duration_ms = ?, cost_usd = ?,
       input_tokens = ?, output_tokens = ?,
-      output_summary = ?, error_message = ?
+      output_summary = ?, error_message = ?, error_type = ?
     WHERE id = ?`,
     )
     .bind(
@@ -697,6 +757,7 @@ export async function completeCommand(env, ctx, o) {
       outputTokens,
       outputSummary,
       errorMessage,
+      errTypeFinal,
       chainId,
     )
     .run()
@@ -775,7 +836,8 @@ export async function handleAgentApprovalDecision(env, ctx, opts) {
     .prepare(
       `UPDATE agentsam_approval_queue
      SET status = ?, approved_by = ?, decided_at = unixepoch()
-     WHERE id = ? AND status = 'pending'`,
+     WHERE id = ? AND status = 'pending'
+       AND (expires_at IS NULL OR expires_at > unixepoch())`,
     )
     .bind(newStatus, userId || null, approval_id)
     .run()

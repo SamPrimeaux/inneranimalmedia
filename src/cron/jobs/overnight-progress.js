@@ -1,3 +1,4 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { cronTenantId } from '../cron-tenant.js';
 
 const OVERNIGHT_EVERY_PAGE = ['overview', 'finance', 'chats', 'mcp', 'cloud', 'time-tracking', 'agent', 'billing', 'clients', 'tools', 'calendar', 'images', 'draw', 'meet', 'kanban', 'cms', 'mail', 'pipelines', 'onboarding', 'user-settings', 'settings'];
@@ -33,22 +34,44 @@ export async function loadScreenshotAttachments(env, beforeDir) {
 /** Cron every 30 min: send 30min, hourly, and morning progress emails when OVERNIGHT_STATUS is RUNNING. */
 export async function runOvernightCronStep(env) {
   if (!env.DB || !env.RESEND_API_KEY) return;
+
+  const begun = await startCronRun(env, {
+    jobName: 'overnight_progress_step',
+    cronExpression: '*/30 * * * *',
+    tenantId: null,
+    workspaceId: null,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+
+  const finish = async (metadata = {}) => {
+    if (runId) await completeCronRun(env, runId, startedAt, { rowsRead: 0, rowsWritten: 0, metadata });
+  };
+
   let row;
   try {
     row = await env.DB.prepare(
-      `SELECT value FROM project_memory WHERE project_id = 'inneranimalmedia' AND key = 'OVERNIGHT_STATUS'`
+      `SELECT value FROM project_memory WHERE project_id = 'inneranimalmedia' AND key = 'OVERNIGHT_STATUS'`,
     ).first();
   } catch (_) {
+    await finish({ skip: 'overnight_status_read_failed' });
     return;
   }
-  if (!row || !row.value) return;
+  if (!row || !row.value) {
+    await finish({ skip: 'no_overnight_status_row' });
+    return;
+  }
   let status;
   try {
     status = JSON.parse(row.value);
   } catch (_) {
+    await finish({ skip: 'overnight_status_json_invalid' });
     return;
   }
-  if (status.status !== 'RUNNING') return;
+  if (status.status !== 'RUNNING') {
+    await finish({ skip: 'not_running', status: status.status });
+    return;
+  }
 
   const _cronPmTid = cronTenantId(env);
 
@@ -80,11 +103,13 @@ export async function runOvernightCronStep(env) {
             html: `<div style="font-family:monospace;background:#0f172a;color:#e2e8f0;padding:32px"><h1 style="color:#f59e0b">Pipeline cancelled by user</h1><p>${nowIso}</p></div>`,
           }),
         }).catch(() => { });
+        await finish({ cancelled: true });
         return;
       }
     }
   } catch (_) { }
 
+  try {
   const beforeDir = status.before_dir || `before-${now.toISOString().slice(0, 10)}`;
   const phase = status.phase || 0;
   const last30 = status.last_30min_at ? new Date(status.last_30min_at).getTime() : 0;
@@ -115,6 +140,7 @@ export async function runOvernightCronStep(env) {
         `INSERT OR REPLACE INTO project_memory (project_id, tenant_id, memory_type, key, value, importance_score, confidence_score, created_by) VALUES ('inneranimalmedia', ?, 'workflow', 'OVERNIGHT_STATUS', ?, 1.0, 1.0, 'agent_sam')`
       ).bind(_cronPmTid, JSON.stringify({ ...status, phase: 1, last_30min_at: nowIso, last_hour_at: nowIso, hour_number: 1 })).run().catch(() => { });
     }
+    await finish({ phase: 0, email: '30min' });
     return;
   }
 
@@ -144,6 +170,7 @@ export async function runOvernightCronStep(env) {
           `INSERT OR REPLACE INTO project_memory (project_id, tenant_id, memory_type, key, value, importance_score, confidence_score, created_by) VALUES ('inneranimalmedia', ?, 'workflow', 'OVERNIGHT_STATUS', ?, 1.0, 1.0, 'agent_sam')`
         ).bind(_cronPmTid, JSON.stringify({ status: 'COMPLETE', completed: nowIso })).run().catch(() => { });
       }
+      await finish({ pipeline: 'complete' });
       return;
     }
     const attachments = await loadScreenshotAttachments(env, beforeDir);
@@ -168,5 +195,13 @@ export async function runOvernightCronStep(env) {
         `INSERT OR REPLACE INTO project_memory (project_id, tenant_id, memory_type, key, value, importance_score, confidence_score, created_by) VALUES ('inneranimalmedia', ?, 'workflow', 'OVERNIGHT_STATUS', ?, 1.0, 1.0, 'agent_sam')`
       ).bind(_cronPmTid, JSON.stringify({ ...status, last_hour_at: nowIso, hour_number: nextHour })).run().catch(() => { });
     }
+    await finish({ hour_update: nextHour });
+    return;
+  }
+
+  await finish({ idle: true, phase, elapsedMin });
+  } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
+    console.warn('[overnight-progress]', e?.message ?? e);
   }
 }

@@ -24,13 +24,14 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
   if (!env?.DB) return;
 
   const cronExpression = '10 0 * * 1';
-  const runId = await startCronRun(env, {
+  const begun = await startCronRun(env, {
     jobName: 'agentsam_webhook_weekly_rollup',
     cronExpression,
     tenantId: null,
     workspaceId: null,
-    metadata: { scope: 'workspace', note: 'workspace-aware (263 applied); blank workspace -> __tenant__' },
   });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
 
   const now = new Date();
   const thisMonday = mondayUtcStart(now);
@@ -166,14 +167,14 @@ export async function runAgentsamWebhookWeeklyRollup(env) {
     }
 
     if (runId) {
-      await completeCronRun(env, runId, {
+      await completeCronRun(env, runId, startedAt, {
         rowsRead,
         rowsWritten,
         metadata: { weekStart, weekEnd, groups: rowsRead },
       });
     }
   } catch (e) {
-    if (runId) await failCronRun(env, runId, e, { weekStart, weekEnd, rowsRead, rowsWritten });
+    if (runId) await failCronRun(env, runId, startedAt, e);
     console.warn('[cron] agentsam_webhook_weekly rollup', e?.message ?? e);
   }
 }

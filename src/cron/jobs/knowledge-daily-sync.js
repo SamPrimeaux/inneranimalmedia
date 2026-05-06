@@ -1,8 +1,23 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { cronTenantId } from '../cron-tenant.js';
 
 export async function runKnowledgeDailySync(env) {
   const today = new Date().toISOString().slice(0, 10);
   if (!env.R2) return { memory_key: '', priorities_key: '' };
+
+  const begun = env?.DB
+    ? await startCronRun(env, {
+        jobName: 'knowledge_daily_sync',
+        cronExpression: '0 6 * * *',
+        tenantId: cronTenantId(env),
+        workspaceId: null,
+      })
+    : null;
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+  let rowsWritten = 0;
+
+  try {
 
   let memoryMd = `# Agent memory (high importance) -- ${today}\n\n`;
   const ksTid = cronTenantId(env);
@@ -15,6 +30,7 @@ export async function runKnowledgeDailySync(env) {
         memoryMd += `## ${row.key} (score: ${row.importance_score})\n${(row.value || '').trim()}\n\n`;
       }
       await env.R2.put(`knowledge/memory/daily-${today}.md`, memoryMd, { httpMetadata: { contentType: 'text/markdown' } });
+      rowsWritten += 1;
     } catch (e) {
       console.warn('[knowledge/daily] memory', e?.message);
     }
@@ -30,10 +46,23 @@ export async function runKnowledgeDailySync(env) {
         prioritiesMd += `- **${(row.title || row.id || '').replace(/\*\*/g, '')}** (${row.status}) ${(row.description || '').slice(0, 200)}\n`;
       }
       await env.R2.put('knowledge/priorities/current.md', prioritiesMd, { httpMetadata: { contentType: 'text/markdown' } });
+      rowsWritten += 1;
     } catch (e) {
       console.warn('[knowledge/priorities]', e?.message);
     }
   }
 
+  if (runId) {
+    await completeCronRun(env, runId, startedAt, {
+      rowsRead: 0,
+      rowsWritten,
+      metadata: { today },
+    });
+  }
   return { memory_key: `knowledge/memory/daily-${today}.md`, priorities_key: 'knowledge/priorities/current.md' };
+  } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
+    console.warn('[knowledge-daily-sync]', e?.message ?? e);
+    return { memory_key: '', priorities_key: '', error: String(e?.message ?? e) };
+  }
 }

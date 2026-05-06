@@ -7,36 +7,36 @@ import { d1_query as d1QueryCore } from '../core/d1.js';
 import { assertD1ReadOnlySelect } from '../core/d1-read-validator.js';
 import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
 
-async function logPolicyBlock(env, fields) {
+function logPolicyBlock(env, fields) {
   if (!env?.DB) return;
   const tenantId = fields.tenant_id != null ? String(fields.tenant_id) : 'system';
   const userId = fields.user_id ?? null;
   const sessionId = fields.session_id ?? null;
+  const workspaceId = fields.workspace_id != null ? String(fields.workspace_id) : null;
   const sqlSnippet = String(fields.sql || '').slice(0, 2000);
-  try {
-    await recordMcpToolExecution(env, {
-      tenant_id: tenantId,
-      workspace_id: fields.workspace_id != null ? String(fields.workspace_id) : null,
-      session_id: sessionId,
-      tool_name: 'd1_query',
-      tool_category: 'd1',
-      input_json: JSON.stringify({ sql: sqlSnippet }),
-      success: false,
-      error_message: String(fields.error || 'policy_block'),
-      duration_ms: 0,
-      user_id: userId,
-      status: 'error',
-    });
-  } catch (_) {}
-  try {
-    await env.DB.prepare(
+  const err = String(fields.error || 'policy_block');
+  const inputSum = JSON.stringify({ sql: sqlSnippet }).slice(0, 200);
+  void recordMcpToolExecution(env, {
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    session_id: sessionId,
+    tool_name: 'd1_query',
+    input_json: JSON.stringify({ sql: sqlSnippet }),
+    success: false,
+    error_message: err,
+    duration_ms: 0,
+    user_id: userId,
+    status: 'error',
+  }).catch(() => {});
+  void env.DB
+    .prepare(
       `INSERT INTO agentsam_tool_call_log
-       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id)
-       VALUES (?, ?, 'd1_query', 'error', 0, 0, 0, 0, ?)`,
+       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
+       VALUES (?, ?, 'd1_query', 'error', 0, 0, 0, 0, ?, ?, ?, ?)`,
     )
-      .bind(tenantId, sessionId, userId)
-      .run();
-  } catch (_) {}
+    .bind(tenantId, sessionId, userId, workspaceId, err, inputSum)
+    .run()
+    .catch(() => {});
 }
 
 export const handlers = {
@@ -52,7 +52,7 @@ export const handlers = {
 
     const gate = assertD1ReadOnlySelect(sql);
     if (!gate.ok) {
-      await logPolicyBlock(env, {
+      logPolicyBlock(env, {
         sql,
         error: gate.error || 'policy_block',
         tenant_id: tenant_id ?? null,

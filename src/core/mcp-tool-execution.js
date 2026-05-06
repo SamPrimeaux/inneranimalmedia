@@ -3,6 +3,8 @@
  * Inserts align with production D1 columns (inneranimalmedia-business).
  */
 
+import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
+
 async function pragmaTableInfo(db, tableName) {
   if (!db || !tableName) return new Set();
   const safe = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(String(tableName)) ? String(tableName) : '';
@@ -19,6 +21,63 @@ function newExecId() {
   return `mtc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }
 
+/** Stable id for correlating fire-and-forget execution rows with tool_chain (generate before scheduling). */
+export function newMcpToolExecutionId() {
+  return newExecId();
+}
+
+/**
+ * Non-blocking agentsam_mcp_tool_execution insert — prefer for hot paths with ExecutionContext.
+ * @returns {string} execution id (same id passed to D1 insert when insert succeeds)
+ */
+export function scheduleRecordMcpToolExecution(env, ctx, fields) {
+  const id =
+    fields?.id != null && String(fields.id).trim() !== ''
+      ? String(fields.id).trim()
+      : newMcpToolExecutionId();
+  const merged = { ...fields, id };
+  const p = recordMcpToolExecution(env, merged)
+    .then((execId) => {
+      const succ =
+        merged.success !== undefined
+          ? !!merged.success
+          : !merged.error_message && String(merged.status || '').toLowerCase() !== 'error';
+      if (succ || !ctx?.waitUntil || !execId) return execId;
+      const ws =
+        merged.workspace_id != null && String(merged.workspace_id).trim() !== ''
+          ? String(merged.workspace_id).trim()
+          : '';
+      const tid =
+        merged.tenant_id != null && String(merged.tenant_id).trim() !== ''
+          ? String(merged.tenant_id).trim()
+          : '';
+      if (!ws || !tid) return execId;
+      scheduleAgentsamErrorLog(env, ctx, {
+        workspaceId: ws,
+        tenantId: tid,
+        sessionId: merged.session_id ?? merged.sessionId ?? null,
+        errorCode: 'mcp_exec_failed',
+        errorType: 'mcp_tool_execution',
+        errorMessage:
+          merged.error_message != null && String(merged.error_message).trim() !== ''
+            ? String(merged.error_message).slice(0, 8000)
+            : 'mcp_tool_execution_failed',
+        source: 'mcp_tool_execution',
+        sourceId: execId,
+        contextJson: JSON.stringify({
+          tool_name: merged.tool_name,
+          input_json:
+            merged.input_json != null ? String(merged.input_json).slice(0, 8000) : null,
+        }),
+      });
+      return execId;
+    })
+    .catch((e) => console.warn('[scheduleRecordMcpToolExecution]', e?.message ?? e));
+  if (ctx?.waitUntil) ctx.waitUntil(p);
+  else void p;
+  return id;
+}
+
 /**
  * @param {any} env
  * @param {object} fields
@@ -33,7 +92,7 @@ export async function recordMcpToolExecution(env, fields) {
   const tenantId =
     fields.tenant_id != null && String(fields.tenant_id).trim() !== ''
       ? String(fields.tenant_id).trim()
-      : 'system';
+      : null;
   const workspaceId =
     fields.workspace_id != null && String(fields.workspace_id).trim() !== ''
       ? String(fields.workspace_id).trim()
@@ -83,6 +142,9 @@ export async function recordMcpToolExecution(env, fields) {
   // '__tenant__' is reserved for true platform/system rows, not user actions.
   if (userId && (!workspaceId || workspaceId === '__tenant__')) {
     throw new Error('WORKSPACE_CONTEXT_MISSING');
+  }
+  if (cols.has('tenant_id') && !tenantId) {
+    return null;
   }
 
   try {

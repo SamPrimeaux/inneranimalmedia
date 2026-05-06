@@ -1,9 +1,21 @@
 import { chunkMarkdown } from '../chunk-markdown.js';
 import { generateWorkersAiEmbedding } from '../../core/embed-workers-ai.js';
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 
 const RAG_EMBED_BATCH_SIZE = 32;
 
 export async function indexMemoryMarkdownToVectorize(env) {
+  const begun = env?.DB
+    ? await startCronRun(env, {
+        jobName: 'index_memory_vectorize',
+        cronExpression: '0 6 * * *',
+        tenantId: null,
+        workspaceId: null,
+      })
+    : null;
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+
   const keys = [];
   if (env.R2.list) {
     for (const prefix of ['memory/daily/', 'memory/compacted-chats/', 'knowledge/', 'docs/']) {
@@ -46,36 +58,55 @@ export async function indexMemoryMarkdownToVectorize(env) {
   }
 
   if (allChunks.length === 0) {
+    if (runId) {
+      await completeCronRun(env, runId, startedAt, {
+        rowsRead: keys.length,
+        rowsWritten: 0,
+        metadata: { message: 'No content to index' },
+      });
+    }
     return { indexed: keys.length, chunks: 0, message: 'No content to index' };
   }
 
-  const vectors = [];
-  for (let i = 0; i < allChunks.length; i += RAG_EMBED_BATCH_SIZE) {
-    const batch = allChunks.slice(i, i + RAG_EMBED_BATCH_SIZE);
-    const texts = batch.map(b => b.text);
-    let values;
-    try {
-      const vecs = await generateWorkersAiEmbedding(env, texts);
-      values = Array.isArray(vecs) ? vecs : [];
-    } catch (e) {
-      throw new Error(`Embedding batch failed: ${e?.message || e}`);
-    }
-    batch.forEach((b, j) => {
-      const vec = values[j];
-      if (vec && Array.isArray(vec)) {
-        vectors.push({
-          id: b.id,
-          values: vec,
-          metadata: { source: b.source, date: b.date },
-        });
+  try {
+    const vectors = [];
+    for (let i = 0; i < allChunks.length; i += RAG_EMBED_BATCH_SIZE) {
+      const batch = allChunks.slice(i, i + RAG_EMBED_BATCH_SIZE);
+      const texts = batch.map((b) => b.text);
+      let values;
+      try {
+        const vecs = await generateWorkersAiEmbedding(env, texts);
+        values = Array.isArray(vecs) ? vecs : [];
+      } catch (e) {
+        throw new Error(`Embedding batch failed: ${e?.message || e}`);
       }
-    });
+      batch.forEach((b, j) => {
+        const vec = values[j];
+        if (vec && Array.isArray(vec)) {
+          vectors.push({
+            id: b.id,
+            values: vec,
+            metadata: { source: b.source, date: b.date },
+          });
+        }
+      });
+    }
+
+    // DISABLED: manual Vectorize upsert corrupts AutoRAG index (same index used by AI Search)
+    // if (vectors.length > 0 && env.VECTORIZE.upsert) {
+    //   await env.VECTORIZE.upsert(vectors);
+    // }
+
+    if (runId) {
+      await completeCronRun(env, runId, startedAt, {
+        rowsRead: keys.length,
+        rowsWritten: vectors.length,
+        metadata: { chunks: vectors.length },
+      });
+    }
+    return { indexed: keys.length, chunks: vectors.length };
+  } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
+    throw e;
   }
-
-  // DISABLED: manual Vectorize upsert corrupts AutoRAG index (same index used by AI Search)
-  // if (vectors.length > 0 && env.VECTORIZE.upsert) {
-  //   await env.VECTORIZE.upsert(vectors);
-  // }
-
-  return { indexed: keys.length, chunks: vectors.length };
 }

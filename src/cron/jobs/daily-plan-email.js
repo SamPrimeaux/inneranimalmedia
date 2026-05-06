@@ -1,3 +1,4 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { cronTenantId } from '../cron-tenant.js';
 
 export async function sendDailyPlanEmail(env) {
@@ -7,6 +8,14 @@ export async function sendDailyPlanEmail(env) {
     console.warn('[daily-plan] TENANT_ID not configured; skip');
     return;
   }
+  const begun = await startCronRun(env, {
+    jobName: 'daily_plan_email',
+    cronExpression: '30 13 * * *',
+    tenantId: planTid,
+    workspaceId: null,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
   try {
     const [tasks, cicdPipelines, sprintMemory, deployments, velocity, projects, memory, proposals, overnightSuite, telemetryToday, todayPlan, blockedProviders] = await Promise.all([
@@ -228,7 +237,15 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
       throw new Error(`Resend: ${res.status} ${err}`);
     }
     console.log('[cron] daily-plan email sent');
+    if (runId) {
+      await completeCronRun(env, runId, startedAt, {
+        rowsRead: 12,
+        rowsWritten: 1,
+        metadata: { sent: true },
+      });
+    }
   } catch (err) {
+    if (runId) await failCronRun(env, runId, startedAt, err);
     console.error('[daily-plan] FATAL:', err?.message, err?.stack);
   }
 }

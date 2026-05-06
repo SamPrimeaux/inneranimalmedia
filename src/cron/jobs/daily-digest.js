@@ -1,6 +1,18 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { cronTenantId } from '../cron-tenant.js';
 
 export async function sendDailyDigest(env) {
+  const digestBegun = env?.DB
+    ? await startCronRun(env, {
+        jobName: 'daily_digest_email',
+        cronExpression: '0 0 * * *',
+        tenantId: cronTenantId(env),
+        workspaceId: null,
+      })
+    : null;
+  const runId = digestBegun?.runId ?? null;
+  const startedAt = digestBegun?.startedAt ?? Date.now();
+
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
   const esc = (s) => String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -380,10 +392,25 @@ ${hookHtml}
         digestSummary
       ).run().catch(() => { });
 
+      if (runId) {
+        await completeCronRun(env, runId, startedAt, {
+          rowsRead: 20,
+          rowsWritten: 5,
+          metadata: { sent: true },
+        });
+      }
       return { ok: true, sent: true, to: toEmail };
     } catch (e) {
+      if (runId) await failCronRun(env, runId, startedAt, e);
       return { ok: false, error: String(e?.message ?? e), digestText: textBody };
     }
+  }
+  if (runId) {
+    await completeCronRun(env, runId, startedAt, {
+      rowsRead: 15,
+      rowsWritten: 0,
+      metadata: { sent: false, reason: 'missing_resend_or_addresses' },
+    });
   }
   return { ok: true, sent: false, digestText: textBody };
 }

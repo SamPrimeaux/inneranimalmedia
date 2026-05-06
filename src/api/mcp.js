@@ -8,7 +8,7 @@ import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/ag
 import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
-import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { resolveMcpServerForTool } from '../core/mcp-servers.js';
 
 const MCP_CARD_AGENT_IDS = [
@@ -22,6 +22,36 @@ function normalizeMcpAgentId(agentId) {
   const s = String(agentId || '').trim();
   if (s === 'mcp_agent_tester') return 'mcp_agent_inspector';
   return s;
+}
+
+/** Non-blocking agentsam_tool_call_log row for MCP dispatch endpoints. */
+function scheduleDispatchToolCallLog(env, ctx, { tenantId, sessionId, userId, workspaceId, inputSummary }) {
+  if (!env?.DB) return;
+  const sum = String(inputSummary ?? '').slice(0, 200);
+  const p = env.DB
+    .prepare(
+      `INSERT INTO agentsam_tool_call_log
+       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+    .bind(
+      tenantId != null ? String(tenantId) : 'system',
+      sessionId ?? null,
+      'mcp_dispatch',
+      'pending',
+      0,
+      0,
+      0,
+      0,
+      userId ?? null,
+      workspaceId ?? null,
+      null,
+      sum,
+    )
+    .run()
+    .catch((e) => console.warn('[mcp_dispatch tool_call_log]', e?.message ?? e));
+  if (ctx?.waitUntil) ctx.waitUntil(p);
+  else void p;
 }
 
 function resolveMcpTenantId(authUser, _env) {
@@ -412,7 +442,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!wsAd) {
         return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
       }
-      await recordMcpToolExecution(env, {
+      scheduleRecordMcpToolExecution(env, ctx, {
         id: toolCallId,
         tenant_id: tenantId,
         workspace_id: wsAd,
@@ -420,12 +450,18 @@ export async function handleMcpApi(request, url, env, ctx) {
         person_uuid: actorCtxAd?.personUuid ?? null,
         session_id: sessionId,
         tool_name: 'mcp_dispatch',
-        tool_category: 'orchestration',
         input_json: '{}',
         output_json: '',
         success: false,
         invoked_by: uidAd || 'dashboard',
         status: 'pending',
+      });
+      scheduleDispatchToolCallLog(env, ctx, {
+        tenantId,
+        sessionId,
+        userId: uidAd,
+        workspaceId: wsAd,
+        inputSummary: JSON.stringify({ route: 'agents/dispatch', task: task.slice(0, 120) }),
       });
 
       return jsonResponse({ ok: true, session_id: sessionId, tool_call_id: toolCallId, agent_id: agentId });
@@ -646,7 +682,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!wsDp) {
         return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
       }
-      await recordMcpToolExecution(env, {
+      scheduleRecordMcpToolExecution(env, ctx, {
         id: toolCallId,
         tenant_id: tenantId,
         workspace_id: wsDp,
@@ -654,12 +690,18 @@ export async function handleMcpApi(request, url, env, ctx) {
         person_uuid: actorCtxDp?.personUuid ?? null,
         session_id: sessionId,
         tool_name: 'mcp_dispatch',
-        tool_category: 'orchestration',
         input_json: '{}',
         output_json: '',
         success: false,
         invoked_by: uidDp || 'dashboard',
         status: 'pending',
+      });
+      scheduleDispatchToolCallLog(env, ctx, {
+        tenantId,
+        sessionId,
+        userId: uidDp,
+        workspaceId: wsDp,
+        inputSummary: JSON.stringify({ route: 'mcp/dispatch', prompt: prompt.slice(0, 120) }),
       });
       return jsonResponse({
         ok: true,

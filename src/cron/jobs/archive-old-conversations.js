@@ -1,5 +1,15 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
+
 export async function archiveOldConversations(env) {
   if (!env.DB || !env.R2) return { archived: 0, errors: [], total_candidates: 0 };
+  const begun = await startCronRun(env, {
+    jobName: 'archive_old_conversations',
+    cronExpression: '0 0 * * *',
+    tenantId: null,
+    workspaceId: null,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
   let candidates = { results: [] };
   try {
     candidates = await env.DB.prepare(
@@ -19,6 +29,7 @@ export async function archiveOldConversations(env) {
        LIMIT 50`
     ).all();
   } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
     return { archived: 0, errors: [{ error: String(e?.message || e) }], total_candidates: 0 };
   }
 
@@ -111,5 +122,12 @@ export async function archiveOldConversations(env) {
     }
   }
 
+  if (runId) {
+    await completeCronRun(env, runId, startedAt, {
+      rowsRead: rows.length,
+      rowsWritten: archived,
+      metadata: { total_candidates: rows.length, error_count: errors.length },
+    });
+  }
   return { archived, errors, total_candidates: rows.length };
 }

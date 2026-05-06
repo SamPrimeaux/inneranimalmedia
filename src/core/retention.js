@@ -269,9 +269,9 @@ export async function rollupModelPerformanceScores(env) {
 
   const insertCols = [];
   const selectExprs = [];
-  if (out.has('tenant_id')) {
+  if (out.has('tenant_id') && tel.has('tenant_id')) {
     insertCols.push('tenant_id');
-    selectExprs.push(`'${DEFAULT_TENANT}'`);
+    selectExprs.push(`COALESCE(NULLIF(trim(tenant_id), ''), '')`);
   }
   insertCols.push(modelDest);
   const modelExpr = tel.has('model_key') && tel.has('model')
@@ -350,7 +350,11 @@ export async function rollupModelPerformanceScores(env) {
     selectExprs.push('unixepoch()');
   }
 
-  const groupParts = [modelExpr];
+  const groupParts = [];
+  if (tel.has('tenant_id') && out.has('tenant_id')) {
+    groupParts.push(`COALESCE(NULLIF(trim(tenant_id), ''), '')`);
+  }
+  groupParts.push(modelExpr);
   if (tel.has('provider')) groupParts.push('provider');
   if (tel.has('event_type')) groupParts.push('event_type');
   else if (tel.has('metric_type')) groupParts.push('metric_type');
@@ -361,6 +365,7 @@ export async function rollupModelPerformanceScores(env) {
     FROM agentsam_usage_events
     WHERE created_at >= unixepoch(date('now','-7 days'))
       AND length(trim(COALESCE(model_key, model, ''))) > 0
+      ${tel.has('tenant_id') ? `AND length(trim(COALESCE(tenant_id,''))) > 0` : ''}
     GROUP BY ${groupParts.join(', ')}
   `;
 
@@ -538,6 +543,95 @@ export async function rollupAgentsamHealthDaily(env) {
         yellow_count = excluded.yellow_count,
         red_count = excluded.red_count,
         health_status = excluded.health_status
+    `).run();
+    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Daily dashboard aggregates from agentsam_usage_rollups_daily — binds workspace_id per tenant/workspace row.
+ */
+export async function rollupAgentsamAnalyticsDaily(env) {
+  if (!env?.DB) return { ok: false, skipped: true };
+  const ana = await pragmaTableInfo(env.DB, 'agentsam_analytics');
+  if (!ana.size || !ana.has('workspace_id')) return { ok: true, skipped: true, reason: 'analytics_workspace' };
+  const src = await pragmaTableInfo(env.DB, 'agentsam_usage_rollups_daily');
+  if (!src.has('tenant_id') || !src.has('workspace_id') || !src.has('day')) {
+    return { ok: true, skipped: true, reason: 'rollups_source' };
+  }
+
+  const parts = [
+    `SELECT
+      'aan_' || lower(hex(randomblob(8))) AS id,
+      r.tenant_id AS tenant_id,
+      r.workspace_id AS workspace_id,
+      'daily' AS period,
+      r.day AS period_date`,
+  ];
+  if (ana.has('total_cost_usd')) parts.push(', COALESCE(r.cost_usd, 0) AS total_cost_usd');
+  if (ana.has('total_input_tokens')) parts.push(', COALESCE(r.tokens_in, 0) AS total_input_tokens');
+  if (ana.has('total_output_tokens')) parts.push(', COALESCE(r.tokens_out, 0) AS total_output_tokens');
+  if (ana.has('computed_at')) parts.push(', unixepoch() AS computed_at');
+
+  const inner = `${parts.join('')}
+    FROM agentsam_usage_rollups_daily r
+    WHERE r.day = date('now','-1 day')
+      AND r.workspace_id IS NOT NULL AND trim(r.workspace_id) != ''
+      AND r.tenant_id IS NOT NULL AND trim(r.tenant_id) != ''`;
+
+  const insertCols = ['id', 'tenant_id', 'workspace_id', 'period', 'period_date'];
+  const selCols = ['id', 'tenant_id', 'workspace_id', 'period', 'period_date'];
+  if (ana.has('total_cost_usd')) {
+    insertCols.push('total_cost_usd');
+    selCols.push('total_cost_usd');
+  }
+  if (ana.has('total_input_tokens')) {
+    insertCols.push('total_input_tokens');
+    selCols.push('total_input_tokens');
+  }
+  if (ana.has('total_output_tokens')) {
+    insertCols.push('total_output_tokens');
+    selCols.push('total_output_tokens');
+  }
+  if (ana.has('computed_at')) {
+    insertCols.push('computed_at');
+    selCols.push('computed_at');
+  }
+
+  const conflictTarget =
+    ana.has('tenant_id') && ana.has('workspace_id') && ana.has('period') && ana.has('period_date')
+      ? '(tenant_id, workspace_id, period, period_date)'
+      : ana.has('tenant_id') && ana.has('period') && ana.has('period_date')
+        ? '(tenant_id, period, period_date)'
+        : null;
+
+  const updates = [
+    ana.has('total_cost_usd') && 'total_cost_usd = excluded.total_cost_usd',
+    ana.has('total_input_tokens') && 'total_input_tokens = excluded.total_input_tokens',
+    ana.has('total_output_tokens') && 'total_output_tokens = excluded.total_output_tokens',
+    ana.has('computed_at') && 'computed_at = excluded.computed_at',
+    ana.has('workspace_id') && 'workspace_id = excluded.workspace_id',
+  ].filter(Boolean);
+
+  const sqlWithConflict =
+    conflictTarget && updates.length
+      ? `
+    INSERT INTO agentsam_analytics (${insertCols.join(', ')})
+    SELECT ${selCols.join(', ')} FROM (${inner}) AS x
+    ON CONFLICT${conflictTarget} DO UPDATE SET ${updates.join(', ')}
+  `
+      : null;
+
+  try {
+    if (sqlWithConflict) {
+      const r = await env.DB.prepare(sqlWithConflict).run();
+      return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
+    }
+    const r = await env.DB.prepare(`
+      INSERT INTO agentsam_analytics (${insertCols.join(', ')})
+      SELECT ${selCols.join(', ')} FROM (${inner}) AS x
     `).run();
     return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
   } catch (e) {
@@ -741,6 +835,7 @@ export async function runMasterDailyRetention(env) {
   const started = Date.now();
   const rollups = {
     agentsam_usage_rollups_daily: await rollupAgentsamUsageDaily(env),
+    agentsam_analytics: await rollupAgentsamAnalyticsDaily(env),
     agentsam_tool_stats_compacted: await rollupMcpToolCallStats(env),
     workspace_usage_metrics: await rollupWorkspaceUsageMetrics(env),
     agentsam_model_drift_signals: await rollupModelPerformanceScores(env),

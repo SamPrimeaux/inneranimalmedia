@@ -1,6 +1,30 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
+
+function cronExprForSnapshotReason(reason) {
+  const r = String(reason || '');
+  if (r.includes('0010') || r === 'cron_0010') return '10 0 * * *';
+  if (r.includes('6am') || r === 'cron_6am') return '0 6 * * *';
+  if (r.includes('midnight')) return '0 0 * * *';
+  return 'various';
+}
+
 export async function writeDailySnapshot(env, reason = 'cron') {
   if (!env?.DB) return;
+  const tid = (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : null;
+  const wid = (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) ? env.WORKSPACE_ID.trim() : null;
+  const begun = await startCronRun(env, {
+    jobName: 'write_daily_snapshot',
+    cronExpression: cronExprForSnapshotReason(reason),
+    tenantId: tid,
+    workspaceId: wid,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+  let rowsRead = 0;
+  let rowsWritten = 0;
+  try {
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
+  rowsRead += 6;
   const [tt, dt, providerBreakdown, modelBreakdown, planRow] = await Promise.all([
     safe(env.DB.prepare(
       `SELECT COALESCE(SUM(tokens_input),0) AS tokens_in,
@@ -50,6 +74,7 @@ export async function writeDailySnapshot(env, reason = 'cron') {
     planRow?.id ?? null,
     digestSummary
   ).run().catch(() => { });
+  rowsWritten += 1;
 
   // workspace_usage_metrics
   const _wsId = (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) ? env.WORKSPACE_ID.trim() : null;
@@ -62,9 +87,26 @@ export async function writeDailySnapshot(env, reason = 'cron') {
   ]);
   if (_wsId) {
     await env.DB.prepare("INSERT OR REPLACE INTO workspace_usage_metrics (workspace_id,metric_date,ai_calls,tokens_used,cost_estimate_cents,tool_calls,mcp_calls,deployments_count,rollup_source,updated_at) VALUES (?,date('now'),?,?,?,?,?,?,'daily_cron',unixepoch())").bind(_wsId, _wai?.c || 0, _wai?.t || 0, (_wai?.cost || 0) * 100, _wtc?.c || 0, _wmc?.c || 0, _wdc?.c || 0).run().catch(() => { });
+    rowsWritten += 1;
   }
 
   // agentsam_health_daily
   const _hs = await env.DB.prepare("SELECT COUNT(*) as total,SUM(CASE WHEN health_status='green' THEN 1 ELSE 0 END) as g,SUM(CASE WHEN health_status='yellow' THEN 1 ELSE 0 END) as y,SUM(CASE WHEN health_status='red' THEN 1 ELSE 0 END) as r,ROUND(AVG(tools_degraded),2) as ad,ROUND(AVG(tel_cost_24h),6) as ac FROM system_health_snapshots WHERE snapshot_at>=unixepoch('now','start of day')").first().catch(() => null);
-  if (_hs?.total > 0) await env.DB.prepare("INSERT OR REPLACE INTO agentsam_health_daily (tenant_id,day,snapshot_count,green_count,yellow_count,red_count,avg_tools_degraded,avg_tel_cost_24h,health_status) VALUES (?,date('now'),?,?,?,?,?,?,CASE WHEN ?>0 THEN 'red' WHEN ?>0 THEN 'yellow' ELSE 'green' END)").bind(_tid, _hs.total || 0, _hs.g || 0, _hs.y || 0, _hs.r || 0, _hs.ad || 0, _hs.ac || 0, _hs.r || 0, _hs.y || 0).run().catch(() => { });
+  rowsRead += 1;
+  if (_hs?.total > 0) {
+    await env.DB.prepare("INSERT OR REPLACE INTO agentsam_health_daily (tenant_id,day,snapshot_count,green_count,yellow_count,red_count,avg_tools_degraded,avg_tel_cost_24h,health_status) VALUES (?,date('now'),?,?,?,?,?,?,CASE WHEN ?>0 THEN 'red' WHEN ?>0 THEN 'yellow' ELSE 'green' END)").bind(_tid, _hs.total || 0, _hs.g || 0, _hs.y || 0, _hs.r || 0, _hs.ad || 0, _hs.ac || 0, _hs.r || 0, _hs.y || 0).run().catch(() => { });
+    rowsWritten += 1;
+  }
+
+  if (runId) {
+    await completeCronRun(env, runId, startedAt, {
+      rowsRead,
+      rowsWritten,
+      metadata: { reason: String(reason) },
+    });
+  }
+  } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
+    console.warn('[writeDailySnapshot]', e?.message ?? e);
+  }
 }

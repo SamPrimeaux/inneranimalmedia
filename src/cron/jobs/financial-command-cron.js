@@ -1,14 +1,25 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { cronTenantId } from '../cron-tenant.js';
 import { notifySam } from '../notify-sam.js';
 
 /** Daily 09:00 UTC: compare spend_ledger today vs ai_guardrails metadata daily budget; email if over. */
 export async function runFinancialCommandCron(env, ctx) {
   if (!env.DB) return;
+  const begun = await startCronRun(env, {
+    jobName: 'financial_command_daily',
+    cronExpression: '0 9 * * *',
+    tenantId: cronTenantId(env),
+    workspaceId: null,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+  let rowsRead = 0;
   let dailyBudgetUsd = 50;
   try {
     const { results } = await env.DB.prepare(
       `SELECT metadata FROM ai_guardrails WHERE is_active = 1 ORDER BY priority DESC LIMIT 10`,
     ).all();
+    rowsRead += 1;
     for (const row of results || []) {
       if (!row?.metadata) continue;
       try {
@@ -28,7 +39,10 @@ export async function runFinancialCommandCron(env, ctx) {
   }
   try {
     const finTid = cronTenantId(env);
-    if (!finTid) return;
+    if (!finTid) {
+      if (runId) await completeCronRun(env, runId, startedAt, { rowsRead, rowsWritten: 0, metadata: { skip: 'no_tenant' } });
+      return;
+    }
     const row = await env.DB.prepare(
       `SELECT COALESCE(SUM(amount_usd), 0) AS total FROM spend_ledger
        WHERE tenant_id = ?
@@ -36,6 +50,7 @@ export async function runFinancialCommandCron(env, ctx) {
     )
       .bind(finTid)
       .first();
+    rowsRead += 1;
     const total = Number(row?.total ?? 0);
     if (total > dailyBudgetUsd) {
       notifySam(
@@ -48,7 +63,15 @@ export async function runFinancialCommandCron(env, ctx) {
         ctx,
       );
     }
+    if (runId) {
+      await completeCronRun(env, runId, startedAt, {
+        rowsRead,
+        rowsWritten: 0,
+        metadata: { dailyBudgetUsd, spendToday: total, alerted: total > dailyBudgetUsd },
+      });
+    }
   } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
     console.warn('[cron] runFinancialCommandCron', e?.message ?? e);
   }
 }

@@ -1,8 +1,22 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
+
 export async function runSpendLedgerRollup(env) {
   if (!env?.DB) return;
+  const begun = await startCronRun(env, {
+    jobName: 'spend_ledger_monthly_rollup',
+    cronExpression: '0 0 1 * *',
+    tenantId: null,
+    workspaceId: null,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+  let rowsRead = 0;
+  let rowsWritten = 0;
+
   const now = Math.floor(Date.now() / 1000);
   const currentMonth = new Date().toISOString().slice(0, 7);
 
+  try {
   const { results: months = [] } = await env.DB.prepare(
     `SELECT
       tenant_id, workspace_id, brand_id, provider, provider_slug,
@@ -15,9 +29,11 @@ export async function runSpendLedgerRollup(env) {
     WHERE strftime('%Y-%m', occurred_at, 'unixepoch') < ?
     GROUP BY tenant_id, provider, month`
   ).bind(currentMonth).all();
+  rowsRead += 1;
 
   if (!months.length) {
     console.log('[rollup] No completed months to roll up.');
+    if (runId) await completeCronRun(env, runId, startedAt, { rowsRead, rowsWritten: 0, metadata: { skipped: 'no_rows' } });
     return;
   }
 
@@ -49,6 +65,7 @@ export async function runSpendLedgerRollup(env) {
       now,
       now
     ).run();
+    rowsWritten += 1;
   }
 
   await env.DB.prepare(
@@ -56,12 +73,25 @@ export async function runSpendLedgerRollup(env) {
     WHERE strftime('%Y-%m', occurred_at, 'unixepoch') < ?
       AND source = 'api_direct'`
   ).bind(currentMonth).run();
+  rowsWritten += 1;
 
   await env.DB.prepare(
     `UPDATE spend_ledger_monthly_rollup
      SET source_deleted = 1, updated_at = ?
      WHERE month < ?`
   ).bind(now, currentMonth).run();
+  rowsWritten += 1;
 
   console.log(`[rollup] Completed. ${months.length} provider/month combos rolled up.`);
+  if (runId) {
+    await completeCronRun(env, runId, startedAt, {
+      rowsRead,
+      rowsWritten,
+      metadata: { months: months.length },
+    });
+  }
+  } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
+    console.warn('[rollup] runSpendLedgerRollup', e?.message ?? e);
+  }
 }

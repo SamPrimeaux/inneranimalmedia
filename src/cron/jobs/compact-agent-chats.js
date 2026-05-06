@@ -1,3 +1,5 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
+
 const RAG_COMPACT_MAX_MSG_CHARS = 800;
 const RAG_COMPACT_HOURS = 48;
 
@@ -5,6 +7,14 @@ export async function compactAgentChatsToR2(env) {
   if (!env.DB || !env.R2) {
     return { conversations: 0, messages: 0, key: '', error: 'DB or R2 missing' };
   }
+  const begun = await startCronRun(env, {
+    jobName: 'compact_agent_chats_r2',
+    cronExpression: '0 6 * * *',
+    tenantId: null,
+    workspaceId: null,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
   const cutoff = Math.floor(Date.now() / 1000) - (RAG_COMPACT_HOURS * 3600);
   let rows = [];
   try {
@@ -16,6 +26,7 @@ export async function compactAgentChatsToR2(env) {
     ).bind(cutoff).all();
     rows = out?.results || [];
   } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
     return { conversations: 0, messages: 0, key: '', error: String(e?.message || e) };
   }
   const byConv = new Map();
@@ -72,6 +83,7 @@ export async function compactAgentChatsToR2(env) {
   try {
     await env.R2.put(key, markdown, { httpMetadata: { contentType: 'text/markdown' } });
   } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
     return { conversations: byConv.size, messages: rows.length, key: '', error: String(e?.message || e) };
   }
   // Archive each conversation as full JSONL to R2, then delete from D1
@@ -99,5 +111,12 @@ export async function compactAgentChatsToR2(env) {
     }
   }
   console.log(`[compact] archived ${convIds.length} conversations, deleted ${deleted} messages from D1`);
+  if (runId) {
+    await completeCronRun(env, runId, startedAt, {
+      rowsRead: rows.length,
+      rowsWritten: deleted,
+      metadata: { key, conversations: byConv.size },
+    });
+  }
   return { conversations: byConv.size, messages: rows.length, key, deleted };
 }

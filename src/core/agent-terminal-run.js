@@ -11,7 +11,7 @@ import {
 import { selectAgentsamMcpToolRow } from './agentsam-mcp-tools.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { runTerminalCommand } from './terminal.js';
-import { recordMcpToolExecution } from './mcp-tool-execution.js';
+import { scheduleRecordMcpToolExecution } from './mcp-tool-execution.js';
 
 function isLikelySafeShellCommand(cmd) {
   const c = String(cmd || '').trim();
@@ -24,26 +24,43 @@ function isLikelySafeShellCommand(cmd) {
   );
 }
 
-async function logToolCall(env, tenantId, sessionId, userId, toolName, status, durationMs, errMsg) {
+function scheduleTerminalToolCallLog(env, ctx, params) {
   if (!env?.DB) return;
-  try {
-    await env.DB.prepare(
+  const {
+    tenantId,
+    sessionId,
+    userId,
+    workspaceId,
+    toolName,
+    status,
+    durationMs,
+    errorMessage,
+    inputSummary,
+  } = params;
+  const p = env.DB
+    .prepare(
       `INSERT INTO agentsam_tool_call_log
-       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id)
-       VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?)`,
+       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
-      .bind(
-        tenantId != null ? String(tenantId) : 'system',
-        sessionId ?? null,
-        String(toolName || 'terminal_run'),
-        status === 'success' ? 'success' : 'error',
-        Math.max(0, Math.floor(Number(durationMs) || 0)),
-        userId ?? null,
-      )
-      .run();
-  } catch (e) {
-    console.warn('[agent-terminal-run tool_call_log]', e?.message ?? e);
-  }
+    .bind(
+      tenantId != null ? String(tenantId) : 'system',
+      sessionId ?? null,
+      String(toolName || 'terminal_run'),
+      status === 'success' ? 'success' : 'error',
+      Math.max(0, Math.floor(Number(durationMs) || 0)),
+      0,
+      0,
+      0,
+      userId ?? null,
+      workspaceId ?? null,
+      errorMessage != null ? String(errorMessage).slice(0, 8000) : null,
+      String(inputSummary ?? '').slice(0, 200),
+    )
+    .run()
+    .catch((e) => console.warn('[agent-terminal-run tool_call_log]', e?.message ?? e));
+  if (ctx?.waitUntil) ctx.waitUntil(p);
+  else void p;
 }
 
 /**
@@ -180,12 +197,11 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       ).run();
     } catch (_) {}
 
-    await recordMcpToolExecution(env, {
+    scheduleRecordMcpToolExecution(env, ctx, {
       tenant_id: tenantId,
       workspace_id: targetWorkspace,
       session_id: sessionId,
       tool_name: 'terminal_run',
-      tool_category: 'terminal',
       input_json: JSON.stringify({ command: runCommand, workspace_id: targetWorkspace }),
       output_json: execErr ? null : JSON.stringify({ output: output.slice(0, 8000) }),
       success: !execErr,
@@ -196,7 +212,17 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       status: execErr ? 'error' : 'completed',
     });
 
-    await logToolCall(env, tenantId, sessionId, uid, 'terminal_run', execErr ? 'error' : 'success', durationMs, execErr);
+    scheduleTerminalToolCallLog(env, ctx, {
+      tenantId,
+      sessionId,
+      userId: uid,
+      workspaceId: targetWorkspace,
+      toolName: 'terminal_run',
+      status: execErr ? 'error' : 'success',
+      durationMs,
+      errorMessage: execErr ? String(execErr.message || execErr) : null,
+      inputSummary: String(runCommand).slice(0, 200),
+    });
   }
 
   if (execErr) {

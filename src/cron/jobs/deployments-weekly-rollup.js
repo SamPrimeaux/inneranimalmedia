@@ -1,8 +1,20 @@
+import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
+
 export async function runDeploymentsWeeklyRollup(env) {
   if (!env?.DB) return;
+  const tid =
+    typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : 'system';
+  const begun = await startCronRun(env, {
+    jobName: 'deployments_weekly_rollup',
+    cronExpression: '10 0 * * 1',
+    tenantId: tid === 'system' ? null : tid,
+    workspaceId: null,
+  });
+  const runId = begun?.runId ?? null;
+  const startedAt = begun?.startedAt ?? Date.now();
+  let rowsRead = 0;
+  let rowsWritten = 0;
   try {
-    const tid =
-      (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : 'system';
     const systemActor =
       (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ? env.SYSTEM_ACTOR_ID.trim() : null;
     const now = new Date();
@@ -23,7 +35,8 @@ export async function runDeploymentsWeeklyRollup(env) {
       FROM deployments
       WHERE datetime(timestamp) >= datetime(?)
         AND datetime(timestamp) < datetime(?)
-    `).bind(weekStart, weekEnd).first().catch(() => null);
+    `    ).bind(weekStart, weekEnd).first().catch(() => null);
+    rowsRead += 1;
     const workers = await env.DB.prepare(`
       SELECT worker_name, COUNT(*) AS c
       FROM deployments
@@ -32,7 +45,8 @@ export async function runDeploymentsWeeklyRollup(env) {
       GROUP BY worker_name
       ORDER BY c DESC
       LIMIT 25
-    `).bind(weekStart, weekEnd).all().catch(() => ({ results: [] }));
+    `    ).bind(weekStart, weekEnd).all().catch(() => ({ results: [] }));
+    rowsRead += 1;
     const workersJson = JSON.stringify(Object.fromEntries((workers.results || []).map(r => [r.worker_name || 'unknown', Number(r.c) || 0])));
     const topTrig = await env.DB.prepare(`
       SELECT triggered_by, COUNT(*) AS c
@@ -42,7 +56,8 @@ export async function runDeploymentsWeeklyRollup(env) {
       GROUP BY triggered_by
       ORDER BY c DESC
       LIMIT 1
-    `).bind(weekStart, weekEnd).first().catch(() => null);
+    `    ).bind(weekStart, weekEnd).first().catch(() => null);
+    rowsRead += 1;
     const totalDeploys = Number(stats?.total) || 0;
     const totalDurationMs = Number(stats?.total_duration_ms) || 0;
     const avgDurationMs = totalDeploys > 0 ? (totalDurationMs / totalDeploys) : 0;
@@ -65,6 +80,7 @@ export async function runDeploymentsWeeklyRollup(env) {
       topTrig?.triggered_by != null ? String(topTrig.triggered_by) : null,
       `auto rollup ${weekStart}..${weekEnd}`
     ).run().catch(() => { });
+    rowsWritten += 1;
 
     // Always log for analysis, even if rollup table doesn't exist
     await env.DB.prepare(
@@ -77,7 +93,16 @@ export async function runDeploymentsWeeklyRollup(env) {
       `total=${totalDeploys} success=${Number(stats?.success) || 0} failed=${Number(stats?.failed) || 0} workers=${workers.results?.length || 0} top_triggered_by=${topTrig?.triggered_by || 'n/a'}`
       , systemActor
     ).run().catch(() => { });
+    rowsWritten += 1;
+    if (runId) {
+      await completeCronRun(env, runId, startedAt, {
+        rowsRead,
+        rowsWritten,
+        metadata: { weekStart, weekEnd, totalDeploys },
+      });
+    }
   } catch (e) {
+    if (runId) await failCronRun(env, runId, startedAt, e);
     await env.DB.prepare(
       `INSERT INTO agentsam_tool_call_log
         (tenant_id, tool_name, status, error_message, tool_category, user_id)
