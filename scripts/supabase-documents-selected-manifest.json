@@ -1,0 +1,6 @@
+{
+  "comment": "Controlled list of repo markdown files ingested as source repo:selected (not whole-repo scan).",
+  "paths": [
+    "docs/SUPABASE_AI_ASSISTANT_AND_AUTORAG_PLAYBOOK.md"
+  ]
+}

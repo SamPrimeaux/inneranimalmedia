@@ -310,7 +310,10 @@ try {
 
   console.log('All ingest complete.');
   console.log(
-    `Summary — docs:route-map: ${nRoute} | docs:d1-schema: ${nSchema} | d1:commands: ${nCmd} | d1:rules: ${nRules} | d1:sam_prompts: ${nPrompts}`
+    `Summary — docs:route-map: ${nRoute} | d1:commands: ${nCmd} | d1:rules: ${nRules} | d1:sam_prompts: ${nPrompts}`
+  );
+  console.log(
+    'Tip: for deterministic chunks + dry-run, use node scripts/reingest-supabase-documents.mjs --dry-run'
   );
 } finally {
   await client.end().catch(() => {});

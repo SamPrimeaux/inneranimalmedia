@@ -61,6 +61,39 @@ rclone sync "$REPO_ROOT/$DIST" \
   --progress
 echo "→ R2 sync complete"
 
+# R2 inventory: manifest + D1 upsert + stale marking (no object deletes — use npm run r2:prune:dry-run separately)
+DEPLOY_ID="${DEPLOY_ID:-deploy_$(date +%s)_$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo local)}"
+export DEPLOY_ID
+if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1; then
+  echo "→ R2 deploy manifest + inventory reconcile (no R2 deletes; prune remains manual)"
+  node "$REPO_ROOT/scripts/build-r2-deploy-manifest.mjs" \
+    --dist "$REPO_ROOT/$DIST" \
+    --bucket "$BUCKET" \
+    --prefix "$PREFIX" \
+    --deploy-id "$DEPLOY_ID" \
+    --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
+    --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
+    --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
+    || echo "⚠️  build-r2-deploy-manifest failed (non-fatal)"
+  node "$REPO_ROOT/scripts/inventory-r2-bucket.mjs" \
+    --bucket "$BUCKET" \
+    --upsert-d1 \
+    --deploy-id "$DEPLOY_ID" \
+    --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
+    --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
+    --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
+    || echo "⚠️  inventory-r2-bucket failed (non-fatal)"
+  node "$REPO_ROOT/scripts/reconcile-r2-deploy.mjs" \
+    --manifest "$REPO_ROOT/analytics/deploys/$DEPLOY_ID/r2-manifest.json" \
+    --bucket "$BUCKET" \
+    --deploy-id "$DEPLOY_ID" \
+    --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
+    --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
+    --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
+    --apply-stale \
+    || echo "⚠️  reconcile-r2-deploy failed (non-fatal)"
+fi
+
 echo "→ Deploying worker..."
 DEPLOY_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 DEPLOY_START_EPOCH=$(date +%s)

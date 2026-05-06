@@ -39,3 +39,9 @@ promote-deploy-root-from-child.sh
 
 # local-only runtime
 .tmp/
+
+# Generated deploy manifests (local analytics — do not commit)
+analytics/deploys/
+
+# R2 asset URL dumps (local inventory exports)
+*-r2-asset-urls.txt

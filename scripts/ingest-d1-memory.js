@@ -30,6 +30,7 @@ try {
 import { execFileSync, execSync } from 'child_process';
 import pathMod from 'path';
 import pg from 'pg';
+import { serializeAgentsamGuardrailContent } from './lib/agentsam-guardrails-ingest.mjs';
 
 const root = pathMod.join(__dirname, '..');
 
@@ -37,6 +38,8 @@ const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || 'ede6590ac0d2fb7daf155b3
 const MODEL = '@cf/baai/bge-large-en-v1.5';
 const EMBED_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/run/${MODEL}`;
 const PROJECT_ID = process.env.DOCUMENTS_PROJECT_ID || 'inneranimalmedia';
+const WORKSPACE_ID = process.env.WORKSPACE_ID || 'ws_inneranimalmedia';
+const TENANT_ID_ENV = process.env.TENANT_ID || 'tenant_sam_primeaux';
 const DELAY_MS = Number(process.env.INGEST_DELAY_MS || 150);
 
 const token = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
@@ -179,14 +182,26 @@ try {
     return { title: key, content };
   });
 
-  const gr = runD1Sql(
-    `SELECT name, slug, rules, category FROM ai_guardrails WHERE is_active = 1`
-  );
-  const n2 = await ingestRows(client, 'ai_guardrails', 'd1:guardrails', gr, (r) => {
-    const slug = String(r.slug ?? '');
-    const rules = String(r.rules ?? '');
-    return { title: slug, content: rules };
-  });
+  let grRows = [];
+  try {
+    const tid = escapeSqlLiteral(TENANT_ID_ENV);
+    const ws = escapeSqlLiteral(WORKSPACE_ID);
+    grRows = runD1Sql(
+      `SELECT g.id, g.guardrail_key, g.title, g.description, g.category, g.severity, g.action, g.scope, g.applies_to, g.matcher_json, g.policy_json, g.metadata_json, g.tenant_id, g.workspace_id, g.ruleset_id FROM agentsam_guardrails g WHERE COALESCE(g.is_active, 1) = 1 AND (((g.tenant_id IS NULL OR g.tenant_id = '') AND (g.workspace_id IS NULL OR g.workspace_id = '')) OR (g.tenant_id = '${tid}' AND (g.workspace_id IS NULL OR g.workspace_id = '' OR g.workspace_id = '${ws}')))`,
+    );
+  } catch (e) {
+    console.warn('[ingest-d1-memory] agentsam_guardrails skipped:', String(e.message || e).slice(0, 200));
+  }
+  let n2 = 0;
+  if (grRows.length) {
+    n2 = await ingestRows(client, 'agentsam_guardrails', 'd1:guardrails', grRows, (r) => {
+      const content = serializeAgentsamGuardrailContent(r);
+      const title = String(r.title || r.guardrail_key || r.id || 'guardrail');
+      return { title, content };
+    });
+  } else {
+    console.log('[ingest-d1-memory] d1:guardrails: no rows from agentsam_guardrails — skipping replace');
+  }
 
   const ar = runD1Sql(
     `SELECT rule_key, content, category, scope, severity FROM agent_rules WHERE is_active = 1`
