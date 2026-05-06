@@ -6,8 +6,7 @@ import { runIntegritySnapshot } from '../api/integrity';
 import { runMidnightUtcJobs, scheduleOneAmMaintenance } from './jobs/midnight-utc.js';
 import { runFinancialCommandCron } from './jobs/financial-command-cron.js';
 import { sendDailyPlanEmail } from './jobs/daily-plan-email.js';
-import { runDeploymentsWeeklyRollup } from './jobs/deployments-weekly-rollup.js';
-import { runAgentsamWebhookWeeklyRollup } from './jobs/agentsam-webhook-weekly-rollup.js';
+import { runWeeklyRollup } from './jobs/weekly-rollup.js';
 import { runSpendLedgerRollup } from './jobs/spend-ledger-rollup.js';
 import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
@@ -62,10 +61,9 @@ export async function handleScheduled(event, env, ctx) {
       );
       break;
 
-    case '10 0 * * 1':
+    case '0 1 * * 0':
       if (env?.DB) {
-        ctx.waitUntil(runDeploymentsWeeklyRollup(env));
-        ctx.waitUntil(runAgentsamWebhookWeeklyRollup(env));
+        ctx.waitUntil(runWeeklyRollup(env));
       }
       break;
 
