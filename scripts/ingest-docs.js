@@ -24,13 +24,29 @@
  * Usage:
  *   ./scripts/with-cloudflare-env.sh npm run ingest:docs
  */
-import { execFileSync } from 'child_process';
-import fs from 'fs';
-import pathMod from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = resolve(__dirname, '../.env.cloudflare');
+try {
+  const lines = readFileSync(envPath, 'utf8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+} catch { /* file may not exist in CI */ }
+
+import { execFileSync } from 'child_process';
+import pathMod from 'path';
 import pg from 'pg';
 
-const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
 const root = pathMod.join(__dirname, '..');
 
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || 'ede6590ac0d2fb7daf155b35653457b2';
@@ -166,11 +182,11 @@ async function ingestD1Rows(client, label, source, rows, buildTitleContent) {
 
 async function ingestFile(client, relPath, sourceLabel) {
   const full = pathMod.join(root, relPath);
-  if (!fs.existsSync(full)) {
+  if (!existsSync(full)) {
     console.error('Missing file:', full);
     process.exit(1);
   }
-  const md = fs.readFileSync(full, 'utf8');
+  const md = readFileSync(full, 'utf8');
   const chunks = splitMarkdownH2(md);
   console.log(`Ingest ${relPath}: ${chunks.length} chunks (source=${sourceLabel})`);
   await clearSource(client, sourceLabel);

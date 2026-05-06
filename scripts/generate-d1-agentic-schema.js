@@ -6,12 +6,29 @@
  * Requires: ./scripts/with-cloudflare-env.sh + wrangler (remote D1).
  * Run: node scripts/generate-d1-agentic-schema.js
  */
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = resolve(__dirname, '../.env.cloudflare');
+try {
+  const lines = readFileSync(envPath, 'utf8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+} catch { /* file may not exist in CI */ }
+
 import fs from 'fs';
 import pathMod from 'path';
-import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 
-const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
 const root = pathMod.join(__dirname, '..');
 const outPath = pathMod.join(root, 'docs', 'd1-agentic-schema.md');
 
