@@ -29,7 +29,14 @@ function normalizeConfigRaw(theme: CmsTheme): string {
 }
 
 async function selectTheme(theme: CmsTheme, workspaceId: string | null | undefined): Promise<void> {
-  const preview = await fetch('/api/themes/active', { credentials: 'same-origin' })
+  if (!workspaceId?.trim()) {
+    console.error('[ThemeSwitcher] no workspaceId — cannot apply theme');
+    return;
+  }
+
+  const ws = workspaceId.trim();
+  const rollbackUrl = `/api/themes/active?workspace_id=${encodeURIComponent(ws)}`;
+  const preview = await fetch(rollbackUrl, { credentials: 'include' })
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null);
 
@@ -51,12 +58,11 @@ async function selectTheme(theme: CmsTheme, workspaceId: string | null | undefin
     /* optimistic apply skipped */
   }
 
-  const ws = workspaceId?.trim();
   const body: Record<string, unknown> = {
     theme_id: theme.id,
     scope: 'workspace',
+    workspace_id: ws,
   };
-  if (ws) body.workspace_id = ws;
 
   const res = await fetch('/api/themes/apply', {
     method: 'POST',
