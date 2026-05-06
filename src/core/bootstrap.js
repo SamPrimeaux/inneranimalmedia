@@ -5,6 +5,8 @@ import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin } from './auth.
 import { resolveIamActorContext } from './identity.js';
 
 export const WORKSPACE_CONTEXT_MISSING = 'WORKSPACE_CONTEXT_MISSING';
+/** workspace_settings.workspace_root missing or invalid for the resolved workspace id */
+export const WORKSPACE_ROOT_CONTEXT_MISSING = 'WORKSPACE_ROOT_CONTEXT_MISSING';
 
 function trim(s) {
   if (s == null) return '';

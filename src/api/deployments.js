@@ -3,7 +3,7 @@
  * Handles deployment logs, recent deployment history, and internal CI/CD synchronization.
  * Deconstructed from legacy worker.js.
  */
-import { getAuthUser, jsonResponse, isIngestSecretAuthorized } from '../core/auth.js';
+import { getAuthUser, jsonResponse, isIngestSecretAuthorized, verifyInternalApiSecret } from '../core/auth.js';
 
 /**
  * Mirror deployment outcome to the CI/CD pipeline runs table for historical audit.
@@ -49,6 +49,11 @@ export async function handleDeploymentsApi(request, url, env, ctx) {
     const method = request.method.toUpperCase();
 
     if (pathLower === '/api/internal/git-status' && method === 'GET') {
+      const internalOk = verifyInternalApiSecret(request, env);
+      if (!internalOk) {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      }
       return handleGitStatusRequest(request, env, ctx);
     }
 

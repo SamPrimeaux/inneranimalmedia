@@ -4,7 +4,12 @@
  * Deconstructed from legacy worker.js.
  */
 import { getAuthUser, fetchAuthUserTenantId } from './auth';
-import { resolveTerminalWorkspaceId, WORKSPACE_CONTEXT_MISSING, resolveTenantIdForWorkspace } from './bootstrap.js';
+import {
+  resolveTerminalWorkspaceId,
+  WORKSPACE_CONTEXT_MISSING,
+  WORKSPACE_ROOT_CONTEXT_MISSING,
+  resolveTenantIdForWorkspace,
+} from './bootstrap.js';
 import { notifySam } from './notifications';
 
 /**
@@ -289,14 +294,37 @@ export async function runTerminalCommand(env, request, command, sessionId = null
   return { output: cleanOutput, command: cmd, exitCode };
 }
 
-export async function resolveIamWorkspaceRoot(env) {
+/**
+ * Resolve filesystem root for IAM git/terminal from D1 workspace_settings.workspace_root.
+ *
+ * @param {any} env
+ * @param {{ workspaceId?: string|null, allowPlatformFallback?: boolean }} [opts]
+ */
+export async function resolveIamWorkspaceRoot(env, opts = {}) {
   if (!env?.DB) throw new Error('DB not configured');
 
-  const wid =
-    env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-      ? String(env.DEFAULT_WORKSPACE_ID).trim()
-      : null;
-  if (!wid) throw new Error('DEFAULT_WORKSPACE_ID not configured');
+  const allowPlatformFallback = opts.allowPlatformFallback === true;
+  let wid = String(opts.workspaceId || '').trim();
+
+  if (!wid) {
+    if (allowPlatformFallback) {
+      const plat =
+        env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+          ? String(env.DEFAULT_WORKSPACE_ID).trim()
+          : '';
+      if (plat) {
+        console.warn(
+          '[resolveIamWorkspaceRoot] platform-scoped: using env.DEFAULT_WORKSPACE_ID (allowPlatformFallback=true)',
+        );
+        wid = plat;
+      }
+    }
+  }
+
+  if (!wid) {
+    throw new Error(WORKSPACE_CONTEXT_MISSING);
+  }
+
   const workspaceSettingsRow = await env.DB
     .prepare('SELECT settings_json FROM workspace_settings WHERE workspace_id = ?')
     .bind(wid)
@@ -311,7 +339,7 @@ export async function resolveIamWorkspaceRoot(env) {
     } catch (_) {}
   }
 
-  throw new Error('workspace_root_missing_in_d1');
+  throw new Error(WORKSPACE_ROOT_CONTEXT_MISSING);
 }
 
 export async function resolveTerminalSessionIdForHistory(env, request) {
