@@ -1506,7 +1506,7 @@ export async function handleSettingsRequest(request, env, ctx) {
           .bind(workspaceId || '')
           .all()
           .catch(() => ({ results: [] })),
-        env.DB.prepare(`SELECT * FROM agentsam_routing_arms ORDER BY priority`)
+        env.DB.prepare(`SELECT * FROM agentsam_routing_arms ORDER BY task_type, mode`)
           .all()
           .catch(() => ({ results: [] })),
       ]);
