@@ -122,7 +122,11 @@ export async function handleGithubWebhook(request, env, ctx) {
 
   const eventType = request.headers.get('X-GitHub-Event') || 'unknown';
   const deliveryId = request.headers.get('X-GitHub-Delivery') || null;
-  const tenantId = 'tenant_sam_primeaux';
+  // Unauthenticated/system inbound webhook: tenant is configured by env (never hardcode a personal tenant id).
+  const tenantId =
+    (typeof env?.GITHUB_WEBHOOK_TENANT_ID === 'string' && env.GITHUB_WEBHOOK_TENANT_ID.trim()) ||
+    (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ||
+    'system';
   const repoFullName = repoFromPayload(payload);
   const branch = branchFromPayload(payload);
   const commitSha = shaFromPayload(payload);

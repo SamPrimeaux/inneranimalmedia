@@ -5,7 +5,7 @@
  */
 import { verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
 
-const MEET_URL = 'https://inneranimalmedia.com/dashboard/meet?room=iam-sam-connor-live';
+const DEFAULT_MEET_URL = 'https://inneranimalmedia.com/dashboard/meet';
 
 function deployEmailHtml(meetUrl) {
   return `
@@ -26,7 +26,8 @@ function deployEmailHtml(meetUrl) {
 async function sendResendEmail(env, { to, subject, html }) {
   const key = env.RESEND_API_KEY;
   if (!key) throw new Error('RESEND_API_KEY not configured');
-  const from = env.EMAIL_FROM || 'Inner Animal Media <support@inneranimalmedia.com>';
+  const from = typeof env.EMAIL_FROM === 'string' && env.EMAIL_FROM.trim() ? env.EMAIL_FROM.trim() : '';
+  if (!from) throw new Error('EMAIL_FROM not configured');
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -58,7 +59,8 @@ export async function handleNotifyDeployComplete(request, env, ctx) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  const meetUrl = MEET_URL;
+  const meetUrl =
+    (typeof env?.MEET_URL === 'string' && env.MEET_URL.trim()) ? env.MEET_URL.trim() : DEFAULT_MEET_URL;
   const html = deployEmailHtml(meetUrl);
   const recipients = parseNotifyRecipients(env);
 

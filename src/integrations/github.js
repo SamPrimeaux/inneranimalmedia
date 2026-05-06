@@ -265,7 +265,15 @@ export async function githubCommitHandshake(env, authUser, repo, opts) {
     tree: treeData.sha,
     parents: [latestSha],
     ...(opts.committer && {
-      committer: { name: opts.committer, email: 'support@inneranimalmedia.com' },
+      committer: {
+        name: opts.committer,
+        email:
+          (typeof opts.committerEmail === 'string' && opts.committerEmail.trim()) ||
+          (typeof env?.GITHUB_COMMITTER_EMAIL === 'string' && env.GITHUB_COMMITTER_EMAIL.trim()) ||
+          (typeof env?.EMAIL_FROM === 'string' && env.EMAIL_FROM.includes('<') ? env.EMAIL_FROM.split('<')[1].split('>')[0].trim() : '') ||
+          (typeof env?.RESEND_FROM === 'string' && env.RESEND_FROM.includes('<') ? env.RESEND_FROM.split('<')[1].split('>')[0].trim() : '') ||
+          undefined,
+      },
     }),
   });
 

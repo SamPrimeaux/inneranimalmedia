@@ -1,16 +1,8 @@
 /**
  * agentsam_bootstrap resolution — multi-tenant workspace + bootstrap row selection.
  */
-import {
-  getSession,
-  getAuthUser,
-  fetchAuthUserTenantId,
-  authUserIsSuperadmin,
-} from './auth.js';
+import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin } from './auth.js';
 import { resolveIamActorContext } from './identity.js';
-
-/** Superadmin-only last-resort workspace (Sam / platform ops). Not used for normal tenants. */
-export const IAM_SAM_FALLBACK_WORKSPACE_ID = 'ws_inneranimalmedia';
 
 export const WORKSPACE_CONTEXT_MISSING = 'WORKSPACE_CONTEXT_MISSING';
 
@@ -138,7 +130,9 @@ export async function resolveEffectiveWorkspaceId(env, request, authUser, cache)
   }
 
   if (!workspaceId && authUser && authUserIsSuperadmin(authUser)) {
-    workspaceId = trim(env.WORKSPACE_ID) || IAM_SAM_FALLBACK_WORKSPACE_ID;
+    // Superadmin may operate in an explicitly configured platform workspace ONLY.
+    // Never fallback to a branded literal workspace id at runtime.
+    workspaceId = trim(env.WORKSPACE_ID) || '';
   }
 
   if (!workspaceId) {

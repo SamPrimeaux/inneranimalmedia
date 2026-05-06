@@ -201,7 +201,10 @@ export async function handleEmailApi(request, env) {
     (body?.from != null && String(body.from).trim()) ||
     env.RESEND_FROM ||
     env.GMAIL_FROM ||
-    'Inner Animal Media <support@inneranimalmedia.com>';
+    '';
+  if (!from) {
+    return jsonResponse({ error: 'from required', detail: 'Set RESEND_FROM or provide from in body' }, 400);
+  }
 
   try {
     await sendViaResend(env, { from, to, subject, html, text });

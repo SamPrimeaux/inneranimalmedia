@@ -424,7 +424,7 @@ export default {
             tenantId: identity.tenantId,
             label: label || `${identity.name || 'User'} MCP token`,
             allowedTools: allowedTools || null,
-            rateLimitPerHour: identity.isAdmin ? 10000 : 1000,
+            rateLimitPerHour: identity.isSuperadmin ? 10000 : 1000,
             expiresInDays: expiresInDays || null,
           });
           return jsonResponse({
@@ -446,7 +446,7 @@ export default {
         await env.DB.prepare(`
       UPDATE mcp_workspace_tokens SET is_active = 0
       WHERE id = ? AND (tenant_id = ? OR ? = 1)
-    `).bind(tokenId, identity.tenantId, identity.isAdmin ? 1 : 0).run();
+    `).bind(tokenId, identity.tenantId, identity.isSuperadmin ? 1 : 0).run();
         return jsonResponse({ ok: true });
       }
 
@@ -719,8 +719,12 @@ export default {
       let workspaceId = body?.workspaceId ?? body?.workspace_id;
       const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
       if (isCfSystem) {
-        tenantId = 'tenant_sam_primeaux';
-        workspaceId = 'ws_inneranimalmedia';
+        // Explicitly system-scoped queue messages may use platform env bindings.
+        tenantId = typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : tenantId;
+        workspaceId =
+          typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()
+            ? env.WORKSPACE_ID.trim()
+            : workspaceId;
       }
 
       if (body?.type === 'codebase_index_sync') {

@@ -12,7 +12,8 @@ export async function sendEmail(env, { to, subject, html, text }) {
     }
 
     try {
-        const from = env.EMAIL_FROM || 'Inner Animal Media <support@inneranimalmedia.com>';
+        const from = typeof env.EMAIL_FROM === 'string' && env.EMAIL_FROM.trim() ? env.EMAIL_FROM.trim() : '';
+        if (!from) return { success: false, error: 'EMAIL_FROM not configured' };
         const response = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {

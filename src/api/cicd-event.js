@@ -34,16 +34,19 @@ export async function handleCicdEvent(request, env, ctx) {
 async function handlePostPromote(p, env) {
   const db = env.DB;
   const ts = Math.floor(Date.now() / 1000);
+  const systemActor =
+    (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ||
+    (typeof p?.deployed_by === 'string' && p.deployed_by.trim()) ||
+    'system';
 
   // 1. deployments
   await db.prepare(`
     INSERT OR IGNORE INTO deployments
       (id, timestamp, status, deployed_by, environment, worker_name,
        triggered_by, git_hash, version, deploy_duration_ms, created_at)
-    VALUES (?, datetime('now'), 'success', 'sam_primeaux', 'production',
+    VALUES (?, datetime('now'), 'success', ?, 'production',
             'inneranimalmedia', ?, ?, ?, ?, datetime('now'))
-  `).bind(p.worker_version_id, p.triggered_by, p.git_hash,
-          p.dashboard_version, p.ms_worker).run();
+  `).bind(p.worker_version_id, systemActor, p.triggered_by, p.git_hash, p.dashboard_version, p.ms_worker).run();
 
   // 2. deployment_health_checks
   await db.prepare(`
@@ -108,6 +111,10 @@ async function handlePostPromote(p, env) {
 async function handlePostSandbox(p, env) {
   const db = env.DB;
   const ts = Math.floor(Date.now() / 1000);
+  const systemActor =
+    (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ||
+    (typeof p?.deployed_by === 'string' && p.deployed_by.trim()) ||
+    'system';
   // Use worker_version_id as the deployment id when available (matches post_promote pattern)
   const deployId = p.worker_version_id || `sandbox-${ts}`;
 
@@ -115,9 +122,9 @@ async function handlePostSandbox(p, env) {
   await db.prepare(`
     INSERT OR IGNORE INTO deployments
       (id, timestamp, status, deployed_by, environment, worker_name, git_hash, version, created_at)
-    VALUES (?, datetime('now'), 'success', 'sam_primeaux', 'sandbox',
+    VALUES (?, datetime('now'), 'success', ?, 'sandbox',
             'inneranimal-dashboard', ?, ?, datetime('now'))
-  `).bind(deployId, p.git_hash, p.dashboard_version).run();
+  `).bind(deployId, systemActor, p.git_hash, p.dashboard_version).run();
 
   // 2. deployment_health_checks (was missing from post_sandbox — now wired)
   const hcStatus = parseInt(p.health_status || '0', 10);
@@ -196,12 +203,15 @@ async function handleSessionStart(p, env) {
     p.tenant_id != null && String(p.tenant_id).trim() !== ''
       ? String(p.tenant_id).trim()
       : fallbackSystemTenantId(env);
+  const systemActor =
+    (typeof p?.user_id === 'string' && p.user_id.trim()) ||
+    (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ||
+    null;
   await env.DB.prepare(`
     INSERT INTO project_time_entries
       (id, project_id, tenant_id, user_id, date, hours, description, created_at)
     VALUES (?, 'inneranimalmedia', ?, ?, date('now'), 0, ?, unixepoch())
-  `).bind(entryId, tenantRow, p.user_id || 'sam_primeaux',
-          `Session started — ${p.context || 'agent session'}`).run();
+  `).bind(entryId, tenantRow, systemActor, `Session started — ${p.context || 'agent session'}`).run();
 
   await env.KV.put(`session_time_entry:${p.session_id}`, entryId, { expirationTtl: 86400 });
   return Response.json({ ok: true, entry_id: entryId });
@@ -254,9 +264,9 @@ async function fireHooks(trigger, payload, env, isExplicitId = false) {
       if (cmd === 'notify:imessage' || cmd === 'notify:email') {
         // Deliver via Resend → your email (which forwards to iMessage via email-to-SMS bridge)
         const resendKey = env.RESEND_API_KEY;
-        const to = env.RESEND_TO || 'support@inneranimalmedia.com';
-        const from = env.RESEND_FROM || 'support@inneranimalmedia.com';
-        if (resendKey) {
+        const to = typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim() ? env.RESEND_TO.trim() : '';
+        const from = typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim() ? env.RESEND_FROM.trim() : '';
+        if (resendKey && to && from) {
           const subject = `[IAM] ${env_label} ${ver} — ${health}`;
           const html = `<pre style="font-family:monospace;background:#0f1117;color:#e2e8f0;padding:16px;border-radius:6px;white-space:pre-wrap">${summaryText}</pre>`;
           const resp = await fetch('https://api.resend.com/emails', {
@@ -267,7 +277,7 @@ async function fireHooks(trigger, payload, env, isExplicitId = false) {
           output = `notify:imessage → Resend ${resp.status} (${to})`;
           if (!resp.ok) { status = 'fail'; error = `Resend HTTP ${resp.status}`; }
         } else {
-          output = 'notify:imessage — RESEND_API_KEY not set, skipped';
+          output = 'notify:imessage — RESEND_* not configured, skipped';
         }
 
       } else if (cmd.startsWith('notify:webhook:')) {
@@ -293,12 +303,15 @@ async function fireHooks(trigger, payload, env, isExplicitId = false) {
     }
 
     const executionId = `hke-${hook.id}-${Date.now()}`;
+    const actor =
+      (typeof payload?.user_id === 'string' && payload.user_id.trim()) ||
+      (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ||
+      null;
     await env.DB.prepare(`
       INSERT INTO agentsam_hook_execution
         (id, hook_id, user_id, status, duration_ms, output, error, ran_at)
-      VALUES (?, ?, 'sam_primeaux', ?, ?, ?, ?, datetime('now'))
-    `).bind(executionId, hook.id, status,
-            Date.now() - start, output, error).run();
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).bind(executionId, hook.id, actor, status, Date.now() - start, output, error).run();
 
     // Update hook_subscriptions counters
     await env.DB.prepare(`

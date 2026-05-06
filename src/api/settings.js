@@ -180,14 +180,9 @@ async function mcpFetchJsonRpcPing(env, endpointUrl, headersObj) {
   return { res, latency_ms };
 }
 
-const CORE_WORKSPACES_DATA = [
-  { id: 'ws_inneranimalmedia', name: 'Inner Animal Media', category: 'entity' },
-  { id: 'ws_inneranimal', name: 'InnerAnimal', category: 'entity' },
-  { id: 'ws_meauxbility', name: 'Meauxbility', category: 'entity' },
-  { id: 'ws_innerautodidact', name: 'InnerAutodidact', category: 'entity' },
-];
-
-const CORE_WORKSPACE_IDS = CORE_WORKSPACES_DATA.map(w => w.id);
+// No runtime hardcoded workspace IDs. If the DB is unavailable, settings endpoints should return empty lists.
+const CORE_WORKSPACES_DATA = [];
+const CORE_WORKSPACE_IDS = [];
 
 async function workspaceIdIsAllowed(env, id) {
   if (CORE_WORKSPACE_IDS.includes(id)) return true;
@@ -526,7 +521,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       if (!env.DB) {
         return jsonResponse({
           data: CORE_WORKSPACES_DATA,
-          current: env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia',
+          current: env.DEFAULT_WORKSPACE_ID || null,
           workspaceThemes: {},
           workspaces: {},
         });
@@ -582,12 +577,12 @@ export async function handleSettingsRequest(request, env, ctx) {
           if (r.theme != null && r.theme.trim()) workspaceThemes[r.workspace_id] = r.theme.trim();
         }
         
-        const current = us?.default_workspace_id || env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia';
+        const current = us?.default_workspace_id || env.DEFAULT_WORKSPACE_ID || null;
         return jsonResponse({ data: wsRows.length > 0 ? wsRows : CORE_WORKSPACES_DATA, current, workspaceThemes, workspaces });
       } catch (e) {
         return jsonResponse({
           data: CORE_WORKSPACES_DATA,
-          current: env.DEFAULT_WORKSPACE_ID || 'ws_inneranimalmedia',
+          current: env.DEFAULT_WORKSPACE_ID || null,
           error: e?.message,
         }, 500);
       }

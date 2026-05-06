@@ -74,8 +74,8 @@ export async function runOvernightCronStep(env) {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from: env.RESEND_FROM || 'support@inneranimalmedia.com',
-            to: env.RESEND_TO || 'support@inneranimalmedia.com',
+            from: (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
+            to: (typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim()) ? env.RESEND_TO.trim() : '',
             subject: '🛑 Overnight Pipeline Cancelled',
             html: `<div style="font-family:monospace;background:#0f172a;color:#e2e8f0;padding:32px"><h1 style="color:#f59e0b">Pipeline cancelled by user</h1><p>${nowIso}</p></div>`,
           }),
@@ -103,8 +103,8 @@ export async function runOvernightCronStep(env) {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: env.RESEND_FROM || 'support@inneranimalmedia.com',
-        to: env.RESEND_TO || 'support@inneranimalmedia.com',
+        from: (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
+        to: (typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim()) ? env.RESEND_TO.trim() : '',
         subject: 'time Overnight 30min update -- Inner Animal Media',
         html,
         attachments: attachments.length ? attachments : undefined
@@ -132,8 +132,8 @@ export async function runOvernightCronStep(env) {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: env.RESEND_FROM || 'support@inneranimalmedia.com',
-          to: env.RESEND_TO || 'support@inneranimalmedia.com',
+          from: (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
+          to: (typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim()) ? env.RESEND_TO.trim() : '',
           subject: 'dawn Overnight morning report -- Inner Animal Media',
           html,
           attachments: attachments.length ? attachments : undefined
@@ -156,8 +156,8 @@ export async function runOvernightCronStep(env) {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: env.RESEND_FROM || 'support@inneranimalmedia.com',
-        to: env.RESEND_TO || 'support@inneranimalmedia.com',
+        from: (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
+        to: (typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim()) ? env.RESEND_TO.trim() : '',
         subject: `alert Overnight Hour ${nextHour} -- Inner Animal Media`,
         html,
         attachments: attachments.length ? attachments : undefined

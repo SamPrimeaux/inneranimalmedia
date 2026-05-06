@@ -11,7 +11,8 @@ export async function notifySam(env, opts, executionCtx) {
   const bodyRaw = String(opts.body || '').trim();
   const category = String(opts.category || 'notice').trim();
   const toAddr = opts.to || env.RESEND_TO || '';
-  const fromAddr = env.RESEND_FROM || 'support@inneranimalmedia.com';
+  const fromAddr = typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim() ? env.RESEND_FROM.trim() : '';
+  if (!fromAddr) return null;
   const prefix = subjectRaw.startsWith('[Agent Sam]') ? '' : '[Agent Sam] ';
   let subject = `${prefix}${subjectRaw}`.slice(0, 400);
   const repoPlaceholder =

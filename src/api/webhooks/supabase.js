@@ -50,7 +50,7 @@ export async function handleSupabaseWebhook(request, env, ctx) {
            (id, tenant_id, provider, event_type, payload_json, status, endpoint_id, source, received_at)
            VALUES (
              'whe_' || lower(hex(randomblob(8))),
-             'tenant_sam_primeaux',
+             ?,
              'supabase',
              ?, ?, 'received',
              'whe_supabase_main',
@@ -58,7 +58,15 @@ export async function handleSupabaseWebhook(request, env, ctx) {
              datetime('now')
            )`,
         )
-          .bind(eventType, payloadJson)
+          .bind(
+            (typeof env?.SUPABASE_WEBHOOK_TENANT_ID === 'string' && env.SUPABASE_WEBHOOK_TENANT_ID.trim())
+              ? env.SUPABASE_WEBHOOK_TENANT_ID.trim()
+              : (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim())
+                ? env.TENANT_ID.trim()
+                : 'system',
+            eventType,
+            payloadJson,
+          )
           .run();
 
         await env.DB.prepare(

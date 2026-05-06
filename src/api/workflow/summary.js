@@ -124,12 +124,14 @@ Deploys: ${deploys?.total||0} (${deploys?.ok||0} ok / ${deploys?.fail||0} failed
 <small style="color:#555">Model: ${modelId} | ${new Date().toISOString()}</small>
 </div>`;
 
-    if (env.RESEND_API_KEY) {
+    const from =
+      typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim() ? env.RESEND_FROM.trim() : '';
+    if (env.RESEND_API_KEY && from) {
       await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Content-Type':'application/json','Authorization':`Bearer ${env.RESEND_API_KEY}` },
         body: JSON.stringify({
-          from: 'Agent Sam <support@inneranimalmedia.com>',
+          from,
           to: [to],
           subject: `[Agent Sam] ${yesterday} — ${aiUsage?.calls||0} AI calls · $${(aiUsage?.cost||0).toFixed(4)} · ${deploys?.total||0} deploys`,
           html,
@@ -148,15 +150,25 @@ Deploys: ${deploys?.total||0} (${deploys?.ok||0} ok / ${deploys?.fail||0} failed
     await env.DB.prepare(`
       INSERT INTO agentsam_tool_call_log
         (tenant_id, tool_name, status, duration_ms, input_summary, output_summary, tool_category, user_id)
-      VALUES (?,'generate_daily_summary_email','success',?,?,?,'workflow','au_871d920d1233cbd1')
-    `).bind(fallbackSystemTenantId(env), ms, `rollup ${yesterday} model:${modelId}`, `calls:${aiUsage?.calls} cost:${aiUsage?.cost?.toFixed(4)}`).run().catch(()=>{});
+      VALUES (?,'generate_daily_summary_email','success',?,?,?,'workflow',?)
+    `).bind(
+      fallbackSystemTenantId(env),
+      ms,
+      `rollup ${yesterday} model:${modelId}`,
+      `calls:${aiUsage?.calls} cost:${aiUsage?.cost?.toFixed(4)}`,
+      (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ? env.SYSTEM_ACTOR_ID.trim() : null,
+    ).run().catch(()=>{});
 
   } catch (err) {
     console.error('[daily-summary]', err?.message ?? err);
     await env.DB.prepare(`
       INSERT INTO agentsam_tool_call_log
         (tenant_id,tool_name,status,error_message,tool_category,user_id)
-      VALUES (?,'generate_daily_summary_email','error',?,'workflow','au_871d920d1233cbd1')
-    `).bind(fallbackSystemTenantId(env), err?.message ?? String(err)).run().catch(()=>{});
+      VALUES (?,'generate_daily_summary_email','error',?,'workflow',?)
+    `).bind(
+      fallbackSystemTenantId(env),
+      err?.message ?? String(err),
+      (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ? env.SYSTEM_ACTOR_ID.trim() : null,
+    ).run().catch(()=>{});
   }
 }

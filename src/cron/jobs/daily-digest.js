@@ -309,8 +309,9 @@ ${hookHtml}
     `Archived convos: ${archiveStatus?.archived_convos}; D1 messages: ${msgTableSize?.total_msgs}`,
   ].join('\n');
 
-  const toEmail = env.RESEND_TO || 'support@inneranimalmedia.com';
-  if (env.RESEND_API_KEY) {
+  const toEmail = typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim() ? env.RESEND_TO.trim() : '';
+  const fromEmail = typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim() ? env.RESEND_FROM.trim() : '';
+  if (env.RESEND_API_KEY && toEmail && fromEmail) {
     try {
       const subject = `IAM Daily Digest -- ${new Date().toISOString().slice(0, 10)}`;
       const res = await fetch('https://api.resend.com/emails', {
@@ -321,7 +322,7 @@ ${hookHtml}
           'Accept': 'application/json, text/event-stream',
         },
         body: JSON.stringify({
-          from: env.RESEND_FROM || 'support@inneranimalmedia.com',
+          from: fromEmail,
           to: [toEmail],
           subject,
           text: textBody,
@@ -341,7 +342,7 @@ ${hookHtml}
         ).bind(
           crypto.randomUUID(),
           toEmail,
-          env.RESEND_FROM || 'support@inneranimalmedia.com',
+          fromEmail,
           subject,
           resendResult.id ?? null
         ).run().catch(() => { });

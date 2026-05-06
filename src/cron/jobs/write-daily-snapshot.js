@@ -1,5 +1,3 @@
-const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
-
 export async function writeDailySnapshot(env, reason = 'cron') {
   if (!env?.DB) return;
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
@@ -54,15 +52,17 @@ export async function writeDailySnapshot(env, reason = 'cron') {
   ).run().catch(() => { });
 
   // workspace_usage_metrics
-  const _wsId = IAM_DEFAULT_WORKSPACE_ID;
-  const _tid = 'tenant_sam_primeaux';
+  const _wsId = (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) ? env.WORKSPACE_ID.trim() : null;
+  const _tid = (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : 'system';
   const [_wai, _wtc, _wmc, _wdc] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) as c,COALESCE(SUM(tokens_input+tokens_output),0) as t,COALESCE(SUM(cost_estimate),0) as cost FROM agentsam_usage_events WHERE date=date('now')").first().catch(() => null),
     env.DB.prepare("SELECT COUNT(*) as c FROM agentsam_tool_call_log WHERE created_at>=unixepoch('now','start of day')").first().catch(() => null),
     env.DB.prepare("SELECT COUNT(*) as c FROM agentsam_mcp_tool_execution WHERE created_at>=datetime('now','-1 day')").first().catch(() => null),
     env.DB.prepare("SELECT COUNT(*) as c FROM deployment_tracking WHERE created_at>=date('now')").first().catch(() => null),
   ]);
-  await env.DB.prepare("INSERT OR REPLACE INTO workspace_usage_metrics (workspace_id,metric_date,ai_calls,tokens_used,cost_estimate_cents,tool_calls,mcp_calls,deployments_count,rollup_source,updated_at) VALUES (?,date('now'),?,?,?,?,?,?,'daily_cron',unixepoch())").bind(_wsId, _wai?.c || 0, _wai?.t || 0, (_wai?.cost || 0) * 100, _wtc?.c || 0, _wmc?.c || 0, _wdc?.c || 0).run().catch(() => { });
+  if (_wsId) {
+    await env.DB.prepare("INSERT OR REPLACE INTO workspace_usage_metrics (workspace_id,metric_date,ai_calls,tokens_used,cost_estimate_cents,tool_calls,mcp_calls,deployments_count,rollup_source,updated_at) VALUES (?,date('now'),?,?,?,?,?,?,'daily_cron',unixepoch())").bind(_wsId, _wai?.c || 0, _wai?.t || 0, (_wai?.cost || 0) * 100, _wtc?.c || 0, _wmc?.c || 0, _wdc?.c || 0).run().catch(() => { });
+  }
 
   // agentsam_health_daily
   const _hs = await env.DB.prepare("SELECT COUNT(*) as total,SUM(CASE WHEN health_status='green' THEN 1 ELSE 0 END) as g,SUM(CASE WHEN health_status='yellow' THEN 1 ELSE 0 END) as y,SUM(CASE WHEN health_status='red' THEN 1 ELSE 0 END) as r,ROUND(AVG(tools_degraded),2) as ad,ROUND(AVG(tel_cost_24h),6) as ac FROM system_health_snapshots WHERE snapshot_at>=unixepoch('now','start of day')").first().catch(() => null);

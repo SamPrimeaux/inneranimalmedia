@@ -517,7 +517,7 @@ async function handleInvite(request, env, roomId) {
       'Content-Type':  'application/json',
     },
     body: JSON.stringify({
-      from:    `Inner Animal Media <${env.RESEND_FROM || 'support@inneranimalmedia.com'}>`,
+      from:    (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
       to:      [email],
       subject: `You've been invited to ${meetingName}`,
       html: `

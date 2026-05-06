@@ -92,8 +92,12 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
   let workspaceId = body.workspaceId ?? body.workspace_id;
   const isCfSystem = typeof body.type === 'string' && body.type.startsWith('cf.workers');
   if (isCfSystem) {
-    tenantId = 'tenant_sam_primeaux';
-    workspaceId = 'ws_inneranimalmedia';
+    // Explicitly system-scoped queue messages may use platform env bindings.
+    tenantId = typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : tenantId;
+    workspaceId =
+      typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()
+        ? env.WORKSPACE_ID.trim()
+        : workspaceId;
   }
 
   if (body.type === 'codebase_index_sync') {

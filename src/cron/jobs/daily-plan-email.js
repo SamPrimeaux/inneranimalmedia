@@ -215,8 +215,8 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: env.RESEND_FROM || 'Inner Animal Media <support@inneranimalmedia.com>',
-        to: [env.RESEND_TO || 'support@inneranimalmedia.com'],
+        from: (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
+        to: [(typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim()) ? env.RESEND_TO.trim() : ''].filter(Boolean),
         subject,
         text: emailBody,
         html: htmlBody,

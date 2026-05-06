@@ -48,7 +48,11 @@ function unixToIso(sec) {
  */
 export function buildCadCreationsPrefix(tenantId, workspaceId, workflowRunId) {
   const t = String(tenantId || 'system').replace(/\/+/g, '');
-  const w = String(workspaceId || 'ws_designstudio').replace(/\/+/g, '');
+  const wRaw = String(workspaceId || '').replace(/\/+/g, '');
+  if (!wRaw) {
+    throw new Error('WORKSPACE_CONTEXT_MISSING');
+  }
+  const w = wRaw;
   const r = String(workflowRunId || '').replace(/\/+/g, '');
   return `cad/creations/${t}/${w}/${r}/`;
 }
@@ -273,7 +277,12 @@ export async function syncRunToSupabase(env, runId, options = {}) {
   const tenantId = String(
     row.tenant_id || (env.TENANT_ID != null ? String(env.TENANT_ID).trim() : '') || 'system',
   );
-  const workspaceId = String(options.workspaceId || 'ws_designstudio');
+  const workspaceIdRaw =
+    (options.workspaceId != null && String(options.workspaceId).trim()) ||
+    (row.workspace_id != null && String(row.workspace_id).trim()) ||
+    '';
+  if (!workspaceIdRaw) throw new Error('WORKSPACE_CONTEXT_MISSING');
+  const workspaceId = String(workspaceIdRaw);
   const d1Status = String(row.status || '').toLowerCase();
   const success = d1Status === 'success' || d1Status === 'completed';
   const analyticsStatus = success ? 'completed' : d1Status === 'failed' ? 'failed' : d1Status || 'unknown';

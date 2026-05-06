@@ -1,6 +1,10 @@
 export async function runDeploymentsWeeklyRollup(env) {
   if (!env?.DB) return;
   try {
+    const tid =
+      (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : 'system';
+    const systemActor =
+      (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ? env.SYSTEM_ACTOR_ID.trim() : null;
     const now = new Date();
     // This function is gated to Mondays (UTC) by the scheduler.
     const thisMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -47,8 +51,9 @@ export async function runDeploymentsWeeklyRollup(env) {
       `INSERT OR REPLACE INTO deployments_weekly_rollup
         (tenant_id, week_start, week_end, total_deploys, success_count, failed_count,
          total_duration_ms, avg_duration_ms, per_worker_json, top_triggered_by, notes, rolled_up_at)
-       VALUES ('tenant_sam_primeaux', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`
     ).bind(
+      tid,
       weekStart,
       weekEnd,
       totalDeploys,
@@ -65,16 +70,22 @@ export async function runDeploymentsWeeklyRollup(env) {
     await env.DB.prepare(
       `INSERT INTO agentsam_tool_call_log
         (tenant_id, tool_name, status, duration_ms, input_summary, output_summary, tool_category, user_id)
-       VALUES ('tenant_sam_primeaux','deployments_weekly_rollup','success',0,?,?,'rollup','au_871d920d1233cbd1')`
+       VALUES (?,'deployments_weekly_rollup','success',0,?,?,'rollup',?)`
     ).bind(
+      tid,
       `week_start=${weekStart} week_end=${weekEnd}`,
       `total=${totalDeploys} success=${Number(stats?.success) || 0} failed=${Number(stats?.failed) || 0} workers=${workers.results?.length || 0} top_triggered_by=${topTrig?.triggered_by || 'n/a'}`
+      , systemActor
     ).run().catch(() => { });
   } catch (e) {
     await env.DB.prepare(
       `INSERT INTO agentsam_tool_call_log
         (tenant_id, tool_name, status, error_message, tool_category, user_id)
-       VALUES ('tenant_sam_primeaux','deployments_weekly_rollup','error',?,'rollup','au_871d920d1233cbd1')`
-    ).bind(e?.message ?? String(e)).run().catch(() => { });
+       VALUES (?,'deployments_weekly_rollup','error',?,'rollup',?)`
+    ).bind(
+      (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : 'system',
+      e?.message ?? String(e),
+      (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ? env.SYSTEM_ACTOR_ID.trim() : null,
+    ).run().catch(() => { });
   }
 }

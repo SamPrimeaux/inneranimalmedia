@@ -82,7 +82,7 @@ export function computeUsdFromModelRatesRow(modelKey, ratesRow, inputTokens, out
  */
 export async function writeTelemetry(env, data, modelRates) {
   const {
-    sessionId, tenantId, provider, model,
+    sessionId, tenantId, workspaceId, provider, model,
     inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
     latencyMs,
     success,
@@ -104,6 +104,15 @@ export async function writeTelemetry(env, data, modelRates) {
   const sid = sessionId != null ? String(sessionId) : null;
 
   const tidInsert = mid || 'default';
+  const wsInsert =
+    (workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null) ||
+    (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim() ? env.WORKSPACE_ID.trim() : null);
+  if (!wsInsert) {
+    // Hard requirement: never write authenticated telemetry with null/blank workspace_id.
+    // If caller didn't provide a workspace and platform isn't configured, skip.
+    console.warn('[writeTelemetry] workspace_id missing; skipping agentsam_usage_events insert');
+    return null;
+  }
   const tokIn =
     Math.floor((Number(inputTokens) || 0) + (Number(cacheReadTokens) || 0) + (Number(cacheWriteTokens) || 0));
   const tokOut = Math.floor(Number(outputTokens) || 0);
@@ -120,7 +129,7 @@ export async function writeTelemetry(env, data, modelRates) {
     ).bind(
       telemetryId,
       tidInsert,
-      'ws_inneranimalmedia',
+      wsInsert,
       sid,
       'agent-sam',
       String(provider || 'unknown'),
@@ -186,6 +195,10 @@ export async function insertAiGenerationLog(env, opts) {
   if (!env?.DB || !opts?.generationType) return;
   const tid = resolveTelemetryTenantId(env, opts.tenantId);
   if (!tid) return;
+  const wsInsert =
+    (opts.workspaceId != null && String(opts.workspaceId).trim() !== '' ? String(opts.workspaceId).trim() : null) ||
+    (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim() ? env.WORKSPACE_ID.trim() : null);
+  if (!wsInsert) return;
 
   const id = opts.explicitId || 'aigl_' + crypto.randomUUID().replace(/-/g, '').slice(0, 24);
   const now = Math.floor(Date.now() / 1000);
@@ -202,7 +215,7 @@ export async function insertAiGenerationLog(env, opts) {
     ).bind(
       id,
       tid,
-      'ws_inneranimalmedia',
+      wsInsert,
       'agent-sam',
       'course_generation',
       mk,
