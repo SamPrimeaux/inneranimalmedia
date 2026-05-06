@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Record deploy failure: PATCH ledger rows, INSERT agentsam_error_events, eval run failed.
- * Args: --reason "..." --exit-code N
+ * Args: --reason "..." --exit-code N [--failed-step phase] [--error-key short_key]
  *
  * See docs/DEPLOY_ENV_SUPABASE_MAPPING.md (run_group_id, error metadata).
  */
@@ -14,6 +14,11 @@ import {
   DEPLOY_CONTEXT_FILE,
   DEPLOY_WORKER_STATS_FILE,
 } from './lib/supabase-deploy-paths.mjs';
+import {
+  buildDeployMetrics,
+  buildOutputSummaryLine,
+  loadAuxiliaryDeployStats,
+} from './lib/deploy-ledger-summary.mjs';
 
 function readJson(path, fallback = null) {
   try {
@@ -34,6 +39,17 @@ function arg(name, def = '') {
   return process.argv[i + 1] ?? def;
 }
 
+function slugErrorKey(reason) {
+  const s = String(reason || 'deploy_failed')
+    .trim()
+    .slice(0, 80)
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  return s || 'deploy_failed';
+}
+
 async function main() {
   const root = repoRoot();
   let ctx;
@@ -52,7 +68,11 @@ async function main() {
 
   const reason = arg('--reason', 'deploy_failed');
   const exitCode = Number(arg('--exit-code', '1')) || 1;
+  const failedStep = arg('--failed-step', '') || null;
+  const errorKeyArg = arg('--error-key', '') || slugErrorKey(reason);
   const worker = readJson(resolve(root, DEPLOY_WORKER_STATS_FILE), {});
+  const evalRes = {};
+  const { pipeline, routeStats, codebaseStats } = loadAuxiliaryDeployStats(root);
 
   const completedAt = new Date().toISOString();
   const started = deployCtx.started_at ? Date.parse(deployCtx.started_at) : Date.now();
@@ -61,10 +81,36 @@ async function main() {
   const base = ctx.supabaseUrl.replace(/\/$/, '');
   const key = ctx.serviceKey;
 
+  const deployMetrics = buildDeployMetrics({
+    durationMs,
+    deployCtx,
+    worker,
+    evalRes,
+    pipeline,
+    routeStats,
+    codebaseStats,
+  });
+
+  const outputSummary = buildOutputSummaryLine({
+    status: 'failed',
+    deployCtx,
+    worker,
+    evalRes,
+    pipeline,
+    routeStats,
+    codebaseStats,
+    durationMs,
+    failedStep,
+    errorKey: errorKeyArg,
+  });
+
   const metaOut = {
     run_group_id: deployCtx.run_group_id,
     failure_stage: reason,
+    failed_step: failedStep,
+    error_key: errorKeyArg,
     worker_stats: worker,
+    deploy_metrics: deployMetrics,
   };
 
   await sbRequest(
@@ -77,7 +123,7 @@ async function main() {
       completed_at: completedAt,
       duration_ms: durationMs,
       exit_code: exitCode,
-      output_summary: null,
+      output_summary: outputSummary,
       error_message: reason,
       worker_version_id: worker.worker_version_id || null,
       metadata_jsonb: metaOut,
@@ -132,7 +178,7 @@ async function main() {
     duration_ms: durationMs,
     completed_at: completedAt,
     artifacts_json: {},
-    metrics_json: { exit_code: exitCode },
+    metrics_json: { exit_code: exitCode, deploy_pipeline: deployMetrics },
     metadata: metaOut,
   });
 

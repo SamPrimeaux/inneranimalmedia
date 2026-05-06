@@ -8,6 +8,12 @@ For shell entrypoints, see `scripts/deploy-full.sh`, `scripts/deploy-frontend.sh
 
 Postgres restricts **`event_type`** and **`status`** on `public.build_deploy_events`. Scripts must only use allowed combinations — for example **`deploy_passed` + `passed`** when a deploy finishes successfully, and **`deploy_failed` + `failed`** on failure (`record-supabase-deploy-failure.mjs`). Do not use strings like `deploy_completed` or status `completed` on this table.
 
+### Deploy digest: `output_summary` vs JSON metrics
+
+- **`build_deploy_events.output_summary`** is a **single-line, semicolon-separated deploy digest** (stable enough for list views and notifications). `record-supabase-deploy-complete.mjs` / `record-supabase-deploy-failure.mjs` generate it from `.deploy-run-context.json`, `.deploy-worker-stats.json`, `.deploy-eval-results.json`, and optional sidecar files (`.deploy-pipeline-stats.json`, `.deploy-route-stats.json`, `.deploy-codebase-index-stats.json`). Missing optional inputs become `unknown` or `skipped` — they do not fail the deploy.
+- **Structured metrics** for charts and drill-down live in **`build_deploy_events.metadata_jsonb`** under **`deploy_metrics`** (durations, route/object/byte counts, health/RAG flags, R2/notify status). The same object is also attached under **`agentsam_eval_runs.metrics_json.deploy_pipeline`** when an eval row is written.
+- **Agent Sam dashboard:** use **`output_summary`** for **timeline / run list rows**; use **`metadata_jsonb.deploy_metrics`** (and eval JSON) for **graphs and breakdowns**.
+
 ---
 
 ## Database ownership model

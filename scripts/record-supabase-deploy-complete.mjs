@@ -16,6 +16,11 @@ import {
   DEPLOY_EVAL_RESULTS_FILE,
   DEPLOY_TOOL_EVENTS_FILE,
 } from './lib/supabase-deploy-paths.mjs';
+import {
+  buildDeployMetrics,
+  buildOutputSummaryLine,
+  loadAuxiliaryDeployStats,
+} from './lib/deploy-ledger-summary.mjs';
 
 function readJson(path, fallback = {}) {
   try {
@@ -53,6 +58,7 @@ async function main() {
 
   const worker = readJson(resolve(root, DEPLOY_WORKER_STATS_FILE), {});
   const evalRes = readJson(resolve(root, DEPLOY_EVAL_RESULTS_FILE), {});
+  const { pipeline, routeStats, codebaseStats } = loadAuxiliaryDeployStats(root);
 
   const completedAt = new Date().toISOString();
   const started = deployCtx.started_at ? Date.parse(deployCtx.started_at) : Date.now();
@@ -62,17 +68,32 @@ async function main() {
   const gitSha = worker.git_commit_sha || deployCtx.git_commit_sha || null;
   const branch = worker.git_branch || deployCtx.git_branch || null;
 
-  const summaryParts = [
-    workerVersionId ? `worker_version=${workerVersionId}` : null,
-    worker.wrangler_duration_ms != null ? `wrangler_ms=${worker.wrangler_duration_ms}` : null,
-    evalRes.health_ok != null ? `health=${evalRes.health_ok}` : null,
-    evalRes.semantic_smoke_ok != null ? `rag_smoke=${evalRes.semantic_smoke_ok}` : null,
-  ].filter(Boolean);
+  const deployMetrics = buildDeployMetrics({
+    durationMs,
+    deployCtx,
+    worker,
+    evalRes,
+    pipeline,
+    routeStats,
+    codebaseStats,
+  });
+
+  const outputSummary = buildOutputSummaryLine({
+    status: 'passed',
+    deployCtx,
+    worker,
+    evalRes,
+    pipeline,
+    routeStats,
+    codebaseStats,
+    durationMs,
+  });
 
   const metaOut = {
     run_group_id: deployCtx.run_group_id,
     worker_stats: worker,
     eval: evalRes,
+    deploy_metrics: deployMetrics,
     deploy_id_r2: process.env.DEPLOY_ID || null,
   };
 
@@ -82,7 +103,7 @@ async function main() {
     completed_at: completedAt,
     duration_ms: durationMs,
     exit_code: 0,
-    output_summary: summaryParts.join('; ') || 'deploy_passed',
+    output_summary: outputSummary,
     error_message: null,
     git_commit_sha: gitSha,
     git_branch: branch,
@@ -137,10 +158,13 @@ async function main() {
     lint_passed: evalRes.lint_passed ?? null,
     deploy_passed: evalRes.deploy_passed ?? true,
     artifacts_json: evalRes.artifacts_json || {},
-    metrics_json: evalRes.metrics_json || {
-      health_ok: evalRes.health_ok,
-      health_latency_ms: evalRes.health_latency_ms,
-      semantic_smoke_ok: evalRes.semantic_smoke_ok,
+    metrics_json: {
+      ...(evalRes.metrics_json || {
+        health_ok: evalRes.health_ok,
+        health_latency_ms: evalRes.health_latency_ms,
+        semantic_smoke_ok: evalRes.semantic_smoke_ok,
+      }),
+      deploy_pipeline: deployMetrics,
     },
     metadata: { run_group_id: deployCtx.run_group_id, worker },
     completed_at: completedAt,

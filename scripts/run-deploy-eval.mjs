@@ -138,6 +138,7 @@ async function main() {
 
   const out = {
     overall_success: overall,
+    semantic_strict: strictSemantic,
     health_ok: h.ok,
     health_latency_ms: h.latency_ms,
     health_status: h.status,

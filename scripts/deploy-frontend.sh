@@ -49,6 +49,8 @@ fi
 
 echo "→ Syncing $DIST to R2 static/dashboard/agent/ ..."
 find "$REPO_ROOT/$DIST" -name "*.map" -delete
+R2_SYNC_STATUS=passed
+R2_SYNC_START=$(date +%s)
 rclone sync "$REPO_ROOT/$DIST" \
   ":s3:inneranimalmedia/static/dashboard/agent" \
   --s3-provider Cloudflare \
@@ -59,13 +61,20 @@ rclone sync "$REPO_ROOT/$DIST" \
   --transfers 20 \
   --delete-after \
   --progress
+R2_SYNC_END=$(date +%s)
+R2_SYNC_MS=$(( (R2_SYNC_END - R2_SYNC_START) * 1000 ))
 echo "→ R2 sync complete"
 
 # R2 inventory: manifest + D1 upsert + stale marking (no object deletes — use npm run r2:prune:dry-run separately)
 DEPLOY_ID="${DEPLOY_ID:-deploy_$(date +%s)_$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo local)}"
 export DEPLOY_ID
+R2_RECONCILE_STATUS=skipped
+R2_OBJECT_COUNT=""
+R2_BYTE_COUNT=""
 if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1; then
   echo "→ R2 deploy manifest + inventory reconcile (no R2 deletes; prune remains manual)"
+  R2_RECONCILE_STATUS=passed
+  MF=0
   node "$REPO_ROOT/scripts/build-r2-deploy-manifest.mjs" \
     --dist "$REPO_ROOT/$DIST" \
     --bucket "$BUCKET" \
@@ -74,7 +83,8 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
     --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
     --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
     --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
-    || echo "⚠️  build-r2-deploy-manifest failed (non-fatal)"
+    || MF=$?
+  IF=0
   node "$REPO_ROOT/scripts/inventory-r2-bucket.mjs" \
     --bucket "$BUCKET" \
     --upsert-d1 \
@@ -82,7 +92,8 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
     --tenant-id "${TENANT_ID:-tenant_sam_primeaux}" \
     --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
     --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
-    || echo "⚠️  inventory-r2-bucket failed (non-fatal)"
+    || IF=$?
+  RF=0
   node "$REPO_ROOT/scripts/reconcile-r2-deploy.mjs" \
     --manifest "$REPO_ROOT/analytics/deploys/$DEPLOY_ID/r2-manifest.json" \
     --bucket "$BUCKET" \
@@ -91,7 +102,16 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
     --workspace-id "${WORKSPACE_ID:-ws_inneranimalmedia}" \
     --project-id "${DOCUMENTS_PROJECT_ID:-inneranimalmedia}" \
     --apply-stale \
-    || echo "⚠️  reconcile-r2-deploy failed (non-fatal)"
+    || RF=$?
+  if [ "$MF" -ne 0 ] || [ "$IF" -ne 0 ] || [ "$RF" -ne 0 ]; then
+    R2_RECONCILE_STATUS=failed
+    echo "⚠️  R2 reconcile steps had failures (manifest=$MF inventory=$IF reconcile=$RF)"
+  fi
+  MANIFEST_PATH="$REPO_ROOT/analytics/deploys/$DEPLOY_ID/r2-manifest.json"
+  if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
+    R2_OBJECT_COUNT=$(jq -r '.object_count // empty' "$MANIFEST_PATH" 2>/dev/null || true)
+    R2_BYTE_COUNT=$(jq -r '.total_size_bytes // empty' "$MANIFEST_PATH" 2>/dev/null || true)
+  fi
 fi
 
 echo "→ Deploying worker..."
@@ -117,27 +137,8 @@ else
   echo "✓ Worker deployed (could not parse Current Version ID from wrangler output)"
 fi
 
-# Worker stats for scripts/record-supabase-deploy-complete.mjs (deploy ledger is driven by deploy-full.sh + record-* scripts).
+# Worker stats JSON is written at end of this script (after email notify) so notify_status is accurate.
 DEPLOY_COMPLETED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-if command -v jq >/dev/null 2>&1; then
-  jq -n \
-    --arg wv "${WORKER_VERSION_ID:-}" \
-    --argjson dur "${DEPLOY_DURATION_MS:-0}" \
-    --arg sha "${GIT_FULL_SHA:-}" \
-    --arg branch "${BRANCH_NAME:-}" \
-    --arg gmsg "${GIT_MSG_LINE:-}" \
-    --arg started "${DEPLOY_STARTED_AT:-}" \
-    --arg completed "${DEPLOY_COMPLETED_AT}" \
-    '{
-      worker_version_id: (if ($wv | length) == 0 then null else $wv end),
-      wrangler_duration_ms: $dur,
-      git_commit_sha: $sha,
-      git_branch: $branch,
-      git_message: $gmsg,
-      deploy_started_at: $started,
-      deploy_completed_at: $completed
-    }' > "$REPO_ROOT/.deploy-worker-stats.json"
-fi
 
 if [ -f "$REPO_ROOT/.deploy-run-context.json" ] && command -v node >/dev/null 2>&1; then
   node "$REPO_ROOT/scripts/log-supabase-deploy-tool.mjs" \
@@ -258,10 +259,49 @@ if command -v jq >/dev/null 2>&1; then
 else
   _notify_err=""
 fi
+NOTIFY_STATUS=sent
 if [ -n "${_notify_err:-}" ]; then
+  NOTIFY_STATUS=failed
   echo "⚠️  Deploy notification failed: ${_notify_err}" >&2
   echo "    Fix: set worker secret RESEND_FROM (verified sender). Example:" >&2
   echo "    npx wrangler secret put RESEND_FROM -c ./wrangler.production.toml" >&2
+elif [ -z "${NOTIFY_RESP}" ]; then
+  NOTIFY_STATUS=failed
+fi
+
+# Final .deploy-worker-stats.json (R2 + wrangler + notification outcome)
+if command -v jq >/dev/null 2>&1; then
+  if [ -n "${R2_OBJECT_COUNT}" ]; then R2_MANIFEST_OBJECT_JSON="$R2_OBJECT_COUNT"; else R2_MANIFEST_OBJECT_JSON='null'; fi
+  if [ -n "${R2_BYTE_COUNT}" ]; then R2_MANIFEST_BYTES_JSON="$R2_BYTE_COUNT"; else R2_MANIFEST_BYTES_JSON='null'; fi
+  jq -n \
+    --arg wv "${WORKER_VERSION_ID:-}" \
+    --argjson dur "${DEPLOY_DURATION_MS:-0}" \
+    --arg sha "${GIT_FULL_SHA:-}" \
+    --arg branch "${BRANCH_NAME:-}" \
+    --arg gmsg "${GIT_MSG_LINE:-}" \
+    --arg started "${DEPLOY_STARTED_AT:-}" \
+    --arg completed "${DEPLOY_COMPLETED_AT}" \
+    --argjson r2_sync_ms "${R2_SYNC_MS:-0}" \
+    --arg r2_sync_status "${R2_SYNC_STATUS:-unknown}" \
+    --arg r2_reconcile_status "${R2_RECONCILE_STATUS:-unknown}" \
+    --arg notify_status "${NOTIFY_STATUS:-unknown}" \
+    --argjson r2_manifest_object_count "${R2_MANIFEST_OBJECT_JSON}" \
+    --argjson r2_manifest_total_bytes "${R2_MANIFEST_BYTES_JSON}" \
+    '{
+      worker_version_id: (if ($wv | length) == 0 then null else $wv end),
+      wrangler_duration_ms: $dur,
+      git_commit_sha: $sha,
+      git_branch: $branch,
+      git_message: $gmsg,
+      deploy_started_at: $started,
+      deploy_completed_at: $completed,
+      r2_sync_ms: $r2_sync_ms,
+      r2_sync_status: $r2_sync_status,
+      r2_reconcile_status: $r2_reconcile_status,
+      notify_status: $notify_status,
+      r2_manifest_object_count: $r2_manifest_object_count,
+      r2_manifest_total_bytes: $r2_manifest_total_bytes
+    }' > "$REPO_ROOT/.deploy-worker-stats.json"
 fi
 
 echo "✓ Done (manifest + embeddings backfill + notification)"

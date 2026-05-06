@@ -48,6 +48,9 @@ analytics/deploys/
 .deploy-worker-stats.json
 .deploy-eval-results.json
 .deploy-tool-events.jsonl
+.deploy-pipeline-stats.json
+.deploy-route-stats.json
+.deploy-codebase-index-stats.json
 
 # R2 asset URL dumps (local inventory exports)
 *-r2-asset-urls.txt

@@ -5,7 +5,7 @@
  *
  * Usage: node scripts/index-codebase-snapshot.mjs [--apply]
  */
-import { readFileSync, existsSync, readdirSync, appendFileSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, appendFileSync, writeFileSync } from 'fs';
 import { join, relative } from 'path';
 import { resolveDeployScope, requireSupabaseRest } from './lib/supabase-deploy-context.mjs';
 import { sbRequest } from './lib/supabase-rest.mjs';
@@ -13,6 +13,7 @@ import {
   repoRoot,
   DEPLOY_CONTEXT_FILE,
   DEPLOY_TOOL_EVENTS_FILE,
+  DEPLOY_CODEBASE_INDEX_STATS_FILE,
 } from './lib/supabase-deploy-paths.mjs';
 
 const MODEL = '@cf/baai/bge-large-en-v1.5';
@@ -152,6 +153,19 @@ async function main() {
   const workspaceId = scope.workspaceId;
 
   if (!tenantId || !workspaceId) {
+    try {
+      writeFileSync(
+        join(root, DEPLOY_CODEBASE_INDEX_STATS_FILE),
+        JSON.stringify({
+          codebase_index_status: 'skipped',
+          codebase_index_ms: 0,
+          reason: 'missing_tenant_or_workspace',
+        }),
+        'utf8',
+      );
+    } catch {
+      /* optional */
+    }
     console.warn('[index-codebase] Missing TENANT_ID/WORKSPACE_ID — skipping');
     process.exit(0);
   }
@@ -163,6 +177,19 @@ async function main() {
 
   const sb = requireSupabaseRest(scope);
   if (!sb.supabaseUrl || !sb.serviceKey) {
+    try {
+      writeFileSync(
+        join(root, DEPLOY_CODEBASE_INDEX_STATS_FILE),
+        JSON.stringify({
+          codebase_index_status: 'skipped',
+          codebase_index_ms: 0,
+          reason: 'no_supabase_credentials',
+        }),
+        'utf8',
+      );
+    } catch {
+      /* optional */
+    }
     console.warn('[index-codebase] No SUPABASE_URL/SERVICE_ROLE_KEY — skipping');
     process.exit(0);
   }
@@ -298,6 +325,7 @@ async function main() {
     }
   }
 
+  const idxStart = Date.now();
   try {
     const batchSize = 80;
     for (let i = 0; i < fileRows.length; i += batchSize) {
@@ -367,11 +395,40 @@ async function main() {
 
     await setSnapshotUploadStatus('complete', { chunk_count: chunkTotal });
 
+    try {
+      writeFileSync(
+        join(root, DEPLOY_CODEBASE_INDEX_STATS_FILE),
+        JSON.stringify({
+          codebase_index_status: 'passed',
+          codebase_index_ms: Date.now() - idxStart,
+          files_indexed: fileRows.length,
+          route_map_symbols: symbols.length,
+          chunks_written: chunkTotal,
+        }),
+        'utf8',
+      );
+    } catch {
+      /* optional */
+    }
+
     console.log(
       `[index-codebase] snapshot ${snapshotId} files=${fileRows.length} symbols=${symbols.length} chunks=${chunkTotal} upload_status=complete`,
     );
   } catch (e) {
     const msg = String(e?.message || e);
+    try {
+      writeFileSync(
+        join(root, DEPLOY_CODEBASE_INDEX_STATS_FILE),
+        JSON.stringify({
+          codebase_index_status: 'failed',
+          codebase_index_ms: Math.max(0, Date.now() - idxStart),
+          error_preview: msg.slice(0, 200),
+        }),
+        'utf8',
+      );
+    } catch {
+      /* optional */
+    }
     try {
       await setSnapshotUploadStatus('failed');
     } catch {

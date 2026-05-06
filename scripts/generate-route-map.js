@@ -196,6 +196,13 @@ fs.mkdirSync(pathMod.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, md, 'utf8');
 console.log('Wrote', outPath, 'routes:', routes.length);
 
+try {
+  const routeStatsPath = pathMod.join(root, '.deploy-route-stats.json');
+  fs.writeFileSync(routeStatsPath, JSON.stringify({ route_count: routes.length }), 'utf8');
+} catch {
+  /* optional */
+}
+
 /** Optional: publish MY_QUEUE `codebase_index_sync` so the worker ingests latest R2 index into Supabase. */
 async function publishCodebaseIndexSyncQueue() {
   const token = process.env.CLOUDFLARE_API_TOKEN;
