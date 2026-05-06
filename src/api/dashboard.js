@@ -1,5 +1,10 @@
 import { jsonResponse } from '../core/responses.js';
-import { getAuthUser, authUserIsSuperadmin } from '../core/auth.js';
+import { getAuthUser, authUserIsSuperadmin, fetchAuthUserTenantId } from '../core/auth.js';
+import {
+    resolveTerminalWorkspaceId,
+    WORKSPACE_CONTEXT_MISSING,
+    resolveTenantIdForWorkspace,
+} from '../core/bootstrap.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { getWorkspaceTheme, normalizeThemeSlug } from '../core/themes.js';
 import { getDefaultTerminalConnection } from '../core/terminal.js';
@@ -164,12 +169,12 @@ export async function handleDashboardApi(request, url, env, ctx) {
 
         const executionModeRaw = (url.searchParams.get('execution_mode') || 'pty').trim().toLowerCase();
         const executionMode = ['pty', 'ssh', 'mcp'].includes(executionModeRaw) ? executionModeRaw : 'pty';
-        const resolvedWorkspaceId = String(
-            authUser.workspace_id || authUser.workspaceId || ''
-        ).trim();
-        const workspaceId = String(
-            url.searchParams.get('workspace_id') || resolvedWorkspaceId || 'default'
-        ).trim();
+        const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+        if (tw.error === 'Forbidden') return jsonResponse({ error: 'Forbidden' }, 403);
+        if (tw.error || !tw.workspaceId) {
+            return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+        }
+        const workspaceId = tw.workspaceId;
         const sessionName = `terminal:v2:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -179,8 +184,18 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.searchParams.set('workspace_id', workspaceId);
         if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
             doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
+        } else {
+            const rtid = await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null);
+            if (rtid) doUrl.searchParams.set('tenant_id', String(rtid).trim());
+            else if (authUser.id) {
+                const ftid = await fetchAuthUserTenantId(env, String(authUser.id)).catch(() => null);
+                if (ftid) doUrl.searchParams.set('tenant_id', String(ftid).trim());
+            }
         }
-        doUrl.searchParams.set('user_id', String(authUser.id || 'anonymous'));
+        if (authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '') {
+            doUrl.searchParams.set('person_uuid', String(authUser.person_uuid).trim());
+        }
+        doUrl.searchParams.set('user_id', String(authUser.id));
         return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -195,12 +210,12 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (!env.AGENT_SESSION) return jsonResponse({ error: 'AGENT_SESSION binding missing' }, 503);
         const executionModeRaw = (url.searchParams.get('execution_mode') || 'pty').trim().toLowerCase();
         const executionMode = ['pty', 'ssh', 'mcp'].includes(executionModeRaw) ? executionModeRaw : 'pty';
-        const resolvedWorkspaceId = String(
-            authUser.workspace_id || authUser.workspaceId || ''
-        ).trim();
-        const workspaceId = String(
-            url.searchParams.get('workspace_id') || resolvedWorkspaceId || 'default'
-        ).trim();
+        const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+        if (tw.error === 'Forbidden') return jsonResponse({ error: 'Forbidden' }, 403);
+        if (tw.error || !tw.workspaceId) {
+            return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+        }
+        const workspaceId = tw.workspaceId;
         const sessionName = `terminal:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -210,8 +225,18 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.searchParams.set('workspace_id', workspaceId);
         if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
             doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
+        } else {
+            const rtid = await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null);
+            if (rtid) doUrl.searchParams.set('tenant_id', String(rtid).trim());
+            else if (authUser.id) {
+                const ftid = await fetchAuthUserTenantId(env, String(authUser.id)).catch(() => null);
+                if (ftid) doUrl.searchParams.set('tenant_id', String(ftid).trim());
+            }
         }
-        doUrl.searchParams.set('user_id', String(authUser.id || 'anonymous'));
+        if (authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '') {
+            doUrl.searchParams.set('person_uuid', String(authUser.person_uuid).trim());
+        }
+        doUrl.searchParams.set('user_id', String(authUser.id));
         return stub.fetch(new Request(doUrl.toString(), { method: 'GET', headers: request.headers }));
     }
 
@@ -228,15 +253,13 @@ export async function handleDashboardApi(request, url, env, ctx) {
         const executionModeRaw = String(body?.execution_mode || url.searchParams.get('execution_mode') || 'pty')
             .trim().toLowerCase();
         const executionMode = ['pty', 'ssh', 'mcp'].includes(executionModeRaw) ? executionModeRaw : 'pty';
-        const resolvedWorkspaceId = String(
-            authUser.workspace_id || authUser.workspaceId || ''
-        ).trim();
-        const workspaceId = String(
-            body?.workspace_id ||
-            url.searchParams.get('workspace_id') ||
-            resolvedWorkspaceId ||
-            'default'
-        ).trim();
+        const explicitWid = body?.workspace_id ?? url.searchParams.get('workspace_id');
+        const tw = await resolveTerminalWorkspaceId(env, request, authUser, explicitWid);
+        if (tw.error === 'Forbidden') return jsonResponse({ error: 'Forbidden' }, 403);
+        if (tw.error || !tw.workspaceId) {
+            return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+        }
+        const workspaceId = tw.workspaceId;
         const sessionName = `terminal:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -246,8 +269,18 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.searchParams.set('workspace_id', workspaceId);
         if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
             doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
+        } else {
+            const rtid = await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null);
+            if (rtid) doUrl.searchParams.set('tenant_id', String(rtid).trim());
+            else if (authUser.id) {
+                const ftid = await fetchAuthUserTenantId(env, String(authUser.id)).catch(() => null);
+                if (ftid) doUrl.searchParams.set('tenant_id', String(ftid).trim());
+            }
         }
-        doUrl.searchParams.set('user_id', String(authUser.id || 'anonymous'));
+        if (authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '') {
+            doUrl.searchParams.set('person_uuid', String(authUser.person_uuid).trim());
+        }
+        doUrl.searchParams.set('user_id', String(authUser.id));
         return stub.fetch(new Request(doUrl.toString(), {
             method: 'POST',
             headers: request.headers,

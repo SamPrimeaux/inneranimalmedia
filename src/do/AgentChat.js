@@ -4,7 +4,11 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { getDefaultTerminalConnection } from "../core/terminal.js";
-import { resolveTenantIdForWorkspace, resolveActiveBootstrap } from "../core/bootstrap.js";
+import {
+  resolveTenantIdForWorkspace,
+  resolveActiveBootstrap,
+  WORKSPACE_CONTEXT_MISSING,
+} from "../core/bootstrap.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
 const TERMINAL_WS_TAG = "terminal";
@@ -108,14 +112,14 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptyConnectPromise = null;
     this.cachedTerminalSessionId = null;
     this.terminalLineBuffers = new Map();
-    this.workspaceId =
-      env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ""
-        ? String(env.DEFAULT_WORKSPACE_ID).trim()
-        : "";
+    /** Set only from explicit request context or platform-only `allowPlatformFallback` loads — never default env for multi-tenant runtime. */
+    this.workspaceId = "";
     this.workspaceSettings = {};
     this.workspaceSettingsPromise = null;
     /** Auth user id from /terminal/ws or /terminal/exec (for upstream PTY tenant isolation). */
-    this.ptSessionUserId = "default";
+    this.ptSessionUserId = "";
+    this.ptSessionTenantId = "";
+    this.ptPersonUuid = "";
     this.historySequence = 0;
     this._ptyOutBuf = "";
     this._ptyOutFlushTimer = null;
@@ -136,7 +140,16 @@ export class AgentChatSqlV1 extends DurableObject {
 
   async insertTerminalHistoryRow(direction, content, opts = {}) {
     if (!this.env?.DB || !this.cachedTerminalSessionId) return;
-    const tenantId = String(this.env?.TENANT_ID || "system").trim();
+    let tenantId = String(this.ptSessionTenantId || "").trim();
+    if (!tenantId && this.workspaceId) {
+      try {
+        tenantId = String((await resolveTenantIdForWorkspace(this.env, this.workspaceId)) || "").trim();
+      } catch (_) {}
+    }
+    if (!tenantId) {
+      console.warn("[terminal_history] skip: tenant_id unresolved");
+      return;
+    }
     const truncated = String(content || "").slice(0, 4000);
     // Prevent duplicate sequence after DO restart: initialize from DB max once per session.
     if (!this.historySequence || this.historySequence < 1) {
@@ -216,13 +229,17 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   async loadWorkspaceSettings() {
-    if (!this.env?.DB || !this.workspaceId) {
+    const wid = String(this.workspaceId || "").trim();
+    if (!this.env?.DB || !wid) {
       this.workspaceSettings = {};
       return this.workspaceSettings;
     }
     const row = await this.env.DB.prepare(
       "SELECT settings_json FROM workspace_settings WHERE workspace_id = ?"
-    ).bind(this.workspaceId).first();
+    ).bind(wid).first();
+    if (String(this.workspaceId || "").trim() !== wid) {
+      return this.workspaceSettings;
+    }
     try {
       const parsed = row?.settings_json ? JSON.parse(row.settings_json) : {};
       this.workspaceSettings = parsed && typeof parsed === "object" ? parsed : {};
@@ -232,16 +249,39 @@ export class AgentChatSqlV1 extends DurableObject {
     return this.workspaceSettings;
   }
 
-  async ensureWorkspaceSettingsLoaded(workspaceId) {
-    const nextWorkspaceId =
-      String(workspaceId || "").trim() ||
-      (this.env?.DEFAULT_WORKSPACE_ID != null && String(this.env.DEFAULT_WORKSPACE_ID).trim() !== ""
-        ? String(this.env.DEFAULT_WORKSPACE_ID).trim()
-        : "");
+  /**
+   * @param {string|null|undefined} workspaceId
+   * @param {{ allowPlatformFallback?: boolean }} [opts] — When true only: may load `env.DEFAULT_WORKSPACE_ID` and log platform scope. Default false: no env fallback (empty id → empty settings, no D1 row).
+   */
+  async ensureWorkspaceSettingsLoaded(workspaceId, opts = {}) {
+    const allowPlatformFallback = opts.allowPlatformFallback === true;
+    const trimmed = String(workspaceId || "").trim();
+    let nextWorkspaceId = trimmed;
+
+    if (!nextWorkspaceId && allowPlatformFallback) {
+      const plat =
+        this.env?.DEFAULT_WORKSPACE_ID != null && String(this.env.DEFAULT_WORKSPACE_ID).trim() !== ""
+          ? String(this.env.DEFAULT_WORKSPACE_ID).trim()
+          : "";
+      if (plat) {
+        console.log(
+          "[AgentChatSqlV1] platform-scoped workspace settings: using DEFAULT_WORKSPACE_ID (allowPlatformFallback=true)",
+        );
+        nextWorkspaceId = plat;
+      }
+    }
+
     if (this.workspaceId !== nextWorkspaceId) {
       this.workspaceId = nextWorkspaceId;
       this.workspaceSettings = {};
     }
+
+    if (!nextWorkspaceId) {
+      this.workspaceSettingsPromise = null;
+      this.workspaceSettings = {};
+      return this.workspaceSettings;
+    }
+
     if (this.workspaceSettingsPromise) {
       await this.workspaceSettingsPromise;
       return this.workspaceSettings;
@@ -263,7 +303,8 @@ export class AgentChatSqlV1 extends DurableObject {
 
     if (url.pathname === "/terminal/status") {
       const status = await this.getTerminalStatus(url);
-      return Response.json(status);
+      const httpStatus = status?.ok === false ? 400 : 200;
+      return Response.json(status, { status: httpStatus });
     }
 
     if (url.pathname === "/terminal/exec" && request.method === "POST") {
@@ -463,8 +504,23 @@ export class AgentChatSqlV1 extends DurableObject {
 
     const executionMode = normalizeExecutionMode(url.searchParams.get("execution_mode"));
     const workspaceId = (url.searchParams.get("workspace_id") || "").trim();
-    this.ptSessionUserId = (url.searchParams.get("user_id") || "").trim() || "default";
-    await this.ensureWorkspaceSettingsLoaded(workspaceId);
+    if (!workspaceId) {
+      return new Response(
+        JSON.stringify({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    const uidRaw = (url.searchParams.get("user_id") || "").trim();
+    if (!uidRaw) {
+      return new Response(JSON.stringify({ error: "TERMINAL_USER_ID_REQUIRED", code: "TERMINAL_USER_ID_REQUIRED" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    this.ptSessionUserId = uidRaw;
+    this.ptSessionTenantId = (url.searchParams.get("tenant_id") || "").trim();
+    this.ptPersonUuid = (url.searchParams.get("person_uuid") || "").trim();
+    await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     this.ctx.acceptWebSocket(server, [TERMINAL_WS_TAG, `mode:${executionMode}`]);
@@ -475,24 +531,41 @@ export class AgentChatSqlV1 extends DurableObject {
       server.send(JSON.stringify({ type: "session_id", session_id: sid }));
     } catch (_) {}
 
+    let tenantForRow = String(this.ptSessionTenantId || "").trim();
+    if (!tenantForRow) {
+      try {
+        tenantForRow = String((await resolveTenantIdForWorkspace(this.env, workspaceId)) || "").trim();
+      } catch (_) {}
+    }
+    let personForRow = this.ptPersonUuid ? String(this.ptPersonUuid).trim() || null : null;
+    if (!personForRow) {
+      try {
+        const ur = await this.env.DB.prepare(`SELECT person_uuid FROM auth_users WHERE id = ? LIMIT 1`)
+          .bind(this.ptSessionUserId)
+          .first();
+        personForRow = ur?.person_uuid ? String(ur.person_uuid).trim() || null : null;
+      } catch (_) {}
+    }
+    if (tenantForRow && workspaceId && this.ptSessionUserId) {
+      await this.upsertTerminalSessionRow(sid, {
+        tenantId: tenantForRow,
+        userId: this.ptSessionUserId,
+        workspaceId,
+        personUuid: personForRow,
+      });
+    }
+
     this.sendStateToWebSocket(server, "connecting");
     try {
       await this.ensureModeReady(executionMode);
       if (executionMode === "pty" && this.env?.DB) {
         const doId = this.ctx.id.toString();
         const wid = String(this.workspaceId || "").trim();
-        let personUuid = null;
-        if (this.ptSessionUserId && this.ptSessionUserId !== "default") {
-          try {
-            const ur = await this.env.DB.prepare(
-              `SELECT person_uuid FROM auth_users WHERE id = ? LIMIT 1`,
-            )
-              .bind(this.ptSessionUserId)
-              .first();
-            personUuid = ur?.person_uuid ? String(ur.person_uuid).trim() || null : null;
-          } catch (_) {}
-        }
-        const tid = await resolveTenantIdForWorkspace(this.env, wid);
+        let personUuid = personForRow;
+        const tid =
+          (tenantForRow && String(tenantForRow).trim()) ||
+          (await resolveTenantIdForWorkspace(this.env, wid).catch(() => null)) ||
+          null;
         const boot = await resolveActiveBootstrap(this.env, {
           userId: this.ptSessionUserId,
           personUuid,
@@ -526,10 +599,20 @@ export class AgentChatSqlV1 extends DurableObject {
     const body = await request.json().catch(() => ({}));
     const executionMode = normalizeExecutionMode(body?.execution_mode || url.searchParams.get("execution_mode"));
     const workspaceId = String(body?.workspace_id || url.searchParams.get("workspace_id") || "").trim();
+    if (!workspaceId) {
+      return Response.json(
+        { ok: false, error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING },
+        { status: 400 },
+      );
+    }
     const uid =
       String(url.searchParams.get("user_id") || body?.user_id || "").trim();
     if (uid) this.ptSessionUserId = uid;
-    await this.ensureWorkspaceSettingsLoaded(workspaceId);
+    const tidParam = String(url.searchParams.get("tenant_id") || "").trim();
+    if (tidParam) this.ptSessionTenantId = tidParam;
+    const pParam = String(url.searchParams.get("person_uuid") || body?.person_uuid || "").trim();
+    if (pParam) this.ptPersonUuid = pParam;
+    await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
     const command = String(body?.command || "").trim();
 
     try {
@@ -561,6 +644,21 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   async getTerminalStatus(url) {
+    const workspaceId = (url.searchParams.get("workspace_id") || "").trim();
+    if (!workspaceId) {
+      return {
+        ok: false,
+        error: WORKSPACE_CONTEXT_MISSING,
+        code: WORKSPACE_CONTEXT_MISSING,
+      };
+    }
+    const uid = (url.searchParams.get("user_id") || "").trim();
+    if (uid) this.ptSessionUserId = uid;
+    const tid = (url.searchParams.get("tenant_id") || "").trim();
+    if (tid) this.ptSessionTenantId = tid;
+    const pu = (url.searchParams.get("person_uuid") || "").trim();
+    if (pu) this.ptPersonUuid = pu;
+    await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
     const executionMode = normalizeExecutionMode(url.searchParams.get("execution_mode"));
     const sshTargets = parseSshTargets(this.env);
     const mcpToken = String(this.env?.MCP_AUTH_TOKEN || "").trim();
@@ -586,6 +684,34 @@ export class AgentChatSqlV1 extends DurableObject {
         },
       },
     };
+  }
+
+  async upsertTerminalSessionRow(sessionId, opts) {
+    const { tenantId, userId, workspaceId, personUuid } = opts;
+    if (!this.env?.DB || !sessionId) return;
+    const tid = String(tenantId || "").trim();
+    const uid = String(userId || "").trim();
+    const wid = String(workspaceId || "").trim();
+    if (!tid || !uid || !wid) return;
+    const now = Math.floor(Date.now() / 1000);
+    const pid = personUuid != null && String(personUuid).trim() !== "" ? String(personUuid).trim() : null;
+    try {
+      await this.env.DB.prepare(
+        `INSERT INTO terminal_sessions (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', '', 'active', ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           tenant_id = excluded.tenant_id,
+           user_id = excluded.user_id,
+           workspace_id = excluded.workspace_id,
+           person_uuid = excluded.person_uuid,
+           status = 'active',
+           updated_at = excluded.updated_at`,
+      )
+        .bind(sessionId, tid, uid, wid, pid, now, now)
+        .run();
+    } catch (e) {
+      console.warn("[terminal_sessions upsert]", e?.message);
+    }
   }
 
   async getOrCreateTerminalSessionId() {
@@ -664,14 +790,25 @@ export class AgentChatSqlV1 extends DurableObject {
       } catch (_) {}
     }
 
+    const wid = String(this.workspaceId || "").trim();
+    if (!wid) throw new Error("PTY workspace_id missing");
+    const uid = String(this.ptSessionUserId || "").trim();
+    if (!uid) throw new Error("PTY user_id missing");
+    let tid = String(this.ptSessionTenantId || "").trim();
+    if (!tid) {
+      try {
+        tid = String((await resolveTenantIdForWorkspace(this.env, wid)) || "").trim();
+      } catch (_) {}
+    }
+    if (!tid) throw new Error("PTY tenant_id missing");
+
     // VPC Service path (private — `PTY_SERVICE` tunnels to localhost:3099; no worker-side auth headers)
     if (this.env?.PTY_SERVICE) {
       try {
-        const tid = String(this.workspaceId || "").trim() || "default";
-        const uid = String(this.ptSessionUserId || "default").trim() || "default";
         const vpcUrl = new URL("http://localhost:3099/terminal");
         vpcUrl.searchParams.set("tenant_id", tid);
         vpcUrl.searchParams.set("user_id", uid);
+        vpcUrl.searchParams.set("workspace_id", wid);
         const resp = await this.env.PTY_SERVICE.fetch(
           new Request(vpcUrl.toString(), {
             headers: {
@@ -735,9 +872,7 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     let wsUrl = normalizeWebSocketUrl(rawUrl);
     const sep = wsUrl.includes("?") ? "&" : "?";
-    const tid = String(this.workspaceId || "").trim() || "default";
-    const uid = String(this.ptSessionUserId || "default").trim() || "default";
-    wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tid)}&user_id=${encodeURIComponent(uid)}`;
+    wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tid)}&user_id=${encodeURIComponent(uid)}&workspace_id=${encodeURIComponent(wid)}`;
     const wsResp = await fetch(wsUrl, {
       headers: {
         "Upgrade": "websocket",

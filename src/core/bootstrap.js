@@ -142,6 +142,46 @@ export async function resolveEffectiveWorkspaceId(env, request, authUser, cache)
   return { workspaceId, error: null };
 }
 
+async function userCanAccessWorkspace(env, authUser, workspaceId) {
+  const wid = trim(workspaceId);
+  const uid = trim(authUser?.id);
+  if (!wid || !uid || !env?.DB) return false;
+  if (authUserIsSuperadmin(authUser)) return true;
+  let tenantId = trim(authUser?.tenant_id);
+  if (!tenantId) tenantId = trim(await fetchAuthUserTenantId(env, uid).catch(() => null));
+  const ws = await env.DB.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ?`).bind(wid).first();
+  if (!ws) return false;
+  if (String(ws.user_id || '') === uid) return true;
+  if (tenantId && String(ws.tenant_id || '') === tenantId) return true;
+  const m = await env.DB
+    .prepare(
+      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+    )
+    .bind(wid, uid)
+    .first();
+  return !!m;
+}
+
+/**
+ * Terminal: optional explicit workspace from URL/body must pass membership checks; otherwise session/auth resolution.
+ *
+ * @returns {Promise<{ workspaceId: string|null, error: string|null }>}
+ */
+export async function resolveTerminalWorkspaceId(env, request, authUser, explicitRaw) {
+  const explicit = trim(explicitRaw);
+  if (explicit) {
+    if (!(await userCanAccessWorkspace(env, authUser, explicit))) {
+      return { workspaceId: null, error: 'Forbidden' };
+    }
+    return { workspaceId: explicit, error: null };
+  }
+  const base = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+  if (base.error || !base.workspaceId) {
+    return { workspaceId: null, error: WORKSPACE_CONTEXT_MISSING };
+  }
+  return { workspaceId: base.workspaceId, error: null };
+}
+
 /**
  * Active bootstrap row for the given identity + workspace scope.
  *

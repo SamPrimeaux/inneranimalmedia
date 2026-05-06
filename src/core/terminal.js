@@ -4,6 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 import { getAuthUser, fetchAuthUserTenantId } from './auth';
+import { resolveTerminalWorkspaceId, WORKSPACE_CONTEXT_MISSING, resolveTenantIdForWorkspace } from './bootstrap.js';
 import { notifySam } from './notifications';
 
 /**
@@ -152,8 +153,12 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
   if (!cmd) return { ok: false, error: 'No command' };
   try {
     const authUser = await getAuthUser(request, env);
-    const userId = String(authUser?.id || 'anonymous');
-    const workspaceId = String(extra.workspace_id || authUser?.tenant_id || 'default').trim();
+    if (!authUser?.id) return { ok: false, error: 'Unauthorized' };
+    const userId = String(authUser.id).trim();
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, extra.workspace_id);
+    if (tw.error === 'Forbidden') return { ok: false, error: 'Forbidden' };
+    if (tw.error || !tw.workspaceId) return { ok: false, error: WORKSPACE_CONTEXT_MISSING };
+    const workspaceId = tw.workspaceId;
     const mode = ['pty', 'ssh', 'mcp'].includes(String(executionMode || '').toLowerCase())
       ? String(executionMode).toLowerCase()
       : 'pty';
@@ -164,6 +169,15 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
     doUrl.searchParams.set('execution_mode', mode);
     doUrl.searchParams.set('workspace_id', workspaceId);
     doUrl.searchParams.set('user_id', userId);
+    let tid =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : '';
+    if (!tid) tid = (await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null)) || '';
+    if (!tid) tid = (await fetchAuthUserTenantId(env, userId).catch(() => null)) || '';
+    if (tid) doUrl.searchParams.set('tenant_id', tid);
+    const puuid = authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '' ? String(authUser.person_uuid).trim() : '';
+    if (puuid) doUrl.searchParams.set('person_uuid', puuid);
     const resp = await stub.fetch(new Request(doUrl.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
