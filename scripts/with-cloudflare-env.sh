@@ -29,11 +29,9 @@ prepend_std_node_toolchain_path() {
   fi
 }
 
-if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-  prepend_std_node_toolchain_path
-  exec "$@"
-fi
-
+# Always load .env.cloudflare first. Do not early-exit just because
+# CLOUDFLARE_API_TOKEN already exists in the parent shell; deploy-specific vars
+# like DEPLOY_NOTIFY_EMAIL / RESEND_FROM may live only in .env.cloudflare.
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck source=/dev/null
