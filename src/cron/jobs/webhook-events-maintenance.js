@@ -39,7 +39,7 @@ export async function runWebhookEventsMaintenanceCron(env) {
   try {
     const _bjId = 'bj_' + Date.now();
     await env.DB.prepare("INSERT OR IGNORE INTO agentsam_code_index_job (id,job_name,target_table,source_type,status,started_at,created_by) VALUES (?,?,?,'cron','running',unixepoch(),?)")
-      .bind(_bjId, 'webhook_event_stats_rollup', 'webhook_event_stats', 'system')
+      .bind(_bjId, 'webhook_event_stats_rollup', 'webhook_event_stats', env.TENANT_ID ?? null)
       .run().catch(() => { });
     const _res = await env.DB.prepare(
       `INSERT OR REPLACE INTO webhook_event_stats

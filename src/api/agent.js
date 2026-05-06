@@ -3412,13 +3412,13 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
       ]);
     }
     if (!todayTodo && env.DB) {
-      const row = await env.DB.prepare(`SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?`).bind(identity?.tenantId || 'system').first().catch(() => null);
+      const row = await env.DB.prepare(`SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?`).bind(identity?.tenantId || null).first().catch(() => null);
       if (row?.value) todayTodo = String(row.value);
     }
     const context = { daily_log: dailyLog || null, yesterday_log: yesterdayLog || null, schema_and_records_memory: schemaMemory || null, today_todo: todayTodo || null, date: today };
     if (env.DB && ctx?.waitUntil) {
       ctx.waitUntil(
-        env.DB.prepare(`INSERT INTO ai_compiled_context_cache (id, context_hash, context_type, compiled_context, source_context_ids_json, token_count, tenant_id, created_at, last_accessed_at, expires_at) VALUES (?,?,'bootstrap',?,'[]',0,?,unixepoch(),unixepoch(),unixepoch()+1800) ON CONFLICT(context_hash) DO UPDATE SET compiled_context=excluded.compiled_context, expires_at=excluded.expires_at, last_accessed_at=unixepoch()`).bind(cacheKey, cacheKey, JSON.stringify(context), identity?.tenantId || 'system').run().catch(() => {})
+        env.DB.prepare(`INSERT INTO ai_compiled_context_cache (id, context_hash, context_type, compiled_context, source_context_ids_json, token_count, tenant_id, created_at, last_accessed_at, expires_at) VALUES (?,?,'bootstrap',?,'[]',0,?,unixepoch(),unixepoch(),unixepoch()+1800) ON CONFLICT(context_hash) DO UPDATE SET compiled_context=excluded.compiled_context, expires_at=excluded.expires_at, last_accessed_at=unixepoch()`).bind(cacheKey, cacheKey, JSON.stringify(context), identity?.tenantId || null).run().catch(() => {})
       );
     }
     return jsonResponse(context);

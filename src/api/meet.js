@@ -78,7 +78,10 @@ async function ensureMeetMessagesTable(db) {
   `).run();
 }
 
-async function ensureMeetChatChannelId(db, { workspaceId, tenantId, createdBy }) {
+/** Channel row `type` must stay `'system'` for Meet Chat (not tenant_id — see SELECT above). */
+const MEET_CHAT_CHANNEL_TYPE = 'system';
+
+async function ensureMeetChatChannelId(db, env, { workspaceId, tenantId, createdBy }) {
   if (!workspaceId) return null;
 
   // Try the "desired" schema first (workspace_id + type + slug).
@@ -107,33 +110,38 @@ async function ensureMeetChatChannelId(db, { workspaceId, tenantId, createdBy })
 
   // Create (best-effort with multiple column sets).
   const chId = newId('ch');
-  const tId = tenantId ?? null;
+  const tId =
+    tenantId != null && String(tenantId).trim() !== ''
+      ? String(tenantId).trim()
+      : env?.TENANT_ID != null && String(env.TENANT_ID).trim() !== ''
+        ? String(env.TENANT_ID).trim()
+        : null;
   const by = createdBy ?? null;
 
   const inserts = [
     {
       sql: `INSERT OR IGNORE INTO channels
               (id, workspace_id, tenant_id, name, slug, description, type, created_by)
-            VALUES (?, ?, ?, 'Meet Chat', 'meet-chat', 'Persistent chat from video sessions', 'system', ?)`,
-      binds: [chId, workspaceId, tId, by],
+            VALUES (?, ?, ?, 'Meet Chat', 'meet-chat', 'Persistent chat from video sessions', ?, ?)`,
+      binds: [chId, workspaceId, tId, MEET_CHAT_CHANNEL_TYPE, by],
     },
     {
       sql: `INSERT OR IGNORE INTO channels
               (id, workspace_id, tenant_id, name, slug, type, created_by)
-            VALUES (?, ?, ?, 'Meet Chat', 'meet-chat', 'system', ?)`,
-      binds: [chId, workspaceId, tId, by],
+            VALUES (?, ?, ?, 'Meet Chat', 'meet-chat', ?, ?)`,
+      binds: [chId, workspaceId, tId, MEET_CHAT_CHANNEL_TYPE, by],
     },
     {
       sql: `INSERT OR IGNORE INTO channels
               (id, workspace_id, tenant_id, name, slug, type)
-            VALUES (?, ?, ?, 'Meet Chat', 'meet-chat', 'system')`,
-      binds: [chId, workspaceId, tId],
+            VALUES (?, ?, ?, 'Meet Chat', 'meet-chat', ?)`,
+      binds: [chId, workspaceId, tId, MEET_CHAT_CHANNEL_TYPE],
     },
     {
       sql: `INSERT OR IGNORE INTO channels
               (workspace_id, tenant_id, name, slug, type)
-            VALUES (?, ?, 'Meet Chat', 'meet-chat', 'system')`,
-      binds: [workspaceId, tId],
+            VALUES (?, ?, 'Meet Chat', 'meet-chat', ?)`,
+      binds: [workspaceId, tId, MEET_CHAT_CHANNEL_TYPE],
     },
   ];
 
@@ -448,7 +456,7 @@ async function handleChat(request, env, roomId) {
 
   // Dual-write to persistent messages table (best-effort).
   try {
-    const chId = await ensureMeetChatChannelId(env.DB, { workspaceId: wsId, tenantId, createdBy: userId });
+    const chId = await ensureMeetChatChannelId(env.DB, env, { workspaceId: wsId, tenantId, createdBy: userId });
     if (chId) {
       const persistentId = newId('msg');
       await env.DB.prepare(`

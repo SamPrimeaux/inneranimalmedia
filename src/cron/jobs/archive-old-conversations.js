@@ -96,13 +96,13 @@ export async function archiveOldConversations(env) {
       try {
         await env.DB.prepare(
           `INSERT INTO agent_messages (id, conversation_id, role, content, provider, created_at, is_compaction_marker)
-           VALUES (?, ?, 'system', ?, 'archive', unixepoch(), 1)`
-        ).bind(markerId, cid, markerText).run();
+           VALUES (?, ?, ?, ?, 'archive', unixepoch(), 1)`
+        ).bind(markerId, cid, 'system', markerText).run();
       } catch (e1) {
         await env.DB.prepare(
           `INSERT INTO agent_messages (id, conversation_id, role, content, provider, created_at)
-           VALUES (?, ?, 'system', ?, 'archive', unixepoch())`
-        ).bind(markerId, cid, markerText).run().catch(() => { });
+           VALUES (?, ?, ?, ?, 'archive', unixepoch())`
+        ).bind(markerId, cid, 'system', markerText).run().catch(() => { });
       }
 
       const checkName = `archive_${String(cid).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)}`;
