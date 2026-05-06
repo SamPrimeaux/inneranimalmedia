@@ -3,6 +3,8 @@
  * Handles agent session tracking, tool registration listings, and intent-based routing.
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
+import { resolveIamActorContext } from '../core/identity.js';
+import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
@@ -418,9 +420,14 @@ export async function handleMcpApi(request, url, env, ctx) {
       const panelAgent = url.searchParams.get('agent_id');
       let tools = [];
       try {
-        const r = await env.DB.prepare(
-          'SELECT tool_name, description, tool_category FROM agentsam_mcp_tools WHERE enabled = 1 ORDER BY tool_name'
-        ).all();
+        const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+        const rows = await selectAgentsamMcpToolsList(env.DB, {
+          userId: actorCtx?.userId,
+          tenantId: actorCtx?.tenantId,
+          workspaceId: actorCtx?.workspaceId,
+          personUuid: actorCtx?.personUuid,
+        }, 500);
+        const r = { results: rows };
         const filtered = filterToolRowsByPanel(panelAgent, r.results || []);
         tools = filtered.map((t) => ({
           tool_name: t.tool_name,
@@ -429,9 +436,14 @@ export async function handleMcpApi(request, url, env, ctx) {
         }));
       } catch (_) {
         try {
-          const r = await env.DB.prepare(
-            'SELECT tool_name, tool_category FROM agentsam_mcp_tools WHERE enabled = 1 ORDER BY tool_name'
-          ).all();
+          const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+          const rows = await selectAgentsamMcpToolsList(env.DB, {
+            userId: actorCtx?.userId,
+            tenantId: actorCtx?.tenantId,
+            workspaceId: actorCtx?.workspaceId,
+            personUuid: actorCtx?.personUuid,
+          }, 500);
+          const r = { results: rows };
           const filtered = filterToolRowsByPanel(panelAgent, r.results || []);
           tools = filtered.map((t) => ({
             tool_name: t.tool_name,
@@ -449,9 +461,13 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!toolName) return jsonResponse({ error: 'tool_name required' }, 400);
       let row = null;
       try {
-        row = await env.DB.prepare(`SELECT * FROM agentsam_mcp_tools WHERE tool_name = ? LIMIT 1`)
-          .bind(toolName)
-          .first();
+        const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+        row = await selectAgentsamMcpToolRow(env.DB, {
+          userId: actorCtx?.userId,
+          tenantId: actorCtx?.tenantId,
+          workspaceId: actorCtx?.workspaceId,
+          personUuid: actorCtx?.personUuid,
+        }, toolName);
       } catch (e) {
         return jsonResponse({ error: String(e?.message || e) }, 500);
       }

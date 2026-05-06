@@ -466,10 +466,13 @@ export async function getAuthUser(request, env) {
         return {
           id:            row.id,          // au_ prefix — canonical
           auth_id:       row.id,          // legacy compat
+          user_id:       row.id,          // alias for tool / MCP scope resolution
           person_uuid:   row.person_uuid,
           email:         row.email,
           name:          row.name,
           tenant_id:     row.tenant_id,
+          active_tenant_id: row.active_tenant_id ?? null,
+          active_workspace_id: row.active_workspace_id ?? null,
           supabase_user_id: row.supabase_user_id ?? null,
           is_superadmin: row.is_superadmin ? 1 : 0,
           session_id:    session.session_id,

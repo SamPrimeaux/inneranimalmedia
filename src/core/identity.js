@@ -5,60 +5,131 @@
  * Returns null if session is missing or expired.
  * Callers must handle null as 401 — never substitute defaults.
  */
-import { getSession, getAuthUser } from './auth.js';
+import { getSession, getAuthUser, fetchAuthUserTenantId } from './auth.js';
+
+function trimOrNull(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
+/**
+ * Request-scoped actor context for tenancy, workspace headers, and MCP tool scope.
+ * Does not default tenant/workspace to branded literals — derives from session, actor, and optional `x-iam-workspace-id`.
+ */
+export async function resolveIamActorContext(request, env) {
+  const session = await getSession(env, request).catch(() => null);
+  const actor = await getAuthUser(request, env).catch(() => null);
+
+  let tenantId =
+    trimOrNull(actor?.tenant_id) ||
+    trimOrNull(actor?.active_tenant_id) ||
+    trimOrNull(session?.tenant_id);
+
+  const workspaceId =
+    trimOrNull(request.headers.get('x-iam-workspace-id')) ||
+    trimOrNull(actor?.active_workspace_id) ||
+    trimOrNull(session?.workspace_id);
+
+  let userId =
+    trimOrNull(actor?.auth_id) ||
+    trimOrNull(actor?.user_id) ||
+    trimOrNull(actor?.id) ||
+    trimOrNull(session?.user_id);
+
+  if (!tenantId && userId && env?.DB) {
+    try {
+      tenantId = trimOrNull(await fetchAuthUserTenantId(env, userId));
+    } catch (_) {}
+  }
+
+  const personUuid =
+    actor?.person_uuid != null && String(actor.person_uuid).trim() !== ''
+      ? String(actor.person_uuid).trim()
+      : null;
+
+  return { actor, session, tenantId, workspaceId, userId, personUuid };
+}
 
 export async function resolveIdentity(env, request) {
   if (!env?.DB) return null;
 
-  const session = await getSession(env, request).catch(() => null);
-  if (!session?.user_id) return null;
+  const ctx = await resolveIamActorContext(request, env);
+  if (!ctx.userId) return null;
 
-  // tenant_id comes from the verified session row —
-  // if it is null, the account is misconfigured, not defaulted
-  const tenantId = session.tenant_id ?? null;
+  const tenantId = ctx.tenantId;
   if (!tenantId) return null;
 
-  const [user, defaultWs] = await Promise.all([
-    getAuthUser(request, env).catch(() => null),
-    env.DB.prepare(`
-      SELECT tw.workspace_id AS workspace_id, w.handle AS handle,
-             aw.default_model_id
-      FROM tenant_workspaces tw
-      JOIN workspaces w ON w.id = tw.workspace_id
-      LEFT JOIN agentsam_workspace aw ON aw.id = tw.workspace_id
-      WHERE tw.tenant_id = ?
-        AND tw.is_default = 1
-        AND tw.is_active = 1
-      LIMIT 1
-    `).bind(tenantId).first().catch(() => null),
-  ]);
+  let workspaceIdResolved = ctx.workspaceId;
+  let workspaceSlug = null;
+  let defaultModelId = null;
 
-  // No default workspace found — try first active workspace for this tenant.
-  // If still null, workspaceId is null. Caller handles this.
-  const fallbackWs = defaultWs
-    ? null
-    : await env.DB.prepare(`
-        SELECT w.id AS workspace_id, w.handle AS handle,
-               aw.default_model_id
-        FROM workspaces w
-        LEFT JOIN agentsam_workspace aw ON aw.id = w.id
-        WHERE w.status = 'active'
-          AND (w.owner_tenant_id = ? OR w.default_tenant_id = ?)
-        ORDER BY w.created_at ASC
-        LIMIT 1
-      `).bind(tenantId, tenantId).first().catch(() => null);
+  const user = ctx.actor || (await getAuthUser(request, env).catch(() => null));
 
-  const ws = defaultWs || fallbackWs || null;
+  if (workspaceIdResolved) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT w.id AS workspace_id, w.handle AS handle, aw.default_model_id
+         FROM workspaces w
+         LEFT JOIN agentsam_workspace aw ON aw.id = w.id
+         WHERE w.id = ?
+         LIMIT 1`,
+      )
+        .bind(workspaceIdResolved)
+        .first();
+      if (row) {
+        workspaceSlug = row.handle ?? null;
+        defaultModelId = row.default_model_id ?? null;
+      }
+    } catch (_) {}
+  } else {
+    const defaultWs = await env.DB.prepare(
+      `SELECT tw.workspace_id AS workspace_id, w.handle AS handle,
+              aw.default_model_id
+       FROM tenant_workspaces tw
+       JOIN workspaces w ON w.id = tw.workspace_id
+       LEFT JOIN agentsam_workspace aw ON aw.id = tw.workspace_id
+       WHERE tw.tenant_id = ?
+         AND tw.is_default = 1
+         AND tw.is_active = 1
+       LIMIT 1`,
+    )
+      .bind(tenantId)
+      .first()
+      .catch(() => null);
+
+    const fallbackWs = defaultWs
+      ? null
+      : await env.DB.prepare(
+          `SELECT w.id AS workspace_id, w.handle AS handle,
+                  aw.default_model_id
+           FROM workspaces w
+           LEFT JOIN agentsam_workspace aw ON aw.id = w.id
+           WHERE w.status = 'active'
+             AND (w.owner_tenant_id = ? OR w.default_tenant_id = ?)
+           ORDER BY w.created_at ASC
+           LIMIT 1`,
+        )
+          .bind(tenantId, tenantId)
+          .first()
+          .catch(() => null);
+
+    const ws = defaultWs || fallbackWs || null;
+    workspaceIdResolved = ws?.workspace_id ?? null;
+    workspaceSlug = ws?.handle ?? null;
+    defaultModelId = ws?.default_model_id ?? null;
+  }
 
   return {
-    userId:         session.user_id,
+    userId: ctx.userId,
     tenantId,
-    workspaceId:    ws?.workspace_id     ?? null,
-    workspaceSlug:  ws?.handle ?? null,
-    defaultModelId: ws?.default_model_id ?? null,
-    email:          user?.email          ?? null,
-    name:           user?.name           ?? null,
-    isAdmin:        user?.is_superadmin  === 1,
+    workspaceId: workspaceIdResolved,
+    workspaceSlug,
+    defaultModelId,
+    email: user?.email ?? null,
+    name: user?.name ?? null,
+    isAdmin: user?.is_superadmin === 1,
+    personUuid: ctx.personUuid,
   };
 }
 
@@ -66,8 +137,8 @@ export async function resolveSessionIds(env, request) {
   const id = await resolveIdentity(env, request);
   if (!id) return null;
   return {
-    userId:      id.userId,
-    tenantId:    id.tenantId,
+    userId: id.userId,
+    tenantId: id.tenantId,
     workspaceId: id.workspaceId,
   };
 }
