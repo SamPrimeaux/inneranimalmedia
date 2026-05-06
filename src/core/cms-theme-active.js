@@ -155,6 +155,14 @@ export function buildActiveThemeApiPayload(row) {
     monacoEditorThemeId = `${slugSafe}-monaco`;
   }
 
+  const monacoBgResolved =
+    row.monaco_bg != null && String(row.monaco_bg).trim() !== "" ? String(row.monaco_bg).trim() : null;
+
+  const monacoThemeDataStr =
+    row.monaco_theme_data != null && String(row.monaco_theme_data).trim() !== ""
+      ? String(row.monaco_theme_data).trim()
+      : null;
+
   /** @type {Record<string, unknown>} */
   const out = {
     id: row.id,
@@ -169,11 +177,8 @@ export function buildActiveThemeApiPayload(row) {
     compiled_css_hash: row.compiled_css_hash ?? null,
     theme_channel: "live",
     monaco_theme: monacoEditorThemeId,
-    monaco_bg: row.monaco_bg ?? null,
-    monaco_theme_data:
-      row.monaco_theme_data != null && String(row.monaco_theme_data).trim() !== ""
-        ? String(row.monaco_theme_data)
-        : null,
+    monaco_bg: monacoBgResolved,
+    monaco_theme_data: monacoThemeDataStr,
   };
   if (cfg.terminal && typeof cfg.terminal === "object") out.terminal = cfg.terminal;
   return out;

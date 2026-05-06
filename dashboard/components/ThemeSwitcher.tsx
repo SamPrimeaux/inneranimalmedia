@@ -136,7 +136,7 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({ workspaceId }) => 
                 width: 14,
                 height: 14,
                 borderRadius: '50%',
-                background: theme.monaco_bg || '#1e293b',
+                background: theme.monaco_bg?.trim() || 'var(--dashboard-panel)',
                 border:
                   theme.theme_family === 'light'
                     ? '2px solid rgba(0,0,0,0.15)'

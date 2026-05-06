@@ -123,6 +123,44 @@ function parseJsonSafe(str, fallback = {}) {
   }
 }
 
+function mcpLastCheckIso(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  if (n < 1e12) return new Date(n * 1000).toISOString();
+  return new Date(n).toISOString();
+}
+
+function mcpDashboardConfigFromRow(row) {
+  const meta = parseJsonSafe(row?.metadata, {});
+  const saved = meta.dashboard_mcp_config;
+  if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
+  const url = row?.endpoint_url != null ? String(row.endpoint_url).trim() : '';
+  return {
+    url,
+    headers: meta.suggested_headers && typeof meta.suggested_headers === 'object' ? meta.suggested_headers : {},
+  };
+}
+
+async function mcpFetchJsonRpcPing(env, endpointUrl, headersObj) {
+  const t0 = Date.now();
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    ...(headersObj && typeof headersObj === 'object' ? headersObj : {}),
+  };
+  const token = env.MCP_AUTH_TOKEN ? String(env.MCP_AUTH_TOKEN) : '';
+  if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(String(endpointUrl).trim(), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const latency_ms = Date.now() - t0;
+  return { res, latency_ms };
+}
+
 const CORE_WORKSPACES_DATA = [
   { id: 'ws_inneranimalmedia', name: 'Inner Animal Media', category: 'entity' },
   { id: 'ws_inneranimal', name: 'InnerAnimal', category: 'entity' },
@@ -1530,6 +1568,225 @@ export async function handleSettingsRequest(request, env, ctx) {
   }
 
   // ── MCP settings surface ──────────────────────────────────────────────────
+  if (pathLower === '/api/settings/mcp/status' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT id, health_status, last_health_check, metadata FROM mcp_services ORDER BY service_name`,
+      ).all();
+      const servers = (results || []).map((row) => {
+        const meta = parseJsonSafe(row.metadata, {});
+        const lat = meta.last_latency_ms;
+        return {
+          id: String(row.id),
+          health_status: row.health_status != null ? String(row.health_status) : 'unknown',
+          last_check_at: mcpLastCheckIso(row.last_health_check),
+          latency_ms: lat != null && Number.isFinite(Number(lat)) ? Number(lat) : null,
+        };
+      });
+      return jsonResponse({ servers });
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  {
+    const m = pathLower.match(/^\/api\/settings\/mcp\/servers\/([^/]+)\/ping$/);
+    if (m && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const id = decodeURIComponent(m[1] || '').trim();
+      if (!id) return jsonResponse({ error: 'id required' }, 400);
+      try {
+        const row = await env.DB.prepare(`SELECT id, endpoint_url, metadata FROM mcp_services WHERE id = ?`).bind(id).first();
+        if (!row?.endpoint_url || !String(row.endpoint_url).trim().startsWith('http')) {
+          return jsonResponse({ status: 'unreachable', latency_ms: null });
+        }
+        const cfg = mcpDashboardConfigFromRow(row);
+        const hdrs = cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {};
+        let status = 'unreachable';
+        let latency_ms = null;
+        try {
+          const { res, latency_ms: ms } = await mcpFetchJsonRpcPing(
+            env,
+            cfg.url && String(cfg.url).trim().startsWith('http') ? String(cfg.url).trim() : String(row.endpoint_url).trim(),
+            hdrs,
+          );
+          latency_ms = ms;
+          status = res.ok ? 'healthy' : 'unreachable';
+        } catch {
+          status = 'unreachable';
+        }
+        const health_status = status === 'healthy' ? 'healthy' : 'unreachable';
+        try {
+          const meta = parseJsonSafe(row.metadata, {});
+          meta.last_latency_ms = latency_ms;
+          await env.DB.prepare(
+            `UPDATE mcp_services SET health_status = ?, last_health_check = unixepoch(),
+             metadata = json_set(COALESCE(metadata, '{}'), '$.last_latency_ms', ?),
+             updated_at = unixepoch() WHERE id = ?`,
+          )
+            .bind(health_status, latency_ms ?? null, id)
+            .run();
+        } catch {
+          /* ignore */
+        }
+        return jsonResponse({ status, latency_ms });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+  }
+
+  {
+    const m = pathLower.match(/^\/api\/settings\/mcp\/servers\/([^/]+)\/tools\/refresh$/);
+    if (m && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const id = decodeURIComponent(m[1] || '').trim();
+      if (!id) return jsonResponse({ error: 'id required' }, 400);
+      try {
+        const row = await env.DB.prepare(`SELECT id, endpoint_url, metadata FROM mcp_services WHERE id = ?`).bind(id).first();
+        if (!row?.endpoint_url) return jsonResponse({ error: 'Server not found' }, 404);
+        const cfg = mcpDashboardConfigFromRow(row);
+        const url =
+          cfg.url && String(cfg.url).trim().startsWith('http')
+            ? String(cfg.url).trim()
+            : String(row.endpoint_url).trim();
+        const hdrs = cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {};
+        const headers = {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          ...hdrs,
+        };
+        const token = env.MCP_AUTH_TOKEN ? String(env.MCP_AUTH_TOKEN) : '';
+        if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+          signal: AbortSignal.timeout(8000),
+        });
+        const text = await resp.text();
+        let tools = [];
+        try {
+          const line = text.split('\n').find((l) => {
+            const t = l.trim();
+            return t.startsWith('data:') || t.startsWith('{');
+          });
+          const raw = line
+            ? line.trim().startsWith('data:')
+              ? line.trim().slice(5).trim()
+              : line.trim()
+            : '{}';
+          const json = JSON.parse(raw || '{}');
+          const rawTools = json?.result?.tools;
+          tools = Array.isArray(rawTools)
+            ? rawTools.map((t) => ({
+                name: String(t?.name || ''),
+                description: t?.description != null ? String(t.description) : '',
+                inputSchema: t?.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : null,
+              }))
+            : [];
+        } catch {
+          tools = [];
+        }
+        return jsonResponse({ tools, source: 'live', ok: resp.ok });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e), tools: [], source: 'live' }, 502);
+      }
+    }
+  }
+
+  {
+    const m = pathLower.match(/^\/api\/settings\/mcp\/servers\/([^/]+)\/tools$/);
+    if (m && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const id = decodeURIComponent(m[1] || '').trim();
+      if (!id) return jsonResponse({ error: 'id required' }, 400);
+      try {
+        const row = await env.DB.prepare(`SELECT endpoint_url FROM mcp_services WHERE id = ?`).bind(id).first();
+        if (!row?.endpoint_url) return jsonResponse({ error: 'Server not found' }, 404);
+        const ep = String(row.endpoint_url).trim();
+        const { results } = await env.DB.prepare(
+          `SELECT tool_name, description, input_schema, enabled
+           FROM agentsam_mcp_tools WHERE mcp_service_url = ? ORDER BY tool_name`,
+        )
+          .bind(ep)
+          .all();
+        const tools = (results || []).map((t) => {
+          let inputSchema = null;
+          if (t.input_schema != null && String(t.input_schema).trim() !== '') {
+            try {
+              inputSchema = JSON.parse(String(t.input_schema));
+            } catch {
+              inputSchema = { raw: String(t.input_schema) };
+            }
+          }
+          return {
+            name: String(t.tool_name || ''),
+            description: t.description != null ? String(t.description) : '',
+            inputSchema,
+            enabled: Number(t.enabled ?? 0) === 1,
+          };
+        });
+        return jsonResponse({ tools, source: 'registry' });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+  }
+
+  {
+    const m = pathLower.match(/^\/api\/settings\/mcp\/servers\/([^/]+)$/);
+    if (m && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const id = decodeURIComponent(m[1] || '').trim();
+      if (!id) return jsonResponse({ error: 'id required' }, 400);
+      const body = await request.json().catch(() => ({}));
+      try {
+        const row = await env.DB.prepare(`SELECT id, metadata, endpoint_url FROM mcp_services WHERE id = ?`).bind(id).first();
+        if (!row) return jsonResponse({ error: 'Server not found' }, 404);
+        if (Object.prototype.hasOwnProperty.call(body, 'enabled')) {
+          const on = body.enabled === true || body.enabled === 1 || body.enabled === '1';
+          await env.DB.prepare(`UPDATE mcp_services SET is_active = ?, updated_at = unixepoch() WHERE id = ?`)
+            .bind(on ? 1 : 0, id)
+            .run();
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'config') && body.config && typeof body.config === 'object') {
+          const cfgJson = JSON.stringify(body.config);
+          const newUrl =
+            typeof body.config.url === 'string' && body.config.url.trim().startsWith('http')
+              ? body.config.url.trim()
+              : null;
+          await env.DB.prepare(
+            `UPDATE mcp_services SET
+               metadata = json_set(COALESCE(metadata, '{}'), '$.dashboard_mcp_config', json(?)),
+               endpoint_url = COALESCE(?, endpoint_url),
+               updated_at = unixepoch()
+             WHERE id = ?`,
+          )
+            .bind(cfgJson, newUrl, id)
+            .run();
+        }
+        return jsonResponse({ ok: true });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+    if (m && method === 'DELETE') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const id = decodeURIComponent(m[1] || '').trim();
+      if (!id) return jsonResponse({ error: 'id required' }, 400);
+      try {
+        await env.DB.prepare(`UPDATE mcp_services SET is_active = 0, updated_at = unixepoch() WHERE id = ?`)
+          .bind(id)
+          .run();
+        return jsonResponse({ ok: true });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+  }
+
   if (pathLower === '/api/settings/mcp' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
@@ -1538,7 +1795,6 @@ export async function handleSettingsRequest(request, env, ctx) {
           `SELECT s.*, COUNT(t.id) AS tool_count
            FROM mcp_services s
            LEFT JOIN agentsam_mcp_tools t ON t.mcp_service_url = s.endpoint_url
-           WHERE COALESCE(s.is_active, 1) = 1
            GROUP BY s.id
            ORDER BY s.service_name`,
         )

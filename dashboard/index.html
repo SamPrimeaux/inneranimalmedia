@@ -27,6 +27,10 @@
           lastWs && lastWs.trim()
             ? 'inneranimalmedia_theme_monaco_data:' + lastWs.trim()
             : 'inneranimalmedia_theme_monaco_data';
+        var K_MONACO_BG =
+          lastWs && lastWs.trim()
+            ? 'inneranimalmedia_theme_monaco_bg:' + lastWs.trim()
+            : 'inneranimalmedia_theme_monaco_bg';
         var L_CSS = 'mcad_theme_css';
         var L_DARK = 'mcad_theme_is_dark';
         try {
@@ -58,12 +62,13 @@
           var slug = localStorage.getItem(K_SLUG);
           if (slug) root.setAttribute('data-cms-theme', slug);
           var mt = localStorage.getItem(K_MONACO);
-          if (!mt && slug && String(slug).trim()) {
-            mt = String(slug).trim() + '-monaco';
-          }
-          if (mt) root.setAttribute('data-monaco-theme', mt);
           var md = localStorage.getItem(K_MONACO_DATA);
-          if (md) root.setAttribute('data-monaco-theme-data', md);
+          var mb = localStorage.getItem(K_MONACO_BG);
+          if (mt && md && mb) {
+            root.setAttribute('data-monaco-theme', mt);
+            root.setAttribute('data-monaco-theme-data', md);
+            root.setAttribute('data-monaco-bg', mb);
+          }
         } catch (e) {}
       })();
     </script>

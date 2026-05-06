@@ -2,72 +2,91 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Editor, { type Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 
-const MONACO_BUILTIN = new Set(['vs', 'vs-dark', 'hc-black', 'hc-light']);
+const THEME_DEBUG =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('theme_debug');
 
-function rgbToHex(color: string): string {
-  if (color.startsWith('#')) return color;
-  const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (!m) return '#1e293b';
-  return `#${[m[1], m[2], m[3]].map((n) => parseInt(n, 10).toString(16).padStart(2, '0')).join('')}`;
-}
+/**
+ * Single source of truth: `data-monaco-theme` + `data-monaco-theme-data` on `<html>`.
+ * `parsed.base` is only `vs` | `vs-dark` (inheritance); `themeId` is always e.g. `{slug}-monaco`.
+ * Never call `monaco.editor.setTheme('vs-dark')` as the active theme id — only `setTheme(themeId)`.
+ */
+export function applyMonacoThemeFromDocument(
+  monaco: Monaco,
+  editor: editor.IStandaloneCodeEditor | null,
+): void {
+  if (THEME_DEBUG) console.log('[MonacoSurface] applyMonacoTheme called');
+  const root = document.documentElement;
+  const themeId = root.getAttribute('data-monaco-theme')?.trim() ?? '';
+  const themeDataRaw = root.getAttribute('data-monaco-theme-data')?.trim() ?? '';
+  const bg = root.getAttribute('data-monaco-bg')?.trim() ?? '';
 
-function resolveMonacoThemeData(): object | null {
-  const raw = document.documentElement.getAttribute('data-monaco-theme-data')?.trim();
-  if (!raw) return null;
+  if (!themeId || !themeDataRaw) {
+    if (THEME_DEBUG) {
+      console.table({
+        resolvedTheme: themeId || '(missing)',
+        hasThemeData: false,
+        defineThemeCalled: false,
+        setThemeCalled: false,
+        note: 'Waiting for data-monaco-theme + data-monaco-theme-data',
+      });
+    }
+    return;
+  }
+
+  let parsed: editor.IStandaloneThemeData;
   try {
-    return JSON.parse(raw) as object;
+    parsed = JSON.parse(themeDataRaw) as editor.IStandaloneThemeData;
   } catch {
-    return null;
+    console.error('[MonacoSurface] monaco_theme_data parse failed');
+    return;
+  }
+
+  monaco.editor.defineTheme(themeId, parsed as editor.IStandaloneThemeData);
+  monaco.editor.setTheme(themeId);
+
+  if (bg && editor) {
+    editor.updateOptions({});
+  }
+
+  if (THEME_DEBUG) {
+    const colors = parsed.colors as Record<string, string> | undefined;
+    console.table({
+      resolvedTheme: themeId,
+      resolvedBg: bg || '(none)',
+      hasThemeData: true,
+      themeDataBase: parsed.base,
+      editorBackground: colors?.['editor.background'],
+      defineThemeCalled: true,
+      setThemeCalled: true,
+    });
   }
 }
 
-function resolveMonacoTheme(monacoTheme?: string): string {
+function readMonacoThemeIdFromDom(): string {
+  return document.documentElement.getAttribute('data-monaco-theme')?.trim() || 'vs';
+}
+
+export function resolveMonacoTheme(monacoTheme?: string): string {
   const fromProp = monacoTheme?.trim();
   if (fromProp) return fromProp;
   const attr = document.documentElement.getAttribute('data-monaco-theme')?.trim();
   if (attr) return attr;
-  return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs';
+  /** Never default to `vs-dark` on the HTML root / Editor `theme` prop — wait for CMS attrs or use `vs`. */
+  return 'vs';
 }
 
-function resolveMonacoBg(monacoBg?: string): string {
+/** Only `data-monaco-bg` / explicit prop — no CSS-token guessing (Monaco mirrors `cms_themes.monaco_bg`). */
+export function resolveMonacoBg(monacoBg?: string): string {
   const fromProp = monacoBg?.trim();
   if (fromProp) return fromProp;
-  const attr = document.documentElement.getAttribute('data-monaco-bg')?.trim();
-  if (attr) return attr;
-  const st = getComputedStyle(document.documentElement);
-  for (const name of ['--dashboard-panel', '--bg-panel', '--scene-bg', '--bg-canvas', '--bg']) {
-    const v = st.getPropertyValue(name).trim();
-    if (v) return v;
-  }
-  const fallback = st.getPropertyValue('background-color').trim();
-  return fallback || 'transparent';
+  return document.documentElement.getAttribute('data-monaco-bg')?.trim() || '';
 }
 
-function isUsableMonacoThemeDefinition(data: object | null): data is Record<string, unknown> {
-  return (
-    data !== null &&
-    typeof data === 'object' &&
-    !Array.isArray(data) &&
-    Object.keys(data).length > 0
-  );
-}
-
-function applyNonBuiltinMonacoTheme(monaco: Monaco, resolvedTheme: string, resolvedBg: string): void {
-  if (MONACO_BUILTIN.has(resolvedTheme)) return;
-  const themeData = resolveMonacoThemeData();
-  if (isUsableMonacoThemeDefinition(themeData)) {
-    monaco.editor.defineTheme(resolvedTheme, themeData as any);
-  } else {
-    monaco.editor.defineTheme(resolvedTheme, {
-      base:
-        resolvedTheme.includes('light') || document.documentElement.classList.contains('light')
-          ? 'vs'
-          : 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: { 'editor.background': rgbToHex(resolvedBg) },
-    });
-  }
+/** @deprecated Prefer `applyMonacoThemeFromDocument` — kept for older call sites. */
+export function applyNonBuiltinMonacoTheme(monaco: Monaco, _resolvedTheme: string, resolvedBg: string): void {
+  void _resolvedTheme;
+  void resolvedBg;
+  applyMonacoThemeFromDocument(monaco, null);
 }
 
 export type MonacoSurfaceProps = {
@@ -76,9 +95,7 @@ export type MonacoSurfaceProps = {
   language?: string;
   height?: string | number;
   readOnly?: boolean;
-  /** Optional; defaults to the document element's `data-monaco-theme`. */
   monacoTheme?: string;
-  /** Optional; defaults to `data-monaco-bg` and CSS vars. */
   monacoBg?: string;
   onMount?: (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => void;
 };
@@ -93,75 +110,63 @@ export const MonacoSurface: React.FC<MonacoSurfaceProps> = ({
   monacoBg,
   onMount,
 }) => {
-  const [themeRev, setThemeRev] = useState(0);
+  const [editorThemeProp, setEditorThemeProp] = useState(readMonacoThemeIdFromDom);
   const onMountRef = useRef(onMount);
   onMountRef.current = onMount;
   const bridgeRef = useRef<{ monaco: Monaco } | null>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+
+  const syncFromDom = useCallback(() => {
+    const tid = readMonacoThemeIdFromDom();
+    setEditorThemeProp(tid);
+    const monaco = bridgeRef.current?.monaco;
+    const ed = editorRef.current;
+    if (monaco) applyMonacoThemeFromDocument(monaco, ed);
+  }, []);
 
   useEffect(() => {
-    const bump = () => setThemeRev((n) => n + 1);
-    window.addEventListener('iam:cms-theme-applied', bump);
-    const mo = new MutationObserver(bump);
+    window.addEventListener('iam:cms-theme-applied', syncFromDom);
+    const mo = new MutationObserver(() => {
+      syncFromDom();
+    });
     mo.observe(document.documentElement, {
       attributes: true,
       attributeFilter: [
         'data-monaco-theme',
-        'data-monaco-bg',
         'data-monaco-theme-data',
-        'class',
-        'data-dashboard-theme-ready',
+        'data-monaco-bg',
         'data-cms-theme',
       ],
     });
     return () => {
-      window.removeEventListener('iam:cms-theme-applied', bump);
+      window.removeEventListener('iam:cms-theme-applied', syncFromDom);
       mo.disconnect();
     };
+  }, [syncFromDom]);
+
+  void monacoTheme;
+  void monacoBg;
+
+  const handleBeforeMount = useCallback((monaco: Monaco) => {
+    applyMonacoThemeFromDocument(monaco, null);
   }, []);
-
-  const resolvedTheme = resolveMonacoTheme(monacoTheme);
-  const resolvedBg = resolveMonacoBg(monacoBg);
-
-  const syncMonacoTheme = useCallback(() => {
-    const monaco = bridgeRef.current?.monaco;
-    if (!monaco) return;
-    const rt = resolveMonacoTheme(monacoTheme);
-    const bg = resolveMonacoBg(monacoBg);
-    if (MONACO_BUILTIN.has(rt)) {
-      monaco.editor.setTheme(rt);
-      return;
-    }
-    applyNonBuiltinMonacoTheme(monaco, rt, bg);
-    monaco.editor.setTheme(rt);
-  }, [monacoTheme, monacoBg, themeRev]);
-
-  useEffect(() => {
-    syncMonacoTheme();
-  }, [syncMonacoTheme]);
-
-  const handleBeforeMount = useCallback(
-    (monaco: Monaco) => {
-      const rt = resolveMonacoTheme(monacoTheme);
-      const bg = resolveMonacoBg(monacoBg);
-      applyNonBuiltinMonacoTheme(monaco, rt, bg);
-    },
-    [monacoTheme, monacoBg],
-  );
 
   const handleMount = useCallback(
     (ed: editor.IStandaloneCodeEditor, monaco: Monaco) => {
       bridgeRef.current = { monaco };
+      editorRef.current = ed;
+      applyMonacoThemeFromDocument(monaco, ed);
+      setEditorThemeProp(readMonacoThemeIdFromDom());
       onMountRef.current?.(ed, monaco);
-      queueMicrotask(() => syncMonacoTheme());
     },
-    [syncMonacoTheme],
+    [],
   );
 
   return (
     <Editor
       height={height}
       language={language}
-      theme={resolvedTheme}
+      theme={monacoTheme?.trim() || editorThemeProp}
       value={value}
       onChange={(v) => onChange?.(v ?? '')}
       beforeMount={handleBeforeMount}

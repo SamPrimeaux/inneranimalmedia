@@ -77,13 +77,7 @@ export default function SettingsPanel({
           />
         );
       case 'Tools & MCP':
-        return (
-          <ToolsMcpSection
-            data={data}
-            onOpenInMonaco={onOpenInMonaco}
-            onFileSelect={onFileSelect}
-          />
-        );
+        return <ToolsMcpSection data={data} activeSection={resolvedLabel} />;
       case 'Rules & Skills':
         return (
           <RulesSkillsSection

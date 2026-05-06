@@ -28,6 +28,7 @@ export function themeIsDarkStorageKey(workspaceId: string | null | undefined): s
 
 const INNERANIMALMEDIA_LS_THEME_MONACO = 'inneranimalmedia_theme_monaco';
 const INNERANIMALMEDIA_LS_THEME_MONACO_DATA = 'inneranimalmedia_theme_monaco_data';
+const INNERANIMALMEDIA_LS_THEME_MONACO_BG = 'inneranimalmedia_theme_monaco_bg';
 
 export function themeMonacoStorageKey(workspaceId: string | null | undefined): string {
   const w = workspaceId?.trim();
@@ -39,9 +40,9 @@ export function themeMonacoDataStorageKey(workspaceId: string | null | undefined
   return w ? `inneranimalmedia_theme_monaco_data:${w}` : INNERANIMALMEDIA_LS_THEME_MONACO_DATA;
 }
 
-function monacoThemeIdFallback(slug: string | undefined): string | undefined {
-  const s = slug != null && String(slug).trim() !== '' ? String(slug).trim() : '';
-  return s ? `${s}-monaco` : undefined;
+export function themeMonacoBgStorageKey(workspaceId: string | null | undefined): string {
+  const w = workspaceId?.trim();
+  return w ? `inneranimalmedia_theme_monaco_bg:${w}` : INNERANIMALMEDIA_LS_THEME_MONACO_BG;
 }
 
 const LEGACY_MCAD_CSS = 'mcad_theme_css';
@@ -60,45 +61,46 @@ export type CmsActiveThemePayload = {
   css_url?: string | null;
   compiled_css_hash?: string | null;
   resolved_from?: string;
-  /** Monaco theme id (e.g. vs, vs-dark, hc-light, or a custom id registered client-side). */
+  /** From `cms_themes.monaco_theme` or `{slug}-monaco` derived server-side from the same row (never invented in the client). */
   monaco_theme?: string | null;
+  /** From `cms_themes.monaco_bg`. */
   monaco_bg?: string | null;
-  /** JSON string of `IStandaloneThemeData` for `monaco.editor.defineTheme` when theme id is custom. */
+  /** From `cms_themes.monaco_theme_data` (full `IStandaloneThemeData` JSON string). */
   monaco_theme_data?: string | null;
   data?: Record<string, string>;
 };
 
-/** Sets data-monaco-theme / data-monaco-bg for MonacoSurface and notifies listeners. */
+/**
+ * Mirrors `GET /api/themes/active` Monaco fields onto `<html>`. No guessing: missing values → attribute removed;
+ * MonacoSurface waits until both `data-monaco-theme` and `data-monaco-theme-data` are present.
+ */
 export function syncMonacoHtmlDataAttributes(
-  payload: Pick<CmsActiveThemePayload, 'monaco_theme' | 'monaco_bg' | 'is_dark' | 'monaco_theme_data' | 'slug'>,
-  cssVars?: Record<string, string> | null,
+  payload: Pick<CmsActiveThemePayload, 'monaco_theme' | 'monaco_bg' | 'monaco_theme_data'>,
 ): void {
-  let themeStr =
+  const root = document.documentElement;
+
+  const mt =
     payload.monaco_theme != null && String(payload.monaco_theme).trim() !== ''
       ? String(payload.monaco_theme).trim()
       : '';
-  if (!themeStr && payload.slug != null && String(payload.slug).trim() !== '') {
-    themeStr = `${String(payload.slug).trim()}-monaco`;
-  }
-  if (!themeStr) {
-    themeStr = payload.is_dark === false ? 'vs' : 'vs-dark';
-  }
-  let bgStr =
+  const mb =
     payload.monaco_bg != null && String(payload.monaco_bg).trim() !== ''
       ? String(payload.monaco_bg).trim()
       : '';
-  if (!bgStr && cssVars && typeof cssVars === 'object') {
-    const scene = cssVars['--scene-bg']?.trim();
-    const bg = cssVars['--bg']?.trim();
-    bgStr = scene || bg || '';
-  }
-  if (!bgStr) bgStr = '#1e293b';
-  document.documentElement.setAttribute('data-monaco-theme', themeStr);
-  document.documentElement.setAttribute('data-monaco-bg', bgStr);
-  document.documentElement.setAttribute(
-    'data-monaco-theme-data',
-    payload.monaco_theme_data ?? '',
-  );
+  const md =
+    payload.monaco_theme_data != null && String(payload.monaco_theme_data).trim() !== ''
+      ? String(payload.monaco_theme_data).trim()
+      : '';
+
+  if (mt) root.setAttribute('data-monaco-theme', mt);
+  else root.removeAttribute('data-monaco-theme');
+
+  if (mb) root.setAttribute('data-monaco-bg', mb);
+  else root.removeAttribute('data-monaco-bg');
+
+  if (md) root.setAttribute('data-monaco-theme-data', md);
+  else root.removeAttribute('data-monaco-theme-data');
+
   try {
     window.dispatchEvent(new CustomEvent('iam:cms-theme-applied'));
   } catch {
@@ -156,9 +158,27 @@ export function logDashboardThemeDebug(): void {
     if (sp.get('theme_debug') !== '1') return;
     const root = document.documentElement;
     const cs = getComputedStyle(root);
+    const md = root.getAttribute('data-monaco-theme-data');
+    let themeDataBase = '';
+    let editorBackground = '';
+    try {
+      if (md && md.trim()) {
+        const parsed = JSON.parse(md) as { base?: string; colors?: Record<string, string> };
+        themeDataBase = parsed.base != null ? String(parsed.base) : '';
+        editorBackground = parsed.colors?.['editor.background']?.trim() ?? '';
+      }
+    } catch {
+      /* ignore */
+    }
     console.info('[iam theme_debug]', {
       slug: root.getAttribute('data-cms-theme'),
       theme_ready: root.getAttribute('data-dashboard-theme-ready'),
+      data_monaco_theme: root.getAttribute('data-monaco-theme'),
+      data_monaco_bg: root.getAttribute('data-monaco-bg'),
+      has_monaco_theme_data: !!(md && md.trim()),
+      monaco_theme_data_len: md?.length ?? 0,
+      themeDataBase,
+      editorBackground,
       '--bg-canvas': cs.getPropertyValue('--bg-canvas').trim(),
       '--bg-app': cs.getPropertyValue('--bg-app').trim(),
       '--bg-panel': cs.getPropertyValue('--bg-panel').trim(),
@@ -180,6 +200,7 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
   const kDark = themeIsDarkStorageKey(wsCtx);
   const kMonaco = themeMonacoStorageKey(wsCtx);
   const kMonacoData = themeMonacoDataStorageKey(wsCtx);
+  const kMonacoBg = themeMonacoBgStorageKey(wsCtx);
 
   if (wsCtx) {
     try {
@@ -188,6 +209,7 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
       localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_IS_DARK);
       localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_MONACO);
       localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_MONACO_DATA);
+      localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_MONACO_BG);
     } catch {
       /* ignore */
     }
@@ -221,12 +243,10 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
     }
   }
   try {
-    const mt =
-      payload.monaco_theme != null && String(payload.monaco_theme).trim() !== ''
-        ? String(payload.monaco_theme).trim()
-        : monacoThemeIdFallback(payload.slug) ?? '';
-    if (mt) {
-      localStorage.setItem(kMonaco, mt);
+    if (payload.monaco_theme != null && String(payload.monaco_theme).trim() !== '') {
+      localStorage.setItem(kMonaco, String(payload.monaco_theme).trim());
+    } else {
+      localStorage.removeItem(kMonaco);
     }
     const md =
       payload.monaco_theme_data != null && String(payload.monaco_theme_data).trim() !== ''
@@ -236,6 +256,11 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
       localStorage.setItem(kMonacoData, md);
     } else {
       localStorage.removeItem(kMonacoData);
+    }
+    if (payload.monaco_bg != null && String(payload.monaco_bg).trim() !== '') {
+      localStorage.setItem(kMonacoBg, String(payload.monaco_bg).trim());
+    } else {
+      localStorage.removeItem(kMonacoBg);
     }
   } catch {
     /* ignore */
@@ -250,7 +275,7 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
       /* ignore */
     }
   }
-  syncMonacoHtmlDataAttributes(payload, vars ?? null);
+  syncMonacoHtmlDataAttributes(payload);
   markDashboardThemeApplied(payload.slug ?? null);
   logDashboardThemeDebug();
   return applied;
@@ -315,17 +340,10 @@ export function applyCachedCmsThemeFallbackForWorkspace(workspaceId: string | nu
     if (d === '1' || d === '0') payload.is_dark = d === '1';
     const cachedMt = localStorage.getItem(themeMonacoStorageKey(w))?.trim();
     const cachedMd = localStorage.getItem(themeMonacoDataStorageKey(w));
-    if (cachedMt) {
-      payload.monaco_theme = cachedMt;
-    } else if (payload.slug) {
-      payload.monaco_theme = monacoThemeIdFallback(payload.slug);
-    }
-    if (cachedMd) {
-      payload.monaco_theme_data = cachedMd;
-    }
-    if (payload.monaco_theme == null || String(payload.monaco_theme).trim() === '') {
-      payload.monaco_theme = payload.is_dark === false ? 'vs' : 'vs-dark';
-    }
+    const cachedMb = localStorage.getItem(themeMonacoBgStorageKey(w))?.trim();
+    if (cachedMt) payload.monaco_theme = cachedMt;
+    if (cachedMd) payload.monaco_theme_data = cachedMd;
+    if (cachedMb) payload.monaco_bg = cachedMb;
     return applyCmsThemeToDocument(payload);
   } catch {
     return false;
@@ -345,17 +363,10 @@ function applyCachedLegacyGlobalThemeFallback(): boolean {
     if (d === '1' || d === '0') payload.is_dark = d === '1';
     const cachedMt = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_MONACO)?.trim();
     const cachedMd = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_MONACO_DATA);
-    if (cachedMt) {
-      payload.monaco_theme = cachedMt;
-    } else if (payload.slug) {
-      payload.monaco_theme = monacoThemeIdFallback(payload.slug);
-    }
-    if (cachedMd) {
-      payload.monaco_theme_data = cachedMd;
-    }
-    if (payload.monaco_theme == null || String(payload.monaco_theme).trim() === '') {
-      payload.monaco_theme = payload.is_dark === false ? 'vs' : 'vs-dark';
-    }
+    const cachedMb = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_MONACO_BG)?.trim();
+    if (cachedMt) payload.monaco_theme = cachedMt;
+    if (cachedMd) payload.monaco_theme_data = cachedMd;
+    if (cachedMb) payload.monaco_bg = cachedMb;
     return applyCmsThemeToDocument(payload);
   } catch {
     return false;
