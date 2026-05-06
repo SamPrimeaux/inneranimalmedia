@@ -1,0 +1,81 @@
+const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
+
+export async function writeDailySnapshot(env, reason = 'cron') {
+  if (!env?.DB) return;
+  const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
+  const [tt, dt, providerBreakdown, modelBreakdown, planRow] = await Promise.all([
+    safe(env.DB.prepare(
+      `SELECT COALESCE(SUM(tokens_input),0) AS tokens_in,
+        COALESCE(SUM(tokens_output),0) AS tokens_out,
+        ROUND(COALESCE(SUM(cost_estimate),0),4) AS cost_usd
+       FROM agentsam_usage_events WHERE date=date('now')`
+    ).first()),
+    safe(env.DB.prepare(
+      `SELECT COUNT(*) AS total
+       FROM deployment_tracking
+       WHERE created_at >= date('now')`
+    ).first()),
+    env.DB.prepare("SELECT provider, COUNT(*) as c, SUM(cost_estimate) as cost FROM agentsam_usage_events WHERE date=date('now') GROUP BY provider").all().catch(() => ({ results: [] })),
+    env.DB.prepare("SELECT model, COUNT(*) as c FROM agentsam_usage_events WHERE date=date('now') GROUP BY model ORDER BY c DESC LIMIT 5").all().catch(() => ({ results: [] })),
+    env.DB.prepare(`
+      SELECT id, tasks_done, tasks_total FROM agentsam_plans
+      WHERE status='active' AND plan_type='daily'
+      ORDER BY plan_date DESC LIMIT 1
+    `).first().catch(() => null),
+  ]);
+  const providerJson = JSON.stringify(Object.fromEntries((providerBreakdown?.results || []).map(r => [r.provider, { calls: r.c, cost: r.cost }])));
+  const modelJson = JSON.stringify(Object.fromEntries((modelBreakdown?.results || []).map(r => [r.model, r.c])));
+  const digestSummary = `snapshot:${String(reason)} spend $${tt?.cost_usd ?? 0} | deploys ${dt?.total ?? 0}`;
+  await env.DB.prepare(
+    `INSERT OR REPLACE INTO daily_snapshots (
+      snapshot_date, deploy_count, tokens_in, tokens_out, cost_usd,
+      provider_breakdown, model_breakdown,
+      active_workflows,
+      completed_steps, total_steps, active_plan_id,
+      digest_text, created_at, updated_at
+    ) VALUES (
+      date('now'), ?, ?, ?, ?,
+      ?, ?,
+      15,
+      ?, ?, ?,
+      ?, unixepoch(), unixepoch()
+    )`
+  ).bind(
+    dt?.total ?? 0,
+    tt?.tokens_in ?? 0,
+    tt?.tokens_out ?? 0,
+    tt?.cost_usd ?? 0,
+    providerJson,
+    modelJson,
+    planRow?.tasks_done ?? 0,
+    planRow?.tasks_total ?? 0,
+    planRow?.id ?? null,
+    digestSummary
+  ).run().catch(() => { });
+
+  // workspace_usage_metrics
+  const _wsId = IAM_DEFAULT_WORKSPACE_ID;
+  const _tid = 'tenant_sam_primeaux';
+  const [_wai, _wtc, _wmc, _wdc] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(*) as c,COALESCE(SUM(tokens_input+tokens_output),0) as t,COALESCE(SUM(cost_estimate),0) as cost FROM agentsam_usage_events WHERE date=date('now')").first().catch(() => null),
+    env.DB.prepare("SELECT COUNT(*) as c FROM agentsam_tool_call_log WHERE created_at>=unixepoch('now','start of day')").first().catch(() => null),
+    env.DB.prepare("SELECT COUNT(*) as c FROM agentsam_mcp_tool_execution WHERE created_at>=datetime('now','-1 day')").first().catch(() => null),
+    env.DB.prepare("SELECT COUNT(*) as c FROM deployment_tracking WHERE created_at>=date('now')").first().catch(() => null),
+  ]);
+  await env.DB.prepare("INSERT OR REPLACE INTO workspace_usage_metrics (workspace_id,metric_date,ai_calls,tokens_used,cost_estimate_cents,tool_calls,mcp_calls,deployments_count,rollup_source,updated_at) VALUES (?,date('now'),?,?,?,?,?,?,'daily_cron',unixepoch())").bind(_wsId, _wai?.c || 0, _wai?.t || 0, (_wai?.cost || 0) * 100, _wtc?.c || 0, _wmc?.c || 0, _wdc?.c || 0).run().catch(() => { });
+
+  // agentsam_tool_stats_compacted (backfill job wrapper)
+  const _bjToolsId = 'bj_' + Date.now();
+  await env.DB.prepare("INSERT OR IGNORE INTO agentsam_code_index_job (id,job_name,target_table,source_type,status,started_at,created_by) VALUES (?,?,?,'cron','running',unixepoch(),?)")
+    .bind(_bjToolsId, 'agentsam_tool_stats_compacted_rollup', 'agentsam_tool_stats_compacted', 'system')
+    .run().catch(() => { });
+  const _toolsRes = await env.DB.prepare("INSERT OR REPLACE INTO agentsam_tool_stats_compacted (tenant_id,tool_name,total_calls,success_count,failure_count,success_rate,total_cost_usd,avg_duration_ms,first_seen_at,last_seen_at,compacted_at) SELECT tenant_id,tool_name,COUNT(*),SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),SUM(CASE WHEN status='error' THEN 1 ELSE 0 END),ROUND(1.0*SUM(CASE WHEN status='success' THEN 1 ELSE 0 END)/COUNT(*),4),COALESCE(SUM(cost_usd),0),ROUND(AVG(duration_ms),2),MIN(created_at),MAX(created_at),unixepoch() FROM agentsam_tool_call_log GROUP BY tenant_id,tool_name").run().catch(() => null);
+  const _toolsInserted = Number(_toolsRes?.meta?.changes ?? _toolsRes?.changes ?? 0) || 0;
+  await env.DB.prepare("UPDATE agentsam_code_index_job SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?")
+    .bind(_toolsInserted, _toolsInserted, _bjToolsId)
+    .run().catch(() => { });
+
+  // agentsam_health_daily
+  const _hs = await env.DB.prepare("SELECT COUNT(*) as total,SUM(CASE WHEN health_status='green' THEN 1 ELSE 0 END) as g,SUM(CASE WHEN health_status='yellow' THEN 1 ELSE 0 END) as y,SUM(CASE WHEN health_status='red' THEN 1 ELSE 0 END) as r,ROUND(AVG(tools_degraded),2) as ad,ROUND(AVG(tel_cost_24h),6) as ac FROM system_health_snapshots WHERE snapshot_at>=unixepoch('now','start of day')").first().catch(() => null);
+  if (_hs?.total > 0) await env.DB.prepare("INSERT OR REPLACE INTO agentsam_health_daily (tenant_id,day,snapshot_count,green_count,yellow_count,red_count,avg_tools_degraded,avg_tel_cost_24h,health_status) VALUES (?,date('now'),?,?,?,?,?,?,CASE WHEN ?>0 THEN 'red' WHEN ?>0 THEN 'yellow' ELSE 'green' END)").bind(_tid, _hs.total || 0, _hs.g || 0, _hs.y || 0, _hs.r || 0, _hs.ad || 0, _hs.ac || 0, _hs.r || 0, _hs.y || 0).run().catch(() => { });
+}
