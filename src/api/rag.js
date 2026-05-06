@@ -388,29 +388,68 @@ async function documentSourceExists(env, source, projectId) {
   });
 }
 
-async function logSemanticSearch(env, row) {
+/**
+ * Same contract as unified-search: `public.log_semantic_search` → `semantic_search_log`.
+ *
+ * @param {any} env
+ * @param {{
+ *   searchFn: string,
+ *   tenantId?: string | null,
+ *   sessionId?: string | null,
+ *   queryPreview?: string,
+ *   matchThreshold: number,
+ *   matchCountRequested: number,
+ *   matchCountReturned: number,
+ *   topSimilarity?: number | null,
+ *   avgSimilarity?: number | null,
+ *   sourcesHit?: string[],
+ *   latencyMs?: number,
+ *   metadata?: Record<string, unknown>,
+ * }} args
+ */
+async function logSemanticSearch(env, args) {
+  const {
+    searchFn,
+    tenantId,
+    sessionId,
+    queryPreview,
+    matchThreshold,
+    matchCountRequested,
+    matchCountReturned,
+    topSimilarity,
+    avgSimilarity,
+    sourcesHit,
+    latencyMs,
+    metadata,
+  } = args;
+  const params = [
+    searchFn,
+    tenantId ?? null,
+    sessionId ?? null,
+    String(queryPreview ?? '').slice(0, 500),
+    matchThreshold,
+    matchCountRequested,
+    matchCountReturned,
+    topSimilarity ?? null,
+    avgSimilarity ?? null,
+    JSON.stringify(Array.isArray(sourcesHit) ? sourcesHit : []),
+    Math.max(0, Math.floor(latencyMs ?? 0)),
+    JSON.stringify(metadata && typeof metadata === 'object' ? metadata : {}),
+  ];
+  const sql = `SELECT public.log_semantic_search(
+    $1::text, $2::text, $3::text, $4::text,
+    $5::double precision, $6::integer, $7::integer,
+    $8::double precision, $9::double precision,
+    $10::jsonb, $11::integer, $12::jsonb
+  )`;
   try {
-    await withPg(env, async (client) => {
-      await client.query(
-        `INSERT INTO public.semantic_search_log (
-          search_fn, tenant_id, query_preview, match_threshold, match_count_requested,
-          match_count_returned, top_similarity, avg_similarity, sources_hit
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
-        [
-          row.search_fn,
-          row.tenant_id,
-          row.query_preview,
-          row.match_threshold,
-          row.match_count_requested,
-          row.match_count_returned,
-          row.top_similarity,
-          row.avg_similarity,
-          JSON.stringify(Array.isArray(row.sources_hit) ? row.sources_hit : []),
-        ]
-      );
-    });
+    if (env?.HYPERDRIVE && typeof env.HYPERDRIVE.query === 'function') {
+      await env.HYPERDRIVE.query(sql, params);
+      return;
+    }
+    await withPg(env, (client) => client.query(sql, params));
   } catch (e) {
-    console.warn('[rag] semantic_search_log:', e?.message ?? e);
+    console.warn('[rag] log_semantic_search:', e?.message ?? e);
   }
 }
 
@@ -681,6 +720,7 @@ async function handleRagSearchRoute(request, env) {
     if (fromDb) tenantId = fromDb;
   }
 
+  const tSearch = Date.now();
   const { results, error: searchErr } = await runUnifiedRagQuery(env, {
     query,
     tenantId,
@@ -688,6 +728,7 @@ async function handleRagSearchRoute(request, env) {
     limit,
     includeSessions,
   });
+  const latencyMs = Date.now() - tSearch;
   if (searchErr) return jsonResponse({ error: searchErr }, searchErr === 'empty query' ? 400 : 503);
 
   const sims = results.map((r) => r.similarity).filter((n) => Number.isFinite(n));
@@ -696,15 +737,22 @@ async function handleRagSearchRoute(request, env) {
   const sourcesHit = [...new Set(results.map((r) => String(r.source || '')).filter(Boolean))];
 
   await logSemanticSearch(env, {
-    search_fn: 'unified',
-    tenant_id: tenantId,
-    query_preview: query.slice(0, 100),
-    match_threshold: threshold,
-    match_count_requested: limit,
-    match_count_returned: results.length,
-    top_similarity: topSim,
-    avg_similarity: avgSim,
-    sources_hit: sourcesHit,
+    searchFn: 'api.rag.search',
+    tenantId,
+    sessionId: user.session_id ?? null,
+    queryPreview: query,
+    matchThreshold: threshold,
+    matchCountRequested: limit,
+    matchCountReturned: results.length,
+    topSimilarity: topSim,
+    avgSimilarity: avgSim,
+    sourcesHit,
+    latencyMs,
+    metadata: {
+      include_sessions: includeSessions,
+      openai_embedding_model: ragEmbeddingModel(env) || null,
+      rag_documents_project_id: ragDocumentsProjectId(env) || null,
+    },
   });
 
   return jsonResponse({
