@@ -28,7 +28,7 @@ function resolveMcpTenantId(authUser, _env) {
   if (authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
     return String(authUser.tenant_id).trim();
   }
-  return 'iam';
+  return null;
 }
 
 async function resolveWorkflowTimeoutSeconds(env, tenantId) {
@@ -167,7 +167,16 @@ export async function handleMcpApi(request, url, env, ctx) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-    const tenantId = resolveMcpTenantId(authUser, env);
+    const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+    const tenantId =
+      actorCtx?.tenantId ||
+      resolveMcpTenantId(authUser, env) ||
+      (Number(authUser?.is_superadmin) === 1
+        ? (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : 'system')
+        : null);
+    if (!tenantId) {
+      return jsonResponse({ error: 'TENANT_CONTEXT_MISSING', code: 'TENANT_CONTEXT_MISSING' }, 400);
+    }
 
     // ── POST /api/mcp/invoke — dashboard proxy (session auth in, MCP token out)
     if (pathLower === '/api/mcp/invoke' && method === 'POST') {
@@ -176,7 +185,6 @@ export async function handleMcpApi(request, url, env, ctx) {
       const args = body.arguments && typeof body.arguments === 'object' ? body.arguments : (body.params && typeof body.params === 'object' ? body.params : {});
       if (!toolName) return jsonResponse({ error: 'tool_name required' }, 400);
 
-      const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
       let toolRow = null;
       try {
         toolRow = await selectAgentsamMcpToolRow(env.DB, {
@@ -401,11 +409,15 @@ export async function handleMcpApi(request, url, env, ctx) {
           : authUser?.id != null
             ? String(authUser.id).trim()
             : null;
+      if (!wsAd) {
+        return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+      }
       await recordMcpToolExecution(env, {
         id: toolCallId,
         tenant_id: tenantId,
         workspace_id: wsAd,
         user_id: uidAd,
+        person_uuid: actorCtxAd?.personUuid ?? null,
         session_id: sessionId,
         tool_name: 'mcp_dispatch',
         tool_category: 'orchestration',
@@ -631,11 +643,15 @@ export async function handleMcpApi(request, url, env, ctx) {
           : authUser?.id != null
             ? String(authUser.id).trim()
             : null;
+      if (!wsDp) {
+        return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+      }
       await recordMcpToolExecution(env, {
         id: toolCallId,
         tenant_id: tenantId,
         workspace_id: wsDp,
         user_id: uidDp,
+        person_uuid: actorCtxDp?.personUuid ?? null,
         session_id: sessionId,
         tool_name: 'mcp_dispatch',
         tool_category: 'orchestration',

@@ -46,6 +46,9 @@ export const handlers = {
   async d1_query({ sql, params = [], tenant_id, user_id, workspace_id, session_id }, env) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
     if (!sql) return { error: 'SQL query required' };
+    if (user_id && (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')) {
+      return { error: 'WORKSPACE_CONTEXT_MISSING' };
+    }
 
     const gate = assertD1ReadOnlySelect(sql);
     if (!gate.ok) {

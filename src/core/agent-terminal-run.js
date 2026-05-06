@@ -192,6 +192,7 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       error_message: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
       duration_ms: durationMs,
       user_id: uid,
+      person_uuid: personUuid || null,
       status: execErr ? 'error' : 'completed',
     });
 

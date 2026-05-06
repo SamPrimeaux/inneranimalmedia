@@ -968,13 +968,15 @@ function needsApproval(validationResult, modeConfig, userPolicy) {
 }
 
 async function createApprovalRequest(env, opts) {
-  const { tenantId, sessionId, userId, toolName, toolArgs, toolCallId, riskLevel, rationale } = opts;
+  const { tenantId, sessionId, userId, workspaceId, personUuid, toolName, toolArgs, toolCallId, riskLevel, rationale } = opts;
   const proposalId  = 'prop_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-  const toolCallRow = 'mtc_'  + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now         = Math.floor(Date.now() / 1000);
   const expiresAt   = now + 3600;
   if (!env.DB) return proposalId;
   const argsStr = typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs || {});
+  if (!workspaceId) {
+    throw new Error('WORKSPACE_CONTEXT_MISSING');
+  }
   try {
     await env.DB.prepare(
       `INSERT INTO agent_command_proposals
@@ -988,15 +990,21 @@ async function createApprovalRequest(env, opts) {
       rationale || `Tool call requires approval: ${toolName}`,
       riskLevel || 'medium', toolName, 'pending', expiresAt, now, now
     ).run();
-    await env.DB.prepare(
-      `INSERT INTO agentsam_mcp_tool_execution
-       (id, tenant_id, session_id, tool_name, tool_category, input_schema,
-        status, approval_gate_id, invoked_by, invoked_at, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,'awaiting_approval',?,?,datetime('now'),datetime('now'),datetime('now'))`
-    ).bind(
-      toolCallRow, tenantId, sessionId, toolName, 'builtin',
-      argsStr.slice(0, 10000), proposalId, userId || 'iam_agent', toolCallId || null
-    ).run().catch(() => {});
+    await recordMcpToolExecution(env, {
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      user_id: userId,
+      person_uuid: personUuid,
+      session_id: sessionId,
+      tool_name: toolName,
+      tool_category: 'builtin',
+      input_json: argsStr.slice(0, 10000),
+      output_json: '',
+      success: false,
+      status: 'awaiting_approval',
+      requires_approval: 1,
+      error_message: null,
+    }).catch(() => {});
   } catch (e) { console.warn('[agent] createApprovalRequest:', e?.message); }
   return proposalId;
 }
@@ -1355,7 +1363,18 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         continue;
       }
       if (needsApproval(validation, modeConfig, userPolicy)) {
-        const proposalId = await createApprovalRequest(env, { tenantId, sessionId, userId, toolName: call.name, toolArgs: call.input, toolCallId: call.id, riskLevel: validation.riskLevel, rationale: `Agent requested ${call.name} (${validation.riskLevel} risk)` });
+        const proposalId = await createApprovalRequest(env, {
+          tenantId,
+          sessionId,
+          userId,
+          workspaceId,
+          personUuid: mcpRuntimeContext.personUuid,
+          toolName: call.name,
+          toolArgs: call.input,
+          toolCallId: call.id,
+          riskLevel: validation.riskLevel,
+          rationale: `Agent requested ${call.name} (${validation.riskLevel} risk)`,
+        });
         notifySam(env, { subject: `Approval required: ${call.name}`, body: `Tool: ${call.name}\nRisk: ${validation.riskLevel}\nArgs: ${JSON.stringify(call.input||{}).slice(0,500)}\n\nApprove: ${(env.IAM_ORIGIN||'').replace(/\/$/,'')}/dashboard/overview?proposal=${proposalId}`, category: 'approval' }).catch(() => {});
         emit('approval_required', { proposal_id: proposalId, tool_name: call.name, tool_args: call.input, risk_level: validation.riskLevel, message: 'This action requires your approval.' });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Awaiting approval (proposal_id: ${proposalId}).` });
@@ -1574,10 +1593,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       : '') ||
     '';
   if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
-  if (!workspaceId && !ingestBypass && authUserIsSuperadmin(authUser)) {
-    workspaceId = String(env.WORKSPACE_ID || '').trim();
-  }
-  if (!workspaceId) return jsonResponse({ error: 'workspace required' }, 400);
+  if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
     loadModeConfig(env, requestedMode),

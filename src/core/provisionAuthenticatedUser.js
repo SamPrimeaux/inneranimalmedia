@@ -1,6 +1,7 @@
 import { provisionNewUser } from './provisionNewUser.js';
 import { provisionUserWorkspace } from '../api/provisioning.js';
 import { logAuthEvent } from './auth-events.js';
+import { ensureUserTenantWorkspace } from './workspace-provisioning.js';
 
 /**
  * Idempotent post-auth provisioning: app profile, default workspace, settings, tenant wiring.
@@ -48,6 +49,20 @@ export async function provisionAuthenticatedUser(env, request, identity) {
       email,
       planId: 'free',
     }).catch((err) => console.warn('[provisionAuthenticatedUser] provisionUserWorkspace', err?.message ?? err));
+  } catch {
+    /* non-fatal */
+  }
+
+  // Ensure active tenant/workspace wiring exists for authenticated runtime.
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id, tenant_id, active_tenant_id, active_workspace_id, person_uuid FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(authUserId)
+      .first();
+    if (row?.id) {
+      await ensureUserTenantWorkspace(env, row);
+    }
   } catch {
     /* non-fatal */
   }

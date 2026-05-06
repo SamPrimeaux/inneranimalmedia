@@ -6,11 +6,24 @@
  * Callers must handle null as 401 — never substitute defaults.
  */
 import { getSession, getAuthUser, fetchAuthUserTenantId } from './auth.js';
+import {
+  resolveDefaultWorkspaceForTenant,
+  ensureUserTenantWorkspace,
+  userHasWorkspaceMembership,
+} from './workspace-provisioning.js';
 
 function trimOrNull(v) {
   if (v == null) return null;
   const s = String(v).trim();
   return s || null;
+}
+
+function envAllowsAutoProvision(env) {
+  const raw = env?.ALLOW_USER_PROVISIONING;
+  if (raw == null) return true;
+  const s = String(raw).trim().toLowerCase();
+  if (s === '0' || s === 'false' || s === 'no') return false;
+  return true;
 }
 
 /**
@@ -22,12 +35,13 @@ export async function resolveIamActorContext(request, env) {
   const actor = await getAuthUser(request, env).catch(() => null);
 
   let tenantId =
-    trimOrNull(actor?.tenant_id) ||
     trimOrNull(actor?.active_tenant_id) ||
+    trimOrNull(actor?.tenant_id) ||
     trimOrNull(session?.tenant_id);
 
-  const workspaceId =
-    trimOrNull(request.headers.get('x-iam-workspace-id')) ||
+  let workspaceIdHeader = trimOrNull(request.headers.get('x-iam-workspace-id'));
+  let workspaceId =
+    workspaceIdHeader ||
     trimOrNull(actor?.active_workspace_id) ||
     trimOrNull(session?.workspace_id);
 
@@ -48,7 +62,66 @@ export async function resolveIamActorContext(request, env) {
       ? String(actor.person_uuid).trim()
       : null;
 
-  return { actor, session, tenantId, workspaceId, userId, personUuid };
+  const isSuperadmin = Number(actor?.is_superadmin) === 1;
+
+  // Validate x-iam-workspace-id only if user is a member or superadmin; otherwise ignore it.
+  if (workspaceIdHeader && userId && env?.DB && !isSuperadmin) {
+    const ok = await userHasWorkspaceMembership(env, userId, workspaceIdHeader);
+    if (!ok) {
+      workspaceIdHeader = null;
+      workspaceId = trimOrNull(actor?.active_workspace_id) || trimOrNull(session?.workspace_id);
+    }
+  }
+
+  // If still missing, resolve tenant default workspace. No branded fallbacks.
+  if (!workspaceId && tenantId && env?.DB) {
+    workspaceId = await resolveDefaultWorkspaceForTenant(env, tenantId);
+  }
+
+  const sessionId =
+    trimOrNull(actor?.session_id) ||
+    trimOrNull(session?.session_id) ||
+    null;
+
+  // Auto-provision tenant/workspace for authenticated users when allowed.
+  // This must never fallback to a branded workspace; it only creates/sets rows for THIS user/tenant.
+  if (envAllowsAutoProvision(env) && env?.DB && userId && !isSuperadmin) {
+    if (!tenantId || !workspaceId) {
+      try {
+        const provision = await ensureUserTenantWorkspace(env, {
+          id: userId,
+          email: actor?.email ?? null,
+          name: actor?.name ?? null,
+          tenant_id: actor?.tenant_id ?? null,
+          active_tenant_id: actor?.active_tenant_id ?? null,
+          active_workspace_id: actor?.active_workspace_id ?? null,
+          person_uuid: actor?.person_uuid ?? null,
+        });
+        if (!tenantId) tenantId = trimOrNull(provision?.tenantId);
+        if (!workspaceId) workspaceId = trimOrNull(provision?.workspaceId);
+      } catch {
+        /* warn-only; error returned below */
+      }
+    }
+  }
+
+  // For authenticated (non-superadmin) requests, missing workspace is an error state.
+  const error =
+    userId && tenantId && !workspaceId && !isSuperadmin
+      ? 'WORKSPACE_CONTEXT_MISSING'
+      : null;
+
+  return {
+    actor,
+    session,
+    tenantId,
+    workspaceId,
+    userId,
+    personUuid,
+    isSuperadmin,
+    sessionId,
+    error,
+  };
 }
 
 export async function resolveIdentity(env, request) {
@@ -128,8 +201,10 @@ export async function resolveIdentity(env, request) {
     defaultModelId,
     email: user?.email ?? null,
     name: user?.name ?? null,
-    isAdmin: user?.is_superadmin === 1,
+    isSuperadmin: ctx.isSuperadmin,
     personUuid: ctx.personUuid,
+    sessionId: ctx.sessionId,
+    error: ctx.error,
   };
 }
 
