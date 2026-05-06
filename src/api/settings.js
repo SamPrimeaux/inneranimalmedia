@@ -148,7 +148,7 @@ function mcpDashboardConfigFromRow(row) {
 }
 
 async function resolveWorkspaceDisplayName(env, workspaceId) {
-  const wsId = String(workspaceId || '').trim();
+  const wsId = workspaceId != null && workspaceId !== '' ? String(workspaceId).trim() : '';
   if (!wsId) return { id: '', name: '' };
   const core = CORE_WORKSPACES_DATA.find((w) => String(w.id) === wsId);
   if (core) return { id: wsId, name: String(core.name || wsId) };
@@ -764,7 +764,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
        LIMIT 1`,
     )
-      .bind(workspaceId || '', ...agentsamUserCandidates)
+      .bind(workspaceId || null, ...agentsamUserCandidates)
       .first()
       .catch(() => null);
     const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -773,7 +773,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       env.DB.prepare(
         `SELECT * FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
       )
-        .bind(agentsamUserId, workspaceId || '')
+        .bind(agentsamUserId, workspaceId || null)
         .first()
         .catch(() => null),
       env.DB.prepare(
@@ -781,7 +781,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          WHERE user_id = ? AND workspace_id = ?
          ORDER BY command ASC`,
       )
-        .bind(agentsamUserId, workspaceId || '')
+        .bind(agentsamUserId, workspaceId || null)
         .all()
         .then((r) => r.results || [])
         .catch(() => []),
@@ -790,7 +790,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          WHERE user_id = ? AND workspace_id = ?
          ORDER BY host ASC`,
       )
-        .bind(agentsamUserId, workspaceId || '')
+        .bind(agentsamUserId, workspaceId || null)
         .all()
         .then((r) => r.results || [])
         .catch(() => []),
@@ -799,7 +799,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          WHERE user_id = ? AND workspace_id = ?
          ORDER BY tool_key ASC`,
       )
-        .bind(agentsamUserId, workspaceId || '')
+        .bind(agentsamUserId, workspaceId || null)
         .all()
         .then((r) => r.results || [])
         .catch(() => []),
@@ -808,14 +808,14 @@ export async function handleSettingsRequest(request, env, ctx) {
          WHERE user_id = ? AND workspace_id = ?
          ORDER BY COALESCE(sort_order, 9999), display_name ASC`,
       )
-        .bind(agentsamUserId, workspaceId || '')
+        .bind(agentsamUserId, workspaceId || null)
         .all()
         .then((r) => r.results || [])
         .catch(() => []),
     ]);
 
     return jsonResponse({
-      workspace_id: workspaceId || '',
+      workspace_id: workspaceId || null,
       agentsam_user_id: agentsamUserId,
       canonical: {
         auth_id: canonicalAuthId || null,
@@ -851,7 +851,7 @@ export async function handleSettingsRequest(request, env, ctx) {
            AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
          LIMIT 1`,
       )
-        .bind(workspaceId || '', ...agentsamUserCandidates)
+        .bind(workspaceId || null, ...agentsamUserCandidates)
         .first()
         .catch(() => null);
       const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -868,7 +868,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       }
       if (!sets.length) return jsonResponse({ error: 'Only is_active and default_model_id may be updated' }, 400);
       sets.push("updated_at = datetime('now')");
-      vals.push(agentSeg, agentsamUserId, workspaceId || '');
+      vals.push(agentSeg, agentsamUserId, workspaceId || null);
       const n = await env.DB.prepare(
         `UPDATE agentsam_subagent_profile SET ${sets.join(', ')}
          WHERE id = ? AND user_id = ? AND workspace_id = ?`,
@@ -900,7 +900,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
        LIMIT 1`,
     )
-      .bind(workspaceId || '', ...agentsamUserCandidates)
+      .bind(workspaceId || null, ...agentsamUserCandidates)
       .first()
       .catch(() => null);
     const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -917,7 +917,7 @@ export async function handleSettingsRequest(request, env, ctx) {
     const insertCols = ['user_id', 'workspace_id', ...cols].join(', ');
     const placeholders = ['?', '?', ...cols.map(() => '?')].join(', ');
     const updateSet = cols.map((k) => `${k} = excluded.${k}`).join(', ');
-    const values = [agentsamUserId, workspaceId || '', ...cols.map((k) => incoming[k])];
+    const values = [agentsamUserId, workspaceId || null, ...cols.map((k) => incoming[k])];
 
     await env.DB.prepare(
       `INSERT INTO agentsam_user_policy (${insertCols})
@@ -932,14 +932,14 @@ export async function handleSettingsRequest(request, env, ctx) {
     const row = await env.DB.prepare(
       `SELECT * FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
     )
-      .bind(agentsamUserId, workspaceId || '')
+      .bind(agentsamUserId, workspaceId || null)
       .first()
       .catch(() => null);
 
     return jsonResponse({
       ok: true,
       policy: row,
-      workspace_id: workspaceId || '',
+      workspace_id: workspaceId || null,
       agentsam_user_id: agentsamUserId,
     });
   }
@@ -961,7 +961,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
        LIMIT 1`,
     )
-      .bind(workspaceId || '', ...agentsamUserCandidates)
+      .bind(workspaceId || null, ...agentsamUserCandidates)
       .first()
       .catch(() => null);
     const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -971,7 +971,7 @@ export async function handleSettingsRequest(request, env, ctx) {
        VALUES (?, ?, ?, ?, datetime('now'))
        ON CONFLICT(user_id, workspace_id, command) DO NOTHING`,
     )
-      .bind(crypto.randomUUID(), agentsamUserId, workspaceId || '', command)
+      .bind(crypto.randomUUID(), agentsamUserId, workspaceId || null, command)
       .run();
     return jsonResponse({ ok: true });
   }
@@ -990,7 +990,7 @@ export async function handleSettingsRequest(request, env, ctx) {
            AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
          LIMIT 1`,
       )
-        .bind(workspaceId || '', ...agentsamUserCandidates)
+        .bind(workspaceId || null, ...agentsamUserCandidates)
         .first()
         .catch(() => null);
       const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -999,7 +999,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         `DELETE FROM agentsam_command_allowlist
          WHERE user_id = ? AND workspace_id = ? AND command = ?`,
       )
-        .bind(agentsamUserId, workspaceId || '', command)
+        .bind(agentsamUserId, workspaceId || null, command)
         .run();
       return jsonResponse({ ok: true });
     }
@@ -1021,7 +1021,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
        LIMIT 1`,
     )
-      .bind(workspaceId || '', ...agentsamUserCandidates)
+      .bind(workspaceId || null, ...agentsamUserCandidates)
       .first()
       .catch(() => null);
     const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -1031,7 +1031,7 @@ export async function handleSettingsRequest(request, env, ctx) {
        VALUES (?, ?, ?, ?, datetime('now'))
        ON CONFLICT(user_id, workspace_id, host) DO NOTHING`,
     )
-      .bind(crypto.randomUUID(), agentsamUserId, workspaceId || '', host)
+      .bind(crypto.randomUUID(), agentsamUserId, workspaceId || null, host)
       .run();
     return jsonResponse({ ok: true });
   }
@@ -1050,7 +1050,7 @@ export async function handleSettingsRequest(request, env, ctx) {
            AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
          LIMIT 1`,
       )
-        .bind(workspaceId || '', ...agentsamUserCandidates)
+        .bind(workspaceId || null, ...agentsamUserCandidates)
         .first()
         .catch(() => null);
       const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -1059,7 +1059,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         `DELETE FROM agentsam_fetch_domain_allowlist
          WHERE user_id = ? AND workspace_id = ? AND host = ?`,
       )
-        .bind(agentsamUserId, workspaceId || '', host)
+        .bind(agentsamUserId, workspaceId || null, host)
         .run();
       return jsonResponse({ ok: true });
     }
@@ -1083,7 +1083,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
        LIMIT 1`,
     )
-      .bind(workspaceId || '', ...agentsamUserCandidates)
+      .bind(workspaceId || null, ...agentsamUserCandidates)
       .first()
       .catch(() => null);
     const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -1095,7 +1095,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          VALUES (?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(user_id, workspace_id, tool_key) DO NOTHING`,
       )
-        .bind(crypto.randomUUID(), agentsamUserId, workspaceId || '', tool_key, notes)
+        .bind(crypto.randomUUID(), agentsamUserId, workspaceId || null, tool_key, notes)
         .run();
     } catch (e) {
       if (String(e?.message || '').includes('no such column: notes')) {
@@ -1104,7 +1104,7 @@ export async function handleSettingsRequest(request, env, ctx) {
            VALUES (?, ?, ?, ?, datetime('now'))
            ON CONFLICT(user_id, workspace_id, tool_key) DO NOTHING`,
         )
-          .bind(crypto.randomUUID(), agentsamUserId, workspaceId || '', tool_key)
+          .bind(crypto.randomUUID(), agentsamUserId, workspaceId || null, tool_key)
           .run();
       } else {
         throw e;
@@ -1127,7 +1127,7 @@ export async function handleSettingsRequest(request, env, ctx) {
            AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
          LIMIT 1`,
       )
-        .bind(workspaceId || '', ...agentsamUserCandidates)
+        .bind(workspaceId || null, ...agentsamUserCandidates)
         .first()
         .catch(() => null);
       const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
@@ -1136,7 +1136,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         `DELETE FROM agentsam_mcp_allowlist
          WHERE user_id = ? AND workspace_id = ? AND tool_key = ?`,
       )
-        .bind(agentsamUserId, workspaceId || '', tool_key)
+        .bind(agentsamUserId, workspaceId || null, tool_key)
         .run();
       return jsonResponse({ ok: true });
     }
@@ -1503,7 +1503,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         env.DB.prepare(
           `SELECT * FROM agentsam_model_tier WHERE workspace_id = ? ORDER BY tier_level`,
         )
-          .bind(workspaceId || '')
+          .bind(workspaceId || null)
           .all()
           .catch(() => ({ results: [] })),
         env.DB.prepare(`SELECT * FROM agentsam_routing_arms ORDER BY task_type, mode`)
@@ -1514,7 +1514,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         models: models.results || [],
         tiers: tiers.results || [],
         routing: routing.results || [],
-        workspace_id: workspaceId || '',
+        workspace_id: workspaceId || null,
       });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -1596,7 +1596,7 @@ export async function handleSettingsRequest(request, env, ctx) {
              WHERE (workspace_id = ? OR tenant_id = ?)
              ORDER BY service_name`,
           )
-            .bind(workspaceId || '', tenantId || '')
+            .bind(workspaceId || null, tenantId || null)
             .all();
           results = r.results || [];
         } else {
@@ -2184,7 +2184,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         .bind(
           id,
           String(storedUserId),
-          String(workspaceId || ''),
+          workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
           name,
           description,
           icon,
@@ -2400,7 +2400,7 @@ export async function handleSettingsRequest(request, env, ctx) {
               .catch(() => null)
           : Promise.resolve(null),
       ]);
-      return jsonResponse({ workspace, members, indexJob, workspace_id: workspaceId || '' });
+      return jsonResponse({ workspace, members, indexJob, workspace_id: workspaceId || null });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
     }
@@ -2441,7 +2441,7 @@ export async function handleSettingsRequest(request, env, ctx) {
          FROM agentsam_hook h
          WHERE h.user_id = ? AND COALESCE(h.workspace_id, '') = COALESCE(?, '')`,
       )
-        .bind(String(storedUserId), workspaceId || '')
+        .bind(String(storedUserId), workspaceId || null)
         .all()
         .catch(() => ({ results: [] })),
       env.DB.prepare(
@@ -2470,7 +2470,15 @@ export async function handleSettingsRequest(request, env, ctx) {
       `INSERT INTO agentsam_hook (id, user_id, workspace_id, trigger, command, provider, is_active, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     )
-      .bind(id, String(storedUserId), String(workspaceId || ''), trigger, command, provider, is_active)
+      .bind(
+        id,
+        String(storedUserId),
+        workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
+        trigger,
+        command,
+        provider,
+        is_active,
+      )
       .run();
     return jsonResponse({ ok: true, id });
   }

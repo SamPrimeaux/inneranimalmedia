@@ -3,7 +3,7 @@
  * Handles roadmap tracking, task management, system stats, and terminal history.
  * Deconstructed from legacy worker.js.
  */
-import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { getAuthUser, jsonResponse, fallbackSystemTenantId } from '../core/auth.js';
 
 /**
  * Main dispatcher for Hub-related API routes (/api/hub/*).
@@ -22,7 +22,7 @@ export async function handleHubApi(request, url, env, ctx) {
 
         if (hubPath === 'roadmap') return handleHubRoadmap(url, env);
         if (hubPath === 'tasks') {
-            if (method === 'POST') return handleHubTaskCreate(request, env);
+            if (method === 'POST') return handleHubTaskCreate(request, env, authUser);
             return handleHubTasks(env, authUser);
         }
         if (hubPath === 'stats') return handleHubStats(env);
@@ -79,16 +79,20 @@ async function handleHubTerminal(env) {
     return jsonResponse({ rows: results || [] });
 }
 
-async function handleHubTaskCreate(request, env) {
+async function handleHubTaskCreate(request, env, authUser) {
     const body = await request.json().catch(() => ({}));
     const title = (body.title || '').trim();
     if (!title) return jsonResponse({ error: 'title required' }, 400);
     
     const id = 'task_' + Date.now();
+    const tenantId =
+      authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : fallbackSystemTenantId(env);
     await env.DB.prepare(
         `INSERT INTO agentsam_todo (id, title, status, priority, project_id, tenant_id, created_at) 
-         VALUES (?, ?, 'todo', ?, ?, 'system', unixepoch())`
-    ).bind(id, title, body.priority || 'medium', body.project_id || null).run();
+         VALUES (?, ?, 'todo', ?, ?, ?, unixepoch())`
+    ).bind(id, title, body.priority || 'medium', body.project_id || null, tenantId).run();
     return jsonResponse({ ok: true, id });
 }
 

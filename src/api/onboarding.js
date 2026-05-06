@@ -361,8 +361,8 @@ async function runIntakeD1SideEffects(env, ctx) {
 
   await warnDb('agentsam_user_policy', async () => {
     await env.DB
-      .prepare(`INSERT OR IGNORE INTO agentsam_user_policy (user_id, workspace_id) VALUES (?, '')`)
-      .bind(platformUserId)
+      .prepare(`INSERT OR IGNORE INTO agentsam_user_policy (user_id, workspace_id) VALUES (?, ?)`)
+      .bind(platformUserId, workspaceId)
       .run();
   });
 
