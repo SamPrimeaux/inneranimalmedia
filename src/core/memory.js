@@ -6,6 +6,7 @@
  */
 
 import { searchAgentMemoryHybrid } from '../api/rag.js';
+import { compactToolStatsCompacted } from './tool-stats-rollup.js';
 
 const IAM_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
 /** Default REST origin when env.SUPABASE_URL is unset (matches project Postgres RPC). */
@@ -190,34 +191,11 @@ export async function loadAgentMemory(env, tenantId) {
 /** Snapshot agentsam_tool_call_log into agentsam_tool_stats_compacted (daily). */
 export async function compactAgentsamToolCallLogToStats(env) {
   if (!env?.DB) return;
-  const id = `bj_${Date.now()}`;
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO agentsam_code_index_job (id,job_name,target_table,source_type,status,started_at,created_by)
-     VALUES (?,?,?,'cron','running',unixepoch(),?)`,
-  )
-    .bind(id, 'agentsam_tool_stats_compacted_rollup', 'agentsam_tool_stats_compacted', 'system')
-    .run()
-    .catch(() => {});
-  const res = await env.DB.prepare(
-    `INSERT OR REPLACE INTO agentsam_tool_stats_compacted
-      (tenant_id,tool_name,total_calls,success_count,failure_count,success_rate,total_cost_usd,avg_duration_ms,first_seen_at,last_seen_at,compacted_at)
-     SELECT tenant_id,tool_name,COUNT(*),
-       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
-       SUM(CASE WHEN status='error' THEN 1 ELSE 0 END),
-       ROUND(1.0*SUM(CASE WHEN status='success' THEN 1 ELSE 0 END)/COUNT(*),4),
-       COALESCE(SUM(cost_usd),0),ROUND(AVG(duration_ms),2),
-       MIN(created_at),MAX(created_at),unixepoch()
-     FROM agentsam_tool_call_log GROUP BY tenant_id,tool_name`,
-  )
-    .run()
-    .catch(() => null);
-  const n = Number(res?.meta?.changes ?? res?.changes ?? 0) || 0;
-  await env.DB.prepare(
-    `UPDATE agentsam_code_index_job SET status='completed',records_processed=?,records_inserted=?,completed_at=unixepoch() WHERE id=?`,
-  )
-    .bind(n, n, id)
-    .run()
-    .catch(() => {});
+  // Delegate to canonical writer (tenant-level until migration 263 rebuilds unique key).
+  await compactToolStatsCompacted(env, {
+    includeAllTenants: true,
+    metadata: { invoked_by: 'src/core/memory.js::compactAgentsamToolCallLogToStats' },
+  }).catch(() => null);
 }
 
 /** Roll up agentsam_command_run into execution_performance_metrics for the prior local day. */
