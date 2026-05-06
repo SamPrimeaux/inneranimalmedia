@@ -43,5 +43,11 @@ promote-deploy-root-from-child.sh
 # Generated deploy manifests (local analytics — do not commit)
 analytics/deploys/
 
+# Deploy ledger scratch (Supabase record-* scripts)
+.deploy-run-context.json
+.deploy-worker-stats.json
+.deploy-eval-results.json
+.deploy-tool-events.jsonl
+
 # R2 asset URL dumps (local inventory exports)
 *-r2-asset-urls.txt

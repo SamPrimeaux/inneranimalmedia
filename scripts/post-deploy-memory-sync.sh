@@ -58,7 +58,12 @@ for stale in tcczxkatmodtxfuulvsr sexdnwlyuhkyvseunqlx; do
 done
 SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 
-if [ -z "$SUPABASE_SERVICE_KEY" ]; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ -f "${REPO_ROOT}/.deploy-run-context.json" ]; then
+  echo "[post-deploy] deploy ledger active (.deploy-run-context.json) — skipping duplicate build_deploy_events POST"
+elif [ -z "$SUPABASE_SERVICE_KEY" ]; then
   echo "[post-deploy] SUPABASE_SERVICE_ROLE_KEY unset — skipping Supabase insert" >&2
 else
   DEPLOY_ID="deploy_$(date +%s)"

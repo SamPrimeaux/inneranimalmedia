@@ -117,53 +117,35 @@ else
   echo "✓ Worker deployed (could not parse Current Version ID from wrangler output)"
 fi
 
-# After successful wrangler deploy: record in Supabase (set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.cloudflare)
-# If POST returns 400, add missing columns on build_deploy_events (e.g. git_message, environment, started_at, duration_ms).
-if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
-  echo "→ Recording deploy in Supabase build_deploy_events..."
-  DEPLOY_ID="deploy_$(date +%s)"
-  CREATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  TRIGGER_SRC="${TRIGGER_SOURCE:-manual}"
-  PAYLOAD="$(jq -n \
-    --arg id "$DEPLOY_ID" \
-    --arg ws "ws_inneranimalmedia" \
-    --arg tid "tenant_sam_primeaux" \
-    --arg ts "$TRIGGER_SRC" \
-    --arg sha "$GIT_FULL_SHA" \
-    --arg branch "$BRANCH_NAME" \
+# Worker stats for scripts/record-supabase-deploy-complete.mjs (deploy ledger is driven by deploy-full.sh + record-* scripts).
+DEPLOY_COMPLETED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+if command -v jq >/dev/null 2>&1; then
+  jq -n \
     --arg wv "${WORKER_VERSION_ID:-}" \
-    --arg gmsg "$GIT_MSG_LINE" \
-    --arg env "$DEPLOY_ENV" \
-    --arg by "$DEPLOYED_BY" \
-    --arg started "$DEPLOY_STARTED_AT" \
-    --arg created "$CREATED_AT" \
-    --argjson dur "$DEPLOY_DURATION_MS" \
+    --argjson dur "${DEPLOY_DURATION_MS:-0}" \
+    --arg sha "${GIT_FULL_SHA:-}" \
+    --arg branch "${BRANCH_NAME:-}" \
+    --arg gmsg "${GIT_MSG_LINE:-}" \
+    --arg started "${DEPLOY_STARTED_AT:-}" \
+    --arg completed "${DEPLOY_COMPLETED_AT}" \
     '{
-      id: $id,
-      workspace_id: $ws,
-      tenant_id: $tid,
-      event_type: "deploy_passed",
-      trigger_source: $ts,
-      script_name: "inneranimalmedia",
+      worker_version_id: (if ($wv | length) == 0 then null else $wv end),
+      wrangler_duration_ms: $dur,
       git_commit_sha: $sha,
       git_branch: $branch,
       git_message: $gmsg,
-      status: "passed",
-      environment: $env,
-      deployed_by: $by,
-      started_at: $started,
-      duration_ms: $dur,
-      created_at: $created,
-      worker_version_id: (if ($wv | length) == 0 then null else $wv end)
-    }')"
-  curl -s -X POST "$SUPABASE_URL/rest/v1/build_deploy_events" \
-    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-    -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-    -H "Content-Type: application/json" \
-    -d "$PAYLOAD" | jq .
-else
-  echo "⚠️  Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to .env.cloudflare"
-  echo "    These are needed for build_deploy_events Supabase sync on deploy."
+      deploy_started_at: $started,
+      deploy_completed_at: $completed
+    }' > "$REPO_ROOT/.deploy-worker-stats.json"
+fi
+
+if [ -f "$REPO_ROOT/.deploy-run-context.json" ] && command -v node >/dev/null 2>&1; then
+  node "$REPO_ROOT/scripts/log-supabase-deploy-tool.mjs" \
+    --tool wrangler_deploy \
+    --category deploy \
+    --duration-ms "${DEPLOY_DURATION_MS:-0}" \
+    --success 1 \
+    --output-preview "${WORKER_VERSION_ID:-}" || true
 fi
 
 # Build manifest → R2 (dashboard build history under analytics/app-builds/)
