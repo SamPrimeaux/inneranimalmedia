@@ -276,13 +276,21 @@ export async function loadChatRoutingArmsModelKeyOrder(env, mode) {
   return [...CHAT_ROUTING_STATIC_FALLBACK_KEYS];
 }
 
-/**
- * Update arm statistics after an observed outcome (success / failure).
- * Runs PRAGMA table_info before any write; only updates columns that exist.
- *
- * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
- * @param {{ armId: string, success: boolean }} outcome
- */
+/** Maps gate intent slugs from classify/gate to `agentsam_routing_arms.task_type` seeds. */
+const INTENT_TO_TASK_TYPE = {
+  auto: 'chat',
+  question: 'chat',
+  explain: 'chat',
+  code_help: 'code',
+  fix_bug: 'code',
+  write_code: 'code',
+  plan: 'plan',
+  deploy: 'deploy',
+  sql: 'sql_d1_generation',
+  summarize: 'summary',
+  rag: 'rag_query',
+};
+
 /**
  * Bayesian bandit incremental update (success_alpha / success_beta + online means).
  * Fire-and-forget via ctx.waitUntil from callers.
@@ -299,10 +307,15 @@ export async function loadChatRoutingArmsModelKeyOrder(env, mode) {
  */
 export function scheduleRoutingArmBanditUpdate(env, ctx, o) {
   if (!env?.DB || !ctx?.waitUntil) return;
-  const taskType = o?.taskType != null ? String(o.taskType).trim() : '';
+  const rawIntent = o?.taskType != null ? String(o.taskType).trim() : '';
   const mode = o?.mode != null ? String(o.mode).trim() : '';
   const modelKey = o?.modelKey != null ? String(o.modelKey).trim() : '';
-  if (!taskType || !mode || !modelKey) return;
+  if (!rawIntent || !mode || !modelKey) return;
+
+  const normalizedTaskType =
+    INTENT_TO_TASK_TYPE[rawIntent] ??
+    INTENT_TO_TASK_TYPE[rawIntent.toLowerCase()] ??
+    'chat';
 
   const costUsd = Number(o.costUsd) || 0;
   const durationMs = Number(o.durationMs) || 0;
@@ -321,20 +334,22 @@ export function scheduleRoutingArmBanditUpdate(env, ctx, o) {
               latency_n     = latency_n + 1,
               latency_mean  = CASE WHEN latency_n = 0 THEN ?
                       ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
-              updated_at    = unixepoch()
+              updated_at    = unixepoch(),
+              total_executions = COALESCE(total_executions, 0) + 1
              WHERE task_type = ? AND mode = ? AND model_key = ?`,
           )
-            .bind(costUsd, costUsd, durationMs, durationMs, taskType, mode, modelKey)
+            .bind(costUsd, costUsd, durationMs, durationMs, normalizedTaskType, mode, modelKey)
             .run();
         } else {
           await env.DB.prepare(
             `UPDATE agentsam_routing_arms SET
               success_beta = success_beta + 1,
               is_paused = CASE WHEN COALESCE(success_beta, 0) + 1 > 10 THEN 1 ELSE COALESCE(is_paused, 0) END,
-              updated_at = unixepoch()
+              updated_at = unixepoch(),
+              total_executions = COALESCE(total_executions, 0) + 1
              WHERE task_type = ? AND mode = ? AND model_key = ?`,
           )
-            .bind(taskType, mode, modelKey)
+            .bind(normalizedTaskType, mode, modelKey)
             .run();
         }
       } catch (e) {
