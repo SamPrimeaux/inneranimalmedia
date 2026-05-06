@@ -3,11 +3,26 @@
  * Scans worker.js and writes docs/route-map.md with one ## section per route (for ingest chunking).
  * Run from repo root: node scripts/generate-route-map.js
  */
-import fs from 'fs';
-import pathMod from 'path';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
+const __dirname = dirname(fileURLToPath(import.meta.url));
+try {
+  const lines = readFileSync(resolve(__dirname, '../.env.cloudflare'), 'utf8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+} catch { /* no .env.cloudflare in CI */ }
+
+import fs from 'fs';
+import pathMod from 'path';
 
 const root = pathMod.join(__dirname, '..');
 const workerPath = pathMod.join(root, 'worker.js');

@@ -11,9 +11,8 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const envPath = resolve(__dirname, '../.env.cloudflare');
 try {
-  const lines = readFileSync(envPath, 'utf8').split('\n');
+  const lines = readFileSync(resolve(__dirname, '../.env.cloudflare'), 'utf8').split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -23,7 +22,7 @@ try {
     const val = trimmed.slice(eq + 1).trim();
     if (key && !(key in process.env)) process.env[key] = val;
   }
-} catch { /* file may not exist in CI */ }
+} catch { /* no .env.cloudflare in CI */ }
 
 import fs from 'fs';
 import pathMod from 'path';

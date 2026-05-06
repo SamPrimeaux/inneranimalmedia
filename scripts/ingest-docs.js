@@ -24,14 +24,13 @@
  * Usage:
  *   ./scripts/with-cloudflare-env.sh npm run ingest:docs
  */
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const envPath = resolve(__dirname, '../.env.cloudflare');
 try {
-  const lines = readFileSync(envPath, 'utf8').split('\n');
+  const lines = readFileSync(resolve(__dirname, '../.env.cloudflare'), 'utf8').split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -41,8 +40,9 @@ try {
     const val = trimmed.slice(eq + 1).trim();
     if (key && !(key in process.env)) process.env[key] = val;
   }
-} catch { /* file may not exist in CI */ }
+} catch { /* no .env.cloudflare in CI */ }
 
+import { existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import pathMod from 'path';
 import pg from 'pg';
@@ -55,6 +55,8 @@ const MODEL = '@cf/baai/bge-large-en-v1.5';
 const EMBED_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/run/${MODEL}`;
 const PROJECT_ID = process.env.DOCUMENTS_PROJECT_ID || 'inneranimalmedia';
 const DELAY_MS = Number(process.env.INGEST_DELAY_MS || 150);
+const WORKSPACE_ID = process.env.WORKSPACE_ID ?? 'ws_inneranimalmedia';
+const TENANT_ID = process.env.TENANT_ID ?? 'tenant_sam_primeaux';
 
 const token = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
 const dbUrl = (process.env.SUPABASE_DB_URL || '').trim();
@@ -128,9 +130,9 @@ async function clearSource(client, source) {
 async function insertRow(client, source, title, content, vector) {
   const literal = '[' + vector.join(',') + ']';
   await client.query(
-    `INSERT INTO documents (source, title, content, embedding, project_id)
-     VALUES ($1, $2, $3, $4::vector, $5)`,
-    [source, title, content, literal, PROJECT_ID]
+    `INSERT INTO documents (source, title, content, embedding, project_id, workspace_id, tenant_id)
+     VALUES ($1, $2, $3, $4::vector, $5, $6, $7)`,
+    [source, title, content, literal, PROJECT_ID, WORKSPACE_ID, TENANT_ID]
   );
 }
 
