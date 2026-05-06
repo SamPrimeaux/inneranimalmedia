@@ -24,9 +24,16 @@ echo "[deploy-full] RUN_GROUP_ID=$RUN_GROUP_ID"
 
 node "$REPO_ROOT/scripts/record-supabase-deploy-start.mjs"
 
+node "$REPO_ROOT/scripts/record-d1-deploy-start.mjs"
+
 deploy_full_err() {
   local ec=$?
   node "$REPO_ROOT/scripts/record-supabase-deploy-failure.mjs" \
+    --reason "deploy_pipeline_failed" \
+    --exit-code "$ec" \
+    --failed-step "${DEPLOY_PHASE:-unknown}" \
+    --error-key "deploy_pipeline_failed" 2>/dev/null || true
+  node "$REPO_ROOT/scripts/record-d1-deploy-failure.mjs" \
     --reason "deploy_pipeline_failed" \
     --exit-code "$ec" \
     --failed-step "${DEPLOY_PHASE:-unknown}" \
@@ -74,5 +81,7 @@ node "$REPO_ROOT/scripts/run-deploy-eval.mjs"
 trap - ERR
 
 node "$REPO_ROOT/scripts/record-supabase-deploy-complete.mjs"
+
+node "$REPO_ROOT/scripts/record-d1-deploy-complete.mjs"
 
 "$REPO_ROOT/scripts/post-deploy-memory-sync.sh"

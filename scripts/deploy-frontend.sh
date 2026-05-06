@@ -114,6 +114,10 @@ if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1
   fi
 fi
 
+if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" = "1" ] && [ -n "${RUN_GROUP_ID:-}" ] && command -v node >/dev/null 2>&1; then
+  node "$REPO_ROOT/scripts/record-d1-deployment-health.mjs" --phase r2-skip 2>/dev/null || true
+fi
+
 echo "→ Deploying worker..."
 DEPLOY_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 DEPLOY_START_EPOCH=$(date +%s)
