@@ -70,13 +70,12 @@ Canonical platform repo for the Inner Animal Media AI agent operating system, Ag
 
 | Command | When to use |
 |---------|-------------|
-| `npm run deploy:full` | **Default.** Any `dashboard/` change — Vite build → R2 upload → Worker deploy |
+| `npm run deploy:full` | **Default.** Route map + D1 schema doc + Vite build + docs + D1 memory ingest → `deploy-frontend.sh` (R2 + Worker + hooks) |
 | `npm run deploy` | Worker/API only (`src/`, `worker.js` backend changes only) |
 | `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` | Worker-only one-liner equivalent |
-| `npm run deploy:ingest` | Route map + D1 schema doc + memory ingest + Worker deploy |
 
 **Rules:**
-- `npm run deploy:full` loads `.env.cloudflare`, runs `npm run build:vite-only`, uploads `dashboard/dist` to R2 bucket `inneranimalmedia`, deploys with `wrangler.production.toml`, writes build manifest to `analytics/app-builds/`, fires CI/CD email notification if configured.
+- `npm run deploy:full` runs generators and ingests first, then `deploy-frontend.sh` (loads `.env.cloudflare`, builds again inside the script, uploads `dashboard/dist` to R2 bucket `inneranimalmedia`, deploys with `wrangler.production.toml`, writes build manifest to `analytics/app-builds/`, fires CI/CD email notification if configured).
 - GitHub push to `main` triggers CF auto-build for the Worker. It does **not** upload the R2 frontend bundle — run `deploy:full` locally when you need the dashboard live immediately.
 - **Never** `cd dashboard` — always run dashboard scripts from repo root.
 

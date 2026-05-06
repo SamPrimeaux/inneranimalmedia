@@ -9,7 +9,7 @@
  * Usage:
  *   ./scripts/with-cloudflare-env.sh node scripts/ingest-d1-memory.js
  */
-import { execFileSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import pathMod from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
@@ -63,6 +63,20 @@ function runD1Sql(sql) {
   }
   const rows = parsed[0]?.results ?? parsed.results ?? [];
   return Array.isArray(rows) ? rows : [];
+}
+
+function escapeSqlLiteral(s) {
+  return String(s).replace(/'/g, "''");
+}
+
+/** Remote D1 execute for INSERT/UPDATE (no JSON parse). */
+function runD1Write(sql) {
+  const args = [...d1ArgsBase, '--command', sql];
+  execFileSync(wrapper, args, {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
 }
 
 function sleep(ms) {
@@ -171,6 +185,37 @@ try {
   console.log(
     `Summary — d1:project_memory: ${n1} rows | d1:guardrails: ${n2} rows | d1:agent_rules: ${n3} rows`
   );
+
+  // Post-deploy memory sync
+  const deployHash = execSync('git rev-parse --short HEAD', { cwd: root, encoding: 'utf8' }).trim();
+  const deployMsg = execSync('git log -1 --pretty=%s', { cwd: root, encoding: 'utf8' }).trim();
+  const deployTime = new Date().toISOString();
+  const workspaceId = process.env.WORKSPACE_ID || 'ws_inneranimalmedia';
+  const tenantId = process.env.TENANT_ID || 'tenant_sam_primeaux';
+  const userId = process.env.USER_ID || 'usr_sam_iam';
+  const memId = `mem_last_deploy_${workspaceId}`;
+
+  runD1Write(`INSERT OR REPLACE INTO agentsam_memory
+    (id, tenant_id, user_id, workspace_id, memory_type, key, value, source, confidence, tags)
+  VALUES (
+    '${escapeSqlLiteral(memId)}',
+    '${escapeSqlLiteral(tenantId)}',
+    '${escapeSqlLiteral(userId)}',
+    '${escapeSqlLiteral(workspaceId)}',
+    'fact',
+    'last_successful_deploy',
+    json_object('hash', '${escapeSqlLiteral(deployHash)}', 'message', '${escapeSqlLiteral(deployMsg)}', 'deployed_at', '${escapeSqlLiteral(deployTime)}', 'branch', 'main'),
+    'post_deploy_hook',
+    1.0,
+    '["deploy","production","state"]')`);
+
+  runD1Write(`UPDATE agentsam_project_context
+  SET last_cursor_session = '${escapeSqlLiteral(deployTime)}',
+      notes = COALESCE(notes,'') || ' | deployed ' || '${escapeSqlLiteral(deployHash)}' || ' at ' || '${escapeSqlLiteral(deployTime)}',
+      updated_at = unixepoch()
+  WHERE workspace_id = '${escapeSqlLiteral(workspaceId)}' AND status = 'active'`);
+
+  console.log(`[post-deploy] memory synced — ${deployHash}`);
 } finally {
   await client.end().catch(() => {});
 }

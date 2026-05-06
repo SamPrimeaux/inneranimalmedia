@@ -26,10 +26,9 @@ Every git command runs from /Users/samprimeaux/inneranimalmedia/
 - Never hardcode workspace_id, tenant_id, email addresses, or secret values.
 
 ## Deploy — never guess (wrong command = wasted work)
-- `npm run deploy:full` — DEFAULT. Any change under dashboard/ (Vite build + R2 upload + Worker deploy).
+- `npm run deploy:full` — DEFAULT. Route map + D1 schema doc + Vite build + docs ingest + D1 memory ingest (incl. post-deploy memory row) + `deploy-frontend.sh` (R2 upload + Worker deploy + Supabase deploy log / hooks).
 - `npm run deploy` — Worker/API only (src/, worker.js backend changes). No R2 upload.
 - `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` — Worker-only one-liner.
-- `npm run deploy:ingest` — Route map + D1 schema doc + memory ingest + Worker deploy.
 
 ## Sandbox is DISCONTINUED
 - Never suggest deploy-sandbox.sh or promote-to-prod.sh — both are marked dangerous/discontinued.

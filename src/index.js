@@ -22,16 +22,10 @@ import {
 import { handleHealthCheck } from './api/health';
 import { runIntegritySnapshot } from './api/integrity';
 import { runMasterDailyRetention } from './core/retention.js';
-import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
 import { handleOAuthApi } from './api/oauth';
 import { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './core/tunnel-status.js';
-import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
-import {
-  runAgentsamMemoryDecay,
-  compactAgentsamToolCallLogToStats,
-  rollupExecutionPerformanceMetrics,
-  rollupUsageEventsDaily,
-} from './core/memory.js';
+import { handleScheduled } from './cron/scheduled.js';
+import { dispatchQueueMessage } from './queue/dispatcher.js';
 import { handleCatalogApi } from './api/catalog.js';
 import {
   handleGoogleLoginOAuthCallback,
@@ -700,48 +694,7 @@ export default {
    * Scheduled Cron Handler
    */
   async scheduled(event, env, ctx) {
-    console.log('[Cron] Execution starting:', event.cron);
-    ctx.waitUntil(
-      runIntegritySnapshot(env, 'cron').catch((e) => console.warn('[cron] runIntegritySnapshot', e?.message ?? e))
-    );
-    if (event.cron === '0 0 * * *') {
-      ctx.waitUntil(
-        Promise.allSettled([
-          runMasterDailyRetention(env),
-          runSecurityScan(env, {
-            tenantId: env.TENANT_ID,
-            scanSources: ['agent_messages', 'terminal_history', 'agentsam_mcp_tool_execution'],
-            triggeredBy: 'nightly_cron',
-          }),
-          env?.DB
-            ? rollupUsageEventsDaily(env).catch((e) =>
-                console.warn('[cron] agentsam_usage_rollups_daily', e?.message ?? e),
-              )
-            : Promise.resolve(),
-        ]).then((results) => {
-          console.log('[retention] rollup complete', { results });
-        })
-      );
-    }
-    if (event.cron === '0 1 * * *') {
-      if (env?.DB) {
-        ctx.waitUntil(
-          runAgentsamMemoryDecay(env).catch((e) =>
-            console.warn('[cron] agentsam_memory decay', e?.message ?? e),
-          ),
-        );
-        ctx.waitUntil(
-          compactAgentsamToolCallLogToStats(env).catch((e) =>
-            console.warn('[cron] tool_stats_compacted', e?.message ?? e),
-          ),
-        );
-        ctx.waitUntil(
-          rollupExecutionPerformanceMetrics(env).catch((e) =>
-            console.warn('[cron] execution_performance_metrics', e?.message ?? e),
-          ),
-        );
-      }
-    }
+    ctx.waitUntil(handleScheduled(event, env, ctx));
   },
 
   /**
@@ -749,90 +702,25 @@ export default {
    */
   async queue(batch, env, ctx) {
     const messages = batch?.messages || [];
-    const forLegacy = [];
     for (const msg of messages) {
-      let body = {};
-      try {
-        body =
-          msg.body && typeof msg.body === 'object'
-            ? msg.body
-            : typeof msg.body === 'string'
-              ? JSON.parse(msg.body || '{}')
-              : {};
-      } catch {
-        body = {};
-      }
-      let tenantId = body?.tenantId ?? body?.tenant_id;
-      let workspaceId = body?.workspaceId ?? body?.workspace_id;
-      const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
-      if (isCfSystem) {
-        tenantId = 'tenant_sam_primeaux';
-        workspaceId = 'ws_inneranimalmedia';
-      }
-      if (body?.type === 'codebase_index_sync') {
-        try {
-          if (!tenantId || !workspaceId) {
-            console.warn('[queue] missing tenantId/workspaceId in payload, skipping codebase_index_sync');
-            msg.ack();
-            continue;
-          }
-          await handleCodebaseIndexSyncFromQueue(env, body, ctx);
-          msg.ack();
-          if (env?.DB) {
-            env.DB.prepare(`
-              INSERT INTO agentsam_webhook_events
-                (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-              VALUES
-                ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
-            `).bind(
-              tenantId,
-              body?.type ?? 'unknown',
-              JSON.stringify({
-                ...(typeof body === 'object' && body ? body : {}),
-                workspace_id: workspaceId,
-              }),
-            ).run().catch(() => {});
-          }
-        } catch (e) {
-          console.warn('[queue codebase_index_sync]', e?.message ?? e);
-          msg.retry();
-        }
-        continue;
-      }
-      if (env?.DB) {
-        if (!tenantId || !workspaceId) {
-          console.warn('[queue] missing tenantId/workspaceId in payload, skipping webhook event insert');
-        } else {
-          env.DB.prepare(`
-          INSERT INTO agentsam_webhook_events
-            (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-          VALUES
-            ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
-        `).bind(
-            tenantId,
-            body?.type ?? 'unknown',
-            JSON.stringify({
-              ...(typeof body === 'object' && body ? body : {}),
-              workspace_id: workspaceId,
-            }),
-          ).run().catch(() => {});
-        }
-      }
-      forLegacy.push(msg);
+      ctx.waitUntil(
+        dispatchQueueMessage(env, ctx, msg)
+          .then(() => msg.ack())
+          .catch((err) => {
+            let kind = 'unknown';
+            try {
+              const b =
+                msg.body && typeof msg.body === 'object'
+                  ? msg.body
+                  : JSON.parse(String(msg.body || '{}'));
+              kind = typeof b?.type === 'string' ? b.type : kind;
+            } catch {
+              /* ignore */
+            }
+            console.error('[queue] dispatch failed', kind, err?.message);
+            msg.retry();
+          }),
+      );
     }
-    if (!forLegacy.length) return;
-    console.warn(
-      '[queue] dropped',
-      forLegacy.length,
-      'unhandled message(s) (no legacy worker); types:',
-      forLegacy.map((m) => {
-        try {
-          const b = m.body && typeof m.body === 'object' ? m.body : JSON.parse(m.body || '{}');
-          return b?.type ?? 'unknown';
-        } catch {
-          return 'parse_error';
-        }
-      }),
-    );
   }
 };
