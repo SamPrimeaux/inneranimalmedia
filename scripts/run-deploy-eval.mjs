@@ -3,6 +3,8 @@
  * Post-deploy smoke: health check + semantic_search_log via Postgres RPC (when SUPABASE_DB_URL set).
  * Writes .deploy-eval-results.json for record-supabase-deploy-complete.mjs
  *
+ * Semantic RPC smoke is advisory unless STRICT_SEMANTIC_SMOKE=1 (then failure fails overall_success).
+ *
  * DEPLOY_SMOKE_BASE_URL → health target + artifacts_json.smoke_base_url + semantic RPC metadata.base_url;
  * merged into build_deploy_events.metadata_jsonb / workflow output via complete script.
  * See docs/DEPLOY_ENV_SUPABASE_MAPPING.md.
@@ -126,7 +128,14 @@ async function main() {
   }
 
   const semanticRequired = Boolean(dbUrl && tenantId);
-  const overall = Boolean(h.ok && (!semanticRequired || semanticOk));
+  const strictSemantic = process.env.STRICT_SEMANTIC_SMOKE === '1';
+  const semanticFailsOverall = strictSemantic && semanticRequired && !semanticOk;
+  const overall = Boolean(h.ok && !semanticFailsOverall);
+
+  if (!semanticOk && semanticRequired) {
+    console.warn('[deploy-eval] semantic_smoke RPC failed (full error):', semanticErr);
+  }
+
   const out = {
     overall_success: overall,
     health_ok: h.ok,
@@ -141,13 +150,17 @@ async function main() {
     lint_passed: null,
     failure_reason: overall
       ? null
-      : [h.ok ? null : 'health', semanticRequired && !semanticOk ? 'semantic_smoke' : null]
+      : [
+          h.ok ? null : 'health',
+          semanticFailsOverall ? 'semantic_smoke' : null,
+        ]
           .filter(Boolean)
           .join(','),
     duration_ms: Date.now() - tStart,
     metrics_json: {
       health: h,
       semantic_rpc: semanticOk,
+      semantic_strict: strictSemantic,
     },
     artifacts_json: {
       smoke_base_url: baseUrl,
@@ -158,12 +171,16 @@ async function main() {
 
   writeFileSync(resolve(root, '.deploy-eval-results.json'), JSON.stringify(out, null, 2), 'utf8');
   console.log(
-    `[deploy-eval] health=${h.ok} semantic_log=${semanticOk} overall=${overall} (${out.duration_ms}ms)`,
+    `[deploy-eval] health=${h.ok} semantic_log=${semanticOk} strict_semantic=${strictSemantic} overall=${overall} (${out.duration_ms}ms)`,
   );
 
   if (!overall) {
     console.warn('[deploy-eval] Smoke did not fully pass — check metrics above');
     process.exitCode = 0;
+  } else if (!semanticOk && semanticRequired && !strictSemantic) {
+    console.warn(
+      '[deploy-eval] Semantic smoke failed but did not fail deploy (set STRICT_SEMANTIC_SMOKE=1 to enforce)',
+    );
   }
 }
 

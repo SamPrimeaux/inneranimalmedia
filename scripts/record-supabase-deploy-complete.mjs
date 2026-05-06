@@ -77,12 +77,12 @@ async function main() {
   };
 
   const bdePatch = {
-    event_type: 'deploy_completed',
+    event_type: 'deploy_passed',
     status: 'passed',
     completed_at: completedAt,
     duration_ms: durationMs,
     exit_code: 0,
-    output_summary: summaryParts.join('; ') || 'deploy_completed',
+    output_summary: summaryParts.join('; ') || 'deploy_passed',
     error_message: null,
     git_commit_sha: gitSha,
     git_branch: branch,

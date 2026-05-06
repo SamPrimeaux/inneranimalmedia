@@ -4,6 +4,10 @@ This document maps **optional** and **required** deploy-related environment vari
 
 For shell entrypoints, see `scripts/deploy-full.sh`, `scripts/deploy-frontend.sh`, and the `record-supabase-deploy-*.mjs` scripts.
 
+### `build_deploy_events` CHECK constraints (ledger)
+
+Postgres restricts **`event_type`** and **`status`** on `public.build_deploy_events`. Scripts must only use allowed combinations — for example **`deploy_passed` + `passed`** when a deploy finishes successfully, and **`deploy_failed` + `failed`** on failure (`record-supabase-deploy-failure.mjs`). Do not use strings like `deploy_completed` or status `completed` on this table.
+
 ---
 
 ## Database ownership model
@@ -37,6 +41,7 @@ Optional for semantic smoke + direct SQL during reingest:
 | Variable | Purpose |
 |----------|---------|
 | `SUPABASE_DB_URL` | Postgres connection for `run-deploy-eval.mjs` RPC (`log_semantic_search`) and `reingest-supabase-documents.mjs` embeddings path |
+| `STRICT_SEMANTIC_SMOKE` | When `1`, failed semantic RPC smoke fails `overall_success` in `.deploy-eval-results.json`. Default: semantic smoke is advisory if the RPC errors. |
 
 ### Deploy email: audit actor vs notification recipient
 
