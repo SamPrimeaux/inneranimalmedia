@@ -861,6 +861,7 @@ CREATE TABLE agentsam_ai (
 CREATE TABLE agentsam_analytics (
   id TEXT PRIMARY KEY DEFAULT ('aan_' || lower(hex(randomblob(8)))),
   tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT '__tenant__',
   period TEXT NOT NULL CHECK(period IN ('session','daily','weekly','monthly','alltime')),
   period_date TEXT,
   
@@ -909,9 +910,12 @@ CREATE TABLE agentsam_analytics (
   data_from INTEGER,
   data_to INTEGER,
   row_count_source INTEGER DEFAULT 0,
-  notes TEXT, workspace_id TEXT, sla_breaches INTEGER DEFAULT 0, timed_out_calls INTEGER DEFAULT 0, time_tracked_seconds INTEGER DEFAULT 0,
-  
-  UNIQUE(tenant_id, period, period_date)
+  notes TEXT,
+  sla_breaches INTEGER DEFAULT 0,
+  timed_out_calls INTEGER DEFAULT 0,
+  time_tracked_seconds INTEGER DEFAULT 0,
+
+  UNIQUE(tenant_id, workspace_id, period, period_date)
 )
 ```
 

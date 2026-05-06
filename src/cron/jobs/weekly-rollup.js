@@ -417,13 +417,13 @@ export async function runWeeklyRollup(env) {
       }
 
       const updateParts = desiredCols
-        .filter((c) => !['tenant_id', 'period', 'period_date'].includes(c))
+        .filter((c) => !['tenant_id', 'workspace_id', 'period', 'period_date'].includes(c))
         .map((c) => (c === 'computed_at' ? `computed_at = unixepoch()` : `${c} = excluded.${c}`));
 
       const sql = `
         INSERT INTO agentsam_analytics (${desiredCols.join(', ')})
         VALUES (${valueFragments.join(', ')})
-        ON CONFLICT(tenant_id, period, period_date) DO UPDATE SET ${updateParts.join(', ')}
+        ON CONFLICT(tenant_id, workspace_id, period, period_date) DO UPDATE SET ${updateParts.join(', ')}
       `;
 
       await env.DB.prepare(sql)

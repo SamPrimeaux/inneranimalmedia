@@ -601,8 +601,11 @@ export async function rollupAgentsamAnalyticsDaily(env) {
   }
 
   const conflictTarget =
-    ana.has('tenant_id') && ana.has('period') && ana.has('period_date')
-      ? '(tenant_id, period, period_date)'
+    ana.has('tenant_id') &&
+    ana.has('workspace_id') &&
+    ana.has('period') &&
+    ana.has('period_date')
+      ? '(tenant_id, workspace_id, period, period_date)'
       : null;
 
   const updates = [
