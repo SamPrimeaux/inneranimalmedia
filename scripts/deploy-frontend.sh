@@ -30,8 +30,12 @@ TOML="wrangler.production.toml"
 DEPLOY_ENV="${DEPLOY_ENV:-production}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
 
-echo "→ Building frontend..."
-npm run build:vite-only
+if [[ -z "${SKIP_VITE_BUILD:-}" ]]; then
+  echo "→ Building frontend..."
+  npm run build:vite-only
+else
+  echo "→ Skipping Vite build (SKIP_VITE_BUILD=1)"
+fi
 
 echo "→ Syncing dist to R2 $BUCKET/$PREFIX ..."
 find "$DIST" -type f | while read -r file; do

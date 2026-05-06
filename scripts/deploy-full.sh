@@ -21,5 +21,5 @@ else
   echo "[deploy] no migrations — skipping ingest:d1-memory"
 fi
 
-./scripts/deploy-frontend.sh
+SKIP_VITE_BUILD=1 ./scripts/deploy-frontend.sh
 ./scripts/post-deploy-memory-sync.sh
