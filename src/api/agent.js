@@ -1549,10 +1549,55 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     chainRows = filterGraniteAutoChain(poolRows, externalNonGraniteExists);
   }
 
+  const chainRowsBeforeTierFilter = chainRows;
   chainRows = await filterWorkspaceModelTierPool(env, workspaceId, chainRows);
 
   const fallbackModelKeys = chainRows.map((r) => r.model_key).filter(Boolean);
   if (!fallbackModelKeys.length) {
+    /** Structured debug for Architect when tier/policy empties the chain before 503. */
+    let allowedTiers = [];
+    try {
+      if (env?.DB && workspaceId) {
+        const { results } = await env.DB.prepare(
+          `SELECT cost_tier, tier_level FROM agentsam_model_tier
+           WHERE workspace_id = ? AND is_active = 1
+           ORDER BY tier_level ASC`,
+        )
+          .bind(String(workspaceId).trim())
+          .all();
+        allowedTiers = (results || []).map((r) => r?.cost_tier).filter(Boolean);
+      }
+    } catch (_) {
+      /* best-effort */
+    }
+    const tierMeta = (rows) =>
+      (rows || []).map((r) => ({
+        key: r?.model_key ?? null,
+        tier: modelCostTierFromRow(r),
+        provider: r?.provider ?? null,
+        supports_tools: r?.supports_tools,
+      }));
+    console.warn(
+      '[agent] tier_empty_chain',
+      JSON.stringify({
+        workspace_id: workspaceId,
+        intent: intentSlug,
+        mode: requestedMode,
+        require_tools: requireTools,
+        is_auto_model: isAutoModel,
+        blocked_tools_for_requested: blockedToolsForRequested,
+        external_non_granite_exists: externalNonGraniteExists,
+        pool_row_count: poolRows.length,
+        pool_models: tierMeta(poolRows),
+        chain_before_tier_count: chainRowsBeforeTierFilter.length,
+        chain_before_tier: tierMeta(chainRowsBeforeTierFilter),
+        allowed_workspace_tiers: allowedTiers,
+        empty_reason:
+          chainRowsBeforeTierFilter.length === 0
+            ? 'chain_empty_before_tier_filter'
+            : 'tier_filter_removed_all_candidates',
+      }),
+    );
     return jsonResponse({ error: 'All providers exhausted', tried: [] }, 503);
   }
 
