@@ -4,6 +4,8 @@
  */
 
 import { decayRoutingArms, updateArmsFromMetrics } from './thompson.js';
+import { startCronRun, completeCronRun, failCronRun } from './cron-run-ledger.js';
+import { finalizeStaleDeployEventsFromWorker } from './supabase-finalize-stale-deploy-events.js';
 
 const DEFAULT_TENANT = 'system';
 
@@ -647,9 +649,54 @@ export async function rollupDeploymentsWeekly(env) {
     return { ok: true, skipped: true, reason: 'weekly_runs_sunday_utc_only' };
   }
 
+  const tenantId =
+    typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : null;
+  const workspaceId =
+    typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim() ? env.WORKSPACE_ID.trim() : null;
+
+  let finalizeMeta = null;
+  let finBegun = null;
+  if (tenantId && workspaceId && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    finBegun = await startCronRun(env, {
+      jobName: 'finalize_stale_deploy_events',
+      cronExpression: '0 1 ? * SUN',
+      tenantId,
+      workspaceId,
+    });
+    try {
+      finalizeMeta = await finalizeStaleDeployEventsFromWorker(env, {
+        mode: 'weekly-rollup',
+        olderThanHours: 24,
+        dryRun: false,
+        commitShort: 'worker',
+      });
+      if (finBegun?.runId) {
+        await completeCronRun(env, finBegun.runId, finBegun.startedAt, {
+          rowsRead: finalizeMeta?.stale_found ?? 0,
+          rowsWritten: finalizeMeta?.cancelled_count ?? 0,
+          metadata: finalizeMeta ?? {},
+        });
+      }
+    } catch (e) {
+      if (finBegun?.runId) await failCronRun(env, finBegun.runId, finBegun.startedAt, e);
+      console.warn('[rollupDeploymentsWeekly] finalize stale', e?.message ?? e);
+    }
+  }
+
   const out = await pragmaTableInfo(env.DB, 'deployments_weekly_rollup');
   const dep = await pragmaTableInfo(env.DB, 'deployments');
-  if (!out.size || !dep.has('created_at')) return { ok: false, skipped: true };
+  if (!out.size || !dep.has('created_at')) {
+    return { ok: false, skipped: true, finalize: finalizeMeta };
+  }
+
+  const rollBegun = await startCronRun(env, {
+    jobName: 'deployments_weekly_rollup',
+    cronExpression: '0 1 ? * SUN',
+    tenantId,
+    workspaceId,
+  });
+  const rollStartedAt = rollBegun?.startedAt ?? Date.now();
+  const rollId = rollBegun?.runId ?? null;
 
   const statusOkExpr = `(LOWER(COALESCE(status,'')) IN ('success','ok','completed'))`;
 
@@ -705,7 +752,7 @@ export async function rollupDeploymentsWeekly(env) {
   }
 
   if (insertCols.length === 0) {
-    return { ok: false, skipped: true, reason: 'deployments_weekly_empty_columns' };
+    return { ok: false, skipped: true, reason: 'deployments_weekly_empty_columns', finalize: finalizeMeta };
   }
 
   const sql = `
@@ -717,10 +764,33 @@ export async function rollupDeploymentsWeekly(env) {
   `;
 
   try {
+    let rowsRead = 0;
+    try {
+      const cnt = await env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM deployments
+         WHERE date(datetime(created_at,'unixepoch')) >= date('now','weekday 0','-7 days')
+           AND date(datetime(created_at,'unixepoch')) < date('now','weekday 0')`,
+      ).first();
+      rowsRead = Number(cnt?.c ?? 0);
+    } catch {
+      rowsRead = 0;
+    }
+
     const r = await env.DB.prepare(sql).run();
-    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
+    const changes = r.meta?.changes ?? r.changes ?? 0;
+
+    if (rollId) {
+      await completeCronRun(env, rollId, rollStartedAt, {
+        rowsRead,
+        rowsWritten: changes,
+        metadata: { deployments_weekly_rollup: true, changes },
+      });
+    }
+
+    return { ok: true, changes, finalize: finalizeMeta };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
+    if (rollId) await failCronRun(env, rollId, rollStartedAt, e);
+    return { ok: false, error: String(e?.message || e), finalize: finalizeMeta };
   }
 }
 

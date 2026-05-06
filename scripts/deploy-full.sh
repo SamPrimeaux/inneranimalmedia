@@ -22,6 +22,9 @@ rm -f "$REPO_ROOT/.deploy-codebase-index-stats.json"
 
 echo "[deploy-full] RUN_GROUP_ID=$RUN_GROUP_ID"
 
+"$REPO_ROOT/scripts/with-cloudflare-env.sh" node "$REPO_ROOT/scripts/finalize-stale-deploy-events.mjs" \
+  --mode=startup --older-than-minutes=30 --apply || true
+
 node "$REPO_ROOT/scripts/record-supabase-deploy-start.mjs"
 
 node "$REPO_ROOT/scripts/record-d1-deploy-start.mjs"
@@ -83,5 +86,8 @@ trap - ERR
 node "$REPO_ROOT/scripts/record-supabase-deploy-complete.mjs"
 
 node "$REPO_ROOT/scripts/record-d1-deploy-complete.mjs"
+
+"$REPO_ROOT/scripts/with-cloudflare-env.sh" node "$REPO_ROOT/scripts/finalize-stale-deploy-events.mjs" \
+  --mode=post-deploy --older-than-minutes=15 --apply || true
 
 "$REPO_ROOT/scripts/post-deploy-memory-sync.sh"
