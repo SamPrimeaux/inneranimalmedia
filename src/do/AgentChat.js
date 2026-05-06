@@ -9,6 +9,7 @@ import {
   resolveActiveBootstrap,
   WORKSPACE_CONTEXT_MISSING,
 } from "../core/bootstrap.js";
+import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
 const TERMINAL_WS_TAG = "terminal";
@@ -120,6 +121,8 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptSessionUserId = "";
     this.ptSessionTenantId = "";
     this.ptPersonUuid = "";
+    /** PTY cwd from mcp_workspace_tokens.repo_path when set */
+    this.ptyRepoPath = null;
     this.historySequence = 0;
     this._ptyOutBuf = "";
     this._ptyOutFlushTimer = null;
@@ -521,6 +524,30 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptSessionTenantId = (url.searchParams.get("tenant_id") || "").trim();
     this.ptPersonUuid = (url.searchParams.get("person_uuid") || "").trim();
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
+
+    let tenantForRow = String(this.ptSessionTenantId || "").trim();
+    if (!tenantForRow) {
+      try {
+        tenantForRow = String((await resolveTenantIdForWorkspace(this.env, workspaceId)) || "").trim();
+      } catch (_) {}
+    }
+    if (!tenantForRow) {
+      return new Response(JSON.stringify({ error: "TENANT_CONTEXT_REQUIRED", code: "TENANT_CONTEXT_REQUIRED" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const tokRes = await assertWorkspaceTokenForPty(this.env, workspaceId, tenantForRow);
+    if (!tokRes.ok) {
+      return new Response(JSON.stringify({ error: "no active workspace token", message: "no active workspace token" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const rp =
+      tokRes.repo_path != null && String(tokRes.repo_path).trim() !== "" ? String(tokRes.repo_path).trim() : null;
+    this.ptyRepoPath = rp;
+
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     this.ctx.acceptWebSocket(server, [TERMINAL_WS_TAG, `mode:${executionMode}`]);
@@ -530,13 +557,6 @@ export class AgentChatSqlV1 extends DurableObject {
     try {
       server.send(JSON.stringify({ type: "session_id", session_id: sid }));
     } catch (_) {}
-
-    let tenantForRow = String(this.ptSessionTenantId || "").trim();
-    if (!tenantForRow) {
-      try {
-        tenantForRow = String((await resolveTenantIdForWorkspace(this.env, workspaceId)) || "").trim();
-      } catch (_) {}
-    }
     let personForRow = this.ptPersonUuid ? String(this.ptPersonUuid).trim() || null : null;
     if (!personForRow) {
       try {
@@ -583,7 +603,9 @@ export class AgentChatSqlV1 extends DurableObject {
         await this.env.DB.prepare(
           `INSERT INTO agentsam_workspace_state (workspace_id, agent_session_id, workspace_type, updated_at)
            VALUES (?, ?, 'ide', unixepoch())
-           ON CONFLICT(id) DO UPDATE SET agent_session_id = excluded.agent_session_id, updated_at = excluded.updated_at`
+           ON CONFLICT(workspace_id) DO UPDATE SET
+             agent_session_id = excluded.agent_session_id,
+             updated_at = excluded.updated_at`,
         ).bind(this.workspaceId, doId).run().catch(() => {});
       }
       this.sendStateToWebSocket(server, "connected");
@@ -613,6 +635,29 @@ export class AgentChatSqlV1 extends DurableObject {
     const pParam = String(url.searchParams.get("person_uuid") || body?.person_uuid || "").trim();
     if (pParam) this.ptPersonUuid = pParam;
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
+
+    if (executionMode === "pty" && this.env?.DB) {
+      let tidEx = String(this.ptSessionTenantId || "").trim();
+      if (!tidEx) {
+        try {
+          tidEx = String((await resolveTenantIdForWorkspace(this.env, workspaceId)) || "").trim();
+        } catch (_) {}
+      }
+      if (!tidEx) {
+        return Response.json({ ok: false, error: "TENANT_CONTEXT_REQUIRED", code: "TENANT_CONTEXT_REQUIRED" }, { status: 403 });
+      }
+      const tokEx = await assertWorkspaceTokenForPty(this.env, workspaceId, tidEx);
+      if (!tokEx.ok) {
+        return Response.json(
+          { ok: false, error: "no active workspace token", message: "no active workspace token" },
+          { status: 403 },
+        );
+      }
+      const rp =
+        tokEx.repo_path != null && String(tokEx.repo_path).trim() !== "" ? String(tokEx.repo_path).trim() : null;
+      this.ptyRepoPath = rp;
+    }
+
     const command = String(body?.command || "").trim();
 
     try {
@@ -802,6 +847,8 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     if (!tid) throw new Error("PTY tenant_id missing");
 
+    const cwdOpt = String(this.ptyRepoPath || "").trim();
+
     // VPC Service path (private — `PTY_SERVICE` tunnels to localhost:3099; no worker-side auth headers)
     if (this.env?.PTY_SERVICE) {
       try {
@@ -809,6 +856,7 @@ export class AgentChatSqlV1 extends DurableObject {
         vpcUrl.searchParams.set("tenant_id", tid);
         vpcUrl.searchParams.set("user_id", uid);
         vpcUrl.searchParams.set("workspace_id", wid);
+        if (cwdOpt) vpcUrl.searchParams.set("cwd", cwdOpt);
         const resp = await this.env.PTY_SERVICE.fetch(
           new Request(vpcUrl.toString(), {
             headers: {
@@ -873,6 +921,10 @@ export class AgentChatSqlV1 extends DurableObject {
     let wsUrl = normalizeWebSocketUrl(rawUrl);
     const sep = wsUrl.includes("?") ? "&" : "?";
     wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tid)}&user_id=${encodeURIComponent(uid)}&workspace_id=${encodeURIComponent(wid)}`;
+    if (cwdOpt) {
+      const s2 = wsUrl.includes("?") ? "&" : "?";
+      wsUrl = `${wsUrl}${s2}cwd=${encodeURIComponent(cwdOpt)}`;
+    }
     const wsResp = await fetch(wsUrl, {
       headers: {
         "Upgrade": "websocket",
@@ -914,6 +966,13 @@ export class AgentChatSqlV1 extends DurableObject {
     });
   }
 
+  _ptyExecPayload(command) {
+    const cwd = String(this.ptyRepoPath || "").trim();
+    const payload = { command };
+    if (cwd) payload.cwd = cwd;
+    return payload;
+  }
+
   async executePtyCommand(command) {
     if (this.env?.PTY_SERVICE) {
       try {
@@ -921,7 +980,7 @@ export class AgentChatSqlV1 extends DurableObject {
           new Request("http://localhost:3099/exec", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ command }),
+            body: JSON.stringify(this._ptyExecPayload(command)),
           }),
         );
         const data = await res.json().catch(() => ({}));
@@ -966,7 +1025,7 @@ export class AgentChatSqlV1 extends DurableObject {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ command }),
+        body: JSON.stringify(this._ptyExecPayload(command)),
       });
       lastStatus = res.status;
       if (res.status === 401 && i < tokens.length - 1) continue;

@@ -37,7 +37,7 @@ export async function runModeGate(env, userMessage, modeSlug) {
 
   const taskType = gateResult?.task_type ?? 'agent_chat';
   const routingRule = await env.DB.prepare(
-    'SELECT reasoning_effort FROM model_routing_rules WHERE task_type = ? AND is_active = 1'
+    'SELECT reasoning_effort FROM agentsam_routing_arms WHERE task_type = ? AND is_active = 1 LIMIT 1'
   ).bind(taskType).first();
 
   return {

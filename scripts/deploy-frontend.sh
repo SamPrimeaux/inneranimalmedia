@@ -37,59 +37,29 @@ else
   echo "→ Skipping Vite build (SKIP_VITE_BUILD=1)"
 fi
 
-echo "→ Syncing dist to R2 $BUCKET/$PREFIX ..."
-r2_put_with_retry() {
-  local file="$1"
-  local key="$2"
-  local ct="$3"
-  local attempt=1
-  local max=3
-  while [ "$attempt" -le "$max" ]; do
-    if ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "$BUCKET/$key" \
-      --file "$file" --content-type "$ct" -c "$TOML" --remote; then
-      return 0
-    fi
-    if [ "$attempt" -lt "$max" ]; then
-      sleep 2
-    fi
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-FAILED_FILES=()
-while IFS= read -r file; do
-  key="$PREFIX/${file#$DIST/}"
-  case "$file" in
-    *.js)   ct="application/javascript" ;;
-    *.css)  ct="text/css" ;;
-    *.html) ct="text/html" ;;
-    *.map)  ct="application/json" ;;
-    *.svg)  ct="image/svg+xml" ;;
-    *)      ct="application/octet-stream" ;;
-  esac
-  echo "  PUT $key"
-  if ! r2_put_with_retry "$file" "$key" "$ct"; then
-    FAILED_FILES+=("$key")
-  fi
-done < <(find "$DIST" -type f -print)
-
-if [ ${#FAILED_FILES[@]} -gt 0 ]; then
-  echo "✗ R2 upload failed after 3 attempts for ${#FAILED_FILES[@]} object(s):"
-  printf '  %s\n' "${FAILED_FILES[@]}"
+# R2: keys must be in .env.cloudflare (sourced above). Same vars as former prune script.
+if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  echo "✗ R2 sync requires R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and CLOUDFLARE_ACCOUNT_ID in .env.cloudflare" >&2
+  exit 1
+fi
+if ! command -v rclone >/dev/null 2>&1; then
+  echo "✗ rclone is required for dashboard R2 sync (https://rclone.org/install/)" >&2
   exit 1
 fi
 
-# Remove orphaned hashed chunks: wrangler has no `r2 object list`; use S3-compatible ListObjectsV2 (R2 API token).
-echo "→ Pruning stale R2 objects under ${PREFIX}/ ..."
-if [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-  node "$REPO_ROOT/scripts/r2-prune-dashboard-prefix.mjs" \
-    --bucket "$BUCKET" \
-    --prefix "$PREFIX" \
-    --dist "$REPO_ROOT/$DIST"
-else
-  echo "⚠️  Skipping R2 stale-chunk prune (set R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY in .env.cloudflare; CLOUDFLARE_ACCOUNT_ID required)"
-fi
+echo "→ Syncing $DIST to R2 static/dashboard/agent/ ..."
+find "$REPO_ROOT/$DIST" -name "*.map" -delete
+rclone sync "$REPO_ROOT/$DIST" \
+  ":s3:inneranimalmedia/static/dashboard/agent" \
+  --s3-provider Cloudflare \
+  --s3-access-key-id "$R2_ACCESS_KEY_ID" \
+  --s3-secret-access-key "$R2_SECRET_ACCESS_KEY" \
+  --s3-endpoint "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+  --checksum \
+  --transfers 20 \
+  --delete-after \
+  --progress
+echo "→ R2 sync complete"
 
 echo "→ Deploying worker..."
 DEPLOY_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"

@@ -80,22 +80,6 @@ export async function handleSupabaseWebhook(request, env, ctx) {
             const r = body.record;
             if (!r?.task_type || !r?.selected_model) break;
             await env.DB.prepare(
-              `UPDATE model_routing_rules SET
-                 avg_latency_ms = ROUND(COALESCE(avg_latency_ms, ?) * 0.9 + ? * 0.1, 2),
-                 success_rate   = ROUND(COALESCE(success_rate,   ?) * 0.9 + ? * 0.1, 4),
-                 last_evaluated_at = unixepoch(),
-                 updated_at = datetime('now')
-               WHERE task_type = ?`,
-            )
-              .bind(
-                r.latency_ms,
-                r.latency_ms,
-                r.success ? 1 : 0,
-                r.success ? 1 : 0,
-                r.task_type,
-              )
-              .run();
-            await env.DB.prepare(
               `UPDATE agentsam_routing_arms SET
                  success_alpha = success_alpha + ?,
                  success_beta  = success_beta  + ?,

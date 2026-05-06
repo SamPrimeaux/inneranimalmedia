@@ -557,11 +557,20 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     };
   }
 
-  const requiresConfirmation =
-    Number(row?.requires_approval || 0) === 1 ||
-    policy.requireApprovalTools.includes(name) ||
-    riskLevel === 'high' ||
-    riskLevel === 'critical';
+  let registryRequiresApproval = false;
+  if (env.DB && ws) {
+    const appr = await env.DB.prepare(
+      `SELECT requires_approval FROM agentsam_mcp_tools
+       WHERE tool_key = ? AND workspace_id = ? AND COALESCE(is_active, 1) = 1
+       LIMIT 1`,
+    )
+      .bind(name, ws)
+      .first()
+      .catch(() => null);
+    registryRequiresApproval = Number(appr?.requires_approval || 0) === 1;
+  }
+
+  const requiresConfirmation = registryRequiresApproval || policy.requireApprovalTools.includes(name);
   return {
     allowed: true,
     reason: 'allowed',
