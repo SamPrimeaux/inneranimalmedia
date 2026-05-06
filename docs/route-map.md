@@ -6,8 +6,8 @@ Total route patterns: **400**.
 
 ## varies /
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6790
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6760
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -15,8 +15,8 @@ Total route patterns: **400**.
 
 ## prefix /api/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6880
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6850
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -24,8 +24,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/admin/archive-conversations
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3963
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3933
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -33,8 +33,8 @@ Total route patterns: **400**.
 
 ## GET /api/admin/cleanup/stuck-runs
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3975
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3945
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -42,8 +42,8 @@ Total route patterns: **400**.
 
 ## GET /api/admin/db-health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3998
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3968
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -51,8 +51,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/admin/overnight/start
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3932
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3902
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -60,8 +60,8 @@ Total route patterns: **400**.
 
 ## varies /api/admin/overnight/start
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3941
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3911
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -69,8 +69,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/admin/overnight/validate
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3932
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3902
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -78,8 +78,8 @@ Total route patterns: **400**.
 
 ## varies /api/admin/overnight/validate
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3937
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3907
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -87,8 +87,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/admin/rag-backfill
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4146
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4116
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -96,8 +96,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/admin/reindex-codebase
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4141
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4111
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -105,8 +105,8 @@ Total route patterns: **400**.
 
 ## GET /api/admin/retention
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3947
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3917
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -114,8 +114,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/admin/trigger-workflow
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4274
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4244
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -123,8 +123,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/admin/vectorize-kb
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4086
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4056
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -132,8 +132,8 @@ Total route patterns: **400**.
 
 ## prefix /api/agent*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -141,8 +141,8 @@ Total route patterns: **400**.
 
 ## prefix /api/agent-sam/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3369
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3339
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -150,8 +150,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent-sam/agent-runs
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3378
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3348
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -159,8 +159,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent-sam/deployments
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3400
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3370
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -168,8 +168,8 @@ Total route patterns: **400**.
 
 ## varies /api/agent/boot
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18017
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18023
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -177,8 +177,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/bootstrap
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19823
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19837
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -186,8 +186,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/browse
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17395
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17401
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -195,8 +195,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/chat
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19164
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19178
 - **Auth:** usually session (see handler)
 - **Description:** Main Agent Sam chat. JSON body: messages, model_id, mode, stream, tools. Runs AutoRAG (AI Search) when enabled; prepends pgvector `match_documents` context when HYPERDRIVE is bound.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -204,8 +204,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/chat/execute-approved-tool
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19456
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19470
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -213,8 +213,8 @@ Total route patterns: **400**.
 
 ## varies /api/agent/cicd
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19257
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19271
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -222,8 +222,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/commands
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17550
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17556
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -231,8 +231,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/commands/execute
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4554
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4524
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -240,8 +240,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/context-picker/catalog
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17768
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17774
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -249,8 +249,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/context/bootstrap
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19801
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19815
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -258,8 +258,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/conversations/search
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18109
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18115
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -267,8 +267,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/db/query-history
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17896
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17902
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -276,8 +276,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/db/query-history
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17899
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17905
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -285,8 +285,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/db/snippets
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17902
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17908
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -294,8 +294,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/db/snippets
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17905
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17911
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -303,8 +303,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/db/tables
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17879
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17885
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -312,8 +312,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/do-history
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19169
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19183
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -321,8 +321,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/git/status
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17940
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17946
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -330,8 +330,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/git/sync
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17969
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17975
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -339,8 +339,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/keyboard-shortcuts
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17674
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17680
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -348,8 +348,8 @@ Total route patterns: **400**.
 
 ## varies /api/agent/mcp
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19250
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19264
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE, KV
@@ -357,8 +357,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/memory/list
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17853
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17859
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -366,8 +366,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/memory/sync
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17909
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17915
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -375,8 +375,8 @@ Total route patterns: **400**.
 
 ## varies /api/agent/models
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18785
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18799
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -384,8 +384,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/modes
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17517
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17523
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -393,8 +393,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/notifications
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17726
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17732
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -402,8 +402,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/plan/approve
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19422
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19436
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -411,8 +411,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/plan/reject
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19439
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19453
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -420,8 +420,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/playwright
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19188
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19202
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE, MYBROWSER
@@ -429,8 +429,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/playwright/jobs
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19226
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19240
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE, MYBROWSER
@@ -438,8 +438,8 @@ Total route patterns: **400**.
 
 ## prefix /api/agent/playwright/jobs/*
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19233
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19247
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside handleAgentApi.
 - **Bindings (typical):** AI, DB, HYPERDRIVE, MYBROWSER
@@ -447,8 +447,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/problems
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17599
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17605
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -456,8 +456,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/proposals/pending
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19077
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19091
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -465,8 +465,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/propose
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18978
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18992
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -474,8 +474,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/queue
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19353
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19367
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -483,8 +483,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/queue/status
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19378
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19392
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -492,8 +492,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/r2-save
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19893
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19907
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DASHBOARD, DB, HYPERDRIVE
@@ -501,8 +501,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/rag/compact-chats
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19333
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19347
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -510,8 +510,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/rag/index-memory
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19320
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19334
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -519,8 +519,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/rag/query
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19285
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19299
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -528,8 +528,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/rag/status
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19309
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19323
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -537,8 +537,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/reindex-codebase
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17924
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17930
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -546,8 +546,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/rules
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2521
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2491
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -555,8 +555,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/session/mode
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17573
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17579
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -564,8 +564,8 @@ Total route patterns: **400**.
 
 ## varies /api/agent/session/ws
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6755
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6725
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -573,8 +573,8 @@ Total route patterns: **400**.
 
 ## varies /api/agent/sessions
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18826
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18840
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -582,8 +582,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/subagent-profiles
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17195
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17201
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -591,8 +591,8 @@ Total route patterns: **400**.
 
 ## varies /api/agent/telemetry
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19274
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19288
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -600,8 +600,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/terminal/complete
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18339
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18353
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -609,8 +609,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/terminal/config-status
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18278
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18292
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -618,8 +618,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/terminal/run
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18311
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18325
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -627,8 +627,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/terminal/socket-url
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18265
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18279
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -636,8 +636,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/terminal/status
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18300
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18314
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -645,8 +645,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/terminal/ws
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18306
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18320
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -654,8 +654,8 @@ Total route patterns: **400**.
 
 ## GET /api/agent/today-todo
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19747
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19761
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -663,8 +663,8 @@ Total route patterns: **400**.
 
 ## PUT /api/agent/today-todo
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19774
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19788
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -672,8 +672,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/vertex-test
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17491
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17497
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -681,8 +681,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/workers-ai/image
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18881
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18895
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -690,8 +690,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/workers-ai/stt
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18948
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18962
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -699,8 +699,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/workers-ai/tts
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18917
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18931
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -708,8 +708,8 @@ Total route patterns: **400**.
 
 ## POST /api/agent/workflows/trigger
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19090
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19104
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -717,8 +717,8 @@ Total route patterns: **400**.
 
 ## varies /api/agentsam
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4560
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4530
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -726,8 +726,8 @@ Total route patterns: **400**.
 
 ## prefix /api/agentsam/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4560
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4530
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -735,8 +735,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/ai
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21386
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21400
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -744,8 +744,8 @@ Total route patterns: **400**.
 
 ## DELETE /api/agentsam/autorag/files
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21313
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21327
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -753,8 +753,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/autorag/files
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21284
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21298
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -762,8 +762,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/autorag/search
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21337
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21351
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -771,8 +771,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/autorag/stats
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21276
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21290
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -780,8 +780,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/autorag/sync
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21305
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21319
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -789,8 +789,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/autorag/upload
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21322
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21336
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -798,8 +798,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/cmd-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20575
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20589
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -807,8 +807,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/cmd-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20589
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20603
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -816,8 +816,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/command-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20575
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20589
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -825,8 +825,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/command-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20589
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20603
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -834,8 +834,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/config
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20409
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20423
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -843,8 +843,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/feature-flags
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20823
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20837
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -852,8 +852,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/fetch-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20732
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20746
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -861,8 +861,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/fetch-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20746
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20760
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -870,8 +870,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/fetch-domains
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20678
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20692
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -879,8 +879,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/fetch-domains
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20692
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20706
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -888,8 +888,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/hooks
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20467
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20481
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -897,8 +897,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/hooks
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20505
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20519
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -906,8 +906,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/ignore-patterns
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21174
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21188
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -915,8 +915,8 @@ Total route patterns: **400**.
 
 ## PATCH /api/agentsam/ignore-patterns
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21184
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21198
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -924,8 +924,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/ignore-patterns
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21151
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21165
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -933,8 +933,8 @@ Total route patterns: **400**.
 
 ## PATCH /api/agentsam/ignore-patterns/reorder
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21082
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21096
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -942,8 +942,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/index-status
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21213
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21227
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -951,8 +951,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/indexing-summary
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21234
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21248
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -960,8 +960,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/mcp-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20623
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20637
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE, KV
@@ -969,8 +969,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/mcp-allowlist
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20637
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20651
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE, KV
@@ -978,8 +978,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/rules
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20905
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20919
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -987,8 +987,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/rules
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20915
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20929
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -996,8 +996,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/runs
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21345
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21359
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1005,8 +1005,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/skills
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20998
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21012
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1014,8 +1014,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/skills
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~21015
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~21029
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1023,8 +1023,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/subagents
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20929
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20943
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1032,8 +1032,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/subagents
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20940
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20954
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1041,8 +1041,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/tools-registry
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20658
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20672
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1050,8 +1050,8 @@ Total route patterns: **400**.
 
 ## DELETE /api/agentsam/trusted-origins
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20812
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20826
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1059,8 +1059,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/trusted-origins
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20786
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20800
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1068,8 +1068,8 @@ Total route patterns: **400**.
 
 ## POST /api/agentsam/trusted-origins
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20796
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20810
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1077,8 +1077,8 @@ Total route patterns: **400**.
 
 ## GET /api/agentsam/user-policy
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20435
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20449
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1086,8 +1086,8 @@ Total route patterns: **400**.
 
 ## PATCH /api/agentsam/user-policy
 
-- **Handler:** handleAgentsamApi (lines 20357-21432)
-- **Line:** ~20445
+- **Handler:** handleAgentsamApi (lines 20371-21446)
+- **Line:** ~20459
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1095,8 +1095,8 @@ Total route patterns: **400**.
 
 ## GET /api/ai/guardrails
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2515
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2485
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1104,8 +1104,8 @@ Total route patterns: **400**.
 
 ## GET /api/ai/integrations
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2520
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2490
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1113,8 +1113,8 @@ Total route patterns: **400**.
 
 ## GET /api/ai/models
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2629
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2599
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1122,8 +1122,8 @@ Total route patterns: **400**.
 
 ## GET/PATCH /api/ai/models
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2516
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2486
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1131,8 +1131,8 @@ Total route patterns: **400**.
 
 ## GET /api/ai/routing-rules
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2657
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2627
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1140,8 +1140,8 @@ Total route patterns: **400**.
 
 ## GET/POST/PATCH/DELETE /api/ai/routing-rules
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2518
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2488
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1149,8 +1149,8 @@ Total route patterns: **400**.
 
 ## POST /api/ai/routing-rules
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2663
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2633
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1158,8 +1158,8 @@ Total route patterns: **400**.
 
 ## POST /api/ai/smoke-test
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4580
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4550
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1167,8 +1167,8 @@ Total route patterns: **400**.
 
 ## GET /api/ai/test-runs
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4584
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4554
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1176,8 +1176,8 @@ Total route patterns: **400**.
 
 ## GET /api/app-icons
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2533
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2503
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1185,8 +1185,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/auth/backup-code
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3924
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3894
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1194,8 +1194,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/auth/login
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3921
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3891
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1203,8 +1203,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/auth/logout
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3927
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3897
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1212,8 +1212,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/auth/signup
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3915
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3885
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1221,8 +1221,8 @@ Total route patterns: **400**.
 
 ## GET /api/auth/verify-email
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3918
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3888
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1230,8 +1230,8 @@ Total route patterns: **400**.
 
 ## prefix /api/billing*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3342
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3312
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1239,8 +1239,8 @@ Total route patterns: **400**.
 
 ## varies /api/billing/summary
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3869
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3839
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1248,8 +1248,8 @@ Total route patterns: **400**.
 
 ## prefix /api/browser/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3774
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3744
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB, MYBROWSER
@@ -1257,8 +1257,8 @@ Total route patterns: **400**.
 
 ## varies /api/browser/health
 
-- **Handler:** handleBrowserRequest (lines 7126-7464)
-- **Line:** ~7206
+- **Handler:** handleBrowserRequest (lines 7096-7434)
+- **Line:** ~7176
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, MYBROWSER
@@ -1266,8 +1266,8 @@ Total route patterns: **400**.
 
 ## varies /api/browser/metrics
 
-- **Handler:** handleBrowserRequest (lines 7126-7464)
-- **Line:** ~7215
+- **Handler:** handleBrowserRequest (lines 7096-7434)
+- **Line:** ~7185
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, MYBROWSER
@@ -1275,8 +1275,8 @@ Total route patterns: **400**.
 
 ## GET /api/browser/screenshot
 
-- **Handler:** handleBrowserRequest (lines 7126-7464)
-- **Line:** ~7137
+- **Handler:** handleBrowserRequest (lines 7096-7434)
+- **Line:** ~7107
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, MYBROWSER
@@ -1284,8 +1284,8 @@ Total route patterns: **400**.
 
 ## varies /api/cad
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3482
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3452
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1293,8 +1293,8 @@ Total route patterns: **400**.
 
 ## prefix /api/cad/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3482
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3452
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1302,8 +1302,8 @@ Total route patterns: **400**.
 
 ## varies /api/chat
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1311,8 +1311,8 @@ Total route patterns: **400**.
 
 ## prefix /api/cicd/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4625
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4595
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1320,8 +1320,8 @@ Total route patterns: **400**.
 
 ## GET /api/cicd/current
 
-- **Handler:** handleCidiApi (lines 22090-22398)
-- **Line:** ~22098
+- **Handler:** handleCidiApi (lines 22104-22412)
+- **Line:** ~22112
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1329,8 +1329,8 @@ Total route patterns: **400**.
 
 ## POST /api/cicd/run
 
-- **Handler:** handleCidiApi (lines 22090-22398)
-- **Line:** ~22106
+- **Handler:** handleCidiApi (lines 22104-22412)
+- **Line:** ~22120
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1338,8 +1338,8 @@ Total route patterns: **400**.
 
 ## GET /api/cicd/runs
 
-- **Handler:** handleCidiApi (lines 22090-22398)
-- **Line:** ~22310
+- **Handler:** handleCidiApi (lines 22104-22412)
+- **Line:** ~22324
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1347,8 +1347,8 @@ Total route patterns: **400**.
 
 ## varies /api/clients
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3844
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3814
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1356,8 +1356,8 @@ Total route patterns: **400**.
 
 ## GET /api/cloudflare/workers/list
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4660
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4630
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1365,8 +1365,8 @@ Total route patterns: **400**.
 
 ## prefix /api/cms/pages/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4598
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4568
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1374,8 +1374,8 @@ Total route patterns: **400**.
 
 ## varies /api/colors/all
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3834
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3804
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1383,8 +1383,8 @@ Total route patterns: **400**.
 
 ## GET /api/commands
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4799
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4769
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1392,8 +1392,8 @@ Total route patterns: **400**.
 
 ## GET /api/commands/custom
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2792
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2762
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1401,8 +1401,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/commands/custom
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2522
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2492
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1410,8 +1410,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/d1/query
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5412
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5382
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1419,8 +1419,8 @@ Total route patterns: **400**.
 
 ## GET /api/d1/tables
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5205
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5175
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1428,8 +1428,8 @@ Total route patterns: **400**.
 
 ## POST /api/dashboard/d1/query
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3233
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3203
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1437,8 +1437,8 @@ Total route patterns: **400**.
 
 ## GET /api/dashboard/d1/tables
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3222
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3192
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1446,8 +1446,8 @@ Total route patterns: **400**.
 
 ## prefix /api/dashboard/time-track*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3823
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3793
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1455,8 +1455,8 @@ Total route patterns: **400**.
 
 ## POST /api/dashboard/time-track/manual
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3817
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3787
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1464,8 +1464,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/database/execute
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5757
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5727
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1473,8 +1473,8 @@ Total route patterns: **400**.
 
 ## GET /api/database/query-history
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5761
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5731
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1482,8 +1482,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/database/snippets
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5765
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5735
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1491,8 +1491,8 @@ Total route patterns: **400**.
 
 ## GET /api/db/connections
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5661
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5631
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1500,8 +1500,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/db/connections
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5686
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5656
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1509,8 +1509,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/db/connections/test
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5730
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5700
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1518,8 +1518,8 @@ Total route patterns: **400**.
 
 ## POST /api/deploy/rollback
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2537
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2507
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1527,8 +1527,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/deployments/log
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3511
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3481
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1536,8 +1536,8 @@ Total route patterns: **400**.
 
 ## GET /api/deployments/recent
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3514
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3484
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1545,8 +1545,8 @@ Total route patterns: **400**.
 
 ## prefix /api/designstudio/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3478
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3448
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1554,8 +1554,8 @@ Total route patterns: **400**.
 
 ## prefix /api/draw*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4565
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4535
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DASHBOARD, DB
@@ -1563,8 +1563,8 @@ Total route patterns: **400**.
 
 ## GET /api/draw/libraries
 
-- **Handler:** handleDrawApi (lines 16796-17133)
-- **Line:** ~16863
+- **Handler:** handleDrawApi (lines 16802-17139)
+- **Line:** ~16869
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -1572,8 +1572,8 @@ Total route patterns: **400**.
 
 ## GET /api/draw/list
 
-- **Handler:** handleDrawApi (lines 16796-17133)
-- **Line:** ~16843
+- **Handler:** handleDrawApi (lines 16802-17139)
+- **Line:** ~16849
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -1581,8 +1581,8 @@ Total route patterns: **400**.
 
 ## GET /api/draw/load
 
-- **Handler:** handleDrawApi (lines 16796-17133)
-- **Line:** ~16874
+- **Handler:** handleDrawApi (lines 16802-17139)
+- **Line:** ~16880
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -1590,8 +1590,8 @@ Total route patterns: **400**.
 
 ## POST /api/draw/save
 
-- **Handler:** handleDrawApi (lines 16796-17133)
-- **Line:** ~16805
+- **Handler:** handleDrawApi (lines 16802-17139)
+- **Line:** ~16811
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -1599,8 +1599,8 @@ Total route patterns: **400**.
 
 ## DELETE /api/drive/delete
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~16229
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~16235
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1608,8 +1608,8 @@ Total route patterns: **400**.
 
 ## POST /api/drive/file
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~16060
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~16066
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1617,8 +1617,8 @@ Total route patterns: **400**.
 
 ## POST /api/drive/folder
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~16180
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~16186
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1626,8 +1626,8 @@ Total route patterns: **400**.
 
 ## GET /api/drive/get
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~16042
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~16048
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1635,8 +1635,8 @@ Total route patterns: **400**.
 
 ## GET /api/drive/list
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~16026
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~16032
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1644,8 +1644,8 @@ Total route patterns: **400**.
 
 ## GET /api/drive/search
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~16114
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~16120
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -1653,8 +1653,8 @@ Total route patterns: **400**.
 
 ## varies /api/drive/sync
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4616
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4586
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1662,8 +1662,8 @@ Total route patterns: **400**.
 
 ## POST /api/drive/upload
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~16131
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~16137
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1671,8 +1671,8 @@ Total route patterns: **400**.
 
 ## varies /api/email/inbound
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3438
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3408
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1680,8 +1680,8 @@ Total route patterns: **400**.
 
 ## prefix /api/env/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4961
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4931
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1689,8 +1689,8 @@ Total route patterns: **400**.
 
 ## GET /api/env/audit
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5022
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4992
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1698,8 +1698,8 @@ Total route patterns: **400**.
 
 ## GET /api/env/secrets
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5011
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4981
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1707,8 +1707,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/env/secrets
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5036
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5006
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1716,8 +1716,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/env/secrets/reveal
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5062
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5032
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1725,8 +1725,8 @@ Total route patterns: **400**.
 
 ## GET /api/env/spend
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4963
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4933
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1734,8 +1734,8 @@ Total route patterns: **400**.
 
 ## prefix /api/finance/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3839
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3809
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1743,8 +1743,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/founder/log
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3829
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3799
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1752,8 +1752,8 @@ Total route patterns: **400**.
 
 ## POST /api/generate
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4603
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4573
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1761,8 +1761,8 @@ Total route patterns: **400**.
 
 ## GET /api/github/repos
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15900
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15906
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1770,8 +1770,8 @@ Total route patterns: **400**.
 
 ## varies /api/health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3297
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3267
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1779,8 +1779,8 @@ Total route patterns: **400**.
 
 ## varies /api/hooks/cursor
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3463
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3433
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1788,8 +1788,8 @@ Total route patterns: **400**.
 
 ## GET /api/hooks/executions
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2530
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2500
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1797,8 +1797,8 @@ Total route patterns: **400**.
 
 ## GET /api/hooks/health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3434
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3404
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1806,8 +1806,8 @@ Total route patterns: **400**.
 
 ## varies /api/hooks/internal
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3469
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3439
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1815,8 +1815,8 @@ Total route patterns: **400**.
 
 ## varies /api/hooks/stripe
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3466
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3436
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1824,8 +1824,8 @@ Total route patterns: **400**.
 
 ## GET /api/hooks/subscriptions
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2798
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2768
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1833,8 +1833,8 @@ Total route patterns: **400**.
 
 ## GET/POST/PATCH /api/hooks/subscriptions
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2523
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2493
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1842,8 +1842,8 @@ Total route patterns: **400**.
 
 ## POST /api/hooks/subscriptions
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2837
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2807
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1851,8 +1851,8 @@ Total route patterns: **400**.
 
 ## PATCH /api/hooks/subscriptions/reorder
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2867
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2837
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1860,8 +1860,8 @@ Total route patterns: **400**.
 
 ## PATCH/DELETE /api/hooks/subscriptions/reorder
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2524
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2494
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1869,8 +1869,8 @@ Total route patterns: **400**.
 
 ## varies /api/hooks/supabase
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3472
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3442
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1878,8 +1878,8 @@ Total route patterns: **400**.
 
 ## prefix /api/hub/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3854
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3824
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1887,8 +1887,8 @@ Total route patterns: **400**.
 
 ## GET /api/hyperdrive/health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5449
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5419
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1896,8 +1896,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/hyperdrive/query
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5600
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5570
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1905,8 +1905,8 @@ Total route patterns: **400**.
 
 ## GET /api/hyperdrive/status
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5449
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5419
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1914,8 +1914,8 @@ Total route patterns: **400**.
 
 ## GET /api/hyperdrive/tables
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5470
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5440
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1923,8 +1923,8 @@ Total route patterns: **400**.
 
 ## GET /api/images
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19643
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19657
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1932,8 +1932,8 @@ Total route patterns: **400**.
 
 ## POST /api/images
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19673
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19687
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1941,8 +1941,8 @@ Total route patterns: **400**.
 
 ## prefix /api/images*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -1950,8 +1950,8 @@ Total route patterns: **400**.
 
 ## prefix /api/images/*
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19720
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19734
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside handleAgentApi.
 - **Bindings (typical):** DB
@@ -1959,8 +1959,8 @@ Total route patterns: **400**.
 
 ## GET /api/integrations/drive/list
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19489
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19503
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1968,8 +1968,8 @@ Total route patterns: **400**.
 
 ## GET /api/integrations/gdrive/file
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19508
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19522
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1977,8 +1977,8 @@ Total route patterns: **400**.
 
 ## GET /api/integrations/gdrive/files
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19496
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19510
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1986,8 +1986,8 @@ Total route patterns: **400**.
 
 ## GET /api/integrations/github/file
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19546
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19560
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -1995,8 +1995,8 @@ Total route patterns: **400**.
 
 ## GET /api/integrations/github/files
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19532
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19546
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2004,8 +2004,8 @@ Total route patterns: **400**.
 
 ## GET /api/integrations/github/list
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19492
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19506
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2013,8 +2013,8 @@ Total route patterns: **400**.
 
 ## GET /api/integrations/github/repos
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19520
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19534
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2022,8 +2022,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/internal/deploy-complete
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3602
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3572
 - **Auth:** internal / optional secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2031,8 +2031,8 @@ Total route patterns: **400**.
 
 ## prefix /api/internal/designstudio/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3478
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3448
 - **Auth:** internal / optional secret
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -2040,8 +2040,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/internal/post-deploy
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3485
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3455
 - **Auth:** internal / optional secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2049,8 +2049,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/internal/record-deploy
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3519
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3489
 - **Auth:** internal / optional secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2058,8 +2058,8 @@ Total route patterns: **400**.
 
 ## GET /api/knowledge
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2917
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2887
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2067,8 +2067,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/knowledge
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2531
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2501
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2076,8 +2076,8 @@ Total route patterns: **400**.
 
 ## POST /api/knowledge/crawl
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2924
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2894
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2085,8 +2085,8 @@ Total route patterns: **400**.
 
 ## POST/GET /api/knowledge/crawl
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2532
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2502
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2094,8 +2094,8 @@ Total route patterns: **400**.
 
 ## GET /api/loading-states
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18081
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18087
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2103,8 +2103,8 @@ Total route patterns: **400**.
 
 ## varies /api/loading-states
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2112,8 +2112,8 @@ Total route patterns: **400**.
 
 ## prefix /api/mcp/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4621
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4591
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB, KV
@@ -2121,8 +2121,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/a11y
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21590
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21604
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2130,8 +2130,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/agents
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21482
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21496
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE, KV
@@ -2139,8 +2139,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/audit
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21461
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21475
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2148,8 +2148,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/commands
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21521
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21535
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2157,8 +2157,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/credentials
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21453
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21467
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2166,8 +2166,8 @@ Total route patterns: **400**.
 
 ## POST /api/mcp/dispatch
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21529
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21543
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2175,8 +2175,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/imgx
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21633
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21647
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2184,8 +2184,8 @@ Total route patterns: **400**.
 
 ## POST /api/mcp/invoke
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21884
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21898
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2193,8 +2193,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/server-allowlist
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21445
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21459
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2202,8 +2202,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/services
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21777
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21791
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2211,8 +2211,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/services/health
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21648
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21662
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2220,8 +2220,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/stats
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21470
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21484
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2229,8 +2229,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/status
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21479
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21493
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2238,8 +2238,8 @@ Total route patterns: **400**.
 
 ## POST /api/mcp/stream
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21801
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21815
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2247,8 +2247,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/tools
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21505
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21519
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2256,8 +2256,8 @@ Total route patterns: **400**.
 
 ## GET /api/mcp/workflows
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21926
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21940
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2265,8 +2265,8 @@ Total route patterns: **400**.
 
 ## POST /api/mcp/workflows
 
-- **Handler:** handleMcpApi (lines 21433-22089)
-- **Line:** ~21930
+- **Handler:** handleMcpApi (lines 21447-22103)
+- **Line:** ~21944
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2274,8 +2274,8 @@ Total route patterns: **400**.
 
 ## GET /api/meshy/latest
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4613
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4583
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2283,8 +2283,8 @@ Total route patterns: **400**.
 
 ## varies /api/models
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2292,8 +2292,8 @@ Total route patterns: **400**.
 
 ## POST /api/monaco/complete
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18482
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18496
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2301,8 +2301,8 @@ Total route patterns: **400**.
 
 ## varies /api/oauth/github/callback
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3907
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3877
 - **Auth:** OAuth state / callback
 - **Description:** GitHub OAuth redirect URI used by worker.
 - **Bindings (typical):** DB
@@ -2310,8 +2310,8 @@ Total route patterns: **400**.
 
 ## varies /api/oauth/github/start
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3904
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3874
 - **Auth:** OAuth state / callback
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2319,8 +2319,8 @@ Total route patterns: **400**.
 
 ## varies /api/oauth/google/callback
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3896
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3866
 - **Auth:** OAuth state / callback
 - **Description:** Google OAuth redirect URI used by worker.
 - **Bindings (typical):** DB
@@ -2328,8 +2328,8 @@ Total route patterns: **400**.
 
 ## varies /api/oauth/google/start
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3893
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3863
 - **Auth:** OAuth state / callback
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2337,8 +2337,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/activity-strip
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3788
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3758
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2346,8 +2346,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/agent-activity
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3797
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3767
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2355,8 +2355,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/checkpoints
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3785
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3755
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2364,8 +2364,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/commands-workflows
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3812
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3782
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2373,8 +2373,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/deployments
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3800
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3770
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2382,8 +2382,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/finance-charts
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3794
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3764
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2391,8 +2391,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/goals-launch
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3803
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3773
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2400,8 +2400,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/kpi-strip
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3791
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3761
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2409,8 +2409,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/mcp-health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3809
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3779
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -2418,8 +2418,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/recent-activity
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3782
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3752
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2427,8 +2427,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/stats
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3779
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3749
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2436,8 +2436,8 @@ Total route patterns: **400**.
 
 ## varies /api/overview/time-founder
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3806
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3776
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2445,8 +2445,8 @@ Total route patterns: **400**.
 
 ## GET /api/platform/d1-health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5386
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5356
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2454,8 +2454,8 @@ Total route patterns: **400**.
 
 ## GET /api/platform/kv-health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5350
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5320
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2463,8 +2463,8 @@ Total route patterns: **400**.
 
 ## GET/DELETE /api/platform/kv/flush
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5365
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5335
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2472,8 +2472,8 @@ Total route patterns: **400**.
 
 ## prefix /api/playwright*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB, MYBROWSER
@@ -2481,8 +2481,8 @@ Total route patterns: **400**.
 
 ## POST /api/playwright/screenshot
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18671
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18685
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, MYBROWSER
@@ -2490,8 +2490,8 @@ Total route patterns: **400**.
 
 ## varies /api/projects
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3849
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3819
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2499,8 +2499,8 @@ Total route patterns: **400**.
 
 ## GET /api/provider-colors
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3306
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3276
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2508,8 +2508,8 @@ Total route patterns: **400**.
 
 ## prefix /api/r2/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4639
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4609
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2517,8 +2517,8 @@ Total route patterns: **400**.
 
 ## GET /api/r2/buckets
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16256
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16262
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2526,8 +2526,8 @@ Total route patterns: **400**.
 
 ## POST /api/r2/buckets/bulk-action
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16546
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16552
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2535,8 +2535,8 @@ Total route patterns: **400**.
 
 ## DELETE /api/r2/delete
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15855
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15861
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2544,8 +2544,8 @@ Total route patterns: **400**.
 
 ## DELETE /api/r2/file
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16519
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16525
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2553,8 +2553,8 @@ Total route patterns: **400**.
 
 ## GET /api/r2/file
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15743
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15749
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2562,8 +2562,8 @@ Total route patterns: **400**.
 
 ## POST /api/r2/file
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15787
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15793
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2571,8 +2571,8 @@ Total route patterns: **400**.
 
 ## GET /api/r2/get
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15718
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15724
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2580,8 +2580,8 @@ Total route patterns: **400**.
 
 ## GET /api/r2/list
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15711
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15717
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2589,8 +2589,8 @@ Total route patterns: **400**.
 
 ## PUT /api/r2/move
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15875
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15881
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2598,8 +2598,8 @@ Total route patterns: **400**.
 
 ## GET /api/r2/search
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16453
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16459
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DASHBOARD, DB, HYPERDRIVE
@@ -2607,8 +2607,8 @@ Total route patterns: **400**.
 
 ## GET /api/r2/stats
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16260
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16266
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2616,8 +2616,8 @@ Total route patterns: **400**.
 
 ## varies /api/r2/stats
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16320
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16326
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2625,8 +2625,8 @@ Total route patterns: **400**.
 
 ## POST /api/r2/sync
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16269
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16275
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2634,8 +2634,8 @@ Total route patterns: **400**.
 
 ## POST /api/r2/upload
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15810
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15816
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2643,8 +2643,8 @@ Total route patterns: **400**.
 
 ## GET /api/r2/url
 
-- **Handler:** handleR2Api (lines 16251-16795)
-- **Line:** ~16531
+- **Handler:** handleR2Api (lines 16257-16801)
+- **Line:** ~16537
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DASHBOARD, DB
@@ -2652,8 +2652,8 @@ Total route patterns: **400**.
 
 ## POST /api/rag/feedback
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6049
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6019
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2661,8 +2661,8 @@ Total route patterns: **400**.
 
 ## POST /api/rag/ingest
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5897
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5867
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2670,8 +2670,8 @@ Total route patterns: **400**.
 
 ## POST /api/rag/ingest-batch
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5930
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5900
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2679,8 +2679,8 @@ Total route patterns: **400**.
 
 ## POST /api/rag/query
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5977
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5947
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2688,8 +2688,8 @@ Total route patterns: **400**.
 
 ## GET /api/rag/status
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6076
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6046
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2697,8 +2697,8 @@ Total route patterns: **400**.
 
 ## DELETE /api/screenshots
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19625
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19639
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2706,8 +2706,8 @@ Total route patterns: **400**.
 
 ## GET /api/screenshots
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19562
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19576
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2715,8 +2715,8 @@ Total route patterns: **400**.
 
 ## prefix /api/screenshots*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -2724,8 +2724,8 @@ Total route patterns: **400**.
 
 ## GET /api/screenshots/asset
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~19599
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~19613
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2733,8 +2733,8 @@ Total route patterns: **400**.
 
 ## varies /api/search
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6089
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6059
 - **Auth:** usually session (see handler)
 - **Description:** POST/GET search. With HYPERDRIVE: embed query (bge-large-en-v1.5) and `match_documents` via pg; else Vectorize `vectorizeRagSearch`. Logs to ai_rag_search_history.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2742,8 +2742,8 @@ Total route patterns: **400**.
 
 ## GET /api/search/debug
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5786
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5756
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2751,8 +2751,8 @@ Total route patterns: **400**.
 
 ## POST /api/search/docs
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5815
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5785
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2760,8 +2760,8 @@ Total route patterns: **400**.
 
 ## POST /api/search/docs/index
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5882
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5852
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2769,8 +2769,8 @@ Total route patterns: **400**.
 
 ## GET /api/search/docs/status
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5857
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5827
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2778,8 +2778,8 @@ Total route patterns: **400**.
 
 ## POST /api/search/federated
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5770
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5740
 - **Auth:** usually session (see handler)
 - **Description:** POST federated search across configured sources; `handleFederatedSearch`.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2787,8 +2787,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2543
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2513
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2796,8 +2796,8 @@ Total route patterns: **400**.
 
 ## GET/PATCH /api/settings
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2513
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2483
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2805,8 +2805,8 @@ Total route patterns: **400**.
 
 ## PATCH /api/settings/agent-config
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2737
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2707
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2814,8 +2814,8 @@ Total route patterns: **400**.
 
 ## PATCH/GET /api/settings/agent-config
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2528
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2498
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -2823,8 +2823,8 @@ Total route patterns: **400**.
 
 ## PATCH /api/settings/appearance
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2550
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2520
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2832,8 +2832,8 @@ Total route patterns: **400**.
 
 ## PATCH/GET /api/settings/appearance
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2514
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2484
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2841,8 +2841,8 @@ Total route patterns: **400**.
 
 ## prefix /api/settings/avatar*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6204
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6174
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -2850,8 +2850,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/deploy-context
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2526
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2496
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2859,8 +2859,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/docs-providers
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2579
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2549
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2868,8 +2868,8 @@ Total route patterns: **400**.
 
 ## GET/PATCH /api/settings/docs-providers
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2527
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2497
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2877,8 +2877,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/emails
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6390
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6360
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2886,8 +2886,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/marketplace-catalog
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2529
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2499
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2895,8 +2895,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/preferences
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6223
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6193
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2904,8 +2904,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/profile
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6116
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6086
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2913,8 +2913,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/settings/profile/avatar
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6179
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6149
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2922,8 +2922,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/settings/security/backup-codes/generate
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6293
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6263
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2931,8 +2931,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/settings/security/change-password
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6274
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6244
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2940,8 +2940,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/sessions
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6347
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6317
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2949,8 +2949,8 @@ Total route patterns: **400**.
 
 ## varies /api/settings/theme
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6658
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6628
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2958,8 +2958,8 @@ Total route patterns: **400**.
 
 ## PUT/PATCH /api/settings/workspace/default
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6622
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6592
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2967,8 +2967,8 @@ Total route patterns: **400**.
 
 ## GET /api/settings/workspaces
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6494
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6464
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2976,8 +2976,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/settings/workspaces/active
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6597
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6567
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2985,8 +2985,8 @@ Total route patterns: **400**.
 
 ## GET /api/spend
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2534
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2504
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -2994,8 +2994,8 @@ Total route patterns: **400**.
 
 ## GET /api/spend/summary
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2535
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2505
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3003,8 +3003,8 @@ Total route patterns: **400**.
 
 ## GET /api/spend/unified
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2998
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2968
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3012,8 +3012,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/spend/unified
 
-- **Handler:** handlePhase1PlatformD1Routes (lines 2510-3036)
-- **Line:** ~2536
+- **Handler:** handlePhase1PlatformD1Routes (lines 2480-3006)
+- **Line:** ~2506
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3021,8 +3021,8 @@ Total route patterns: **400**.
 
 ## prefix /api/storage*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4634
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4604
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3030,8 +3030,8 @@ Total route patterns: **400**.
 
 ## GET /api/system/health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3320
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3290
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3039,8 +3039,8 @@ Total route patterns: **400**.
 
 ## prefix /api/telemetry*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3048,8 +3048,8 @@ Total route patterns: **400**.
 
 ## GET /api/telemetry/summary
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17439
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17445
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3057,8 +3057,8 @@ Total route patterns: **400**.
 
 ## GET /api/telemetry/tools
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~17467
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~17473
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3066,8 +3066,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/telemetry/v1/traces
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3672
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3642
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3075,8 +3075,8 @@ Total route patterns: **400**.
 
 ## prefix /api/terminal*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4570
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4540
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3084,8 +3084,8 @@ Total route patterns: **400**.
 
 ## GET /api/terminal/agents
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18443
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18457
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -3093,8 +3093,8 @@ Total route patterns: **400**.
 
 ## POST /api/terminal/assist
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18371
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18385
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3102,8 +3102,8 @@ Total route patterns: **400**.
 
 ## GET /api/terminal/commands
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18464
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18478
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3111,8 +3111,8 @@ Total route patterns: **400**.
 
 ## POST /api/terminal/session/register
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18119
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18125
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3120,8 +3120,8 @@ Total route patterns: **400**.
 
 ## GET /api/terminal/session/resume
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18215
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18229
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3129,8 +3129,8 @@ Total route patterns: **400**.
 
 ## GET /api/terminal/sessions
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18246
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18260
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3138,8 +3138,8 @@ Total route patterns: **400**.
 
 ## GET /api/terminal/ws
 
-- **Handler:** handleAgentApi (lines 17190-19938)
-- **Line:** ~18306
+- **Handler:** handleAgentApi (lines 17196-19952)
+- **Line:** ~18320
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3147,8 +3147,8 @@ Total route patterns: **400**.
 
 ## GET /api/themes
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4863
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4833
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3156,8 +3156,8 @@ Total route patterns: **400**.
 
 ## GET /api/themes/active
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4877
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4847
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3165,8 +3165,8 @@ Total route patterns: **400**.
 
 ## POST /api/themes/apply
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4920
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4890
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3174,8 +3174,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/timers/start
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3826
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3796
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3183,8 +3183,8 @@ Total route patterns: **400**.
 
 ## prefix /api/tools-proxy/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3262
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3232
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3192,8 +3192,8 @@ Total route patterns: **400**.
 
 ## POST /api/tools/image/generate
 
-- **Handler:** handleDrawApi (lines 16796-17133)
-- **Line:** ~16931
+- **Handler:** handleDrawApi (lines 16802-17139)
+- **Line:** ~16937
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3201,8 +3201,8 @@ Total route patterns: **400**.
 
 ## GET/POST /api/tunnel/restart
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4769
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4739
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3210,8 +3210,8 @@ Total route patterns: **400**.
 
 ## GET /api/tunnel/status
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4717
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4687
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3219,8 +3219,8 @@ Total route patterns: **400**.
 
 ## POST /api/unified-search
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5775
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5745
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3228,8 +3228,8 @@ Total route patterns: **400**.
 
 ## GET /api/unified-search/recent
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5778
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5748
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3237,8 +3237,8 @@ Total route patterns: **400**.
 
 ## POST /api/unified-search/track
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5781
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5751
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3246,8 +3246,8 @@ Total route patterns: **400**.
 
 ## prefix /api/vault*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4955
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4925
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB, SESSION_CACHE
@@ -3255,8 +3255,8 @@ Total route patterns: **400**.
 
 ## GET /api/version
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15643
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15649
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3264,8 +3264,8 @@ Total route patterns: **400**.
 
 ## varies /api/webhooks/cloudflare
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3451
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3421
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3273,8 +3273,8 @@ Total route patterns: **400**.
 
 ## varies /api/webhooks/cursor
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3448
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3418
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3282,8 +3282,8 @@ Total route patterns: **400**.
 
 ## GET /api/webhooks/health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3434
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3404
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3291,8 +3291,8 @@ Total route patterns: **400**.
 
 ## varies /api/webhooks/internal
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3460
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3430
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3300,8 +3300,8 @@ Total route patterns: **400**.
 
 ## varies /api/webhooks/openai
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3457
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3427
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3309,8 +3309,8 @@ Total route patterns: **400**.
 
 ## varies /api/webhooks/resend
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3441
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3411
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3318,8 +3318,8 @@ Total route patterns: **400**.
 
 ## varies /api/webhooks/stripe
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3342
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3312
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3327,8 +3327,8 @@ Total route patterns: **400**.
 
 ## varies /api/webhooks/supabase
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3454
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3424
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3336,8 +3336,8 @@ Total route patterns: **400**.
 
 ## GET /api/workers
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4644
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4614
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3345,8 +3345,8 @@ Total route patterns: **400**.
 
 ## POST /api/workflow/run
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~4313
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~4283
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3354,8 +3354,8 @@ Total route patterns: **400**.
 
 ## prefix /api/workspace*
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15705
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15711
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside handleIamExplorerApi.
 - **Bindings (typical):** DB
@@ -3363,8 +3363,8 @@ Total route patterns: **400**.
 
 ## POST /api/workspace/create
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6398
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6368
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3372,8 +3372,8 @@ Total route patterns: **400**.
 
 ## GET /api/workspace/settings
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~5162
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~5132
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3381,8 +3381,8 @@ Total route patterns: **400**.
 
 ## GET /api/workspaces
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6494
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6464
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3390,8 +3390,8 @@ Total route patterns: **400**.
 
 ## prefix /api/workspaces*
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15705
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15711
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside handleIamExplorerApi.
 - **Bindings (typical):** DB
@@ -3399,8 +3399,8 @@ Total route patterns: **400**.
 
 ## GET /api/workspaces/current/shell
 
-- **Handler:** handleIamExplorerApi (lines 15638-16250)
-- **Line:** ~15668
+- **Handler:** handleIamExplorerApi (lines 15644-16256)
+- **Line:** ~15674
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3408,8 +3408,8 @@ Total route patterns: **400**.
 
 ## varies /auth/callback/github
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3910
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3880
 - **Auth:** OAuth state / callback
 - **Description:** GitHub OAuth callback (locked handler).
 - **Bindings (typical):** DB
@@ -3417,8 +3417,8 @@ Total route patterns: **400**.
 
 ## varies /auth/callback/google
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3899
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3869
 - **Auth:** OAuth state / callback
 - **Description:** Google OAuth callback (locked handler). Uses KV SESSION_CACHE for state.
 - **Bindings (typical):** DB
@@ -3426,8 +3426,8 @@ Total route patterns: **400**.
 
 ## varies /auth/login
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6801
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6771
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3435,8 +3435,8 @@ Total route patterns: **400**.
 
 ## varies /auth/register
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6807
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6777
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3444,8 +3444,8 @@ Total route patterns: **400**.
 
 ## varies /auth/reset
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6818
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6788
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3453,8 +3453,8 @@ Total route patterns: **400**.
 
 ## varies /auth/signin
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6801
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6771
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3462,8 +3462,8 @@ Total route patterns: **400**.
 
 ## varies /auth/signup
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6812
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6782
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3471,8 +3471,8 @@ Total route patterns: **400**.
 
 ## prefix /chat/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6883
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6853
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3480,8 +3480,8 @@ Total route patterns: **400**.
 
 ## prefix /cms/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6883
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6853
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3489,8 +3489,8 @@ Total route patterns: **400**.
 
 ## varies /dashboard
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6843
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6813
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3498,8 +3498,8 @@ Total route patterns: **400**.
 
 ## prefix /dashboard/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6848
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6818
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3507,8 +3507,8 @@ Total route patterns: **400**.
 
 ## varies /dashboard/
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6843
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6813
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3516,8 +3516,8 @@ Total route patterns: **400**.
 
 ## varies /health
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~3346
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~3316
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3525,8 +3525,8 @@ Total route patterns: **400**.
 
 ## varies /index.html
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6790
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6760
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3534,8 +3534,8 @@ Total route patterns: **400**.
 
 ## varies /login
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6796
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6766
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3543,8 +3543,8 @@ Total route patterns: **400**.
 
 ## varies /reset
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6818
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6788
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3552,8 +3552,8 @@ Total route patterns: **400**.
 
 ## prefix /settings/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6883
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6853
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3561,8 +3561,8 @@ Total route patterns: **400**.
 
 ## varies /signup
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6807
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6777
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3570,8 +3570,8 @@ Total route patterns: **400**.
 
 ## prefix /static/dashboard/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6914
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6884
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
@@ -3579,8 +3579,8 @@ Total route patterns: **400**.
 
 ## prefix /static/dashboard/agent/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6927
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6897
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -3588,8 +3588,8 @@ Total route patterns: **400**.
 
 ## varies /static/dashboard/glb-viewer.html
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6909
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6879
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -3597,8 +3597,8 @@ Total route patterns: **400**.
 
 ## prefix /workspace/*
 
-- **Handler:** runDeploymentsWeeklyRollup (lines 3099-7049)
-- **Line:** ~6883
+- **Handler:** runDeploymentsWeeklyRollup (lines 3069-7019)
+- **Line:** ~6853
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
 - **Bindings (typical):** DB
