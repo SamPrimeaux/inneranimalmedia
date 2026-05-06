@@ -737,19 +737,28 @@ export default {
           await handleCodebaseIndexSyncFromQueue(env, body, ctx);
           msg.ack();
           if (env?.DB) {
-            env.DB.prepare(`
+            const wheId = `whe_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+            const payloadJson = JSON.stringify({
+              ...(typeof body === 'object' && body ? body : {}),
+              workspace_id: workspaceId,
+            });
+            ctx.waitUntil(
+              (async () => {
+                try {
+                  await env.DB.prepare(`
               INSERT INTO agentsam_webhook_events
                 (id, tenant_id, provider, event_type, payload_json, status, processed_at)
               VALUES
-                ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
-            `).bind(
-              tenantId,
-              body?.type ?? 'unknown',
-              JSON.stringify({
-                ...(typeof body === 'object' && body ? body : {}),
-                workspace_id: workspaceId,
-              }),
-            ).run().catch(() => {});
+                (?, ?, 'my_queue', ?, ?, 'received', datetime('now'))
+            `).bind(wheId, tenantId, body?.type ?? 'unknown', payloadJson).run();
+                  await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
+                    .bind(wheId)
+                    .run();
+                } catch (e) {
+                  console.warn('[queue webhook_events]', e?.message ?? e);
+                }
+              })(),
+            );
           }
         } catch (e) {
           console.warn('[queue codebase_index_sync]', e?.message ?? e);

@@ -11,6 +11,7 @@ import { runSpendLedgerRollup } from './jobs/spend-ledger-rollup.js';
 import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
 import { runThirtyMinuteJobs } from './jobs/thirty-minute-cron.js';
+import { runWebhookPayloadPurgeCron } from './jobs/webhook-payload-purge.js';
 
 /**
  * @param {ScheduledEvent} event
@@ -37,6 +38,10 @@ export async function handleScheduled(event, env, ctx) {
 
     case '0 1 * * *':
       scheduleOneAmMaintenance(env, ctx);
+      break;
+
+    case '0 3 * * *':
+      ctx.waitUntil(runWebhookPayloadPurgeCron(env));
       break;
 
     case '10 0 * * *':

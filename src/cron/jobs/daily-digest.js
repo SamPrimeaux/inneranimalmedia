@@ -56,13 +56,13 @@ export async function sendDailyDigest(env) {
       hookHealth,
     ] = await Promise.all([
       safe(env.DB.prepare(
-        `SELECT COUNT(*) AS calls,
-          COALESCE(SUM(input_tokens), 0) AS tokens_in,
-          COALESCE(SUM(output_tokens), 0) AS tokens_out,
-          ROUND(COALESCE(SUM(computed_cost_usd), 0), 4) AS cost_usd,
-          COUNT(DISTINCT model_used) AS models_used
-         FROM agent_telemetry
-         WHERE timestamp > CAST(strftime('%s', 'now', '-1 day') AS INTEGER)`
+        `SELECT COALESCE(SUM(requests), 0) AS calls,
+          COALESCE(SUM(tokens_input), 0) AS tokens_in,
+          COALESCE(SUM(tokens_output), 0) AS tokens_out,
+          ROUND(COALESCE(SUM(cost_usd), 0), 4) AS cost_usd,
+          COUNT(DISTINCT provider) AS models_used
+         FROM ai_provider_usage
+         WHERE date = date('now')`
       ).first()),
       safe(env.DB.prepare(
         `SELECT COUNT(*) AS total,
@@ -126,9 +126,9 @@ export async function sendDailyDigest(env) {
          WHERE is_archived = 1 AND r2_context_key IS NOT NULL AND r2_context_key != ''`
       ).first()),
       safe(env.DB.prepare(
-        `SELECT provider, ROUND(SUM(computed_cost_usd), 4) AS cost_usd
-         FROM agent_telemetry
-         WHERE created_at >= unixepoch('now', 'start of day') AND provider IS NOT NULL
+        `SELECT provider, ROUND(SUM(cost_usd), 4) AS cost_usd
+         FROM ai_provider_usage
+         WHERE date = date('now') AND provider IS NOT NULL
          GROUP BY provider
          ORDER BY cost_usd DESC
          LIMIT 3`
@@ -266,7 +266,7 @@ Write 3-5 sentences: AI spend and deploy activity, then one sentence on what to 
 <h1>IAM Daily Digest</h1>
 <p>${esc(digestText)}</p>
 
-<h2>1. Today's AI spend (agent_telemetry)</h2>
+<h2>1. Today's AI spend (ai_provider_usage)</h2>
 <p>Cost USD: <strong>${esc(tt.cost_usd)}</strong> | Calls: ${esc(tt.calls)} | Tokens in/out: ${esc(tt.tokens_in)} / ${esc(tt.tokens_out)} | Models used: ${esc(tt.models_used)}</p>
 <h3>Top providers</h3>${provHtml}
 

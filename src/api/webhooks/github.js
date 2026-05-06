@@ -137,21 +137,23 @@ export async function handleGithubWebhook(request, env, ctx) {
   if (env?.DB && ctx?.waitUntil) {
     ctx.waitUntil(
       (async () => {
+        const eventRowId = crypto.randomUUID();
         try {
           await env.DB.prepare(
             `INSERT INTO agentsam_webhook_events (
-              tenant_id, provider, event_type, event_id,
+              id, tenant_id, provider, event_type, event_id,
               payload_json, status, received_at,
               repo_full_name, branch, commit_sha,
               commit_message, author_username
             ) VALUES (
-              ?, 'github', ?, ?,
+              ?, ?, 'github', ?, ?,
               ?, 'received', datetime('now'),
               ?, ?, ?,
               ?, ?
             )`,
           )
             .bind(
+              eventRowId,
               tenantId,
               eventType,
               deliveryId,
@@ -163,13 +165,19 @@ export async function handleGithubWebhook(request, env, ctx) {
               authorUsername,
             )
             .run();
+          await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
+            .bind(eventRowId)
+            .run();
         } catch (e) {
           try {
             await env.DB.prepare(
               `INSERT INTO agentsam_webhook_events (id, tenant_id, provider, event_type, event_id, payload_json, status, processed_at)
                VALUES (?, ?, 'github', ?, ?, ?, 'received', NULL)`,
             )
-              .bind(crypto.randomUUID(), tenantId, eventType, deliveryId, payloadJson)
+              .bind(eventRowId, tenantId, eventType, deliveryId, payloadJson)
+              .run();
+            await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
+              .bind(eventRowId)
               .run();
           } catch (e2) {
             console.warn(

@@ -43,6 +43,7 @@ import { handleCalendarApi } from '../api/calendar.js';
 import { handleHealthApi } from '../api/health/index.js';
 import { handleVaultApi } from '../api/vault.js';
 import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
+import { handleUnifiedSearchApi } from '../api/unified-search.js';
 
 /**
  * @typedef {object} ProductionRouteContext
@@ -89,6 +90,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/search')) {
     return handleSearchApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/unified-search')) {
+    return handleUnifiedSearchApi(request, url, env);
   }
 
   if (pathLower.startsWith('/api/calendar')) {

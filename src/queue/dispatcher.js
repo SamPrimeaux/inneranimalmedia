@@ -18,24 +18,26 @@ function normalizeQueueBody(msg) {
   return {};
 }
 
-function recordWebhookEvent(env, tenantId, workspaceId, body) {
+async function recordWebhookEvent(env, tenantId, workspaceId, body) {
   if (!env?.DB || !tenantId || !workspaceId) return;
-  env.DB.prepare(`
+  const eventId = `whe_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+  const payloadJson = JSON.stringify({
+    ...(typeof body === 'object' && body ? body : {}),
+    workspace_id: workspaceId,
+  });
+  try {
+    await env.DB.prepare(`
       INSERT INTO agentsam_webhook_events
         (id, tenant_id, provider, event_type, payload_json, status, processed_at)
       VALUES
-        ('whe_'||lower(hex(randomblob(8))), ?, 'my_queue', ?, ?, 'received', datetime('now'))
+        (?, ?, 'my_queue', ?, ?, 'received', datetime('now'))
     `)
-    .bind(
-      tenantId,
-      body?.type ?? 'unknown',
-      JSON.stringify({
-        ...(typeof body === 'object' && body ? body : {}),
-        workspace_id: workspaceId,
-      }),
-    )
-    .run()
-    .catch(() => {});
+      .bind(eventId, tenantId, body?.type ?? 'unknown', payloadJson)
+      .run();
+    await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`).bind(eventId).run();
+  } catch (e) {
+    console.warn('[recordWebhookEvent]', e?.message ?? e);
+  }
 }
 
 /**
@@ -106,7 +108,7 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
       return { handled: true, kind: 'codebase_index_sync_skipped' };
     }
     await handleCodebaseIndexSyncFromQueue(env, body, ctx);
-    recordWebhookEvent(env, tenantId, workspaceId, body);
+    await recordWebhookEvent(env, tenantId, workspaceId, body);
     return { handled: true, kind: 'codebase_index_sync' };
   }
 
@@ -128,7 +130,7 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
   }
 
   if (tenantId && workspaceId) {
-    recordWebhookEvent(env, tenantId, workspaceId, body);
+    await recordWebhookEvent(env, tenantId, workspaceId, body);
   }
 
   const kind = typeof body.type === 'string' ? body.type : 'unknown';
