@@ -187,7 +187,7 @@ try {
     const tid = escapeSqlLiteral(TENANT_ID_ENV);
     const ws = escapeSqlLiteral(WORKSPACE_ID);
     grRows = runD1Sql(
-      `SELECT g.id, g.guardrail_key, g.title, g.description, g.category, g.severity, g.action, g.scope, g.applies_to, g.matcher_json, g.policy_json, g.metadata_json, g.tenant_id, g.workspace_id, g.ruleset_id FROM agentsam_guardrails g WHERE COALESCE(g.is_active, 1) = 1 AND (((g.tenant_id IS NULL OR g.tenant_id = '') AND (g.workspace_id IS NULL OR g.workspace_id = '')) OR (g.tenant_id = '${tid}' AND (g.workspace_id IS NULL OR g.workspace_id = '' OR g.workspace_id = '${ws}')))`,
+      `SELECT g.id, g.guardrail_key, g.title, g.description, g.category, g.severity, g.action, g.scope, g.applies_to, g.matcher_json, g.policy_json, g.metadata_json, g.tenant_id, g.workspace_id FROM agentsam_guardrails g WHERE COALESCE(g.is_enabled, 1) = 1 AND (((g.tenant_id IS NULL OR g.tenant_id = '') AND (g.workspace_id IS NULL OR g.workspace_id = '')) OR (g.tenant_id = '${tid}' AND (g.workspace_id IS NULL OR g.workspace_id = '' OR g.workspace_id = '${ws}'))) ORDER BY COALESCE(g.scope, ''), COALESCE(g.priority, 0), COALESCE(g.guardrail_key, '')`,
     );
   } catch (e) {
     console.warn('[ingest-d1-memory] agentsam_guardrails skipped:', String(e.message || e).slice(0, 200));

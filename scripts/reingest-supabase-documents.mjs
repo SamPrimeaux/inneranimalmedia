@@ -63,6 +63,22 @@ let dryRun = argv.includes('--dry-run');
 const apply = argv.includes('--apply');
 if (!dryRun && !apply) dryRun = true;
 
+if (apply) {
+  const t = (process.env.TENANT_ID || '').trim();
+  const w = (process.env.WORKSPACE_ID || '').trim();
+  const p = (
+    process.env.DOCUMENTS_PROJECT_ID ||
+    process.env.DEPLOY_PROJECT_ID ||
+    ''
+  ).trim();
+  if (!t || !w || !p) {
+    console.error(
+      '[reingest] --apply requires TENANT_ID, WORKSPACE_ID, and DOCUMENTS_PROJECT_ID (or DEPLOY_PROJECT_ID). Do not rely on Supabase column defaults.',
+    );
+    process.exit(1);
+  }
+}
+
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || 'ede6590ac0d2fb7daf155b35653457b2';
 const MODEL = '@cf/baai/bge-large-en-v1.5';
 const EMBED_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/run/${MODEL}`;
@@ -189,19 +205,15 @@ function escapeSqlLit(s) {
 function fetchAgentsamGuardrailRows() {
   const tid = escapeSqlLit(TENANT_ID);
   const ws = escapeSqlLit(WORKSPACE_ID);
-  /** Single-line SQL — wrangler `--command` breaks on embedded newlines. */
-  const filter = `WHERE COALESCE(g.is_active, 1) = 1 AND (((g.tenant_id IS NULL OR g.tenant_id = '') AND (g.workspace_id IS NULL OR g.workspace_id = '')) OR (g.tenant_id = '${tid}' AND (g.workspace_id IS NULL OR g.workspace_id = '' OR g.workspace_id = '${ws}')))`;
-  const fullSql = `SELECT g.id, g.guardrail_key, g.title, g.description, g.category, g.severity, g.action, g.scope, g.applies_to, g.matcher_json, g.policy_json, g.metadata_json, g.tenant_id, g.workspace_id, g.ruleset_id, rs.ruleset_key AS ruleset_key, rs.name AS ruleset_name FROM agentsam_guardrails g LEFT JOIN agentsam_guardrail_rulesets rs ON g.ruleset_id = rs.id ${filter}`;
+  /** Single-line SQL — wrangler `--command` breaks on embedded newlines.
+   * Direct agentsam_guardrails only: no rulesets JOIN; enabled via is_enabled (not status / ruleset_id).
+   */
+  const filter = `WHERE COALESCE(g.is_enabled, 1) = 1 AND (((g.tenant_id IS NULL OR g.tenant_id = '') AND (g.workspace_id IS NULL OR g.workspace_id = '')) OR (g.tenant_id = '${tid}' AND (g.workspace_id IS NULL OR g.workspace_id = '' OR g.workspace_id = '${ws}')))`;
+  const sql = `SELECT g.id, g.guardrail_key, g.title, g.description, g.category, g.severity, g.action, g.scope, g.applies_to, g.matcher_json, g.policy_json, g.metadata_json, g.tenant_id, g.workspace_id FROM agentsam_guardrails g ${filter} ORDER BY COALESCE(g.scope, ''), COALESCE(g.priority, 0), COALESCE(g.guardrail_key, '')`;
   try {
-    return runD1Sql(fullSql);
+    return runD1Sql(sql);
   } catch (e) {
-    if (verbose) console.warn('[reingest] guardrails join query:', String(e.message).slice(0, 160));
-  }
-  const minimalSql = `SELECT g.id, g.guardrail_key, g.title, g.description, g.category, g.severity, g.action, g.scope, g.applies_to, g.matcher_json, g.policy_json, g.metadata_json, g.tenant_id, g.workspace_id, g.ruleset_id FROM agentsam_guardrails g ${filter}`;
-  try {
-    return runD1Sql(minimalSql);
-  } catch (e2) {
-    console.warn('[reingest] agentsam_guardrails:', String(e2.message || e2).slice(0, 220));
+    console.warn('[reingest] agentsam_guardrails:', String(e.message || e).slice(0, 220));
     return [];
   }
 }
