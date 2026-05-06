@@ -42,6 +42,24 @@ function readJson(path, fb = null) {
   }
 }
 
+function resolveWorkerName(root) {
+  try {
+    const wranglerPath = `${root}/wrangler.production.toml`;
+    if (existsSync(wranglerPath)) {
+      const toml = readFileSync(wranglerPath, 'utf8');
+      const match = toml.match(/^name\s*=\s*["']([^"']+)["']/m);
+      if (match?.[1]) return match[1];
+    }
+  } catch {}
+
+  try {
+    const pkg = readJson(`${root}/package.json`, {});
+    if (pkg?.name) return String(pkg.name);
+  } catch {}
+
+  return 'inneranimalmedia';
+}
+
 export async function insertDeploymentHealth(root, row) {
   const cols = pragmaTableInfo(root, 'agentsam_deployment_health');
   if (!cols.size) return { skipped: true };
