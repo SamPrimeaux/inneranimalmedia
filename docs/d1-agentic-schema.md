@@ -4,27 +4,9 @@ Source: remote D1 `inneranimalmedia-business`, `sqlite_master`.
 
 Filter: `sqlite_master` tables excluding `sqlite_%` and `_cf_%`, including prefixes `agent_%`, `agentsam_%`, `ai_%`, `mcp_%`, `cursor_%`, `workflow_%`, `terminal_%`, `tool_%`, `command_%`, `project_memory%`, `prompt_%`, `iam_%`, `kanban_%`, `task%`, `dev_workflow%`, `memory_%`, `execution_%`, `hook_%`, `work_session%`, `brainstorm_%`.
 
-Total tables: **193**.
+Total tables: **183**.
 
 Each `##` section is one ingest chunk.
-
-## agent_actions
-
-```sql
-CREATE TABLE agent_actions (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
-  action_type TEXT NOT NULL CHECK (action_type IN ('sql','http','deploy','r2_sync','d1_migration','note')),
-  target TEXT,
-  request_json TEXT NOT NULL DEFAULT '{}',
-  result_json TEXT NOT NULL DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','failed','skipped')),
-  error_message TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  started_at TEXT,
-  completed_at TEXT
-)
-```
 
 ## agent_ai_executable_limits
 
@@ -318,27 +300,6 @@ CREATE TABLE agent_costs (
 )
 ```
 
-## agent_execution
-
-```sql
-CREATE TABLE agent_execution (
-  id TEXT PRIMARY KEY,
-  agent_role_id TEXT NOT NULL,
-  capability_key TEXT NOT NULL,
-  cloudflare_account_id TEXT,
-  execution_type TEXT NOT NULL CHECK (execution_type IN ('deploy','r2_put','r2_get','r2_list','d1_query','d1_execute','cf_api','realtime_edit','spam_filter','cms_read','cms_write','client_onboarding','other')),
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','success','failed','throttled')),
-  initiated_by TEXT,
-  target_resource TEXT,
-  request_meta TEXT,
-  response_meta TEXT,
-  error_message TEXT,
-  duration_ms INTEGER,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  completed_at TEXT
-, ip_address TEXT)
-```
-
 ## agent_execution_plans
 
 ```sql
@@ -352,28 +313,6 @@ CREATE TABLE agent_execution_plans (
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 , approved_at TEXT, approved_by TEXT, run_id TEXT, estimated_cost_usd REAL DEFAULT 0)
-```
-
-## agent_file_changes
-
-```sql
-CREATE TABLE agent_file_changes (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    change_type TEXT NOT NULL,
-    language TEXT,
-    additions INTEGER DEFAULT 0,
-    deletions INTEGER DEFAULT 0,
-    diff_content TEXT,
-    before_content TEXT,
-    after_content TEXT,
-    created_at INTEGER NOT NULL,
-    metadata_json TEXT DEFAULT '{}',
-    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE,
-    FOREIGN KEY (message_id) REFERENCES agent_messages(id) ON DELETE CASCADE
-)
 ```
 
 ## agent_intent_execution_log
@@ -539,51 +478,6 @@ CREATE TABLE agent_policy_templates (
 )
 ```
 
-## agent_prompt_bindings
-
-```sql
-CREATE TABLE agent_prompt_bindings (
-  id TEXT PRIMARY KEY DEFAULT ('apb_' || lower(hex(randomblob(8)))),
-  prompt_id TEXT NOT NULL REFERENCES agent_prompts(id) ON DELETE CASCADE,
-  tenant_id TEXT,
-  role_id TEXT,
-  mode_key TEXT,
-  provider_key TEXT,
-  model_key TEXT,
-  tool_key TEXT,
-  mcp_server_key TEXT,
-  workflow_key TEXT,
-  route_path TEXT,
-  binding_kind TEXT NOT NULL DEFAULT 'include'
-    CHECK (binding_kind IN ('include','exclude','override','prepend','append')),
-  priority INTEGER NOT NULL DEFAULT 100,
-  is_enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT
-)
-```
-
-## agent_prompt_compilations
-
-```sql
-CREATE TABLE agent_prompt_compilations (
-  id TEXT PRIMARY KEY DEFAULT ('apc_' || lower(hex(randomblob(8)))),
-  tenant_id TEXT,
-  session_id TEXT,
-  run_id TEXT,
-  provider_key TEXT,
-  model_key TEXT,
-  role_id TEXT,
-  mode_key TEXT,
-  prompt_set_id TEXT,
-  compiled_prompt_hash TEXT NOT NULL,
-  compiled_prompt_preview TEXT,
-  prompt_ids_json TEXT NOT NULL DEFAULT '[]',
-  token_estimate INTEGER,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-)
-```
-
 ## agent_prompt_provider_profiles
 
 ```sql
@@ -603,37 +497,6 @@ CREATE TABLE agent_prompt_provider_profiles (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT,
   UNIQUE(provider_key, model_key)
-)
-```
-
-## agent_prompt_set_items
-
-```sql
-CREATE TABLE agent_prompt_set_items (
-  id TEXT PRIMARY KEY DEFAULT ('apsi_' || lower(hex(randomblob(8)))),
-  prompt_set_id TEXT NOT NULL REFERENCES agent_prompt_sets(id) ON DELETE CASCADE,
-  prompt_id TEXT NOT NULL REFERENCES agent_prompts(id) ON DELETE CASCADE,
-  sort_order INTEGER NOT NULL DEFAULT 100,
-  include_condition_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(prompt_set_id, prompt_id)
-)
-```
-
-## agent_prompt_sets
-
-```sql
-CREATE TABLE agent_prompt_sets (
-  id TEXT PRIMARY KEY DEFAULT ('aps_' || lower(hex(randomblob(8)))),
-  tenant_id TEXT,
-  slug TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  status TEXT NOT NULL DEFAULT 'active'
-    CHECK (status IN ('active','archived','draft')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT,
-  UNIQUE(tenant_id, slug)
 )
 ```
 
@@ -710,22 +573,6 @@ CREATE TABLE agent_request_queue (
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   FOREIGN KEY (plan_id) REFERENCES agent_execution_plans(id)
-)
-```
-
-## agent_role_bindings
-
-```sql
-CREATE TABLE agent_role_bindings (
-  id TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL,
-  agent_id TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'viewer',
-  permissions_json TEXT DEFAULT '[]',
-  scope TEXT DEFAULT 'workspace',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 )
 ```
 
@@ -809,26 +656,6 @@ CREATE TABLE agent_rules (
 )
 ```
 
-## agent_runs
-
-```sql
-CREATE TABLE agent_runs (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
-  scope_mode TEXT NOT NULL DEFAULT 'tenant' CHECK (scope_mode IN ('global','tenant','multi')),
-  scope_tenant_ids_json TEXT NOT NULL DEFAULT '[]',
-  user_intent TEXT NOT NULL,
-  dry_run INTEGER NOT NULL DEFAULT 1 CHECK (dry_run IN (0,1)),
-  plan_json TEXT NOT NULL DEFAULT '{}',
-  risk_level TEXT NOT NULL DEFAULT 'low' CHECK (risk_level IN ('low','medium','high')),
-  status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','running','completed','failed','cancelled')),
-  error_message TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  started_at TEXT,
-  completed_at TEXT
-)
-```
-
 ## agent_runtime_configs
 
 ```sql
@@ -889,48 +716,26 @@ CREATE TABLE agent_sessions (
 , role_id TEXT REFERENCES agent_roles(id) ON DELETE RESTRICT, user_id TEXT, device_label TEXT, created_at TEXT DEFAULT (datetime('now')), project_id TEXT DEFAULT 'inneranimalmedia', r2_key TEXT, person_uuid TEXT)
 ```
 
-## agent_tasks
-
-```sql
-CREATE TABLE agent_tasks (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    message_id TEXT,
-    title TEXT NOT NULL,
-    description TEXT,
-    status TEXT DEFAULT 'pending',
-    priority INTEGER DEFAULT 0,
-    files_affected TEXT DEFAULT '[]',
-    commands_run TEXT DEFAULT '[]',
-    created_at INTEGER NOT NULL,
-    started_at INTEGER,
-    completed_at INTEGER,
-    metadata_json TEXT DEFAULT '{}',
-    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
-)
-```
-
 ## agent_telemetry
 
 ```sql
 CREATE TABLE agent_telemetry (
-  id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL,
-  session_id TEXT, -- Reference to agent_sessions
-  config_id TEXT, -- Reference to agent_configs
-  command_id TEXT, -- Reference to agent_commands
-  metric_type TEXT NOT NULL, -- 'execution_time', 'success_rate', 'error_rate', 'usage_count'
-  metric_name TEXT NOT NULL, -- Specific metric name
-  metric_value REAL NOT NULL, -- Metric value
-  unit TEXT, -- Unit of measurement ('ms', 'count', 'percentage', etc.)
-  timestamp INTEGER NOT NULL, -- When metric was recorded
-  metadata_json TEXT DEFAULT '{}' -- Additional context
-  -- Note: Foreign keys commented out for now - can be enabled after all tables exist
-  -- FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
-  -- FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
-  -- FOREIGN KEY (config_id) REFERENCES agent_configs(id) ON DELETE CASCADE
-  -- FOREIGN KEY (command_id) REFERENCES agent_commands(id) ON DELETE CASCADE
-, role_name TEXT, created_by TEXT, event_type TEXT, severity TEXT, model_used TEXT, input_tokens INTEGER, output_tokens INTEGER, cost_estimate REAL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch()), cache_creation_input_tokens INTEGER DEFAULT 0, provider TEXT, agent_id TEXT, agent_email TEXT, cache_read_input_tokens INTEGER DEFAULT 0, is_batch INTEGER DEFAULT 0, is_us_only INTEGER DEFAULT 0, is_fast_mode INTEGER DEFAULT 0, is_long_context INTEGER DEFAULT 0, tool_choice TEXT, tool_system_prompt_tokens INTEGER DEFAULT 0, tool_overhead_input_tokens INTEGER DEFAULT 0, web_search_requests INTEGER DEFAULT 0, code_exec_seconds INTEGER DEFAULT 0, computed_cost_usd REAL DEFAULT 0, cost_breakdown_json TEXT DEFAULT '{}', total_input_tokens INTEGER DEFAULT 0, cache_hit_rate REAL DEFAULT 0.0, cache_efficiency_score REAL DEFAULT 0.0, cache_cost_savings_usd REAL DEFAULT 0.0, cache_breakpoints_used INTEGER DEFAULT 0, cache_ttl_seconds INTEGER DEFAULT 300, cache_strategy TEXT DEFAULT NULL, pricing_source TEXT DEFAULT 'direct_api', output_rate_per_mtok REAL, input_rate_per_mtok REAL, cache_read_rate_per_mtok REAL, cache_write_rate_per_mtok REAL, subscription_monthly_usd REAL, neuron_cost_usd REAL DEFAULT 0, neurons_used INTEGER DEFAULT 0, neuron_rate_per_1k REAL DEFAULT 0.011, model_size_class TEXT, workspace_id TEXT, service_name TEXT, instance_id TEXT, location TEXT, trace_id TEXT, span_id TEXT, original_input_tokens INTEGER DEFAULT 0, tokens_saved INTEGER DEFAULT 0, cost_saved_usd DECIMAL(10,6) DEFAULT 0, optimization_applied TEXT, person_uuid TEXT)
+  id          TEXT PRIMARY KEY DEFAULT ('tel_' || lower(hex(randomblob(8)))),
+  tenant_id   TEXT,
+  workspace_id TEXT,
+  session_id  TEXT,
+  provider    TEXT,
+  model_key   TEXT,
+  metric_type TEXT DEFAULT 'usage',
+  input_tokens  INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  total_tokens  INTEGER DEFAULT 0,
+  cost_usd    REAL DEFAULT 0,
+  duration_ms INTEGER,
+  status      TEXT DEFAULT 'ok',
+  error_code  TEXT,
+  created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+)
 ```
 
 ## agent_tool_chain
@@ -971,22 +776,6 @@ CREATE TABLE agent_tools (
 )
 ```
 
-## agent_workspace_state
-
-```sql
-CREATE TABLE agent_workspace_state (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    workspace_type TEXT NOT NULL,
-    active_file TEXT,
-    state_json TEXT DEFAULT '{}',
-    files_open TEXT DEFAULT '[]',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL, locked_by TEXT, lock_expires_at INTEGER, lock_reason TEXT, agent_session_id TEXT, current_task_id TEXT, last_agent_action TEXT,
-    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
-)
-```
-
 ## agentsam_agent_run
 
 ```sql
@@ -1006,7 +795,7 @@ CREATE TABLE agentsam_agent_run (
   started_at TEXT,
   completed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
-, agent_ai_id TEXT DEFAULT NULL, person_uuid TEXT, agent_id TEXT)
+, agent_ai_id TEXT DEFAULT NULL, person_uuid TEXT, agent_id TEXT, ai_model_ref     TEXT, routing_arm_id   TEXT, chain_root_id    TEXT, tenant_id TEXT, work_session_id TEXT, timed_out INTEGER DEFAULT 0, sla_breach INTEGER DEFAULT 0, timeout_ms INTEGER DEFAULT 30000, command_id TEXT REFERENCES agentsam_commands(id))
 ```
 
 ## agentsam_ai
@@ -1063,7 +852,7 @@ CREATE TABLE agentsam_ai (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 , system_prompt TEXT, tool_invocation_style TEXT
   DEFAULT 'balanced'
-  CHECK(tool_invocation_style IN ('aggressive', 'balanced', 'conservative')), icon TEXT NOT NULL DEFAULT '', access_mode TEXT NOT NULL DEFAULT 'read_write' CHECK(access_mode IN ('read_only','read_write')), sort_order INTEGER NOT NULL DEFAULT 0, context_max_tokens INTEGER DEFAULT 1000000, output_max_tokens INTEGER DEFAULT 64000, thinking_mode TEXT DEFAULT 'adaptive', effort TEXT DEFAULT 'medium', person_uuid TEXT)
+  CHECK(tool_invocation_style IN ('aggressive', 'balanced', 'conservative')), icon TEXT NOT NULL DEFAULT '', access_mode TEXT NOT NULL DEFAULT 'read_write' CHECK(access_mode IN ('read_only','read_write')), sort_order INTEGER NOT NULL DEFAULT 0, context_max_tokens INTEGER DEFAULT 1000000, output_max_tokens INTEGER DEFAULT 64000, thinking_mode TEXT DEFAULT 'adaptive', effort TEXT DEFAULT 'medium', person_uuid TEXT, provider       TEXT, model_key      TEXT, api_platform   TEXT DEFAULT 'unknown', secret_key_name TEXT, size_class     TEXT DEFAULT 'medium', billing_unit   TEXT DEFAULT 'tokens', supports_cache      INTEGER DEFAULT 0, supports_tools      INTEGER DEFAULT 1, supports_vision     INTEGER DEFAULT 0, supports_web_search INTEGER DEFAULT 0, supports_fast_mode  INTEGER DEFAULT 0, context_default_tokens INTEGER DEFAULT 0, pricing_unit            TEXT DEFAULT 'usd_per_mtok', pricing_source          TEXT DEFAULT 'manual', input_rate_per_mtok     REAL, output_rate_per_mtok    REAL, cache_write_rate_per_mtok REAL, cache_read_rate_per_mtok  REAL, web_search_per_1k_usd   REAL DEFAULT 0, neurons_usd_per_1k      REAL DEFAULT 0, cost_per_unit           REAL, rpm_limit  INTEGER DEFAULT 0, itpm_limit INTEGER DEFAULT 0, otpm_limit INTEGER DEFAULT 0, show_in_picker  INTEGER DEFAULT 0, picker_eligible INTEGER DEFAULT 1, picker_group    TEXT, features_json    TEXT DEFAULT '{}', input_schema_json TEXT, supports_responses_api INTEGER DEFAULT 0, supports_parallel_tools INTEGER DEFAULT 1, supports_structured_output INTEGER DEFAULT 0, supports_prompt_cache INTEGER DEFAULT 0, supports_thinking INTEGER DEFAULT 0, requires_phase_param INTEGER DEFAULT 0, max_tool_calls_per_turn INTEGER DEFAULT 10)
 ```
 
 ## agentsam_analytics
@@ -1120,7 +909,7 @@ CREATE TABLE agentsam_analytics (
   data_from INTEGER,
   data_to INTEGER,
   row_count_source INTEGER DEFAULT 0,
-  notes TEXT,
+  notes TEXT, workspace_id TEXT, sla_breaches INTEGER DEFAULT 0, timed_out_calls INTEGER DEFAULT 0, time_tracked_seconds INTEGER DEFAULT 0,
   
   UNIQUE(tenant_id, period, period_date)
 )
@@ -1391,7 +1180,7 @@ CREATE TABLE agentsam_commands (
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
-, internal_seo TEXT DEFAULT '')
+, internal_seo TEXT DEFAULT '', task_type TEXT DEFAULT 'tool_use', timeout_seconds INTEGER DEFAULT 120, estimated_cost_usd REAL DEFAULT 0.0, allowed_models_json TEXT DEFAULT '[]', output_schema TEXT DEFAULT '{}', retry_policy TEXT DEFAULT 'once', requires_approval INTEGER DEFAULT 0, tenant_id TEXT DEFAULT 'tenant_sam_primeaux', success_count INTEGER DEFAULT 0, failure_count INTEGER DEFAULT 0, avg_duration_ms REAL DEFAULT 0)
 ```
 
 ## agentsam_compaction_events
@@ -1553,7 +1342,7 @@ CREATE TABLE agentsam_executions (
   duration_ms INTEGER,
   workspace_id TEXT REFERENCES agentsam_workspace(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
-)
+, tenant_id TEXT, user_id TEXT, timed_out INTEGER DEFAULT 0, sla_breach INTEGER DEFAULT 0, timeout_ms INTEGER DEFAULT 120000, work_session_id TEXT, agent_id TEXT)
 ```
 
 ## agentsam_feature_flag
@@ -1565,7 +1354,7 @@ CREATE TABLE agentsam_feature_flag (
   enabled_globally INTEGER NOT NULL DEFAULT 0,
   config_json TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-)
+, enabled_for_tenants TEXT DEFAULT '[]', enabled_for_users TEXT DEFAULT '[]', rollout_pct INTEGER DEFAULT 0, environment TEXT DEFAULT 'all', flag_type TEXT DEFAULT 'boolean', expires_at INTEGER, created_at TEXT, created_by TEXT DEFAULT 'sam_primeaux', is_archived INTEGER DEFAULT 0, tags TEXT DEFAULT '[]')
 ```
 
 ## agentsam_fetch_domain_allowlist
@@ -1598,7 +1387,7 @@ CREATE TABLE agentsam_health_daily (
   avg_tel_cost_24h REAL DEFAULT 0,
   worst_status TEXT,
   health_notes TEXT,
-  rolled_up_at TEXT NOT NULL DEFAULT (datetime('now')),
+  rolled_up_at TEXT NOT NULL DEFAULT (datetime('now')), workspace_id TEXT, sla_breach_count INTEGER DEFAULT 0, timed_out_count INTEGER DEFAULT 0,
   UNIQUE(tenant_id, day)
 )
 ```
@@ -1634,7 +1423,7 @@ CREATE TABLE agentsam_hook_execution (
   output     TEXT,
   error      TEXT,
   ran_at     TEXT NOT NULL DEFAULT (datetime('now'))
-, person_uuid TEXT, agent_id TEXT)
+, person_uuid TEXT, agent_id TEXT, tenant_id TEXT DEFAULT 'tenant_sam_primeaux', workspace_id TEXT DEFAULT 'ws_inneranimalmedia', source TEXT, event_type TEXT, action TEXT, actor TEXT, target_type TEXT, target_id TEXT, payload_json TEXT DEFAULT '{}', metadata_json TEXT DEFAULT '{}', session_id TEXT, created_at INTEGER)
 ```
 
 ## agentsam_ignore_pattern
@@ -1685,7 +1474,31 @@ CREATE TABLE agentsam_mcp_allowlist (
   tool_key TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   notes TEXT
-, person_uuid TEXT)
+, person_uuid TEXT, agentsam_tools_id TEXT, risk_level_override TEXT, max_calls_per_day INTEGER, agent_id TEXT, tenant_id TEXT, is_allowed INTEGER DEFAULT 1, timeout_override_ms INTEGER, requires_approval INTEGER DEFAULT 0, granted_by TEXT)
+```
+
+## agentsam_mcp_servers
+
+```sql
+CREATE TABLE agentsam_mcp_servers (
+  id               TEXT PRIMARY KEY DEFAULT ('mcps_' || lower(hex(randomblob(8)))),
+  server_key       TEXT NOT NULL UNIQUE,
+  display_name     TEXT NOT NULL,
+  url              TEXT NOT NULL,
+  auth_type        TEXT NOT NULL DEFAULT 'bearer',
+  token_id         TEXT,
+  workspace_id     TEXT,
+  tenant_id        TEXT,
+  is_active        INTEGER NOT NULL DEFAULT 1,
+  timeout_ms       INTEGER NOT NULL DEFAULT 30000,
+  health_check_url TEXT,
+  last_health_at   INTEGER,
+  health_status    TEXT DEFAULT 'unknown',
+  avg_latency_ms   REAL,
+  error_rate       REAL DEFAULT 0,
+  created_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at       INTEGER NOT NULL DEFAULT (unixepoch())
+)
 ```
 
 ## agentsam_mcp_tool_execution
@@ -1702,7 +1515,7 @@ CREATE TABLE agentsam_mcp_tool_execution (
   success INTEGER DEFAULT 1,
   error_message TEXT,
   created_at TEXT DEFAULT (datetime('now'))
-, tenant_id TEXT DEFAULT 'tenant_sam_primeaux', session_id TEXT, user_id TEXT, workflow_id TEXT, input_json TEXT DEFAULT '{}', requires_approval INTEGER DEFAULT 0, retry_count INTEGER DEFAULT 0, output_json TEXT DEFAULT '{}')
+, tenant_id TEXT DEFAULT 'tenant_sam_primeaux', session_id TEXT, user_id TEXT, workflow_id TEXT, input_json TEXT DEFAULT '{}', requires_approval INTEGER DEFAULT 0, retry_count INTEGER DEFAULT 0, output_json TEXT DEFAULT '{}', tool_chain_id TEXT, agentsam_tools_id TEXT, workspace_id TEXT, agent_id TEXT, timed_out INTEGER DEFAULT 0, sla_breach INTEGER DEFAULT 0, timeout_ms INTEGER DEFAULT 30000)
 ```
 
 ## agentsam_mcp_tools
@@ -1712,7 +1525,7 @@ CREATE TABLE agentsam_mcp_tools (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   tool_key TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')), person_uuid TEXT, tool_name TEXT DEFAULT '', display_name TEXT DEFAULT '', tool_category TEXT DEFAULT 'mcp', mcp_service_url TEXT DEFAULT '', description TEXT DEFAULT '', input_schema TEXT DEFAULT '{}', output_schema TEXT DEFAULT '{}', intent_tags TEXT DEFAULT '[]', intent_category_tags TEXT DEFAULT '', modes_json TEXT DEFAULT '["auto","agent","debug"]', handler_config TEXT DEFAULT '{}', categories_json TEXT DEFAULT '[]', schema_hint TEXT DEFAULT '', risk_level TEXT DEFAULT 'low', input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, duration_ms INTEGER DEFAULT 0, trigger_config_json TEXT DEFAULT '{}', trigger_type TEXT DEFAULT 'manual', steps_json TEXT DEFAULT '[]', timeout_seconds INTEGER DEFAULT 120, requires_approval INTEGER DEFAULT 0, estimated_cost_usd REAL DEFAULT 0.0, last_used_at TEXT, updated_at TEXT, handler_type TEXT DEFAULT 'builtin', is_active INTEGER DEFAULT 1, workspace_scope TEXT DEFAULT '["ws_inneranimalmedia"]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), person_uuid TEXT, tool_name TEXT DEFAULT '', display_name TEXT DEFAULT '', tool_category TEXT DEFAULT 'mcp', mcp_service_url TEXT DEFAULT '', description TEXT DEFAULT '', input_schema TEXT DEFAULT '{}', output_schema TEXT DEFAULT '{}', intent_tags TEXT DEFAULT '[]', intent_category_tags TEXT DEFAULT '', modes_json TEXT DEFAULT '["auto","agent","debug"]', handler_config TEXT DEFAULT '{}', categories_json TEXT DEFAULT '[]', schema_hint TEXT DEFAULT '', risk_level TEXT DEFAULT 'low', input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, duration_ms INTEGER DEFAULT 0, trigger_config_json TEXT DEFAULT '{}', trigger_type TEXT DEFAULT 'manual', steps_json TEXT DEFAULT '[]', timeout_seconds INTEGER DEFAULT 120, requires_approval INTEGER DEFAULT 0, estimated_cost_usd REAL DEFAULT 0.0, last_used_at TEXT, updated_at TEXT, handler_type TEXT DEFAULT 'builtin', is_active INTEGER DEFAULT 1, workspace_scope TEXT DEFAULT '["ws_inneranimalmedia"]', is_degraded      INTEGER NOT NULL DEFAULT 0, failure_rate      REAL DEFAULT 0.0, avg_latency_ms    REAL DEFAULT NULL, last_health_check INTEGER DEFAULT NULL, sort_priority     INTEGER DEFAULT 50, cost_per_call_usd REAL DEFAULT 0.0, agentsam_tools_id TEXT,
   UNIQUE(user_id, tool_key)
 )
 ```
@@ -1780,7 +1593,7 @@ CREATE TABLE agentsam_model_drift_signals (
   acknowledged_by TEXT,
   acknowledged_at INTEGER,
   notes TEXT
-)
+, ai_model_id TEXT, routing_arm_paused INTEGER DEFAULT 0, routing_arm_id     TEXT)
 ```
 
 ## agentsam_model_tier
@@ -1802,7 +1615,7 @@ CREATE TABLE "agentsam_model_tier" (
       is_active INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')), fallback_model_id TEXT, routing_arm_id    TEXT,
       UNIQUE(workspace_id, tier_level)
     )
 ```
@@ -1911,7 +1724,7 @@ CREATE TABLE agentsam_prompt_cache_keys (
   expires_at TEXT,
   source_type TEXT,
   source_id TEXT
-)
+, workspace_id TEXT, agent_id TEXT, session_id TEXT, user_id TEXT, prompt_version_id TEXT)
 ```
 
 ## agentsam_prompt_versions
@@ -1927,7 +1740,7 @@ CREATE TABLE agentsam_prompt_versions (
   is_active INTEGER NOT NULL DEFAULT 0,
   superseded_by TEXT REFERENCES agentsam_prompt_versions(id),
   notes TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()), tenant_id TEXT, workspace_id TEXT, agent_id TEXT, prompt_kind TEXT, status TEXT, user_id TEXT,
   UNIQUE(prompt_key, version),
   UNIQUE(prompt_hash)
 )
@@ -1955,7 +1768,7 @@ CREATE TABLE agentsam_routing_arms (
   is_eligible INTEGER NOT NULL DEFAULT 1,
   is_paused INTEGER NOT NULL DEFAULT 0,
   pause_reason TEXT,
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()), ai_model_id TEXT, last_chain_id   TEXT, last_plan_id    TEXT, avg_quality_score REAL DEFAULT 0, quality_n         INTEGER DEFAULT 0, max_cost_per_call_usd REAL, budget_exhausted      INTEGER DEFAULT 0, drift_signal_id TEXT, intent_slug TEXT, total_executions INTEGER DEFAULT 0, workflow_agent TEXT, tools_json TEXT DEFAULT '[]', is_active INTEGER DEFAULT 1,
   UNIQUE(task_type, mode, model_key)
 )
 ```
@@ -2074,7 +1887,7 @@ CREATE TABLE agentsam_skill (
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 , icon TEXT NOT NULL DEFAULT '', access_mode TEXT NOT NULL DEFAULT 'read_write'
-  CHECK(access_mode IN ('read_only','read_write')), default_model_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0, slash_trigger TEXT, globs TEXT, always_apply INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1, tags TEXT, person_uuid TEXT)
+  CHECK(access_mode IN ('read_only','read_write')), default_model_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0, slash_trigger TEXT, globs TEXT, always_apply INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 1, tags TEXT, person_uuid TEXT, ai_model_id TEXT)
 ```
 
 ## agentsam_skill_invocation
@@ -2096,7 +1909,7 @@ CREATE TABLE agentsam_skill_invocation (
   tokens_in       INTEGER DEFAULT 0,
   tokens_out      INTEGER DEFAULT 0,
   cost_usd        REAL DEFAULT 0.0,
-  invoked_at      TEXT NOT NULL DEFAULT (datetime('now')), person_uuid TEXT, agent_id TEXT,
+  invoked_at      TEXT NOT NULL DEFAULT (datetime('now')), person_uuid TEXT, agent_id TEXT, tool_chain_id TEXT, ai_model_id   TEXT, plan_task_id  TEXT,
   FOREIGN KEY (skill_id) REFERENCES agentsam_skill(id) ON DELETE CASCADE
 )
 ```
@@ -2154,7 +1967,7 @@ CREATE TABLE agentsam_subagent_profile (
   default_model_id TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')), personality_tone TEXT DEFAULT 'professional', personality_traits TEXT, personality_rules TEXT, description TEXT NOT NULL DEFAULT '', icon TEXT NOT NULL DEFAULT '', access_mode TEXT NOT NULL DEFAULT 'read_write' CHECK(access_mode IN ('read_only','read_write')), run_in_background INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, agent_type TEXT DEFAULT 'custom', sandbox_mode TEXT DEFAULT 'workspace-write', model_reasoning_effort TEXT DEFAULT 'medium', nickname_candidates TEXT, can_spawn_subagents INTEGER DEFAULT 0, spawnable_agent_slugs TEXT, spawn_trigger_keywords TEXT, max_concurrent_threads INTEGER DEFAULT 6, max_spawn_depth INTEGER DEFAULT 1, job_timeout_seconds INTEGER DEFAULT 1800, mcp_servers_json TEXT, output_schema_json TEXT, is_parallelizable INTEGER DEFAULT 0, codex_compatible INTEGER DEFAULT 0, person_uuid TEXT, tenant_id TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')), personality_tone TEXT DEFAULT 'professional', personality_traits TEXT, personality_rules TEXT, description TEXT NOT NULL DEFAULT '', icon TEXT NOT NULL DEFAULT '', access_mode TEXT NOT NULL DEFAULT 'read_write' CHECK(access_mode IN ('read_only','read_write')), run_in_background INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0, agent_type TEXT DEFAULT 'custom', sandbox_mode TEXT DEFAULT 'workspace-write', model_reasoning_effort TEXT DEFAULT 'medium', nickname_candidates TEXT, can_spawn_subagents INTEGER DEFAULT 0, spawnable_agent_slugs TEXT, spawn_trigger_keywords TEXT, max_concurrent_threads INTEGER DEFAULT 6, max_spawn_depth INTEGER DEFAULT 1, job_timeout_seconds INTEGER DEFAULT 1800, mcp_servers_json TEXT, output_schema_json TEXT, is_parallelizable INTEGER DEFAULT 0, codex_compatible INTEGER DEFAULT 0, person_uuid TEXT, tenant_id TEXT, ai_model_id TEXT,
   UNIQUE (user_id, workspace_id, slug)
 )
 ```
@@ -2190,7 +2003,7 @@ CREATE TABLE agentsam_task_slos (
   alert_threshold_pct REAL NOT NULL DEFAULT 0.10,
   notes TEXT,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-)
+, pause_arm_on_breach INTEGER DEFAULT 0)
 ```
 
 ## agentsam_todo
@@ -2253,7 +2066,7 @@ CREATE TABLE agentsam_tool_call_log (
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
-, agent_id TEXT, user_id TEXT, workflow_id TEXT, tool_category TEXT DEFAULT 'mcp', input_summary TEXT, output_summary TEXT, retry_count INTEGER DEFAULT 0)
+, agent_id TEXT, user_id TEXT, workflow_id TEXT, tool_category TEXT DEFAULT 'mcp', input_summary TEXT, output_summary TEXT, retry_count INTEGER DEFAULT 0, workspace_id TEXT, timed_out INTEGER DEFAULT 0, sla_breach INTEGER DEFAULT 0, timeout_ms INTEGER DEFAULT 30000)
 ```
 
 ## agentsam_tool_chain
@@ -2292,7 +2105,7 @@ CREATE TABLE agentsam_tool_chain (
   approved_at INTEGER,
   started_at INTEGER NOT NULL DEFAULT (unixepoch()),
   completed_at INTEGER
-)
+, mcp_tool_ref TEXT, timed_out INTEGER DEFAULT 0, sla_breach INTEGER DEFAULT 0, agent_id TEXT, tenant_id TEXT, user_id TEXT, work_session_id TEXT, timeout_ms INTEGER DEFAULT 30000)
 ```
 
 ## agentsam_tool_stats_compacted
@@ -2311,7 +2124,7 @@ CREATE TABLE agentsam_tool_stats_compacted (
   avg_duration_ms REAL DEFAULT 0,
   first_seen_at INTEGER,
   last_seen_at INTEGER,
-  compacted_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  compacted_at INTEGER NOT NULL DEFAULT (unixepoch()), workspace_id TEXT, agent_id TEXT, timed_out_count INTEGER DEFAULT 0, sla_breach_count INTEGER DEFAULT 0, p95_duration_ms REAL DEFAULT 0,
   UNIQUE(tenant_id, tool_name)
 )
 ```
@@ -2380,7 +2193,7 @@ CREATE TABLE agentsam_usage_events (
   reason      TEXT,                      -- block reason / error message
   ref_table   TEXT,                      -- source table: ai_usage_log, agentsam_tool_call_log
   ref_id      TEXT,                      -- FK to source row for dedup
-  created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+  created_at  INTEGER NOT NULL DEFAULT (unixepoch()), ai_model_id TEXT, routing_arm_id TEXT, event_type TEXT, model_key TEXT, duration_ms INTEGER, total_tokens INTEGER,
   UNIQUE(ref_table, ref_id)              -- prevents duplicate ingestion
 )
 ```
@@ -2463,7 +2276,8 @@ CREATE TABLE agentsam_user_policy (
   commit_attribution INTEGER NOT NULL DEFAULT 1,
   pr_attribution INTEGER NOT NULL DEFAULT 1,
   settings_json TEXT,
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')), person_uuid TEXT, tenant_id TEXT DEFAULT '', superadmin_uuid TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')), person_uuid TEXT, tenant_id TEXT DEFAULT '', superadmin_uuid TEXT, max_cost_per_session_usd  REAL DEFAULT NULL, max_cost_per_call_usd     REAL DEFAULT NULL, allowed_model_tier_max    INTEGER DEFAULT 4, tool_risk_level_max TEXT DEFAULT 'high'
+  CHECK(tool_risk_level_max IN ('low','medium','high','critical')), require_allowlist_for_mcp INTEGER DEFAULT 1, allow_subagent_spawn  INTEGER DEFAULT 0, max_spawn_depth       INTEGER DEFAULT 1, max_tool_chain_depth  INTEGER DEFAULT 8,
   PRIMARY KEY (user_id, workspace_id)
 )
 ```
@@ -2487,7 +2301,7 @@ CREATE TABLE agentsam_webhook_events (
   error_message TEXT,
   processed_at TEXT,
   received_at TEXT NOT NULL DEFAULT (datetime('now'))
-)
+, endpoint_id TEXT, source TEXT, repo_full_name TEXT, branch TEXT, commit_sha TEXT, commit_message TEXT, actor TEXT, author_username TEXT, author_email TEXT, headers_json TEXT, signature_valid INTEGER DEFAULT 1, ip_address TEXT, processing_error TEXT, created_at TEXT GENERATED ALWAYS AS (received_at) VIRTUAL)
 ```
 
 ## agentsam_webhook_weekly
@@ -3343,7 +3157,7 @@ CREATE TABLE execution_performance_metrics (
   total_tokens_consumed INTEGER DEFAULT 0,
   total_cost_cents      REAL    DEFAULT 0,
   error_types_json      TEXT    DEFAULT '{}',
-  last_computed_at      INTEGER DEFAULT (unixepoch()),
+  last_computed_at      INTEGER DEFAULT (unixepoch()), trigger_key TEXT,
 
   FOREIGN KEY (tenant_id)  REFERENCES tenants(id)           ON DELETE CASCADE,
   FOREIGN KEY (command_id) REFERENCES agentsam_commands(id)  ON DELETE CASCADE,
@@ -4317,6 +4131,6 @@ CREATE TABLE work_sessions (
   work_signals TEXT,
   auto_paused INTEGER DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
+, user_id TEXT, workspace_id TEXT)
 ```
 
