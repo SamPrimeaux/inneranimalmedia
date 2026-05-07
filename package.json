@@ -7,6 +7,9 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:report-upload": "playwright test && ./scripts/upload-playwright-report-to-r2.sh",
+    "theme-debug": "node scripts/theme-debug-playwright.mjs",
+    "theme-debug:headed": "HEADED=1 node scripts/theme-debug-playwright.mjs",
+    "theme-debug:upload": "node scripts/theme-debug-playwright.mjs --upload-r2",
     "start": "node server.js",
     "deploy": "./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml",
     "generate:route-map": "node scripts/generate-route-map.js",
@@ -76,7 +79,7 @@
     "acorn-jsx": "^5.3.2",
     "acorn-walk": "^8.3.5",
     "chrome-devtools-mcp": "^0.21.0",
-    "wrangler": "^4.89.0"
+    "wrangler": "^4.90.0"
   },
   "type": "module",
   "private": true
