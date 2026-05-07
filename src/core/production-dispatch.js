@@ -44,6 +44,7 @@ import { handleHealthApi } from '../api/health/index.js';
 import { handleVaultApi } from '../api/vault.js';
 import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
 import { handleUnifiedSearchApi } from '../api/unified-search.js';
+import { handleImagesWorkspaceApi } from '../api/images-workspace.js';
 
 /**
  * @typedef {object} ProductionRouteContext
@@ -224,6 +225,11 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/themes')) {
     return handleThemesApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/images')) {
+    const res = await handleImagesWorkspaceApi(request, url, env, authUser, identity);
+    return res;
   }
 
   if (pathLower.startsWith('/api/hub')) {
