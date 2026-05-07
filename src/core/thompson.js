@@ -1,5 +1,5 @@
 /**
- * Thompson/Beta bandit over agentsam_routing_arms + nightly updates from execution_performance_metrics.
+ * Thompson/Beta bandit over agentsam_routing_arms + nightly updates from agentsam_execution_performance_metrics.
  */
 
 /**
@@ -48,7 +48,7 @@ export async function updateArmsFromMetrics(env) {
       `
     SELECT command_id, execution_count, success_count, failure_count,
            avg_duration_ms, total_cost_cents
-    FROM execution_performance_metrics
+    FROM agentsam_execution_performance_metrics
     WHERE metric_date = date('now','-1 day') AND execution_count > 0
   `,
     )
@@ -108,8 +108,8 @@ export async function updateArmsFromMetrics(env) {
     .prepare(
       `
     SELECT tc.tool_name as model_key
-    FROM execution_dependency_graph edg
-    JOIN agentsam_tool_chain tc ON tc.id = edg.depends_on_execution_id
+    FROM agentsam_execution_dependency_graph edg
+    JOIN agentsam_tool_chain tc ON tc.id = edg.depends_on_chain_id
     WHERE edg.dependency_type = 'compensation'
       AND edg.created_at > unixepoch('now','-1 day')
   `,

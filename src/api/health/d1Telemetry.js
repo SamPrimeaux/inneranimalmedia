@@ -1,7 +1,7 @@
 /**
  * D1 Agent Sam analytics surfaces for the Health dashboard.
  *
- * ## execution_performance_metrics — how it gets populated
+ * ## agentsam_execution_performance_metrics — how it gets populated
  *
  * 1. **Real-time (per command finish)** — `upsertExecutionPerformanceMetricsAfterCommandRun` in
  *    `src/api/command-run-telemetry.js` runs when `scheduleAgentsamCommandRunInsert` persists a row
@@ -56,7 +56,7 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
       ok: false,
       error: 'DB not configured',
       tables: {},
-      execution_performance_metrics_doc: {
+      agentsam_execution_performance_metrics_doc: {
         realtime: 'src/api/command-run-telemetry.js → upsertExecutionPerformanceMetricsAfterCommandRun',
         daily_cron: 'src/core/memory.js → rollupExecutionPerformanceMetrics',
         source_rows: 'agentsam_command_run (selected_command_id, tenant_id, duration, tokens, cost)',
@@ -67,7 +67,7 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
   const out = {
     ok: true,
     scope: { tenant_id: tid, user_id: uid, superadmin: sa },
-    execution_performance_metrics_doc: {
+    agentsam_execution_performance_metrics_doc: {
       realtime: 'Upsert on each command run completion (same calendar day bucket).',
       daily_cron: 'Rollup from agentsam_command_run for the previous local day.',
       code: [
@@ -78,8 +78,8 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
     tables: {},
   };
 
-  // --- execution_performance_metrics ---
-  if (await tableExists(db, 'execution_performance_metrics')) {
+  // --- agentsam_execution_performance_metrics ---
+  if (await tableExists(db, 'agentsam_execution_performance_metrics')) {
     const summary = tid
       ? await first(
           db,
@@ -89,7 +89,7 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
              COALESCE(AVG(success_rate_percent), 0) AS avg_success_rate,
              COALESCE(AVG(avg_duration_ms), 0) AS avg_duration_ms,
              COALESCE(SUM(total_cost_cents), 0) AS total_cost_cents
-           FROM execution_performance_metrics
+           FROM agentsam_execution_performance_metrics
            WHERE tenant_id = ? AND metric_date >= date('now', '-30 days')`,
           [tid],
         )
@@ -98,20 +98,20 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
       ? await all(
           db,
           `SELECT *
-           FROM execution_performance_metrics
+           FROM agentsam_execution_performance_metrics
            WHERE tenant_id = ?
            ORDER BY metric_date DESC, last_computed_at DESC
            LIMIT 40`,
           [tid],
         )
       : [];
-    out.tables.execution_performance_metrics = {
+    out.tables.agentsam_execution_performance_metrics = {
       available: true,
       summary: summary || {},
       recent,
     };
   } else {
-    out.tables.execution_performance_metrics = { available: false, summary: {}, recent: [] };
+    out.tables.agentsam_execution_performance_metrics = { available: false, summary: {}, recent: [] };
   }
 
   // --- agentsam_agent_run (scoped by user for privacy) ---
@@ -305,7 +305,7 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
 
   if (!tid) {
     out.hint =
-      'No tenant_id on session — tenant-scoped tables (usage, webhooks, execution_performance_metrics, etc.) return empty until the account is associated with a tenant.';
+      'No tenant_id on session — tenant-scoped tables (usage, webhooks, agentsam_execution_performance_metrics, etc.) return empty until the account is associated with a tenant.';
   }
 
   return out;

@@ -22,7 +22,7 @@ Paste the **block at the end** into a new Cursor chat. Use this file as the cano
 | Area | Tables | When to write |
 |------|--------|----------------|
 | **Ship record** | `deployments`, `deployment_tracking`, `deployment_changes`, `cloudflare_deployments` (if used) | After production or sandbox Worker deploy; include `triggered_by`, `worker_name`, `git_hash`, `notes`. |
-| **Perf / SLO** | `deployment_performance_metrics`, `execution_performance_metrics`, `deployment_health_checks` | After timed deploy or health check job; optional for sandbox. |
+| **Perf / SLO** | `deployment_performance_metrics`, `agentsam_execution_performance_metrics`, `deployment_health_checks` | After timed deploy or health check job; optional for sandbox. |
 | **Alerts** | `deployment_notifications`, `workflow_alerts` | On failure or rollback; don’t spam on every success. |
 | **Webhooks** | `webhook_endpoints`, `webhook_events`, `hook_subscriptions`, `hook_executions`, `webhook_event_stats` | See section 4. |
 | **Quality** | `quality_runs`, `quality_results`, `quality_gates`, `quality_gate_sets`, `quality_checks` | After CI/Playwright/overnight; link `run` → `results`. |

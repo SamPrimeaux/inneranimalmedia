@@ -12,7 +12,7 @@ type Props = {
   payload: {
     ok?: boolean;
     hint?: string;
-    execution_performance_metrics_doc?: {
+    agentsam_execution_performance_metrics_doc?: {
       realtime?: string;
       daily_cron?: string;
       code?: string[];
@@ -101,7 +101,7 @@ function Section({
 
 export const D1TelemetryTab: React.FC<Props> = ({ payload }) => {
   const t = payload?.tables || {};
-  const doc = payload?.execution_performance_metrics_doc;
+  const doc = payload?.agentsam_execution_performance_metrics_doc;
 
   if (payload == null) {
     return <EmptyTelemetryState title="No payload" hint="Refresh the Health page." />;
@@ -119,7 +119,7 @@ export const D1TelemetryTab: React.FC<Props> = ({ payload }) => {
         </div>
       ) : null}
       <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4">
-        <h2 className="text-sm font-semibold text-[var(--text)] mb-2">execution_performance_metrics</h2>
+        <h2 className="text-sm font-semibold text-[var(--text)] mb-2">agentsam_execution_performance_metrics</h2>
         <p className="text-[13px] text-[var(--text-muted)] leading-relaxed mb-2">
           One row per <code className="text-[12px]">(tenant_id, command_id, metric_date)</code>. Updated when a command run
           completes (incremental upsert) and reconciled by the daily rollup from{' '}
@@ -137,10 +137,11 @@ export const D1TelemetryTab: React.FC<Props> = ({ payload }) => {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Section name="execution_performance_metrics" bundle={t.execution_performance_metrics}>
-          {t.execution_performance_metrics?.summary && Object.keys(t.execution_performance_metrics.summary).length > 0 ? (
+        <Section name="agentsam_execution_performance_metrics" bundle={t.agentsam_execution_performance_metrics}>
+          {t.agentsam_execution_performance_metrics?.summary &&
+          Object.keys(t.agentsam_execution_performance_metrics.summary).length > 0 ? (
             <div className="flex flex-wrap gap-2 mb-2">
-              {Object.entries(t.execution_performance_metrics.summary).map(([k, v]) => (
+              {Object.entries(t.agentsam_execution_performance_metrics.summary).map(([k, v]) => (
                 <div
                   key={k}
                   className="rounded-md bg-[var(--bg-elevated)] px-2 py-1 text-[11px] border border-[var(--border-subtle)]"
@@ -151,7 +152,7 @@ export const D1TelemetryTab: React.FC<Props> = ({ payload }) => {
               ))}
             </div>
           ) : null}
-          <DataTable rows={(t.execution_performance_metrics?.recent || []) as Record<string, unknown>[]} title="epm" />
+          <DataTable rows={(t.agentsam_execution_performance_metrics?.recent || []) as Record<string, unknown>[]} title="epm" />
         </Section>
 
         <Section name="agentsam_agent_run" bundle={t.agentsam_agent_run}>

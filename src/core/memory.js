@@ -198,21 +198,26 @@ export async function compactAgentsamToolCallLogToStats(env) {
   }).catch(() => null);
 }
 
-/** Roll up agentsam_command_run into execution_performance_metrics for the prior local day. */
+/** Roll up agentsam_command_run into agentsam_execution_performance_metrics for the prior local day. */
 export async function rollupExecutionPerformanceMetrics(env) {
   if (!env?.DB) return;
   await env.DB.prepare(
-    `INSERT INTO execution_performance_metrics
-      (id, tenant_id, command_id, metric_date,
+    `INSERT INTO agentsam_execution_performance_metrics
+      (id, tenant_id, workspace_id, metric_date, metric_grain, source_table,
+       command_id, command_slug,
        execution_count, success_count, failure_count,
        avg_duration_ms, min_duration_ms, max_duration_ms,
-       success_rate_percent, total_tokens_consumed, total_cost_cents,
+       success_rate_percent, total_tokens_consumed, total_cost_usd, total_cost_cents,
        last_computed_at)
      SELECT
        'epm_' || lower(hex(randomblob(8))),
        w.tenant_id,
-       acr.selected_command_id,
+       acr.workspace_id,
        date('now', '-1 day'),
+       'daily',
+       'agentsam_command_run',
+       acr.selected_command_id,
+       acr.selected_command_slug,
        COUNT(*),
        SUM(CASE WHEN acr.success=1 THEN 1 ELSE 0 END),
        SUM(CASE WHEN acr.success=0 THEN 1 ELSE 0 END),
@@ -221,6 +226,7 @@ export async function rollupExecutionPerformanceMetrics(env) {
        MAX(acr.duration_ms),
        ROUND(AVG(acr.success)*100, 2),
        SUM(COALESCE(acr.input_tokens, 0) + COALESCE(acr.output_tokens, 0)),
+       SUM(COALESCE(acr.cost_usd, 0)),
        SUM(COALESCE(acr.cost_usd, 0) * 100),
        unixepoch()
      FROM agentsam_command_run acr
@@ -228,8 +234,24 @@ export async function rollupExecutionPerformanceMetrics(env) {
      WHERE acr.selected_command_id IS NOT NULL
        AND acr.created_at >= unixepoch('now', '-1 day')
        AND acr.created_at < unixepoch('now')
-     GROUP BY w.tenant_id, acr.selected_command_id
-     ON CONFLICT(tenant_id, command_id, metric_date) DO UPDATE SET
+     GROUP BY w.tenant_id, acr.workspace_id, acr.selected_command_id, acr.selected_command_slug
+     ON CONFLICT(
+       tenant_id,
+       workspace_id,
+       metric_date,
+       metric_grain,
+       source_table,
+       command_id,
+       command_slug,
+       tool_name,
+       tool_category,
+       workflow_id,
+       task_type,
+       intent_category,
+       model_key,
+       provider,
+       trigger_key
+     ) DO UPDATE SET
        execution_count = excluded.execution_count,
        success_count = excluded.success_count,
        failure_count = excluded.failure_count,
@@ -238,11 +260,12 @@ export async function rollupExecutionPerformanceMetrics(env) {
        max_duration_ms = excluded.max_duration_ms,
        success_rate_percent = excluded.success_rate_percent,
        total_tokens_consumed = excluded.total_tokens_consumed,
+       total_cost_usd = excluded.total_cost_usd,
        total_cost_cents = excluded.total_cost_cents,
        last_computed_at = unixepoch()`,
   )
     .run()
-    .catch((e) => console.warn('[cron] execution_performance_metrics', e?.message ?? e));
+    .catch((e) => console.warn('[cron] agentsam_execution_performance_metrics', e?.message ?? e));
 }
 
 /** Roll up yesterday's agentsam_usage_events into agentsam_usage_rollups_daily (midnight UTC cron). */

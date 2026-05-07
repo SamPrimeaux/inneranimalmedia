@@ -122,7 +122,7 @@ export function scheduleOneAmMaintenance(env, ctx) {
   ctx.waitUntil(
     cronLedgerWrap(env, 'execution_performance_rollup', CRON_ONE_AM, () =>
       rollupExecutionPerformanceMetrics(env).catch((e) => {
-        console.warn('[cron] execution_performance_metrics', e?.message ?? e);
+        console.warn('[cron] agentsam_execution_performance_metrics', e?.message ?? e);
         throw e;
       }),
     ),

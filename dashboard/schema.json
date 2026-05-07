@@ -1603,7 +1603,7 @@
       },
       {
         "schema": "main",
-        "name": "execution_performance_metrics",
+        "name": "agentsam_execution_performance_metrics",
         "type": "table",
         "ncol": 18,
         "wr": 0,
@@ -4107,7 +4107,7 @@
       },
       {
         "schema": "main",
-        "name": "execution_dependency_graph",
+        "name": "agentsam_execution_dependency_graph",
         "type": "table",
         "ncol": 8,
         "wr": 0,

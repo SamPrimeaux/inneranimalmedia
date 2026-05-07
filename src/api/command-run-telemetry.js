@@ -160,25 +160,22 @@ export async function resolveAgentCommand(env, opts) {
 }
 
 /** Sequential dependency edge for tool_chain steps (D1). */
-export async function insertExecutionDependencyGraphEdge(env, tenantId, executionId, dependsOnExecutionId) {
-  if (!env?.DB || !tenantId || !executionId || !dependsOnExecutionId) return;
-  await env.DB
-    .prepare(
-      `
-    INSERT OR IGNORE INTO execution_dependency_graph
-      (id, tenant_id, execution_id, depends_on_execution_id,
-       dependency_type, created_at)
-    VALUES (
-      lower(hex(randomblob(8))),
-      ?,
-      ?,
-      ?,
-      'sequential',
-      unixepoch()
-    )
-  `,
-    )
-    .bind(tenantId, executionId, dependsOnExecutionId)
+export async function insertExecutionDependencyGraphEdge(env, tenantId, chainId, dependsOnChainId, workspaceId = null) {
+  if (!env?.DB || !tenantId || !chainId || !dependsOnChainId) return;
+  const ws = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null;
+  const sql = ws
+    ? `
+    INSERT OR IGNORE INTO agentsam_execution_dependency_graph
+      (tenant_id, workspace_id, chain_id, depends_on_chain_id, dependency_type)
+    VALUES (?, ?, ?, ?, 'sequential')
+  `
+    : `
+    INSERT OR IGNORE INTO agentsam_execution_dependency_graph
+      (tenant_id, chain_id, depends_on_chain_id, dependency_type)
+    VALUES (?, ?, ?, 'sequential')
+  `;
+  const stmt = env.DB.prepare(sql);
+  await (ws ? stmt.bind(tenantId, ws, chainId, dependsOnChainId) : stmt.bind(tenantId, chainId, dependsOnChainId))
     .run()
     .catch((e) => console.warn('[tool_chain] dep_graph insert', e?.message));
 }
@@ -273,7 +270,7 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     )
     .then(() => {
       if (tenant && parentId) {
-        return insertExecutionDependencyGraphEdge(env, tenant, chainId, parentId);
+        return insertExecutionDependencyGraphEdge(env, tenant, chainId, parentId, ws);
       }
     })
     .then(() => {
@@ -305,7 +302,7 @@ export async function fireForgetAgentToolChainRow(env, opts) {
 }
 
 /**
- * Upsert execution_performance_metrics after a command run completes (insert path).
+ * Upsert agentsam_execution_performance_metrics after a command run completes (insert path).
  * Skips when commandId is absent.
  */
 export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
@@ -314,33 +311,57 @@ export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
 
   const tenantId = p.tenantId != null && String(p.tenantId).trim() !== '' ? String(p.tenantId).trim() : null;
   if (!tenantId) return;
+  const workspaceId =
+    p.workspaceId != null && String(p.workspaceId).trim() !== '' ? String(p.workspaceId).trim() : null;
+  if (!workspaceId) return;
+  const commandSlug =
+    p.commandSlug != null && String(p.commandSlug).trim() !== '' ? String(p.commandSlug).trim() : null;
   const status = p.success ? 'completed' : 'failed';
   const metricDate = new Date().toISOString().slice(0, 10);
   const isSuccess = status === 'completed' ? 1 : 0;
   const isFail = status === 'failed' ? 1 : 0;
-  const costUsd = p.costUsd ?? 0;
-  const costCents = (costUsd || 0) * 100;
+  const costUsd = Number(p.costUsd) || 0;
+  const costCents = costUsd * 100;
   const durationMs = Math.max(0, Math.floor(Number(p.durationMs) || 0));
   const tokensConsumed = Math.max(0, Math.floor(Number(p.tokensConsumed) || 0));
 
   await env.DB
     .prepare(
       `
-    INSERT INTO execution_performance_metrics
-      (id, tenant_id, command_id, metric_date,
+    INSERT INTO agentsam_execution_performance_metrics
+      (id, tenant_id, workspace_id, metric_date, metric_grain, source_table,
+       command_id, command_slug,
        execution_count, success_count, failure_count,
        avg_duration_ms, min_duration_ms, max_duration_ms,
        success_rate_percent, total_tokens_consumed,
-       total_cost_cents, last_computed_at)
+       total_cost_usd, total_cost_cents, last_computed_at)
     VALUES (
       'epm_' || lower(hex(randomblob(8))),
       ?, ?, ?,
+      'daily', 'agentsam_command_run',
+      ?, ?,
       1, ?, ?,
       ?, ?, ?,
       ?, ?,
-      ?, unixepoch()
+      ?, ?, unixepoch()
     )
-    ON CONFLICT(tenant_id, command_id, metric_date) DO UPDATE SET
+    ON CONFLICT(
+      tenant_id,
+      workspace_id,
+      metric_date,
+      metric_grain,
+      source_table,
+      command_id,
+      command_slug,
+      tool_name,
+      tool_category,
+      workflow_id,
+      task_type,
+      intent_category,
+      model_key,
+      provider,
+      trigger_key
+    ) DO UPDATE SET
       execution_count = execution_count + 1,
       success_count = success_count + ?,
       failure_count = failure_count + ?,
@@ -349,17 +370,19 @@ export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
                         THEN ? ELSE min_duration_ms END,
       max_duration_ms = CASE WHEN ? > max_duration_ms
                         THEN ? ELSE max_duration_ms END,
-      success_rate_percent = CAST(success_count AS REAL) /
-                             CAST(execution_count AS REAL) * 100,
+      success_rate_percent = 100.0 * (success_count + ?) / (execution_count + 1),
       total_tokens_consumed = total_tokens_consumed + ?,
+      total_cost_usd = total_cost_usd + ?,
       total_cost_cents = total_cost_cents + ?,
       last_computed_at = unixepoch()
   `,
     )
     .bind(
       tenantId,
-      commandId,
+      workspaceId,
       metricDate,
+      commandId,
+      commandSlug,
       isSuccess,
       isFail,
       durationMs,
@@ -367,6 +390,7 @@ export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
       durationMs,
       (isSuccess / 1) * 100,
       tokensConsumed,
+      costUsd,
       costCents,
       isSuccess,
       isFail,
@@ -375,7 +399,9 @@ export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
       durationMs,
       durationMs,
       durationMs,
+      isSuccess,
       tokensConsumed,
+      costUsd,
       costCents,
     )
     .run()
@@ -471,7 +497,9 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
 
         await upsertExecutionPerformanceMetricsAfterCommandRun(env, {
           tenantId: p.tenantId,
+          workspaceId: ws,
           commandId: p.selectedCommandId,
+          commandSlug: p.selectedCommandSlug ?? null,
           success: p.success,
           durationMs: Math.max(0, Math.floor(p.durationMs || 0)),
           costUsd: p.costUsd ?? 0,
@@ -519,7 +547,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
 }
 
 /**
- * Link sequential plan/todo steps in execution_dependency_graph (after prior tool_chain in same plan).
+ * Link sequential plan/todo steps in agentsam_execution_dependency_graph (after prior tool_chain in same plan).
  * @param {any} env
  * @param {string} chainId
  * @param {string} planId
@@ -550,7 +578,13 @@ export async function registerExecutionDependency(env, chainId, planId, todoId, 
     .first()
     .catch(() => null);
   if (prev?.id) {
-    await insertExecutionDependencyGraphEdge(env, tid, chainId, String(prev.id));
+    const wsRow = await env.DB
+      .prepare(`SELECT workspace_id FROM agentsam_tool_chain WHERE id = ? LIMIT 1`)
+      .bind(chainId)
+      .first()
+      .catch(() => null);
+    const wsId = wsRow?.workspace_id != null ? String(wsRow.workspace_id).trim() : null;
+    await insertExecutionDependencyGraphEdge(env, tid, chainId, String(prev.id), wsId || undefined);
   }
 }
 

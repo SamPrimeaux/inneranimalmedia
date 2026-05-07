@@ -963,15 +963,312 @@ def verify_schema_only():
 
 # ─── main ────────────────────────────────────────────────────────────────────
 
+# ─── step 9: agentsam_mcp_workflows ──────────────────────────────────────────
+#
+# Three fixes applied during recreate:
+#   1. UNIQUE(workflow_key) → UNIQUE(workspace_id, workflow_key)
+#      so two workspaces can each have a workflow with the same key.
+#   2. tenant_id = '*' → NULL  (wildcard sentinel → proper platform pattern)
+#   3. Connor's workspace_id corrected via correlated lookup on agentsam_workspace
+#      (same pattern as step 1 — no IDs hardcoded).
+#   4. wf_migrate_* duplicate rows (legacy migration artifacts with display-name
+#      workflow_keys) are dropped — each has a proper wf_* slug equivalent.
+
+def step_9_mcp_workflows():
+    log("step 9 — agentsam_mcp_workflows — fix UNIQUE, patch sentinel, fix Connor workspace", "step")
+
+    # Show what we're about to do to Connor's rows
+    if not DRY_RUN:
+        connor_rows = query(
+            "SELECT id, workflow_key, tenant_id, workspace_id "
+            "FROM agentsam_mcp_workflows "
+            "WHERE workspace_id != ("
+            "  SELECT w.id FROM agentsam_workspace w "
+            "  WHERE w.tenant_id = agentsam_mcp_workflows.tenant_id "
+            "  ORDER BY w.created_at ASC LIMIT 1"
+            ") AND tenant_id NOT IN ('*') "
+            "AND tenant_id IS NOT NULL"
+        )
+        if connor_rows:
+            log("Rows with mismatched workspace (will be corrected):", "info")
+            for r in connor_rows:
+                log(f"  {r['id']}  tenant={r['tenant_id']}  ws={r['workspace_id']}", "info")
+
+        dupe_rows = query(
+            "SELECT id, workflow_key FROM agentsam_mcp_workflows "
+            "WHERE id LIKE 'wf_migrate_%'"
+        )
+        if dupe_rows:
+            log("Legacy wf_migrate_* duplicates to be dropped:", "info")
+            for r in dupe_rows:
+                log(f"  {r['id']}  key={r['workflow_key']!r}", "info")
+
+    exec_sql("DROP TABLE IF EXISTS agentsam_mcp_workflows_new",
+             "drop stale agentsam_mcp_workflows_new if exists", critical=False)
+
+    exec_sql(dedent("""
+        CREATE TABLE agentsam_mcp_workflows_new (
+          id                       TEXT PRIMARY KEY,
+          workflow_key             TEXT NOT NULL,
+          display_name             TEXT NOT NULL,
+          description              TEXT,
+          status                   TEXT NOT NULL DEFAULT 'ready',
+          priority                 TEXT NOT NULL DEFAULT 'medium',
+          steps_json               TEXT NOT NULL DEFAULT '[]',
+          tools_json               TEXT NOT NULL DEFAULT '[]',
+          acceptance_criteria_json TEXT NOT NULL DEFAULT '[]',
+          notes                    TEXT,
+          created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
+          tenant_id                TEXT,
+          workspace_id             TEXT,
+          trigger_type             TEXT DEFAULT 'manual',
+          trigger_config_json      TEXT DEFAULT '{}',
+          input_schema_json        TEXT DEFAULT '{}',
+          output_schema_json       TEXT DEFAULT '{}',
+          requires_approval        INTEGER DEFAULT 0,
+          risk_level               TEXT DEFAULT 'low',
+          run_count                INTEGER DEFAULT 0,
+          success_count            INTEGER DEFAULT 0,
+          last_run_at              TEXT,
+          last_run_status          TEXT,
+          avg_duration_ms          REAL DEFAULT 0,
+          total_cost_usd           REAL DEFAULT 0,
+          version                  INTEGER DEFAULT 1,
+          is_active                INTEGER DEFAULT 1,
+          subagent_slug            TEXT,
+          model_id                 TEXT,
+          timeout_seconds          INTEGER DEFAULT 300,
+          category                 TEXT DEFAULT 'general',
+          parent_workflow_id       TEXT DEFAULT NULL,
+          tags_json                TEXT DEFAULT '[]',
+          retry_policy_json        TEXT DEFAULT '{"max_retries":2,"backoff":"exponential","delay_ms":2000,"retry_on":["timeout","network_error"]}',
+          on_failure_json          TEXT DEFAULT '{"action":"notify","notify_channel":"resend"}',
+          max_concurrent_runs      INTEGER DEFAULT 1,
+          environment              TEXT DEFAULT 'production',
+          visibility               TEXT DEFAULT 'workspace',
+          input_defaults_json      TEXT DEFAULT '{}',
+          last_error               TEXT DEFAULT NULL,
+          task_type                TEXT DEFAULT 'agent_workflow',
+          graph_mode               INTEGER DEFAULT 0,
+          UNIQUE(workspace_id, workflow_key)
+        )
+    """), "CREATE agentsam_mcp_workflows_new")
+
+    # INSERT with three inline transforms:
+    #   - tenant_id='*'  → NULL            (platform sentinel normalisation)
+    #   - workspace_id   → correlated lookup when it doesn't match tenant's canonical ws
+    #   - wf_migrate_*   → excluded        (legacy duplicates, proper wf_* slugs exist)
+    exec_sql(dedent("""
+        INSERT INTO agentsam_mcp_workflows_new
+        SELECT
+          id,
+          workflow_key,
+          display_name,
+          description,
+          status,
+          priority,
+          steps_json,
+          tools_json,
+          acceptance_criteria_json,
+          notes,
+          created_at,
+          updated_at,
+          CASE WHEN tenant_id = '*' THEN NULL ELSE tenant_id END,
+          CASE
+            WHEN tenant_id = '*' THEN NULL
+            WHEN tenant_id IS NULL THEN NULL
+            ELSE (
+              SELECT w.id
+              FROM agentsam_workspace w
+              WHERE w.tenant_id = agentsam_mcp_workflows.tenant_id
+              ORDER BY w.created_at ASC
+              LIMIT 1
+            )
+          END,
+          trigger_type,
+          trigger_config_json,
+          input_schema_json,
+          output_schema_json,
+          requires_approval,
+          risk_level,
+          run_count,
+          success_count,
+          last_run_at,
+          last_run_status,
+          avg_duration_ms,
+          total_cost_usd,
+          version,
+          is_active,
+          subagent_slug,
+          model_id,
+          timeout_seconds,
+          category,
+          parent_workflow_id,
+          tags_json,
+          retry_policy_json,
+          on_failure_json,
+          max_concurrent_runs,
+          environment,
+          visibility,
+          input_defaults_json,
+          last_error,
+          task_type,
+          graph_mode
+        FROM agentsam_mcp_workflows
+        WHERE id NOT LIKE 'wf_migrate_%'
+    """), "INSERT: normalise tenant/workspace, drop wf_migrate_* duplicates")
+
+    exec_sql("DROP TABLE agentsam_mcp_workflows", "DROP TABLE agentsam_mcp_workflows")
+    exec_sql("ALTER TABLE agentsam_mcp_workflows_new RENAME TO agentsam_mcp_workflows",
+             "RENAME → agentsam_mcp_workflows")
+
+    for idx in [
+        "CREATE INDEX idx_agentsam_mcp_workflows_active_category  ON agentsam_mcp_workflows(is_active, category)",
+        "CREATE INDEX idx_agentsam_mcp_workflows_parent            ON agentsam_mcp_workflows(parent_workflow_id)",
+        "CREATE INDEX idx_agentsam_mcp_workflows_subagent          ON agentsam_mcp_workflows(subagent_slug)",
+        "CREATE INDEX idx_agentsam_mcp_workflows_task_type         ON agentsam_mcp_workflows(task_type)",
+        "CREATE INDEX idx_agentsam_mcp_workflows_tenant_workspace_status ON agentsam_mcp_workflows(tenant_id, workspace_id, status)",
+        "CREATE INDEX idx_agentsam_mcp_workflows_trigger           ON agentsam_mcp_workflows(trigger_type)",
+        "CREATE INDEX idx_agentsam_mcp_workflows_updated           ON agentsam_mcp_workflows(updated_at)",
+        # new: workspace-scoped lookup + platform inheritance
+        "CREATE INDEX idx_mcp_workflows_workspace_key             ON agentsam_mcp_workflows(workspace_id, workflow_key, is_active)",
+        "CREATE INDEX idx_mcp_workflows_platform                  ON agentsam_mcp_workflows(workflow_key, is_active) WHERE tenant_id IS NULL",
+    ]:
+        name = idx.split()[2].strip()
+        exec_sql(idx, f"CREATE INDEX {name}")
+
+    # Post-step sanity check
+    if not DRY_RUN:
+        dist = query(
+            "SELECT tenant_id, workspace_id, COUNT(*) AS cnt "
+            "FROM agentsam_mcp_workflows "
+            "GROUP BY tenant_id, workspace_id "
+            "ORDER BY cnt DESC"
+        )
+        log("Post-step distribution:", "info")
+        for r in dist:
+            log(f"  tenant={r['tenant_id']}  ws={r['workspace_id']}  rows={r['cnt']}", "info")
+
+
+# ─── step 10: agentsam_workflow_nodes — expand node_type CHECK ────────────────
+#
+# Adds three new node_types identified during architecture review:
+#   retry    — explicit retry node for complex retry topology in the graph
+#   parallel — fan-out: fires multiple outgoing edges simultaneously
+#   join     — fan-in: parks execution until all incoming parallel branches complete
+#
+# No data changes — 25 existing rows all use existing types.
+# No column changes — config for parallel/join lives in existing input_schema_json.
+
+def step_10_workflow_nodes():
+    recreate(
+        table="agentsam_workflow_nodes",
+        create_ddl=dedent("""
+            CREATE TABLE agentsam_workflow_nodes_new (
+              id                 TEXT    PRIMARY KEY DEFAULT ('wnode_' || lower(hex(randomblob(8)))),
+              workflow_id        TEXT    NOT NULL REFERENCES agentsam_mcp_workflows(id) ON DELETE CASCADE,
+              node_key           TEXT    NOT NULL,
+              node_type          TEXT    NOT NULL DEFAULT 'agent'
+                                         CHECK(node_type IN (
+                                           'agent','db_query','mcp_tool','script',
+                                           'approval_gate','eval','branch','webhook','terminal',
+                                           'retry','parallel','join'
+                                         )),
+              title              TEXT    NOT NULL,
+              description        TEXT,
+              handler_key        TEXT,
+              input_schema_json  TEXT    DEFAULT '{}',
+              output_schema_json TEXT    DEFAULT '{}',
+              timeout_ms         INTEGER DEFAULT 30000,
+              retry_policy_json  TEXT    DEFAULT '{"max_retries":2,"backoff":"exponential","delay_ms":1000}',
+              quality_gate_json  TEXT    DEFAULT '{}',
+              risk_level         TEXT    DEFAULT 'low'
+                                         CHECK(risk_level IN ('low','medium','high','critical')),
+              requires_approval  INTEGER DEFAULT 0,
+              is_active          INTEGER DEFAULT 1,
+              sort_order         INTEGER DEFAULT 0,
+              created_at         TEXT    DEFAULT (datetime('now')),
+              updated_at         TEXT    DEFAULT (datetime('now')),
+              UNIQUE(workflow_id, node_key)
+            )
+        """),
+        insert_sql=(
+            "INSERT INTO agentsam_workflow_nodes_new "
+            "SELECT id, workflow_id, node_key, node_type, title, description, "
+            "handler_key, input_schema_json, output_schema_json, timeout_ms, "
+            "retry_policy_json, quality_gate_json, risk_level, requires_approval, "
+            "is_active, sort_order, created_at, updated_at "
+            "FROM agentsam_workflow_nodes"
+        ),
+        indexes=[
+            "CREATE INDEX idx_workflow_nodes_workflow   ON agentsam_workflow_nodes(workflow_id, is_active)",
+            "CREATE INDEX idx_workflow_nodes_type       ON agentsam_workflow_nodes(node_type)",
+            "CREATE INDEX idx_workflow_nodes_risk       ON agentsam_workflow_nodes(risk_level)",
+        ],
+        description="agentsam_workflow_nodes — add retry, parallel, join node_types",
+    )
+
+
+# ─── step 11: agentsam_workflow_edges — expand condition_type CHECK ───────────
+#
+# Adds one new condition_type:
+#   timeout  — fires when the run's max_runtime_ms ceiling is hit, enabling
+#              graceful graph-level handling rather than a hard kill.
+#              Distinct from 'elapsed' (node-level) — this is run-level.
+#
+# No data changes — 27 existing rows all use existing condition_types.
+
+def step_11_workflow_edges():
+    recreate(
+        table="agentsam_workflow_edges",
+        create_ddl=dedent("""
+            CREATE TABLE agentsam_workflow_edges_new (
+              id              TEXT    PRIMARY KEY DEFAULT ('wedge_' || lower(hex(randomblob(8)))),
+              workflow_id     TEXT    NOT NULL REFERENCES agentsam_mcp_workflows(id) ON DELETE CASCADE,
+              from_node_key   TEXT    NOT NULL,
+              to_node_key     TEXT    NOT NULL,
+              condition_json  TEXT    DEFAULT NULL,
+              condition_type  TEXT    DEFAULT 'always'
+                                       CHECK(condition_type IN (
+                                         'always','threshold','status','elapsed',
+                                         'cost','field','risk','manual','timeout'
+                                       )),
+              priority        INTEGER DEFAULT 0,
+              is_fallback     INTEGER DEFAULT 0,
+              label           TEXT,
+              created_at      TEXT    DEFAULT (datetime('now')),
+              UNIQUE(workflow_id, from_node_key, to_node_key)
+            )
+        """),
+        insert_sql=(
+            "INSERT INTO agentsam_workflow_edges_new "
+            "SELECT id, workflow_id, from_node_key, to_node_key, "
+            "condition_json, condition_type, priority, is_fallback, label, created_at "
+            "FROM agentsam_workflow_edges"
+        ),
+        indexes=[
+            "CREATE INDEX idx_workflow_edges_workflow      ON agentsam_workflow_edges(workflow_id)",
+            "CREATE INDEX idx_workflow_edges_from_node     ON agentsam_workflow_edges(workflow_id, from_node_key)",
+            "CREATE INDEX idx_workflow_edges_condition     ON agentsam_workflow_edges(condition_type)",
+            "CREATE INDEX idx_workflow_edges_fallback      ON agentsam_workflow_edges(workflow_id, is_fallback)",
+        ],
+        description="agentsam_workflow_edges — add timeout condition_type",
+    )
+
+
 STEPS = {
-    1: ("backfill tool_stats __tenant__",        step_1_backfill_tool_stats),
-    2: ("eval_suites — drop defaults",           step_2_eval_suites),
-    3: ("eval_cases — drop defaults",            step_3_eval_cases),
-    4: ("eval_runs — drop defaults",             step_4_eval_runs),
-    5: ("tool_stats_compacted — recreate",       step_5_tool_stats),
-    6: ("workspace — drop defaults",             step_6_workspace),
-    7: ("routing_arms — new unique",             step_7_routing_arms),
-    8: ("commands — platform migration",         step_8_commands),
+    1:  ("backfill tool_stats __tenant__",             step_1_backfill_tool_stats),
+    2:  ("eval_suites — drop defaults",                step_2_eval_suites),
+    3:  ("eval_cases — drop defaults",                 step_3_eval_cases),
+    4:  ("eval_runs — drop defaults",                  step_4_eval_runs),
+    5:  ("tool_stats_compacted — recreate",            step_5_tool_stats),
+    6:  ("workspace — drop defaults",                  step_6_workspace),
+    7:  ("routing_arms — new unique",                  step_7_routing_arms),
+    8:  ("commands — platform migration",              step_8_commands),
+    9:  ("mcp_workflows — fix UNIQUE + data",          step_9_mcp_workflows),
+    10: ("workflow_nodes — add retry/parallel/join",   step_10_workflow_nodes),
+    11: ("workflow_edges — add timeout condition",     step_11_workflow_edges),
 }
 
 def main():
@@ -981,7 +1278,7 @@ def main():
         description="Multi-tenant schema migration — inneranimalmedia-business"
     )
     parser.add_argument("--dry-run",      action="store_true", help="Print SQL, make no changes")
-    parser.add_argument("--step",         type=int,            help="Run a single step (1–8)")
+    parser.add_argument("--step",         type=int,            help="Run a single step (1–11)")
     parser.add_argument("--smoke-test",   action="store_true", help="Run smoke tests only")
     parser.add_argument("--verify-only",  action="store_true", help="Schema check, no migration")
     args = parser.parse_args()
