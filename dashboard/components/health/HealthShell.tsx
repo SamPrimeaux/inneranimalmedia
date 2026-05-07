@@ -1,17 +1,15 @@
 import React from 'react';
 
-const TABS = [
+/** Primary analytics nav — merged views vs legacy Health tabs (models→agent, deploys→workers, D1→database, advisors→overview). */
+export const ANALYTICS_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'agent', label: 'Agent' },
   { id: 'workers', label: 'Workers' },
+  { id: 'database', label: 'Database' },
   { id: 'mcp', label: 'MCP' },
-  { id: 'models', label: 'Models' },
-  { id: 'd1', label: 'D1 telemetry' },
-  { id: 'advisors', label: 'Advisors' },
-  { id: 'deployments', label: 'Deploys' },
 ] as const;
 
-export type HealthTabId = (typeof TABS)[number]['id'];
+export type HealthTabId = (typeof ANALYTICS_TABS)[number]['id'];
 
 type Props = {
   tab: HealthTabId;
@@ -25,8 +23,8 @@ type Props = {
 export const HealthShell: React.FC<Props> = ({
   tab,
   onTab,
-  title = 'Health',
-  subtitle = 'Telemetry, cost, and platform checks',
+  title = 'Analytics',
+  subtitle = 'Telemetry, cost, and platform observability',
   actions,
   children,
 }) => (
@@ -40,7 +38,7 @@ export const HealthShell: React.FC<Props> = ({
     </header>
 
     <div className="flex flex-wrap gap-1 px-1 pb-2 shrink-0 border-b border-[var(--border-subtle)]">
-      {TABS.map((t) => (
+      {ANALYTICS_TABS.map((t) => (
         <button
           key={t.id}
           type="button"

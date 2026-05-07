@@ -395,7 +395,7 @@ export const OverviewPage: React.FC = () => {
           </div>
           <div className="ov-actions">
             <span className="ov-small">Last refreshed: {lastRefresh ? lastRefresh.toLocaleTimeString() : ''}</span>
-            <button type="button" className="ov-link" onClick={() => navigate('/dashboard/health')}>
+            <button type="button" className="ov-link" onClick={() => navigate('/dashboard/analytics/overview')}>
               Health dashboard
             </button>
             <button className="ov-btn" onClick={() => { fetchProviderColors(); load(); }} disabled={kpiLoading && financeLoading && agentLoading && goalsLoading && commandsLoading}>
@@ -560,7 +560,7 @@ export const OverviewPage: React.FC = () => {
                 <span className="ov-iconSq" style={{ background: pc('cf_workers') }} aria-hidden="true"><IconCircle size={12} /></span>
                 Worker Health
               </div>
-              <button className="ov-link" type="button" onClick={() => navigate('/dashboard/health')}>
+              <button className="ov-link" type="button" onClick={() => navigate('/dashboard/analytics/overview')}>
                 View all <IconArrow />
               </button>
             </div>

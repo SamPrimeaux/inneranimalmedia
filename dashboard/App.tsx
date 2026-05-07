@@ -61,7 +61,7 @@ import { AuthForgotPage } from './components/auth/AuthForgotPage';
 import { AuthResetPage } from './components/auth/AuthResetPage';
 import { AuthOAuthConsentPage } from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, HeartPulse } from 'lucide-react';
+import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing } from 'lucide-react';
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
 const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
@@ -1850,11 +1850,11 @@ const App: React.FC = () => {
           >
               <ActivityRailItem icon={Home} label="Overview" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/overview'} onClick={() => navigate('/dashboard/overview')} />
               <ActivityRailItem
-                icon={HeartPulse}
-                label="Health"
+                icon={ChartColumnIncreasing}
+                label="Analytics"
                 expanded={sidebarRailExpanded}
-                active={location.pathname === '/dashboard/health'}
-                onClick={() => navigate('/dashboard/health')}
+                active={location.pathname.startsWith('/dashboard/analytics')}
+                onClick={() => navigate('/dashboard/analytics/overview')}
               />
               <ActivityRailItem icon={Bot} label="Agent" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/agent'} onClick={() => navigate('/dashboard/agent')} />
               <ActivityRailItem icon={GraduationCap} label="Learn" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/learn'} onClick={() => navigate('/dashboard/learn')} />
@@ -2107,7 +2107,10 @@ const App: React.FC = () => {
                     <Routes>
                       <Route path="/dashboard/calendar" element={<CalendarPage />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
-                      <Route path="/dashboard/health" element={<HealthPage />} />
+                      <Route path="/dashboard/analytics" element={<Navigate to="/dashboard/analytics/overview" replace />} />
+                      <Route path="/dashboard/analytics/:tab" element={<HealthPage />} />
+                      <Route path="/dashboard/health" element={<Navigate to="/dashboard/analytics/overview" replace />} />
+                      <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/learn" element={<LearnPage />} />
                       <Route path="/dashboard/database" element={<DatabasePage />} />
                       <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
@@ -2119,7 +2122,10 @@ const App: React.FC = () => {
                       />
                       <Route path="/dashboard/designstudio" element={<DesignStudioPage />} />
                       <Route path="/dashboard/storage" element={<StoragePage />} />
-                      <Route path="/dashboard/images" element={<ImagesPage />} />
+                      <Route
+                        path="/dashboard/images"
+                        element={<ImagesPage workspaceId={authWorkspaceId || undefined} />}
+                      />
                       <Route path="/dashboard/mail" element={<MailPage />} />
                       <Route
                         path="/dashboard/meet"
