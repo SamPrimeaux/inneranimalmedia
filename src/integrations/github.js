@@ -293,6 +293,13 @@ export async function githubCommitHandshake(env, authUser, repo, opts) {
 
 // ─── /api/integrations/* dispatcher ──────────────────────────────────────────
 
+/** OAuth rows in `user_oauth_tokens` are keyed by `auth_users.id` (see oauth-login-callbacks.js). */
+function oauthTokenUserKey(authUser) {
+  const sid = authUser?.id != null && String(authUser.id).trim() !== '' ? String(authUser.id).trim() : '';
+  if (sid) return sid;
+  return String(authUser?.email || '').trim();
+}
+
 export async function handleGithubApi(request, env, authUser) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -300,7 +307,7 @@ export async function handleGithubApi(request, env, authUser) {
 
   if (path === '/api/integrations/status') {
     if (!authUser) return jsonResponse({ google: false, github: false, github_accounts: [] });
-    const integrationUserId = authUser.email || authUser.id;
+    const integrationUserId = oauthTokenUserKey(authUser);
     let google = false;
     let github = false;
     const githubAccounts = [];
@@ -320,7 +327,7 @@ export async function handleGithubApi(request, env, authUser) {
   }
 
   if (!authUser) return jsonResponse({ error: 'unauthorized' }, 401);
-  const integrationUserId = authUser.email || authUser.id;
+  const integrationUserId = oauthTokenUserKey(authUser);
   const githubAccount = url.searchParams.get('account') || '';
 
   if (method === 'GET' && path === '/api/integrations/gdrive/files') {

@@ -232,8 +232,11 @@ function resolveTenantId(authUser, env) {
     return authUser?.tenant_id || env?.TENANT_ID || fallbackSystemTenantId(env);
 }
 
+/** Match `user_oauth_tokens.user_id` — rows use `auth_users.id` from OAuth callbacks, not email-first. */
 function integrationUserId(authUser) {
-    return authUser?._session_user_id || authUser?.email || authUser?.id;
+    const sid = authUser?.id != null && String(authUser.id).trim() !== '' ? String(authUser.id).trim() : '';
+    if (sid) return sid;
+    return String(authUser?.email || authUser?._session_user_id || '').trim();
 }
 
 function normalizeProviderKey(provider) {

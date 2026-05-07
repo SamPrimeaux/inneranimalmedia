@@ -208,7 +208,10 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
   if (disconnectMatch && (method === 'DELETE' || method === 'POST')) {
     if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const slugRaw = decodeURIComponent(disconnectMatch[1] || '');
-    const userId = authUser.email || authUser.id;
+    const userId =
+      authUser.id != null && String(authUser.id).trim() !== ''
+        ? String(authUser.id).trim()
+        : String(authUser.email || '').trim();
     const tenantId = tenantIdFromAuth(authUser, env);
 
     await deleteOauthTokensForSlug(env.DB, userId, slugRaw);
