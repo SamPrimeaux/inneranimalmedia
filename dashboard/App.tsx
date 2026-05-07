@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo, Suspense, lazy } from 'react';
 import { useLocation, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
@@ -16,7 +16,6 @@ import { ExtensionsPanel } from './components/ExtensionsPanel';
 import { MonacoEditorView, type EditorModelMeta } from './components/MonacoEditorView';
 import { LocalExplorer } from './components/LocalExplorer';
 import { BrowserView } from './components/BrowserView';
-import SettingsPanel from './components/settings';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
 import { ExcalidrawView } from './components/ExcalidrawView';
 import { DatabaseBrowser, type DatabaseExplorerJump } from './components/DatabaseBrowser';
@@ -29,7 +28,6 @@ import { WorkspaceExplorerPanel } from './components/WorkspaceExplorerPanel';
 import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
 import { R2Explorer } from './components/R2Explorer';
 import { SourcePanel } from './components/SourcePanel';
-import LearnPage from './components/LearnPage';
 import { ProjectType, type ActiveFile } from './types';
 import { SHELL_VERSION } from './src/shellVersion';
 import {
@@ -55,16 +53,6 @@ import {
   getTrustedRecentWorkspaceId,
 } from './src/recentWorkspacesStorage';
 import { useEditor } from './src/EditorContext';
-import { CalendarPage } from './components/CalendarPage';
-import { OverviewPage } from './components/OverviewPage';
-import { HealthPage } from './pages/HealthPage';
-import { DatabasePage } from './components/DatabasePage';
-import { McpPage } from './components/McpPage';
-import { DesignStudioPage } from './components/DesignStudioPage';
-import { StoragePage } from './components/StoragePage';
-import ImagesPage from './components/ImagesPage';
-import { MailPage } from './components/MailPage';
-import MeetPage from './components/MeetPage';
 import { MeetProvider, MeetCtxValue } from './src/MeetContext';
 import { MeetShellPanel } from './components/MeetShellPanel';
 import { AuthSignInPage } from './components/auth/AuthSignInPage';
@@ -74,6 +62,33 @@ import { AuthResetPage } from './components/auth/AuthResetPage';
 import { AuthOAuthConsentPage } from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, HeartPulse } from 'lucide-react';
+
+/** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
+const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
+const OverviewPage = lazy(() => import('./components/OverviewPage').then((m) => ({ default: m.OverviewPage })));
+const HealthPage = lazy(() => import('./pages/HealthPage').then((m) => ({ default: m.HealthPage })));
+const LearnPage = lazy(() => import('./components/LearnPage'));
+const DatabasePage = lazy(() => import('./components/DatabasePage').then((m) => ({ default: m.DatabasePage })));
+const McpPage = lazy(() => import('./components/McpPage').then((m) => ({ default: m.McpPage })));
+const DesignStudioPage = lazy(() => import('./components/DesignStudioPage').then((m) => ({ default: m.DesignStudioPage })));
+const StoragePage = lazy(() => import('./components/StoragePage').then((m) => ({ default: m.StoragePage })));
+const ImagesPage = lazy(() => import('./components/ImagesPage'));
+const MailPage = lazy(() => import('./components/MailPage').then((m) => ({ default: m.MailPage })));
+const MeetPage = lazy(() => import('./components/MeetPage'));
+const SettingsPanel = lazy(() => import('./components/settings'));
+
+function DashboardRoutesFallback() {
+  return (
+    <div
+      className="flex-1 min-h-0 flex items-center justify-center text-sm"
+      style={{ color: 'var(--text-muted)' }}
+      role="status"
+      aria-live="polite"
+    >
+      Loading…
+    </div>
+  );
+}
 
 function escapeHtmlForPreview(s: string): string {
   return s
@@ -2088,45 +2103,47 @@ const App: React.FC = () => {
               {/* Dashboard page routes — non-agent pages render here */}
               {location.pathname !== '/dashboard/agent' ? (
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)] flex flex-col">
-                  <Routes>
-                    <Route path="/dashboard/calendar" element={<CalendarPage />} />
-                    <Route path="/dashboard/overview" element={<OverviewPage />} />
-                    <Route path="/dashboard/health" element={<HealthPage />} />
-                    <Route path="/dashboard/learn" element={<LearnPage />} />
-                    <Route path="/dashboard/database" element={<DatabasePage />} />
-                    <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
-                    <Route
-                      path="/dashboard/integrations"
-                      element={
-                        <Navigate to="/dashboard/settings/integrations" replace />
-                      }
-                    />
-                    <Route path="/dashboard/designstudio" element={<DesignStudioPage />} />
-                    <Route path="/dashboard/storage" element={<StoragePage />} />
-                    <Route path="/dashboard/images" element={<ImagesPage />} />
-                    <Route path="/dashboard/mail" element={<MailPage />} />
-                    <Route
-                      path="/dashboard/meet"
-                      element={
-                        <MeetProvider value={meetCtxValue || ({} as MeetCtxValue)}>
-                          {React.createElement(MeetPage as any, { onContextReady: setMeetCtxValue })}
-                        </MeetProvider>
-                      }
-                    />
-                    <Route
-                      path="/dashboard/settings"
-                      element={<Navigate to="/dashboard/settings/general" replace />}
-                    />
-                    <Route
-                      path="/dashboard/settings/:sectionSlug"
-                      element={
-                        <SettingsPanel
-                          onClose={() => navigate(-1)}
-                          workspaceId={authWorkspaceId || undefined}
-                        />
-                      }
-                    />
-                  </Routes>
+                  <Suspense fallback={<DashboardRoutesFallback />}>
+                    <Routes>
+                      <Route path="/dashboard/calendar" element={<CalendarPage />} />
+                      <Route path="/dashboard/overview" element={<OverviewPage />} />
+                      <Route path="/dashboard/health" element={<HealthPage />} />
+                      <Route path="/dashboard/learn" element={<LearnPage />} />
+                      <Route path="/dashboard/database" element={<DatabasePage />} />
+                      <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
+                      <Route
+                        path="/dashboard/integrations"
+                        element={
+                          <Navigate to="/dashboard/settings/integrations" replace />
+                        }
+                      />
+                      <Route path="/dashboard/designstudio" element={<DesignStudioPage />} />
+                      <Route path="/dashboard/storage" element={<StoragePage />} />
+                      <Route path="/dashboard/images" element={<ImagesPage />} />
+                      <Route path="/dashboard/mail" element={<MailPage />} />
+                      <Route
+                        path="/dashboard/meet"
+                        element={
+                          <MeetProvider value={meetCtxValue || ({} as MeetCtxValue)}>
+                            <MeetPage onContextReady={setMeetCtxValue} />
+                          </MeetProvider>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/settings"
+                        element={<Navigate to="/dashboard/settings/general" replace />}
+                      />
+                      <Route
+                        path="/dashboard/settings/:sectionSlug"
+                        element={
+                          <SettingsPanel
+                            onClose={() => navigate(-1)}
+                            workspaceId={authWorkspaceId || undefined}
+                          />
+                        }
+                      />
+                    </Routes>
+                  </Suspense>
                 </div>
               ) : (
               <>

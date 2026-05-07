@@ -34,6 +34,7 @@ import {
   handleGitHubLoginOAuthCallback,
 } from './api/oauth-login-callbacks.js';
 import { handleGithubWebhook } from './api/webhooks/github.js';
+import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 
 // --- Durable Objects (ACTIVE: 3 production classes only) ---
 export { IAMCollaborationSession } from './do/Collaboration.js';
@@ -637,22 +638,11 @@ export default {
           }
 
           if (env.DASHBOARD) {
-            const appKey =
-              assetKey.startsWith('static/dashboard/agent/')
-                ? `dashboard/app/${assetKey.slice('static/dashboard/agent/'.length)}`
-                : null;
-            const obj =
-              (await env.DASHBOARD.get(assetKey)) ||
-              (appKey ? await env.DASHBOARD.get(appKey) : null) ||
-              (await env.DASHBOARD.get(`static/${assetKey}`)) ||
-              (await env.DASHBOARD.get(`static/dashboard/agent/${assetKey}`));
+            const obj = await getDashboardR2Object(env.DASHBOARD, assetKey);
             if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream' } });
 
             if (pathLower.startsWith('/dashboard/') || pathLower === '/onboarding' || pathLower.startsWith('/onboarding/')) {
-              const index =
-                (await env.DASHBOARD.get('dashboard/app/agent.html')) ||
-                (await env.DASHBOARD.get('static/dashboard/agent.html')) ||
-                (await env.DASHBOARD.get('index.html'));
+              const index = await getDashboardSpaHtmlShell(env.DASHBOARD);
               if (index) return withSessionHealing(new Response(index.body, { headers: { 'Content-Type': 'text/html' } }));
             }
           }

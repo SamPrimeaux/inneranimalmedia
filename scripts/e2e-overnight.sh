@@ -167,13 +167,13 @@ html = html.replace(
     'href="https://inneranimalmedia.com/static/dashboard/shell.css"',
 )
 html = re.sub(
-    r'href="/static/dashboard/agent/agent-dashboard\.css[^"]*"',
+    r'href="/static/dashboard/(?:agent|app)/agent-dashboard\.css[^"]*"',
     'href="' + base + 'agent-dashboard.css"',
     html,
     count=1,
 )
 html = re.sub(
-    r'src="/static/dashboard/agent/agent-dashboard\.js[^"]*"',
+    r'src="/static/dashboard/(?:agent|app)/agent-dashboard\.js[^"]*"',
     'src="' + base + 'agent-dashboard.js"',
     html,
     count=1,

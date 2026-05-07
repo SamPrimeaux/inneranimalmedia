@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Upload dashboard/dist to production R2 (inneranimalmedia bucket). Run after build.
+# Upload dashboard/dist to production R2 under prefix dashboard/app/ (inneranimalmedia).
+# For the canonical static layout (static/dashboard/app/) + shells, prefer:
+#   ./scripts/upload-dashboard-app-r2-prod.sh
+# See docs/DASHBOARD_R2_ASSET_ARCHITECTURE.md
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

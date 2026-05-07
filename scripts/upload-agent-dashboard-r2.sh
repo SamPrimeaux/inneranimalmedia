@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# =============================================================================
+# LEGACY / SANDBOX — not for production inneranimalmedia uploads
+# -----------------------------------------------------------------------------
+# This script targets BUCKET inneranimalmedia-sandbox-cicd and wrangler.jsonc.
+# For production dashboard assets (bucket inneranimalmedia, DASHBOARD binding),
+# use: ./scripts/upload-dashboard-app-r2-prod.sh
+# See docs/DASHBOARD_R2_ASSET_ARCHITECTURE.md
+# =============================================================================
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"

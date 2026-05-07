@@ -8,7 +8,7 @@ const analyze = process.env.ANALYZE === '1' || process.env.ANALYZE === 'true';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      base: '/static/dashboard/agent/',
+      base: '/static/dashboard/app/',
       server: {
         port: 3000,
         host: '0.0.0.0',
@@ -18,6 +18,19 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [
         react(),
+        // Vite joins `base` with root-absolute `/static/dashboard/shell.css` → broken
+        // `/static/dashboard/app/static/dashboard/shell.css`. Shell is served from R2 at
+        // `static/dashboard/shell.css` (site path `/static/dashboard/shell.css`), not under app.
+        {
+          name: 'restore-dashboard-shell-css-href',
+          enforce: 'post',
+          transformIndexHtml(html) {
+            return html.replaceAll(
+              '/static/dashboard/app/static/dashboard/shell.css',
+              '/static/dashboard/shell.css',
+            );
+          },
+        },
         ...(analyze
           ? [
               visualizer({

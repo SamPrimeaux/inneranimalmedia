@@ -21,6 +21,7 @@
     "r2:inventory:autorag": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket autorag",
     "r2:inventory:leadership-legacy": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket leadership-legacy --tenant-id tenant_connor_mcneely --workspace-id ws_connor_mcneely --project-id leadership-legacy --edited-by au_5d17673408aaebc7",
     "r2:deploy-manifest": "node scripts/build-r2-deploy-manifest.mjs --dist dashboard/dist --bucket inneranimalmedia --prefix static/dashboard/agent --deploy-id manual_manifest",
+    "r2:upload:dashboard-app-prod": "./scripts/upload-dashboard-app-r2-prod.sh",
     "r2:prune:dry-run": "node scripts/prune-r2-orphans.mjs --dry-run --bucket inneranimalmedia --tenant-id tenant_sam_primeaux --workspace-id ws_inneranimalmedia --project-id inneranimalmedia",
     "r2:prune:apply": "node scripts/prune-r2-orphans.mjs --apply --bucket inneranimalmedia --tenant-id tenant_sam_primeaux --workspace-id ws_inneranimalmedia --project-id inneranimalmedia",
     "deploy:full": "./scripts/deploy-full.sh",
