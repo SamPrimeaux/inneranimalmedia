@@ -161,9 +161,10 @@ export function IntegrationCard({
 
   const status = String(connection?.status || (connected ? 'connected' : 'disconnected'));
 
+  const appBase = `${import.meta.env.BASE_URL || '/'}`.replace(/\/*$/, '/');
   const iconSrc =
     catalog?.icon_slug && !iconFailed
-      ? `/assets/integrations/${encodeURIComponent(catalog.icon_slug)}.svg`
+      ? `${appBase}assets/integrations/${encodeURIComponent(catalog.icon_slug)}.svg`
       : null;
 
   return (

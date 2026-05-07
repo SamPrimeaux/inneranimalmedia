@@ -2,6 +2,27 @@
  * Theme gallery, active resolution (D1 `cms_theme_preferences` + fallbacks), apply + IAM_COLLAB broadcast.
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from "../core/auth.js";
+
+/** Same mapping as settings.js resolveCanonicalUserId — kept local to avoid themes↔settings import cycles. */
+async function resolveCanonicalUserIdShort(env, sessionUserId, email) {
+  if (!env?.DB) return { userId: null };
+  const sid = sessionUserId != null ? String(sessionUserId).trim() : "";
+  const em = email != null ? String(email).trim() : "";
+  try {
+    const row = await env.DB.prepare(
+      `SELECT u.id as user_id
+       FROM auth_users au
+       LEFT JOIN users u ON u.auth_id = au.id OR LOWER(COALESCE(u.email,'')) = LOWER(au.email)
+       WHERE au.id = ? OR LOWER(au.email) = LOWER(?)
+       LIMIT 1`,
+    )
+      .bind(sid, em || sid)
+      .first();
+    return { userId: row?.user_id != null ? String(row.user_id).trim() : null };
+  } catch {
+    return { userId: null };
+  }
+}
 import { buildActiveThemeApiPayload } from "../core/cms-theme-active.js";
 import {
   resolveActiveCmsThemeRow,
@@ -13,21 +34,32 @@ import {
  * @param {any} env
  * @param {string} userId auth_users.id
  */
-async function fetchDefaultWorkspaceId(env, userId) {
-  const uid = String(userId || "").trim();
+async function fetchDefaultWorkspaceId(env, authUser) {
+  const uid = String(authUser?.id || "").trim();
   if (!uid || !env.DB) return "";
-  try {
-    const row = await env.DB.prepare(
-      `SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1`,
-    )
-      .bind(uid)
-      .first();
-    return row?.default_workspace_id != null && String(row.default_workspace_id).trim() !== ""
-      ? String(row.default_workspace_id).trim()
-      : "";
-  } catch {
-    return "";
+  const tryUid = async (id) => {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1`,
+      )
+        .bind(id)
+        .first();
+      return row?.default_workspace_id != null && String(row.default_workspace_id).trim() !== ""
+        ? String(row.default_workspace_id).trim()
+        : "";
+    } catch {
+      return "";
+    }
+  };
+  let v = await tryUid(uid);
+  if (v) return v;
+  const { userId: canonicalUserId } = await resolveCanonicalUserIdShort(env, uid, authUser?.email);
+  const cid = canonicalUserId != null ? String(canonicalUserId).trim() : "";
+  if (cid && cid !== uid) {
+    v = await tryUid(cid);
+    if (v) return v;
   }
+  return "";
 }
 
 /**
@@ -40,6 +72,7 @@ async function resolveAuthTenantId(env, authUser) {
       ? String(authUser.tenant_id).trim()
       : null;
   if (!tid && authUser?.id) tid = await fetchAuthUserTenantId(env, authUser.id).catch(() => null);
+  if (!tid && authUser?.email) tid = await fetchAuthUserTenantId(env, authUser.email).catch(() => null);
   return tid;
 }
 
@@ -72,7 +105,7 @@ export async function handleThemesApi(request, url, env, ctx) {
         url.searchParams.get("workspace")?.trim() ||
         "";
       if (!workspaceId) {
-        workspaceId = await fetchDefaultWorkspaceId(env, authUser.id);
+        workspaceId = await fetchDefaultWorkspaceId(env, authUser);
       }
 
       const projectId = url.searchParams.get("project_id")?.trim() || "";
@@ -215,15 +248,21 @@ export async function handleThemesApi(request, url, env, ctx) {
         resolveWs =
           body.workspace_id != null && String(body.workspace_id).trim() !== ""
             ? String(body.workspace_id).trim()
-            : await fetchDefaultWorkspaceId(env, authUser.id);
+            : await fetchDefaultWorkspaceId(env, authUser);
       }
 
-      const resolved = await resolveActiveCmsThemeRow(env, {
-        tenantId: tid,
-        authUser,
-        workspaceId: resolveWs || null,
-        projectId: resolveProj || null,
-      });
+      let resolved;
+      try {
+        resolved = await resolveActiveCmsThemeRow(env, {
+          tenantId: tid,
+          authUser,
+          workspaceId: resolveWs || null,
+          projectId: resolveProj || null,
+        });
+      } catch (e) {
+        console.warn("[themes/apply] resolveActiveCmsThemeRow", e?.message ?? e);
+        resolved = { row: null, resolved_from: "resolve_error" };
+      }
 
       let outRow = resolved.row;
       if (!outRow) {

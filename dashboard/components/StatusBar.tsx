@@ -279,8 +279,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           )}
         </div>
 
-        {branch && (
-          <div ref={branchRef} className="relative flex items-stretch">
+        <div ref={branchRef} className="relative flex items-stretch">
             <button
               type="button"
               onClick={() => setBranchMenu((v) => !v)}
@@ -288,8 +287,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="Select a branch or tag to checkout"
             >
               <GitBranch size={11} />
-              <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] font-[var(--font-sans)]">
-                {branch}
+              <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] font-[var(--font-sans)] max-w-[120px] truncate">
+                {branch?.trim() ? branch : 'Branch'}
               </span>
             </button>
             <button
@@ -321,7 +320,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                       className="w-full text-left px-2 py-1.5 rounded text-[0.6875rem] text-[var(--text-main)] bg-[var(--bg-hover)] flex items-center gap-2 font-[var(--font-sans)]"
                     >
                       <Check size={11} className="text-[var(--solar-cyan)]" />
-                      {branch}
+                      {branch?.trim() ? branch : 'main'}
                       <span className="ml-auto text-[0.5rem] text-[var(--text-muted)]">HEAD</span>
                     </button>
                   </div>
@@ -340,8 +339,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                 </div>
               </div>
             )}
-          </div>
-        )}
+        </div>
 
         {workspace && (
           <button

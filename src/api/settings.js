@@ -118,6 +118,31 @@ async function resolveAuthTenantId(env, authUser) {
   return null;
 }
 
+/**
+ * Workspace rows for legacy GET /api/settings/workspaces (name/display_name/column drift).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+async function fetchWorkspaceRowsForSettingsApi(db) {
+  const attempts = [
+    `SELECT id, COALESCE(NULLIF(TRIM(display_name), ''), NULLIF(TRIM(name), ''), id) AS name, category, brand
+     FROM workspaces WHERE id LIKE 'ws_%' ORDER BY 2`,
+    `SELECT id, name, category, brand FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name`,
+    `SELECT id, name, category FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name`,
+    `SELECT id, display_name AS name, category, NULL AS brand FROM workspaces WHERE id LIKE 'ws_%' ORDER BY display_name`,
+  ];
+  for (const sql of attempts) {
+    try {
+      const res = await db.prepare(sql).all();
+      return res.results || [];
+    } catch (e) {
+      const msg = String(e?.message || e || '');
+      if (msg.includes('no such column')) continue;
+      throw e;
+    }
+  }
+  return [];
+}
+
 function parseJsonSafe(str, fallback = {}) {
   if (str == null || str === '') return { ...fallback };
   try {
@@ -527,43 +552,59 @@ export async function handleSettingsRequest(request, env, ctx) {
         });
       }
       try {
-        const [wsRows, rows, us] = await Promise.all([
-          (async () => {
-            try {
-              const res = await env.DB.prepare("SELECT id, name, category, brand FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name").all();
-              return res.results || [];
-            } catch (e) {
-              if (String(e?.message || '').includes('no such column: brand')) {
-                const res = await env.DB.prepare("SELECT id, name, category FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name").all();
-                return res.results || [];
-              }
-              throw e;
-            }
-          })(),
-          (async () => {
-            try {
+        const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
+
+        const loadUws = async (uid) => {
+          try {
+            const res = await env.DB.prepare(
+              'SELECT workspace_id, brand, plans, budget, time, theme FROM user_workspace_settings WHERE user_id = ?',
+            )
+              .bind(uid)
+              .all();
+            return res.results || [];
+          } catch (e) {
+            if (String(e?.message || '').includes('no such column: theme')) {
               const res = await env.DB.prepare(
-                'SELECT workspace_id, brand, plans, budget, time, theme FROM user_workspace_settings WHERE user_id = ?'
-              ).bind(sessionUserId).all();
+                'SELECT workspace_id, brand, plans, budget, time FROM user_workspace_settings WHERE user_id = ?',
+              )
+                .bind(uid)
+                .all();
               return res.results || [];
-            } catch (e) {
-              if (String(e?.message || '').includes('no such column: theme')) {
-                const res = await env.DB.prepare(
-                  'SELECT workspace_id, brand, plans, budget, time FROM user_workspace_settings WHERE user_id = ?'
-                ).bind(sessionUserId).all();
-                return res.results || [];
-              }
-              throw e;
             }
-          })(),
-          (async () => {
-            try {
-              return await env.DB.prepare('SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1').bind(sessionUserId).first();
-            } catch (e) {
-              return null;
-            }
-          })(),
+            throw e;
+          }
+        };
+
+        const [wsRows, rowsPrimary, usPrimary] = await Promise.all([
+          fetchWorkspaceRowsForSettingsApi(env.DB),
+          loadUws(sessionUserId),
+          env.DB.prepare('SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1')
+            .bind(sessionUserId)
+            .first()
+            .catch(() => null),
         ]);
+
+        let rows = rowsPrimary;
+        if (
+          rows.length === 0 &&
+          canonicalUserId &&
+          String(canonicalUserId).trim() !== String(sessionUserId).trim()
+        ) {
+          rows = await loadUws(String(canonicalUserId).trim());
+        }
+
+        let us = usPrimary;
+        if (
+          (!us?.default_workspace_id || String(us.default_workspace_id).trim() === '') &&
+          canonicalUserId &&
+          String(canonicalUserId).trim() !== String(sessionUserId).trim()
+        ) {
+          const u2 = await env.DB.prepare('SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1')
+            .bind(String(canonicalUserId).trim())
+            .first()
+            .catch(() => null);
+          if (u2?.default_workspace_id) us = u2;
+        }
 
         const workspaces = {};
         const workspaceThemes = {};
