@@ -1,0 +1,102 @@
+{
+  "course_id": "course_software_engineering_builder_os",
+  "course_slug": "software-engineering-builder-os",
+  "course_title": "Software Engineering Builder OS",
+  "r2_bucket": "inneranimalmedia",
+  "r2_prefix": "learn/software-engineering-builder-os/",
+  "public_base_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/",
+  "generated_at": "2026-05-07 06:37:54 UTC",
+  "lesson_count": 10,
+  "lessons": [
+    {
+      "lesson_id": "lesson_sebo_001_software_engineering_map",
+      "module_id": "module_sebo_foundations",
+      "title": "The Software Engineering Map: How Modern Apps Actually Fit Together",
+      "slug": "software-engineering-map",
+      "estimated_minutes": 75,
+      "markdown_path": "lessons/001_software-engineering-map.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/001_software-engineering-map.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_002_terminal_command_line",
+      "module_id": "module_sebo_terminal_ide_git",
+      "title": "Terminal Mastery: Commands, Files, Paths, Processes, and Safe Execution",
+      "slug": "terminal-command-line",
+      "estimated_minutes": 90,
+      "markdown_path": "lessons/002_terminal-command-line.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/002_terminal-command-line.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_003_ide_workflow_monaco_cursor",
+      "module_id": "module_sebo_terminal_ide_git",
+      "title": "IDE Workflow: Monaco, Cursor, File Trees, Search, Refactors, and Review Loops",
+      "slug": "ide-workflow-monaco-cursor",
+      "estimated_minutes": 100,
+      "markdown_path": "lessons/003_ide-workflow-monaco-cursor.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/003_ide-workflow-monaco-cursor.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_004_git_github_repo_hygiene",
+      "module_id": "module_sebo_terminal_ide_git",
+      "title": "Git and GitHub: Branches, Commits, Pull Requests, Rollback Thinking, and Repo Hygiene",
+      "slug": "git-github-repo-hygiene",
+      "estimated_minutes": 105,
+      "markdown_path": "lessons/004_git-github-repo-hygiene.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/004_git-github-repo-hygiene.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_005_frontend_react_dashboard_ux",
+      "module_id": "module_sebo_frontend_ux",
+      "title": "Frontend Foundations: React, Routes, Components, State, and Dashboard UX",
+      "slug": "frontend-react-dashboard-ux",
+      "estimated_minutes": 120,
+      "markdown_path": "lessons/005_frontend-react-dashboard-ux.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/005_frontend-react-dashboard-ux.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_006_cloudflare_workers_runtime",
+      "module_id": "module_sebo_cloudflare_runtime",
+      "title": "Cloudflare Runtime: Workers, Routes, Bindings, Wrangler, and Deployment Flow",
+      "slug": "cloudflare-workers-runtime",
+      "estimated_minutes": 130,
+      "markdown_path": "lessons/006_cloudflare-workers-runtime.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/006_cloudflare-workers-runtime.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_007_data_storage_d1_r2_hyperdrive_supabase",
+      "module_id": "module_sebo_data_storage",
+      "title": "Data and Storage: D1, SQLite, R2, KV, Durable Objects, Hyperdrive, and Supabase",
+      "slug": "data-storage-d1-r2-hyperdrive-supabase",
+      "estimated_minutes": 150,
+      "markdown_path": "lessons/007_data-storage-d1-r2-hyperdrive-supabase.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/007_data-storage-d1-r2-hyperdrive-supabase.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_008_ai_engineering_agent_sam_routing",
+      "module_id": "module_sebo_ai_agents",
+      "title": "AI Engineering: OpenAI, Claude, Gemini, Workers AI, Routing, Cost, and Agent Sam",
+      "slug": "ai-engineering-agent-sam-routing",
+      "estimated_minutes": 135,
+      "markdown_path": "lessons/008_ai-engineering-agent-sam-routing.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/008_ai-engineering-agent-sam-routing.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_009_database_studio_workbench",
+      "module_id": "module_sebo_database_studio",
+      "title": "Database Studio: Building an In-House D1, SQLite, Hyperdrive, and Supabase Workbench",
+      "slug": "database-studio-workbench",
+      "estimated_minutes": 160,
+      "markdown_path": "lessons/009_database-studio-workbench.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/009_database-studio-workbench.md"
+    },
+    {
+      "lesson_id": "lesson_sebo_010_capstone_ship_review_measure",
+      "module_id": "module_sebo_shipping_quality",
+      "title": "Capstone: Ship, Test, Review, Measure, and Improve a Real Dashboard Feature",
+      "slug": "capstone-ship-review-measure",
+      "estimated_minutes": 180,
+      "markdown_path": "lessons/010_capstone-ship-review-measure.md",
+      "content_url": "https://assets.inneranimalmedia.com/learn/software-engineering-builder-os/lessons/010_capstone-ship-review-measure.md"
+    }
+  ]
+}
