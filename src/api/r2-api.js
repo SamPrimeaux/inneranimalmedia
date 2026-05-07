@@ -5,6 +5,12 @@
  */
 
 import { getAuthUser, jsonResponse } from '../core/auth';
+import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
+
+/** Primary dashboard asset bucket (logical name); bindings may alias legacy names to the same bucket. */
+function isDashboardMediaBucket(name) {
+  return name === 'inneranimalmedia' || name === 'inneranimalmedia-assets';
+}
 import { insertAiGenerationLog } from './telemetry';
 
 /**
@@ -167,7 +173,22 @@ export async function handleR2Api(request, url, env) {
     if (!bucket) return jsonResponse({ error: 'bucket required' }, 400);
     const binding = getR2Binding(env, bucket);
     if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 400);
-    
+
+    if (
+      isDashboardMediaBucket(bucket) &&
+      (key.startsWith('users/') ||
+        key.startsWith('workspace-media/') ||
+        key.startsWith('uploads/') ||
+        key.startsWith('media/') ||
+        key.startsWith('captures/'))
+    ) {
+      const authUser = await getAuthUser(request, env);
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!(await canAccessMediaObjectKey(env, authUser, key))) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+    }
+
     const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
     const body = await request.arrayBuffer();
     await binding.put(key, body, { httpMetadata: { contentType } });
@@ -187,6 +208,21 @@ export async function handleR2Api(request, url, env) {
     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
     const binding = getR2Binding(env, bucket);
     if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 400);
+
+    if (
+      isDashboardMediaBucket(bucket) &&
+      (key.startsWith('users/') ||
+        key.startsWith('workspace-media/') ||
+        key.startsWith('uploads/') ||
+        key.startsWith('media/') ||
+        key.startsWith('captures/'))
+    ) {
+      const authUser = await getAuthUser(request, env);
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!(await canAccessMediaObjectKey(env, authUser, key))) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+    }
     await binding.delete(key);
     return jsonResponse({ deleted: true, bucket, key });
   }
@@ -219,6 +255,20 @@ export async function handleR2Api(request, url, env) {
     
     if (method === 'GET') {
       if (binding) {
+        if (
+          isDashboardMediaBucket(name) &&
+          (key.startsWith('users/') ||
+            key.startsWith('workspace-media/') ||
+            key.startsWith('uploads/') ||
+            key.startsWith('media/') ||
+            key.startsWith('captures/'))
+        ) {
+          const authUser = await getAuthUser(request, env);
+          if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+          if (!(await canAccessMediaObjectKey(env, authUser, key))) {
+            return jsonResponse({ error: 'Forbidden' }, 403);
+          }
+        }
         const obj = await binding.get(key);
         if (!obj) return jsonResponse({ error: 'Not found' }, 404);
         const headers = new Headers();
@@ -233,6 +283,20 @@ export async function handleR2Api(request, url, env) {
     
     if (method === 'PUT') {
       if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 404);
+      if (
+        isDashboardMediaBucket(name) &&
+        (key.startsWith('users/') ||
+          key.startsWith('workspace-media/') ||
+          key.startsWith('uploads/') ||
+          key.startsWith('media/') ||
+          key.startsWith('captures/'))
+      ) {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        if (!(await canAccessMediaObjectKey(env, authUser, key))) {
+          return jsonResponse({ error: 'Forbidden' }, 403);
+        }
+      }
       const ct = request.headers.get('Content-Type') || getContentTypeFromKey(key) || 'application/octet-stream';
       const buf = await request.arrayBuffer();
       await binding.put(key, buf, { httpMetadata: { contentType: ct } });

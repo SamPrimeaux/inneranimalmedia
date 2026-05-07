@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Upload, Trash2, Copy, ExternalLink, X, Search,
-  ChevronLeft, ChevronRight, ImageIcon, Star, SlidersHorizontal,
-  RefreshCw, Eye, AlertCircle, CheckCircle, Filter
+  ChevronLeft, ChevronRight, ImageIcon,
+  RefreshCw, Eye, AlertCircle, CheckCircle, Filter,
+  SlidersHorizontal, FileArchive
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,6 +18,8 @@ interface ImageMeta {
 
 interface CfImage {
   id: string;
+  kind?: 'image' | 'artifact';
+  r2_key?: string;
   filename?: string;
   uploaded?: string;
   url?: string;
@@ -57,11 +60,31 @@ function useToast() {
   return { toasts, add };
 }
 
+type ImagesApiSource = 'r2' | 'cf' | '';
+type ListMode = 'images' | 'media';
+
+function imagesListUrl(workspaceId?: string | null, mode: ListMode = 'images') {
+  const params = new URLSearchParams();
+  params.set('per_page', '1000');
+  if (mode === 'media') params.set('mode', 'media');
+  const ws = workspaceId?.trim();
+  if (ws) params.set('workspace_id', ws);
+  return `/api/images?${params.toString()}`;
+}
+
+function imagesMutationUrl(workspaceId?: string | null) {
+  const ws = workspaceId?.trim();
+  return ws ? `/api/images?workspace_id=${encodeURIComponent(ws)}` : '/api/images';
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function ImagesPage() {
+export type ImagesPageProps = { workspaceId?: string | null };
+
+export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const [images, setImages] = useState<CfImage[]>([]);
   const [accountHash, setAccountHash] = useState('');
+  const [imageSource, setImageSource] = useState<ImagesApiSource>('');
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -73,6 +96,7 @@ export function ImagesPage() {
   const [detail, setDetail] = useState<CfImage | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [listMode, setListMode] = useState<ListMode>('images');
   const { toasts, add: toast } = useToast();
 
   // ── Fetch images ─────────────────────────────────────────────────────────
@@ -81,17 +105,22 @@ export function ImagesPage() {
     setLoading(true);
     setError('');
     try {
-      const r = await fetch('/api/images?per_page=1000', { credentials: 'same-origin' });
+      const r = await fetch(imagesListUrl(workspaceId, listMode), { credentials: 'same-origin' });
       const d = await r.json();
-      if (d.error) { setError(d.error); return; }
+      if (d.error) {
+        setError(d.error);
+        setImageSource((d.source === 'r2' ? 'r2' : d.source === 'cf' ? 'cf' : '') as ImagesApiSource);
+        return;
+      }
       setImages(d.images || []);
       if (d.accountHash) setAccountHash(d.accountHash);
+      setImageSource((d.source === 'r2' ? 'r2' : d.source === 'cf' ? 'cf' : '') as ImagesApiSource);
     } catch (e: any) {
       setError('Network error: ' + e.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [workspaceId, listMode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -109,7 +138,8 @@ export function ImagesPage() {
     if (tenantFilter !== 'all') list = list.filter(i => i.meta?.tenant_slug === tenantFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter(i => (i.filename || i.id || '').toLowerCase().includes(q));
+      list = list.filter(i =>
+        (i.filename || i.id || i.r2_key || '').toLowerCase().includes(q));
     }
     if (sort === 'newest') list.sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || ''));
     else if (sort === 'oldest') list.sort((a, b) => (a.uploaded || '').localeCompare(b.uploaded || ''));
@@ -122,7 +152,7 @@ export function ImagesPage() {
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
 
   // reset page on filter change
-  useEffect(() => setPage(1), [sort, tenantFilter, search, perPage]);
+  useEffect(() => setPage(1), [sort, tenantFilter, search, perPage, listMode]);
 
   // ── Delete ────────────────────────────────────────────────────────────────
 
@@ -188,13 +218,32 @@ export function ImagesPage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
           <ImageIcon size={18} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />
-          <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: '0.02em' }}>Images</span>
+          <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: '0.02em' }}>
+            Media library
+          </span>
           {!loading && (
-            <span style={{
-              fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)', borderRadius: 999,
-              padding: '1px 8px', marginLeft: 4
-            }}>{filtered.length} total</span>
+            <>
+              <span style={{
+                fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-subtle)', borderRadius: 999,
+                padding: '1px 8px', marginLeft: 4
+              }}>{filtered.length} total</span>
+              {imageSource === 'r2' && (
+                <span title="Bucket inneranimalmedia — proxied via /api/r2 while CLOUDFLARE_IMAGES is unavailable."
+                  style={{
+                    fontSize: 10, color: 'var(--solar-cyan)', background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-subtle)', borderRadius: 999,
+                    padding: '1px 8px'
+                  }}>R2</span>
+              )}
+              {listMode === 'media' && (
+                <span style={{
+                  fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-subtle)', borderRadius: 999,
+                  padding: '1px 8px'
+                }}>captures & logs</span>
+              )}
+            </>
           )}
         </div>
 
@@ -216,6 +265,20 @@ export function ImagesPage() {
             }}
           />
         </div>
+
+        <select
+          value={listMode}
+          onChange={e => setListMode(e.target.value as ListMode)}
+          title="Images only, or include Playwright/theme-debug artifacts (zip, har, jsonl, webm…)"
+          style={{
+            padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-subtle)',
+            background: 'var(--bg-elevated)', color: 'var(--text-main)',
+            fontSize: 12, cursor: 'pointer', maxWidth: 200
+          }}
+        >
+          <option value="images">Images only</option>
+          <option value="media">Images + captures</option>
+        </select>
 
         {/* Filter toggle */}
         <button
@@ -313,9 +376,11 @@ export function ImagesPage() {
           }}>
             <AlertCircle size={15} />
             {error}
-            <span style={{ fontSize: 11, opacity: 0.8, marginLeft: 4 }}>
-              Ensure CLOUDFLARE_IMAGES_TOKEN has Images: Edit permission.
-            </span>
+            {imageSource !== 'r2' && (
+              <span style={{ fontSize: 11, opacity: 0.8, marginLeft: 4 }}>
+                Ensure CLOUDFLARE_IMAGES_TOKEN has Images: Edit permission.
+              </span>
+            )}
           </div>
         )}
 
@@ -343,8 +408,12 @@ export function ImagesPage() {
             color: 'var(--text-muted)'
           }}>
             <ImageIcon size={40} strokeWidth={1} style={{ opacity: 0.3 }} />
-            <span style={{ fontSize: 14 }}>
-              {images.length === 0 ? 'No images yet. Upload a file or paste a URL.' : 'No images match your filters.'}
+            <span style={{ fontSize: 14, textAlign: 'center', maxWidth: 420 }}>
+              {images.length === 0
+                ? (listMode === 'media'
+                  ? 'No media in this workspace scope yet. Theme-debug bundles use captures/theme-debug/… (superadmin). Workspace uploads land under uploads/{workspace}/images/, captures under captures/{workspace}/….'
+                  : 'No images yet. Upload a file or paste an image URL (stored in R2). Switch to “Images + captures” to see traces, HAR, jsonl, and zip bundles.')
+                : 'No items match your filters.'}
             </span>
           </div>
         )}
@@ -358,6 +427,7 @@ export function ImagesPage() {
           }}>
             {paginated.map(img => {
               const url = imgUrl(img);
+              const isArtifact = img.kind === 'artifact';
               const isDark = img.meta?.preferred_bg === 'dark';
               const isLive = img.meta?.is_live;
               return (
@@ -393,7 +463,7 @@ export function ImagesPage() {
                     background: 'var(--bg-app)', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', overflow: 'hidden'
                   }}>
-                    {url ? (
+                    {!isArtifact && url ? (
                       <img
                         src={img.thumbnail || url}
                         alt={img.filename || img.id}
@@ -401,6 +471,16 @@ export function ImagesPage() {
                         style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
                         onError={e => { (e.target as HTMLImageElement).style.opacity = '0'; }}
                       />
+                    ) : isArtifact ? (
+                      <div style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        justifyContent: 'center', gap: 6, color: 'var(--text-muted)'
+                      }}>
+                        <FileArchive size={28} strokeWidth={1.25} />
+                        <span style={{ fontSize: 10, textAlign: 'center', padding: '0 8px', lineHeight: 1.3 }}>
+                          {img.filename || 'File'}
+                        </span>
+                      </div>
                     ) : (
                       <ImageIcon size={24} style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
                     )}
@@ -437,7 +517,7 @@ export function ImagesPage() {
               <ChevronLeft size={14} />
             </button>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Page {page} of {totalPages} · {filtered.length} images
+              Page {page} of {totalPages} · {filtered.length} {listMode === 'media' ? 'items' : 'images'}
             </span>
             <button
               disabled={page >= totalPages}
@@ -455,7 +535,6 @@ export function ImagesPage() {
         <DetailModal
           img={detail}
           url={imgUrl(detail)}
-          accountHash={accountHash}
           onClose={() => setDetail(null)}
           onDelete={deleteImage}
           onSaveMeta={saveMeta}
@@ -466,6 +545,7 @@ export function ImagesPage() {
       {/* Upload Modal */}
       {uploadOpen && (
         <UploadModal
+          workspaceId={workspaceId}
           onClose={() => setUploadOpen(false)}
           onUploaded={img => { setImages(p => [img, ...p]); setUploadOpen(false); toast('Uploaded: ' + (img.filename || img.id)); }}
           onError={msg => toast(msg, 'err')}
@@ -498,15 +578,15 @@ export function ImagesPage() {
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function DetailModal({ img, url, accountHash, onClose, onDelete, onSaveMeta, onUpdated }: {
+function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onUpdated }: {
   img: CfImage;
   url: string;
-  accountHash: string;
   onClose: () => void;
   onDelete: (img: CfImage) => void;
   onSaveMeta: (img: CfImage, payload: ImageMeta) => Promise<boolean>;
   onUpdated: (img: CfImage) => void;
 }) {
+  const isArtifact = img.kind === 'artifact';
   const [label, setLabel] = useState(img.meta?.label || '');
   const [isLive, setIsLive] = useState(!!img.meta?.is_live);
   const [darkBg, setDarkBg] = useState(img.meta?.preferred_bg === 'dark');
@@ -553,9 +633,21 @@ function DetailModal({ img, url, accountHash, onClose, onDelete, onSaveMeta, onU
           marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
           minHeight: 180
         }}>
-          {url ? (
+          {!isArtifact && url ? (
             <img src={url} alt={img.filename || img.id}
               style={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', display: 'block' }} />
+          ) : isArtifact ? (
+            <div style={{
+              padding: 24, textAlign: 'center', color: 'var(--text-muted)'
+            }}>
+              <FileArchive size={40} strokeWidth={1.25} style={{ marginBottom: 12, opacity: 0.85 }} />
+              <div style={{ fontSize: 12, marginBottom: 8 }}>Artifact / capture — preview not shown here.</div>
+              {img.r2_key && (
+                <code style={{ fontSize: 10, wordBreak: 'break-all', display: 'block', color: 'var(--text-muted)' }}>
+                  {img.r2_key}
+                </code>
+              )}
+            </div>
           ) : (
             <ImageIcon size={48} style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
           )}
@@ -619,8 +711,13 @@ function DetailModal({ img, url, accountHash, onClose, onDelete, onSaveMeta, onU
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={copyUrl} style={actionBtnStyle('var(--bg-hover)', 'var(--text-main)')}>
-            <Copy size={13} />{copied ? 'Copied!' : 'Copy URL'}
+          {img.r2_key && (
+          <button type="button" onClick={() => navigator.clipboard?.writeText(img.r2_key!)} style={actionBtnStyle('var(--bg-hover)', 'var(--text-main)')}>
+            <Copy size={13} />Copy R2 key
+          </button>
+          )}
+          <button type="button" onClick={copyUrl} style={actionBtnStyle('var(--bg-hover)', 'var(--text-main)')}>
+            <Copy size={13} />{copied ? 'Copied!' : 'Copy proxy URL'}
           </button>
           <a href={url} target="_blank" rel="noopener"
             style={{ ...actionBtnStyle('var(--bg-hover)', 'var(--text-main)'), textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -645,7 +742,8 @@ function DetailModal({ img, url, accountHash, onClose, onDelete, onSaveMeta, onU
 
 // ── Upload Modal ──────────────────────────────────────────────────────────────
 
-function UploadModal({ onClose, onUploaded, onError }: {
+function UploadModal({ workspaceId, onClose, onUploaded, onError }: {
+  workspaceId?: string | null;
   onClose: () => void;
   onUploaded: (img: CfImage) => void;
   onError: (msg: string) => void;
@@ -661,8 +759,9 @@ function UploadModal({ onClose, onUploaded, onError }: {
     setBusy(true); setStatus('Uploading…');
     try {
       let r: Response;
+      const base = imagesMutationUrl(workspaceId);
       if (urlInput.trim()) {
-        r = await fetch('/api/images', {
+        r = await fetch(base, {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: urlInput.trim() })
@@ -670,7 +769,7 @@ function UploadModal({ onClose, onUploaded, onError }: {
       } else {
         const fd = new FormData();
         fd.append('file', file!);
-        r = await fetch('/api/images', { method: 'POST', credentials: 'same-origin', body: fd });
+        r = await fetch(base, { method: 'POST', credentials: 'same-origin', body: fd });
       }
       const d = await r.json();
       if (d.ok && d.image) { onUploaded(d.image); }
