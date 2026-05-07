@@ -55,6 +55,9 @@ analytics/deploys/
 # R2 asset URL dumps (local inventory exports)
 *-r2-asset-urls.txt
 
+# Local artifacts (Playwright bundles, HAR/trace/session material, etc.)
+artifacts/
+
 # IAM quality artifacts - stored in R2, not Git
 captures/*/results/
 captures/*/raw-playwright-report/
