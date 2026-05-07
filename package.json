@@ -57,7 +57,11 @@
     "agentsam:scripts:register:dry-run": "./scripts/with-cloudflare-env.sh node scripts/register-agentsam-scripts.mjs --dry-run",
     "agentsam:scripts:register": "./scripts/with-cloudflare-env.sh node scripts/register-agentsam-scripts.mjs --apply",
     "agentsam:scripts:upload-r2:dry-run": "./scripts/with-cloudflare-env.sh node scripts/upload-agentsam-shell-scripts-r2.mjs --dry-run",
-    "agentsam:scripts:upload-r2": "./scripts/with-cloudflare-env.sh node scripts/upload-agentsam-shell-scripts-r2.mjs"
+    "agentsam:scripts:upload-r2": "./scripts/with-cloudflare-env.sh node scripts/upload-agentsam-shell-scripts-r2.mjs",
+    "theme:package": "node scripts/themes/generate-theme-package.mjs",
+    "theme:preview": "node scripts/themes/generate-theme-previews.mjs",
+    "theme:preview:all": "node scripts/themes/generate-theme-previews.mjs --all-active",
+    "theme:preview:upload": "node scripts/themes/generate-theme-previews.mjs --all-active --upload-r2 --remote"
   },
   "keywords": [],
   "author": "",

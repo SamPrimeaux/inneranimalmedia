@@ -3,11 +3,54 @@
  */
 import { fetchAuthUserTenantId } from "./auth.js";
 
+function parseWorkspaceSettingsJson(settingsJson) {
+  if (settingsJson == null || settingsJson === "") return {};
+  try {
+    return typeof settingsJson === "string" ? JSON.parse(settingsJson) : settingsJson;
+  } catch {
+    return {};
+  }
+}
+
 /**
+ * Whether theme packaging may upload to the platform ASSETS (R2) bucket (InnerAnimalMedia CDN path).
+ * Eligibility: env allowlists (`CMS_THEME_PLATFORM_WORKSPACE_IDS`, `CMS_THEME_PLATFORM_TENANT_IDS`)
+ * or workspace `settings_json.cms_pipeline` (`platform_r2_upload` / `storage_output: platform_r2`).
+ * No hardcoded workspace or tenant IDs.
+ *
  * @param {any} env
- * @param {any} authUser
- * @param {string} workspaceId
+ * @param {string | undefined} workspaceId
+ * @param {string | undefined} tenantId
  */
+export async function canUsePlatformAssetsR2Upload(env, workspaceId, tenantId) {
+  if (!env?.ASSETS || typeof env.ASSETS.put !== "function") return false;
+  const wid = String(workspaceId || "").trim();
+  const tid = String(tenantId || "").trim();
+  const envWs = String(env.CMS_THEME_PLATFORM_WORKSPACE_IDS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (wid && envWs.includes(wid)) return true;
+  const envTn = String(env.CMS_THEME_PLATFORM_TENANT_IDS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (tid && envTn.includes(tid)) return true;
+  if (!wid || !env.DB) return false;
+  try {
+    const row = await env.DB.prepare(`SELECT settings_json FROM workspaces WHERE id = ? LIMIT 1`)
+      .bind(wid)
+      .first();
+    const j = parseWorkspaceSettingsJson(row?.settings_json);
+    const pipe = j.cms_pipeline && typeof j.cms_pipeline === "object" ? j.cms_pipeline : {};
+    if (pipe.platform_r2_upload === true) return true;
+    if (String(pipe.storage_output || "").trim() === "platform_r2") return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 export async function userCanAccessWorkspace(env, authUser, workspaceId) {
   if (!env?.DB || !authUser || !workspaceId) return false;
   const wid = String(workspaceId).trim();
