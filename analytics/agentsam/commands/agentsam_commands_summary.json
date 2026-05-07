@@ -1,0 +1,2382 @@
+[
+  {
+    "category": "browser",
+    "subcategory": "session",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 6
+  },
+  {
+    "category": "browser",
+    "subcategory": "session",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "ci_cd",
+    "subcategory": "builds",
+    "task_type": "deploy",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "ci_cd",
+    "subcategory": "builds",
+    "task_type": "deploy",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 5
+  },
+  {
+    "category": "ci_cd",
+    "subcategory": "triggers",
+    "task_type": "deploy",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "ci_cd",
+    "subcategory": "triggers",
+    "task_type": "deploy",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "ci_cd",
+    "subcategory": "triggers",
+    "task_type": "deploy",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "ci_cd",
+    "subcategory": "triggers",
+    "task_type": "deploy",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "healthchecks",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "healthchecks",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 4
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "healthchecks",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "images",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "images",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "images",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 4
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "images",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "realtime",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "realtime",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "cloudflare",
+    "subcategory": "realtime",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "cms",
+    "subcategory": "themes",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 4
+  },
+  {
+    "category": "d1",
+    "subcategory": "backup",
+    "task_type": "sql_d1_generation",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "d1",
+    "subcategory": "backup",
+    "task_type": "sql_d1_generation",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "d1",
+    "subcategory": "database",
+    "task_type": "sql_d1_generation",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "d1",
+    "subcategory": "database",
+    "task_type": "sql_d1_generation",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "d1",
+    "subcategory": "database",
+    "task_type": "sql_d1_generation",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "d1",
+    "subcategory": "execute",
+    "task_type": "sql_d1_generation",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "d1",
+    "subcategory": "insights",
+    "task_type": "sql_d1_generation",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "d1",
+    "subcategory": "migrations",
+    "task_type": "sql_d1_generation",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "d1",
+    "subcategory": "migrations",
+    "task_type": "sql_d1_generation",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "d1",
+    "subcategory": "restore",
+    "task_type": "sql_d1_generation",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "d1",
+    "subcategory": "restore",
+    "task_type": "sql_d1_generation",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "designstudio",
+    "subcategory": "asset",
+    "task_type": "plan",
+    "risk_level": "medium",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "designstudio",
+    "subcategory": "blueprint",
+    "task_type": "plan",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "designstudio",
+    "subcategory": "openscad",
+    "task_type": "plan",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "designstudio",
+    "subcategory": "sketch",
+    "task_type": "plan",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "designstudio",
+    "subcategory": "terminal",
+    "task_type": "plan",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "designstudio",
+    "subcategory": "terminal",
+    "task_type": "plan",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "errors",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 0,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "errors",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "fetch",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "rpc",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "storage",
+    "task_type": "code",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "storage",
+    "task_type": "code",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "storage",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "durable_object",
+    "subcategory": "websocket",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "hyperdrive",
+    "subcategory": "config",
+    "task_type": "code",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "hyperdrive",
+    "subcategory": "config",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "hyperdrive",
+    "subcategory": "config",
+    "task_type": "code",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "kv",
+    "subcategory": "bulk",
+    "task_type": "code",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "bulk",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "bulk",
+    "task_type": "code",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "key",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "key",
+    "task_type": "code",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "kv",
+    "subcategory": "key",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "namespace",
+    "task_type": "code",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "namespace",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "namespace",
+    "task_type": "code",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "kv",
+    "subcategory": "namespace",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "meauxcad",
+    "subcategory": "analytics",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "meauxcad",
+    "subcategory": "cad-code",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "meauxcad",
+    "subcategory": "concept",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "meauxcad",
+    "subcategory": "export",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "meauxcad",
+    "subcategory": "generation",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "config",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "deploy",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "deployment",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "deployment",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "pages",
+    "subcategory": "dev",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "functions",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "project",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "project",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "project",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "pages",
+    "subcategory": "secrets",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "pages",
+    "subcategory": "secrets",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "queues",
+    "subcategory": "consumer",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "queues",
+    "subcategory": "consumer-http",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "queues",
+    "subcategory": "consumer-worker",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "queues",
+    "subcategory": "delivery",
+    "task_type": "code",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "queues",
+    "subcategory": "delivery",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "queues",
+    "subcategory": "delivery",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "queues",
+    "subcategory": "queue",
+    "task_type": "code",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "queues",
+    "subcategory": "queue",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "queues",
+    "subcategory": "queue",
+    "task_type": "code",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "queues",
+    "subcategory": "queue",
+    "task_type": "code",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "queues",
+    "subcategory": "subscription",
+    "task_type": "code",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "queues",
+    "subcategory": "subscription",
+    "task_type": "code",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "r2",
+    "subcategory": "bucket",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "bucket",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "r2",
+    "subcategory": "bucket",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "catalog",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "catalog",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "catalog",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 5
+  },
+  {
+    "category": "r2",
+    "subcategory": "cors",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "cors",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "cors",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "domain",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "r2",
+    "subcategory": "domain",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "r2",
+    "subcategory": "domain",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "lifecycle",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "r2",
+    "subcategory": "lifecycle",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "lifecycle",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "lock",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "r2",
+    "subcategory": "lock",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "notification",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "notification",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "notification",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "object",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "public-access",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "public-access",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "public-access",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "sippy",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "sippy",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "r2",
+    "subcategory": "sippy",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "livestream_analytics",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "livestreams",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "livestreams",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 5
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "livestreams",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "meetings",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "meetings",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "meetings",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "participants",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "participants",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "participants",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "webhooks",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "webhooks",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "webhooks",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "realtime_kit",
+    "subcategory": "webhooks",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "recipients",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "recipients",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "recipients",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "resources",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "resources",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "resources",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "shares",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "shares",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "resource_sharing",
+    "subcategory": "shares",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "securitytxt",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "securitytxt",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "securitytxt",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "token_validation_config",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "token_validation_config",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "token_validation_config",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "token_validation_rules",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "token_validation_rules",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 4
+  },
+  {
+    "category": "security",
+    "subcategory": "token_validation_rules",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "url_scanner",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 6
+  },
+  {
+    "category": "security",
+    "subcategory": "url_scanner",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner_creds",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner_creds",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner_creds",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner_env",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner_env",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner_env",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "security",
+    "subcategory": "vuln_scanner_env",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "ssl_tls",
+    "subcategory": "keyless_certificates",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "ssl_tls",
+    "subcategory": "keyless_certificates",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "system",
+    "subcategory": "auth",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "system",
+    "subcategory": "auth",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "system",
+    "subcategory": "auth",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "system",
+    "subcategory": "docs",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "system",
+    "subcategory": "shell",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "system",
+    "subcategory": "telemetry",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "tunnel",
+    "subcategory": "core",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "tunnel",
+    "subcategory": "core",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "tunnel",
+    "subcategory": "core",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "tunnel",
+    "subcategory": "runtime",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "vpc",
+    "subcategory": "service",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "vpc",
+    "subcategory": "service",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "vpc",
+    "subcategory": "service",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "worker",
+    "subcategory": "deploy",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "deploy",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "deployments",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "deployments",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "worker",
+    "subcategory": "dev",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "logs",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "project",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "project",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "secrets",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "worker",
+    "subcategory": "secrets",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "triggers",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "versions",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "versions",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "worker",
+    "subcategory": "versions",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "worker",
+    "subcategory": "versions-secrets",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "workers_ai",
+    "subcategory": "discovery",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 4
+  },
+  {
+    "category": "workers_ai",
+    "subcategory": "finetunes",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "workers_ai",
+    "subcategory": "finetunes",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "workers_ai",
+    "subcategory": "inference",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "workers_ai",
+    "subcategory": "tomarkdown",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "workers_ai",
+    "subcategory": "tomarkdown",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "workflow",
+    "subcategory": "general",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "access_apps",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "access_apps",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "access_apps",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "device_policy",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "device_policy",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "device_policy",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "devices",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "devices",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "devices",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "dex_tests",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "dex_tests",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "dex_tests",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "dlp",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "dlp",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "dlp",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 3
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "fleet_status",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "identity_providers",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "identity_providers",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "identity_providers",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "keys",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "keys",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "logs",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "mcp_portals",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "mcp_portals",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "mcp_portals",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "mcp_servers",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "mcp_servers",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "mcp_servers",
+    "task_type": "tool_use",
+    "risk_level": "medium",
+    "requires_confirmation": 1,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "organization",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "organization",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "posture",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "posture",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "posture",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "registrations",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "registrations",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "registrations",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "resilience",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "resilience",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "service_tokens",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "service_tokens",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "service_tokens",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "tunnels",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 2
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "tunnels",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "warp_connector",
+    "task_type": "tool_use",
+    "risk_level": "critical",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "warp_connector",
+    "task_type": "tool_use",
+    "risk_level": "high",
+    "requires_confirmation": 1,
+    "requires_approval": 1,
+    "execution_mode": "agent",
+    "command_count": 1
+  },
+  {
+    "category": "zero_trust",
+    "subcategory": "warp_connector",
+    "task_type": "tool_use",
+    "risk_level": "low",
+    "requires_confirmation": 0,
+    "requires_approval": 0,
+    "execution_mode": "agent",
+    "command_count": 1
+  }
+]
