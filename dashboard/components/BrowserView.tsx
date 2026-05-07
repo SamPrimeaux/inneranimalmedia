@@ -791,6 +791,10 @@ const BrowserPane: React.FC<PaneProps> = ({
   const iframeRef    = useRef<HTMLIFrameElement>(null);
   const areaOverRef  = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const currentUrlRef = useRef(currentUrl);
+  useEffect(() => {
+    currentUrlRef.current = currentUrl;
+  }, [currentUrl]);
 
   const inspectSameOrigin = useMemo(() => {
     try {
@@ -860,6 +864,56 @@ const BrowserPane: React.FC<PaneProps> = ({
         setDevToolsOpen(true);
         setDevToolsTab('elements');
         window.dispatchEvent(new CustomEvent('iam-browser-set-inspector', { detail: el }));
+        const urlNow = currentUrlRef.current;
+        const wid =
+          typeof window !== 'undefined'
+            ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
+            : '';
+        const wsId = wid && wid !== 'global' ? wid : null;
+        let routePath = '';
+        try {
+          routePath = new URL(urlNow).pathname;
+        } catch {
+          routePath = '';
+        }
+        const classes = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
+        const htmlText =
+          typeof el.html === 'string' ? el.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) : '';
+        const st = el.styles || {};
+        const payload = {
+          type: 'browser_element_selected',
+          workspace_id: wsId,
+          url: urlNow,
+          route_path: routePath,
+          selector: el.path || '',
+          tag: el.tag,
+          classes,
+          text: htmlText,
+          computed_styles: {
+            color: st.color,
+            font_size: st['font-size'] ?? st.fontSize,
+            font_family: st['font-family'] ?? st.fontFamily,
+            font_weight: st['font-weight'] ?? st.fontWeight,
+            background: st.background ?? st.backgroundColor,
+            width: st.width,
+            height: st.height,
+          },
+          cms_mapping: {
+            page_id: null as string | null,
+            section_id: null as string | null,
+            component_id: null as string | null,
+            asset_id: null as string | null,
+          },
+          source_mapping: {
+            provider: 'unknown',
+            path: '',
+            r2_key: '',
+            repo: '',
+            branch: '',
+          },
+        };
+        window.dispatchEvent(new CustomEvent('iam:browser-element-selected', { detail: payload }));
+        window.dispatchEvent(new CustomEvent('iam:agent-context-attach', { detail: { browser_element: payload } }));
         window.dispatchEvent(new CustomEvent('iam-agent-external-send', {
           detail: {
             message: `Inspected element: \`${el.tag}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ')[0]}` : ''}\`\n\nPath: \`${el.path}\`\n\nKey styles:\n${Object.entries(el.styles || {}).slice(0, 8).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`,

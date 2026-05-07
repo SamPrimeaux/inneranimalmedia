@@ -87,7 +87,7 @@ export default function SettingsPanel({
           />
         );
       case 'Workspace':
-        return <WorkspaceSection data={data} />;
+        return <WorkspaceSection data={data} workspaceId={workspaceId} />;
       case 'Hooks':
         return <HooksSection data={data} />;
       case 'GitHub':

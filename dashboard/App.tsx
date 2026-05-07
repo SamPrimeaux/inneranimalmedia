@@ -382,7 +382,11 @@ const App: React.FC = () => {
   }, [authWorkspaceId]);
 
   useEffect(() => {
-    const ws = authWorkspaceId?.trim() || 'ws_inneranimalmedia';
+    const ws = authWorkspaceId?.trim();
+    if (!ws) {
+      setAgentsamChatPolicy(null);
+      return;
+    }
     void fetch(`/api/settings/agents?workspace_id=${encodeURIComponent(ws)}`, { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { policy?: Record<string, unknown> } | null) => {
@@ -402,7 +406,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (location.pathname !== '/dashboard/agent') return;
-    const ws = authWorkspaceId?.trim() || 'ws_inneranimalmedia';
+    const ws = authWorkspaceId?.trim();
+    if (!ws) {
+      setWorkspaceSamState(null);
+      return;
+    }
     void fetch(`/api/agent/workspace/${encodeURIComponent(ws)}`, { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : null))
       .then((row: { state?: Record<string, unknown> } | null) => {

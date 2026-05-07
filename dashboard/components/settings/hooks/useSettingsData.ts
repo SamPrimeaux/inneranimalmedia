@@ -254,7 +254,9 @@ export function useSettingsData({
     setWorkspaceLoading2(true);
     setWorkspaceError2(null);
     try {
-      const r = await fetch('/api/settings/workspace', { credentials: 'same-origin' });
+      const ws = workspaceId?.trim();
+      const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+      const r = await fetch(`/api/settings/workspace${qp}`, { credentials: 'same-origin' });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Load failed (${r.status})`);
       setWorkspaceData(j);
@@ -264,7 +266,25 @@ export function useSettingsData({
     } finally {
       setWorkspaceLoading2(false);
     }
-  }, []);
+  }, [workspaceId]);
+
+  const patchWorkspaceCmsPipeline = useCallback(
+    async (partial: Record<string, unknown>) => {
+      const ws = workspaceId?.trim();
+      if (!ws) throw new Error('No active workspace');
+      const r = await fetch(`/api/settings/workspace?workspace_id=${encodeURIComponent(ws)}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: ws, cms_pipeline: partial }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Save failed (${r.status})`);
+      await loadWorkspace();
+      return j;
+    },
+    [workspaceId, loadWorkspace],
+  );
 
   const loadHooks = useCallback(async () => {
     setHooksLoading2(true);
@@ -921,11 +941,13 @@ export function useSettingsData({
 
   const postWorkspaceReindex = useCallback(async () => {
     try {
-      await fetch('/api/settings/workspace/reindex', { method: 'POST', credentials: 'same-origin' });
+      const ws = workspaceId?.trim();
+      const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+      await fetch(`/api/settings/workspace/reindex${qp}`, { method: 'POST', credentials: 'same-origin' });
     } finally {
       void loadWorkspace();
     }
-  }, [loadWorkspace]);
+  }, [workspaceId, loadWorkspace]);
 
   const patchHookActive = useCallback(
     async (hookId: string, v: boolean, prev: { hooks: any[]; executions: any[] } | null) => {
@@ -1106,7 +1128,7 @@ export function useSettingsData({
   useEffect(() => {
     if (activeSection !== 'Workspace') return;
     void loadWorkspace();
-  }, [activeSection, loadWorkspace]);
+  }, [activeSection, workspaceId, loadWorkspace]);
 
   useEffect(() => {
     if (activeSection !== 'Hooks') return;
@@ -1198,6 +1220,7 @@ export function useSettingsData({
     workspaceError2,
     workspaceData,
     postWorkspaceReindex,
+    patchWorkspaceCmsPipeline,
 
     hooksLoading2,
     hooksError2,

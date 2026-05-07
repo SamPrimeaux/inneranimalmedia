@@ -695,13 +695,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     agentsamPolicyRef.current = agentsamPolicy;
   }, [agentsamPolicy]);
 
-  useEffect(() => {
-    if (!agentsamPolicy) return;
-    const ar = String(agentsamPolicy.auto_run_mode || '').toLowerCase();
-    if (ar === 'disabled' || ar === 'manual') setMode('ask');
-    else if (ar === 'allowlist' || ar === 'auto') setMode('agent');
-  }, [agentsamPolicy]);
-
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -726,6 +719,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
 
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
+  /** Structured BrowserView selection — appended to next Agent Sam message as JSON context. */
+  const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);
   const totalStagedBytes = useMemo(
     () => attachments.reduce((sum, a) => sum + (a.file.size || 0), 0),
     [attachments]
@@ -756,6 +751,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
   });
   const [repoSearch, setRepoSearch] = useState('');
+
+  useEffect(() => {
+    const onBrowserSel = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object' && d.type === 'browser_element_selected') {
+        setBrowserElementContext(d);
+      }
+    };
+    window.addEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
+    return () => window.removeEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (!agentsamPolicy) return;
+    const ar = String(agentsamPolicy.auto_run_mode || '').toLowerCase();
+    if (ar === 'disabled' || ar === 'manual') setMode('ask');
+    else if (ar === 'allowlist' || ar === 'auto') setMode('agent');
+  }, [agentsamPolicy]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1363,6 +1376,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const ghCtx = githubRepoContext?.trim();
     if (ghCtx) {
       messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as the active repo in the dashboard. Prefer \`github_file\` with repo="${ghCtx}" when reading files, and direct them to the Deploy/GitHub panel to browse or open files.`;
+    }
+
+    if (browserElementContext) {
+      messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(browserElementContext, null, 2)}\n\`\`\`\n`;
+      setBrowserElementContext(null);
     }
 
     const effectiveConvId = conversationId || (() => { const id = crypto.randomUUID(); setConversationId(id); try { localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id); } catch (_) {} return id; })();
@@ -2253,6 +2271,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </div>
             </div>
           )}
+          {browserElementContext ? (
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--solar-cyan)]/25 bg-[var(--scene-bg)] px-3 py-2 text-[0.6875rem]">
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-[var(--text-heading)]">BrowserView · selected element</div>
+                <div className="text-[var(--dashboard-muted)] truncate font-mono mt-0.5">
+                  &lt;{String(browserElementContext.tag || '?')}
+                  {String(browserElementContext.selector || '').slice(0, 120)}
+                  &gt;
+                </div>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
+                onClick={() => setBrowserElementContext(null)}
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
           {attachments.length > 0 && (
             <>
               <div className="flex gap-2 overflow-x-auto pb-1 chat-hide-scroll">

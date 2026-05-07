@@ -17,6 +17,31 @@ import {
 } from '../core/bootstrap.js';
 import { handleSettingsIntegrationsApi } from './settings-integrations.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
+import { userCanAccessWorkspace, canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
+
+/** Deep-merge `cms_pipeline` into `workspaces.settings_json` (no new tables). */
+function mergeCmsPipelineIntoWorkspaceSettings(existingJson, patchPipeline) {
+  let root = {};
+  try {
+    if (existingJson != null && existingJson !== '') {
+      root = typeof existingJson === 'string' ? JSON.parse(existingJson) : existingJson;
+    }
+  } catch {
+    root = {};
+  }
+  if (!root || typeof root !== 'object' || Array.isArray(root)) root = {};
+  const prev =
+    root.cms_pipeline && typeof root.cms_pipeline === 'object' && !Array.isArray(root.cms_pipeline)
+      ? root.cms_pipeline
+      : {};
+  const merged = {
+    ...prev,
+    ...(patchPipeline && typeof patchPipeline === 'object' && !Array.isArray(patchPipeline)
+      ? patchPipeline
+      : {}),
+  };
+  return JSON.stringify({ ...root, cms_pipeline: merged });
+}
 
 const AGENTSAM_POLICY_COLS = [
   'auto_run_mode',
@@ -2398,53 +2423,183 @@ export async function handleSettingsRequest(request, env, ctx) {
 
   // ── WORKSPACE / HOOKS / SECURITY / USAGE (read surfaces) ──────────────────
   if (pathLower === '/api/settings/workspace' && method === 'GET') {
-    if (!env.DB) return jsonResponse({ workspace: null, members: [], indexJob: null });
+    if (!env.DB)
+      return jsonResponse({
+        workspace: null,
+        members: [],
+        indexJob: null,
+        workspace_id: null,
+        cms_context: null,
+        platform_r2_eligible: false,
+      });
     const tenantId = await resolveAuthTenantId(env, authUser);
+    const isSuper = Number(authUser.is_superadmin) === 1;
+    if (!tenantId && !isSuper) return jsonResponse({ error: 'Tenant required' }, 403);
+
     const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
-    if (!tenantId) return jsonResponse({ error: 'Tenant required' }, 403);
+    if (!workspaceId) {
+      return jsonResponse({
+        workspace: null,
+        members: [],
+        indexJob: null,
+        workspace_id: null,
+        cms_context: null,
+        platform_r2_eligible: false,
+        notice: 'No workspace context — set a default workspace or open settings with ?workspace_id=.',
+      });
+    }
+
+    const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
+    if (!okWs) return jsonResponse({ error: 'Forbidden' }, 403);
+
     try {
-      const [workspace, members, indexJob] = await Promise.all([
+      const tidBind = tenantId ?? '';
+      const isSuperNum = isSuper ? 1 : 0;
+      const workspaceRow = await env.DB.prepare(
+        `SELECT w.*, ws.theme_id, ws.accent_color, ws.timezone,
+                ws.settings_json AS ws_settings_json,
+                wl.max_daily_cost_usd, wl.max_members
+         FROM workspaces w
+         LEFT JOIN workspace_settings ws ON ws.workspace_id = w.id
+         LEFT JOIN workspace_limits wl ON wl.workspace_id = w.id
+         WHERE w.id = ?
+           AND (
+             (? != '' AND w.tenant_id = ?)
+             OR EXISTS (
+               SELECT 1 FROM workspace_members wm
+               WHERE wm.workspace_id = w.id AND wm.user_id = ?
+                 AND COALESCE(wm.is_active, 1) = 1
+             )
+             OR (? = 1)
+           )
+         LIMIT 1`,
+      )
+        .bind(workspaceId, tidBind, tidBind, sessionUserId, isSuperNum)
+        .first()
+        .catch(() => null);
+
+      let cmsPref = null;
+      try {
+        cmsPref = await env.DB.prepare(
+          `SELECT theme_slug, scope, tenant_id FROM cms_theme_preferences
+           WHERE workspace_id = ? AND scope = 'workspace'
+           ORDER BY updated_at DESC LIMIT 1`,
+        )
+          .bind(workspaceId)
+          .first();
+      } catch {
+        cmsPref = null;
+      }
+
+      let parsedSettings = {};
+      try {
+        const rawSj = workspaceRow?.settings_json;
+        parsedSettings =
+          rawSj != null && String(rawSj).trim() !== ''
+            ? typeof rawSj === 'string'
+              ? JSON.parse(rawSj)
+              : rawSj
+            : {};
+      } catch {
+        parsedSettings = {};
+      }
+      const cmsPipeline =
+        parsedSettings.cms_pipeline && typeof parsedSettings.cms_pipeline === 'object'
+          ? parsedSettings.cms_pipeline
+          : {};
+
+      const tidForEligible = tenantId || (workspaceRow?.tenant_id ? String(workspaceRow.tenant_id) : '');
+      const platform_r2_eligible = await canUsePlatformAssetsR2Upload(env, workspaceId, tidForEligible);
+
+      let workspace = workspaceRow;
+      if (workspace && typeof workspace === 'object') {
+        const nm =
+          workspace.display_name != null && String(workspace.display_name).trim()
+            ? String(workspace.display_name).trim()
+            : workspace.name != null && String(workspace.name).trim()
+              ? String(workspace.name).trim()
+              : workspace.id;
+        workspace = {
+          ...workspace,
+          name: nm,
+          cms_pipeline: cmsPipeline,
+        };
+      }
+
+      const [members, indexJob] = await Promise.all([
         env.DB.prepare(
-          `SELECT w.*, ws.theme_id, ws.accent_color, ws.timezone, ws.settings_json,
-                  wl.max_daily_cost_usd, wl.max_members
-           FROM workspaces w
-           LEFT JOIN workspace_settings ws ON ws.workspace_id = w.id
-           LEFT JOIN workspace_limits wl ON wl.workspace_id = w.id
-           WHERE w.tenant_id = ?
+          `SELECT wm.user_id, wm.role, u.display_name, u.email, u.avatar_url
+           FROM workspace_members wm
+           JOIN users u ON u.id = wm.user_id
+           WHERE wm.workspace_id = ?`,
+        )
+          .bind(workspaceId)
+          .all()
+          .then((r) => r.results || [])
+          .catch(() => []),
+        env.DB.prepare(
+          `SELECT status, progress_percent, file_count, indexed_file_count, last_sync_at, last_error
+           FROM agentsam_code_index_job
+           WHERE workspace_id = ?
+           ORDER BY datetime(updated_at) DESC
            LIMIT 1`,
         )
-          .bind(tenantId)
+          .bind(workspaceId)
           .first()
           .catch(() => null),
-        workspaceId
-          ? env.DB.prepare(
-              `SELECT wm.user_id, wm.role, u.display_name, u.email, u.avatar_url
-               FROM workspace_members wm
-               JOIN users u ON u.id = wm.user_id
-               WHERE wm.workspace_id = ?`,
-            )
-              .bind(workspaceId)
-              .all()
-              .then((r) => r.results || [])
-              .catch(() => [])
-          : Promise.resolve([]),
-        workspaceId
-          ? env.DB.prepare(
-              `SELECT status, progress_percent, file_count, indexed_file_count, last_sync_at, last_error
-               FROM agentsam_code_index_job
-               WHERE workspace_id = ?
-               ORDER BY datetime(updated_at) DESC
-               LIMIT 1`,
-            )
-              .bind(workspaceId)
-              .first()
-              .catch(() => null)
-          : Promise.resolve(null),
       ]);
-      return jsonResponse({ workspace, members, indexJob, workspace_id: workspaceId || null });
+
+      return jsonResponse({
+        workspace,
+        members,
+        indexJob,
+        workspace_id: workspaceId,
+        cms_context: {
+          theme_preference_slug: cmsPref?.theme_slug ?? null,
+          theme_preference_scope: cmsPref?.scope ?? null,
+        },
+        platform_r2_eligible,
+      });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
     }
+  }
+
+  if (pathLower === '/api/settings/workspace' && method === 'PATCH') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const tenantId = await resolveAuthTenantId(env, authUser);
+    const isSuper = Number(authUser.is_superadmin) === 1;
+    if (!tenantId && !isSuper) return jsonResponse({ error: 'Tenant required' }, 403);
+
+    const body = await request.json().catch(() => ({}));
+    const wid =
+      body.workspace_id != null && String(body.workspace_id).trim() !== ''
+        ? String(body.workspace_id).trim()
+        : (await resolveRequestWorkspaceId(env, authUser, url));
+    if (!wid) return jsonResponse({ error: 'workspace_id required' }, 400);
+
+    const ok = await userCanAccessWorkspace(env, authUser, wid);
+    if (!ok) return jsonResponse({ error: 'Forbidden' }, 403);
+
+    const row = await env.DB.prepare(`SELECT settings_json FROM workspaces WHERE id = ? LIMIT 1`).bind(wid).first();
+    if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
+
+    if (!body.cms_pipeline || typeof body.cms_pipeline !== 'object') {
+      return jsonResponse({ error: 'cms_pipeline object required' }, 400);
+    }
+
+    const nextJson = mergeCmsPipelineIntoWorkspaceSettings(row.settings_json, body.cms_pipeline);
+    await env.DB.prepare(`UPDATE workspaces SET settings_json = ?, updated_at = datetime('now') WHERE id = ?`)
+      .bind(nextJson, wid)
+      .run();
+
+    let parsed = {};
+    try {
+      parsed = JSON.parse(nextJson);
+    } catch {
+      parsed = {};
+    }
+    return jsonResponse({ ok: true, settings_json: parsed });
   }
 
   if (pathLower === '/api/settings/workspace/reindex' && method === 'POST') {
