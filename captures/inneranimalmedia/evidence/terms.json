@@ -1,0 +1,14 @@
+{
+  "name": "Terms",
+  "url": "https://inneranimalmedia.com/terms",
+  "status": 200,
+  "title": "Terms of Service - Inner Animal Media",
+  "screenshotPath": "captures/inneranimalmedia/screenshots/terms.png",
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "failedRequests": [],
+  "ignoredRequests": [
+    "POST https://www.google-analytics.com/g/collect?v=2&tid=G-PZ0D4GFNV1&gtm=45je6560h1v9240146106za200zd9240146106&_p=1778171612165&gcd=13l3l3l3l1l1&npa=0&dma=0&are=1&cid=314651231.1778171613&frm=0&pscdl=noapi&rcb=17&sr=1280x720&uaa=arm&uab=64&uafvl=Not%253AA-Brand%3B99.0.0.0%7CHeadlessChrome%3B145.0.7632.6%7CChromium%3B145.0.7632.6&uam=&uamb=0&uap=macOS&uapv=26.3.1&uaw=0&ul=en-us&_s=1&tag_exp=0~115616986~115938466~115938468~116363098~118463261&sid=1778171612&sct=1&seg=0&dl=https%3A%2F%2Finneranimalmedia.com%2Fterms&dt=Terms%20of%20Service%20-%20Inner%20Animal%20Media&en=page_view&_fv=1&_nsi=1&_ss=1&_ee=1&tfd=577 :: net::ERR_ABORTED"
+  ],
+  "pageErrors": []
+}

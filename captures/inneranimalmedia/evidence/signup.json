@@ -1,0 +1,16 @@
+{
+  "name": "Signup",
+  "url": "https://inneranimalmedia.com/auth/signup",
+  "status": 200,
+  "title": "Sign up | Inner Animal Media",
+  "screenshotPath": "captures/inneranimalmedia/screenshots/signup.png",
+  "consoleErrors": [],
+  "consoleWarnings": [
+    "THREE.WebGLRenderer: Error creating WebGL context."
+  ],
+  "failedRequests": [],
+  "ignoredRequests": [],
+  "pageErrors": [
+    "Error creating WebGL context."
+  ]
+}

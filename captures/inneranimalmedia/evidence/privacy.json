@@ -1,0 +1,14 @@
+{
+  "name": "Privacy",
+  "url": "https://inneranimalmedia.com/privacy",
+  "status": 200,
+  "title": "Privacy Policy - Inner Animal Media",
+  "screenshotPath": "captures/inneranimalmedia/screenshots/privacy.png",
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "failedRequests": [],
+  "ignoredRequests": [
+    "POST https://www.google-analytics.com/g/collect?v=2&tid=G-PZ0D4GFNV1&gtm=45je6560v9240146106za200zd9240146106&_p=1778171610482&gcd=13l3l3l3l1l1&npa=0&dma=0&are=1&cid=1221646352.1778171611&frm=0&pscdl=noapi&rcb=13&sr=1280x720&uaa=arm&uab=64&uafvl=Not%253AA-Brand%3B99.0.0.0%7CHeadlessChrome%3B145.0.7632.6%7CChromium%3B145.0.7632.6&uam=&uamb=0&uap=macOS&uapv=26.3.1&uaw=0&ul=en-us&_s=1&tag_exp=0~115616986~115938465~115938469~116363097~117215713~117384406~118463262~118494634&sid=1778171610&sct=1&seg=0&dl=https%3A%2F%2Finneranimalmedia.com%2Fprivacy&dt=Privacy%20Policy%20-%20Inner%20Animal%20Media&en=page_view&_fv=1&_nsi=1&_ss=1&_ee=1&tfd=600 :: net::ERR_ABORTED"
+  ],
+  "pageErrors": []
+}

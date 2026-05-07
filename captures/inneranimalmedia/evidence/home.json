@@ -1,0 +1,16 @@
+{
+  "name": "Home",
+  "url": "https://inneranimalmedia.com/",
+  "status": 200,
+  "title": "Inner Animal Media — We design and build digital products that feel as capable as they look.",
+  "screenshotPath": "captures/inneranimalmedia/screenshots/home.png",
+  "consoleErrors": [],
+  "consoleWarnings": [
+    "THREE.WebGLRenderer: Error creating WebGL context."
+  ],
+  "failedRequests": [],
+  "ignoredRequests": [],
+  "pageErrors": [
+    "Error creating WebGL context."
+  ]
+}

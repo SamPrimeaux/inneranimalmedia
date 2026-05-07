@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Inner Animal Media Quality Report</title>
+<link rel="icon" href="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#020617;color:#f8fafc;font-family:Inter,system-ui,sans-serif}
+  .hero,.footer{width:100%;background:linear-gradient(135deg,#020617,#052e16);border-color:#22c55e}
+  .hero{display:flex;justify-content:space-between;align-items:center;padding:34px 48px;border-bottom:1px solid #22c55e}
+  .brand{display:flex;align-items:center;gap:22px}
+  .brand img{width:88px;height:88px;object-fit:contain;border:1px solid #4ade80;border-radius:18px;background:#020617}
+  h1{margin:0;font-size:42px;letter-spacing:.08em;text-transform:uppercase}
+  .sub{color:#4ade80;font-weight:900;letter-spacing:.3em;text-transform:uppercase;margin-top:8px}
+  .meta{display:flex;gap:34px;color:#94a3b8;text-transform:uppercase;font-size:12px;font-weight:800}
+  .meta strong{display:block;color:white;font-size:16px;text-transform:none;margin-top:7px}
+  main{padding:34px 48px;min-height:58vh;background:radial-gradient(circle at 20% 0%,rgba(34,197,94,.18),transparent 35%)}
+  .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:18px;margin-bottom:28px}
+  .card{background:rgba(15,23,42,.74);border:1px solid rgba(148,163,184,.2);border-radius:16px;padding:22px}
+  .card span{color:#94a3b8;text-transform:uppercase;font-size:12px;font-weight:800}
+  .card b{display:block;font-size:40px;margin-top:10px}
+  table{width:100%;border-collapse:collapse;background:rgba(15,23,42,.72);border:1px solid rgba(148,163,184,.2);border-radius:16px;overflow:hidden}
+  th,td{padding:16px;border-bottom:1px solid rgba(148,163,184,.15);text-align:left}
+  th{color:#4ade80;text-transform:uppercase;font-size:12px;letter-spacing:.12em}
+  .status.expected,.status.passed{color:#4ade80}
+  .status.unexpected,.status.failed{color:#ef4444}
+  .status.flaky{color:#facc15}
+  .footer{display:flex;justify-content:space-between;align-items:center;padding:34px 48px;border-top:1px solid #22c55e}
+  .footer img{width:92px;height:92px;border-radius:999px;border:1px solid #84cc16;object-fit:cover}
+  .footbrand{display:flex;align-items:center;gap:20px}
+  .tag{color:#4ade80;margin-top:6px}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="brand">
+    <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail">
+    <div><h1>Inner Animal Media</h1><div class="sub">Quality Report</div></div>
+  </div>
+  <div class="meta">
+    <div>Workspace<strong>inneranimalmedia</strong></div>
+    <div>Framework<strong>Custom Quality Engine</strong></div>
+    <div>Generated<strong>Automated QA</strong></div>
+  </div>
+</header>
+<main>
+  <section class="cards">
+    <div class="card"><span>Total</span><b>10</b></div>
+    <div class="card"><span>Passed</span><b>0</b></div>
+    <div class="card"><span>Failed</span><b>0</b></div>
+    <div class="card"><span>Flaky</span><b>0</b></div>
+    <div class="card"><span>Skipped</span><b>0</b></div>
+  </section>
+  <table>
+    <thead><tr><th>Test</th><th>Status</th><th>Duration</th></tr></thead>
+    <tbody><tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Home page quality check</td><td class='status unknown'>unknown</td><td>1984ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Work page quality check</td><td class='status unknown'>unknown</td><td>1809ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › About page quality check</td><td class='status unknown'>unknown</td><td>1615ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Services page quality check</td><td class='status unknown'>unknown</td><td>1623ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Contact page quality check</td><td class='status unknown'>unknown</td><td>1354ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Pricing page quality check</td><td class='status unknown'>unknown</td><td>1333ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Games page quality check</td><td class='status unknown'>unknown</td><td>1629ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Privacy page quality check</td><td class='status unknown'>unknown</td><td>1738ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Terms page quality check</td><td class='status unknown'>unknown</td><td>1687ms</td></tr>
+<tr><td>inneranimalmedia-public.spec.js › InnerAnimalMedia public quality pass › Signup page quality check</td><td class='status unknown'>unknown</td><td>1391ms</td></tr></tbody>
+  </table>
+</main>
+<footer class="footer">
+  <div class="footbrand">
+    <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar">
+    <div><strong>Inner Animal Media</strong><div class="tag">Automate. Validate. Elevate.</div></div>
+  </div>
+  <div>Generated by Inner Animal Media.<br>Hosted quality evidence for this workspace.</div>
+</footer>
+</body>
+</html>
