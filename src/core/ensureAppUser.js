@@ -3,13 +3,13 @@
  */
 
 /**
- * @returns {string} e.g. usr_ + 24 hex chars
+ * @returns {string} e.g. au_ + 16 hex chars (8 random bytes)
  */
 export function generateAppUserId() {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
-  return `usr_${hex}`;
+  const hex = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `au_${hex}`;
 }
 
 /**

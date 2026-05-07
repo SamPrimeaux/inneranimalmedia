@@ -1,6 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2, Plug } from 'lucide-react';
 
+const assetBase = `${import.meta.env.BASE_URL || '/'}`.replace(/\/*$/, '/');
+
 type Jsonish = Record<string, unknown> | null;
 
 export type CatalogRow = {
@@ -161,10 +163,9 @@ export function IntegrationCard({
 
   const status = String(connection?.status || (connected ? 'connected' : 'disconnected'));
 
-  const appBase = `${import.meta.env.BASE_URL || '/'}`.replace(/\/*$/, '/');
   const iconSrc =
     catalog?.icon_slug && !iconFailed
-      ? `${appBase}assets/integrations/${encodeURIComponent(catalog.icon_slug)}.svg`
+      ? `${assetBase}assets/integrations/${encodeURIComponent(catalog.icon_slug)}.svg`
       : null;
 
   return (

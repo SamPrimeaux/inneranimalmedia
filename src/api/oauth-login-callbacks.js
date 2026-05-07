@@ -176,6 +176,20 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     source: 'github_oauth',
   });
   const sessionId = await createLoginSession(request, env, userId, 'github');
+  await env.DB.prepare(
+    `UPDATE auth_users SET
+       active_workspace_id = (
+         SELECT workspace_id FROM workspace_members
+         WHERE user_id = ? AND is_active = 1
+         ORDER BY created_at ASC LIMIT 1
+       ),
+       active_tenant_id = (
+         SELECT tenant_id FROM auth_users WHERE id = ?
+       )
+     WHERE id = ? AND active_workspace_id IS NULL`,
+  )
+    .bind(userId, userId, userId)
+    .run();
   const tidGh = await resolveTenantAtLogin(env, userId).catch(() => null);
   autoStartWorkSession(env, userId, tidGh, url.pathname).catch(() => {});
   const ghLogin = (userInfo.login || '').toString() || 'github';
@@ -357,6 +371,20 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
   });
 
   const sessionId = await createLoginSession(request, env, authUserId, 'google');
+  await env.DB.prepare(
+    `UPDATE auth_users SET
+       active_workspace_id = (
+         SELECT workspace_id FROM workspace_members
+         WHERE user_id = ? AND is_active = 1
+         ORDER BY created_at ASC LIMIT 1
+       ),
+       active_tenant_id = (
+         SELECT tenant_id FROM auth_users WHERE id = ?
+       )
+     WHERE id = ? AND active_workspace_id IS NULL`,
+  )
+    .bind(authUserId, authUserId, authUserId)
+    .run();
   const tidOauth = await resolveTenantAtLogin(env, authUserId).catch(() => null);
 
   const safeDest =

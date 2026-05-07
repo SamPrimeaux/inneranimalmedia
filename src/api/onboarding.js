@@ -9,6 +9,7 @@ import {
   fetchAuthUserTenantId,
   establishIamSession,
 } from '../core/auth.js';
+import { generateAppUserId } from '../core/ensureAppUser.js';
 
 const ONBOARDING_STEPS = ['intake', 'profile_setup', 'agent_calibration', 'environment_setup'];
 
@@ -565,8 +566,7 @@ async function ensureAuthUserForInvite(env, { email, name, tenantId }) {
   crypto.getRandomValues(pwBytes);
   const tempPassword = Array.from(pwBytes, (b) => b.toString(16).padStart(2, '0')).join('');
   const { saltHex, hashHex } = await hashPassword(tempPassword);
-  const localPart = em.split('@')[0].replace(/[^a-z0-9]+/g, '_').slice(0, 24);
-  const authUserId = `au_${localPart}_${crypto.randomUUID().slice(0, 8)}`;
+  const authUserId = generateAppUserId();
   try {
     if (tenantId) {
       await env.DB

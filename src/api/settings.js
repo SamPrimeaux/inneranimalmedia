@@ -2571,6 +2571,28 @@ export async function handleSettingsRequest(request, env, ctx) {
     return jsonResponse({ sessions: results || [] });
   }
 
+  if (pathLower === '/api/settings/profile' && method === 'PATCH') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const allowed = ['name', 'display_name', 'avatar_url'];
+    const sets = [];
+    const vals = [];
+    for (const k of allowed) {
+      if (body[k] !== undefined) {
+        sets.push(`${k} = ?`);
+        vals.push(body[k]);
+      }
+    }
+    if (!sets.length) return jsonResponse({ error: 'No valid fields' }, 400);
+    vals.push(String(authUser.id || '').trim());
+    await env.DB.prepare(
+      `UPDATE auth_users SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`,
+    )
+      .bind(...vals)
+      .run();
+    return jsonResponse({ ok: true });
+  }
+
   if (pathLower === '/api/settings/security/findings' && method === 'GET') {
     if (!env.DB) return jsonResponse({ findings: [] });
     const storedUserId = canonicalAuthId || sessionUserId;
