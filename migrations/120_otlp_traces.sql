@@ -1,6 +1,8 @@
 -- 120: otlp_traces — OTLP trace span ingest for /api/telemetry/v1/traces
 -- Run: npx wrangler d1 execute inneranimalmedia-business --remote --config wrangler.production.toml --file=./migrations/120_otlp_traces.sql
 -- Purpose: Store OpenTelemetry spans from Workers (D1, R2, DO, HTTP) for observability.
+-- NOTE: Migration 280 drops this table as unused; 285_otlp_traces_multitenant.sql recreates with
+-- tenant_id + workspace_id (no defaults). Prefer applying 285 on fresh DBs instead of replaying 120.
 
 CREATE TABLE IF NOT EXISTS otlp_traces (
   id TEXT PRIMARY KEY,
@@ -32,7 +34,8 @@ CREATE TABLE IF NOT EXISTS otlp_traces (
   do_class TEXT,
   do_method TEXT,
   batch_id TEXT,
-  workspace_id TEXT NOT NULL DEFAULT 'ws_samprimeaux'
+  tenant_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_otlp_traces_trace_id ON otlp_traces(trace_id);
