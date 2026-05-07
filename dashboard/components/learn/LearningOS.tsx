@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { BookOpen, ChevronRight, Download, GraduationCap, Terminal, Bot, CheckCircle2, Dot, Circle } from 'lucide-react';
-import MarkdownLite from './MarkdownLite';
+import { BookOpen, ChevronRight, Download, GraduationCap, Terminal, CheckCircle2, Dot, Circle, PanelRight, X, Pencil, GripVertical, FolderOpen } from 'lucide-react';
 import MarkdownContent from './MarkdownContent';
 import type {
   AssignmentWithState,
@@ -12,8 +11,12 @@ import type {
   ProgressStatus,
   RubricSchema,
 } from './learn.types';
+import { useLessonMarkdown } from './hooks/useLessonMarkdown';
+import { LessonAssetsView } from './components/LessonAssetsView';
 
 const openGlobalTerminal = () => window.dispatchEvent(new CustomEvent('iam:open-terminal'));
+const sendToAgentSam = (message: string) =>
+  window.dispatchEvent(new CustomEvent('iam-agent-external-send', { detail: { message } }));
 
 function safeJson<T>(s: any, fallback: T): T {
   try {
@@ -53,13 +56,6 @@ function lessonDerivedStatus(lesson: Lesson) {
   if (asg?.grade) return 'graded' as const;
   if (asg?.submission?.status === 'submitted') return 'submitted' as const;
   return prog;
-}
-
-function lessonKindColor(type: string) {
-  if (type === 'lab') return 'var(--solar-cyan)';
-  if (type === 'milestone') return 'var(--solar-red)';
-  if (type === 'assignment') return 'var(--solar-yellow)';
-  return 'var(--text-muted)';
 }
 
 function SectionTitle({ icon, title, right }: { icon?: React.ReactNode; title: string; right?: React.ReactNode }) {
@@ -163,62 +159,38 @@ export default function LearningOS({ data, onRefresh }: { data: LearnDashboardRe
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Layout: left nav / center content / right inspector
-  // ---------------------------------------------------------------------------
-  return (
-    <div className="learn-shell flex h-full w-full overflow-hidden" style={{ background: 'var(--bg-app)' }}>
-      {/* Left */}
-      <div
-        className="learn-course-nav"
-        style={{
-          width: 312,
-          flexShrink: 0,
-          background: 'var(--bg-panel)',
-          borderRight: '1px solid var(--border-subtle)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <div className="learn-course-nav-header" style={{ padding: 14, borderBottom: '1px solid var(--border-subtle)' }}>
-          <SectionTitle
-            icon={<GraduationCap size={14} />}
-            title="Learning OS"
-            right={
-              <button
-                onClick={onRefresh}
-                style={{
-                  fontSize: 11,
-                  fontFamily: 'var(--font-mono)',
-                  color: 'var(--text-muted)',
-                  background: 'transparent',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 6,
-                  padding: '3px 8px',
-                  cursor: 'pointer',
-                }}
-              >
-                refresh
-              </button>
-            }
-          />
+  const isAdmin = !!data?.viewer?.is_superadmin;
+  const [collapsedModules, setCollapsedModules] = useState<Record<string, boolean>>({});
+  const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'read' | 'lab' | 'assets' | 'submit' | 'feedback'>('overview');
 
+  const effectiveTab =
+    selectedLesson == null ? 'overview' : activeTab === 'overview' ? 'read' : activeTab;
+
+  const lessonMarkdown = useLessonMarkdown(selectedLesson);
+
+  return (
+    <div className="learn-shell learn-layout">
+      <aside className="learn-rail" aria-label="Learning navigation">
+        <div className="learn-rail__header">
+          <div className="learn-rail__title">
+            <GraduationCap size={14} style={{ color: 'var(--text-muted)' }} />
+            <span>Learning OS</span>
+          </div>
+          <button className="learn-rail__refresh" onClick={onRefresh}>
+            refresh
+          </button>
+        </div>
+
+        <div className="learn-rail__course">
           <select
+            className="learn-select"
             value={courseId}
             onChange={(e) => {
               setCourseId(e.target.value);
               setLessonId(null);
-            }}
-            style={{
-              width: '100%',
-              padding: '6px 10px',
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-main)',
-              fontSize: 12,
-              borderRadius: 8,
-              fontFamily: 'var(--font-mono)',
+              setResourcesOpen(false);
+              setActiveTab('overview');
             }}
           >
             {courses.map((c) => (
@@ -228,239 +200,230 @@ export default function LearningOS({ data, onRefresh }: { data: LearnDashboardRe
             ))}
           </select>
 
-          <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div className="learn-rail__meta">
             <Badge label={`${selectedCourse.category ?? 'course'} · ${selectedCourse.level}`} />
-            <Badge label={`${selectedCourse.duration_hours ?? '?'}h`} />
             <Badge label={`${fmtPct(selectedCourse.progress_summary?.progress_percent)} complete`} />
           </div>
 
-          {continueLesson && (
+          {continueLesson ? (
             <button
+              className="learn-rail__cta"
               onClick={() => {
                 setLessonId(continueLesson.id);
+                setActiveTab('read');
                 lessonStartRef.current = Date.now();
               }}
-              style={{
-                marginTop: 12,
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 10,
-                padding: '8px 10px',
-                borderRadius: 10,
-                border: '1px solid color-mix(in srgb, var(--solar-cyan) 50%, var(--border-subtle))',
-                background: 'color-mix(in srgb, var(--solar-cyan) 12%, transparent)',
-                cursor: 'pointer',
-              }}
             >
-              <div style={{ textAlign: 'left', minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-main)', fontWeight: 600 }}>Continue</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {continueLesson.title}
-                </div>
-              </div>
-              <ChevronRight size={16} style={{ color: 'var(--solar-cyan)' }} />
+              <span className="learn-rail__ctaLabel">Continue</span>
+              <span className="learn-rail__ctaLesson" title={continueLesson.title}>
+                {continueLesson.title}
+              </span>
+              <ChevronRight size={16} style={{ marginLeft: 'auto', color: 'var(--solar-cyan)' }} />
             </button>
-          )}
+          ) : null}
         </div>
 
-        <div className="learn-course-list" style={{ overflowY: 'auto', flex: 1, padding: '10px 0' }}>
+        <nav className="learn-rail__list" aria-label="Modules and lessons">
           {selectedCourse.modules.map((mod) => {
             const lessons = mod.lessons || [];
             const done = lessons.filter((l) => (l.progress?.status || 'not_started') === 'completed').length;
-            const asgCount = (mod.assignments || []).length;
+            const isCollapsed = !!collapsedModules[mod.id];
             return (
-              <div key={mod.id} className="learn-module-group" style={{ padding: '6px 12px' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--text-muted)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      flex: 1,
-                    }}
-                    title={mod.title}
-                  >
+              <div key={mod.id} className="learn-module">
+                <button
+                  className="learn-module__header"
+                  onClick={() =>
+                    setCollapsedModules((p) => ({ ...p, [mod.id]: !p[mod.id] }))
+                  }
+                >
+                  <div className="learn-module__title" title={mod.title}>
                     {mod.title}
                   </div>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', opacity: 0.8 }}>
-                    {done}/{lessons.length} · {asgCount} asg
+                  <div className="learn-module__counts">
+                    {done}/{lessons.length}
                   </div>
-                </div>
-                <div>
-                  {lessons.map((l) => {
-                    const isActive = l.id === lessonId;
-                    const status = lessonDerivedStatus(l);
-                    return (
-                      <button
-                        key={l.id}
-                        className="learn-lesson-row"
-                        onClick={() => {
-                          setLessonId(l.id);
-                          lessonStartRef.current = Date.now();
-                          if (l.progress?.status === 'not_started') {
-                            // gentle auto-start, but server decides the fallback behavior
-                            postProgress(selectedCourse.id, l, 'in_progress', { time_spent_minutes: 0 });
-                          }
-                        }}
-                        style={{
-                          width: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '7px 10px',
-                          borderRadius: 10,
-                          background: isActive ? 'var(--bg-hover)' : 'transparent',
-                          border: isActive ? '1px solid color-mix(in srgb, var(--solar-cyan) 40%, var(--border-subtle))' : '1px solid transparent',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                        }}
-                      >
-                        {statusPip(status)}
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: status === 'completed' ? 'var(--text-muted)' : 'var(--text-main)',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                          >
+                </button>
+
+                {!isCollapsed ? (
+                  <div className="learn-module__lessons">
+                    {lessons.map((l) => {
+                      const isActive = l.id === lessonId;
+                      const status = lessonDerivedStatus(l);
+                      return (
+                        <button
+                          key={l.id}
+                          className={`learn-lesson ${isActive ? 'is-active' : ''}`}
+                          onClick={() => {
+                            setLessonId(l.id);
+                            setActiveTab('read');
+                            lessonStartRef.current = Date.now();
+                            if (l.progress?.status === 'not_started') {
+                              postProgress(selectedCourse.id, l, 'in_progress', { time_spent_minutes: 0 });
+                            }
+                          }}
+                        >
+                          {statusPip(status)}
+                          <span className="learn-lesson__title" title={l.title}>
                             {l.title}
-                          </div>
-                          <div style={{ display: 'flex', gap: 10, marginTop: 2, alignItems: 'baseline' }}>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                fontFamily: 'var(--font-mono)',
-                                color: lessonKindColor(l.type),
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.06em',
-                              }}
-                            >
-                              {l.type}
+                          </span>
+                          {isAdmin ? (
+                            <span className="learn-lesson__admin">
+                              <GripVertical size={14} />
+                              <Pencil size={13} />
                             </span>
-                            {l.estimated_minutes ? (
-                              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{l.estimated_minutes}m</span>
-                            ) : null}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             );
           })}
-        </div>
+        </nav>
 
-        <div style={{ padding: 12, borderTop: '1px solid var(--border-subtle)' }}>
+        <div className="learn-rail__footer">
           <button
-            onClick={() => setLessonId(null)}
-            style={{
-              width: '100%',
-              padding: '8px 10px',
-              borderRadius: 10,
-              background: 'transparent',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 12,
+            className="learn-rail__overviewBtn"
+            onClick={() => {
+              setLessonId(null);
+              setActiveTab('overview');
+              setResourcesOpen(false);
             }}
           >
             Course overview
           </button>
         </div>
-      </div>
+      </aside>
 
-      {/* Center */}
-      <div className="learn-reader" style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <BookOpen size={16} style={{ color: 'var(--text-muted)' }} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ color: 'var(--text-main)', fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {selectedLesson ? selectedLesson.title : selectedCourse.title}
-            </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {selectedLesson ? selectedCourse.title : `${selectedCourse.modules.length} modules · ${selectedCourse.progress_summary.total_lessons} lessons`}
+      <main className="learn-workspace">
+        <div className="learn-workspace__topbar">
+          <div className="learn-workspace__title">
+            <BookOpen size={16} style={{ color: 'var(--text-muted)' }} />
+            <div className="learn-workspace__titleText">
+              <div className="learn-workspace__primary" title={selectedLesson ? selectedLesson.title : selectedCourse.title}>
+                {selectedLesson ? selectedLesson.title : selectedCourse.title}
+              </div>
+              <div className="learn-workspace__secondary">
+                {selectedLesson ? selectedCourse.title : `${selectedCourse.modules.length} modules · ${selectedCourse.progress_summary.total_lessons} lessons`}
+              </div>
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => {
-                // “Ask Agent Sam about this lesson” (routes to agent page; keep simple/compatible)
-                window.location.href = '/dashboard/agent';
-              }}
-              style={actionButtonStyle('muted')}
-              title="Ask Agent Sam"
-            >
-              <Bot size={14} /> Ask Agent Sam
-            </button>
-            {selectedLesson?.type === 'lab' ? (
-              <button onClick={openGlobalTerminal} style={actionButtonStyle('cyan')} title="Open terminal">
-                <Terminal size={14} /> Open terminal
+
+          <div className="learn-workspace__actions">
+            {selectedLesson ? (
+              <button
+                className="learn-actionBtn learn-actionBtn--muted"
+                onClick={() => {
+                  const payload = [
+                    `Course: ${selectedCourse.title} (${selectedCourse.slug})`,
+                    `Module: ${selectedCourse.modules.find((m) => m.id === selectedLesson.module_id)?.title || selectedLesson.module_id}`,
+                    `Lesson: ${selectedLesson.title} (${selectedLesson.slug})`,
+                    selectedLesson.content_url ? `Content URL: ${selectedLesson.content_url}` : null,
+                    selectedLesson.assets?.length ? `Assets: ${selectedLesson.assets.length}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join('\n');
+                  sendToAgentSam(`Learning OS context\n\n${payload}`);
+                }}
+                title="Send lesson context to Agent Sam"
+              >
+                <FolderOpen size={14} />
+                Send context
               </button>
             ) : null}
+
+            {selectedLesson?.sandbox_query ? (
+              <button className="learn-actionBtn learn-actionBtn--cyan" onClick={openGlobalTerminal} title="Open terminal">
+                <Terminal size={14} />
+                Open terminal
+              </button>
+            ) : null}
+
+            <button
+              className="learn-actionBtn learn-actionBtn--muted"
+              onClick={() => setResourcesOpen(true)}
+              title="Open course resources"
+            >
+              <PanelRight size={14} />
+              Resources
+            </button>
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px', maxWidth: 900 }}>
+        {selectedLesson ? (
+          <div className="learn-tabs" role="tablist" aria-label="Lesson tabs">
+            {(['read', 'lab', 'assets', 'submit', 'feedback'] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={effectiveTab === t}
+                className={`learn-tab ${effectiveTab === t ? 'is-active' : ''}`}
+                onClick={() => setActiveTab(t)}
+              >
+                {t.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="learn-workspace__content">
           {!selectedLesson ? (
             <CourseOverview course={selectedCourse} onContinue={() => continueLesson && setLessonId(continueLesson.id)} />
+          ) : effectiveTab === 'assets' ? (
+            <LessonAssetsView assets={selectedLesson.assets || []} />
+          ) : effectiveTab === 'submit' || effectiveTab === 'feedback' ? (
+            <div style={{ maxWidth: 900 }}>
+              <AssignmentInspector
+                course={selectedCourse}
+                lesson={selectedLesson}
+                onSaveDraft={(assignmentId, evidence) => postSubmission(selectedCourse.id, assignmentId, evidence, 'draft')}
+                onSubmit={(assignmentId, evidence) => postSubmission(selectedCourse.id, assignmentId, evidence, 'submitted')}
+              />
+            </div>
+          ) : effectiveTab === 'lab' ? (
+            <div style={{ maxWidth: 900 }}>
+              <SectionTitle title="Lab" icon={<Terminal size={14} />} />
+              {selectedLesson.sandbox_query ? (
+                <pre className="learn-pre">
+                  <code>{selectedLesson.sandbox_query}</code>
+                </pre>
+              ) : (
+                <div className="learn-muted">No lab instructions attached to this lesson yet.</div>
+              )}
+            </div>
           ) : (
-            <LessonPane
-              course={selectedCourse}
-              lesson={selectedLesson}
-              onMark={(status) => postProgress(selectedCourse.id, selectedLesson, status)}
-            />
+            <div style={{ maxWidth: 1040 }}>
+              <SectionTitle title="Read" icon={<BookOpen size={14} />} />
+              {lessonMarkdown.loading ? <div className="learn-muted">Loading lesson content…</div> : null}
+              {lessonMarkdown.error ? <div className="learn-error">{lessonMarkdown.error}</div> : null}
+              {lessonMarkdown.markdown?.trim() ? (
+                <MarkdownContent markdown={lessonMarkdown.markdown} />
+              ) : (
+                <div className="learn-muted">No lesson content found.</div>
+              )}
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Right */}
-      <div
-        className="learn-inspector"
-        style={{
-          width: 380,
-          flexShrink: 0,
-          background: 'var(--bg-panel)',
-          borderLeft: '1px solid var(--border-subtle)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <div style={{ padding: 14, borderBottom: '1px solid var(--border-subtle)' }}>
-          <SectionTitle title={selectedLesson ? 'Inspector' : 'Course resources'} icon={<GraduationCap size={14} />} />
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            {selectedLesson ? 'Assignment, rubric, submissions, exports' : 'Exports library, progress, next steps'}
+        {resourcesOpen ? (
+          <div className="learn-drawerBackdrop" onClick={() => setResourcesOpen(false)} role="presentation">
+            <div className="learn-drawer" role="dialog" aria-label="Course resources" onClick={(e) => e.stopPropagation()}>
+              <div className="learn-drawer__header">
+                <div className="learn-drawer__title">
+                  <Download size={14} style={{ color: 'var(--text-muted)' }} /> Course resources
+                </div>
+                <button className="learn-drawer__close" onClick={() => setResourcesOpen(false)} aria-label="Close resources">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="learn-drawer__body">
+                <ExportsLibrary exports={selectedCourse.exports || []} />
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div style={{ overflowY: 'auto', flex: 1, padding: 14 }}>
-          <ExportsLibrary exports={selectedCourse.exports || []} />
-          <div style={{ height: 14 }} />
-
-          {selectedLesson ? (
-            <AssignmentInspector
-              course={selectedCourse}
-              lesson={selectedLesson}
-              onSaveDraft={(assignmentId, evidence) => postSubmission(selectedCourse.id, assignmentId, evidence, 'draft')}
-              onSubmit={(assignmentId, evidence) => postSubmission(selectedCourse.id, assignmentId, evidence, 'submitted')}
-            />
-          ) : (
-            <ProgressSummaryCard course={selectedCourse} onContinue={() => continueLesson && setLessonId(continueLesson.id)} />
-          )}
-        </div>
-      </div>
+        ) : null}
+      </main>
     </div>
   );
 }
@@ -575,142 +538,6 @@ function Stat({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div style={{ marginTop: 6, fontSize: 18, color: 'var(--text-main)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{value}</div>
-    </div>
-  );
-}
-
-function PlainTextContent({ text }: { text: string }) {
-  return (
-    <div
-      style={{
-        fontSize: 14,
-        color: 'var(--text-muted)',
-        lineHeight: 1.75,
-        whiteSpace: 'pre-wrap',
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
-function LessonEmptyState() {
-  return (
-    <div
-      style={{
-        padding: '12px 14px',
-        borderRadius: 12,
-        border: '1px solid var(--border-subtle)',
-        background: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',
-        fontSize: 13,
-        color: 'var(--text-muted)',
-      }}
-    >
-      No lesson content found.
-      <div style={{ marginTop: 6, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-        Author content in <span style={{ color: 'var(--text-main)' }}>course_lessons.content</span> and set{' '}
-        <span style={{ color: 'var(--text-main)' }}>has_content=1</span>.
-      </div>
-    </div>
-  );
-}
-
-function LessonPane({ course, lesson, onMark }: { course: Course; lesson: Lesson; onMark: (status: ProgressStatus) => void }) {
-  const badge = lesson.type.toUpperCase();
-  return (
-    <div>
-      <div className="learn-lesson-header" style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <span
-          style={{
-            fontSize: 10,
-            fontFamily: 'var(--font-mono)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            color: lessonKindColor(lesson.type),
-          }}
-        >
-          {badge}
-        </span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-          {course.category ?? 'course'} · {course.level}
-        </span>
-        {lesson.estimated_minutes ? (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{lesson.estimated_minutes}m</span>
-        ) : null}
-      </div>
-
-      {lesson.description ? <div style={{ marginTop: 10, fontSize: 14, color: 'var(--text-muted)' }}>{lesson.description}</div> : null}
-
-      <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button onClick={() => onMark('in_progress')} style={actionButtonStyle('muted')}>
-          Mark in progress
-        </button>
-        <button onClick={() => onMark('completed')} style={actionButtonStyle('cyan')}>
-          Mark complete
-        </button>
-      </div>
-
-      {lesson.sandbox_query ? (
-        <div style={{ marginTop: 16 }}>
-          <SectionTitle title="Sandbox query" icon={<Terminal size={14} />} />
-          <pre
-            style={{
-              margin: 0,
-              padding: '12px 14px',
-              borderRadius: 8,
-              background: 'var(--bg-code-pre)',
-              border: '1px solid var(--border-subtle)',
-              overflowX: 'auto',
-              fontSize: 12,
-              color: 'var(--text-main)',
-            }}
-          >
-            <code>{lesson.sandbox_query}</code>
-          </pre>
-          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            db: {lesson.sandbox_db || 'd1'}
-          </div>
-        </div>
-      ) : null}
-
-      <div style={{ marginTop: 18 }}>
-        <SectionTitle title="Lesson content" icon={<BookOpen size={14} />} />
-        <div className="learn-lesson-content">
-        {lesson.has_content && lesson.content && String(lesson.content).trim() !== '' ? (
-          String(lesson.content_format || 'markdown').toLowerCase() === 'text' ? (
-            <PlainTextContent text={String(lesson.content)} />
-          ) : String(lesson.content_format || 'markdown').toLowerCase() === 'markdown' ? (
-            <MarkdownContent markdown={String(lesson.content)} />
-          ) : (
-            // Unknown format: show plain text safely.
-            <PlainTextContent text={String(lesson.content)} />
-          )
-        ) : (
-          <div className="learn-empty-state">
-            <LessonEmptyState />
-          </div>
-        )}
-        </div>
-      </div>
-
-      {lesson.assignments?.length ? (
-        <div style={{ marginTop: 20 }}>
-          <SectionTitle title="Related assignments" icon={<ChevronRight size={14} />} />
-          <div style={{ display: 'grid', gap: 10 }}>
-            {lesson.assignments.map((a) => (
-              <Card key={a.id}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>{a.title}</div>
-                  <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    max {a.max_score}
-                  </div>
-                </div>
-                {a.description ? <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>{a.description}</div> : null}
-              </Card>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -1,10 +1,21 @@
-export type LessonType = 'lesson' | 'lab' | 'assignment' | 'milestone';
 export type ProgressStatus = 'not_started' | 'in_progress' | 'completed';
 export type SubmissionStatus = 'draft' | 'submitted' | 'graded' | 'revision_requested';
 
 export interface LearnDashboardResponse {
   ok: boolean;
+  viewer?: {
+    is_superadmin?: boolean;
+  };
   courses: Course[];
+  course_modules?: CourseModuleRow[];
+  lessons?: Lesson[];
+  lesson_assets?: LessonAsset[];
+  lesson_versions?: LessonVersion[];
+  lesson_progress?: any[];
+  course_assignments?: Assignment[];
+  course_submissions?: Submission[];
+  course_grades?: Grade[];
+  course_exports?: CourseExport[];
 }
 
 export interface Course {
@@ -57,6 +68,16 @@ export interface CourseModule {
   assignments: AssignmentWithState[];
 }
 
+export interface CourseModuleRow {
+  id: string;
+  course_id: string;
+  title: string;
+  description: string;
+  order_index: number;
+  is_required: number;
+  estimated_minutes: number;
+}
+
 export interface LessonProgress {
   status: ProgressStatus;
   completed_at: number | null;
@@ -66,21 +87,46 @@ export interface LessonProgress {
 
 export interface Lesson {
   id: string;
-  module_id: string;
   course_id: string;
+  module_id: string;
   title: string;
-  type: LessonType;
+  slug: string;
   description: string;
+  content_type: string;
+  content_url: string | null;
+  content_text: string | null;
   estimated_minutes: number;
   order_index: number;
   is_required: number;
-  content: string | null;
-  content_format: string;
-  has_content: number;
-  sandbox_query: string | null;
-  sandbox_db: string;
+  is_published: number;
+  assets: LessonAsset[];
   progress: LessonProgress;
   assignments: AssignmentWithState[];
+  /** Compatibility-only: legacy `course_lessons` fields. */
+  type?: string | null;
+  sandbox_query?: string | null;
+  sandbox_db?: string | null;
+}
+
+export interface LessonAsset {
+  id: string | null;
+  lesson_id: string;
+  asset_type: string;
+  asset_url: string | null;
+  r2_key: string | null;
+  r2_bucket: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  mime_type: string | null;
+  order_index: number;
+}
+
+export interface LessonVersion {
+  id: string;
+  lesson_id: string;
+  created_at: number;
+  // schema may evolve; keep permissive
+  [k: string]: any;
 }
 
 export interface Assignment {

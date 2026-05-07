@@ -19,6 +19,66 @@ function safeJsonParse(text, fallback) {
   }
 }
 
+const LEARN_TABLES = new Set([
+  'courses',
+  'course_modules',
+  'course_lessons',
+  'lessons',
+  'lesson_assets',
+  'lesson_versions',
+  'enrollments',
+  'course_progress',
+  'course_assignments',
+  'course_submissions',
+  'course_grades',
+  'course_exports',
+]);
+
+const __schemaCache = new Map();
+
+async function tableExists(env, tableName) {
+  if (!env?.DB) return false;
+  if (!LEARN_TABLES.has(tableName)) return false;
+  const k = `exists:${tableName}`;
+  if (__schemaCache.has(k)) return __schemaCache.get(k);
+  try {
+    const row = await env.DB.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`,
+    )
+      .bind(tableName)
+      .first();
+    const ok = !!row?.name;
+    __schemaCache.set(k, ok);
+    return ok;
+  } catch {
+    __schemaCache.set(k, false);
+    return false;
+  }
+}
+
+async function tableColumns(env, tableName) {
+  if (!env?.DB) return [];
+  if (!LEARN_TABLES.has(tableName)) return [];
+  const k = `cols:${tableName}`;
+  if (__schemaCache.has(k)) return __schemaCache.get(k);
+  try {
+    const res = await env.DB.prepare(`PRAGMA table_info(${tableName})`).all();
+    const cols = (res?.results || [])
+      .map((r) => String(r?.name || '').trim())
+      .filter(Boolean);
+    __schemaCache.set(k, cols);
+    return cols;
+  } catch {
+    __schemaCache.set(k, []);
+    return [];
+  }
+}
+
+function pickExistingCols(existingCols, desiredCols) {
+  const set = new Set((existingCols || []).map((c) => String(c)));
+  return (desiredCols || []).filter((c) => set.has(c));
+}
+
 /**
  * User ids to match LMS enrollments / progress. Superadmins may have rows keyed by `auth_users.id`
  * (e.g. `au_*`) while the session uses `users.id` (`usr_*`) — include tenant superadmin auth ids.
@@ -79,7 +139,7 @@ export async function handleLearnApi(request, url, env) {
 async function handleLearnDashboard(_request, env, authUser) {
   if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 500);
   const uidScope = await learnEnrollmentUserIds(env, authUser);
-  const isAdmin = authUserIsSuperadmin(authUser);
+  const isSuperadmin = authUserIsSuperadmin(authUser);
 
   // Note: even if enrollments are missing, we still return visible courses with default progress.
   const uidPh = uidScope.length ? uidScope.map(() => '?').join(',') : '?';
@@ -97,7 +157,6 @@ async function handleLearnDashboard(_request, env, authUser) {
         e.started_at,
         e.metadata      AS enrollment_meta,
         e.user_id       AS enrollment_user_id,
-        e.tenant_id     AS enrollment_tenant_id,
         c.id            AS id,
         c.org_id,
         c.title,
@@ -125,7 +184,7 @@ async function handleLearnDashboard(_request, env, authUser) {
 
   // 2) Visible courses
   let courseRows;
-  if (isAdmin) {
+  if (isSuperadmin) {
     courseRows = await env.DB.prepare(
       `
         SELECT
@@ -181,7 +240,24 @@ async function handleLearnDashboard(_request, env, authUser) {
   const ph = courseIds.map(() => '?').join(',');
 
   // 3–9) Pull the rest of the data, then normalize server-side.
-  const [modRows, lesRows, asgRows, expRows, progRows, subRows, gradeRows] = await Promise.all([
+  // Canonical lesson source is `lessons` + `lesson_assets`, with `course_lessons` as a compatibility fallback.
+  const hasLessonsTable = await tableExists(env, 'lessons');
+  const hasLessonAssetsTable = await tableExists(env, 'lesson_assets');
+  const hasCourseLessonsTable = await tableExists(env, 'course_lessons');
+  const lessonsCols = hasLessonsTable ? await tableColumns(env, 'lessons') : [];
+  const courseLessonsCols = hasCourseLessonsTable ? await tableColumns(env, 'course_lessons') : [];
+  const lessonAssetsCols = hasLessonAssetsTable ? await tableColumns(env, 'lesson_assets') : [];
+
+  const [
+    modRows,
+    lessonsRows,
+    compatLessonsRows,
+    asgRows,
+    expRows,
+    progRows,
+    subRows,
+    gradeRows,
+  ] = await Promise.all([
     env.DB.prepare(
       `
         SELECT id, course_id, title, description,
@@ -194,18 +270,65 @@ async function handleLearnDashboard(_request, env, authUser) {
       .bind(...courseIds)
       .all(),
 
-    env.DB.prepare(
-      `
-        SELECT id, module_id, course_id, title, type,
-               description, estimated_minutes, order_index, is_required,
-               content, content_format, has_content, sandbox_query, sandbox_db
-        FROM course_lessons
-        WHERE course_id IN (${ph})
-        ORDER BY course_id, order_index ASC
-      `,
-    )
-      .bind(...courseIds)
-      .all(),
+    hasLessonsTable
+      ? env.DB.prepare(
+          `
+            SELECT ${pickExistingCols(lessonsCols, [
+              'id',
+              'course_id',
+              'module_id',
+              'title',
+              'slug',
+              'description',
+              'content_type',
+              'content_url',
+              'content_text',
+              'order_index',
+              'estimated_minutes',
+              'is_required',
+              'is_published',
+              'published_at',
+              'created_at',
+              'updated_at',
+            ]).join(', ')}
+            FROM lessons
+            WHERE course_id IN (${ph})
+            ORDER BY course_id, order_index ASC
+          `,
+        )
+          .bind(...courseIds)
+          .all()
+      : { results: [] },
+
+    hasCourseLessonsTable
+      ? env.DB.prepare(
+          `
+            SELECT ${pickExistingCols(courseLessonsCols, [
+              'id',
+              'module_id',
+              'course_id',
+              'title',
+              'type',
+              'description',
+              'estimated_minutes',
+              'order_index',
+              'is_required',
+              'content',
+              'content_format',
+              'has_content',
+              'sandbox_query',
+              'sandbox_db',
+              'created_at',
+              'updated_at',
+            ]).join(', ')}
+            FROM course_lessons
+            WHERE course_id IN (${ph})
+            ORDER BY course_id, order_index ASC
+          `,
+        )
+          .bind(...courseIds)
+          .all()
+      : { results: [] },
 
     env.DB.prepare(
       `
@@ -266,12 +389,132 @@ async function handleLearnDashboard(_request, env, authUser) {
   ]);
 
   const modulesFlat = modRows?.results ?? [];
-  const lessonsFlat = lesRows?.results ?? [];
+  const canonicalLessonsFlat = lessonsRows?.results ?? [];
+  const compatLessonsFlat = compatLessonsRows?.results ?? [];
   const assignmentsFlat = asgRows?.results ?? [];
   const exportsFlat = expRows?.results ?? [];
   const progressFlat = progRows?.results ?? [];
   const submissionsFlat = subRows?.results ?? [];
   const gradesFlat = gradeRows?.results ?? [];
+
+  // Normalize lessons to a stable shape, preferring canonical `lessons` rows when present.
+  const lessonById = new Map();
+
+  for (const l of compatLessonsFlat) {
+    const id = String(l?.id || '').trim();
+    if (!id) continue;
+    const contentText =
+      l?.has_content && l?.content != null && String(l.content).trim() !== ''
+        ? String(l.content)
+        : null;
+    const contentTypeRaw = String(l?.content_format || 'markdown').toLowerCase();
+    lessonById.set(id, {
+      id,
+      course_id: String(l?.course_id || '').trim(),
+      module_id: String(l?.module_id || '').trim(),
+      title: l?.title || '',
+      slug: id,
+      description: l?.description || '',
+      content_type: contentTypeRaw || 'markdown',
+      content_url: null,
+      content_text: contentText,
+      order_index: l?.order_index ?? 0,
+      estimated_minutes: l?.estimated_minutes ?? 0,
+      is_required: l?.is_required ?? 1,
+      is_published: 1,
+      assets: [],
+      // compatibility-only fields
+      type: l?.type || 'lesson',
+      sandbox_query: l?.sandbox_query ?? null,
+      sandbox_db: l?.sandbox_db ?? 'd1',
+    });
+  }
+
+  for (const l of canonicalLessonsFlat) {
+    const id = String(l?.id || '').trim();
+    if (!id) continue;
+    const slug = String(l?.slug || id).trim();
+    lessonById.set(id, {
+      id,
+      course_id: String(l?.course_id || '').trim(),
+      module_id: String(l?.module_id || '').trim(),
+      title: l?.title || '',
+      slug,
+      description: l?.description || '',
+      content_type: l?.content_type || 'markdown',
+      content_url: l?.content_url ?? null,
+      content_text: l?.content_text ?? null,
+      order_index: l?.order_index ?? 0,
+      estimated_minutes: l?.estimated_minutes ?? 0,
+      is_required: l?.is_required ?? 1,
+      is_published: l?.is_published ?? 0,
+      assets: [],
+    });
+  }
+
+  const lessonsFlat = [...lessonById.values()].filter((l) => l?.course_id);
+
+  // Attach lesson_assets by lesson_id (canonical).
+  const assetsFlat = [];
+  const lessonIds = lessonsFlat.map((l) => l.id).filter(Boolean);
+  if (hasLessonAssetsTable && lessonIds.length) {
+    const lph = lessonIds.map(() => '?').join(',');
+    const assetSelect = pickExistingCols(lessonAssetsCols, [
+      'id',
+      'lesson_id',
+      'asset_type',
+      'asset_url',
+      'r2_key',
+      'r2_bucket',
+      'file_name',
+      'file_size',
+      'mime_type',
+      'order_index',
+      'created_at',
+      'updated_at',
+    ]);
+    if (assetSelect.length) {
+      try {
+        const res = await env.DB.prepare(
+          `
+            SELECT ${assetSelect.join(', ')}
+            FROM lesson_assets
+            WHERE lesson_id IN (${lph})
+            ORDER BY lesson_id, COALESCE(order_index, 0) ASC
+          `,
+        )
+          .bind(...lessonIds)
+          .all();
+        assetsFlat.push(...(res?.results ?? []));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+
+  const assetsByLesson = new Map();
+  for (const a of assetsFlat) {
+    const lid = String(a?.lesson_id || '').trim();
+    if (!lid) continue;
+    if (!assetsByLesson.has(lid)) assetsByLesson.set(lid, []);
+    assetsByLesson.get(lid).push({
+      id: a?.id ? String(a.id) : null,
+      lesson_id: lid,
+      asset_type: a?.asset_type ? String(a.asset_type) : 'asset',
+      asset_url: a?.asset_url ?? null,
+      r2_key: a?.r2_key ?? null,
+      r2_bucket: a?.r2_bucket ?? null,
+      file_name: a?.file_name ?? null,
+      file_size: a?.file_size ?? null,
+      mime_type: a?.mime_type ?? null,
+      order_index: a?.order_index ?? 0,
+    });
+  }
+
+  for (const l of lessonsFlat) {
+    const lid = String(l.id);
+    l.assets = (assetsByLesson.get(lid) || []).slice();
+  }
 
   // Indexes
   const enrollmentByCourseId = new Map();
@@ -345,50 +588,57 @@ async function handleLearnDashboard(_request, env, authUser) {
 
     const modules = courseModules.map((m) => {
       const mid = String(m.id);
-      const lessons = (lessonsByModule.get(mid) || []).slice().sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)).map((l) => {
-        const lid = String(l.id);
-        const p = progressByLessonKey.get(`${cid}:${lid}`) || null;
-        const attachedAssignments = assignmentsByLesson.get(lid) || [];
-        return {
-          id: lid,
-          module_id: String(l.module_id),
-          course_id: cid,
-          title: l.title,
-          type: l.type || 'lesson',
-          description: l.description || '',
-          estimated_minutes: l.estimated_minutes ?? 0,
-          order_index: l.order_index ?? 0,
-          is_required: l.is_required ?? 1,
-          content: l.content ?? null,
-          content_format: l.content_format || 'markdown',
-          has_content: l.has_content ?? 0,
-          sandbox_query: l.sandbox_query ?? null,
-          sandbox_db: l.sandbox_db ?? 'd1',
-          progress: p
-            ? {
-                status: p.status || 'not_started',
-                completed_at: p.completed_at ?? null,
-                time_spent_minutes: p.time_spent_minutes ?? 0,
-                token_spend: p.token_spend ?? 0,
-              }
-            : {
-                status: 'not_started',
-                completed_at: null,
-                time_spent_minutes: 0,
-                token_spend: 0,
-              },
-          assignments: attachedAssignments.map((a) => {
-            const asgId = String(a.id);
-            const submission = submissionsByAssignment.get(asgId) || null;
-            const grade = gradesByAssignment.get(asgId) || null;
-            return {
-              ...a,
-              submission,
-              grade,
-            };
-          }),
-        };
-      });
+      const lessons = (lessonsByModule.get(mid) || [])
+        .slice()
+        .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+        .map((l) => {
+          const lid = String(l.id);
+          const p = progressByLessonKey.get(`${cid}:${lid}`) || null;
+          const attachedAssignments = assignmentsByLesson.get(lid) || [];
+          return {
+            id: lid,
+            course_id: cid,
+            module_id: String(l.module_id),
+            title: l.title,
+            slug: l.slug || lid,
+            description: l.description || '',
+            content_type: l.content_type || 'markdown',
+            content_url: l.content_url ?? null,
+            content_text: l.content_text ?? null,
+            order_index: l.order_index ?? 0,
+            estimated_minutes: l.estimated_minutes ?? 0,
+            is_required: l.is_required ?? 1,
+            is_published: l.is_published ?? 0,
+            assets: Array.isArray(l.assets) ? l.assets : [],
+            progress: p
+              ? {
+                  status: p.status || 'not_started',
+                  completed_at: p.completed_at ?? null,
+                  time_spent_minutes: p.time_spent_minutes ?? 0,
+                  token_spend: p.token_spend ?? 0,
+                }
+              : {
+                  status: 'not_started',
+                  completed_at: null,
+                  time_spent_minutes: 0,
+                  token_spend: 0,
+                },
+            assignments: attachedAssignments.map((a) => {
+              const asgId = String(a.id);
+              const submission = submissionsByAssignment.get(asgId) || null;
+              const grade = gradesByAssignment.get(asgId) || null;
+              return {
+                ...a,
+                submission,
+                grade,
+              };
+            }),
+            // compatibility-only fields (present for some `course_lessons` sources)
+            type: l.type ?? null,
+            sandbox_query: l.sandbox_query ?? null,
+            sandbox_db: l.sandbox_db ?? null,
+          };
+        });
 
       const moduleAssignments = assignmentsByModule.get(mid) || [];
       return {
@@ -462,7 +712,19 @@ async function handleLearnDashboard(_request, env, authUser) {
 
   return jsonResponse({
     ok: true,
+    viewer: {
+      is_superadmin: !!isSuperadmin,
+    },
     courses,
+    course_modules: modulesFlat,
+    lessons: lessonsFlat,
+    lesson_assets: assetsFlat,
+    lesson_versions: [],
+    lesson_progress: progressFlat,
+    course_assignments: assignmentsFlat,
+    course_submissions: submissionsFlat,
+    course_grades: gradesFlat,
+    course_exports: exportsFlat,
   });
 }
 
@@ -491,11 +753,27 @@ async function handleLearnProgress(request, env, authUser) {
   const tokenSpend = Number(body.token_spend) || 0;
 
   // Validate lesson belongs to course and resolve module_id.
-  const lesson = await env.DB.prepare(
-    `SELECT id, module_id, course_id FROM course_lessons WHERE id = ? AND course_id = ? LIMIT 1`,
-  )
-    .bind(lesson_id, course_id)
-    .first();
+  let lesson = null;
+  const hasLessons = await tableExists(env, 'lessons');
+  const hasCourseLessons = await tableExists(env, 'course_lessons');
+  if (hasLessons) {
+    try {
+      lesson = await env.DB.prepare(
+        `SELECT id, module_id, course_id FROM lessons WHERE id = ? AND course_id = ? LIMIT 1`,
+      )
+        .bind(lesson_id, course_id)
+        .first();
+    } catch {
+      lesson = null;
+    }
+  }
+  if (!lesson && hasCourseLessons) {
+    lesson = await env.DB.prepare(
+      `SELECT id, module_id, course_id FROM course_lessons WHERE id = ? AND course_id = ? LIMIT 1`,
+    )
+      .bind(lesson_id, course_id)
+      .first();
+  }
   if (!lesson) return jsonResponse({ error: 'Lesson not found' }, 404);
 
   const moduleId = String(body?.module_id || lesson.module_id || '').trim();
