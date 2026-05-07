@@ -267,8 +267,8 @@ for model_id, provider, prompt in image_tests:
     img_job_id = f"imgjob_{uuid.uuid4().hex[:8]}"
     # Insert job row first
     d1(f"""INSERT OR IGNORE INTO image_generation_jobs
-    (id, session_id, provider, model, prompt_text, status)
-    VALUES ('{img_job_id}', 'smoke_test', '{provider}', '{model_id}',
+    (id, session_id, tenant_id, workspace_id, provider, model, prompt_text, status)
+    VALUES ('{img_job_id}', 'smoke_test', 'tenant_sam_primeaux', 'ws_inneranimalmedia', '{provider}', '{model_id}',
             '{prompt[:200]}', 'queued');""")
 
     data, ms = curl("POST", "/api/agent/chat", {

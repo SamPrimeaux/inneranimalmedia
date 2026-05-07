@@ -37,6 +37,8 @@
     "cron:finalize-stale-deploys": "./scripts/with-cloudflare-env.sh node scripts/finalize-stale-deploy-events.mjs --mode=manual --older-than-minutes=30 --apply",
     "cron:finalize-stale-deploys:dry-run": "./scripts/with-cloudflare-env.sh node scripts/finalize-stale-deploy-events.mjs --mode=manual --older-than-minutes=30 --dry-run",
     "cron:runs:recent": "./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --command \"SELECT job_name, status, tenant_id, workspace_id, rows_read, rows_written, error_message, datetime(started_at,'unixepoch') AS started_at, datetime(completed_at,'unixepoch') AS completed_at, duration_ms FROM agentsam_cron_runs ORDER BY started_at DESC LIMIT 25\"",
+    "audit:tenant-workspace:repo": "python3 scripts/audit_tenant_workspace_hardcoding.py --repo-only",
+    "audit:tenant-workspace:d1": "./scripts/with-cloudflare-env.sh python3 scripts/audit_tenant_workspace_hardcoding.py --remote --wrangler-config wrangler.production.toml --database inneranimalmedia-business",
     "deploy:d1:start": "./scripts/with-cloudflare-env.sh node scripts/record-d1-deploy-start.mjs",
     "deploy:d1:complete": "./scripts/with-cloudflare-env.sh node scripts/record-d1-deploy-complete.mjs",
     "deploy:d1:failure": "./scripts/with-cloudflare-env.sh node scripts/record-d1-deploy-failure.mjs",
