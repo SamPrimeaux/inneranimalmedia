@@ -1,0 +1,132 @@
+
+ ⛅️ wrangler 4.88.0
+───────────────────
+Resource location: remote 
+
+🌀 Executing on remote database inneranimalmedia-business (cf87b717-d4e2-4cf8-bab0-a81268e32d49):
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+🚣 Executed 1 command in 0.72ms
+[
+  {
+    "results": [
+      {
+        "table_name": "cms_3d_assets",
+        "sql": "CREATE TABLE cms_3d_assets (\n    id TEXT PRIMARY KEY,\n    asset_id TEXT NOT NULL,\n    tenant_id TEXT NOT NULL,\n    meshy_task_id TEXT,\n    model_type TEXT,\n    prompt TEXT,\n    source_image_url TEXT,\n    status TEXT DEFAULT 'pending',\n    glb_url TEXT,\n    thumbnail_url TEXT,\n    poly_count INTEGER,\n    error_message TEXT,\n    created_at INTEGER NOT NULL,\n    completed_at INTEGER, r2_key TEXT, r2_bucket TEXT, s3_endpoint TEXT,\n    FOREIGN KEY (asset_id) REFERENCES cms_assets(id) ON DELETE CASCADE,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_activity_log",
+        "sql": "CREATE TABLE cms_activity_log (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL,\n    user_id TEXT,\n    action TEXT NOT NULL,\n    resource_type TEXT NOT NULL,\n    resource_id TEXT NOT NULL,\n    details TEXT,\n    ip_address TEXT,\n    user_agent TEXT,\n    created_at INTEGER NOT NULL,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_assets",
+        "sql": "CREATE TABLE cms_assets (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL,\n    filename TEXT NOT NULL,\n    original_filename TEXT NOT NULL,\n    path TEXT NOT NULL,\n    size INTEGER NOT NULL,\n    mime_type TEXT NOT NULL,\n    category TEXT NOT NULL,\n    tags TEXT,\n    cloudflare_image_id TEXT,\n    r2_key TEXT NOT NULL,\n    public_url TEXT NOT NULL,\n    thumbnail_url TEXT,\n    metadata TEXT,\n    created_by TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, is_live INTEGER NOT NULL DEFAULT 0, notes TEXT, builds TEXT, preferred_bg TEXT, r2_bucket TEXT, s3_endpoint TEXT,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id)\n)"
+      },
+      {
+        "table_name": "cms_collection_assets",
+        "sql": "CREATE TABLE cms_collection_assets (\n    collection_id TEXT NOT NULL,\n    asset_id TEXT NOT NULL,\n    order_index INTEGER DEFAULT 0,\n    added_at INTEGER NOT NULL,\n    PRIMARY KEY (collection_id, asset_id),\n    FOREIGN KEY (collection_id) REFERENCES cms_collections(id) ON DELETE CASCADE,\n    FOREIGN KEY (asset_id) REFERENCES cms_assets(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_collections",
+        "sql": "CREATE TABLE cms_collections (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL,\n    name TEXT NOT NULL,\n    description TEXT,\n    thumbnail_url TEXT,\n    is_public INTEGER DEFAULT 0,\n    created_by TEXT,\n    created_at INTEGER NOT NULL,\n    updated_at INTEGER NOT NULL,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_component_templates",
+        "sql": "CREATE TABLE cms_component_templates (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n  template_name TEXT NOT NULL,\n  template_type TEXT NOT NULL, \n  category TEXT NOT NULL, \n  preview_image_url TEXT,\n  template_data TEXT NOT NULL, \n  is_system INTEGER DEFAULT 1, \n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now'))\n, r2_bucket TEXT, r2_key TEXT, s3_endpoint TEXT, tenant_id TEXT)"
+      },
+      {
+        "table_name": "cms_content",
+        "sql": "CREATE TABLE cms_content (\n  key TEXT PRIMARY KEY,\n  value TEXT NOT NULL DEFAULT '',\n  updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n)"
+      },
+      {
+        "table_name": "cms_conversion_jobs",
+        "sql": "CREATE TABLE cms_conversion_jobs (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL,\n    asset_id TEXT NOT NULL,\n    service TEXT NOT NULL,\n    status TEXT DEFAULT 'pending',\n    input_format TEXT NOT NULL,\n    output_format TEXT NOT NULL,\n    job_id TEXT,\n    result_url TEXT,\n    error TEXT,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    completed_at DATETIME,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id),\n    FOREIGN KEY (asset_id) REFERENCES cms_assets(id)\n)"
+      },
+      {
+        "table_name": "cms_conversions",
+        "sql": "CREATE TABLE cms_conversions (\n    id TEXT PRIMARY KEY,\n    asset_id TEXT NOT NULL,\n    tenant_id TEXT NOT NULL,\n    source_format TEXT NOT NULL,\n    target_format TEXT NOT NULL,\n    status TEXT DEFAULT 'pending',\n    cloudconvert_job_id TEXT,\n    output_asset_id TEXT,\n    output_url TEXT,\n    error_message TEXT,\n    started_at INTEGER,\n    completed_at INTEGER,\n    created_at INTEGER NOT NULL,\n    FOREIGN KEY (asset_id) REFERENCES cms_assets(id) ON DELETE CASCADE,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_folders",
+        "sql": "CREATE TABLE cms_folders (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL,\n    name TEXT NOT NULL,\n    parent_id TEXT,\n    path TEXT NOT NULL,\n    created_at INTEGER NOT NULL,\n    updated_at INTEGER NOT NULL,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id) ON DELETE CASCADE,\n    FOREIGN KEY (parent_id) REFERENCES cms_folders(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_global_settings",
+        "sql": "CREATE TABLE cms_global_settings (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n  project_id INTEGER NOT NULL UNIQUE,\n  site_name TEXT,\n  site_logo_url TEXT,\n  site_favicon_url TEXT,\n  contact_email TEXT,\n  contact_phone TEXT,\n  social_links TEXT, \n  footer_text TEXT,\n  header_announcement TEXT,\n  seo_defaults TEXT, \n  scripts_head TEXT, \n  scripts_body TEXT, \n  analytics_id TEXT,\n  settings_json TEXT, \n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now'))\n)"
+      },
+      {
+        "table_name": "cms_live_edit_sessions",
+        "sql": "CREATE TABLE cms_live_edit_sessions (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n  page_id TEXT NOT NULL,\n  user_id TEXT NOT NULL,\n  session_token TEXT NOT NULL UNIQUE,\n  is_active INTEGER DEFAULT 1,\n  last_activity TEXT DEFAULT (datetime('now')),\n  created_at TEXT DEFAULT (datetime('now')),\n  FOREIGN KEY (page_id) REFERENCES cms_site_pages(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_live_rollbacks",
+        "sql": "CREATE TABLE cms_live_rollbacks (\n  id TEXT PRIMARY KEY,\n  page_id TEXT NOT NULL,\n  project_id TEXT NOT NULL,\n  slug TEXT NOT NULL,\n  previous_html TEXT,\n  previous_r2_key TEXT,\n  deployed_html_hash TEXT,\n  created_at INTEGER NOT NULL,\n  FOREIGN KEY (page_id) REFERENCES \"cms_pages_backup_20260428\"(id)\n)"
+      },
+      {
+        "table_name": "cms_navigation_menus",
+        "sql": "CREATE TABLE cms_navigation_menus (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n\n  project_id TEXT NOT NULL,\n  project_slug TEXT,\n  tenant_id TEXT,\n\n  menu_name TEXT NOT NULL,\n  menu_type TEXT DEFAULT 'site',\n  menu_items TEXT NOT NULL,\n\n  is_active INTEGER DEFAULT 1,\n\n  r2_bucket TEXT,\n  r2_key TEXT,\n  r2_url TEXT,\n  s3_endpoint TEXT,\n\n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now')),\n\n  UNIQUE(project_id, menu_name)\n)"
+      },
+      {
+        "table_name": "cms_override_versions",
+        "sql": "CREATE TABLE cms_override_versions (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),\n  override_id TEXT NOT NULL,             \n  project_id INTEGER NOT NULL,\n  project_slug TEXT NOT NULL,\n  path TEXT NOT NULL,\n  section TEXT NOT NULL,\n  overrides_json TEXT NOT NULL,\n  version INTEGER NOT NULL,\n  status TEXT NOT NULL,\n  created_by TEXT DEFAULT 'user-sam-primeaux',\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  FOREIGN KEY (override_id) REFERENCES cms_page_overrides(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_page_drafts",
+        "sql": "CREATE TABLE cms_page_drafts (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n  page_id TEXT NOT NULL,\n  user_id TEXT NOT NULL,\n  draft_data TEXT NOT NULL, \n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now')),\n  UNIQUE(page_id, user_id)\n)"
+      },
+      {
+        "table_name": "cms_page_overrides",
+        "sql": "CREATE TABLE cms_page_overrides (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),\n  project_id INTEGER NOT NULL,           \n  project_slug TEXT NOT NULL,            \n  path TEXT NOT NULL,                    \n  section TEXT NOT NULL DEFAULT 'hero',  \n  overrides_json TEXT NOT NULL DEFAULT '{}',\n  status TEXT NOT NULL DEFAULT 'draft'\n    CHECK (status IN ('draft','published','archived')),\n  version INTEGER NOT NULL DEFAULT 1,\n  published_at TEXT,\n  published_by TEXT,\n  created_by TEXT DEFAULT 'user-sam-primeaux',\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n  UNIQUE(project_id, path, section)\n)"
+      },
+      {
+        "table_name": "cms_page_sections",
+        "sql": "CREATE TABLE cms_page_sections (\n  id TEXT PRIMARY KEY,\n  page_id TEXT NOT NULL,\n  section_type TEXT NOT NULL,\n  section_name TEXT NOT NULL,\n  section_data TEXT NOT NULL DEFAULT '{}',\n  sort_order INTEGER DEFAULT 0,\n  is_visible INTEGER DEFAULT 1,\n  css_classes TEXT,\n  custom_css TEXT,\n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now')),\n  FOREIGN KEY (page_id)\n    REFERENCES cms_pages(id)\n    ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_pages",
+        "sql": "CREATE TABLE cms_pages (\n  id TEXT PRIMARY KEY,\n  project_id TEXT NOT NULL,\n  project_slug TEXT NOT NULL,\n  tenant_id TEXT NOT NULL,\n  workspace_id TEXT,\n  worker_id TEXT,\n  person_uuid TEXT,\n\n  slug TEXT NOT NULL,\n  path TEXT NOT NULL,\n  route_path TEXT NOT NULL,\n  page_type TEXT NOT NULL CHECK (page_type IN (\n    'home','about','services','work','case_study','contact','pricing',\n    'privacy','terms','faq','product','collection','blog','post',\n    'landing','portal','dashboard','auth','sitemap','custom'\n  )),\n\n  title TEXT NOT NULL,\n  meta_description TEXT,\n  description TEXT,\n\n  status TEXT NOT NULL DEFAULT 'draft'\n    CHECK(status IN ('draft','published','archived','scheduled')),\n\n  seo_title TEXT,\n  canonical_url TEXT,\n  robots TEXT DEFAULT 'index,follow',\n  og_image_asset_id TEXT,\n\n  r2_bucket TEXT,\n  r2_key TEXT,\n  r2_url TEXT,\n  content_type TEXT DEFAULT 'text/html',\n  content_size_bytes INTEGER DEFAULT 0,\n\n  config_json TEXT DEFAULT '{}',\n  seo_json TEXT DEFAULT '{}',\n  analytics_json TEXT DEFAULT '{}',\n  metadata_json TEXT DEFAULT '{}',\n\n  is_homepage INTEGER DEFAULT 0,\n  is_system_page INTEGER DEFAULT 0,\n  requires_auth INTEGER DEFAULT 0,\n  is_active INTEGER DEFAULT 1,\n  sort_order INTEGER DEFAULT 0,\n\n  created_by TEXT,\n  updated_by TEXT,\n  published_by TEXT,\n\n  created_at INTEGER NOT NULL,\n  updated_at INTEGER NOT NULL,\n  published_at INTEGER,\n  archived_at INTEGER,\n\n  UNIQUE(project_id, slug),\n  UNIQUE(project_id, route_path)\n)"
+      },
+      {
+        "table_name": "cms_section_components",
+        "sql": "CREATE TABLE cms_section_components (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n  section_id TEXT NOT NULL,\n  component_type TEXT NOT NULL,\n  component_data TEXT NOT NULL DEFAULT '{}',\n  sort_order INTEGER DEFAULT 0,\n  is_visible INTEGER DEFAULT 1,\n  tenant_id TEXT,\n  project_id TEXT,\n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now')),\n  FOREIGN KEY (section_id) REFERENCES cms_page_sections(id) ON DELETE CASCADE\n)"
+      },
+      {
+        "table_name": "cms_site_pages",
+        "sql": "CREATE TABLE cms_site_pages (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),\n  project_id INTEGER NOT NULL,\n  project_slug TEXT NOT NULL,\n  path TEXT NOT NULL,                    \n  title TEXT NOT NULL,\n  description TEXT,\n  is_active INTEGER DEFAULT 1,\n  sort_order INTEGER DEFAULT 0,\n  page_type TEXT DEFAULT 'page'\n    CHECK (page_type IN ('page','post','product','landing','custom')),\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  updated_at TEXT NOT NULL DEFAULT (datetime('now')), tenant_id TEXT, workspace_id TEXT, worker_id TEXT, person_uuid TEXT, seo_title TEXT, canonical_url TEXT, robots TEXT DEFAULT 'index,follow', r2_bucket TEXT, r2_key TEXT, r2_url TEXT, content_type TEXT DEFAULT 'text/html', status TEXT DEFAULT 'draft', published_at TEXT, metadata_json TEXT DEFAULT '{}',\n  UNIQUE(project_id, path)\n)"
+      },
+      {
+        "table_name": "cms_tenants",
+        "sql": "CREATE TABLE cms_tenants (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    slug TEXT UNIQUE NOT NULL,\n    logo_url TEXT,\n    primary_color TEXT DEFAULT '#1a73e8',\n    secondary_color TEXT DEFAULT '#174ea6',\n    theme TEXT DEFAULT 'light',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP\n, domain TEXT, settings TEXT, is_active INTEGER DEFAULT 1, tenant_ref_id TEXT REFERENCES tenants(id) ON DELETE SET NULL)"
+      },
+      {
+        "table_name": "cms_theme_preferences",
+        "sql": "CREATE TABLE cms_theme_preferences (\n  id TEXT PRIMARY KEY,\n  tenant_id TEXT NOT NULL DEFAULT 'default',\n  user_id TEXT DEFAULT NULL,\n  workspace_id TEXT DEFAULT NULL,\n  project_id TEXT DEFAULT NULL,\n  page_id TEXT DEFAULT NULL,\n  theme_id TEXT NOT NULL,\n  theme_slug TEXT NOT NULL,\n  scope TEXT NOT NULL DEFAULT 'workspace'\n    CHECK (scope IN ('user_global','tenant','workspace','project','page')),\n  is_active INTEGER NOT NULL DEFAULT 1,\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  updated_at TEXT NOT NULL DEFAULT (datetime('now')),\n  UNIQUE(tenant_id, user_id, workspace_id, project_id, page_id, scope)\n)"
+      },
+      {
+        "table_name": "cms_themes",
+        "sql": "CREATE TABLE cms_themes (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT,\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL,\n    css_url TEXT,\n    config TEXT NOT NULL,\n    is_system BOOLEAN DEFAULT 0,\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, wcag_scores TEXT, contrast_flags TEXT, theme_family TEXT DEFAULT 'custom', sort_order INTEGER DEFAULT 100, workspace_id TEXT DEFAULT NULL, monaco_theme TEXT NOT NULL DEFAULT 'vs-dark', monaco_bg TEXT NOT NULL DEFAULT '#1e293b', monaco_theme_data TEXT, tokens_json TEXT NOT NULL DEFAULT '{}', css_vars_json TEXT NOT NULL DEFAULT '{}', brand_json TEXT NOT NULL DEFAULT '{}', layout_json TEXT NOT NULL DEFAULT '{}', typography_json TEXT NOT NULL DEFAULT '{}', components_json TEXT NOT NULL DEFAULT '{}', motion_json TEXT NOT NULL DEFAULT '{}', css_r2_key TEXT DEFAULT NULL, compiled_css_hash TEXT DEFAULT NULL, preview_image_url TEXT DEFAULT NULL, status TEXT NOT NULL DEFAULT 'active', updated_at TEXT DEFAULT NULL, visibility TEXT NOT NULL DEFAULT 'public', alias_of_theme_id TEXT DEFAULT NULL, css_r2_bucket TEXT DEFAULT NULL,\n    UNIQUE(tenant_id, slug)\n)"
+      },
+      {
+        "table_name": "cms_video_projects",
+        "sql": "CREATE TABLE cms_video_projects (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL,\n    name TEXT NOT NULL,\n    description TEXT,\n    assets TEXT,\n    timeline_data TEXT,\n    thumbnail_url TEXT,\n    status TEXT DEFAULT 'draft',\n    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n    FOREIGN KEY (tenant_id) REFERENCES cms_tenants(id)\n)"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "EWR",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.719
+      },
+      "duration": 0.719,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 35856384,
+      "rows_read": 2403,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
