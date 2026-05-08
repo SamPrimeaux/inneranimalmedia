@@ -15,6 +15,7 @@
  */
 
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { resolveOAuthAccessToken } from './oauth.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -35,23 +36,24 @@ function safeFilename(name = '') {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || `draw_${Date.now()}`;
 }
 
+import { getIntegrationToken } from '../integrations/tokens.js';
+
+// Google Drive OAuth refresh: getIntegrationToken → getIntegrationOAuthRow reads
+// access_token_encrypted / refresh_token_encrypted, calls oauth2.googleapis.com/token
+// with grant_type=refresh_token, and persists to D1 when expired.
+
 // ── Token lookup ──────────────────────────────────────────────────────────────
 
-async function getUserOAuthToken(db, userId, provider) {
-  const row = await db.prepare(`
-    SELECT access_token, refresh_token, expires_at
-    FROM user_oauth_tokens
-    WHERE user_id = ? AND provider = ?
-    ORDER BY updated_at DESC LIMIT 1
-  `).bind(userId, provider).first();
-  return row || null;
+async function getUserOAuthToken(env, userId, provider) {
+  return getIntegrationToken(env, userId, provider, '');
 }
 
 // ── Google Drive export ───────────────────────────────────────────────────────
 
-async function exportToGDrive(db, userId, { bytes, contentType, filename, existingFileId }) {
-  const token = await getUserOAuthToken(db, userId, 'google_drive');
-  if (!token?.access_token) {
+async function exportToGDrive(env, userId, { bytes, contentType, filename, existingFileId }) {
+  const token = await getUserOAuthToken(env, userId, 'google_drive');
+  const bearer = await resolveOAuthAccessToken(env, token);
+  if (!bearer) {
     return { ok: false, error: 'Google Drive not connected. Connect it in Settings → Integrations.' };
   }
 
@@ -82,7 +84,7 @@ async function exportToGDrive(db, userId, { bytes, contentType, filename, existi
   const res = await fetch(url, {
     method:  isUpdate ? 'PATCH' : 'POST',
     headers: {
-      'Authorization':  `Bearer ${token.access_token}`,
+      'Authorization':  `Bearer ${bearer}`,
       'Content-Type':   `multipart/related; boundary="${boundary}"`,
       'Content-Length': String(merged.length),
     },
@@ -109,9 +111,10 @@ async function exportToGDrive(db, userId, { bytes, contentType, filename, existi
 
 // ── GitHub export ─────────────────────────────────────────────────────────────
 
-async function exportToGitHub(db, userId, { bytes, filename, repo, path, existingSha, commitMessage }) {
-  const token = await getUserOAuthToken(db, userId, 'github');
-  if (!token?.access_token) {
+async function exportToGitHub(env, userId, { bytes, filename, repo, path, existingSha, commitMessage }) {
+  const token = await getUserOAuthToken(env, userId, 'github');
+  const bearer = await resolveOAuthAccessToken(env, token);
+  if (!bearer) {
     return { ok: false, error: 'GitHub not connected. Connect it in Settings → Integrations.' };
   }
 
@@ -129,7 +132,7 @@ async function exportToGitHub(db, userId, { bytes, filename, repo, path, existin
   const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${token.access_token}`,
+      'Authorization': `Bearer ${bearer}`,
       'Content-Type':  'application/json',
       'Accept':        'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
@@ -276,8 +279,8 @@ export async function handleDrawApi(request, url, env, ctx) {
     // ── GET /api/draw/connections ─────────────────────────────────────────────
     if (pathLower === '/api/draw/connections' && method === 'GET') {
       const [gdrive, github] = await Promise.all([
-        getUserOAuthToken(env.DB, userId, 'google_drive'),
-        getUserOAuthToken(env.DB, userId, 'github'),
+        getUserOAuthToken(env, userId, 'google_drive'),
+        getUserOAuthToken(env, userId, 'github'),
       ]);
       return jsonResponse({
         google_drive: !!gdrive?.access_token,
@@ -367,7 +370,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       // ── 2. Google Drive (optional) ──
       let gdriveFileId = body.gdrive?.fileId || null;
       if (destinations.includes('gdrive')) {
-        const gd = await exportToGDrive(env.DB, userId, {
+        const gd = await exportToGDrive(env, userId, {
           bytes:          parsed.bytes,
           contentType:    'image/png',
           filename:       pngFilename,
@@ -382,7 +385,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       let githubRepo = body.github?.repo || null;
       let githubPath = null;
       if (destinations.includes('github') && body.github?.repo) {
-        const gh = await exportToGitHub(env.DB, userId, {
+        const gh = await exportToGitHub(env, userId, {
           bytes:         parsed.bytes,
           filename:      pngFilename,
           repo:          body.github.repo,

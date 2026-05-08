@@ -1,18 +1,15 @@
 import { resolveApiKey } from '../core/vault.js';
+import { getIntegrationOAuthRow } from '../core/user-oauth-token.js';
 
-export async function getIntegrationToken(DB, userId, provider, accountId) {
-  if (!DB || !userId || !provider) return null;
+/**
+ * OAuth row for integration routes (GitHub, Google Drive, etc.):
+ * vault / encrypted / plaintext token resolution and Google refresh when expired.
+ * @param {object} env Worker env (DB + secrets for decrypt/refresh)
+ */
+export async function getIntegrationToken(env, userId, provider, accountId) {
+  if (!env?.DB || !userId || !provider) return null;
   const aid = accountId != null ? String(accountId) : '';
-  if (provider === 'github' && aid === '') {
-    const row = await DB.prepare(
-      `SELECT access_token, refresh_token, expires_at FROM user_oauth_tokens WHERE user_id = ? AND provider = 'github' ORDER BY account_identifier ASC LIMIT 1`
-    ).bind(userId).first();
-    return row || null;
-  }
-  const row = await DB.prepare(
-    `SELECT access_token, refresh_token, expires_at FROM user_oauth_tokens WHERE user_id = ? AND provider = ? AND account_identifier = ?`
-  ).bind(userId, provider, aid).first();
-  return row || null;
+  return getIntegrationOAuthRow(env, userId, provider, aid);
 }
 
 export async function resolveModelApiKey(env, provider, modelKey, userId) {

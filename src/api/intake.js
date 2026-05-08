@@ -115,7 +115,7 @@ Rules:
           (id, plan_date, title, plan_type, status, morning_brief,
            workspace_id, default_model, created_at, updated_at)
         VALUES (?, date('now'), ?, 'studio_session', 'active', ?, ?,
-                'claude-haiku-4-5', unixepoch(), unixepoch())
+                'claude-haiku-4-5-20251001', unixepoch(), unixepoch())
       `).bind(
         planId,
         goal.slice(0, 120),

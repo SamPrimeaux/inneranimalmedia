@@ -428,8 +428,8 @@ export async function handleMailApi(request, url, env, ctx) {
         userId,
         GMAIL_PROVIDER,
         account_identifier,
-        String(tok.access_token),
-        tok.refresh_token ? String(tok.refresh_token) : null,
+        String(tok['access_token']),
+        tok['refresh_token'] ? String(tok['refresh_token']) : null,
         exp,
         scope,
       ).run();

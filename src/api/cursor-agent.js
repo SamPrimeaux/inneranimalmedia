@@ -19,7 +19,7 @@ export async function handleCursorAgentApi(request, url, env, ctx) {
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
       const body = await request.json().catch(() => ({}));
-      const { plan_id, prompt, repo, branch = 'main', model = 'claude-sonnet-4-5' } = body;
+      const { plan_id, prompt, repo, branch = 'main', model = 'claude-sonnet-4-6' } = body;
 
       if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
 
