@@ -112,19 +112,30 @@ async function resolveAgentIdFromIntent(env, prompt) {
     let patterns = { results: [] };
     try {
       patterns = await env.DB.prepare(
-        'SELECT workflow_agent AS agent_id, triggers_json FROM agent_intent_patterns WHERE is_active=1'
+        `SELECT mapped_command AS agent_id, pattern AS triggers_json
+         FROM agentsam_command_pattern WHERE is_active = 1`,
       ).all();
+      if (!(patterns.results || []).length) throw new Error('no_agentsam_patterns');
     } catch (_) {
-      patterns = await env.DB.prepare(
-        'SELECT agent_id, triggers_json FROM agent_intent_patterns WHERE is_active=1'
-      ).all();
+      try {
+        patterns = await env.DB.prepare(
+          'SELECT workflow_agent AS agent_id, triggers_json FROM agent_intent_patterns WHERE is_active=1',
+        ).all();
+      } catch (_e2) {
+        patterns = await env.DB.prepare(
+          'SELECT agent_id, triggers_json FROM agent_intent_patterns WHERE is_active=1',
+        ).all();
+      }
     }
     const low = String(prompt || '').toLowerCase();
     outer: for (const p of patterns.results || []) {
       let triggers = [];
       try {
         triggers = JSON.parse(p.triggers_json || '[]');
-      } catch (_) {}
+      } catch (_) {
+        triggers = p.triggers_json ? [String(p.triggers_json)] : [];
+      }
+      if (!Array.isArray(triggers)) triggers = triggers != null ? [String(triggers)] : [];
       for (const t of triggers) {
         if (low.includes(String(t).toLowerCase())) {
           const rawAid = String(p.agent_id || '').trim();
@@ -629,10 +640,26 @@ export async function handleMcpApi(request, url, env, ctx) {
       let rows = [];
       try {
         const r = await env.DB.prepare(
-          'SELECT * FROM mcp_command_suggestions ORDER BY is_pinned DESC, sort_order ASC'
+          `SELECT id, slug,
+                  display_name AS label,
+                  description,
+                  handler_ref AS routed_to_agent,
+                  sort_order,
+                  0 AS is_pinned
+           FROM agentsam_slash_commands
+           WHERE COALESCE(is_active, 1) = 1
+           ORDER BY sort_order ASC`,
         ).all();
         rows = r.results || [];
       } catch (_) {}
+      if (!rows.length) {
+        try {
+          const legacy = await env.DB.prepare(
+            'SELECT * FROM mcp_command_suggestions ORDER BY is_pinned DESC, sort_order ASC',
+          ).all();
+          rows = legacy.results || [];
+        } catch (_) {}
+      }
       return jsonResponse({ suggestions: rows });
     }
 

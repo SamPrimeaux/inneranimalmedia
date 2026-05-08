@@ -1107,17 +1107,33 @@ async function createApprovalRequest(env, ctx, opts) {
     throw new Error('WORKSPACE_CONTEXT_MISSING');
   }
   try {
+    const uid = userId != null && String(userId).trim() !== '' ? String(userId).trim() : 'iam_agent';
+    const summary = rationale || `Tool call requires approval: ${toolName}`;
+    const inputJson = JSON.stringify({
+      command_text: `${toolName}(${argsStr.slice(0, 500)})`,
+      filled_template: argsStr,
+      command_source: 'agent_generated',
+      tool: toolName,
+    });
     await env.DB.prepare(
-      `INSERT INTO agent_command_proposals
-       (id, tenant_id, agent_session_id, proposed_by, command_source, command_name,
-        command_text, filled_template, rationale, risk_level, tool, status,
-        requires_confirmation, expires_at, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`
+      `INSERT INTO agentsam_approval_queue
+       (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,
+        risk_level, input_json, expires_at, status, approval_type, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      proposalId, tenantId, sessionId, 'iam_agent', 'agent_generated',
-      toolName, `${toolName}(${argsStr.slice(0, 500)})`, argsStr,
-      rationale || `Tool call requires approval: ${toolName}`,
-      riskLevel || 'medium', toolName, 'pending', expiresAt, now, now
+      proposalId,
+      tenantId,
+      workspaceId,
+      uid,
+      sessionId || null,
+      toolName,
+      summary,
+      riskLevel || 'medium',
+      inputJson,
+      expiresAt,
+      'pending',
+      'tool',
+      now,
     ).run();
     scheduleRecordMcpToolExecution(env, ctx, {
       tenant_id: tenantId,
@@ -3161,7 +3177,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     await Promise.allSettled([
       env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all().then(r => { tables = (r.results||[]).map(x=>x.name); }),
       env.DB.prepare(`SELECT id, name FROM agentsam_mcp_workflows ORDER BY COALESCE(name,id) LIMIT 100`).all().then(r => { workflows = r.results||[]; }),
-      tenantId ? env.DB.prepare(`SELECT slug, name, category FROM agent_commands WHERE tenant_id = ? AND COALESCE(status,'active')='active' ORDER BY category, name LIMIT 200`).bind(tenantId).all().then(r => { commands = r.results||[]; }) : Promise.resolve(),
+      tenantId ? env.DB.prepare(`SELECT slug, display_name AS name, category FROM agentsam_commands WHERE tenant_id = ? AND COALESCE(is_active, 1) = 1 ORDER BY category, display_name LIMIT 200`).bind(tenantId).all().then(r => { commands = r.results||[]; }) : Promise.resolve(),
       tenantId ? env.DB.prepare(`SELECT key FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 150`).bind(tenantId).all().then(r => { memory_keys = (r.results||[]).map(x=>x.key); }) : Promise.resolve(),
       env.DB.prepare(`SELECT id, name FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name LIMIT 50`).all().then(r => { workspaces = r.results||[]; }),
     ]);
@@ -3261,7 +3277,31 @@ export async function handleAgentApi(request, url, env, ctx) {
     const now        = Math.floor(Date.now() / 1000);
     const proposedBy = String(authUser.email || authUser.id || 'user').slice(0,200);
     const iamOrigin  = (env.IAM_ORIGIN || '').replace(/\/$/,'');
-    await env.DB.prepare(`INSERT INTO agent_command_proposals (id, tenant_id, agent_session_id, proposed_by, command_source, command_name, command_text, filled_template, rationale, risk_level, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(proposalId, tenantId, body.session_id||null, proposedBy, 'dashboard', 'git_sync_workflow', 'GitHub sync workflow', 'GitHub sync workflow', 'User requested Git sync from dashboard.', 'medium', 'pending', now, now).run();
+    const expGit = now + 86400;
+    await env.DB.prepare(
+      `INSERT INTO agentsam_approval_queue
+       (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,
+        risk_level, input_json, expires_at, status, approval_type, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      proposalId,
+      tenantId,
+      null,
+      proposedBy,
+      body.session_id || null,
+      'git_sync_workflow',
+      'User requested Git sync from dashboard.',
+      'medium',
+      JSON.stringify({
+        command_text: 'GitHub sync workflow',
+        filled_template: 'GitHub sync workflow',
+        command_source: 'dashboard',
+      }),
+      expGit,
+      'pending',
+      'tool',
+      now,
+    ).run();
     notifySam(env, { subject: 'Git sync proposal pending', body: `Proposal: ${proposalId}\nApprove: ${iamOrigin}/dashboard/overview?proposal=${proposalId}`, category: 'proposal' }, ctx);
     return jsonResponse({ ok: true, proposal_id: proposalId, risk_level: 'medium' });
   }
@@ -3579,8 +3619,32 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!tenantId) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
     const proposalId = 'prop_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
     const now        = Math.floor(Date.now() / 1000);
+    const expProp    = now + 86400;
     const iamOrigin  = (env.IAM_ORIGIN || '').replace(/\/$/,'');
-    await env.DB.prepare(`INSERT INTO agent_command_proposals (id, tenant_id, agent_session_id, proposed_by, command_source, command_name, command_text, filled_template, rationale, risk_level, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(proposalId, tenantId, body.session_id||null, 'iam_agent', 'agent_generated', String(body.command_name||'proposed').slice(0,200), commandText, commandText, String(body.rationale||'Agent proposed command').slice(0,8000), 'medium', 'pending', now, now).run();
+    await env.DB.prepare(
+      `INSERT INTO agentsam_approval_queue
+       (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,
+        risk_level, input_json, expires_at, status, approval_type, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      proposalId,
+      tenantId,
+      null,
+      String(authUser.email || authUser.id || 'iam_agent').slice(0, 200),
+      body.session_id || null,
+      String(body.command_name || 'proposed').slice(0, 200),
+      String(body.rationale || 'Agent proposed command').slice(0, 8000),
+      'medium',
+      JSON.stringify({
+        command_text: commandText,
+        filled_template: commandText,
+        command_source: 'agent_generated',
+      }),
+      expProp,
+      'pending',
+      'tool',
+      now,
+    ).run();
     notifySam(env, { subject: `Proposal pending: ${commandText.slice(0,80)}`, body: `ID: ${proposalId}\nApprove: ${iamOrigin}/dashboard/overview?proposal=${proposalId}`, category: 'proposal' }, ctx);
     return jsonResponse({ ok: true, proposal_id: proposalId });
   }
@@ -3590,7 +3654,15 @@ export async function handleAgentApi(request, url, env, ctx) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse([]);
-    const { results } = await env.DB.prepare(`SELECT * FROM agent_command_proposals WHERE status = 'pending' ORDER BY created_at DESC`).all().catch(() => ({ results: [] }));
+    const { results } = await env.DB.prepare(
+      `SELECT q.id, q.tenant_id, q.session_id AS agent_session_id, q.user_id AS proposed_by,
+              q.tool_name AS command_name,
+              COALESCE(json_extract(q.input_json, '$.command_text'), q.action_summary) AS command_text,
+              q.input_json AS filled_template, q.action_summary AS rationale, q.risk_level, q.status,
+              q.created_at
+       FROM agentsam_approval_queue q
+       WHERE q.status = 'pending' ORDER BY q.created_at DESC`,
+    ).all().catch(() => ({ results: [] }));
     return jsonResponse(results || []);
   }
 
@@ -3600,11 +3672,13 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const propId   = propApproveMatch[1];
-    const row      = await env.DB.prepare(`SELECT id, tool FROM agent_command_proposals WHERE id = ?`).bind(propId).first();
+    const row      = await env.DB.prepare(`SELECT id, tool_name AS tool FROM agentsam_approval_queue WHERE id = ?`).bind(propId).first();
     if (!row) return jsonResponse({ error: 'Not found' }, 404);
     const approver = String(authUser.email || authUser.id).slice(0,200);
     const now      = Math.floor(Date.now() / 1000);
-    await env.DB.prepare(`UPDATE agent_command_proposals SET status='approved', approved_by=?, approved_at=?, updated_at=? WHERE id=?`).bind(approver, now, now, propId).run();
+    await env.DB.prepare(
+      `UPDATE agentsam_approval_queue SET status='approved', approved_by=?, decided_at=? WHERE id=?`,
+    ).bind(approver, now, propId).run();
     return jsonResponse({ ok: true, proposal_id: propId });
   }
 
@@ -3615,11 +3689,13 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const propId   = propDenyMatch[1];
     const body     = await request.json().catch(() => ({}));
-    const row      = await env.DB.prepare(`SELECT id FROM agent_command_proposals WHERE id = ?`).bind(propId).first();
+    const row      = await env.DB.prepare(`SELECT id FROM agentsam_approval_queue WHERE id = ?`).bind(propId).first();
     if (!row) return jsonResponse({ error: 'Not found' }, 404);
     const denier   = String(authUser.email || authUser.id).slice(0,200);
     const now      = Math.floor(Date.now() / 1000);
-    await env.DB.prepare(`UPDATE agent_command_proposals SET status='denied', denied_by=?, denied_at=?, denial_reason=?, updated_at=? WHERE id=?`).bind(denier, now, String(body.denial_reason||'').slice(0,4000), now, propId).run();
+    await env.DB.prepare(
+      `UPDATE agentsam_approval_queue SET status='denied', approved_by=?, decided_at=? WHERE id=?`,
+    ).bind(denier, now, propId).run();
     return jsonResponse({ ok: true, proposal_id: propId, status: 'denied' });
   }
 
@@ -3629,11 +3705,10 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ approval: null });
     const row = await env.DB.prepare(
-      `SELECT q.id, q.tool_name, q.description, q.risk_level, q.input_json,
-              q.is_mcp_server, s.display_name as server_display_name,
+      `SELECT q.id, q.tool_name, q.action_summary AS description, q.risk_level, q.input_json,
+              0 AS is_mcp_server, NULL AS server_display_name,
               (SELECT COUNT(*) FROM agentsam_approval_queue WHERE status='pending') as queue_count
        FROM agentsam_approval_queue q
-       LEFT JOIN agentsam_mcp_servers s ON q.server_key = s.server_key
        WHERE q.status='pending' ORDER BY q.created_at ASC LIMIT 1`,
     ).first();
     if (!row) return jsonResponse({ approval: null });
@@ -3656,8 +3731,8 @@ export async function handleAgentApi(request, url, env, ctx) {
     const { status } = await request.json().catch(() => ({}));
     if (!['approved', 'denied'].includes(status)) return jsonResponse({ error: 'invalid status' }, 400);
     await env.DB
-      .prepare(`UPDATE agentsam_approval_queue SET status=?, updated_at=datetime('now') WHERE id=?`)
-      .bind(status, approvalMatch[1])
+      .prepare(`UPDATE agentsam_approval_queue SET status=?, decided_at=unixepoch(), approved_by=? WHERE id=?`)
+      .bind(status, String(authUser.email || authUser.id).slice(0, 200), approvalMatch[1])
       .run();
     return jsonResponse({ ok: true });
   }

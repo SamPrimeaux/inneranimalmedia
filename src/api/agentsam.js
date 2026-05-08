@@ -84,8 +84,9 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         const group = parts[parts.length - 1]; // e.g. coding
         
         if (group === 'prompts') {
-            // General list
-            const sql = "SELECT id, category, weight, is_active FROM ai_prompts_library ORDER BY category ASC";
+            // General list (agentsam_prompt_versions replaces ai_prompts_library)
+            const sql =
+              'SELECT id, prompt_key AS category, 100 AS weight, is_active FROM agentsam_prompt_versions ORDER BY prompt_key ASC';
             const res = await db.d1_query({ sql }, env);
             return jsonResponse(res.results || []);
         }
@@ -164,8 +165,11 @@ export async function logSkillInvocation(env, data) {
  */
 export async function getActivePromptByWeight(env, groupKey) {
     const sql = `
-        SELECT * FROM ai_prompts_library 
-        WHERE category = ? AND is_active = 1
+        SELECT id, prompt_key, version,
+               body AS prompt_template, prompt_key AS category,
+               100 AS weight, body_tokens, is_active, notes
+        FROM agentsam_prompt_versions 
+        WHERE prompt_key = ? AND is_active = 1
     `;
     const res = await db.d1_query({ sql, params: [groupKey] }, env);
     const prompts = res.results || [];
@@ -189,12 +193,18 @@ export async function getActivePromptByWeight(env, groupKey) {
  * Retrieves a specific prompt by its ID with parsed metadata.
  */
 export async function getPromptMetadata(env, promptId) {
-    const sql = "SELECT * FROM ai_prompts_library WHERE id = ?";
+    const sql = 'SELECT * FROM agentsam_prompt_versions WHERE id = ?';
     const res = await db.d1_query({ sql, params: [promptId] }, env);
     
     if (!res.results?.length) return null;
     const prompt = res.results[0];
-    prompt.metadata = JSON.parse(prompt.metadata_json || '{}');
+    prompt.prompt_template = prompt.body;
+    prompt.category = prompt.prompt_key;
+    try {
+      prompt.metadata = JSON.parse(prompt.notes || '{}');
+    } catch (_) {
+      prompt.metadata = {};
+    }
     return prompt;
 }
 

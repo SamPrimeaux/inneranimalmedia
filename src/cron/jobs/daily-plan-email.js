@@ -42,7 +42,7 @@ export async function sendDailyPlanEmail(env) {
         WHERE status NOT IN ('archived','completed') ORDER BY updated_at DESC LIMIT 6`).all(),
       env.DB.prepare(`SELECT key, value FROM project_memory
         WHERE project_id='inneranimalmedia' ORDER BY updated_at DESC LIMIT 8`).all(),
-      env.DB.prepare(`SELECT command_name, rationale, risk_level FROM agent_command_proposals
+      env.DB.prepare(`SELECT tool_name AS command_name, action_summary AS rationale, risk_level FROM agentsam_approval_queue
         WHERE status='pending' ORDER BY created_at DESC LIMIT 4`).all(),
       safe(env.DB.prepare(`SELECT key, value, updated_at FROM project_memory
         WHERE project_id='inneranimalmedia' AND key='OVERNIGHT_API_SUITE_LAST' LIMIT 1`).first()),

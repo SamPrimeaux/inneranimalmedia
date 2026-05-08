@@ -145,7 +145,7 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       let ok = false;
       if (proposalId && env.DB) {
         const pr = await env.DB.prepare(
-          `SELECT id FROM agent_command_proposals WHERE id = ? AND status = 'approved' AND expires_at > unixepoch() LIMIT 1`,
+          `SELECT id FROM agentsam_approval_queue WHERE id = ? AND status = 'approved' AND expires_at > unixepoch() LIMIT 1`,
         )
           .bind(String(proposalId))
           .first()

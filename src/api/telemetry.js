@@ -188,6 +188,9 @@ export async function writeTelemetry(env, data, modelRates) {
       const spFixed = spendLedgerProvider(String(provider || 'unknown'));
       const dateStr = new Date().toISOString().slice(0, 10);
       const rowId = `${spFixed}-${dateStr}`;
+      const tinRoll = Math.floor((inputTokens || 0) + (cacheReadTokens || 0));
+      const toutRoll = Math.floor(outputTokens || 0);
+      const totRoll = tinRoll + toutRoll;
       await env.DB.prepare(`
         INSERT INTO ai_provider_usage (id, provider, date, requests, tokens_input, tokens_output, cost_usd)
         VALUES (?, ?, ?, 1, ?, ?, ?)
@@ -198,10 +201,39 @@ export async function writeTelemetry(env, data, modelRates) {
           cost_usd      = cost_usd + excluded.cost_usd
       `).bind(
         rowId, spFixed, dateStr,
-        Math.floor((inputTokens || 0) + (cacheReadTokens || 0)),
-        Math.floor(outputTokens || 0),
+        tinRoll,
+        toutRoll,
         estimatedCost || 0
       ).run().catch(e => console.warn('[ai_provider_usage] rollup failed:', e.message));
+
+      await env.DB.prepare(`
+        INSERT INTO agentsam_usage_events (
+          tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
+          tokens_in, tokens_out, total_tokens, cost_usd, status, event_type,
+          ref_table, ref_id, created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())
+        ON CONFLICT(ref_table, ref_id) DO UPDATE SET
+          tokens_in = tokens_in + excluded.tokens_in,
+          tokens_out = tokens_out + excluded.tokens_out,
+          total_tokens = tokens_in + excluded.tokens_in + tokens_out + excluded.tokens_out,
+          cost_usd = cost_usd + excluded.cost_usd
+      `).bind(
+        tidInsert,
+        wsInsert,
+        sid,
+        'rollup-agent',
+        spFixed,
+        'rollup',
+        'rollup',
+        tinRoll,
+        toutRoll,
+        totRoll,
+        estimatedCost || 0,
+        'ok',
+        'provider_daily_rollup',
+        'ai_provider_usage',
+        rowId,
+      ).run().catch(e => console.warn('[agentsam_usage_events ai_provider mirror]', e.message));
     }
 
     if (mid && (estimatedCost ?? 0) > 0) {
