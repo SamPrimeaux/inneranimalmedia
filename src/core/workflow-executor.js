@@ -20,31 +20,56 @@ async function dispatchNode(env, node, input, runContext) {
     }
 
     case 'mcp_tool': {
-      const [, method] = String(handlerKey || '').split('.');
-      let toolRow = null;
-      try {
-        toolRow = await env.DB.prepare(
-          `SELECT mcp_service_url, handler_config FROM mcp_registered_tools
-           WHERE COALESCE(enabled, 0) = 1 AND (tool_name LIKE ? OR tool_name = ?) LIMIT 1`,
-        ).bind(`%${method}%`, method).first();
-      } catch (_) {
-        toolRow = null;
+      const [, method] = (handlerKey || '').split('.');
+      const toolKey = method || handlerKey;
+
+      const toolRow = env.DB
+        ? await env.DB.prepare(`
+      SELECT tool_key, mcp_service_url, handler_type, handler_config
+      FROM agentsam_mcp_tools
+      WHERE tool_key = ? AND is_active = 1 AND enabled = 1
+      LIMIT 1
+    `)
+            .bind(toolKey)
+            .first()
+            .catch(() => null)
+        : null;
+
+      if (!toolRow) {
+        return { ok: false, error: `mcp_tool not found in agentsam_mcp_tools: ${handlerKey}` };
       }
-      const baseUrl = toolRow?.mcp_service_url;
-      if (!baseUrl) {
-        return { ok: false, error: `mcp_tool not found: ${handlerKey}` };
+
+      // Builtin/proxy/r2/terminal handlers — dispatch internally
+      if (['builtin', 'r2', 'terminal', 'proxy'].includes(toolRow.handler_type)) {
+        // These are handled by the existing tool dispatch system
+        // Emit a tool call event and let the agent handler execute it
+        return {
+          ok: true,
+          output: {
+            tool_dispatched: toolRow.tool_key,
+            handler_type: toolRow.handler_type,
+            handler_config: JSON.parse(toolRow.handler_config || '{}'),
+            input,
+          },
+        };
       }
-      const url = String(baseUrl).replace(/\/$/, '') + '/invoke';
-      const mcpRes = await fetch(url, {
+
+      // HTTP/MCP server tools
+      if (!toolRow.mcp_service_url) {
+        return { ok: false, error: `no mcp_service_url for tool: ${handlerKey}` };
+      }
+
+      const mcpRes = await fetch(toolRow.mcp_service_url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method, params: input, handler_key: handlerKey }),
+        body: JSON.stringify({ method: toolRow.tool_key, params: input }),
       }).catch(() => null);
-      if (!mcpRes || !mcpRes.ok) {
-        return { ok: false, error: `mcp_tool HTTP ${mcpRes?.status ?? 'fetch_failed'}` };
+
+      if (!mcpRes?.ok) {
+        return { ok: false, error: `mcp_tool HTTP ${mcpRes?.status}: ${handlerKey}` };
       }
-      const data = await mcpRes.json().catch(() => ({}));
-      return { ok: true, output: data };
+
+      return { ok: true, output: await mcpRes.json().catch(() => ({})) };
     }
 
     case 'terminal': {
