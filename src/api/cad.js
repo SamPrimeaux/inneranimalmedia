@@ -163,7 +163,7 @@ export async function handleCadApi(request, url, env, ctx) {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-6',
           max_tokens: 4096,
           system: `You are an OpenSCAD expert. Output ONLY valid OpenSCAD code.
 No markdown fences, no explanation, no comments unless they are OpenSCAD inline comments.
@@ -220,7 +220,7 @@ Use parametric variables at the top. Make the model well-structured and printabl
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-6',
           max_tokens: 4096,
           system: `You are a Blender Python API expert. Output ONLY a valid Blender Python script using bpy.
 The script must:
