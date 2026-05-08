@@ -11,6 +11,7 @@ import {
 import { runRetentionPurge } from '../retention-purge.js';
 import { archiveOldConversations } from './archive-old-conversations.js';
 import { sendDailyDigest } from './daily-digest.js';
+import { runR2DashboardPrune } from './r2-prune.js';
 import { writeDailySnapshot } from './write-daily-snapshot.js';
 
 const CRON_MIDNIGHT = '0 0 * * *';
@@ -24,6 +25,20 @@ const CRON_ONE_AM = '0 1 * * *';
  * @param {string | null} [tenantId]
  * @param {string | null} [workspaceId]
  */
+/** Map cron job return value to agentsam_cron_runs completion payload. @param {any} out */
+function cronJobResultToLedgerPayload(out) {
+  if (!out || typeof out !== 'object') {
+    return { rowsRead: 0, rowsWritten: 0, metadata: {} };
+  }
+  const rowsWritten =
+    Number(out.rowsWritten ?? out.totalDeleted ?? out.pruned_objects ?? 0) || 0;
+  const rowsRead = Number(out.rowsRead ?? 0) || 0;
+  if (out.metadata != null && typeof out.metadata === 'object') {
+    return { rowsRead, rowsWritten, metadata: out.metadata };
+  }
+  return { rowsRead, rowsWritten, metadata: {} };
+}
+
 async function cronLedgerWrap(env, jobName, cronExpr, fn, tenantId = null, workspaceId = null) {
   const begun = await startCronRun(env, {
     jobName,
@@ -34,9 +49,9 @@ async function cronLedgerWrap(env, jobName, cronExpr, fn, tenantId = null, works
   const runId = begun?.runId ?? null;
   const startedAt = begun?.startedAt ?? Date.now();
   try {
-    await fn();
+    const out = await fn();
     if (runId) {
-      await completeCronRun(env, runId, startedAt, { rowsRead: 0, rowsWritten: 0, metadata: {} });
+      await completeCronRun(env, runId, startedAt, cronJobResultToLedgerPayload(out));
     }
   } catch (e) {
     if (runId) await failCronRun(env, runId, startedAt, e);
@@ -50,7 +65,10 @@ async function cronLedgerWrap(env, jobName, cronExpr, fn, tenantId = null, works
  * @param {ExecutionContext} ctx
  */
 export async function runMidnightUtcJobs(env, ctx) {
-  if (env?.DB) ctx.waitUntil(cronLedgerWrap(env, 'retention_purge', CRON_MIDNIGHT, () => runRetentionPurge(env)));
+  if (env?.DB) {
+    ctx.waitUntil(cronLedgerWrap(env, 'retention_purge', CRON_MIDNIGHT, () => runRetentionPurge(env)));
+    ctx.waitUntil(cronLedgerWrap(env, 'r2_dashboard_prune', CRON_MIDNIGHT, () => runR2DashboardPrune(env)));
+  }
   if (env?.DB) {
     ctx.waitUntil(
       cronLedgerWrap(env, 'master_daily_retention', CRON_MIDNIGHT, () => runMasterDailyRetention(env)),

@@ -6,7 +6,7 @@
  * |-----------------|-----|
  * | `*/30 * * * *`  | `runThirtyMinuteJobs` — DB queue drain, overnight progress step, stale terminal sweep |
  * | `0 * * * *`     | Reserved (logged only; no legacy worker handler in final scheduled block) |
- * | `0 0 * * *`     | `runMidnightUtcJobs` — retention purge, retention master + security scan + usage rollups, archive conversations, daily digest email + midnight snapshot |
+ * | `0 0 * * *`     | `runMidnightUtcJobs` — retention purge, R2 dashboard build prune, retention master + security scan + usage rollups, archive conversations, daily digest email + midnight snapshot |
  * | `0 1 * * *`     | `scheduleOneAmMaintenance` — memory decay, tool-call stats compaction, execution performance rollup |
  * | `10 0 * * *`    | `writeDailySnapshot(env, 'cron_0010')` |
  * | `0 6 * * *`     | `scheduleSixAmRagJobs` — RAG compact/sync/index + webhook events maintenance + 6am snapshot |

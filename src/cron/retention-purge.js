@@ -30,6 +30,16 @@ function retentionConditionIsSafe(cond) {
   return true;
 }
 
+/** D1 policies sometimes store human-readable notes instead of SQL — never execute those. */
+function shouldSkipNonSqlCondition(condition) {
+  const c = String(condition || '').trim();
+  if (!c) return false;
+  if (c.includes('—')) return true;
+  if (c.toUpperCase().includes('NEVER')) return true;
+  if (c.length > 200) return true;
+  return false;
+}
+
 /**
  * Midnight cron: batch-delete old rows per data_retention_policies (LIMIT 500 per table per run).
  * Unknown table_name values are skipped. Optional policy.condition appended as AND (...); use D1 for e.g.
@@ -53,6 +63,9 @@ export async function runRetentionPurge(env) {
     return;
   }
   let grandTotal = 0;
+  let policiesRun = 0;
+  let skippedInvalidCondition = 0;
+  const tablesAffected = [];
   const perTable = [];
   for (const policy of policies) {
     const table = policy.table_name != null ? String(policy.table_name).trim() : '';
@@ -73,7 +86,14 @@ export async function runRetentionPurge(env) {
     let condClause = '';
     const rawCond = policy.condition != null ? String(policy.condition).trim() : '';
     if (rawCond) {
+      if (shouldSkipNonSqlCondition(rawCond)) {
+        skippedInvalidCondition += 1;
+        console.warn('[cron] retention skip non-SQL condition for table:', table);
+        perTable.push({ table, deleted: 0, skipped: 'non_sql_condition' });
+        continue;
+      }
       if (!retentionConditionIsSafe(rawCond)) {
+        skippedInvalidCondition += 1;
         console.warn('[cron] retention skip unsafe condition for table:', table);
         perTable.push({ table, deleted: 0, skipped: 'unsafe_condition' });
         continue;
@@ -82,6 +102,7 @@ export async function runRetentionPurge(env) {
     }
     const delSql = `DELETE FROM ${table} WHERE ${ageClause}${condClause} LIMIT 500`;
     let deleted = 0;
+    policiesRun += 1;
     try {
       const r = await env.DB.prepare(delSql).run();
       deleted = r.meta?.changes ?? r.changes ?? 0;
@@ -91,6 +112,7 @@ export async function runRetentionPurge(env) {
       continue;
     }
     grandTotal += deleted;
+    if (deleted > 0 && !tablesAffected.includes(table)) tablesAffected.push(table);
     perTable.push({ table, deleted, capped: deleted === 500 });
     if (deleted === 500) {
       console.log('[cron] retention deleted 500 rows from', table, '(more may remain until next cron)');
@@ -113,8 +135,25 @@ export async function runRetentionPurge(env) {
   await writeCronAuditLog(env, {
     event_type: 'retention_purge',
     message: `Retention purge completed: ${grandTotal} rows deleted (batch max 500 per table)`,
-    metadata: { total: grandTotal, per_table: perTable },
+    metadata: {
+      policies_run: policiesRun,
+      total_rows_deleted: grandTotal,
+      tables_affected: tablesAffected,
+      skipped_invalid_condition: skippedInvalidCondition,
+      per_table: perTable,
+    },
   });
+
+  return {
+    rowsWritten: grandTotal,
+    metadata: {
+      policies_run: policiesRun,
+      total_rows_deleted: grandTotal,
+      tables_affected: tablesAffected,
+      skipped_invalid_condition: skippedInvalidCondition,
+      per_table: perTable,
+    },
+  };
 }
 
 async function writeCronAuditLog(env, { event_type, message, run_id = null, metadata = {} }) {
