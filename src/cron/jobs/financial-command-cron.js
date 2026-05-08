@@ -2,7 +2,7 @@ import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-
 import { cronTenantId } from '../cron-tenant.js';
 import { notifySam } from '../notify-sam.js';
 
-/** Daily 09:00 UTC: compare spend_ledger today vs ai_guardrails metadata daily budget; email if over. */
+/** Daily 09:00 UTC: compare spend_ledger today vs agentsam_guardrails cost_budget policy; email if over. */
 export async function runFinancialCommandCron(env, ctx) {
   if (!env.DB) return;
   const begun = await startCronRun(env, {
@@ -17,7 +17,7 @@ export async function runFinancialCommandCron(env, ctx) {
   let dailyBudgetUsd = 50;
   try {
     const { results } = await env.DB.prepare(
-      `SELECT metadata FROM ai_guardrails WHERE is_active = 1 ORDER BY priority DESC LIMIT 10`,
+      `SELECT policy_json AS metadata FROM agentsam_guardrails WHERE is_enabled = 1 AND category = 'cost_budget' ORDER BY priority DESC LIMIT 10`,
     ).all();
     rowsRead += 1;
     for (const row of results || []) {
@@ -57,7 +57,7 @@ export async function runFinancialCommandCron(env, ctx) {
         env,
         {
           subject: `Daily spend alert: $${total.toFixed(2)} over cap $${dailyBudgetUsd.toFixed(2)}`,
-          body: `Today's spend (spend_ledger): $${total.toFixed(2)}\nConfigured daily budget (ai_guardrails metadata): $${dailyBudgetUsd.toFixed(2)}\n`,
+          body: `Today's spend (spend_ledger): $${total.toFixed(2)}\nConfigured daily budget (agentsam_guardrails policy): $${dailyBudgetUsd.toFixed(2)}\n`,
           category: 'finance',
         },
         ctx,

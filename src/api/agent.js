@@ -33,6 +33,7 @@ import {
   collectAllowlistToolKeysForScope,
 } from '../core/agent-policy.js';
 import { aggregateAnthropicUsageTokens, scheduleInsertAgentCost } from '../core/agent-costs.js';
+import { evaluateGuardrails } from '../core/guardrails.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import {
   scheduleRecordMcpToolExecution,
@@ -1337,6 +1338,18 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     let stream;
     let isWorkersAiStream = false;
     try {
+      const grModel = await evaluateGuardrails(env, ctx, {
+        applies_to: 'model',
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        user_id: userId,
+        session_id: sessionId,
+        conversation_id: sessionId,
+        model_key: modelKey,
+      });
+      if (grModel.blocked) {
+        throw new Error(`GUARDRAIL_BLOCKED:${grModel.decision?.reason || 'model_blocked'}`);
+      }
       // Provider resolved inside dispatchStream from agentsam_ai.api_platform (Workers AI → OAI-shaped SSE).
       stream = await dispatchStream(env, request, {
         modelKey,
@@ -1669,6 +1682,61 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_blocked', message: `Blocked: ${call.name} — ${validation.reason}`, riskLevel: 'blocked', reason: validation.reason });
         emit('tool_blocked', { tool: call.name, reason: validation.reason });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Tool not available in ${mode} mode: ${validation.reason}` });
+        continue;
+      }
+      const grTool = await evaluateGuardrails(env, ctx, {
+        applies_to: 'mcp_tool',
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        user_id: userId,
+        session_id: sessionId,
+        conversation_id: sessionId,
+        tool_name: call.name,
+        tool_input: call.input,
+      });
+      if (grTool.blocked) {
+        scheduleRecordMcpToolExecution(env, ctx, {
+          tenant_id: tenantId,
+          workspace_id: workspaceId,
+          user_id: userId,
+          session_id: sessionId,
+          tool_name: call.name,
+          tool_id: validation.mcpToolId ?? null,
+          input_json: JSON.stringify(call.input || {}),
+          success: false,
+          error_message: grTool.decision?.reason || 'guardrail_blocked',
+          duration_ms: 0,
+          status: 'blocked',
+        });
+        scheduleAgentsamToolCallLog(env, ctx, {
+          tenantId,
+          sessionId,
+          toolName: call.name,
+          status: 'blocked',
+          durationMs: 0,
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          userId,
+          workspaceId,
+          errorMessage: grTool.decision?.reason || 'guardrail_blocked',
+          inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+        });
+        await auditToolDecision(env, {
+          tenantId,
+          toolName: call.name,
+          eventType: 'tool_blocked',
+          message: `Guardrail blocked: ${call.name}`,
+          riskLevel: 'blocked',
+          reason: grTool.decision?.reason || 'guardrail',
+        });
+        emit('tool_blocked', { tool: call.name, reason: grTool.decision?.reason || 'guardrail' });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: grTool.decision?.reason || 'Blocked by guardrail.',
+          is_error: true,
+        });
         continue;
       }
       const queuePending = userId ? await checkApprovalGate(env, userId, call.name) : null;
