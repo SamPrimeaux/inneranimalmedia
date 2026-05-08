@@ -271,46 +271,15 @@ export async function handleSettingsRequest(request, env, ctx) {
   // ── /api/settings/profile ─────────────────────────────────────────────────
   if (pathLower === '/api/settings/profile' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    const uid = String(authUser.id || '').trim();
-    const email = String(authUser.email || '').trim() || null;
-    let row = null;
-    try {
-      row = await env.DB.prepare(
-        `SELECT id, email, name, tenant_id, role, created_at, avatar_url, default_workspace_id
-         FROM auth_users WHERE id = ? OR LOWER(email) = LOWER(?) LIMIT 1`,
-      )
-        .bind(uid, uid)
-        .first();
-    } catch (_) {}
-    const tenantId = (row?.tenant_id != null && String(row.tenant_id).trim() !== '')
-      ? String(row.tenant_id).trim()
-      : await resolveAuthTenantId(env, authUser);
-    const role = row?.role != null && String(row.role).trim() ? String(row.role).trim() : (authUser.role || 'user');
-    const workspace_id = row?.default_workspace_id != null && String(row.default_workspace_id).trim()
-      ? String(row.default_workspace_id).trim()
-      : (await resolveRequestWorkspaceId(env, authUser, url)) || null;
-    let agentsam_user_policy = null;
-    if (workspace_id) {
-      try {
-        agentsam_user_policy = await env.DB.prepare(
-          `SELECT * FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
-        )
-          .bind(uid, workspace_id)
-          .first();
-      } catch (_) {
-        agentsam_user_policy = null;
-      }
-    }
     return jsonResponse({
-      id: uid,
-      email: row?.email ?? email,
-      name: row?.name ?? authUser.name ?? null,
-      tenant_id: tenantId,
-      role,
-      workspace_id,
-      created_at: row?.created_at ?? null,
-      avatar_url: row?.avatar_url ?? null,
-      agentsam_user_policy,
+      id: authUser.id,
+      email: authUser.email,
+      name: authUser.name,
+      display_name: authUser.display_name ?? authUser.name,
+      avatar_url: authUser.avatar_url ?? null,
+      tenant_id: authUser.tenant_id,
+      active_workspace_id: authUser.active_workspace_id,
+      is_superadmin: authUser.is_superadmin,
     });
   }
 
@@ -2526,11 +2495,23 @@ export async function handleSettingsRequest(request, env, ctx) {
         };
       }
 
-      const [members, indexJob] = await Promise.all([
+      const agentWsSlug =
+        workspace && workspace.slug != null && String(workspace.slug).trim() !== ''
+          ? String(workspace.slug).trim()
+          : workspaceId;
+
+      const [
+        members,
+        indexJob,
+        agentConfig,
+        userPolicy,
+        domains,
+        usageMetrics,
+      ] = await Promise.all([
         env.DB.prepare(
           `SELECT wm.user_id, wm.role, u.display_name, u.email, u.avatar_url
            FROM workspace_members wm
-           JOIN users u ON u.id = wm.user_id
+           JOIN auth_users u ON u.id = wm.user_id
            WHERE wm.workspace_id = ?`,
         )
           .bind(workspaceId)
@@ -2547,6 +2528,53 @@ export async function handleSettingsRequest(request, env, ctx) {
           .bind(workspaceId)
           .first()
           .catch(() => null),
+        env.DB.prepare(
+          `SELECT workspace_slug, github_repo, default_model_id,
+                  primary_subagent_id, r2_bucket, r2_prefix,
+                  root_path, description, display_name, status
+           FROM agentsam_workspace
+           WHERE id = ? OR workspace_slug = ?
+           LIMIT 1`,
+        )
+          .bind(workspaceId, agentWsSlug)
+          .first()
+          .catch(() => null),
+        env.DB.prepare(
+          `SELECT auto_run_mode, browser_protection, mcp_tools_protection,
+                  file_deletion_protection, external_file_protection,
+                  max_cost_per_session_usd, max_cost_per_call_usd,
+                  allowed_model_tier_max, tool_risk_level_max,
+                  allow_subagent_spawn, max_spawn_depth,
+                  max_tool_chain_depth, web_search_enabled,
+                  web_fetch_enabled, text_size, default_agent_location
+           FROM agentsam_user_policy
+           WHERE user_id = ? AND workspace_id = ?
+           LIMIT 1`,
+        )
+          .bind(authUser.id, workspaceId)
+          .first()
+          .catch(() => null),
+        env.DB.prepare(
+          `SELECT domain, is_primary, verified, created_at
+           FROM workspace_domains
+           WHERE workspace_id = ?
+           ORDER BY is_primary DESC`,
+        )
+          .bind(workspaceId)
+          .all()
+          .then((r) => r.results || [])
+          .catch(() => []),
+        env.DB.prepare(
+          `SELECT metric_name, metric_value, period, recorded_at
+           FROM workspace_usage_metrics
+           WHERE workspace_id = ?
+           ORDER BY recorded_at DESC
+           LIMIT 20`,
+        )
+          .bind(workspaceId)
+          .all()
+          .then((r) => r.results || [])
+          .catch(() => []),
       ]);
 
       return jsonResponse({
@@ -2559,6 +2587,10 @@ export async function handleSettingsRequest(request, env, ctx) {
           theme_preference_scope: cmsPref?.scope ?? null,
         },
         platform_r2_eligible,
+        agent_config: agentConfig ?? null,
+        user_policy: userPolicy ?? null,
+        domains,
+        usage_metrics: usageMetrics,
       });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -2584,21 +2616,88 @@ export async function handleSettingsRequest(request, env, ctx) {
     const row = await env.DB.prepare(`SELECT settings_json FROM workspaces WHERE id = ? LIMIT 1`).bind(wid).first();
     if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
 
-    if (!body.cms_pipeline || typeof body.cms_pipeline !== 'object') {
-      return jsonResponse({ error: 'cms_pipeline object required' }, 400);
+    const hasCmsPipeline = body.cms_pipeline != null && typeof body.cms_pipeline === 'object';
+    const hasWorkspaceSettings = body.workspace_settings != null && typeof body.workspace_settings === 'object';
+    const hasWorkspaceLimits = body.workspace_limits != null && typeof body.workspace_limits === 'object';
+    if (!hasCmsPipeline && !hasWorkspaceSettings && !hasWorkspaceLimits) {
+      return jsonResponse(
+        { error: 'Provide cms_pipeline, workspace_settings, and/or workspace_limits' },
+        400,
+      );
     }
 
-    const nextJson = mergeCmsPipelineIntoWorkspaceSettings(row.settings_json, body.cms_pipeline);
-    await env.DB.prepare(`UPDATE workspaces SET settings_json = ?, updated_at = datetime('now') WHERE id = ?`)
-      .bind(nextJson, wid)
-      .run();
+    let nextJson = row.settings_json;
+    if (hasCmsPipeline) {
+      nextJson = mergeCmsPipelineIntoWorkspaceSettings(row.settings_json, body.cms_pipeline);
+      await env.DB.prepare(`UPDATE workspaces SET settings_json = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(nextJson, wid)
+        .run();
+    }
 
     let parsed = {};
     try {
-      parsed = JSON.parse(nextJson);
+      parsed =
+        nextJson != null && String(nextJson).trim() !== ''
+          ? typeof nextJson === 'string'
+            ? JSON.parse(nextJson)
+            : nextJson
+          : {};
     } catch {
       parsed = {};
     }
+
+    if (hasWorkspaceSettings) {
+      const wsAllowed = ['theme_id', 'accent_color', 'timezone'];
+      const wsCols = [];
+      const wsVals = [];
+      for (const k of wsAllowed) {
+        if (body.workspace_settings[k] !== undefined) {
+          wsCols.push(k);
+          wsVals.push(body.workspace_settings[k]);
+        }
+      }
+      if (wsCols.length) {
+        const colList = wsCols.join(', ');
+        const placeholders = wsCols.map(() => '?').join(', ');
+        const setExcluded = wsCols.map((c) => `${c} = excluded.${c}`).join(', ');
+        await env.DB.prepare(
+          `INSERT INTO workspace_settings (workspace_id, ${colList})
+           VALUES (?, ${placeholders})
+           ON CONFLICT(workspace_id) DO UPDATE SET
+           ${setExcluded}, updated_at = datetime('now')`,
+        )
+          .bind(wid, ...wsVals)
+          .run()
+          .catch(() => null);
+      }
+    }
+
+    if (hasWorkspaceLimits) {
+      const limAllowed = ['max_daily_cost_usd', 'max_members'];
+      const limCols = [];
+      const limVals = [];
+      for (const k of limAllowed) {
+        if (body.workspace_limits[k] !== undefined) {
+          limCols.push(k);
+          limVals.push(body.workspace_limits[k]);
+        }
+      }
+      if (limCols.length) {
+        const colList = limCols.join(', ');
+        const placeholders = limCols.map(() => '?').join(', ');
+        const setExcluded = limCols.map((c) => `${c} = excluded.${c}`).join(', ');
+        await env.DB.prepare(
+          `INSERT INTO workspace_limits (workspace_id, ${colList})
+           VALUES (?, ${placeholders})
+           ON CONFLICT(workspace_id) DO UPDATE SET
+           ${setExcluded}, updated_at = datetime('now')`,
+        )
+          .bind(wid, ...limVals)
+          .run()
+          .catch(() => null);
+      }
+    }
+
     return jsonResponse({ ok: true, settings_json: parsed });
   }
 
@@ -2739,7 +2838,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       }
     }
     if (!sets.length) return jsonResponse({ error: 'No valid fields' }, 400);
-    vals.push(String(authUser.id || '').trim());
+    vals.push(authUser.id);
     await env.DB.prepare(
       `UPDATE auth_users SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`,
     )
