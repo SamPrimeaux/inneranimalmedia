@@ -1,0 +1,3119 @@
+{
+  "generated_at": "2026-05-08T06:30:18.107830+00:00",
+  "database": "inneranimalmedia-business",
+  "base_tables": [
+    "cms_pages",
+    "cms_page_sections",
+    "cms_section_components",
+    "cms_component_templates",
+    "cms_navigation_menus"
+  ],
+  "dynamic_tables": [
+    "dashboard_assets",
+    "dashboard_versions",
+    "r2_bucket_bindings",
+    "r2_bucket_class_daily",
+    "r2_bucket_daily",
+    "r2_bucket_largest",
+    "r2_bucket_list",
+    "r2_bucket_summary",
+    "r2_buckets",
+    "r2_deploy_manifest_objects",
+    "r2_deploy_manifests",
+    "r2_intended_paths",
+    "r2_object_inventory",
+    "r2_object_media",
+    "r2_objects",
+    "r2_objects_fts",
+    "r2_objects_fts_config",
+    "r2_objects_fts_data",
+    "r2_objects_fts_docsize",
+    "r2_objects_fts_idx"
+  ],
+  "tables": [
+    {
+      "table": "cms_pages",
+      "row_count": 17,
+      "schema_sql": "CREATE TABLE cms_pages (\n  id TEXT PRIMARY KEY,\n  project_id TEXT NOT NULL,\n  project_slug TEXT NOT NULL,\n  tenant_id TEXT NOT NULL,\n  workspace_id TEXT,\n  worker_id TEXT,\n  person_uuid TEXT,\n\n  slug TEXT NOT NULL,\n  path TEXT NOT NULL,\n  route_path TEXT NOT NULL,\n  page_type TEXT NOT NULL CHECK (page_type IN (\n    'home','about','services','work','case_study','contact','pricing',\n    'privacy','terms','faq','product','collection','blog','post',\n    'landing','portal','dashboard','auth','sitemap','custom'\n  )),\n\n  title TEXT NOT NULL,\n  meta_description TEXT,\n  description TEXT,\n\n  status TEXT NOT NULL DEFAULT 'draft'\n    CHECK(status IN ('draft','published','archived','scheduled')),\n\n  seo_title TEXT,\n  canonical_url TEXT,\n  robots TEXT DEFAULT 'index,follow',\n  og_image_asset_id TEXT,\n\n  r2_bucket TEXT,\n  r2_key TEXT,\n  r2_url TEXT,\n  content_type TEXT DEFAULT 'text/html',\n  content_size_bytes INTEGER DEFAULT 0,\n\n  config_json TEXT DEFAULT '{}',\n  seo_json TEXT DEFAULT '{}',\n  analytics_json TEXT DEFAULT '{}',\n  metadata_json TEXT DEFAULT '{}',\n\n  is_homepage INTEGER DEFAULT 0,\n  is_system_page INTEGER DEFAULT 0,\n  requires_auth INTEGER DEFAULT 0,\n  is_active INTEGER DEFAULT 1,\n  sort_order INTEGER DEFAULT 0,\n\n  created_by TEXT,\n  updated_by TEXT,\n  published_by TEXT,\n\n  created_at INTEGER NOT NULL,\n  updated_at INTEGER NOT NULL,\n  published_at INTEGER,\n  archived_at INTEGER,\n\n  UNIQUE(project_id, slug),\n  UNIQUE(project_id, route_path)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "project_slug",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "worker_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "person_uuid",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "slug",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "path",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "route_path",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "page_type",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "title",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "meta_description",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'draft'",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "seo_title",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "canonical_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "robots",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'index,follow'",
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "og_image_asset_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "r2_bucket",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "r2_key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "r2_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 22,
+          "name": "content_type",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'text/html'",
+          "pk": 0
+        },
+        {
+          "cid": 23,
+          "name": "content_size_bytes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 24,
+          "name": "config_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 25,
+          "name": "seo_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 26,
+          "name": "analytics_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 27,
+          "name": "metadata_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 28,
+          "name": "is_homepage",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 29,
+          "name": "is_system_page",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 30,
+          "name": "requires_auth",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 31,
+          "name": "is_active",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 32,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 33,
+          "name": "created_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 34,
+          "name": "updated_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 35,
+          "name": "published_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 36,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 37,
+          "name": "updated_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 38,
+          "name": "published_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 39,
+          "name": "archived_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_cms_pages_3",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_cms_pages_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        },
+        {
+          "seq": 2,
+          "name": "sqlite_autoindex_cms_pages_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "cms_page_sections",
+      "row_count": 46,
+      "schema_sql": "CREATE TABLE cms_page_sections (\n  id TEXT PRIMARY KEY,\n  page_id TEXT NOT NULL,\n  section_type TEXT NOT NULL,\n  section_name TEXT NOT NULL,\n  section_data TEXT NOT NULL DEFAULT '{}',\n  sort_order INTEGER DEFAULT 0,\n  is_visible INTEGER DEFAULT 1,\n  css_classes TEXT,\n  custom_css TEXT,\n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now')), liquid_section_id TEXT REFERENCES cms_liquid_sections(id) ON DELETE SET NULL, shopify_section_key TEXT DEFAULT NULL,\n  FOREIGN KEY (page_id)\n    REFERENCES cms_pages(id)\n    ON DELETE CASCADE\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "page_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "section_type",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "section_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "section_data",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "is_visible",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "css_classes",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "custom_css",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "liquid_section_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "shopify_section_key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "NULL",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_cms_page_sections_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "cms_pages",
+          "from": "page_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        },
+        {
+          "id": 1,
+          "seq": 0,
+          "table": "cms_liquid_sections",
+          "from": "liquid_section_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "SET NULL",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "table": "cms_section_components",
+      "row_count": 93,
+      "schema_sql": "CREATE TABLE cms_section_components (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n  section_id TEXT NOT NULL,\n  component_type TEXT NOT NULL,\n  component_data TEXT NOT NULL DEFAULT '{}',\n  sort_order INTEGER DEFAULT 0,\n  is_visible INTEGER DEFAULT 1,\n  tenant_id TEXT,\n  project_id TEXT,\n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now')),\n  FOREIGN KEY (section_id) REFERENCES cms_page_sections(id) ON DELETE CASCADE\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "lower(hex(randomblob(16)))",
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "section_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "component_type",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "component_data",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "sort_order",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "is_visible",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_cms_section_components_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "cms_page_sections",
+          "from": "section_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "table": "cms_component_templates",
+      "row_count": 24,
+      "schema_sql": "CREATE TABLE cms_component_templates (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n  template_name TEXT NOT NULL,\n  template_type TEXT NOT NULL, \n  category TEXT NOT NULL, \n  preview_image_url TEXT,\n  template_data TEXT NOT NULL, \n  is_system INTEGER DEFAULT 1, \n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now'))\n, r2_bucket TEXT, r2_key TEXT, s3_endpoint TEXT, tenant_id TEXT, source_liquid_file TEXT DEFAULT NULL, shopify_section_key TEXT DEFAULT NULL, liquid_import_id TEXT REFERENCES cms_liquid_imports(id) ON DELETE SET NULL)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "lower(hex(randomblob(16)))",
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "template_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "template_type",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "preview_image_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "template_data",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "is_system",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "r2_bucket",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "r2_key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "s3_endpoint",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "source_liquid_file",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "NULL",
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "shopify_section_key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "NULL",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "liquid_import_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_cms_component_templates_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "cms_liquid_imports",
+          "from": "liquid_import_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "SET NULL",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "table": "cms_navigation_menus",
+      "row_count": 3,
+      "schema_sql": "CREATE TABLE cms_navigation_menus (\n  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),\n\n  project_id TEXT NOT NULL,\n  project_slug TEXT,\n  tenant_id TEXT,\n\n  menu_name TEXT NOT NULL,\n  menu_type TEXT DEFAULT 'site',\n  menu_items TEXT NOT NULL,\n\n  is_active INTEGER DEFAULT 1,\n\n  r2_bucket TEXT,\n  r2_key TEXT,\n  r2_url TEXT,\n  s3_endpoint TEXT,\n\n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now')),\n\n  UNIQUE(project_id, menu_name)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "lower(hex(randomblob(16)))",
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "project_slug",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "menu_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "menu_type",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'site'",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "menu_items",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "is_active",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "r2_bucket",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "r2_key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "r2_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "s3_endpoint",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_cms_navigation_menus_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_cms_navigation_menus_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "dashboard_assets",
+      "row_count": 60,
+      "schema_sql": "CREATE TABLE dashboard_assets (\n  id TEXT PRIMARY KEY,\n  workspace_id TEXT NOT NULL,\n  kind TEXT NOT NULL CHECK (kind IN ('logo','wordmark','image','file','template','attachment')),\n  title TEXT,\n  storage TEXT NOT NULL DEFAULT 'r2' CHECK (storage IN ('r2','cf_images')),\n  r2_key TEXT,\n  url TEXT,\n  mime TEXT,\n  size_bytes INTEGER,\n  tags_json TEXT,\n  is_official INTEGER NOT NULL DEFAULT 0,\n  created_by TEXT,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "kind",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "title",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "storage",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'r2'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "r2_key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "mime",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "size_bytes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "tags_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "is_official",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "created_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_dashboard_assets_workspace_kind_created",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_dashboard_assets_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "workspaces",
+          "from": "workspace_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "table": "dashboard_versions",
+      "row_count": 5326,
+      "schema_sql": "CREATE TABLE dashboard_versions (id TEXT PRIMARY KEY, page_name TEXT NOT NULL, version TEXT NOT NULL, file_hash TEXT NOT NULL UNIQUE, file_size INTEGER NOT NULL, r2_path TEXT NOT NULL, local_backup_path TEXT, description TEXT, is_locked INTEGER DEFAULT 0, is_production INTEGER DEFAULT 0, screenshot_url TEXT, created_at INTEGER DEFAULT (unixepoch()), locked_at INTEGER, locked_by TEXT, metadata_json TEXT DEFAULT '{}', environment TEXT DEFAULT 'production', git_commit TEXT, session_tag TEXT, is_active INTEGER DEFAULT 0, build_pipeline TEXT DEFAULT 'cursor')",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "page_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "version",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "file_hash",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "file_size",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "r2_path",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "local_backup_path",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "is_locked",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "is_production",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "screenshot_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "locked_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "locked_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "metadata_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "environment",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'production'",
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "git_commit",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "session_tag",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "is_active",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "build_pipeline",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'cursor'",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_dashboard_versions_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_dashboard_versions_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_bucket_bindings",
+      "row_count": 26,
+      "schema_sql": "CREATE TABLE r2_bucket_bindings (id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, r2_bucket TEXT NOT NULL, s3_url TEXT, catalog_url TEXT, warehouse TEXT, created_at INTEGER DEFAULT (unixepoch()), updated_at INTEGER DEFAULT (unixepoch()))",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "worker_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "r2_bucket",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "s3_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "catalog_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "warehouse",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "updated_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_r2_bucket_bindings_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_bucket_class_daily",
+      "row_count": 0,
+      "schema_sql": "CREATE TABLE r2_bucket_class_daily (\n  bucket TEXT NOT NULL,\n  day TEXT NOT NULL,\n  class TEXT NOT NULL,\n  object_count INTEGER DEFAULT 0,\n  total_bytes INTEGER DEFAULT 0,\n  PRIMARY KEY (bucket, day, class)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "bucket",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "day",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "class",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 3
+        },
+        {
+          "cid": 3,
+          "name": "object_count",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "total_bytes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_r2_bucket_class_daily_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_bucket_daily",
+      "row_count": 16,
+      "schema_sql": "CREATE TABLE r2_bucket_daily (\n  bucket TEXT NOT NULL,\n  day TEXT NOT NULL,\n  total_bytes INTEGER DEFAULT 0,\n  object_count INTEGER DEFAULT 0,\n  last_modified_at TEXT,\n  PRIMARY KEY (bucket, day)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "bucket",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "day",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "total_bytes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "object_count",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "last_modified_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_bucket_daily_day",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_r2_bucket_daily_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_bucket_largest",
+      "row_count": 0,
+      "schema_sql": "CREATE TABLE r2_bucket_largest (\n  bucket TEXT PRIMARY KEY,\n  captured_at TEXT DEFAULT (datetime('now')),\n  items_json TEXT DEFAULT '[]'\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "bucket",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "captured_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "items_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'[]'",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_r2_bucket_largest_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_bucket_list",
+      "row_count": 112,
+      "schema_sql": "CREATE TABLE r2_bucket_list (\n  bucket_name TEXT PRIMARY KEY,\n  creation_date TEXT,\n  account_id TEXT NOT NULL DEFAULT 'ede6590ac0d2fb7daf155b35653457b2',\n  last_synced_at TEXT DEFAULT (datetime('now'))\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "bucket_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "creation_date",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "account_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'ede6590ac0d2fb7daf155b35653457b2'",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "last_synced_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_bucket_list_account",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_r2_bucket_list_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_bucket_summary",
+      "row_count": 107,
+      "schema_sql": "CREATE TABLE r2_bucket_summary (\n  bucket_name TEXT PRIMARY KEY,\n  object_count INTEGER NOT NULL DEFAULT 0,\n  total_bytes INTEGER NOT NULL DEFAULT 0,\n  total_mb REAL,\n  by_content_type_json TEXT DEFAULT '{}',\n  prefix_breakdown_json TEXT DEFAULT '{}',\n  is_live_connected INTEGER NOT NULL DEFAULT 0,\n  priority INTEGER NOT NULL DEFAULT 50,\n  last_inventoried_at TEXT,\n  created_at TEXT DEFAULT (datetime('now')),\n  updated_at TEXT DEFAULT (datetime('now'))\n, cleanup_status TEXT DEFAULT 'unreviewed', cleanup_notes TEXT, owner TEXT, project_ref TEXT)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "bucket_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "object_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "total_bytes",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "total_mb",
+          "type": "REAL",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "by_content_type_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "prefix_breakdown_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "is_live_connected",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "priority",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "50",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "last_inventoried_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "updated_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "cleanup_status",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'unreviewed'",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "cleanup_notes",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "owner",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "project_ref",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_bucket_summary_priority",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "idx_r2_bucket_summary_live",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 2,
+          "name": "sqlite_autoindex_r2_bucket_summary_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_buckets",
+      "row_count": 109,
+      "schema_sql": "CREATE TABLE r2_buckets (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL DEFAULT 'system',\n    bucket_name TEXT NOT NULL UNIQUE,\n    display_name TEXT NOT NULL,\n    description TEXT,\n    region TEXT DEFAULT 'auto',\n    public_access INTEGER DEFAULT 0, -- 1 = public bucket\n    cors_enabled INTEGER DEFAULT 0,\n    cors_config_json TEXT DEFAULT '{}', -- JSON: CORS configuration\n    lifecycle_rules_json TEXT DEFAULT '{}', -- JSON: lifecycle rules\n    is_active INTEGER DEFAULT 1,\n    total_objects INTEGER DEFAULT 0,\n    total_size_bytes INTEGER DEFAULT 0,\n    created_by TEXT,\n    created_at INTEGER NOT NULL DEFAULT (unixepoch()),\n    updated_at INTEGER NOT NULL DEFAULT (unixepoch())\n, s3_url TEXT, catalog_url TEXT, warehouse_name TEXT, public_dev_url TEXT, custom_domain TEXT, upload_enabled INTEGER DEFAULT 0, credentials_encrypted TEXT)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'system'",
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "bucket_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "display_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "description",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "region",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'auto'",
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "public_access",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "cors_enabled",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "cors_config_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "lifecycle_rules_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "is_active",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "total_objects",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "total_size_bytes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "created_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "updated_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "s3_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "catalog_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "warehouse_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "public_dev_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "custom_domain",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "upload_enabled",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 22,
+          "name": "credentials_encrypted",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_buckets_public",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "idx_r2_buckets_name",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 2,
+          "name": "idx_r2_buckets_tenant",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 3,
+          "name": "sqlite_autoindex_r2_buckets_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        },
+        {
+          "seq": 4,
+          "name": "sqlite_autoindex_r2_buckets_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_deploy_manifest_objects",
+      "row_count": 0,
+      "schema_sql": "CREATE TABLE r2_deploy_manifest_objects (\n  id TEXT PRIMARY KEY,\n  manifest_id TEXT NOT NULL,\n  bucket_name TEXT NOT NULL,\n  object_key TEXT NOT NULL,\n  size_bytes INTEGER DEFAULT 0,\n  content_type TEXT,\n  etag TEXT,\n  sha256_hash TEXT,\n  r2_public_url TEXT,\n  live_url TEXT,\n  status TEXT DEFAULT 'expected',\n  metadata_json TEXT DEFAULT '{}',\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  UNIQUE(manifest_id, bucket_name, object_key)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "manifest_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "bucket_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "object_key",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "size_bytes",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "content_type",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "etag",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "sha256_hash",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "r2_public_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "live_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'expected'",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "metadata_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_deploy_manifest_objects_manifest_bucket_key",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_r2_deploy_manifest_objects_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        },
+        {
+          "seq": 2,
+          "name": "sqlite_autoindex_r2_deploy_manifest_objects_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_deploy_manifests",
+      "row_count": 0,
+      "schema_sql": "CREATE TABLE r2_deploy_manifests (\n  id TEXT PRIMARY KEY,\n  tenant_id TEXT NOT NULL,\n  workspace_id TEXT NOT NULL,\n  project_id TEXT NOT NULL,\n  bucket_name TEXT NOT NULL,\n  site_slug TEXT,\n  deploy_id TEXT NOT NULL,\n  deploy_tag TEXT,\n  source TEXT NOT NULL DEFAULT 'deploy',\n  manifest_json TEXT NOT NULL DEFAULT '{}',\n  object_count INTEGER NOT NULL DEFAULT 0,\n  total_size_bytes INTEGER NOT NULL DEFAULT 0,\n  status TEXT NOT NULL DEFAULT 'created',\n  created_by TEXT,\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  applied_at TEXT\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "bucket_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "site_slug",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "deploy_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "deploy_tag",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "source",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'deploy'",
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "manifest_json",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "object_count",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "total_size_bytes",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'created'",
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "created_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "applied_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_deploy_manifests_bucket_ws_proj_created",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_r2_deploy_manifests_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_intended_paths",
+      "row_count": 11,
+      "schema_sql": "CREATE TABLE r2_intended_paths (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  bucket_name TEXT NOT NULL,\n  prefix_pattern TEXT NOT NULL,\n  purpose TEXT,\n  is_active INTEGER NOT NULL DEFAULT 1,\n  created_at TEXT DEFAULT (datetime('now')),\n  UNIQUE(bucket_name, prefix_pattern)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "bucket_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "prefix_pattern",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "purpose",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "is_active",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "created_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_intended_paths_bucket",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "sqlite_autoindex_r2_intended_paths_1",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_object_inventory",
+      "row_count": 4157,
+      "schema_sql": "CREATE TABLE r2_object_inventory (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  bucket_name TEXT NOT NULL,\n  object_key TEXT NOT NULL,\n  size_bytes INTEGER NOT NULL DEFAULT 0,\n  last_modified_iso TEXT,\n  content_type TEXT,\n  etag TEXT,\n  inventoried_at TEXT DEFAULT (datetime('now')), sha256_hash TEXT, r2_public_url TEXT, live_url TEXT, edited_by TEXT, site_slug TEXT, file_type TEXT, tenant_id TEXT, workspace_id TEXT, project_id TEXT, deploy_id TEXT, deploy_tag TEXT, source_manifest_id TEXT, status TEXT DEFAULT 'active', first_seen_at TEXT, last_seen_at TEXT, last_seen_deploy_id TEXT, stale_since TEXT, prune_after TEXT, protected INTEGER DEFAULT 0, protected_reason TEXT, cache_control TEXT, content_hash TEXT,\n  UNIQUE(bucket_name, object_key)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "bucket_name",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "object_key",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "size_bytes",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "last_modified_iso",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "content_type",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "etag",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "inventoried_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "datetime('now')",
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "sha256_hash",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "r2_public_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "live_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "edited_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "site_slug",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "file_type",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "project_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "deploy_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "deploy_tag",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "source_manifest_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "status",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'active'",
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "first_seen_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 22,
+          "name": "last_seen_at",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 23,
+          "name": "last_seen_deploy_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 24,
+          "name": "stale_since",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 25,
+          "name": "prune_after",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 26,
+          "name": "protected",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 27,
+          "name": "protected_reason",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 28,
+          "name": "cache_control",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 29,
+          "name": "content_hash",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_object_inventory_last_seen_deploy",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "idx_r2_object_inventory_bucket_object_key",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 2,
+          "name": "idx_r2_object_inventory_tenant_workspace_project",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 3,
+          "name": "idx_r2_object_inventory_bucket_status",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 4,
+          "name": "uniq_r2_inventory_bucket_object",
+          "unique": 1,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 5,
+          "name": "idx_r2_inv_bucket_key",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 6,
+          "name": "idx_r2_inv_key_prefix",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 7,
+          "name": "idx_r2_inv_bucket",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 8,
+          "name": "sqlite_autoindex_r2_object_inventory_1",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_object_media",
+      "row_count": 0,
+      "schema_sql": "CREATE TABLE r2_object_media (\n  object_id TEXT PRIMARY KEY,\n  is_image INTEGER NOT NULL DEFAULT 0,\n  width INTEGER,\n  height INTEGER,\n  thumbnail_key TEXT,\n  blurhash TEXT,\n  created_at INTEGER NOT NULL DEFAULT (unixepoch()),\n  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),\n  FOREIGN KEY (object_id) REFERENCES r2_objects(id) ON DELETE CASCADE\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "object_id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "is_image",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "width",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "height",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "thumbnail_key",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "blurhash",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "updated_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_object_media_thumbnail_key",
+          "unique": 0,
+          "origin": "c",
+          "partial": 1
+        },
+        {
+          "seq": 1,
+          "name": "idx_r2_object_media_is_image",
+          "unique": 0,
+          "origin": "c",
+          "partial": 1
+        },
+        {
+          "seq": 2,
+          "name": "sqlite_autoindex_r2_object_media_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "r2_objects",
+          "from": "object_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "table": "r2_objects",
+      "row_count": 64,
+      "schema_sql": "CREATE TABLE r2_objects (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT NOT NULL DEFAULT 'system',\n    bucket_id TEXT NOT NULL,\n    object_key TEXT NOT NULL, -- Full path/key in R2\n    display_name TEXT, -- Human-readable name\n    content_type TEXT, -- MIME type\n    file_size INTEGER,\n    etag TEXT, -- MD5 hash\n    checksum TEXT, -- Additional checksum if available\n    metadata_json TEXT DEFAULT '{}', -- JSON: user metadata\n    r2_metadata_json TEXT DEFAULT '{}', -- JSON: R2 system metadata\n    is_public INTEGER DEFAULT 0, -- 1 = publicly accessible\n    public_url TEXT, -- CDN URL if public\n    version TEXT, -- Object version if versioning enabled\n    storage_class TEXT DEFAULT 'STANDARD', -- STANDARD, INFREQUENT_ACCESS, etc.\n    tags TEXT, -- JSON array or comma-separated\n    category TEXT, -- 'image', 'video', 'document', 'asset', 'backup', etc.\n    uploaded_by TEXT,\n    is_active INTEGER DEFAULT 1,\n    last_accessed_at INTEGER,\n    created_at INTEGER NOT NULL DEFAULT (unixepoch()),\n    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),\n    FOREIGN KEY (bucket_id) REFERENCES r2_buckets(id) ON DELETE CASCADE,\n    UNIQUE(bucket_id, object_key)\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "tenant_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": "'system'",
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "bucket_id",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "object_key",
+          "type": "TEXT",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "display_name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "content_type",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "file_size",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "etag",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 8,
+          "name": "checksum",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 9,
+          "name": "metadata_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 10,
+          "name": "r2_metadata_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'{}'",
+          "pk": 0
+        },
+        {
+          "cid": 11,
+          "name": "is_public",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "0",
+          "pk": 0
+        },
+        {
+          "cid": 12,
+          "name": "public_url",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 13,
+          "name": "version",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 14,
+          "name": "storage_class",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": "'STANDARD'",
+          "pk": 0
+        },
+        {
+          "cid": 15,
+          "name": "tags",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 16,
+          "name": "category",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 17,
+          "name": "uploaded_by",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 18,
+          "name": "is_active",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": "1",
+          "pk": 0
+        },
+        {
+          "cid": 19,
+          "name": "last_accessed_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 20,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        },
+        {
+          "cid": 21,
+          "name": "updated_at",
+          "type": "INTEGER",
+          "notnull": 1,
+          "dflt_value": "unixepoch()",
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "idx_r2_objects_uploaded",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 1,
+          "name": "idx_r2_objects_public",
+          "unique": 0,
+          "origin": "c",
+          "partial": 1
+        },
+        {
+          "seq": 2,
+          "name": "idx_r2_objects_category",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 3,
+          "name": "idx_r2_objects_tenant",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 4,
+          "name": "idx_r2_objects_bucket",
+          "unique": 0,
+          "origin": "c",
+          "partial": 0
+        },
+        {
+          "seq": 5,
+          "name": "sqlite_autoindex_r2_objects_2",
+          "unique": 1,
+          "origin": "u",
+          "partial": 0
+        },
+        {
+          "seq": 6,
+          "name": "sqlite_autoindex_r2_objects_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": [
+        {
+          "id": 0,
+          "seq": 0,
+          "table": "r2_buckets",
+          "from": "bucket_id",
+          "to": "id",
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "table": "r2_objects_fts",
+      "row_count": 64,
+      "schema_sql": "CREATE VIRTUAL TABLE r2_objects_fts USING fts5(\n  object_key,\n  display_name,\n  tags,\n  content='r2_objects',\n  content_rowid='rowid',\n  tokenize='porter'\n)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "object_key",
+          "type": "",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 1,
+          "name": "display_name",
+          "type": "",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "tags",
+          "type": "",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_objects_fts_config",
+      "row_count": 1,
+      "schema_sql": "CREATE TABLE 'r2_objects_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "k",
+          "type": "",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "v",
+          "type": "",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_r2_objects_fts_config_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_objects_fts_data",
+      "row_count": 3,
+      "schema_sql": "CREATE TABLE 'r2_objects_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "block",
+          "type": "BLOB",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_objects_fts_docsize",
+      "row_count": 64,
+      "schema_sql": "CREATE TABLE 'r2_objects_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "sz",
+          "type": "BLOB",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [],
+      "foreign_keys": []
+    },
+    {
+      "table": "r2_objects_fts_idx",
+      "row_count": 1,
+      "schema_sql": "CREATE TABLE 'r2_objects_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+      "columns": [
+        {
+          "cid": 0,
+          "name": "segid",
+          "type": "",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "term",
+          "type": "",
+          "notnull": 1,
+          "dflt_value": null,
+          "pk": 2
+        },
+        {
+          "cid": 2,
+          "name": "pgno",
+          "type": "",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "indexes": [
+        {
+          "seq": 0,
+          "name": "sqlite_autoindex_r2_objects_fts_idx_1",
+          "unique": 1,
+          "origin": "pk",
+          "partial": 0
+        }
+      ],
+      "foreign_keys": []
+    }
+  ]
+}
