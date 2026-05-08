@@ -74,3 +74,6 @@ snapshot-before.json
 snapshot-after.json
 scripts/agentsam_schema_audit.json
 scripts/agentsam_schema_chunks.jsonl
+
+# Local deploy/test reports
+iam-test-reports/
