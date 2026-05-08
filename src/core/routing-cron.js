@@ -8,6 +8,77 @@ import { rollupExecutionPerformanceMetrics } from './memory.js';
 
 const CRON_30 = '*/30 * * * *';
 
+/**
+ * After routing-memory rollup, pause routing arms when task SLOs are breached (best-effort).
+ * @param {any} env
+ */
+export async function enforceTaskSlosFromRoutingMemory(env) {
+  if (!env?.DB) return;
+  const sloCols = await pragmaTableInfo(env.DB, 'agentsam_task_slos');
+  const armCols = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
+  if (!sloCols.size || !armCols.has('task_type') || !armCols.has('is_paused')) return;
+  if (!sloCols.has('pause_arm_on_breach')) return;
+
+  const { results: slos } = await env.DB
+    .prepare(
+      `SELECT ts.task_type, ts.sla_p95_latency_ms, ts.sla_avg_cost_usd, ts.sla_min_quality,
+              ts.pause_arm_on_breach,
+              AVG(rm.avg_latency_ms) AS actual_latency, AVG(rm.avg_cost_usd) AS actual_cost,
+              AVG(rm.success_rate) AS actual_quality
+       FROM agentsam_task_slos ts
+       LEFT JOIN agentsam_model_routing_memory rm ON rm.task_type = ts.task_type
+       GROUP BY ts.task_type`,
+    )
+    .all()
+    .catch(() => ({ results: [] }));
+
+  for (const slo of slos || []) {
+    const pauseCol = Number(slo.pause_arm_on_breach) === 1;
+    if (!pauseCol) continue;
+    const lat = slo.actual_latency != null ? Number(slo.actual_latency) : null;
+    const cost = slo.actual_cost != null ? Number(slo.actual_cost) : null;
+    const qual = slo.actual_quality != null ? Number(slo.actual_quality) : null;
+    const latencyBreach =
+      lat != null &&
+      Number.isFinite(lat) &&
+      Number.isFinite(Number(slo.sla_p95_latency_ms)) &&
+      lat > Number(slo.sla_p95_latency_ms);
+    const costBreach =
+      cost != null &&
+      Number.isFinite(cost) &&
+      Number.isFinite(Number(slo.sla_avg_cost_usd)) &&
+      cost > Number(slo.sla_avg_cost_usd);
+    const qualityBreach =
+      qual != null &&
+      Number.isFinite(qual) &&
+      Number.isFinite(Number(slo.sla_min_quality)) &&
+      qual < Number(slo.sla_min_quality);
+    console.log('[slo]', slo.task_type, { latencyBreach, costBreach, qualityBreach });
+    if (!latencyBreach && !costBreach && !qualityBreach) continue;
+    const taskType = slo.task_type != null ? String(slo.task_type).trim() : '';
+    if (!taskType) continue;
+    if (armCols.has('pause_reason')) {
+      await env.DB
+        .prepare(
+          `UPDATE agentsam_routing_arms SET is_paused = 1, pause_reason = 'slo_breach', updated_at = unixepoch()
+           WHERE task_type = ? AND COALESCE(is_paused, 0) = 0`,
+        )
+        .bind(taskType)
+        .run()
+        .catch(() => {});
+    } else {
+      await env.DB
+        .prepare(
+          `UPDATE agentsam_routing_arms SET is_paused = 1, updated_at = unixepoch()
+           WHERE task_type = ? AND COALESCE(is_paused, 0) = 0`,
+        )
+        .bind(taskType)
+        .run()
+        .catch(() => {});
+    }
+  }
+}
+
 /** Reconcile Beta counts + decayed_score from recent agentsam_agent_run rows (replaces legacy routing_decisions cron). */
 export async function reconcileRoutingArmsFromAgentRuns(env) {
   if (!env?.DB) return;

@@ -5,6 +5,7 @@ import { runOvernightCronStep } from './overnight-progress.js';
 import {
   reconcileRoutingArmsFromAgentRuns,
   rollupAgentsamModelRoutingMemory,
+  enforceTaskSlosFromRoutingMemory,
   syncRoutingArmPauseFromDrift,
   runRoutingAnalyticsRollups,
 } from '../../core/routing-cron.js';
@@ -162,6 +163,7 @@ export async function runThirtyMinuteJobs(env, ctx) {
       await sweepStaleCronRuns(env);
       await reconcileRoutingArmsFromAgentRuns(env);
       await rollupAgentsamModelRoutingMemory(env);
+      await enforceTaskSlosFromRoutingMemory(env);
       await syncRoutingArmPauseFromDrift(env);
       await runRoutingAnalyticsRollups(env);
     })(),

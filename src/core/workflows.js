@@ -3,6 +3,7 @@
  */
 import { executeCommand } from '../api/command-run-telemetry.js';
 import { isFeatureEnabled } from './features.js';
+import { pragmaTableInfo } from './retention.js';
 
 export async function startWorkflow(env, ctx, o) {
   const {
@@ -104,6 +105,7 @@ export async function startWorkflow(env, ctx, o) {
   ctx.waitUntil(
     executeWorkflowSteps(env, ctx, {
       runId,
+      workflowKey,
       steps,
       userId,
       sessionId,
@@ -120,6 +122,7 @@ export async function startWorkflow(env, ctx, o) {
 
 async function executeWorkflowSteps(env, ctx, {
   runId,
+  workflowKey,
   steps,
   userId,
   sessionId,
@@ -130,6 +133,49 @@ async function executeWorkflowSteps(env, ctx, {
   sbKey,
 }) {
   const stepResults = [];
+  const wfKey = workflowKey != null ? String(workflowKey).slice(0, 500) : '';
+
+  const execCols = env?.DB ? await pragmaTableInfo(env.DB, 'agentsam_executions') : new Set();
+  const stepCols = env?.DB ? await pragmaTableInfo(env.DB, 'agentsam_execution_steps') : new Set();
+  const workflowExecId = `exec_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  if (execCols.size && execCols.has('task_id')) {
+    try {
+      const uid = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
+      if (execCols.has('model_key')) {
+        await env.DB
+          .prepare(
+            `INSERT OR IGNORE INTO agentsam_executions
+             (id, tenant_id, workspace_id, user_id, command_run_id, task_id, execution_type, command,
+              status, duration_ms, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+          )
+          .bind(
+            workflowExecId,
+            tenantId ?? null,
+            workspaceId,
+            uid,
+            null,
+            runId,
+            'workflow',
+            wfKey || null,
+            'running',
+            0,
+          )
+          .run();
+      } else {
+        await env.DB
+          .prepare(
+            `INSERT OR IGNORE INTO agentsam_executions
+             (id, tenant_id, workspace_id, user_id, task_id, execution_type, command, duration_ms, created_at)
+             VALUES (?,?,?,?,?,?,?,?,unixepoch())`,
+          )
+          .bind(workflowExecId, tenantId ?? null, workspaceId, uid, runId, 'workflow', wfKey || null, 0)
+          .run();
+      }
+    } catch (e) {
+      console.warn('[workflow] agentsam_executions', e?.message ?? e);
+    }
+  }
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
@@ -169,6 +215,42 @@ async function executeWorkflowSteps(env, ctx, {
         result: stepResult,
         duration_ms: Date.now() - stepStart,
       });
+
+      if (stepCols.has('execution_id') && workflowExecId) {
+        const stepEnd = Date.now();
+        const latencyMs = Math.max(0, stepEnd - stepStart);
+        const nodeKey = String(step.slug || step.command || step.name || `step_${i + 1}`).slice(0, 500);
+        const nodeType = String(step.task_type || 'command').slice(0, 120);
+        const st = stepResult.ok ? 'completed' : 'failed';
+        const t0 = Math.floor(stepStart / 1000);
+        const t1 = Math.floor(stepEnd / 1000);
+        try {
+          await env.DB
+            .prepare(
+              `INSERT OR IGNORE INTO agentsam_execution_steps
+               (id, execution_id, node_key, node_type, status, input_json, output_json,
+                started_at, completed_at, latency_ms, tokens_in, tokens_out, cost_usd, created_at)
+               VALUES ('estep_'||lower(hex(randomblob(8))),?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`,
+            )
+            .bind(
+              workflowExecId,
+              nodeKey,
+              nodeType,
+              st,
+              JSON.stringify(step.args ?? step.input ?? {}).slice(0, 8000),
+              JSON.stringify(stepResult ?? {}).slice(0, 16000),
+              t0,
+              t1,
+              latencyMs,
+              0,
+              0,
+              0,
+            )
+            .run();
+        } catch (e) {
+          console.warn('[workflow] agentsam_execution_steps', e?.message ?? e);
+        }
+      }
 
       await env.DB
         .prepare(

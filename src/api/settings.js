@@ -2540,6 +2540,24 @@ export async function handleSettingsRequest(request, env, ctx) {
       )
         .bind(...vals, id, String(storedUserId))
         .run();
+      if (keys.includes('content_markdown')) {
+        const actingUserId = String(storedUserId || 'sam_primeaux').slice(0, 200);
+        const changeNote =
+          body.change_note != null && String(body.change_note).trim() !== ''
+            ? String(body.change_note).slice(0, 2000)
+            : null;
+        await env.DB
+          .prepare(
+            `INSERT INTO agentsam_skill_revision (id, skill_id, content_markdown, version, changed_by, change_note)
+             SELECT 'skillrev_'||lower(hex(randomblob(8))), id, content_markdown,
+                    COALESCE((SELECT MAX(version) FROM agentsam_skill_revision WHERE skill_id = agentsam_skill.id), 0) + 1,
+                    ?, ?
+             FROM agentsam_skill WHERE id = ?`,
+          )
+          .bind(actingUserId, changeNote, id)
+          .run()
+          .catch((e) => console.warn('[agentsam_skill_revision]', e?.message ?? e));
+      }
       return jsonResponse({ ok: true });
     }
   }

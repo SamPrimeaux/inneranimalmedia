@@ -413,19 +413,36 @@ export async function getDefaultModelForTask(env, ctx = {}) {
     if (!arm?.model_key) {
       return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_eligible_arms' };
     }
-    const row = await db
-      .prepare(
-        `SELECT id FROM agentsam_ai WHERE model_key = ? AND mode = 'model' AND status = 'active' LIMIT 1`,
-      )
-      .bind(String(arm.model_key))
-      .first()
-      .catch(() => null);
-    const modelId = row?.id != null ? String(row.id).trim() : '';
+    const mk = String(arm.model_key);
     const armId = arm.id != null ? String(arm.id).trim() : '';
     const fallbackModelKey =
       arm.fallback_model_key != null && String(arm.fallback_model_key).trim() !== ''
         ? String(arm.fallback_model_key).trim()
         : null;
+    const catOk = await db
+      .prepare(
+        `SELECT 1 AS ok FROM agentsam_model_catalog WHERE model_key = ? AND is_active = 1 LIMIT 1`,
+      )
+      .bind(mk)
+      .first()
+      .catch(() => null);
+    const row = await db
+      .prepare(
+        `SELECT id FROM agentsam_ai WHERE model_key = ? AND mode = 'model' AND status = 'active' LIMIT 1`,
+      )
+      .bind(mk)
+      .first()
+      .catch(() => null);
+    if (catOk?.ok && !row?.id) {
+      return {
+        modelId: null,
+        armId: armId || null,
+        source: 'fallback',
+        fallbackReason: 'catalog_without_agentsam_ai_row',
+        fallbackModelKey,
+      };
+    }
+    const modelId = row?.id != null ? String(row.id).trim() : '';
     if (!modelId) {
       return {
         modelId: null,
