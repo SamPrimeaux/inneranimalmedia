@@ -242,6 +242,13 @@ function normalizeAssistantSseText(parsed: unknown): string {
   const oc = choices?.[0]?.delta?.content;
   if (typeof oc === 'string' && oc.length > 0) return oc;
 
+  if (pt === 'content_block_start') {
+    const blockType = (p.content_block as Record<string, unknown> | undefined)?.type;
+    if (blockType === 'server_tool_use' || blockType === 'tool_search_tool_result') {
+      return '';
+    }
+  }
+
   if (pt === 'content_block_delta') {
     const delta = p.delta as Record<string, unknown> | undefined;
     if (delta?.type === 'text_delta' && typeof delta.text === 'string') return delta.text;

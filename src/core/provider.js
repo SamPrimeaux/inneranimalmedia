@@ -68,7 +68,7 @@ export async function resolveModelMeta(env, modelKey) {
 
 export async function dispatchStream(env, request, params) {
   const modelKey = await resolveAutoModelKey(env, params);
-  const { systemPrompt, messages, tools = [], options = {}, userId } = params;
+  const { systemPrompt, messages, tools = [], options = {}, userId, anthropicContainerId } = params;
   const meta     = await resolveModelMeta(env, modelKey);
   const platform = meta?.api_platform || 'anthropic';
   const dp       = { modelKey, systemPrompt, messages, tools, userId, ...options };
@@ -88,7 +88,14 @@ export async function dispatchStream(env, request, params) {
     default:
       return chatWithAnthropic({
         messages, tools, env, userId,
-        options: { model: modelKey, systemPrompt, ...options },
+        options: {
+          model: modelKey,
+          systemPrompt,
+          ...options,
+          ...(anthropicContainerId != null && String(anthropicContainerId).trim() !== ''
+            ? { container: String(anthropicContainerId).trim() }
+            : {}),
+        },
       });
   }
 }

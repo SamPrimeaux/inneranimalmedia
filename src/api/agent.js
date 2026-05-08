@@ -1381,7 +1381,15 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     } else {
       const ctor = stream && stream.constructor ? stream.constructor.name : typeof stream;
       console.warn('[agent] stream not iterable/reader/Response:', ctor, Object.prototype.toString.call(stream));
-      for await (const chunk of stream) {
+      let lastAnthropicMessageContainerId = null;
+      const handleAnthropicChunk = (chunk) => {
+        if (chunk.type === 'message_start') {
+          if (chunk.message?.id) emit('id', { id: chunk.message.id });
+          if (chunk.message?.container?.id) lastAnthropicMessageContainerId = chunk.message.container.id;
+        }
+        if (chunk.type === 'message_stop' && chunk.message?.container?.id) {
+          lastAnthropicMessageContainerId = chunk.message.container.id;
+        }
         if (chunk.type === 'content_block_start') {
           if (chunk.content_block?.type === 'thinking') emit('thinking_start', {});
           if (chunk.content_block?.type === 'tool_use') {
@@ -1436,11 +1444,76 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             if (blk) blk.input = call.input;
           }
         }
-        if (chunk.type === 'message_start' && chunk.message?.id) emit('id', { id: chunk.message.id });
         if (chunk.type === 'message_delta') {
           if (chunk.usage) turnUsage = chunk.usage;
           if (chunk.delta?.stop_reason) stopReason = chunk.delta.stop_reason;
         }
+      };
+      const mergeTurnUsage = () => {
+        if (!turnUsage) return;
+        const u = aggregateAnthropicUsageTokens(turnUsage);
+        totalUsage.input_tokens += u.input_tokens;
+        totalUsage.output_tokens += u.output_tokens;
+        totalUsage.cache_read_input_tokens += u.cache_read_input_tokens;
+        totalUsage.cache_creation_input_tokens += u.cache_creation_input_tokens;
+        turnUsage = null;
+      };
+      const drainAnthropicStream = async (s) => {
+        stopReason = null;
+        turnUsage = null;
+        for await (const chunk of s) handleAnthropicChunk(chunk);
+        mergeTurnUsage();
+      };
+      await drainAnthropicStream(stream);
+      let pauseGuards = 0;
+      while (stopReason === 'pause_turn' && pauseGuards < 8) {
+        const cid = lastAnthropicMessageContainerId;
+        if (!cid) {
+          console.warn('[agent] pause_turn: missing container id; cannot continue');
+          break;
+        }
+        try {
+          console.log(JSON.stringify({
+            tag: 'anthropic_pause_turn',
+            session_id: sessionId || null,
+            model_key: modelKey,
+            container_id: cid,
+            iteration: pauseGuards + 1,
+          }));
+        } catch (_) { /* ignore */ }
+        emit('pause_turn', { container_id: cid, iteration: pauseGuards + 1 });
+        let continueMessages;
+        try {
+          continueMessages = [...conversationMessages, { role: 'assistant', content: JSON.parse(JSON.stringify(assistantContent)) }];
+        } catch {
+          continueMessages = [...conversationMessages, { role: 'assistant', content: assistantContent }];
+        }
+        pauseGuards += 1;
+        pendingToolCalls.length = 0;
+        let nextStream;
+        try {
+          nextStream = await dispatchStream(env, request, {
+            modelKey,
+            systemPrompt,
+            messages: continueMessages,
+            tools,
+            reasoningEffort: modeConfig?.gate_reasoning_effort || null,
+            temperature,
+            userId,
+            tenantId,
+            taskType: routingTaskType || 'chat',
+            mode: mode || 'auto',
+            anthropicContainerId: cid,
+          });
+        } catch (e) {
+          console.warn('[agent] pause_turn continuation request failed:', e?.message ?? e);
+          break;
+        }
+        if (!nextStream || typeof nextStream[Symbol.asyncIterator] !== 'function') {
+          console.warn('[agent] pause_turn: continuation stream is not async-iterable');
+          break;
+        }
+        await drainAnthropicStream(nextStream);
       }
     }
 

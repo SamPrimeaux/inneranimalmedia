@@ -76,14 +76,17 @@ export function buildAnthropicMessagesTools(tools, opts = {}) {
   return [...head, ...mapped];
 }
 
-/** True when the request includes an Anthropic-hosted code execution tool (beta header required). */
-export function anthropicRequestUsesCodeExecution(tools) {
+/**
+ * `code-execution-2025-08-25` beta applies to `code_execution_20250825` / legacy `20250522` only.
+ * `code_execution_20260120` is first-party GA — sending the 08-25 beta with it can cause 400.
+ */
+export function anthropicCodeExecutionNeeds202508Beta(tools) {
   const list = Array.isArray(tools) ? tools : [];
   return list.some(
     (t) =>
       t &&
       String(t.name || '') === 'code_execution' &&
-      String(t.type || '').startsWith('code_execution_'),
+      (t.type === 'code_execution_20250825' || t.type === 'code_execution_20250522'),
   );
 }
 
@@ -128,7 +131,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   }
 
   const builtTools = buildAnthropicMessagesTools(tools, { modelKey, features });
-  if (anthropicRequestUsesCodeExecution(builtTools)) {
+  if (anthropicCodeExecutionNeeds202508Beta(builtTools)) {
     betas.push(ANTHROPIC_CODE_EXECUTION_BETA);
   }
 
@@ -176,6 +179,12 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   // 4. Data Residency
   if (options.inference_geo) {
     streamParams.inference_geo = options.inference_geo; // 'us' or 'global'
+  }
+
+  // Code execution / multi-part turns: reuse Anthropic sandbox container across pause_turn continuations
+  const c = options.container;
+  if (c != null && c !== '') {
+    streamParams.container = typeof c === 'string' ? c : c?.id;
   }
 
   const response = await client.messages.create(streamParams);
