@@ -1,5 +1,5 @@
 -- Cross-product seed: agentsam_routing_arms rows for one workspace from agentsam_ai catalog.
--- Replace WORKSPACE_ID_HERE before running (wrangler d1 execute ... --file).
+-- workspace_id set for production seed (wrangler d1 execute ... --file).
 -- Eligible models: active model rows; adjust WHERE to match agentsam_model_catalog rules after backfill.
 
 INSERT OR IGNORE INTO agentsam_routing_arms (
@@ -9,7 +9,7 @@ INSERT OR IGNORE INTO agentsam_routing_arms (
 )
 SELECT
   'ra_' || lower(hex(randomblob(8))),
-  'WORKSPACE_ID_HERE',
+  'ws_inneranimalmedia',
   d.task_type,
   d.mode,
   m.model_key,

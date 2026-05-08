@@ -22,13 +22,12 @@ crons = [
   "0 0 1 * *"
 ]
 
-[build]
-command = "node scripts/smart-build.mjs"
 # Build watch path exclusions are configured in the Cloudflare dashboard (not wrangler v4):
 # Workers → your project → Settings → Build → Build watch paths → Exclude paths:
 #   snapshot-*.json
 #   docs/**
 #   *.md
+# Dashboard/** is excluded — frontend ships via R2 (deploy-frontend.sh), not wrangler build.
 
 # esbuild options belong in wrangler.jsonc / per-project build config; top-level [esbuild] is not valid and triggers Wrangler warnings.
 
