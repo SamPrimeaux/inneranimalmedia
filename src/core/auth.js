@@ -470,6 +470,8 @@ export async function getAuthUser(request, env) {
           person_uuid:   row.person_uuid,
           email:         row.email,
           name:          row.name,
+          display_name:  row.display_name ?? row.name ?? null,
+          avatar_url:    row.avatar_url ?? null,
           tenant_id:     row.tenant_id,
           active_tenant_id: row.active_tenant_id ?? null,
           active_workspace_id: row.active_workspace_id ?? null,

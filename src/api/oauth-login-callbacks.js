@@ -43,6 +43,108 @@ function googleClientSecret(env) {
 }
 
 /**
+ * Best-effort time tracking + analytics after OAuth login. Never throws.
+ * @param {*} db — env.DB (D1)
+ * @param {string} browserSessionId — `sessions.id` from createLoginSession (cookie session UUID)
+ * @param {string} userId — auth_users.id
+ */
+async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {
+  if (!db || !browserSessionId || !userId) return;
+  try {
+    let au = null;
+    try {
+      au = await db
+        .prepare(`SELECT tenant_id, active_workspace_id FROM auth_users WHERE id = ? LIMIT 1`)
+        .bind(userId)
+        .first();
+    } catch (_) {
+      au = null;
+    }
+    const tenantId = au?.tenant_id ?? null;
+    const activeWs = au?.active_workspace_id ?? null;
+
+    const wsSessionId =
+      'wss_' +
+      Array.from(crypto.getRandomValues(new Uint8Array(8)))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+
+    await db
+      .prepare(
+        `INSERT INTO work_sessions
+           (session_id, user_id, tenant_id, workspace_id,
+            started_at, last_activity_at, created_at)
+         VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), unixepoch())`,
+      )
+      .bind(wsSessionId, userId, tenantId, activeWs)
+      .run();
+
+    await db
+      .prepare(
+        `UPDATE sessions SET workspace_id = ?, work_session_id = ?
+         WHERE id = ?`,
+      )
+      .bind(activeWs ?? null, wsSessionId, browserSessionId)
+      .run();
+
+    await db
+      .prepare(
+        `INSERT INTO time_entries
+           (user_id, tenant_id, workspace_id, description,
+            source, work_session_id, started_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'auto', ?, unixepoch(), unixepoch(), unixepoch())`,
+      )
+      .bind(
+        userId,
+        tenantId,
+        activeWs,
+        'Login session — ' + new Date().toISOString().slice(0, 10),
+        wsSessionId,
+      )
+      .run();
+
+    await db
+      .prepare(
+        `INSERT INTO agentsam_analytics
+           (tenant_id, workspace_id, period, period_date,
+            total_sessions, computed_at)
+         VALUES (?, ?, 'session', ?, 1, unixepoch())
+         ON CONFLICT(tenant_id, workspace_id, period, period_date)
+         DO UPDATE SET
+           total_sessions = total_sessions + 1,
+           computed_at = unixepoch()`,
+      )
+      .bind(tenantId, activeWs ?? 'ws_unknown', new Date().toISOString().slice(0, 10))
+      .run();
+
+    const existingProfile = await db
+      .prepare(`SELECT id FROM agentsam_subagent_profile WHERE user_id = ? LIMIT 1`)
+      .bind(userId)
+      .first();
+
+    if (!existingProfile) {
+      await db
+        .prepare(
+          `INSERT INTO agentsam_subagent_profile
+             (id, user_id, workspace_id, tenant_id, slug,
+              display_name, description, icon, agent_type,
+              personality_tone, is_active, is_platform_global)
+           VALUES (
+             'sub_' || lower(hex(randomblob(8))),
+             ?, ?, ?, 'agent-sam',
+             'Agent Sam', 'Default AI assistant', 'robot',
+             'assistant', 'professional', 1, 0
+           )`,
+        )
+        .bind(userId, activeWs ?? '', tenantId)
+        .run();
+    }
+  } catch (e) {
+    console.error('[time_tracking] failed to create work session:', e?.message ?? e);
+  }
+}
+
+/**
  * GitHub login callback — parity with worker.js handleGitHubOAuthCallback.
  * @param {object} [options]
  * @param {string} [options.cachedRedirect] — if set, KV get/delete for github state was already done (e.g. /api/oauth/github/callback dispatch).
@@ -190,6 +292,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
   )
     .bind(userId, userId, userId)
     .run();
+  await tryOAuthLoginTimeTracking(env.DB, sessionId, userId);
   const tidGh = await resolveTenantAtLogin(env, userId).catch(() => null);
   autoStartWorkSession(env, userId, tidGh, url.pathname).catch(() => {});
   const ghLogin = (userInfo.login || '').toString() || 'github';
@@ -385,7 +488,7 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
   )
     .bind(authUserId, authUserId, authUserId)
     .run();
-  const tidOauth = await resolveTenantAtLogin(env, authUserId).catch(() => null);
+  await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
 
   const safeDest =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
