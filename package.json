@@ -51,6 +51,7 @@
     "d1:workflows-audit": "./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --file=./scripts/d1-workflows-audit.sql",
     "designstudio:check": "bash scripts/designstudio/local-check.sh",
     "designstudio:smoke": "bash scripts/designstudio/pipeline-smoke.sh",
+    "build": "npm run build:vite-only && node scripts/bump-cache.js",
     "build:vite-only": "npm --prefix dashboard run build",
     "dev:dashboard": "npm --prefix dashboard run dev",
     "preview:dashboard": "npm --prefix dashboard run preview",
