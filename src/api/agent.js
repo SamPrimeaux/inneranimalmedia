@@ -1267,7 +1267,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
 
     const pendingToolCalls = [];
-    let stopReason = null, turnUsage = null;
+    let stopReason = null, turnUsage = null, containerId = null;
     const assistantContent = [];
 
     const extractWorkersAiLineToken = (obj) => {
@@ -1381,14 +1381,13 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     } else {
       const ctor = stream && stream.constructor ? stream.constructor.name : typeof stream;
       console.warn('[agent] stream not iterable/reader/Response:', ctor, Object.prototype.toString.call(stream));
-      let lastAnthropicMessageContainerId = null;
       const handleAnthropicChunk = (chunk) => {
         if (chunk.type === 'message_start') {
           if (chunk.message?.id) emit('id', { id: chunk.message.id });
-          if (chunk.message?.container?.id) lastAnthropicMessageContainerId = chunk.message.container.id;
+          if (chunk.message?.container?.id) containerId = chunk.message.container.id;
         }
         if (chunk.type === 'message_stop' && chunk.message?.container?.id) {
-          lastAnthropicMessageContainerId = chunk.message.container.id;
+          containerId = chunk.message.container.id;
         }
         if (chunk.type === 'content_block_start') {
           if (chunk.content_block?.type === 'thinking') emit('thinking_start', {});
@@ -1447,6 +1446,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         if (chunk.type === 'message_delta') {
           if (chunk.usage) turnUsage = chunk.usage;
           if (chunk.delta?.stop_reason) stopReason = chunk.delta.stop_reason;
+          if (chunk.delta?.container?.id) containerId = chunk.delta.container.id;
         }
       };
       const mergeTurnUsage = () => {
@@ -1465,30 +1465,19 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         mergeTurnUsage();
       };
       await drainAnthropicStream(stream);
-      let pauseGuards = 0;
-      while (stopReason === 'pause_turn' && pauseGuards < 8) {
-        const cid = lastAnthropicMessageContainerId;
-        if (!cid) {
-          console.warn('[agent] pause_turn: missing container id; cannot continue');
-          break;
-        }
-        try {
-          console.log(JSON.stringify({
-            tag: 'anthropic_pause_turn',
-            session_id: sessionId || null,
-            model_key: modelKey,
-            container_id: cid,
-            iteration: pauseGuards + 1,
-          }));
-        } catch (_) { /* ignore */ }
-        emit('pause_turn', { container_id: cid, iteration: pauseGuards + 1 });
+      // Anthropic code execution may stop with pause_turn; continue via SDK (same model/tools/system as dispatchStream → chatWithAnthropic).
+      const PAUSE_TURN_MAX = 8;
+      let pauseIterations = 0;
+      while (stopReason === 'pause_turn' && containerId && pauseIterations < PAUSE_TURN_MAX) {
+        pauseIterations += 1;
+        console.log(`[agent] pause_turn continuation ${pauseIterations} container=${containerId}`);
+        emit('pause_turn', { container_id: containerId, iteration: pauseIterations });
         let continueMessages;
         try {
           continueMessages = [...conversationMessages, { role: 'assistant', content: JSON.parse(JSON.stringify(assistantContent)) }];
         } catch {
           continueMessages = [...conversationMessages, { role: 'assistant', content: assistantContent }];
         }
-        pauseGuards += 1;
         pendingToolCalls.length = 0;
         let nextStream;
         try {
@@ -1503,7 +1492,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             tenantId,
             taskType: routingTaskType || 'chat',
             mode: mode || 'auto',
-            anthropicContainerId: cid,
+            anthropicContainerId: containerId,
           });
         } catch (e) {
           console.warn('[agent] pause_turn continuation request failed:', e?.message ?? e);
@@ -1514,6 +1503,10 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           break;
         }
         await drainAnthropicStream(nextStream);
+      }
+      if (pauseIterations >= PAUSE_TURN_MAX && stopReason === 'pause_turn') {
+        console.warn('[agent] pause_turn max iterations reached, forcing end_turn');
+        stopReason = 'end_turn';
       }
     }
 
