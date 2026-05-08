@@ -1,8 +1,8 @@
 import React from 'react';
-import { StoragePage } from '../../StoragePage';
+import { StorageSettingsPanel } from '../StorageSettingsPanel';
 
 export type StorageSectionProps = Record<string, never>;
 
 export function StorageSection() {
-  return <StoragePage embeddedInSettings />;
+  return <StorageSettingsPanel />;
 }

@@ -75,7 +75,6 @@ const LearnPage = lazy(() => import('./components/LearnPage'));
 const DatabasePage = lazy(() => import('./components/DatabasePage').then((m) => ({ default: m.DatabasePage })));
 const McpPage = lazy(() => import('./components/McpPage').then((m) => ({ default: m.McpPage })));
 const DesignStudioPage = lazy(() => import('./components/DesignStudioPage').then((m) => ({ default: m.DesignStudioPage })));
-const StoragePage = lazy(() => import('./components/StoragePage').then((m) => ({ default: m.StoragePage })));
 const ImagesPage = lazy(() => import('./components/ImagesPage'));
 const MailPage = lazy(() => import('./components/MailPage').then((m) => ({ default: m.MailPage })));
 const MeetPage = lazy(() => import('./components/MeetPage'));
@@ -1881,8 +1880,11 @@ const App: React.FC = () => {
                   icon={HardDrive}
                   label="Storage"
                   expanded={sidebarRailExpanded}
-                  active={location.pathname === '/dashboard/storage'}
-                  onClick={() => navigate('/dashboard/storage')}
+                  active={
+                    location.pathname === '/dashboard/settings/storage' ||
+                    location.pathname === '/dashboard/storage'
+                  }
+                  onClick={() => navigate('/dashboard/settings/storage')}
               />
               <ActivityRailItem
                   icon={Wrench}
@@ -2134,7 +2136,10 @@ const App: React.FC = () => {
                         }
                       />
                       <Route path="/dashboard/designstudio" element={<DesignStudioPage />} />
-                      <Route path="/dashboard/storage" element={<StoragePage />} />
+                      <Route
+                        path="/dashboard/storage"
+                        element={<Navigate to="/dashboard/settings/storage" replace />}
+                      />
                       <Route
                         path="/dashboard/images"
                         element={<ImagesPage workspaceId={authWorkspaceId || undefined} />}
