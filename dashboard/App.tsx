@@ -67,6 +67,10 @@ import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClos
 const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
 const OverviewPage = lazy(() => import('./components/OverviewPage').then((m) => ({ default: m.OverviewPage })));
 const HealthPage = lazy(() => import('./pages/HealthPage').then((m) => ({ default: m.HealthPage })));
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
+const RedirectHealthToAnalytics = lazy(() =>
+  import('./pages/RedirectHealthToAnalytics').then((m) => ({ default: m.RedirectHealthToAnalytics })),
+);
 const LearnPage = lazy(() => import('./components/LearnPage'));
 const DatabasePage = lazy(() => import('./components/DatabasePage').then((m) => ({ default: m.DatabasePage })));
 const McpPage = lazy(() => import('./components/McpPage').then((m) => ({ default: m.McpPage })));
@@ -2116,8 +2120,9 @@ const App: React.FC = () => {
                       <Route path="/dashboard/calendar" element={<CalendarPage />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
                       <Route path="/dashboard/analytics" element={<Navigate to="/dashboard/analytics/overview" replace />} />
-                      <Route path="/dashboard/analytics/:tab" element={<HealthPage />} />
+                      <Route path="/dashboard/analytics/:tab" element={<AnalyticsPage />} />
                       <Route path="/dashboard/health" element={<Navigate to="/dashboard/analytics/overview" replace />} />
+                      <Route path="/dashboard/health/:tab" element={<RedirectHealthToAnalytics />} />
                       <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/learn" element={<LearnPage />} />
                       <Route path="/dashboard/database" element={<DatabasePage />} />

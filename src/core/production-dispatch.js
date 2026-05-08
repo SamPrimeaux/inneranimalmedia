@@ -42,6 +42,7 @@ import { handleStatusBundle } from '../api/status-bundle.js';
 import { handleCursorAgentApi } from '../api/cursor-agent.js';
 import { handleCalendarApi } from '../api/calendar.js';
 import { handleHealthApi } from '../api/health/index.js';
+import { handleAnalyticsApi } from '../api/analytics/index.js';
 import { handleVaultApi } from '../api/vault.js';
 import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
 import { handleUnifiedSearchApi } from '../api/unified-search.js';
@@ -243,6 +244,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/health/')) {
     return handleHealthApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/analytics/')) {
+    return handleAnalyticsApi(request, url, env, ctx, authUser, identity);
   }
 
   if (pathLower.startsWith('/api/overview')) {
