@@ -2,9 +2,14 @@
  * Insert / finalize rows in agentsam_script_runs whenever a registered agentsam_scripts
  * entry is executed (Worker, CI callback, or manual API). Keeps audit trail aligned with registry.
  *
+ * Optional: writes agentsam_hook_execution rows when agentsam_hook rows opt in via
+ * metadata.agentsam_script_id (see agentsam-hook-script-bridge.js). Pass hookAudit: false to skip.
+ *
  * CLI-only runners (e.g. register-agentsam-scripts.mjs) do not pass through the Worker; add
  * optional INSERTs there or in CI if you need the same audit trail for local runs.
  */
+
+import { recordHookExecutionsForAgentsamScriptRun } from './agentsam-hook-script-bridge.js';
 
 /**
  * @param {any} db
@@ -17,6 +22,9 @@
  *   cicdRunId?: string | null,
  *   gitCommitSha?: string | null,
  *   gitBranch?: string | null,
+ *   tenantId?: string | null,
+ *   userId?: string | null,
+ *   hookAudit?: boolean,
  * }} row
  * @returns {Promise<{ id: string } | null>}
  */
@@ -47,7 +55,19 @@ export async function startAgentsamScriptRun(db, row) {
       )
       .first();
     const id = inserted?.id;
-    return id ? { id: String(id) } : null;
+    if (!id) return null;
+    const rid = String(id);
+    if (row.hookAudit !== false) {
+      await recordHookExecutionsForAgentsamScriptRun(db, {
+        phase: 'pre_deploy',
+        scriptId: row.scriptId,
+        scriptRunId: rid,
+        workspaceId: row.workspaceId,
+        tenantId: row.tenantId ?? null,
+        userId: row.userId ?? null,
+      });
+    }
+    return { id: rid };
   } catch (e) {
     console.warn('[agentsam_script_runs] start failed', e?.message ?? e);
     return null;
@@ -65,8 +85,15 @@ export async function startAgentsamScriptRun(db, row) {
  *   errorMessage?: string | null,
  *   costUsd?: number | null,
  * }} fin
+ * @param {{
+ *   scriptId: string,
+ *   workspaceId: string,
+ *   tenantId?: string | null,
+ *   userId?: string | null,
+ *   hookAudit?: boolean,
+ * } | null | undefined} hookCtx
  */
-export async function finalizeAgentsamScriptRun(db, runId, fin) {
+export async function finalizeAgentsamScriptRun(db, runId, fin, hookCtx) {
   if (!db || !runId || !fin?.status) return;
   try {
     await db
@@ -91,6 +118,20 @@ export async function finalizeAgentsamScriptRun(db, runId, fin) {
         runId,
       )
       .run();
+    if (hookCtx && hookCtx.hookAudit !== false && hookCtx.scriptId && hookCtx.workspaceId) {
+      await recordHookExecutionsForAgentsamScriptRun(db, {
+        phase: 'post_deploy',
+        scriptId: hookCtx.scriptId,
+        scriptRunId: runId,
+        workspaceId: hookCtx.workspaceId,
+        tenantId: hookCtx.tenantId ?? null,
+        userId: hookCtx.userId ?? null,
+        scriptStatus: fin.status,
+        durationMs: fin.durationMs ?? null,
+        outputSummary: fin.outputSummary ?? null,
+        errorMessage: fin.errorMessage ?? null,
+      });
+    }
   } catch (e) {
     console.warn('[agentsam_script_runs] finalize failed', e?.message ?? e);
   }
