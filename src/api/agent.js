@@ -1722,7 +1722,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         ctx,
       });
       emit('tool_result', { tool: call.name, output: toolOutput.slice(0, 2000) });
-      toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: toolOutput });
+      const tr = { type: 'tool_result', tool_use_id: call.id, content: toolOutput };
+      if (execErr) tr.is_error = true;
+      toolResults.push(tr);
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
 
