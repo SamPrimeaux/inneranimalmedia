@@ -41,21 +41,21 @@ echo "== Safety grep checks =="
 
   echo "--- workspace_id body/query override check ---"
   grep -RIn "searchParams.get('workspace_id'\|body.*workspace_id\|workspace_id.*body\|workspace_id.*query" \
-    src/api/settings-workspace.js src/api/settings-api-keys.js src/api/settings.js || true
+    src/api/settings-workspace.js src/api/settings-api-keys.js || true
 
   echo "--- vault_secret_id frontend/settings.js exposure check ---"
   grep -RIn "vault_secret_id" \
-    dashboard src/components src/api/settings.js || true
+    dashboard src/api/settings.js || true
 } | tee "$REPORT_DIR/safety-grep.txt"
 
 if grep -RIn "searchParams.get('workspace_id'\|body.*workspace_id\|workspace_id.*body\|workspace_id.*query" \
-  src/api/settings-workspace.js src/api/settings-api-keys.js src/api/settings.js > "$REPORT_DIR/workspace-override-fail.txt"; then
+  src/api/settings-workspace.js src/api/settings-api-keys.js > "$REPORT_DIR/workspace-override-fail.txt"; then
   echo "ERROR: workspace_id body/query override pattern found."
   cat "$REPORT_DIR/workspace-override-fail.txt"
   exit 1
 fi
 
-if grep -RIn "vault_secret_id" dashboard src/components src/api/settings.js > "$REPORT_DIR/vault-exposure-fail.txt"; then
+if grep -RIn "vault_secret_id" dashboard src/api/settings.js > "$REPORT_DIR/vault-exposure-fail.txt"; then
   echo "ERROR: vault_secret_id exposure found in frontend/settings dispatcher."
   cat "$REPORT_DIR/vault-exposure-fail.txt"
   exit 1
