@@ -3,19 +3,40 @@ import Editor, { type Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { applyMonacoThemeFromDocument } from '../../MonacoSurface';
 
+/** Choose Monaco language id from a filename (extension-based). */
+export function monacoLangFromFilename(filename: string): string {
+  const ext = filename?.split('.').pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    py: 'python',
+    js: 'javascript',
+    ts: 'typescript',
+    jsx: 'javascript',
+    tsx: 'typescript',
+    sql: 'sql',
+    json: 'json',
+    sh: 'shell',
+    md: 'markdown',
+    css: 'css',
+    html: 'html',
+  };
+  return map[ext ?? ''] ?? 'plaintext';
+}
+
 function readMonacoThemeIdFromDom(): string {
   return document.documentElement.getAttribute('data-monaco-theme')?.trim() || 'vs';
 }
 
 export type McpMonacoHostProps = {
   onEditorReady?: (ed: editor.IStandaloneCodeEditor, monaco: Monaco) => void;
+  /** When set, editor language follows file extension (e.g. .py → python). Defaults to JSON. */
+  documentFilename?: string | null;
 };
 
 /**
  * Single Monaco surface for MCP config / tool JSON. Uncontrolled document; parent swaps models via setModel.
  */
 export const McpMonacoHost = forwardRef<editor.IStandaloneCodeEditor | null, McpMonacoHostProps>(function McpMonacoHost(
-  { onEditorReady },
+  { onEditorReady, documentFilename },
   ref,
 ) {
   const [editorThemeProp, setEditorThemeProp] = useState(readMonacoThemeIdFromDom);
@@ -75,10 +96,13 @@ export const McpMonacoHost = forwardRef<editor.IStandaloneCodeEditor | null, Mcp
     };
   }, [ref]);
 
+  const editorLang = documentFilename ? monacoLangFromFilename(documentFilename) : 'json';
+
   return (
     <Editor
+      key={documentFilename ?? 'default-json'}
       height="100%"
-      defaultLanguage="json"
+      defaultLanguage={editorLang}
       theme={editorThemeProp}
       defaultValue=""
       beforeMount={handleBeforeMount}

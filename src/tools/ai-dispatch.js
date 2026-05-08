@@ -17,6 +17,7 @@ import { handlers as anthropicCliHandlers } from './builtin/anthropic-cli.js';
 import { handlers as anthropicBatchHandlers } from './builtin/anthropic-batch.js';
 import { imessageTools } from './builtin/imessage.js';
 import { getComputerUseTools, specializedSchemas } from './builtin/computer-use.js';
+import { python_execute } from './builtin/python.js';
 
 /**
  * Universal Tool Dispatcher (Omni-Sam v2.0).
@@ -111,6 +112,9 @@ export async function runBuiltinTool(env, toolName, params) {
         case toolName === 'run_command':
         case toolName === 'bash':
             return await termHandlers.run_command?.(params, env);
+
+        case toolName === 'python_execute':
+            return await python_execute(params, env);
 
         // ── CATEGORY: intelligence / llm ops (6 Tools) ──────────────────
         case toolName.startsWith('anthropic_cli'):

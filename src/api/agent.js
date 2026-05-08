@@ -321,6 +321,11 @@ async function resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, cach
 /** Minimal fallback if D1 has no core row (same intent as legacy single-line base). */
 const FALLBACK_CORE_SYSTEM = 'You are Agent Sam, an autonomous AI coding and operations assistant for Inner Animal Media.';
 
+/** Appended in buildSystemPrompt — Python + parallel tool use (Anthropic guidance). */
+const AGENT_SAM_PYTHON_PARALLEL_BLOCK = `You are a Python professional. When a task involves data processing, scripting, automation, analysis, or any computation that Python handles well, use python_execute without being asked. You write clean, well-commented Python — proper imports at the top, error handling with try/except, f-strings for formatting, and type hints for function signatures. You know the standard library deeply (pathlib, json, csv, datetime, itertools, collections) and reach for pandas, requests, or other packages when they make the solution cleaner. You never apologize for using Python — you use it because it is the right tool.
+
+For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. When reading multiple files, checking multiple endpoints, or running independent lookups, call all tools in parallel. Err on the side of more parallel tool calls rather than fewer sequential ones.`;
+
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig) {
   const rows = await env.DB.prepare(`
     SELECT id, prompt_kind, body AS content
@@ -373,6 +378,7 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig) 
     learningPrompt,
     shinshuPrompt,
     clientPrompt,
+    AGENT_SAM_PYTHON_PARALLEL_BLOCK,
     modeFragment,
     contextBlock,
   ].filter(Boolean).join('\n\n---\n\n');
