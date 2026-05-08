@@ -1,37 +1,56 @@
 #!/usr/bin/env bash
-# scripts/cf-builds-sync.sh
-# One-shot: push Workers Builds settings (deploy command, watch paths) via Cloudflare API.
+# Push Workers Builds settings (build + deploy commands) via Cloudflare API.
+# Loads credentials from .env.cloudflare at repo root (same pattern as other scripts).
 #
-# Run manually (loads CLOUDFLARE_* from .env.cloudflare):
-#   ./scripts/with-cloudflare-env.sh ./scripts/cf-builds-sync.sh
+# Usage (from repo root):
+#   ./scripts/cf-builds-sync.sh
 #
-# Requires API token with permission to edit Workers / account resources (same class as CI deploy).
-# If the API returns errors, compare the JSON body to current Cloudflare API docs for
-# Workers service environment settings — field names change over time.
+# Optional overrides: WORKER_SERVICE_NAME, WORKER_ENVIRONMENT_NAME
 
 set -euo pipefail
 
-: "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID is required}"
-: "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env.cloudflare"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
+else
+  echo "ERROR: .env.cloudflare not found at $ENV_FILE" >&2
+  exit 1
+fi
 
-SERVICE_NAME="${WORKER_SERVICE_NAME:-inneranimalmedia}"
+ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID}"
+API_TOKEN="${CLOUDFLARE_API_TOKEN}"
+SERVICE="${WORKER_SERVICE_NAME:-inneranimalmedia}"
 ENV_NAME="${WORKER_ENVIRONMENT_NAME:-production}"
 
-URL="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/services/${SERVICE_NAME}/environments/${ENV_NAME}/settings"
+if [[ -z "$ACCOUNT_ID" || -z "$API_TOKEN" ]]; then
+  echo "ERROR: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set in .env.cloudflare" >&2
+  exit 1
+fi
 
-BODY='{
-  "build": {
-    "build_command": "",
+TMPFILE="$(mktemp)"
+trap 'rm -f "$TMPFILE"' EXIT
+
+cat >"$TMPFILE" <<'JSON'
+{
+  "build_config": {
+    "build_command": "node scripts/smart-build.mjs",
     "deploy_command": "npx wrangler deploy -c wrangler.production.toml",
-    "non_production_deploy_command": "",
-    "watch_dirs": ["src", "worker.js", "wrangler.production.toml", "package.json", "migrations"]
+    "non_production_branch_deploy_command": "",
+    "root_dir": "/"
   }
-}'
+}
+JSON
 
-RESP="$(curl -sS -X PATCH "$URL" \
-  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "$BODY")"
+echo "[cf-builds-sync] Patching build config for ${SERVICE}/${ENV_NAME}..."
+
+RESP="$(curl -sS -X PATCH \
+  "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/services/${SERVICE}/environments/${ENV_NAME}/settings" \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  -F "settings=<${TMPFILE};type=application/json")"
 
 if command -v jq >/dev/null 2>&1; then
   echo "$RESP" | jq .
