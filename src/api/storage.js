@@ -416,36 +416,17 @@ export async function handleStorageApi(request, url, env) {
     if (!env.DB) return jsonResponse({ source: 'd1_registry', data_quality: 'partial', last_synced_at: null, failed: ['DB'], ...baseMeta });
     return cachedStorageResponse(env, 'analytics', tenantId, async (failed) => {
       const workspaceId =
-        url.searchParams.get('workspace_id') ||
+        (url.searchParams.get('workspace_id') != null && String(url.searchParams.get('workspace_id')).trim() !== ''
+          ? String(url.searchParams.get('workspace_id')).trim()
+          : null) ||
+        (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+          ? String(authUser.active_workspace_id).trim()
+          : null) ||
         (env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
           ? String(env.DEFAULT_WORKSPACE_ID).trim()
           : null);
-      if (!workspaceId) {
-        failed.add('workspace_id');
-        return {
-          source: 'd1_registry',
-          data_quality: 'partial',
-          last_synced_at: null,
-          total_objects: 0,
-          total_bytes: 0,
-          by_bucket: [],
-          summary: { object_count: 0, size_bytes: 0 },
-          storage_inventory: {
-            total_objects: 0,
-            total_bytes: 0,
-            total_mb: 0,
-            bucket_count: 0,
-            storage_by_bucket: [],
-            by_content_type: {},
-            cleanup_breakdown: [],
-          },
-          request_trends: [],
-          recent_errors: [],
-          workspace_usage: [],
-          ...baseMeta,
-        };
-      }
-      const [summaries, syncRow, trends, errors, usage] = await Promise.all([
+      const isSuper = authUserIsSuperadmin(authUser);
+      const [summaries, syncRow, trends, errors, usageFiltered] = await Promise.all([
         q(env, failed, 'r2_bucket_summary', `SELECT * FROM r2_bucket_summary ORDER BY COALESCE(priority,999), bucket_name`),
         q(env, failed, 'r2_bucket_summary', `SELECT MAX(last_inventoried_at) AS last_synced_at FROM r2_bucket_summary`, [], 'first'),
         q(env, failed, 'worker_analytics_hourly', `
@@ -460,13 +441,24 @@ export async function handleStorageApi(request, url, env) {
           WHERE COALESCE(resolved,0) = 0
           ORDER BY timestamp DESC LIMIT 20
         `),
-        q(env, failed, 'workspace_usage_metrics', `
+        workspaceId
+          ? q(env, failed, 'workspace_usage_metrics', `
           SELECT metric_date, storage_used_mb, api_calls_used, mcp_calls, deployments_count
           FROM workspace_usage_metrics
           WHERE workspace_id = ?
           ORDER BY metric_date DESC LIMIT 30
-        `, [workspaceId]),
+        `, [workspaceId])
+          : Promise.resolve([]),
       ]);
+      let usage = usageFiltered;
+      if (isSuper && (!workspaceId || !usage.length)) {
+        usage = await q(env, failed, 'workspace_usage_metrics', `
+          SELECT metric_date, storage_used_mb, api_calls_used, mcp_calls, deployments_count
+          FROM workspace_usage_metrics
+          ORDER BY metric_date DESC LIMIT 30
+        `);
+      }
+      if (!workspaceId) failed.add('workspace_id');
       const totalObjects = summaries.reduce((s, b) => s + num(b.object_count), 0);
       const totalBytes = summaries.reduce((s, b) => s + num(b.total_bytes), 0);
       const totalMb = summaries.reduce((s, b) => s + num(b.total_mb), 0);

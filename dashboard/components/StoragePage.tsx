@@ -1,8 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, Area, AreaChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { BarChart3, Boxes, Cloud, Database, HardDrive, History, KeyRound, Loader2, RefreshCw, Shield, Trash2 } from 'lucide-react';
+import {
+  BarChart3,
+  Boxes,
+  ChevronDown,
+  ChevronRight,
+  Cloud,
+  HardDrive,
+  History,
+  Loader2,
+  RefreshCw,
+  Settings,
+  Shield,
+  Trash2,
+} from 'lucide-react';
 
-type NavKey = 'files' | 'analytics' | 'vectors' | 's3' | 'policies' | 'cleanup' | 'activity';
+type NavKey = 'files' | 'analytics' | 'vectors' | 's3' | 'policies' | 'cleanup' | 'activity' | 'providers';
 type Row = Record<string, any>;
 
 const COLORS = ['var(--solar-cyan)', 'var(--solar-blue)', 'var(--solar-violet)', 'var(--solar-magenta)', 'var(--solar-green)', 'var(--solar-yellow)', 'var(--solar-orange)'];
@@ -24,10 +37,10 @@ function bytes(v: any) {
   return `${(x / 1073741824).toFixed(2)} GB`;
 }
 
-function short(v: any) {
-  if (!v) return 'n/a';
-  const d = typeof v === 'number' ? new Date(v * 1000) : new Date(v);
-  return Number.isNaN(d.getTime()) ? String(v).slice(0, 19) : d.toLocaleString();
+function fmtTs(v: string | number | null | undefined) {
+  if (!v && v !== 0) return '—';
+  const ms = typeof v === 'number' && v < 1e12 ? v * 1000 : Number(v);
+  return Number.isNaN(ms) ? String(v) : new Date(ms).toLocaleString();
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
@@ -51,7 +64,7 @@ function Dot({ ok }: { ok: boolean }) {
 function DataQuality({ data }: { data?: Row | null }) {
   if (!data) return null;
   const warn = data.data_quality === 'fallback_live_scan' || data.data_quality === 'partial';
-  return <div className="storage-quality"><Badge tone={warn ? 'warn' : 'ok'}>{data.source || 'd1_registry'}</Badge><Badge tone={warn ? 'warn' : 'ok'}>{data.data_quality || 'healthy'}</Badge><span>{data.last_synced_at ? short(data.last_synced_at) : 'not synced'}</span></div>;
+  return <div className="storage-quality"><Badge tone={warn ? 'warn' : 'ok'}>{data.source || 'd1_registry'}</Badge><Badge tone={warn ? 'warn' : 'ok'}>{data.data_quality || 'healthy'}</Badge><span>{data.last_synced_at ? fmtTs(data.last_synced_at) : 'not synced'}</span></div>;
 }
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
@@ -62,7 +75,9 @@ function Tip(props: any) {
   return <Tooltip {...props} contentStyle={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-main)', fontSize: 11 }} />;
 }
 
-export const StoragePage: React.FC = () => {
+export type StoragePageProps = { embeddedInSettings?: boolean };
+
+export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = false }) => {
   const [nav, setNav] = useState<NavKey>('files');
   const [loading, setLoading] = useState(false);
   const [buckets, setBuckets] = useState<Row | null>(null);
@@ -74,6 +89,10 @@ export const StoragePage: React.FC = () => {
   const [selectedBucket, setSelectedBucket] = useState('');
   const [selectedIndex, setSelectedIndex] = useState('');
   const [filters, setFilters] = useState({ worker_name: '', outcome: '', start: '', end: '' });
+  const [oauthProviders, setOauthProviders] = useState<string[]>([]);
+  const [providerExpanded, setProviderExpanded] = useState<Record<string, boolean>>({});
+  const [providerDrafts, setProviderDrafts] = useState<Record<string, Row>>({});
+  const [providerSaving, setProviderSaving] = useState<string | null>(null);
 
   const loadBuckets = useCallback(async () => setBuckets(await fetchJson<Row>('/api/storage/buckets')), []);
   const loadAnalytics = useCallback(async () => setAnalytics(await fetchJson<Row>('/api/storage/analytics')), []);
@@ -85,6 +104,31 @@ export const StoragePage: React.FC = () => {
     setActivity(await fetchJson<Row>(`/api/storage/activity${qs.toString() ? `?${qs}` : ''}`));
   }, [filters]);
 
+  const loadStoragePreferences = useCallback(async () => {
+    const j = await fetchJson<{ preferences?: Row[]; oauth_providers?: string[] }>('/api/settings/storage-preferences');
+    setOauthProviders(Array.isArray(j?.oauth_providers) ? j.oauth_providers : []);
+    const ids = ['r2', 'github', 'google_drive', 'supabase', 's3'];
+    const drafts: Record<string, Row> = {};
+    for (const p of ids) drafts[p] = {};
+    for (const row of j?.preferences || []) {
+      const prov = String(row.provider || '').toLowerCase();
+      if (!ids.includes(prov)) continue;
+      const pj = row.preferences_json;
+      let parsed: Row = {};
+      if (pj && typeof pj === 'object' && !Array.isArray(pj)) parsed = { ...pj };
+      else if (typeof pj === 'string') {
+        try {
+          const x = JSON.parse(pj);
+          if (x && typeof x === 'object' && !Array.isArray(x)) parsed = x;
+        } catch {
+          parsed = {};
+        }
+      }
+      drafts[prov] = parsed;
+    }
+    setProviderDrafts(drafts);
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     if (nav === 'files' || nav === 'cleanup') await loadBuckets();
@@ -93,10 +137,22 @@ export const StoragePage: React.FC = () => {
     if (nav === 's3') await Promise.all([loadS3(), loadBuckets()]);
     if (nav === 'policies') await Promise.all([loadPolicies(), loadBuckets()]);
     if (nav === 'activity') await loadActivity();
+    if (nav === 'providers') await loadStoragePreferences();
     setLoading(false);
-  }, [nav, loadBuckets, loadAnalytics, loadVectors, loadS3, loadPolicies, loadActivity]);
+  }, [nav, loadBuckets, loadAnalytics, loadVectors, loadS3, loadPolicies, loadActivity, loadStoragePreferences]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (nav !== 'analytics' || !analytics) return;
+    const check = (label: string, arr: unknown) => {
+      if (!Array.isArray(arr) || arr.length === 0) console.warn(`[StoragePage] analytics chart data empty: ${label}`, analytics);
+    };
+    check('storage_inventory.storage_by_bucket', analytics?.storage_inventory?.storage_by_bucket);
+    check('contentTypes (from by_content_type)', Object.keys(analytics?.storage_inventory?.by_content_type || {}));
+    check('request_trends', analytics?.request_trends);
+    check('workspace_usage', analytics?.workspace_usage);
+  }, [nav, analytics]);
 
   const bucketRows = buckets?.buckets || [];
   const selectedVector = (vectors?.indexes || []).find((x: Row) => x.id === selectedIndex) || (vectors?.indexes || [])[0];
@@ -121,10 +177,58 @@ export const StoragePage: React.FC = () => {
     <button type="button" onClick={() => setNav(k)} className={`storage-nav ${nav === k ? 'active' : ''}`}>{icon}{label}</button>
   );
 
+  const saveProvider = async (pid: string) => {
+    setProviderSaving(pid);
+    try {
+      const draft = providerDrafts[pid] || {};
+      const r = await fetch('/api/settings/storage-preferences', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: pid, ...draft }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        console.warn('[StoragePage] storage-preferences PATCH failed', j);
+      }
+      await loadStoragePreferences();
+    } finally {
+      setProviderSaving(null);
+    }
+  };
+
+  const providerSpecs: Array<{
+    id: string;
+    title: string;
+    oauthKey: string | null;
+    fields: string[];
+  }> = [
+    { id: 'r2', title: 'R2 (Cloudflare)', oauthKey: null, fields: ['bucket_name', 'public_base_url', 'r2_prefix'] },
+    { id: 'github', title: 'GitHub', oauthKey: 'github', fields: ['repo', 'branch', 'base_path'] },
+    { id: 'google_drive', title: 'Google Drive', oauthKey: 'google_drive', fields: ['folder_id', 'folder_name'] },
+    { id: 'supabase', title: 'Supabase', oauthKey: null, fields: ['project_url', 'bucket_name', 'schema'] },
+    { id: 's3', title: 'Local / Custom S3', oauthKey: null, fields: ['endpoint_url', 'access_key_id', 'secret_access_key', 'bucket', 'region'] },
+  ];
+
+  const fieldLabel = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const shellClass = embeddedInSettings ? 'storage-root storage-root--embedded' : 'storage-root';
+
+  const qualitySource =
+    nav === 'providers'
+      ? { source: 'settings_api', data_quality: 'healthy', last_synced_at: null }
+      : nav === 'analytics'
+        ? analytics
+        : nav === 'vectors'
+          ? vectors
+          : nav === 'activity'
+            ? activity
+            : buckets;
+
   return (
-    <div className="storage-root">
+    <div className={shellClass}>
       <style>{`
-        .storage-root{height:100%;min-height:0;display:flex;background:var(--bg-app);color:var(--text-main)}.storage-side{width:210px;flex-shrink:0;border-right:1px solid var(--border-subtle);background:var(--bg-panel);padding:12px}.storage-brand{display:flex;gap:9px;align-items:center;margin:4px 4px 14px}.storage-brand h1{font-size:13px;margin:0}.storage-brand p{font-size:10px;color:var(--text-muted);margin:0}.storage-nav{width:100%;display:flex;align-items:center;gap:8px;border:0;background:transparent;color:var(--text-muted);font-size:12px;text-align:left;padding:9px;border-radius:8px}.storage-nav:hover,.storage-nav.active{background:var(--bg-hover);color:var(--solar-cyan)}.storage-main{flex:1;min-width:0;overflow:auto;padding:18px}.storage-top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.storage-top h2{font-size:16px;margin:0}.storage-btn{border:1px solid var(--border-subtle);background:var(--bg-panel);color:var(--text-main);border-radius:8px;padding:7px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center}.storage-card{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden}.storage-pad{padding:14px}.storage-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.storage-stat{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:10px;padding:13px}.storage-stat span{display:block;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.14em;font-weight:700}.storage-stat strong{display:block;font-size:22px;margin-top:6px}.storage-table{width:100%;border-collapse:collapse;font-size:12px}.storage-table th{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted);text-align:left}.storage-table th,.storage-table td{padding:8px;border-bottom:1px solid var(--border-subtle);vertical-align:top}.storage-table tr:hover{background:var(--bg-hover)}.storage-badge{border:1px solid currentColor;border-radius:999px;padding:2px 7px;font-size:10px;text-transform:uppercase;white-space:nowrap}.storage-dot{display:inline-block;width:8px;height:8px;border-radius:999px}.storage-quality{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted)}.storage-chart{height:260px}.storage-half{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.storage-field{background:var(--bg-app);border:1px solid var(--border-subtle);border-radius:7px;color:var(--text-main);padding:7px;font-size:12px}.storage-banner{border:1px solid var(--solar-yellow);background:color-mix(in srgb,var(--solar-yellow),transparent 88%);border-radius:9px;padding:10px;font-size:12px;color:var(--text-main);margin-bottom:12px}.storage-row-actions{display:flex;gap:6px;flex-wrap:wrap}.storage-muted{color:var(--text-muted)}@media(max-width:768px){.storage-root{flex-direction:column}.storage-side{width:auto;display:flex;overflow:auto}.storage-brand{display:none}.storage-nav{white-space:nowrap}.storage-grid,.storage-half{grid-template-columns:1fr}.storage-main{padding:12px}}
+        .storage-root{height:100%;min-height:0;display:flex;background:var(--bg-app);color:var(--text-main)}.storage-root--embedded{height:auto;min-height:0;flex:1}.storage-side{width:210px;flex-shrink:0;border-right:1px solid var(--border-subtle);background:var(--bg-panel);padding:12px}.storage-brand{display:flex;gap:9px;align-items:center;margin:4px 4px 14px}.storage-brand h1{font-size:13px;margin:0}.storage-brand p{font-size:10px;color:var(--text-muted);margin:0}.storage-nav{width:100%;display:flex;align-items:center;gap:8px;border:0;background:transparent;color:var(--text-muted);font-size:12px;text-align:left;padding:9px;border-radius:8px}.storage-nav:hover,.storage-nav.active{background:var(--bg-hover);color:var(--solar-cyan)}.storage-main{flex:1;min-width:0;overflow:auto;padding:18px}.storage-top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.storage-top h2{font-size:16px;margin:0}.storage-btn{border:1px solid var(--border-subtle);background:var(--bg-panel);color:var(--text-main);border-radius:8px;padding:7px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center}.storage-card{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden}.storage-pad{padding:14px}.storage-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.storage-stat{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:10px;padding:13px}.storage-stat span{display:block;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.14em;font-weight:700}.storage-stat strong{display:block;font-size:22px;margin-top:6px}.storage-table{width:100%;border-collapse:collapse;font-size:12px}.storage-table th{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted);text-align:left}.storage-table th,.storage-table td{padding:8px;border-bottom:1px solid var(--border-subtle);vertical-align:top}.storage-table tr:hover{background:var(--bg-hover)}.storage-badge{border:1px solid currentColor;border-radius:999px;padding:2px 7px;font-size:10px;text-transform:uppercase;white-space:nowrap}.storage-dot{display:inline-block;width:8px;height:8px;border-radius:999px}.storage-quality{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted)}.storage-chart{height:260px}.storage-half{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.storage-field{background:var(--bg-app);border:1px solid var(--border-subtle);border-radius:7px;color:var(--text-main);padding:7px;font-size:12px;width:100%;box-sizing:border-box}.storage-banner{border:1px solid var(--solar-yellow);background:color-mix(in srgb,var(--solar-yellow),transparent 88%);border-radius:9px;padding:10px;font-size:12px;color:var(--text-main);margin-bottom:12px}.storage-row-actions{display:flex;gap:6px;flex-wrap:wrap}.storage-muted{color:var(--text-muted)}.storage-provider-head{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:transparent;border:0;color:var(--text-main);font-size:13px;cursor:pointer;text-align:left}.storage-provider-body{padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}@media(max-width:768px){.storage-root,.storage-root--embedded{flex-direction:column}.storage-side{width:auto;display:flex;overflow:auto}.storage-brand{display:none}.storage-nav{white-space:nowrap}.storage-grid,.storage-half{grid-template-columns:1fr}.storage-main{padding:12px}}
       `}</style>
       <aside className="storage-side">
         <div className="storage-brand"><HardDrive size={22} color="var(--solar-cyan)" /><div><h1>Storage</h1><p>D1 registry backed</p></div></div>
@@ -158,10 +262,10 @@ export const StoragePage: React.FC = () => {
               <Stat label="Total Objects" value={n(buckets?.total_objects).toLocaleString()} />
               <Stat label="Total Size" value={mb(buckets?.total_mb)} />
               <Stat label="Buckets" value={bucketRows.length} />
-              <Stat label="Last Inventoried" value={short(buckets?.last_synced_at)} />
+              <Stat label="Last Inventoried" value={fmtTs(buckets?.last_synced_at)} />
             </div>
             {!!buckets?.missing_registry_rows?.length && <div className="storage-banner">{buckets.missing_registry_rows.length} live bindings are missing project_storage registry rows.</div>}
-            <div className="storage-card"><table className="storage-table"><thead><tr><th>Name</th><th>Type</th><th>Objects</th><th>Size</th><th>Status</th><th>Cleanup</th><th>Owner</th><th>Last Inventoried</th><th>Live</th><th>Actions</th></tr></thead><tbody>{bucketRows.filter((b: Row) => !selectedBucket || (b.storage_name || b.bucket_name) === selectedBucket).map((b: Row) => <tr key={b.storage_name || b.bucket_name}><td>{b.storage_name || b.bucket_name}</td><td>{b.storage_type || 'r2_bucket'}</td><td>{n(b.object_count).toLocaleString()}</td><td>{mb(b.total_mb)}</td><td><Badge tone={b.status === 'active' ? 'ok' : 'muted'}>{b.status || 'active'}</Badge></td><td><Badge tone={b.cleanup_status === 'reviewed' ? 'ok' : b.cleanup_status === 'archived' ? 'muted' : 'warn'}>{b.cleanup_status || 'unreviewed'}</Badge></td><td>{b.owner || 'n/a'}</td><td>{short(b.last_inventoried_at)}</td><td><Dot ok={!!b.is_live_connected} /></td><td>{b.registry_status || 'registered'}</td></tr>)}</tbody></table></div>
+            <div className="storage-card"><table className="storage-table"><thead><tr><th>Name</th><th>Type</th><th>Objects</th><th>Size</th><th>Status</th><th>Cleanup</th><th>Owner</th><th>Last Inventoried</th><th>Live</th><th>Actions</th></tr></thead><tbody>{bucketRows.filter((b: Row) => !selectedBucket || (b.storage_name || b.bucket_name) === selectedBucket).map((b: Row) => <tr key={b.storage_name || b.bucket_name}><td>{b.storage_name || b.bucket_name}</td><td>{b.storage_type || 'r2_bucket'}</td><td>{n(b.object_count).toLocaleString()}</td><td>{mb(b.total_mb)}</td><td><Badge tone={b.status === 'active' ? 'ok' : 'muted'}>{b.status || 'active'}</Badge></td><td><Badge tone={b.cleanup_status === 'reviewed' ? 'ok' : b.cleanup_status === 'archived' ? 'muted' : 'warn'}>{b.cleanup_status || 'unreviewed'}</Badge></td><td>{b.owner || 'n/a'}</td><td>{fmtTs(b.last_inventoried_at)}</td><td><Dot ok={!!b.is_live_connected} /></td><td>{b.registry_status || 'registered'}</td></tr>)}</tbody></table></div>
           </>
         )}
 
@@ -178,7 +282,7 @@ export const StoragePage: React.FC = () => {
               <div className="storage-card storage-pad"><div className="storage-chart"><ResponsiveContainer><PieChart><Pie data={contentTypes} dataKey="value" nameKey="name" innerRadius={58} outerRadius={90}>{contentTypes.map((_r, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie><Tip /></PieChart></ResponsiveContainer></div></div>
             </div>
             <div className="storage-card storage-pad" style={{ marginBottom: 14 }}><div className="storage-chart"><ResponsiveContainer><AreaChart data={analytics?.request_trends || []}><CartesianGrid stroke="var(--border-subtle)" vertical={false} /><XAxis dataKey="hour" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} /><YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} /><Tip /><Area dataKey="total_requests" stroke="var(--solar-green)" fill="var(--solar-green)" fillOpacity={0.16} /><Area dataKey="failed_requests" stroke="var(--solar-red)" fill="var(--solar-red)" fillOpacity={0.22} /></AreaChart></ResponsiveContainer></div></div>
-            <div className="storage-card" style={{ marginBottom: 14 }}><table className="storage-table"><thead><tr><th>Timestamp</th><th>Worker</th><th>Path</th><th>Method</th><th>Status</th><th>Error</th><th>Resolved</th><th>Action</th></tr></thead><tbody>{(analytics?.recent_errors || []).map((e: Row) => <tr key={e.event_id}><td>{short(e.timestamp)}</td><td>{e.worker_name}</td><td>{e.path}</td><td>{e.method}</td><td>{e.status_code}</td><td>{String(e.error_message || '').slice(0, 120)}</td><td><Badge tone={e.resolved ? 'muted' : 'bad'}>{e.resolved ? 'yes' : 'no'}</Badge></td><td>{!e.resolved && <button className="storage-btn" onClick={() => markResolved(e.event_id)}>Mark Resolved</button>}</td></tr>)}</tbody></table></div>
+            <div className="storage-card" style={{ marginBottom: 14 }}><table className="storage-table"><thead><tr><th>Timestamp</th><th>Worker</th><th>Path</th><th>Method</th><th>Status</th><th>Error</th><th>Resolved</th><th>Action</th></tr></thead><tbody>{(analytics?.recent_errors || []).map((e: Row) => <tr key={e.event_id}><td>{fmtTs(e.timestamp)}</td><td>{e.worker_name}</td><td>{e.path}</td><td>{e.method}</td><td>{e.status_code}</td><td>{String(e.error_message || '').slice(0, 120)}</td><td><Badge tone={e.resolved ? 'muted' : 'bad'}>{e.resolved ? 'yes' : 'no'}</Badge></td><td>{!e.resolved && <button className="storage-btn" onClick={() => markResolved(e.event_id)}>Mark Resolved</button>}</td></tr>)}</tbody></table></div>
             <div className="storage-card storage-pad"><div className="storage-chart"><ResponsiveContainer><LineChart data={analytics?.workspace_usage || []}><XAxis dataKey="metric_date" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} /><YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} /><Tip /><Line dataKey="storage_used_mb" stroke="var(--solar-cyan)" dot={false} /><Line dataKey="mcp_calls" stroke="var(--solar-violet)" dot={false} /><Line dataKey="deployments_count" stroke="var(--solar-green)" dot={false} /></LineChart></ResponsiveContainer></div></div>
           </>
         )}
@@ -193,33 +297,33 @@ export const StoragePage: React.FC = () => {
             </div>
             <div className="storage-half">{(vectors?.indexes || []).map((idx: Row) => <div className="storage-card storage-pad" key={idx.id || idx.binding_name} onClick={() => setSelectedIndex(idx.id)}><div className="storage-top"><strong>{idx.display_name || idx.index_name || idx.binding_name}</strong><span><Dot ok={!!idx.is_live_connected} /> {idx.is_preferred ? <Badge tone="ok">preferred</Badge> : null}</span></div><p className="storage-muted">{idx.binding_name} / {idx.source_type} / {idx.source_r2_bucket}</p><div className="storage-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}><Stat label="Vectors" value={n(idx.stored_vectors).toLocaleString()} /><Stat label="Docs" value={n(idx.doc_count).toLocaleString()} /><Stat label="Stale" value={n(idx.stale_doc_count).toLocaleString()} /></div><p className="storage-muted">{idx.description}</p></div>)}</div>
             {selectedVector?.stale_doc_count > 0 && <div className="storage-banner">{selectedVector.stale_doc_count} stale chunks detected. Re-index recommended. <button className="storage-btn">Re-index</button></div>}
-            <div className="storage-card"><table className="storage-table"><thead><tr><th>R2 Key</th><th>Preview</th><th>Chunk</th><th>Tokens</th><th>Indexed</th><th>Current</th></tr></thead><tbody>{(selectedVector?.recent_docs || []).map((d: Row, i: number) => <tr key={i}><td>{d.source_r2_key}</td><td>{String(d.content_preview || '').slice(0, 80)}</td><td>{d.chunk_index}</td><td>{d.token_count}</td><td>{short(d.indexed_at)}</td><td><Badge tone={d.is_current ? 'ok' : 'warn'}>{d.is_current ? 'current' : 'stale'}</Badge></td></tr>)}</tbody></table></div>
+            <div className="storage-card"><table className="storage-table"><thead><tr><th>R2 Key</th><th>Preview</th><th>Chunk</th><th>Tokens</th><th>Indexed</th><th>Current</th></tr></thead><tbody>{(selectedVector?.recent_docs || []).map((d: Row, i: number) => <tr key={i}><td>{d.source_r2_key}</td><td>{String(d.content_preview || '').slice(0, 80)}</td><td>{d.chunk_index}</td><td>{d.token_count}</td><td>{fmtTs(d.indexed_at)}</td><td><Badge tone={d.is_current ? 'ok' : 'warn'}>{d.is_current ? 'current' : 'stale'}</Badge></td></tr>)}</tbody></table></div>
           </>
         )}
 
         {nav === 'cleanup' && (
           <>
             <div className="storage-grid"><Stat label="Unreviewed" value={n(cleanup.unreviewed)} /><Stat label="Reviewed" value={n(cleanup.reviewed)} /><Stat label="Archived" value={n(cleanup.archived)} /><Stat label="Buckets" value={bucketRows.length} /></div>
-            <div className="storage-card"><table className="storage-table"><thead><tr><th>Bucket</th><th>Objects</th><th>Size</th><th>Project</th><th>Owner</th><th>Last Inventoried</th><th>Actions</th></tr></thead><tbody>{bucketRows.filter((b: Row) => (b.cleanup_status || 'unreviewed') === 'unreviewed').map((b: Row) => <tr key={b.bucket_name || b.storage_name}><td>{b.bucket_name || b.storage_name}</td><td>{n(b.object_count).toLocaleString()}</td><td>{mb(b.total_mb)}</td><td>{b.project_ref}</td><td>{b.owner}</td><td>{short(b.last_inventoried_at)}</td><td><div className="storage-row-actions"><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'reviewed')}>Mark Reviewed</button><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'archived')}>Archive</button></div></td></tr>)}</tbody></table></div>
+            <div className="storage-card"><table className="storage-table"><thead><tr><th>Bucket</th><th>Objects</th><th>Size</th><th>Project</th><th>Owner</th><th>Last Inventoried</th><th>Actions</th></tr></thead><tbody>{bucketRows.filter((b: Row) => (b.cleanup_status || 'unreviewed') === 'unreviewed').map((b: Row) => <tr key={b.bucket_name || b.storage_name}><td>{b.bucket_name || b.storage_name}</td><td>{n(b.object_count).toLocaleString()}</td><td>{mb(b.total_mb)}</td><td>{b.project_ref}</td><td>{b.owner}</td><td>{fmtTs(b.last_inventoried_at)}</td><td><div className="storage-row-actions"><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'reviewed')}>Mark Reviewed</button><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'archived')}>Archive</button></div></td></tr>)}</tbody></table></div>
           </>
         )}
 
         {nav === 'activity' && (
           <>
             <div className="storage-top"><input className="storage-field" placeholder="worker_name" value={filters.worker_name} onChange={(e) => setFilters({ ...filters, worker_name: e.target.value })} /><input className="storage-field" placeholder="outcome" value={filters.outcome} onChange={(e) => setFilters({ ...filters, outcome: e.target.value })} /><input className="storage-field" type="date" value={filters.start} onChange={(e) => setFilters({ ...filters, start: e.target.value })} /><input className="storage-field" type="date" value={filters.end} onChange={(e) => setFilters({ ...filters, end: e.target.value })} /><button className="storage-btn" onClick={loadActivity}>Apply</button></div>
-            <div className="storage-card"><table className="storage-table"><thead><tr><th>Timestamp</th><th>Worker</th><th>Method</th><th>URL</th><th>Status</th><th>Duration</th><th>Outcome</th></tr></thead><tbody>{(activity?.events || []).map((e: Row) => <tr key={e.id || e.event_id}><td>{short(e.timestamp)}</td><td>{e.worker_name}</td><td>{e.method}</td><td>{String(e.url || '').slice(0, 70)}</td><td>{e.status}</td><td>{n(e.duration_ms)}ms</td><td><Badge tone={e.outcome === 'ok' ? 'ok' : e.outcome === 'exception' ? 'warn' : 'bad'}>{e.outcome || 'unknown'}</Badge></td></tr>)}</tbody></table></div>
+            <div className="storage-card"><table className="storage-table"><thead><tr><th>Timestamp</th><th>Worker</th><th>Method</th><th>URL</th><th>Status</th><th>Duration</th><th>Outcome</th></tr></thead><tbody>{(activity?.events || []).map((e: Row) => <tr key={e.id || e.event_id}><td>{fmtTs(e.timestamp)}</td><td>{e.worker_name}</td><td>{e.method}</td><td>{String(e.url || '').slice(0, 70)}</td><td>{e.status}</td><td>{n(e.duration_ms)}ms</td><td><Badge tone={e.outcome === 'ok' ? 'ok' : e.outcome === 'exception' ? 'warn' : 'bad'}>{e.outcome || 'unknown'}</Badge></td></tr>)}</tbody></table></div>
           </>
         )}
 
         {nav === 'policies' && (
-          <div className="storage-card"><table className="storage-table"><thead><tr><th>Bucket</th><th>Resource</th><th>Effect</th><th>Actions</th><th>Storage Status</th><th>Updated</th></tr></thead><tbody>{(policies?.policies || []).map((p: Row) => <tr key={p.id}><td>{p.bucket_name}</td><td>{p.resource}</td><td><Badge tone={p.effect === 'allow' ? 'ok' : 'bad'}>{p.effect}</Badge></td><td>{p.actions}</td><td>{p.storage_status || 'n/a'}</td><td>{short(p.updated_at || p.created_at)}</td></tr>)}</tbody></table></div>
+          <div className="storage-card"><table className="storage-table"><thead><tr><th>Bucket</th><th>Resource</th><th>Effect</th><th>Actions</th><th>Storage Status</th><th>Updated</th></tr></thead><tbody>{(policies?.policies || []).map((p: Row) => <tr key={p.id}><td>{p.bucket_name}</td><td>{p.resource}</td><td><Badge tone={p.effect === 'allow' ? 'ok' : 'bad'}>{p.effect}</Badge></td><td>{p.actions}</td><td>{p.storage_status || 'n/a'}</td><td>{fmtTs(p.updated_at || p.created_at)}</td></tr>)}</tbody></table></div>
         )}
 
         {nav === 's3' && (
           <>
             <div className="storage-grid"><Stat label="Endpoint" value={<span style={{ fontSize: 12 }}>{s3?.endpoint || 'n/a'}</span>} /><Stat label="Region" value={s3?.region || 'auto'} /><Stat label="Access Keys" value={(s3?.accessKeys || s3?.keys || []).length} /><Stat label="Buckets" value={(s3?.source_buckets || []).length} /></div>
             <div className="storage-card storage-pad" style={{ marginBottom: 14 }}><label className="storage-muted">Source bucket</label><br /><select className="storage-field">{(s3?.source_buckets || bucketRows).map((b: Row) => <option key={b.storage_name || b.bucket_name}>{b.storage_name || b.bucket_name}</option>)}</select><p className="storage-muted">Allowed buckets: {s3?.allowed_buckets_json || '[]'}</p></div>
-            <div className="storage-card"><table className="storage-table"><thead><tr><th>Access Key</th><th>Created</th><th>Status</th></tr></thead><tbody>{(s3?.accessKeys || s3?.keys || []).map((k: Row) => <tr key={k.id || k.accessKeyId}><td>{k.accessKeyId || k.id}</td><td>{short(k.created_at || k.createdAt)}</td><td>{k.status}</td></tr>)}</tbody></table></div>
+            <div className="storage-card"><table className="storage-table"><thead><tr><th>Access Key</th><th>Created</th><th>Status</th></tr></thead><tbody>{(s3?.accessKeys || s3?.keys || []).map((k: Row) => <tr key={k.id || k.accessKeyId}><td>{k.accessKeyId || k.id}</td><td>{fmtTs(k.created_at || k.createdAt)}</td><td>{k.status}</td></tr>)}</tbody></table></div>
           </>
         )}
 
