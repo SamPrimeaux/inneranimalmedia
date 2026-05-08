@@ -164,7 +164,7 @@ export async function rollupAgentsamModelRoutingMemory(env) {
       INSERT INTO agentsam_model_routing_memory (
         id, workspace_id, task_type, model_key,
         success_rate, avg_latency_ms, avg_cost_usd,
-        code_pass_rate, hallucination_rate, sample_n, updated_at
+        code_pass_rate, hallucination_rate, sample_count, updated_at
       )
       SELECT
         'mrm_' || lower(hex(randomblob(8))),
@@ -197,7 +197,7 @@ export async function rollupAgentsamModelRoutingMemory(env) {
         success_rate = excluded.success_rate,
         avg_latency_ms = excluded.avg_latency_ms,
         avg_cost_usd = excluded.avg_cost_usd,
-        sample_n = excluded.sample_n,
+        sample_count = excluded.sample_count,
         updated_at = unixepoch()
     `,
       )
