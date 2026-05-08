@@ -16,6 +16,7 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from '../core/bootstrap.js';
 import { handleSettingsIntegrationsApi } from './settings-integrations.js';
+import { handleSettingsSectionStatusApi } from './settings-sections.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace, canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
 
@@ -267,6 +268,16 @@ export async function handleSettingsRequest(request, env, ctx) {
     method,
   );
   if (settingsIntegrationsRes) return settingsIntegrationsRes;
+
+  const sectionStatusRes = await handleSettingsSectionStatusApi(
+    request,
+    env,
+    authUser,
+    url,
+    pathLower,
+    method,
+  );
+  if (sectionStatusRes) return sectionStatusRes;
 
   // ── /api/settings/profile ─────────────────────────────────────────────────
   if (pathLower === '/api/settings/profile' && method === 'GET') {
