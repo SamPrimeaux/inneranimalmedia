@@ -32,7 +32,7 @@ import {
   isSubagentToolName,
   collectAllowlistToolKeysForScope,
 } from '../core/agent-policy.js';
-import { scheduleInsertAgentCost } from '../core/agent-costs.js';
+import { aggregateAnthropicUsageTokens, scheduleInsertAgentCost } from '../core/agent-costs.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { scheduleAgentsamChatAgentRunInsert } from '../core/agent-run-routing.js';
@@ -1422,10 +1422,11 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
 
     if (turnUsage) {
-      totalUsage.input_tokens                += turnUsage.input_tokens                || 0;
-      totalUsage.output_tokens               += turnUsage.output_tokens               || 0;
-      totalUsage.cache_read_input_tokens     += turnUsage.cache_read_input_tokens     || 0;
-      totalUsage.cache_creation_input_tokens += turnUsage.cache_creation_input_tokens || 0;
+      const u = aggregateAnthropicUsageTokens(turnUsage);
+      totalUsage.input_tokens += u.input_tokens;
+      totalUsage.output_tokens += u.output_tokens;
+      totalUsage.cache_read_input_tokens += u.cache_read_input_tokens;
+      totalUsage.cache_creation_input_tokens += u.cache_creation_input_tokens;
     }
 
     conversationMessages.push({ role: 'assistant', content: assistantContent });

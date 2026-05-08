@@ -5,6 +5,47 @@
 import { pragmaTableInfo } from './retention.js';
 
 /**
+ * Anthropic message usage with compaction exposes per-iteration token counts; top-level
+ * input_tokens / output_tokens only reflect the final iteration unless aggregated.
+ * @param {any} usage
+ * @returns {{ input_tokens: number, output_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number }}
+ */
+export function aggregateAnthropicUsageTokens(usage) {
+  if (!usage || typeof usage !== 'object') {
+    return {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    };
+  }
+  const iterations = usage.iterations;
+  if (Array.isArray(iterations) && iterations.length) {
+    return iterations.reduce(
+      (acc, iter) => ({
+        input_tokens: acc.input_tokens + (Number(iter?.input_tokens) || 0),
+        output_tokens: acc.output_tokens + (Number(iter?.output_tokens) || 0),
+        cache_read_input_tokens: acc.cache_read_input_tokens + (Number(iter?.cache_read_input_tokens) || 0),
+        cache_creation_input_tokens:
+          acc.cache_creation_input_tokens + (Number(iter?.cache_creation_input_tokens) || 0),
+      }),
+      {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    );
+  }
+  return {
+    input_tokens: Number(usage.input_tokens) || 0,
+    output_tokens: Number(usage.output_tokens) || 0,
+    cache_read_input_tokens: Number(usage.cache_read_input_tokens) || 0,
+    cache_creation_input_tokens: Number(usage.cache_creation_input_tokens) || 0,
+  };
+}
+
+/**
  * @param {any} env
  * @param {any} ctx
  * @param {{
