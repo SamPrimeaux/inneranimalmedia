@@ -1397,13 +1397,17 @@ async function runAgentToolLoop(env, ctx, emit, params) {
               input: {},
             });
           }
-          if (chunk.content_block?.type === 'tool_search_tool_result') {
+          {
             const cb = chunk.content_block;
-            assistantContent.push({
-              type: 'tool_search_tool_result',
-              tool_use_id: cb.tool_use_id,
-              content: cb.content,
-            });
+            const passthroughResults = new Set([
+              'tool_search_tool_result',
+              'code_execution_tool_result',
+              'bash_code_execution_tool_result',
+              'text_editor_code_execution_tool_result',
+            ]);
+            if (cb && passthroughResults.has(cb.type)) {
+              assistantContent.push({ ...cb });
+            }
           }
           if (chunk.content_block?.type === 'text') assistantContent.push({ type: 'text', text: '' });
         }

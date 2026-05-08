@@ -40,10 +40,15 @@ export const specializedSchemas = {
     type: "bash_20250124",
     description: "Run bash commands in a secure sandbox. Use for system administration, file management, and tool execution."
   },
+  code_execution_20250825: {
+    name: "code_execution",
+    type: "code_execution_20250825",
+    description: "Anthropic-hosted sandbox: Bash, Python, file create/view/edit (baseline; Haiku + all listed models).",
+  },
   code_execution_20260120: {
     name: "code_execution",
     type: "code_execution_20260120",
-    description: "Execute Python/JS code with REPL state persistence across turns."
+    description: "Anthropic sandbox with REPL persistence + programmatic tool calling (Sonnet/Opus 4.5+ only).",
   },
   text_editor_20250728: {
     name: "str_replace_based_edit_tool",

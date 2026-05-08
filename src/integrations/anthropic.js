@@ -15,12 +15,41 @@ const TOOL_SEARCH_BM25 = {
   name: 'tool_search_tool_bm25',
 };
 
+/** Beta namespace for Anthropic-hosted code execution (bash + file ops + Python). @see https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/code-execution-tool */
+export const ANTHROPIC_CODE_EXECUTION_BETA = 'code-execution-2025-08-25';
+
 /**
- * Prepends BM25 tool search and marks custom tools deferred so prompt cache stays stable.
- * @param {any[]} tools
+ * Anthropic server-side sandbox tool — not deferred (always visible; avoids tool-search-only discovery).
+ * Haiku 4.5: `code_execution_20250825` only. Sonnet/Opus 4.5+: prefer `code_execution_20260120` (REPL + programmatic tools).
+ * @param {string} modelKey
+ * @returns {{ type: string, name: string } | null}
  */
-export function buildAnthropicMessagesTools(tools) {
+export function anthropicCodeExecutionToolForModel(modelKey) {
+  const mk = String(modelKey || '');
+  if (!mk.includes('claude')) return null;
+  if (mk.includes('haiku')) {
+    return { type: 'code_execution_20250825', name: 'code_execution' };
+  }
+  const is45PlusFamily =
+    (mk.includes('sonnet') || mk.includes('opus')) &&
+    (mk.includes('4-5') || mk.includes('4-6') || mk.includes('4-7'));
+  if (is45PlusFamily) {
+    return { type: 'code_execution_20260120', name: 'code_execution' };
+  }
+  return { type: 'code_execution_20250825', name: 'code_execution' };
+}
+
+/**
+ * Prepends BM25 tool search, Anthropic code execution (unless disabled), and marks MCP tools deferred.
+ * @param {any[]} tools
+ * @param {{ modelKey?: string, features?: Record<string, unknown> }} [opts]
+ */
+export function buildAnthropicMessagesTools(tools, opts = {}) {
   const list = Array.isArray(tools) ? tools : [];
+  const modelKey = opts.modelKey != null ? String(opts.modelKey) : '';
+  const features = opts.features && typeof opts.features === 'object' ? opts.features : {};
+  const codeExecOff = features.anthropic_code_execution === false;
+
   const rest = list.filter(
     (t) =>
       !(
@@ -41,7 +70,21 @@ export function buildAnthropicMessagesTools(tools) {
     if (t.cache_control) out.cache_control = t.cache_control;
     return out;
   });
-  return [TOOL_SEARCH_BM25, ...mapped];
+
+  const codeTool = codeExecOff ? null : anthropicCodeExecutionToolForModel(modelKey);
+  const head = [TOOL_SEARCH_BM25, ...(codeTool ? [codeTool] : [])];
+  return [...head, ...mapped];
+}
+
+/** True when the request includes an Anthropic-hosted code execution tool (beta header required). */
+export function anthropicRequestUsesCodeExecution(tools) {
+  const list = Array.isArray(tools) ? tools : [];
+  return list.some(
+    (t) =>
+      t &&
+      String(t.name || '') === 'code_execution' &&
+      String(t.type || '').startsWith('code_execution_'),
+  );
 }
 
 /**
@@ -84,6 +127,11 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     if (options.thinking?.type === 'enabled' || options.thinkingBudget) betas.push('extended-thinking-2025-01-24');
   }
 
+  const builtTools = buildAnthropicMessagesTools(tools, { modelKey, features });
+  if (anthropicRequestUsesCodeExecution(builtTools)) {
+    betas.push(ANTHROPIC_CODE_EXECUTION_BETA);
+  }
+
   const betasFiltered = [...new Set(betas)].filter(
     (b) =>
       b &&
@@ -99,7 +147,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
       role: m.role,
       content: Array.isArray(m.content) ? m.content : m.content
     })).filter(m => m.role !== 'system'),
-    tools: buildAnthropicMessagesTools(tools),
+    tools: builtTools,
     tool_choice: options.tool_choice || undefined,
     stream: true,
     betas: betasFiltered.length > 0 ? betasFiltered : undefined,
