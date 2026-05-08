@@ -1,5 +1,45 @@
+import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
+
 /** Default Wrangler `name` — used as OTLP worker_name for rollup dimensions. */
 const DEFAULT_WORKER_NAME = 'inneranimalmedia';
+
+function isOtlpTelemetryDebug(env) {
+  const v = env?.MCP_TELEMETRY_DEBUG ?? env?.DEBUG_OTLP;
+  return v === '1' || String(v).toLowerCase() === 'true';
+}
+
+/**
+ * OTLP insert failures: debug → stderr; production → agentsam_error_log (no spam).
+ * @param {any} env
+ * @param {any} ctx
+ * @param {unknown} err
+ * @param {{ tenant_id?: string, workspace_id?: string, operation_name?: string|null, worker_name?: string|null }} meta
+ */
+function reportOtlpTraceWriteFailure(env, ctx, err, meta) {
+  const msg = err != null && typeof err === 'object' && 'message' in err ? String(err.message) : String(err || 'unknown');
+  if (isOtlpTelemetryDebug(env)) {
+    console.error('[OTLP-FAIL]', msg);
+    return;
+  }
+  const tid = meta?.tenant_id != null ? String(meta.tenant_id).trim() : '';
+  const wid = meta?.workspace_id != null ? String(meta.workspace_id).trim() : '';
+  if (env?.DB && tid && wid && ctx?.waitUntil) {
+    scheduleAgentsamErrorLog(env, ctx, {
+      workspaceId: wid,
+      tenantId: tid,
+      errorCode: 'otlp_insert_failed',
+      errorType: 'otlp_traces',
+      errorMessage: msg.slice(0, 8000),
+      source: 'recordSpan',
+      contextJson: JSON.stringify({
+        operation_name: meta?.operation_name ?? null,
+        worker_name: meta?.worker_name ?? null,
+      }),
+    });
+    return;
+  }
+  console.warn('[OTLP-FAIL]', msg);
+}
 
 const OTLP_COLS = `id, tenant_id, workspace_id, trace_id, span_id, parent_span_id,
   operation_name, service_name, worker_name, kind,
@@ -99,10 +139,16 @@ export function recordSpan(env, ctx, span) {
   ];
 
   const ph = row.map(() => '?').join(',');
+  const meta = {
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    operation_name: String(span.operation_name).slice(0, 500),
+    worker_name: workerName,
+  };
   const p = env.DB.prepare(`INSERT OR IGNORE INTO otlp_traces (${OTLP_COLS.replace(/\s+/g, ' ')}) VALUES (${ph})`)
     .bind(...row)
     .run()
-    .catch(() => {});
+    .catch((e) => reportOtlpTraceWriteFailure(env, ctx, e, meta));
 
   if (ctx?.waitUntil) ctx.waitUntil(p);
   else void p;
@@ -229,11 +275,18 @@ export function createTracer(env, ctx) {
       s.do_method,
       s.batch_id,
     ]);
+    const s0 = spans[0];
+    const batchMeta = {
+      tenant_id: s0?.tenant_id,
+      workspace_id: s0?.workspace_id,
+      operation_name: 'otlp.batch_flush',
+      worker_name: s0?.worker_name,
+    };
     ctx?.waitUntil(
       env.DB.prepare(`INSERT OR IGNORE INTO otlp_traces (${OTLP_COLS.replace(/\s+/g, ' ')}) VALUES ${ph}`)
         .bind(...vals)
         .run()
-        .catch(() => {}),
+        .catch((e) => reportOtlpTraceWriteFailure(env, ctx, e, batchMeta)),
     );
   }
 

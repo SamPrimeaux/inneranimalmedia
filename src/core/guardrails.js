@@ -2,6 +2,40 @@
  * Runtime evaluation of D1 `agentsam_guardrails` + audit rows in `agentsam_guardrail_events`.
  */
 
+import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
+
+function isGuardrailAuditDebug(env) {
+  const v = env?.MCP_TELEMETRY_DEBUG ?? env?.DEBUG_GUARDRAIL_AUDIT;
+  return v === '1' || String(v).toLowerCase() === 'true';
+}
+
+function reportGuardrailAuditWriteFailure(env, workerCtx, err, opts) {
+  const msg = err != null && typeof err === 'object' && 'message' in err ? String(err.message) : String(err || 'unknown');
+  if (isGuardrailAuditDebug(env)) {
+    console.error('[GUARDRAIL-AUDIT-FAIL]', msg);
+    return;
+  }
+  const tid = opts.tenant_id != null ? String(opts.tenant_id).trim() : '';
+  const wid = opts.workspace_id != null ? String(opts.workspace_id).trim() : '';
+  if (env?.DB && tid && wid && workerCtx?.waitUntil) {
+    scheduleAgentsamErrorLog(env, workerCtx, {
+      workspaceId: wid,
+      tenantId: tid,
+      sessionId: opts.session_id != null ? String(opts.session_id).slice(0, 200) : null,
+      errorCode: 'guardrail_audit_insert_failed',
+      errorType: 'agentsam_guardrail_events',
+      errorMessage: msg.slice(0, 8000),
+      source: 'scheduleGuardrailEvent',
+      contextJson: JSON.stringify({
+        tool_name: opts.tool_name ?? null,
+        applies_to: opts.applies_to ?? null,
+      }),
+    });
+    return;
+  }
+  console.warn('[GUARDRAIL-AUDIT-FAIL]', msg);
+}
+
 /**
  * @typedef {Object} GuardrailEvaluateOpts
  * @property {'mcp_tool'|'model'|'route'|'agent'|'rag'|'browser'|'terminal'|'deploy'|'email'|'storage'|'integration'|'all'} applies_to
@@ -217,9 +251,9 @@ function scheduleGuardrailEvent(env, workerCtx, row, opts, decisionLabel, reason
   };
 
   if (workerCtx?.waitUntil) {
-    workerCtx.waitUntil(run().catch(() => {}));
+    workerCtx.waitUntil(run().catch((e) => reportGuardrailAuditWriteFailure(env, workerCtx, e, opts)));
   } else {
-    run().catch(() => {});
+    run().catch((e) => reportGuardrailAuditWriteFailure(env, workerCtx, e, opts));
   }
 }
 
