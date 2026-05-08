@@ -119,16 +119,9 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   /** Betas Anthropic no longer accepts on current Sonnet / Haiku (400 extra inputs / retired headers). */
   const RETIRED_ANTHROPIC_BETAS = new Set(['context-1m-2025-08-07']);
 
-  // 1. SOTA Beta Headers (v4.6+)
-  const isSotaModel = (modelKey.includes('4-6') || modelKey.includes('4-5')) && !modelKey.includes('haiku');
-  if (isSotaModel) {
-    if (modelKey.includes('opus')) betas.push('fast-mode-2026-02-01'); // 2.5x speed for Opus
-  } else {
-    // Legacy Betas
-    if (features.prompt_caching) betas.push('prompt-caching-2024-07-31');
-    if (features.thinking) betas.push('thinking-2024-10-22');
-    if (options.thinking?.type === 'enabled' || options.thinkingBudget) betas.push('extended-thinking-2025-01-24');
-  }
+  // Feature-driven betas only (plus merged features.betas above): no unconditional fast-mode / extended-thinking here — add via features_json.betas if needed.
+  if (features.prompt_caching) betas.push('prompt-caching-2024-07-31');
+  if (features.thinking) betas.push('thinking-2024-10-22');
 
   const builtTools = buildAnthropicMessagesTools(tools, { modelKey, features });
   if (anthropicCodeExecutionNeeds202508Beta(builtTools)) {
@@ -157,6 +150,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   };
 
   // 2. Adaptive Thinking & Effort (v4.6 GA Path)
+  const isSotaModel = (modelKey.includes('4-6') || modelKey.includes('4-5')) && !modelKey.includes('haiku');
   if (isSotaModel) {
     streamParams.thinking = { type: 'adaptive' };
     if (options.effort) {

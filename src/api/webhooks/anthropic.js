@@ -39,7 +39,7 @@ export async function handleAnthropicWebhook(request, env, ctx) {
     toleranceSec: 300,
   });
   if (!ok) {
-    return jsonResponse({ error: 'invalid signature' }, 401);
+    return jsonResponse({ error: 'invalid signature' }, 400);
   }
 
   /** @type {Record<string, unknown>} */
@@ -52,14 +52,8 @@ export async function handleAnthropicWebhook(request, env, ctx) {
 
   const data = /** @type {Record<string, unknown> | undefined} */ (event.data);
   const eventType =
-    (typeof data?.type === 'string' && data.type) ||
-    (typeof event.type === 'string' && event.type) ||
-    'unknown';
-  const resourceId =
-    (typeof data?.id === 'string' && data.id) ||
-    (typeof event.id === 'string' && event.id) ||
-    null;
-  const deliveryEventId = typeof event.id === 'string' ? event.id : null;
+    typeof data?.type === 'string' && data.type ? data.type : 'unknown';
+  const topLevelEventId = typeof event.id === 'string' ? event.id : null;
 
   const tenantId =
     (typeof env?.ANTHROPIC_WEBHOOK_TENANT_ID === 'string' && env.ANTHROPIC_WEBHOOK_TENANT_ID.trim()) ||
@@ -73,14 +67,14 @@ export async function handleAnthropicWebhook(request, env, ctx) {
         try {
           await env.DB.prepare(
             `INSERT INTO agentsam_webhook_events (
-              id, tenant_id, provider, event_type, event_id,
+              id, tenant_id, provider, source, event_type, event_id,
               payload_json, status, received_at
             ) VALUES (
-              ?, ?, 'anthropic', ?, ?,
+              ?, ?, 'anthropic', 'anthropic', ?, ?,
               ?, 'received', datetime('now')
             )`,
           )
-            .bind(eventRowId, tenantId, eventType, deliveryEventId || resourceId, rawBody)
+            .bind(eventRowId, tenantId, eventType, topLevelEventId, rawBody)
             .run();
           await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
             .bind(eventRowId)
