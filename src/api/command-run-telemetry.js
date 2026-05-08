@@ -3,7 +3,9 @@
  */
 import { isFeatureEnabled } from '../core/features.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
+import { pragmaTableInfo } from '../core/retention.js';
 import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
+import { recordSpan } from '../core/tracer.js';
 
 /** Must match CHECK on agentsam_command_run.intent_category (or NULL). */
 const VALID_INTENT_CATEGORIES = [
@@ -440,6 +442,10 @@ export async function upsertExecutionPerformanceMetricsAfterCommandRun(env, p) {
  *   recentError: string | null,
  *   goal: string | null,
  *   contextTokenEstimate: number,
+ *   userId?: string | null,
+ *   taskId?: string | null,
+ *   command?: string | null,
+ *   provider?: string | null,
  * }} p
  */
 export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
@@ -521,6 +527,65 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
               intent_category: p.intentCategory,
             }),
           });
+        }
+
+        const execId = `exec_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+        const taskId =
+          p.taskId != null && String(p.taskId).trim() !== '' ? String(p.taskId).trim() : commandRunId;
+        const uid =
+          p.userId != null && String(p.userId).trim() !== '' ? String(p.userId).trim() : null;
+        const cmd =
+          p.command != null && String(p.command).trim() !== ''
+            ? String(p.command).trim().slice(0, 4000)
+            : (p.selectedCommandSlug != null ? String(p.selectedCommandSlug).slice(0, 4000) : null);
+        const prov =
+          p.provider != null && String(p.provider).trim() !== '' ? String(p.provider).trim() : null;
+        const exeCols = await pragmaTableInfo(env.DB, 'agentsam_executions');
+        const durMs = Math.max(0, Math.floor(p.durationMs || 0));
+        const inTok = Math.max(0, Math.floor(Number(p.inputTokens) || 0));
+        const outTok = Math.max(0, Math.floor(Number(p.outputTokens) || 0));
+        const costU = Number(p.costUsd) || 0;
+        const stat = p.success ? 'completed' : 'failed';
+        const mk = p.modelKey != null ? String(p.modelKey).trim() : null;
+        try {
+          if (exeCols.has('model_key') && exeCols.has('status')) {
+            await env.DB
+              .prepare(
+                `INSERT OR IGNORE INTO agentsam_executions
+                 (id, tenant_id, workspace_id, user_id, command_run_id, task_id, execution_type, command,
+                  model_key, provider, status, input_tokens, output_tokens, cost_usd, duration_ms, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+              )
+              .bind(
+                execId,
+                String(p.tenantId),
+                ws,
+                uid,
+                commandRunId,
+                taskId,
+                'command',
+                cmd,
+                mk,
+                prov,
+                stat,
+                inTok,
+                outTok,
+                costU,
+                durMs,
+              )
+              .run();
+          } else {
+            await env.DB
+              .prepare(
+                `INSERT OR IGNORE INTO agentsam_executions
+                 (id, tenant_id, workspace_id, user_id, command_run_id, task_id, execution_type, command, duration_ms, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,unixepoch())`,
+              )
+              .bind(execId, String(p.tenantId), ws, uid, commandRunId, taskId, 'command', cmd, durMs)
+              .run();
+          }
+        } catch (e) {
+          console.warn('[agentsam_executions]', e?.message ?? e);
         }
 
         void env.DB
@@ -767,6 +832,25 @@ export async function completeCommand(env, ctx, o) {
   } = o || {};
   if (!env?.DB || !chainId) return;
 
+  let traceTenantWorkspace = null;
+  try {
+    const crow = await env.DB
+      .prepare(
+        `SELECT tc.workspace_id AS workspace_id, w.tenant_id AS tenant_id
+         FROM agentsam_tool_chain tc
+         INNER JOIN workspaces w ON w.id = tc.workspace_id
+         WHERE tc.id = ?
+         LIMIT 1`,
+      )
+      .bind(chainId)
+      .first();
+    const tw = crow?.workspace_id != null ? String(crow.workspace_id).trim() : '';
+    const tt = crow?.tenant_id != null ? String(crow.tenant_id).trim() : '';
+    if (tw && tt) traceTenantWorkspace = { tenant_id: tt, workspace_id: tw };
+  } catch {
+    traceTenantWorkspace = null;
+  }
+
   const status = success ? 'completed' : 'failed';
   const errTypeFinal =
     success || errorMessage == null
@@ -849,6 +933,33 @@ export async function completeCommand(env, ctx, o) {
         durationMs,
       }),
     );
+  }
+
+  if (traceTenantWorkspace) {
+    const endNs = Date.now() * 1_000_000;
+    const durMs = Math.max(0, Math.floor(Number(durationMs) || 0));
+    const startNs = endNs - durMs * 1_000_000;
+    recordSpan(env, ctx, {
+      tenant_id: traceTenantWorkspace.tenant_id,
+      workspace_id: traceTenantWorkspace.workspace_id,
+      operation_name: 'agentsam.command.complete',
+      kind: 'internal',
+      status_code: success ? 'ok' : 'error',
+      status_message:
+        success || errorMessage == null ? null : String(errorMessage).slice(0, 2000),
+      start_time_unix_nano: startNs,
+      end_time_unix_nano: endNs,
+      attributes_json: JSON.stringify({
+        chain_id: chainId,
+        command_id: commandId ?? null,
+        task_type: taskType,
+        model_key: modelKey,
+        provider,
+        duration_ms: durMs,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+      }),
+    });
   }
 }
 

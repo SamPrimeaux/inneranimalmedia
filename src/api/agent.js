@@ -34,7 +34,13 @@ import {
 } from '../core/agent-policy.js';
 import { aggregateAnthropicUsageTokens, scheduleInsertAgentCost } from '../core/agent-costs.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
-import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import {
+  scheduleRecordMcpToolExecution,
+  recordMcpToolOtlpSpan,
+  tryReadAgentsamToolCache,
+  writeAgentsamToolCacheAfterSuccess,
+} from '../core/mcp-tool-execution.js';
+import { recordSpan } from '../core/tracer.js';
 import { scheduleAgentsamChatAgentRunInsert } from '../core/agent-run-routing.js';
 import { pragmaTableInfo } from '../core/retention.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
@@ -326,7 +332,54 @@ const AGENT_SAM_PYTHON_PARALLEL_BLOCK = `You are a Python professional. When a t
 
 For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. When reading multiple files, checking multiple endpoints, or running independent lookups, call all tools in parallel. Err on the side of more parallel tool calls rather than fewer sequential ones.`;
 
-async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig) {
+/**
+ * Match `agentsam_prompt_routes` to mode / intent (intent_labels JSON array + tenant priority).
+ * @param {any} env
+ * @param {string|null|undefined} tenantId
+ * @param {string} modeSlug
+ * @param {string} intentSlug
+ */
+async function resolveAgentsamPromptRoute(env, tenantId, modeSlug, intentSlug) {
+  if (!env?.DB) return null;
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  const mode = String(modeSlug || '').trim();
+  const intent = String(intentSlug || '').trim();
+  try {
+    const row = await env.DB.prepare(
+      `
+      SELECT r.*
+      FROM agentsam_prompt_routes r
+      WHERE r.is_active = 1
+        AND (r.tenant_id IS NULL OR r.tenant_id = ?)
+        AND (
+          EXISTS (
+            SELECT 1 FROM json_each(COALESCE(NULLIF(trim(r.intent_labels), ''), '[]')) je
+            WHERE je.value IN (?, ?, 'all', '*')
+          )
+          OR COALESCE(trim(r.intent_labels), '') = ''
+          OR trim(r.intent_labels) = '[]'
+        )
+      ORDER BY
+        CASE WHEN EXISTS (
+          SELECT 1 FROM json_each(COALESCE(NULLIF(trim(r.intent_labels), ''), '[]')) je2
+          WHERE je2.value IN (?, ?)
+        ) THEN 0 ELSE 1 END,
+        CASE WHEN r.tenant_id IS NOT NULL THEN 0 ELSE 1 END,
+        COALESCE(r.priority, 0) DESC
+      LIMIT 1
+    `,
+    )
+      .bind(tid, mode, intent, mode, intent)
+      .first();
+    return row || null;
+  } catch (e) {
+    console.warn('[agent] prompt_route', e?.message ?? e);
+    return null;
+  }
+}
+
+async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, _promptRouteRow = null) {
+  void _promptRouteRow;
   const rows = await env.DB.prepare(`
     SELECT id, prompt_kind, body AS content
     FROM agentsam_prompt_versions
@@ -624,6 +677,15 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
 }
 
 async function dispatchToolCall(env, toolName, input, context = {}) {
+  const t0 = Date.now();
+  const cached = await tryReadAgentsamToolCache(env, {
+    workspaceId: context.workspaceId,
+    tenantId: context.tenantId,
+    toolName,
+    toolInput: input,
+  });
+  if (cached.hit) return cached.value;
+
   const sess = {
     user_id: context.userId,
     workspace_id: context.workspaceId,
@@ -647,6 +709,15 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
   if (out && typeof out === 'object' && out.error) {
     throw new Error(typeof out.error === 'string' ? out.error : JSON.stringify(out.error));
   }
+  await writeAgentsamToolCacheAfterSuccess(env, {
+    workspaceId: context.workspaceId,
+    tenantId: context.tenantId,
+    toolName,
+    toolInput: input,
+    toolOutput: out,
+    durationMs: Date.now() - t0,
+    execErr: null,
+  });
   return out;
 }
 
@@ -1648,6 +1719,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       emit('tool_call', { tool: call.name, args: call.input });
       await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_executed', message: `Executing: ${call.name}`, riskLevel: validation.riskLevel, reason: 'allowed' });
       const toolT0 = Date.now();
+      const toolStartNs = toolT0 * 1_000_000;
       let toolOutput = '';
       let execErr = null;
       emit('tool_start', {
@@ -1726,6 +1798,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         parentChainId: previousToolChainId,
         toolInputJson: JSON.stringify(call.input || {}),
         ctx,
+      });
+      recordMcpToolOtlpSpan(env, ctx, {
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        toolName: call.name,
+        start_time_unix_nano: toolStartNs,
+        end_time_unix_nano: Date.now() * 1_000_000,
+        execErr,
       });
       emit('tool_result', { tool: call.name, output: toolOutput.slice(0, 2000) });
       const tr = { type: 'tool_result', tool_use_id: call.id, content: toolOutput };
@@ -1939,6 +2019,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
+  const promptRouteRow = await resolveAgentsamPromptRoute(env, tenantId, requestedMode, intentSlug);
+  let effectiveMaxTools = Math.max(1, Math.min(200, Number(modeConfig.max_tool_calls || 20) || 20));
+  if (promptRouteRow?.max_tools != null && Number(promptRouteRow.max_tools) > 0) {
+    effectiveMaxTools = Math.min(effectiveMaxTools, Number(promptRouteRow.max_tools));
+  }
+  const skipRagFromRoute = Number(promptRouteRow?.include_rag) === 0;
+
   const personUuid =
     (actorCtx?.personUuid != null && String(actorCtx.personUuid).trim() !== ''
       ? String(actorCtx.personUuid).trim()
@@ -1956,14 +2043,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     isSuperadmin: !ingestBypass && authUserIsSuperadmin(authUser),
   };
 
-  const { tools: dbTools } = await loadToolsForRequest(env, requestedMode, intentSlug, {
-    limit: modeConfig.max_tool_calls || 20,
+  const { tools: dbToolsRaw } = await loadToolsForRequest(env, requestedMode, intentSlug, {
+    limit: effectiveMaxTools,
     includeSchemas: true,
     userId,
     workspaceId,
     tenantId,
     personUuid: mcpRuntimeContext.personUuid,
   });
+  const tcList = parseJsonSafe(promptRouteRow?.tool_categories, null);
+  let dbTools = dbToolsRaw;
+  if (Array.isArray(tcList) && tcList.length) {
+    const allowCat = new Set(tcList.map((x) => String(x || '').trim()).filter(Boolean));
+    dbTools = dbToolsRaw.filter((t) => allowCat.has(String(t.tool_category || '').trim()));
+  }
   // Tool list is shared across providers; Anthropic adds BM25 tool_search + defer_loading in chatWithAnthropic().
   let tools = dbTools.map(t => {
     const raw = t.input_schema && typeof t.input_schema === 'object'
@@ -2005,6 +2098,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       er = null;
     }
     explicitRow = er;
+  }
+
+  if (!explicitRow && promptRouteRow?.preferred_model) {
+    const pref = String(promptRouteRow.preferred_model).trim();
+    if (pref) {
+      const pr = await resolveAgentsamAiRowByModelKey(env, tenantId, pref);
+      if (pr?.model_key) {
+        let er = pr;
+        if (requireTools && Number(er.supports_tools) !== 1) {
+          er = null;
+        }
+        explicitRow = er;
+      }
+    }
   }
 
   const isAutoModel = !explicitRow;
@@ -2154,10 +2261,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const routingArmIdForRun =
     routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
 
-  const ragResult    = await unifiedRagSearch(env, message, {
-    topK: modeConfig.context_strategy === 'minimal' ? 3 : 8,
-    tenantId,
-  });
+  const ragResult = skipRagFromRoute
+    ? { matches: [] }
+    : await unifiedRagSearch(env, message, {
+        topK: modeConfig.context_strategy === 'minimal' ? 3 : 8,
+        tenantId,
+      });
   const ragContext   = (ragResult.matches || []).join('\n\n');
   const contextBlock = ragContext ? `\n\nRelevant context:\n${ragContext}` : '';
 
@@ -2169,7 +2278,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   let systemPrompt = legacySystemPrompt();
   if (env.DB) {
-    systemPrompt = await buildSystemPrompt(env, tenantId, requestedMode, contextBlock, modeConfig);
+    systemPrompt = await buildSystemPrompt(
+      env,
+      tenantId,
+      requestedMode,
+      contextBlock,
+      modeConfig,
+      promptRouteRow,
+    );
   }
   try {
     const mem = await loadAgentMemoryForPrompt(env, tenantId, {
@@ -2214,6 +2330,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   ;(async () => {
     const chatT0 = Date.now();
+    const turnStartNs = chatT0 * 1_000_000;
     const providerForModelKey = (mk) => {
       const k = mk != null ? String(mk) : '';
       const r = chainRows.find((x) => String(x.model_key || '') === k);
@@ -2248,7 +2365,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               messages: body.messages || [{ role: 'user', content: gate.rewritten_query || message }],
               tools, systemPrompt, modelKey,
               temperature:  modeConfig.temperature || 0.7,
-              maxToolCalls: modeConfig.max_tool_calls || 20,
+              maxToolCalls: effectiveMaxTools,
               mode: requestedMode, modeConfig, userPolicy,
               sessionId, tenantId, userId,
               workspaceId,
@@ -2323,7 +2440,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 messages: body.messages || [{ role: 'user', content: gate.rewritten_query || message }],
                 tools, systemPrompt, modelKey: finalKey,
                 temperature:  modeConfig.temperature || 0.7,
-                maxToolCalls: modeConfig.max_tool_calls || 20,
+                maxToolCalls: effectiveMaxTools,
                 mode: requestedMode, modeConfig, userPolicy,
                 sessionId, tenantId, userId,
                 workspaceId,
@@ -2368,6 +2485,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       scheduleAgentsamCommandRunInsert(env, ctx, {
         tenantId,
         workspaceId: resolvedWorkspaceId ?? '',
+        userId: userId ?? null,
         sessionId: sessionId ? String(sessionId) : null,
         conversationId: sessionId ? String(sessionId) : null,
         userInput: message,
@@ -2446,12 +2564,33 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           errorType: succeeded ? null : 'all_providers_exhausted',
         });
       }
+
+      if (tenantId && resolvedWorkspaceId) {
+        recordSpan(env, ctx, {
+          tenant_id: tenantId,
+          workspace_id: resolvedWorkspaceId,
+          operation_name: 'agent.chat_turn',
+          kind: 'server',
+          status_code: succeeded ? 'ok' : 'error',
+          status_message: succeeded ? null : 'all_providers_exhausted',
+          start_time_unix_nano: turnStartNs,
+          end_time_unix_nano: Date.now() * 1_000_000,
+          attributes_json: JSON.stringify({
+            model: lastLoopStats?.modelKey ?? fallbackModelKeys[0] ?? null,
+            provider: providerForModelKey(lastLoopStats?.modelKey),
+            input_tokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+            output_tokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+            tool_calls: lastLoopStats?.toolCallsUsed ?? 0,
+          }),
+        });
+      }
     } catch (e) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
       emit('error', { message: 'Agent loop failed' });
       scheduleAgentsamCommandRunInsert(env, ctx, {
         tenantId,
         workspaceId: resolvedWorkspaceId ?? '',
+        userId: userId ?? null,
         sessionId: sessionId ? String(sessionId) : null,
         conversationId: sessionId ? String(sessionId) : null,
         userInput: message,

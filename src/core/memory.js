@@ -319,13 +319,16 @@ export async function rollupOtlpTracesDaily(env) {
         workspace_id,
         COALESCE(NULLIF(TRIM(operation_name), ''), 'unknown') AS operation_name,
         COALESCE(NULLIF(TRIM(worker_name), ''), 'unknown') AS worker_name,
-        COALESCE(duration_ms, 0) AS duration_ms,
+        COALESCE(
+          CAST((end_time_unix_nano - start_time_unix_nano) / 1000000 AS INTEGER),
+          0
+        ) AS duration_ms,
         COALESCE(status_code, 'unset') AS status_code,
         COALESCE(d1_rows_read, 0) AS d1_rows_read,
         COALESCE(d1_rows_written, 0) AS d1_rows_written,
-        created_at
+        start_time_unix_nano
       FROM otlp_traces
-      WHERE DATE(created_at, 'unixepoch') = ${metricDateExpr}
+      WHERE DATE(start_time_unix_nano / 1000000000, 'unixepoch') = ${metricDateExpr}
         AND tenant_id IS NOT NULL AND TRIM(tenant_id) != ''
         AND workspace_id IS NOT NULL AND TRIM(workspace_id) != ''
     ),

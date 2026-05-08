@@ -5,6 +5,117 @@
 
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 
+/** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
+export async function hashToolInputJson(obj) {
+  try {
+    const raw =
+      typeof obj === 'string'
+        ? obj
+        : JSON.stringify(obj === undefined ? {} : obj === null ? null : obj);
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '';
+  }
+}
+
+const NON_CACHEABLE_TOOLS = new Set(['terminal_execute', 'deploy', 'r2_delete', 'd1_write']);
+
+function toolExecutionIsCacheable(toolName) {
+  const n = String(toolName || '').trim();
+  if (!n || NON_CACHEABLE_TOOLS.has(n)) return false;
+  return true;
+}
+
+/**
+ * @param {any} env
+ * @param {{ workspaceId?: string | null, tenantId?: string | null, toolName: string, toolInput: unknown }} o
+ * @returns {Promise<{ hit: false } | { hit: true, value: unknown }>}
+ */
+export async function tryReadAgentsamToolCache(env, o) {
+  if (!env?.DB || !toolExecutionIsCacheable(o?.toolName)) return { hit: false };
+  const ws =
+    o.workspaceId != null && String(o.workspaceId).trim() !== ''
+      ? String(o.workspaceId).trim()
+      : '';
+  if (!ws) return { hit: false };
+  const tenantId =
+    o.tenantId != null && String(o.tenantId).trim() !== '' ? String(o.tenantId).trim() : null;
+  const toolName = String(o.toolName || '').trim();
+  const inputHash = await hashToolInputJson(o.toolInput ?? {});
+  if (!inputHash) return { hit: false };
+  const cacheKey = `${ws}:${toolName}:${inputHash}`;
+  try {
+    const cached = await env.DB.prepare(
+      `SELECT output_json FROM agentsam_tool_cache
+       WHERE cache_key = ? AND (expires_at IS NULL OR expires_at > datetime('now'))
+       LIMIT 1`,
+    )
+      .bind(cacheKey)
+      .first();
+    const out = cached?.output_json != null ? String(cached.output_json) : '';
+    if (!out) return { hit: false };
+    await env.DB
+      .prepare(
+        `UPDATE agentsam_tool_cache SET hit_count = COALESCE(hit_count, 0) + 1,
+         last_used_at = datetime('now'), updated_at = datetime('now')
+         WHERE cache_key = ?`,
+      )
+      .bind(cacheKey)
+      .run()
+      .catch(() => {});
+    return { hit: true, value: JSON.parse(out) };
+  } catch {
+    return { hit: false };
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {{
+ *   workspaceId?: string | null,
+ *   tenantId?: string | null,
+ *   toolName: string,
+ *   toolInput: unknown,
+ *   toolOutput: unknown,
+ *   durationMs?: number,
+ *   execErr?: unknown,
+ * }} o
+ */
+export async function writeAgentsamToolCacheAfterSuccess(env, o) {
+  if (!env?.DB || !toolExecutionIsCacheable(o?.toolName)) return;
+  if (o?.execErr) return;
+  const ws =
+    o.workspaceId != null && String(o.workspaceId).trim() !== ''
+      ? String(o.workspaceId).trim()
+      : '';
+  if (!ws) return;
+  const tenantId =
+    o.tenantId != null && String(o.tenantId).trim() !== '' ? String(o.tenantId).trim() : null;
+  const toolName = String(o.toolName || '').trim();
+  const inputHash = await hashToolInputJson(o.toolInput ?? {});
+  if (!inputHash) return;
+  const cacheKey = `${ws}:${toolName}:${inputHash}`;
+  const inputJson = JSON.stringify(o.toolInput ?? {}).slice(0, 4000);
+  const outputJson = JSON.stringify(o.toolOutput ?? null).slice(0, 10000);
+  const durationMs = Math.max(0, Math.floor(Number(o.durationMs) || 0));
+  try {
+    await env.DB.prepare(`DELETE FROM agentsam_tool_cache WHERE cache_key = ?`).bind(cacheKey).run();
+    await env.DB
+      .prepare(
+        `INSERT INTO agentsam_tool_cache
+         (id, workspace_id, tenant_id, tool_key, cache_key, input_hash, input_json, output_json,
+          execution_ms, expires_at, cache_strategy, hit_count, created_at, updated_at)
+         VALUES ('tc_'||lower(hex(randomblob(8))),?,?,?,?,?,?,?,?,datetime('now','+1 hour'),'ttl',0,datetime('now'),datetime('now'))`,
+      )
+      .bind(ws, tenantId, toolName, cacheKey, inputHash, inputJson, outputJson, durationMs)
+      .run();
+  } catch (e) {
+    console.warn('[agentsam_tool_cache] write', e?.message ?? e);
+  }
+}
+import { recordSpan } from './tracer.js';
+
 async function pragmaTableInfo(db, tableName) {
   if (!db || !tableName) return new Set();
   const safe = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(String(tableName)) ? String(tableName) : '';
@@ -256,4 +367,36 @@ export async function recordMcpToolExecution(env, fields) {
     console.warn('[recordMcpToolExecution] prod insert failed', e?.message ?? e);
     return null;
   }
+}
+
+/**
+ * OTLP span for a single MCP/builtin tool invocation (otlp_traces → daily rollup).
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ tenant_id?: string, workspace_id?: string, toolName: string, start_time_unix_nano: number, end_time_unix_nano: number, execErr?: Error|null }} p
+ */
+export function recordMcpToolOtlpSpan(env, ctx, p) {
+  const tenantId =
+    p?.tenant_id != null && String(p.tenant_id).trim() !== '' ? String(p.tenant_id).trim() : '';
+  const workspaceId =
+    p?.workspace_id != null && String(p.workspace_id).trim() !== ''
+      ? String(p.workspace_id).trim()
+      : '';
+  if (!tenantId || !workspaceId) return;
+  const toolName = String(p.toolName || 'unknown').slice(0, 500);
+  const t0 = Number(p.start_time_unix_nano);
+  const t1 = Number(p.end_time_unix_nano);
+  if (!Number.isFinite(t0) || !Number.isFinite(t1)) return;
+  const execErr = p.execErr;
+  recordSpan(env, ctx, {
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    operation_name: `mcp_tool.${toolName}`,
+    kind: 'client',
+    status_code: execErr ? 'error' : 'ok',
+    status_message: execErr?.message ? String(execErr.message).slice(0, 2000) : null,
+    start_time_unix_nano: t0,
+    end_time_unix_nano: t1,
+    attributes_json: JSON.stringify({ tool: toolName, workspace_id: workspaceId }),
+  });
 }
