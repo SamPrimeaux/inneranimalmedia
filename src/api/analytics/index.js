@@ -2,6 +2,8 @@ import { jsonResponse } from '../../core/auth.js';
 import { handleAnalyticsLayout } from './layout.js';
 import { handleAnalyticsSourceHealth } from './source-health.js';
 import { handleAnalyticsOverview } from './overview.js';
+import { handleAnalyticsRag } from './rag.js';
+import { handleAnalyticsCodebase } from './codebase.js';
 
 /**
  * /api/analytics/* router.
@@ -31,6 +33,14 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/overview' && request.method === 'GET') {
     return handleAnalyticsOverview(request, url, env, { tenantId });
+  }
+
+  if (pathLower === '/api/analytics/rag' && request.method === 'GET') {
+    return handleAnalyticsRag(request, url, env, { tenantId });
+  }
+
+  if (pathLower === '/api/analytics/codebase' && request.method === 'GET') {
+    return handleAnalyticsCodebase(request, url, env, { tenantId });
   }
 
   // Stub endpoints for now — return standard AnalyticsResponse shape.
