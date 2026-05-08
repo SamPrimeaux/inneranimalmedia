@@ -27,8 +27,16 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   
   const modelData = modelInfo.results?.[0] || {};
   const features = JSON.parse(modelData.features_json || '{}');
-  const betas = options.betas || [];
-  
+  const betas = [...(options.betas || [])];
+  if (Array.isArray(features.betas)) {
+    for (const b of features.betas) {
+      if (typeof b === 'string' && b.trim()) betas.push(b.trim());
+    }
+  }
+
+  /** Betas Anthropic no longer accepts on current Sonnet / Haiku (400 extra inputs / retired headers). */
+  const RETIRED_ANTHROPIC_BETAS = new Set(['context-1m-2025-08-07']);
+
   // 1. SOTA Beta Headers (v4.6+)
   const isSotaModel = (modelKey.includes('4-6') || modelKey.includes('4-5')) && !modelKey.includes('haiku');
   if (isSotaModel) {
@@ -40,6 +48,13 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     if (features.thinking) betas.push('thinking-2024-10-22');
     if (options.thinking?.type === 'enabled' || options.thinkingBudget) betas.push('extended-thinking-2025-01-24');
   }
+
+  const betasFiltered = [...new Set(betas)].filter(
+    (b) =>
+      b &&
+      !RETIRED_ANTHROPIC_BETAS.has(b) &&
+      !String(b).startsWith('context-1m-'),
+  );
 
   const streamParams = {
     model: modelKey,
@@ -57,7 +72,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     })),
     tool_choice: options.tool_choice || undefined,
     stream: true,
-    betas: betas.length > 0 ? [...new Set(betas)] : undefined // De-duplicate headers
+    betas: betasFiltered.length > 0 ? betasFiltered : undefined,
   };
 
   // 2. Adaptive Thinking & Effort (v4.6 GA Path)

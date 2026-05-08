@@ -34,6 +34,7 @@ import {
   handleGitHubLoginOAuthCallback,
 } from './api/oauth-login-callbacks.js';
 import { handleGithubWebhook } from './api/webhooks/github.js';
+import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { createTracer } from './core/tracer.js';
 
@@ -151,6 +152,10 @@ export default {
       // GitHub App / webhook deliveries (must run on modular worker; wrangler main = src/index.js)
       if (pathLower === '/api/webhooks/github' && methodUpper === 'POST') {
         return handleGithubWebhook(request, env, ctx);
+      }
+
+      if (pathLower === '/api/webhooks/anthropic' && methodUpper === 'POST') {
+        return handleAnthropicWebhook(request, env, ctx);
       }
 
       if (pathLower === '/api/webhooks/supabase' || pathLower === '/api/hooks/supabase') {
