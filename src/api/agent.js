@@ -1385,8 +1385,25 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         if (chunk.type === 'content_block_start') {
           if (chunk.content_block?.type === 'thinking') emit('thinking_start', {});
           if (chunk.content_block?.type === 'tool_use') {
-            pendingToolCalls.push({ id: chunk.content_block.id, name: chunk.content_block.name, _args: '' });
+            pendingToolCalls.push({ id: chunk.content_block.id, name: chunk.content_block.name, _args: '', _server: false });
             assistantContent.push({ type: 'tool_use', id: chunk.content_block.id, name: chunk.content_block.name, input: {} });
+          }
+          if (chunk.content_block?.type === 'server_tool_use') {
+            pendingToolCalls.push({ id: chunk.content_block.id, name: chunk.content_block.name, _args: '', _server: true });
+            assistantContent.push({
+              type: 'server_tool_use',
+              id: chunk.content_block.id,
+              name: chunk.content_block.name,
+              input: {},
+            });
+          }
+          if (chunk.content_block?.type === 'tool_search_tool_result') {
+            const cb = chunk.content_block;
+            assistantContent.push({
+              type: 'tool_search_tool_result',
+              tool_use_id: cb.tool_use_id,
+              content: cb.content,
+            });
           }
           if (chunk.content_block?.type === 'text') assistantContent.push({ type: 'text', text: '' });
         }
@@ -1409,7 +1426,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           if (call) {
             call._done = true;
             try { call.input = JSON.parse(call._args || '{}'); } catch { call.input = {}; }
-            const blk = assistantContent.find(b => b.type === 'tool_use' && b.id === call.id);
+            const blk = assistantContent.find(
+              (b) => (b.type === 'tool_use' || b.type === 'server_tool_use') && b.id === call.id,
+            );
             if (blk) blk.input = call.input;
           }
         }
@@ -1430,7 +1449,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
 
     conversationMessages.push({ role: 'assistant', content: assistantContent });
-    if (!pendingToolCalls.length || stopReason === 'end_turn') {
+    const clientToolCalls = pendingToolCalls.filter((c) => !c._server);
+    if (!clientToolCalls.length || stopReason === 'end_turn') {
       if (routingWs) {
         const qs = Number(qualityScore);
         if (Number.isFinite(qs)) {
@@ -1448,7 +1468,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
 
     const toolResults = [];
     let previousToolChainId = null;
-    for (const call of pendingToolCalls) {
+    for (const call of clientToolCalls) {
       if (toolCallsUsed >= effectiveMaxToolCalls) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached.' });
@@ -1866,6 +1886,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     tenantId,
     personUuid: mcpRuntimeContext.personUuid,
   });
+  // Tool list is shared across providers; Anthropic adds BM25 tool_search + defer_loading in chatWithAnthropic().
   let tools = dbTools.map(t => {
     const raw = t.input_schema && typeof t.input_schema === 'object'
       ? t.input_schema : {};

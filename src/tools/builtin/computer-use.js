@@ -55,9 +55,9 @@ export const specializedSchemas = {
     type: "web_search_20260209",
     description: "Search the web with domain filtering and location-aware results."
   },
-  web_fetch_20260309: {
+  web_fetch_20260209: {
     name: "web_fetch",
-    type: "web_fetch_20260309",
-    description: "Fetch web content with cache bypass capabilities."
+    type: "web_fetch_20260209",
+    description: "Fetch web content with cache bypass capabilities and dynamic relevance filtering."
   }
 };

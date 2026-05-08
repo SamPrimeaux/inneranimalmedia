@@ -9,6 +9,41 @@ import Anthropic from '@anthropic-ai/sdk';
 import { handlers as dbHandlers } from '../tools/db.js';
 import { resolveApiKey } from '../core/vault.js';
 
+/** BM25 tool search (official name per Anthropic tool reference). */
+const TOOL_SEARCH_BM25 = {
+  type: 'tool_search_tool_bm25_20251119',
+  name: 'tool_search_tool_bm25',
+};
+
+/**
+ * Prepends BM25 tool search and marks custom tools deferred so prompt cache stays stable.
+ * @param {any[]} tools
+ */
+export function buildAnthropicMessagesTools(tools) {
+  const list = Array.isArray(tools) ? tools : [];
+  const rest = list.filter(
+    (t) =>
+      !(
+        t &&
+        t.type === TOOL_SEARCH_BM25.type &&
+        String(t.name || '') === TOOL_SEARCH_BM25.name
+      ),
+  );
+  const mapped = rest.map((t) => {
+    const schema = t.parameters ?? t.input_schema;
+    const out = {
+      name: t.name,
+      defer_loading: true,
+    };
+    if (t.description) out.description = t.description;
+    if (t.type) out.type = t.type;
+    if (schema && typeof schema === 'object') out.input_schema = schema;
+    if (t.cache_control) out.cache_control = t.cache_control;
+    return out;
+  });
+  return [TOOL_SEARCH_BM25, ...mapped];
+}
+
 /**
  * Executes a tool-aware chat completion using the official Anthropic SDK.
  */
@@ -64,12 +99,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
       role: m.role,
       content: Array.isArray(m.content) ? m.content : m.content
     })).filter(m => m.role !== 'system'),
-    tools: tools.map(t => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.parameters || t.input_schema,
-      cache_control: t.cache_control || undefined,
-    })),
+    tools: buildAnthropicMessagesTools(tools),
     tool_choice: options.tool_choice || undefined,
     stream: true,
     betas: betasFiltered.length > 0 ? betasFiltered : undefined,
