@@ -14,6 +14,10 @@ export const ALLOWED_SOURCE_FILTERS = Object.freeze([
   'memory',
   'codebase',
   'scripts',
+  /** Cmd+K structural facets (handled in unified-search.js, not pgvector source paths). */
+  'workspace',
+  'branch',
+  'repo',
 ]);
 
 /**

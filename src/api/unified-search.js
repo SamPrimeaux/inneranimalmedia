@@ -4,6 +4,7 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { documentsSourceFilterSql, normalizeSourceFilters } from '../core/unified-source-filters.js';
+import { resolveGitHubToken } from '../core/github-token.js';
 
 /**
  * Must match `public.documents.embed_model` + `vector(1024)` ingest (Workers AI bge-large).
@@ -20,6 +21,20 @@ function ragDocumentsProjectId(env) {
   return typeof env?.RAG_DOCUMENTS_PROJECT_ID === 'string' && env.RAG_DOCUMENTS_PROJECT_ID.trim()
     ? env.RAG_DOCUMENTS_PROJECT_ID.trim()
     : null;
+}
+
+/** Mirrors `projectIdFromEnv` in agent routes — Worker identity for github_repositories lookup. */
+function projectIdFromEnv(env) {
+  const candidates = [env?.PROJECT_ID, env?.WORKER_NAME, env?.CLOUDFLARE_WORKER_NAME];
+  for (const c of candidates) {
+    if (c != null && String(c).trim()) return String(c).trim();
+  }
+  return 'inneranimalmedia';
+}
+
+/** Vector/doc facets only — workspace/branch/repo are appended separately. */
+function documentFacetIdsOnly(facetIds) {
+  return facetIds.filter((f) => f !== 'workspace' && f !== 'branch' && f !== 'repo');
 }
 
 /**
@@ -63,6 +78,10 @@ function facetToRpcPrefixLike(facetId) {
       return { prefix: null, like: '%codebase%' };
     case 'scripts':
       return { prefix: null, like: null };
+    case 'workspace':
+    case 'branch':
+    case 'repo':
+      return { prefix: null, like: null }; // handled separately, not via RPC
     default:
       return { prefix: null, like: null };
   }
@@ -324,6 +343,169 @@ async function searchDocumentsVector(env, query, limit, opts = {}) {
 }
 
 /**
+ * @param {any} env
+ * @param {any} authUser
+ * @param {{ type: string, id: string, title: string, subtitle?: string, score: number, url?: string|null, sql_text?: string }[]} merged
+ * @param {string} rawQ
+ * @param {string[]} facetIds
+ */
+async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetIds) {
+  const qPat = `%${rawQ}%`;
+
+  if (facetIds.includes('workspace') && env.DB) {
+    try {
+      const uid = String(authUser.id || '').trim();
+      const tid =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim()
+          ? String(authUser.tenant_id).trim()
+          : '';
+      const { results } = await env.DB.prepare(
+        `SELECT DISTINCT w.id, w.display_name, w.slug, w.status,
+                w.github_repo, COALESCE(wm.role,'owner') AS member_role
+         FROM workspaces w
+         LEFT JOIN workspace_members wm
+           ON wm.workspace_id = w.id AND wm.user_id = ?
+         WHERE (w.tenant_id = ? OR wm.user_id = ?)
+           AND (w.display_name LIKE ? OR w.slug LIKE ?)
+         ORDER BY w.updated_at DESC
+         LIMIT 20`,
+      )
+        .bind(uid, tid, uid, qPat, qPat)
+        .all();
+      for (const w of results || []) {
+        merged.push({
+          type: 'workspace',
+          id: String(w.id ?? ''),
+          title: String(w.display_name || w.slug || w.id || 'Workspace'),
+          subtitle: String(w.slug || ''),
+          score: 0.86,
+          display_name: w.display_name,
+          slug: w.slug,
+          status: w.status,
+          github_repo: w.github_repo,
+          member_role: w.member_role,
+        });
+      }
+    } catch (e) {
+      console.warn('[unified-search] workspace facet', e?.message ?? e);
+    }
+  }
+
+  if (facetIds.includes('branch')) {
+    const { token, error } = await resolveGitHubToken(authUser, env);
+    if (!error && env.DB) {
+      const workerName = projectIdFromEnv(env);
+      try {
+        const repoRow = await env.DB.prepare(
+          `SELECT repo_full_name, default_branch FROM github_repositories
+           WHERE cloudflare_worker_name = ?
+           LIMIT 1`,
+        )
+          .bind(workerName)
+          .first();
+        if (repoRow?.repo_full_name) {
+          const ghRes = await fetch(
+            `https://api.github.com/repos/${repoRow.repo_full_name}/branches?per_page=100`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+                'User-Agent': 'inneranimalmedia-agent/1.0',
+              },
+            },
+          );
+          if (ghRes.ok) {
+            const branches = await ghRes.json();
+            const q = rawQ.toLowerCase();
+            for (const b of branches) {
+              const name = String(b?.name ?? '');
+              if (!q || name.toLowerCase().includes(q)) {
+                const shaFull = b?.commit?.sha != null ? String(b.commit.sha) : '';
+                merged.push({
+                  type: 'branch',
+                  id: name,
+                  ref: name,
+                  sha: shaFull.slice(0, 7),
+                  protected: Boolean(b?.protected),
+                  repo: String(repoRow.repo_full_name),
+                  title: name,
+                  score: 0.85,
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[unified-search] branch facet', e?.message ?? e);
+      }
+    }
+  }
+
+  if (facetIds.includes('repo')) {
+    const { token, error } = await resolveGitHubToken(authUser, env);
+    if (!error && env.DB) {
+      try {
+        const tenantId =
+          authUser.tenant_id != null && String(authUser.tenant_id).trim()
+            ? String(authUser.tenant_id).trim()
+            : '';
+        const linkedRows = await env.DB.prepare(
+          `SELECT repo_full_name, cloudflare_worker_name
+           FROM github_repositories WHERE tenant_id = ?`,
+        )
+          .bind(tenantId)
+          .all();
+        const linkedMap = Object.fromEntries(
+          (linkedRows.results || []).map((r) => [r.repo_full_name, r.cloudflare_worker_name]),
+        );
+        const ghRes = await fetch(
+          'https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'inneranimalmedia-agent/1.0',
+            },
+          },
+        );
+        if (ghRes.ok) {
+          const repos = await ghRes.json();
+          const q = rawQ.toLowerCase();
+          for (const r of repos) {
+            const full = String(r.full_name ?? '');
+            if (
+              !q ||
+              full.toLowerCase().includes(q) ||
+              String(r.name ?? '')
+                .toLowerCase()
+                .includes(q)
+            ) {
+              merged.push({
+                type: 'repo',
+                id: full,
+                full_name: full,
+                name: String(r.name ?? ''),
+                owner: String(r.owner?.login ?? ''),
+                private: Boolean(r.private),
+                pushed_at: String(r.pushed_at ?? ''),
+                default_branch: String(r.default_branch ?? 'main'),
+                linked_worker: linkedMap[full] ?? null,
+                title: String(r.name ?? full),
+                score: 0.84,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[unified-search] repo facet', e?.message ?? e);
+      }
+    }
+  }
+}
+
+/**
  * @param {Request} request
  * @param {URL} url
  * @param {any} env
@@ -396,17 +578,30 @@ export async function handleUnifiedSearchApi(request, url, env) {
     } catch {
       body = {};
     }
+    const limit = Math.min(Math.max(1, Number(body.limit) || 22), 50);
+    const sourceFilters = body.source_filters ?? body.sourceFilters ?? [];
+    const facetIds = normalizeSourceFilters(sourceFilters);
     const rawQ = String(body.query || '').trim();
-    if (rawQ.length < 2) {
+    const hasStructuralFacet = facetIds.some(
+      (f) => f === 'workspace' || f === 'branch' || f === 'repo',
+    );
+    if (rawQ.length < 2 && !hasStructuralFacet) {
       return jsonResponse({ results: [] });
     }
-    const limit = Math.min(Math.max(1, Number(body.limit) || 22), 50);
     const qLow = `%${String(rawQ).toLowerCase()}%`;
-    const sourceFilters = body.source_filters ?? body.sourceFilters ?? [];
     const matchThreshold = Number(body.match_threshold ?? body.matchThreshold);
+    const docFacetsOnly = documentFacetIdsOnly(facetIds);
 
     if (!env.DB) {
       return jsonResponse({ results: [], warning: 'DB not configured' });
+    }
+
+    if (rawQ.length < 2 && hasStructuralFacet) {
+      /** @type {{ type: string, id: string, title: string, subtitle?: string, score: number, url?: string|null, sql_text?: string }[]} */
+      const mergedOnly = [];
+      await appendStructuralFacetResults(env, authUser, mergedOnly, rawQ, facetIds);
+      mergedOnly.sort((a, b) => b.score - a.score);
+      return jsonResponse({ results: mergedOnly.slice(0, limit) });
     }
 
     let tenantId =
@@ -487,7 +682,7 @@ export async function handleUnifiedSearchApi(request, url, env) {
         .then((r) => r.results || [])
         .catch(() => []),
       searchDocumentsVector(env, rawQ, Math.min(limit, 8), {
-        sourceFilters,
+        sourceFilters: docFacetsOnly,
         matchThreshold,
         tenantId,
         workspaceId,
@@ -567,6 +762,8 @@ export async function handleUnifiedSearchApi(request, url, env) {
         url: d.url ?? null,
       });
     }
+
+    await appendStructuralFacetResults(env, authUser, merged, rawQ, facetIds);
 
     merged.sort((a, b) => b.score - a.score);
     const results = merged.slice(0, limit);

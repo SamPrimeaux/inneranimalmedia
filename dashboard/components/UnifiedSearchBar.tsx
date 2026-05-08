@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Command, Loader2, Search, KeyRound, Terminal, Globe, HardDrive } from 'lucide-react';
+import { Loader2, Search, Folder, GitBranch, Github } from 'lucide-react';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -33,7 +33,52 @@ type KnowRow = {
 type CommandRow = { type: 'command'; id: string; title: string; subtitle?: string; cmd: string };
 type RecentFileRow = { type: 'file'; id: string; title: string; subtitle?: string; path: string };
 
-type UnifiedRow = DeployRow | SnippetRow | QueryRow | TableRow | ColumnRow | ConvRow | KnowRow | CommandRow | RecentFileRow;
+type WorkspaceRow = {
+  type: 'workspace';
+  id: string;
+  title: string;
+  subtitle?: string;
+  slug: string;
+  status: string;
+  github_repo: string | null;
+  member_role?: string;
+};
+type BranchRow = {
+  type: 'branch';
+  id: string;
+  title: string;
+  subtitle?: string;
+  ref: string;
+  sha: string;
+  isProtected: boolean;
+  repo: string;
+};
+type RepoRow = {
+  type: 'repo';
+  id: string;
+  title: string;
+  subtitle?: string;
+  full_name: string;
+  owner: string;
+  isPrivate: boolean;
+  pushed_at: string;
+  default_branch: string;
+  linked_worker: string | null;
+};
+
+type UnifiedRow =
+  | DeployRow
+  | SnippetRow
+  | QueryRow
+  | TableRow
+  | ColumnRow
+  | ConvRow
+  | KnowRow
+  | CommandRow
+  | RecentFileRow
+  | WorkspaceRow
+  | BranchRow
+  | RepoRow;
 
 /** Must stay in sync with `src/core/unified-source-filters.js` ALLOWED_SOURCE_FILTERS (except `all`). */
 const SOURCE_FACETS: { id: string; label: string }[] = [
@@ -45,6 +90,9 @@ const SOURCE_FACETS: { id: string; label: string }[] = [
   { id: 'memory', label: 'Memory' },
   { id: 'codebase', label: 'Code' },
   { id: 'scripts', label: 'Scripts' },
+  { id: 'workspace', label: 'Workspaces' },
+  { id: 'branch', label: 'Branches' },
+  { id: 'repo', label: 'Repos' },
 ];
 
 const IDE_COMMANDS: CommandRow[] = [
@@ -98,6 +146,49 @@ function normalizeSearchRows(data: Record<string, unknown>): UnifiedRow[] {
       }
       if (type === 'knowledge') {
         out.push({ type: 'knowledge', id, title, subtitle, url: r.url != null ? String(r.url) : null, score: typeof r.score === 'number' ? r.score : null });
+        continue;
+      }
+      switch (type) {
+        case 'workspace':
+          out.push({
+            type: 'workspace',
+            id: String(r.id),
+            title: String(r.display_name || r.slug || r.id),
+            subtitle: String(r.slug || ''),
+            slug: String(r.slug || ''),
+            status: String(r.status || 'active'),
+            github_repo: r.github_repo ? String(r.github_repo) : null,
+            member_role: r.member_role ? String(r.member_role) : undefined,
+          });
+          break;
+        case 'branch':
+          out.push({
+            type: 'branch',
+            id: String(r.ref ?? r.id ?? ''),
+            title: String(r.ref ?? r.title ?? ''),
+            subtitle: r.sha != null ? String(r.sha) : undefined,
+            ref: String(r.ref ?? ''),
+            sha: String(r.sha || ''),
+            isProtected: Boolean(r.protected),
+            repo: String(r.repo || ''),
+          });
+          break;
+        case 'repo':
+          out.push({
+            type: 'repo',
+            id: String(r.full_name ?? r.id ?? ''),
+            title: String(r.name ?? r.title ?? ''),
+            subtitle: r.owner != null ? String(r.owner) : undefined,
+            full_name: String(r.full_name ?? ''),
+            owner: String(r.owner || ''),
+            isPrivate: Boolean(r.private),
+            pushed_at: String(r.pushed_at || ''),
+            default_branch: String(r.default_branch || 'main'),
+            linked_worker: r.linked_worker ? String(r.linked_worker) : null,
+          });
+          break;
+        default:
+          break;
       }
     }
     return out;
@@ -115,6 +206,9 @@ function rowLabel(row: UnifiedRow): string {
     case 'conversation': return 'Chat';
     case 'command': return 'Cmd';
     case 'file': return 'File';
+    case 'workspace': return 'WS';
+    case 'branch': return 'Branch';
+    case 'repo': return 'Repo';
     default: return 'Knowledge';
   }
 }
@@ -124,8 +218,26 @@ export const UnifiedSearchBar: React.FC<{
   recentFiles?: { name: string; path: string; label?: string }[];
   onNavigate: (nav: UnifiedSearchNavigate, searchQuery: string) => void;
   onRunCommand?: (cmd: string) => void;
-}> = ({ workspaceLabel, recentFiles = [], onNavigate, onRunCommand }) => {
-  const [open, setOpen] = useState(false);
+  controlledOpen?: boolean;
+  onControlledOpenChange?: (open: boolean) => void;
+  initialFacets?: string[];
+}> = ({
+  workspaceLabel,
+  recentFiles = [],
+  onNavigate,
+  onRunCommand,
+  controlledOpen,
+  onControlledOpenChange,
+  initialFacets,
+}) => {
+  const isControlled = controlledOpen !== undefined;
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = isControlled ? controlledOpen : localOpen;
+  const setOpen = (v: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof v === 'function' ? v(open) : v;
+    if (isControlled) onControlledOpenChange?.(next);
+    else setLocalOpen(next);
+  };
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<UnifiedRow[]>([]);
@@ -135,6 +247,15 @@ export const UnifiedSearchBar: React.FC<{
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (open && initialFacets?.length) {
+      setSourceFacets(initialFacets);
+    }
+    if (!open) {
+      setSourceFacets([]);
+    }
+  }, [open, initialFacets]);
 
   const loadRecentSearches = useCallback(async () => {
     try {
@@ -155,7 +276,8 @@ export const UnifiedSearchBar: React.FC<{
 
   const runSearch = useCallback(async (query: string) => {
     const t = query.trim();
-    if (t.length < 2) {
+    const structural = sourceFacets.some((f) => f === 'workspace' || f === 'branch' || f === 'repo');
+    if (t.length < 2 && !structural) {
       setRows([]);
       return;
     }
@@ -192,6 +314,33 @@ export const UnifiedSearchBar: React.FC<{
 
   const applyRow = useCallback(
     (row: UnifiedRow, searchQuery: string) => {
+      if (row.type === 'workspace' || row.type === 'branch') {
+        void fetch('/api/unified-search/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ query: searchQuery, result_kind: row.type, opened_id: row.id }),
+        }).catch(() => {});
+        setOpen(false);
+        setQ('');
+        setRows([]);
+        return;
+      }
+      if (row.type === 'repo') {
+        void fetch('/api/unified-search/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ query: searchQuery, result_kind: row.type, opened_id: row.id }),
+        }).catch(() => {});
+        if (row.full_name) {
+          window.open(`https://github.com/${row.full_name}`, '_blank', 'noopener,noreferrer');
+        }
+        setOpen(false);
+        setQ('');
+        setRows([]);
+        return;
+      }
       if (row.type === 'command') {
         onRunCommand?.(row.cmd);
         setOpen(false);
@@ -231,14 +380,16 @@ export const UnifiedSearchBar: React.FC<{
   );
 
   const flatList = useMemo(() => {
-    if (q.trim().length >= 2) return rows;
+    const t = q.trim();
+    const structural = sourceFacets.some((f) => f === 'workspace' || f === 'branch' || f === 'repo');
+    if (t.length >= 2 || structural) return rows;
     const palette: UnifiedRow[] = [];
     recentFiles.slice(0, 5).forEach(f => {
       palette.push({ type: 'file', id: f.path, title: f.name, subtitle: f.label || f.path, path: f.path });
     });
     IDE_COMMANDS.forEach(c => palette.push(c));
     return palette;
-  }, [q, rows, recentFiles]);
+  }, [q, rows, recentFiles, sourceFacets]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -270,7 +421,7 @@ export const UnifiedSearchBar: React.FC<{
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
   return (
-    <div className="nav-search-container w-full max-w-lg hidden lg:block">
+    <div className="nav-search-container w-full max-w-lg min-w-0">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -339,26 +490,129 @@ export const UnifiedSearchBar: React.FC<{
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto chat-hide-scroll">
-              {flatList.map((row, i) => (
-                <button
-                  key={`${row.type}-${row.id}-${i}`}
-                  type="button"
-                  onClick={() => applyRow(row, q.trim())}
-                  className={`w-full text-left px-3 py-2.5 border-b border-[var(--border-subtle)]/60 transition-colors ${
-                    i === active ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]/70'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
-                      {rowLabel(row)}
-                    </span>
-                    <span className="text-[12px] font-semibold text-[var(--text-main)] truncate">{row.title}</span>
-                  </div>
-                  {row.subtitle ? (
-                    <div className="text-[11px] text-[var(--text-muted)] line-clamp-2">{row.subtitle}</div>
-                  ) : null}
-                </button>
-              ))}
+              {flatList.map((row, i) => {
+                const rowClass = `w-full text-left px-3 py-2.5 border-b border-[var(--border-subtle)]/60 transition-colors ${
+                  i === active ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]/70'
+                }`;
+                if (row.type === 'workspace') {
+                  return (
+                    <button
+                      key={`${row.type}-${row.id}-${i}`}
+                      type="button"
+                      onClick={() => applyRow(row, q.trim())}
+                      className={rowClass}
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Folder size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" aria-hidden />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-0.5">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
+                              {rowLabel(row)}
+                            </span>
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                row.status === 'active' ? 'bg-emerald-500' : 'bg-[var(--text-muted)]/45'
+                              }`}
+                              title={row.status}
+                            />
+                          </div>
+                          <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">{row.title}</div>
+                          <div className="text-[11px] font-mono text-[var(--text-muted)] truncate">
+                            {row.slug}
+                            {row.github_repo ? ` · ${row.github_repo}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                }
+                if (row.type === 'branch') {
+                  return (
+                    <button
+                      key={`${row.type}-${row.id}-${i}`}
+                      type="button"
+                      onClick={() => applyRow(row, q.trim())}
+                      className={rowClass}
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <GitBranch size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" aria-hidden />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-0.5">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
+                              {rowLabel(row)}
+                            </span>
+                            {row.isProtected ? (
+                              <span className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-muted)] border border-[var(--border-subtle)] rounded px-1 shrink-0">
+                                protected
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-[12px] text-[var(--text-main)] truncate">
+                            <span className="font-semibold">{row.ref}</span>{' '}
+                            <span className="font-mono text-[var(--text-muted)]">{row.sha}</span>
+                          </div>
+                          <div className="text-[11px] text-[var(--text-muted)] truncate">{row.repo}</div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                }
+                if (row.type === 'repo') {
+                  return (
+                    <button
+                      key={`${row.type}-${row.id}-${i}`}
+                      type="button"
+                      onClick={() => applyRow(row, q.trim())}
+                      className={rowClass}
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Github size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" aria-hidden />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-0.5">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
+                              {rowLabel(row)}
+                            </span>
+                            {row.isPrivate ? (
+                              <span className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-muted)] border border-[var(--border-subtle)] rounded px-1 shrink-0">
+                                private
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-[12px] truncate">
+                            <span className="font-semibold text-[var(--text-main)]">{row.title}</span>
+                            <span className="text-[var(--text-muted)]"> / {row.owner}</span>
+                          </div>
+                          <div
+                            className={`text-[11px] truncate ${
+                              row.linked_worker ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'
+                            }`}
+                          >
+                            {row.linked_worker ? `linked: ${row.linked_worker}` : 'not linked'}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    key={`${row.type}-${row.id}-${i}`}
+                    type="button"
+                    onClick={() => applyRow(row, q.trim())}
+                    className={rowClass}
+                  >
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
+                        {rowLabel(row)}
+                      </span>
+                      <span className="text-[12px] font-semibold text-[var(--text-main)] truncate">{row.title}</span>
+                    </div>
+                    {row.subtitle ? (
+                      <div className="text-[11px] text-[var(--text-muted)] line-clamp-2">{row.subtitle}</div>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
         </div>
       )}

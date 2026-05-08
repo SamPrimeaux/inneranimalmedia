@@ -24,7 +24,6 @@ import { GitHubActionsPanel } from './components/GitHubActionsPanel';
 import { GitHubExplorer } from './components/GitHubExplorer';
 import { KnowledgeSearchPanel } from './components/KnowledgeSearchPanel';
 // import { ProblemsDebugPanel } from './components/ProblemsDebugPanel';
-import { WorkspaceExplorerPanel } from './components/WorkspaceExplorerPanel';
 import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
 import { R2Explorer } from './components/R2Explorer';
 import { SourcePanel } from './components/SourcePanel';
@@ -243,7 +242,7 @@ const App: React.FC = () => {
 
   // IDE State
   type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb' | 'excalidraw';
-  const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'drive' | 'database' | null>(() =>
+  const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'drive' | 'database' | null>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? null : 'files',
   );
   const LS_SIDEBAR_RAIL = 'iam_sidebar_expanded';
@@ -293,6 +292,12 @@ const App: React.FC = () => {
   const [nativeFolderOpenSignal, setNativeFolderOpenSignal] = useState(0);
   /** ≤768px: secondary rail actions (sheet above bottom tab bar). */
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
+  const onUnifiedSearchOpenChange = useCallback((next: boolean) => {
+    setSearchOpen(next);
+    if (!next) setSearchInitialFacets([]);
+  }, []);
   /** Desktop: Draw / Search / History (Addendum A). */
   const [topChromeMoreOpen, setTopChromeMoreOpen] = useState(false);
   const topChromeMoreRef = useRef<HTMLDivElement>(null);
@@ -1070,7 +1075,7 @@ const App: React.FC = () => {
   }, []);
 
   const toggleActivity = (
-    activity: 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'projects' | 'drive' | 'database',
+    activity: 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'drive' | 'database',
   ) => {
     if (activity === 'files' && typeof window !== 'undefined') {
       const p = window.location.pathname;
@@ -1811,6 +1816,9 @@ const App: React.FC = () => {
                 recentFiles={mappedRecentFiles}
                 onNavigate={(nav, _q) => handleUnifiedNavigate(nav)}
                 onRunCommand={(cmd) => terminalRef.current?.runCommand(cmd)}
+                controlledOpen={searchOpen}
+                onControlledOpenChange={onUnifiedSearchOpenChange}
+                initialFacets={searchInitialFacets}
               />
           </div>
 
@@ -2106,43 +2114,6 @@ const App: React.FC = () => {
                       <div className="p-4 text-xs text-[var(--text-muted)]">Redirecting to terminal problems...</div>
                   ) : activeActivity === 'git' ? (
                       <SourcePanel />
-                  ) : activeActivity === 'projects' ? (
-                      <WorkspaceExplorerPanel
-                        ideWorkspace={ideWorkspace}
-                        workspaceTitle={workspaceDisplayLine}
-                        recentFiles={recentFiles}
-                        onRefreshRecent={() => {
-                          const sid = agentChatConversationId?.trim();
-                          if (!sid) return;
-                          void hydrateIdeFromApi(sid).then((b) => setRecentFiles(b.recentFiles));
-                        }}
-                        onClearRecentFiles={() => {
-                          setRecentFiles([]);
-                          const sid = agentChatConversationId?.trim();
-                          if (sid) {
-                            void persistIdeToApi(sid, {
-                              v: IDE_PERSIST_VERSION,
-                              ideWorkspace,
-                              gitBranch,
-                              recentFiles: [],
-                            });
-                          }
-                        }}
-                        onOpenRecent={(e) => void openRecentEntry(e)}
-                        onOpenLocalFolder={() => {
-                          if (location.pathname !== '/dashboard/agent') navigate('/dashboard/agent');
-                          setActiveActivity('files');
-                          setNativeFolderOpenSignal((n) => n + 1);
-                        }}
-                        onOpenFilesActivity={() => {
-                          if (location.pathname !== '/dashboard/agent') navigate('/dashboard/agent');
-                          setActiveActivity('files');
-                        }}
-                        onOpenGitHubActivity={() => setActiveActivity('actions')}
-                        onOpenWorkspace={(name, path) => {
-                          setIdeWorkspace({ source: 'pinned', name, pathHint: path });
-                        }}
-                      />
                   ) : activeActivity === 'database' ? (
                       <DatabaseBrowser
                           explorerJump={dbExplorerJump}
@@ -2556,8 +2527,11 @@ const App: React.FC = () => {
         </button>
         <button
           type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${activeActivity === 'projects' ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => toggleActivity('projects')}
+          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${searchOpen ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
+          onClick={() => {
+            setSearchInitialFacets(['workspace']);
+            setSearchOpen(true);
+          }}
         >
           <FolderOpen size={24} strokeWidth={1.5} aria-hidden />
           <span>Explorer</span>
@@ -2643,8 +2617,14 @@ const App: React.FC = () => {
         onBrandClick={() => {
           window.open('https://inneranimalmedia.com', '_blank', 'noopener,noreferrer');
         }}
-        onGitBranchClick={() => toggleActivity('git')}
-        onWorkspaceClick={() => toggleActivity('projects')}
+        onGitBranchClick={() => {
+          setSearchInitialFacets(['branch']);
+          setSearchOpen(true);
+        }}
+        onWorkspaceClick={() => {
+          setSearchInitialFacets(['workspace']);
+          setSearchOpen(true);
+        }}
         onErrorsClick={() => toggleActivity('debug')}
         onWarningsClick={() => toggleActivity('mcps')}
         onCursorClick={() => {

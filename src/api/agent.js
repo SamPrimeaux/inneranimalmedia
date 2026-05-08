@@ -22,6 +22,7 @@ import { getAuthUser, getSession,
          fetchAuthUserTenantId,
          authUserIsSuperadmin,
          platformTenantIdFromEnv }    from '../core/auth.js';
+import { resolveGitHubToken } from '../core/github-token.js';
 import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
 import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
@@ -444,33 +445,6 @@ function projectIdFromEnv(env) {
     if (c != null && String(c).trim()) return String(c).trim();
   }
   return 'inneranimalmedia';
-}
-
-/**
- * user_oauth_tokens.user_id may be email OR au_ id depending on which OAuth flow stored it — query both.
- * @param {{ id: string, email?: string|null }} authUser
- * @param {any} env
- */
-async function resolveGitHubToken(authUser, env) {
-  const row = await env.DB.prepare(
-    `SELECT access_token, expires_at
-     FROM user_oauth_tokens
-     WHERE provider = 'github'
-       AND (user_id = ? OR user_id = ?)
-     ORDER BY expires_at DESC
-     LIMIT 1`,
-  )
-    .bind(authUser.id, authUser.email ?? '')
-    .first();
-
-  if (!row?.access_token) return { error: 'No GitHub token. Re-authenticate via GitHub OAuth.', status: 401 };
-
-  // expires_at stored as Unix SECONDS
-  if (row.expires_at && Math.floor(Date.now() / 1000) > row.expires_at) {
-    return { error: 'GitHub token expired. Re-authenticate via GitHub OAuth.', status: 401 };
-  }
-
-  return { token: row.access_token };
 }
 
 function parseJsonSafe(value, fallback = null) {
