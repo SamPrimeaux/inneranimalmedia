@@ -38,6 +38,7 @@ import { ProjectType } from '../types';
 import type { ActiveFile } from '../types';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from '../agentChatConstants';
 import type { AgentSessionRow } from '../agentSessionsCatalog';
+import { ToolApprovalModal } from '../src/components/ToolApprovalModal';
 
 export { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../agentChatConstants';
 
@@ -892,6 +893,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   } | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
 
+  const [execPanel, setExecPanel] = useState<{
+    tool_name: string;
+    status: 'running' | 'done' | 'error';
+    lines: string[];
+    duration_ms?: number;
+    started: string;
+    is_sql: boolean;
+    sql_rows?: Record<string, unknown>[];
+  } | null>(null);
+
   const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>('');
 
@@ -1532,6 +1543,53 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               typeof (data as { url?: string }).url === 'string'
             ) {
               onBrowserNavigate?.(data as { type: 'browser_navigate'; url: string });
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'tool_start'
+            ) {
+              const d = data as { type: 'tool_start'; tool_name?: string; input_preview?: string | null };
+              setExecPanel({
+                tool_name: d.tool_name || 'tool',
+                status: 'running',
+                lines: [d.input_preview ?? ''],
+                started: new Date().toLocaleTimeString(),
+                is_sql:
+                  !!d.tool_name &&
+                  (d.tool_name.includes('d1') || d.tool_name.includes('sql') || d.tool_name.includes('query')),
+              });
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'tool_output' &&
+              typeof (data as { chunk?: unknown }).chunk === 'string'
+            ) {
+              const d = data as { type: 'tool_output'; chunk: string };
+              setExecPanel((p) => (p ? { ...p, lines: [...p.lines, d.chunk] } : p));
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              (data as { type?: string }).type === 'tool_done'
+            ) {
+              const d = data as {
+                type: 'tool_done';
+                status?: string;
+                duration_ms?: number;
+                rows?: Record<string, unknown>[] | null;
+              };
+              setExecPanel((p) =>
+                p
+                  ? {
+                      ...p,
+                      status: d.status === 'error' ? 'error' : 'done',
+                      duration_ms: d.duration_ms,
+                      sql_rows: d.rows ?? undefined,
+                    }
+                  : p,
+              );
             }
             if (data && typeof data === 'object' && 'conversation_id' in data) {
               const cid = (data as { conversation_id?: string }).conversation_id;
@@ -2186,6 +2244,114 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </div>
             </div>
           )}
+
+          {execPanel && (
+            <div
+              onClick={() => execPanel.status !== 'running' && setExecPanel(null)}
+              style={{
+                border: `0.5px solid ${
+                  execPanel.status === 'error' ? 'var(--color-border-danger)' : 'var(--color-border-tertiary)'
+                }`,
+                borderRadius: 'var(--border-radius-lg)',
+                marginTop: 8,
+                overflow: 'hidden',
+                cursor: execPanel.status !== 'running' ? 'pointer' : 'default',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  background: 'var(--color-background-secondary)',
+                  fontSize: 12,
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background:
+                      execPanel.status === 'running'
+                        ? 'var(--color-text-warning)'
+                        : execPanel.status === 'error'
+                          ? 'var(--color-text-danger)'
+                          : 'var(--color-text-success)',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{execPanel.status.toUpperCase()}</span>
+                <span style={{ color: 'var(--color-text-tertiary)', flex: 1 }}>tool: {execPanel.tool_name}</span>
+                {execPanel.duration_ms != null && (
+                  <span style={{ color: 'var(--color-text-tertiary)' }}>{(execPanel.duration_ms / 1000).toFixed(1)}s</span>
+                )}
+              </div>
+              {execPanel.is_sql && execPanel.sql_rows?.length ? (
+                <div style={{ overflowX: 'auto', padding: 8 }}>
+                  <table style={{ width: '100%', fontSize: 11, fontFamily: 'var(--font-mono)', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        {Object.keys(execPanel.sql_rows[0]).map((k) => (
+                          <th
+                            key={k}
+                            style={{
+                              textAlign: 'left',
+                              padding: '3px 8px',
+                              borderBottom: '0.5px solid var(--color-border-tertiary)',
+                              color: 'var(--color-text-tertiary)',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {k}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {execPanel.sql_rows.map((row, i) => (
+                        <tr key={i}>
+                          {Object.values(row).map((v, j) => (
+                            <td
+                              key={j}
+                              style={{
+                                padding: '3px 8px',
+                                borderBottom: '0.5px solid var(--color-border-tertiary)',
+                                color: 'var(--color-text-primary)',
+                              }}
+                            >
+                              {String(v ?? '')}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', padding: '4px 8px' }}>
+                    {execPanel.sql_rows.length} rows · {execPanel.duration_ms ?? 0}ms
+                  </div>
+                </div>
+              ) : (
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: '8px 12px',
+                    fontSize: 11,
+                    fontFamily: 'var(--font-mono)',
+                    maxHeight: 180,
+                    overflowY: 'auto',
+                    color: 'var(--color-text-primary)',
+                    background: 'var(--color-background-primary)',
+                  }}
+                >
+                  {execPanel.lines.join('\n')}
+                  {execPanel.status === 'running' ? '\n▊' : ''}
+                </pre>
+              )}
+            </div>
+          )}
+          <ToolApprovalModal />
         </div>
         )}
 

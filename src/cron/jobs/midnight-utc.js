@@ -4,6 +4,7 @@ import { runSecurityScan } from '../../core/security-scan.js';
 import {
   compactAgentsamToolCallLogToStats,
   rollupExecutionPerformanceMetrics,
+  rollupOtlpTracesDaily,
   rollupUsageEventsDaily,
   runAgentsamMemoryDecay,
 } from '../../core/memory.js';
@@ -123,6 +124,14 @@ export function scheduleOneAmMaintenance(env, ctx) {
     cronLedgerWrap(env, 'execution_performance_rollup', CRON_ONE_AM, () =>
       rollupExecutionPerformanceMetrics(env).catch((e) => {
         console.warn('[cron] agentsam_execution_performance_metrics', e?.message ?? e);
+        throw e;
+      }),
+    ),
+  );
+  ctx.waitUntil(
+    cronLedgerWrap(env, 'otlp_traces_rollup_daily', CRON_ONE_AM, () =>
+      rollupOtlpTracesDaily(env).catch((e) => {
+        console.warn('[cron] otlp_traces rollup', e?.message ?? e);
         throw e;
       }),
     ),

@@ -14,6 +14,7 @@
  */
 
 import { pickRoutingArmByThompson } from './thompson.js';
+import { pragmaTableInfo } from './retention.js';
 
 const TABLE = 'agentsam_routing_arms';
 
@@ -200,16 +201,139 @@ export async function queryRoutingArmsCandidates(env, q) {
   const ws = q.workspaceId != null ? String(q.workspaceId).trim() : '';
   try {
     if (ws) {
-      const sqlWs = `SELECT * FROM ${TABLE} WHERE ${baseWhere} AND workspace_id = ? ORDER BY decayed_score DESC, priority ASC LIMIT 10`;
+      const sqlWs = `SELECT * FROM ${TABLE} WHERE ${baseWhere} AND workspace_id = ? ORDER BY decayed_score DESC, priority ASC LIMIT 40`;
       const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
       if (r1.results?.length) return r1.results;
     }
-    const sqlGlobal = `SELECT * FROM ${TABLE} WHERE ${baseWhere} ORDER BY decayed_score DESC LIMIT 10`;
+    const sqlGlobal = `SELECT * FROM ${TABLE} WHERE ${baseWhere} ORDER BY decayed_score DESC LIMIT 40`;
     const r2 = await db.prepare(sqlGlobal).bind(tt, m).all();
     return r2.results || [];
   } catch {
     return [];
   }
+}
+
+async function loadRouteRequirementsRow(env, routeKey) {
+  const rk = routeKey != null ? String(routeKey).trim() : '';
+  if (!rk || !env?.DB) return null;
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_route_requirements');
+  if (!cols.size || !cols.has('route_key')) return null;
+  return env.DB
+    .prepare(`SELECT * FROM agentsam_route_requirements WHERE route_key = ? LIMIT 1`)
+    .bind(rk)
+    .first()
+    .catch(() => null);
+}
+
+function parseBlockedProviders(raw) {
+  if (raw == null || raw === '') return [];
+  try {
+    const j = JSON.parse(String(raw));
+    return Array.isArray(j) ? j.map((x) => String(x || '').toLowerCase()) : [];
+  } catch {
+    return String(raw)
+      .split(/[,|]/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  }
+}
+
+function armMatchesRouteRequirements(arm, req) {
+  if (!req) return true;
+  if (Number(req.requires_tools) === 1 && Number(arm.supports_tools) !== 1) return false;
+  if (Number(req.requires_vision) === 1) {
+    const v = Number(arm.supports_vision);
+    if (Number.isFinite(v) && v !== 1) return false;
+  }
+  if (Number(req.requires_json_mode) === 1) {
+    const j = Number(arm.supports_structured_output);
+    if (Number.isFinite(j) && j !== 1) return false;
+  }
+  const minQ = Number(req.min_quality_score);
+  if (Number.isFinite(minQ) && minQ > 0) {
+    const aq = Number(arm.avg_quality_score);
+    if (!Number.isFinite(aq) || aq < minQ) return false;
+  }
+  const maxLat = Number(req.max_latency_p50_ms);
+  if (Number.isFinite(maxLat) && maxLat > 0) {
+    const lm = Number(arm.latency_mean);
+    if (Number.isFinite(lm) && lm > maxLat) return false;
+  }
+  const maxCost = Number(req.max_cost_per_1k_in);
+  if (Number.isFinite(maxCost) && maxCost > 0) {
+    const cap = Number(arm.max_cost_per_call_usd);
+    if (Number.isFinite(cap) && cap > maxCost) return false;
+  }
+  const blocked = parseBlockedProviders(req.blocked_providers);
+  if (blocked.length) {
+    const p = String(arm.provider || '').toLowerCase();
+    if (blocked.includes(p)) return false;
+  }
+  const prefTier = req.preferred_tier != null ? String(req.preferred_tier).trim() : '';
+  if (prefTier && arm.preferred_tier != null && String(arm.preferred_tier).trim() !== prefTier) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Filter pre-fetched arms by `agentsam_route_requirements` for `route_key` (capability / SLA gates).
+ * @param {any} env
+ * @param {string | null | undefined} routeKey
+ * @param {Record<string, unknown>[] | null | undefined} arms
+ */
+export async function filterArmsForRouteKey(env, routeKey, arms) {
+  const req = await loadRouteRequirementsRow(env, routeKey);
+  if (!req || !arms?.length) return arms || [];
+  return arms.filter((a) => armMatchesRouteRequirements(a, req));
+}
+
+/**
+ * Cold-start: blend `agentsam_model_routing_memory.success_rate` into Beta priors (in-memory copy only).
+ */
+export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms) {
+  if (!env?.DB || !arms?.length) return arms;
+  const mem = await pragmaTableInfo(env.DB, 'agentsam_model_routing_memory');
+  if (!mem.size || !mem.has('model_key')) return arms;
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!ws) return arms;
+  const tt = taskType != null ? String(taskType).trim() : 'chat';
+  const out = [];
+  for (const arm of arms) {
+    const mk = String(arm.model_key ?? '').trim();
+    if (!mk) {
+      out.push(arm);
+      continue;
+    }
+    let row = null;
+    try {
+      row = await env.DB
+        .prepare(
+          `SELECT success_rate, avg_latency_ms, avg_cost_usd, code_pass_rate, hallucination_rate
+           FROM agentsam_model_routing_memory
+           WHERE workspace_id = ? AND task_type = ? AND model_key = ?
+           LIMIT 1`,
+        )
+        .bind(ws, tt, mk)
+        .first();
+    } catch {
+      row = null;
+    }
+    if (!row || row.success_rate == null) {
+      out.push(arm);
+      continue;
+    }
+    const sr = Math.max(0.05, Math.min(0.95, Number(row.success_rate) || 0.5));
+    const pseudo = 12;
+    const succ = Math.max(0, Math.round(sr * pseudo));
+    const fail = Math.max(0, pseudo - succ);
+    out.push({
+      ...arm,
+      success_alpha: Math.max(1e-6, Number(arm.success_alpha ?? 1) + succ),
+      success_beta: Math.max(1e-6, Number(arm.success_beta ?? 1) + fail),
+    });
+  }
+  return out;
 }
 
 /**
@@ -258,6 +382,7 @@ const INTENT_SLUG_TO_ROUTING_TASK = {
  *   workspaceId?: string | null,
  *   mode?: string,
  *   toolRequired?: boolean,
+ *   routeKey?: string | null,
  * }} ctx
  * @returns {Promise<{ modelId: string | null, armId: string | null, source: 'thompson' | 'fallback', fallbackReason?: string, fallbackModelKey?: string | null }>}
  */
@@ -276,12 +401,14 @@ export async function getDefaultModelForTask(env, ctx = {}) {
         ? String(ctx.taskKey).trim()
         : 'chat';
     const mode = ctx.mode != null && String(ctx.mode).trim() !== '' ? String(ctx.mode).trim() : 'auto';
-    const arms = await queryRoutingArmsCandidates(env, {
+    let arms = await queryRoutingArmsCandidates(env, {
       taskType,
       mode,
       workspaceId,
       toolRequired: !!ctx.toolRequired,
     });
+    arms = await filterArmsForRouteKey(env, ctx.routeKey ?? null, arms);
+    arms = await mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms);
     const arm = pickRoutingArmByThompson(arms);
     if (!arm?.model_key) {
       return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_eligible_arms' };
@@ -352,6 +479,90 @@ export async function loadChatRoutingArmsModelKeyOrder(env, mode, workspaceId, o
   const keys = rows.map((r) => String(r?.model_key ?? '').trim()).filter(Boolean);
   if (keys.length) return keys;
   return [...CHAT_ROUTING_STATIC_FALLBACK_KEYS];
+}
+
+/**
+ * Thompson/Beta + Welford cost/latency update by arm primary key (awaitable).
+ * @param {any} env
+ * @param {{
+ *   armId: string,
+ *   success: boolean,
+ *   costUsd?: number,
+ *   durationMs?: number,
+ * }} o
+ */
+export async function applyRoutingArmUsageFeedback(env, o) {
+  const db = env?.DB;
+  const armId = o?.armId != null ? String(o.armId).trim() : '';
+  if (!db || !armId) return;
+  const success = !!o.success;
+  const costUsd = Number(o.costUsd) || 0;
+  const durationMs = Math.max(0, Math.floor(Number(o.durationMs) || 0));
+  const da = success ? 1 : 0;
+  const dBeta = success ? 0 : 1;
+
+  const cols = await pragmaTableInfo(db, TABLE);
+  try {
+    if (cols.has('cost_m2') && cols.has('latency_m2')) {
+      const row = await db
+        .prepare(
+          `SELECT cost_n, cost_mean, cost_m2, latency_n, latency_mean, latency_m2 FROM ${TABLE} WHERE id = ?`,
+        )
+        .bind(armId)
+        .first();
+      if (!row) return;
+
+      const cn = Number(row.cost_n) || 0;
+      const cm = Number(row.cost_mean) || 0;
+      const cm2 = Number(row.cost_m2) || 0;
+      const ln = Number(row.latency_n) || 0;
+      const lm = Number(row.latency_mean) || 0;
+      const lm2 = Number(row.latency_m2) || 0;
+
+      const newCn = cn + 1;
+      const newCm = cn === 0 ? costUsd : cm + (costUsd - cm) / newCn;
+      const newCm2 = cm2 + (costUsd - cm) * (costUsd - newCm);
+
+      const newLn = ln + 1;
+      const newLm = ln === 0 ? durationMs : lm + (durationMs - lm) / newLn;
+      const newLm2 = lm2 + (durationMs - lm) * (durationMs - newLm);
+
+      await db
+        .prepare(
+          `UPDATE ${TABLE} SET
+            success_alpha = success_alpha + ?,
+            success_beta = success_beta + ?,
+            cost_n = ?, cost_mean = ?, cost_m2 = ?,
+            latency_n = ?, latency_mean = ?, latency_m2 = ?,
+            updated_at = unixepoch()
+           WHERE id = ?`,
+        )
+        .bind(da, dBeta, newCn, newCm, newCm2, newLn, newLm, newLm2, armId)
+        .run();
+    } else {
+      await db
+        .prepare(
+          `UPDATE ${TABLE} SET
+            success_alpha = success_alpha + ?,
+            success_beta = success_beta + ?,
+            cost_n = cost_n + 1,
+            cost_mean = CASE WHEN cost_n = 0 THEN ? ELSE (cost_mean * cost_n + ?) / (cost_n + 1) END,
+            latency_n = latency_n + 1,
+            latency_mean = CASE WHEN latency_n = 0 THEN ? ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
+            updated_at = unixepoch()
+           WHERE id = ?`,
+        )
+        .bind(da, dBeta, costUsd, costUsd, durationMs, durationMs, armId)
+        .run();
+    }
+  } catch (e) {
+    console.warn('[routing_arms] usage feedback', e?.message ?? e);
+  }
+}
+
+export function scheduleRoutingArmFeedbackFromUsage(env, ctx, o) {
+  if (!env?.DB || !ctx?.waitUntil) return;
+  ctx.waitUntil(applyRoutingArmUsageFeedback(env, o));
 }
 
 /**
@@ -439,6 +650,11 @@ export function scheduleRoutingArmQualityUpdate(env, ctx, o) {
       }
     })(),
   );
+}
+
+/** Alias for {@link getDefaultModelForTask} — Thompson arm pick for auto model. */
+export async function selectAutoModel(env, ctx = {}) {
+  return getDefaultModelForTask(env, ctx);
 }
 
 export async function recordRoutingArmOutcome(env, outcome) {

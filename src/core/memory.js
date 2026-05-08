@@ -287,6 +287,167 @@ export async function rollupUsageEventsDaily(env) {
   `).run();
 }
 
+/**
+ * Roll up otlp_traces into agentsam_execution_performance_metrics (daily).
+ *
+ * Dimension mapping:
+ * - tool_name: operation_name
+ * - tool_category: 'tracing'
+ * - trigger_key: worker_name (so uniqueness key can separate workers)
+ * - source_table: 'otlp_traces'
+ *
+ * Percentiles are computed via row_number() (discrete percentile).
+ */
+export async function rollupOtlpTracesDaily(env) {
+  if (!env?.DB) return;
+  try {
+    const traceCols = await env.DB.prepare(`PRAGMA table_info('otlp_traces')`).all().catch(() => null);
+    const hasOtlp = Array.isArray(traceCols?.results) && traceCols.results.length > 0;
+    if (!hasOtlp) return;
+  } catch {
+    return;
+  }
+
+  // Yesterday in UTC (matches other D1 rollups which use DATE('now','-1 day')).
+  const metricDateExpr = `DATE('now','-1 day')`;
+
+  await env.DB.prepare(
+    `
+    WITH base AS (
+      SELECT
+        tenant_id,
+        workspace_id,
+        COALESCE(NULLIF(TRIM(operation_name), ''), 'unknown') AS operation_name,
+        COALESCE(NULLIF(TRIM(worker_name), ''), 'unknown') AS worker_name,
+        COALESCE(duration_ms, 0) AS duration_ms,
+        COALESCE(status_code, 'unset') AS status_code,
+        COALESCE(d1_rows_read, 0) AS d1_rows_read,
+        COALESCE(d1_rows_written, 0) AS d1_rows_written,
+        created_at
+      FROM otlp_traces
+      WHERE DATE(created_at, 'unixepoch') = ${metricDateExpr}
+        AND tenant_id IS NOT NULL AND TRIM(tenant_id) != ''
+        AND workspace_id IS NOT NULL AND TRIM(workspace_id) != ''
+    ),
+    ranked AS (
+      SELECT
+        *,
+        ROW_NUMBER() OVER (
+          PARTITION BY tenant_id, workspace_id, operation_name, worker_name
+          ORDER BY duration_ms ASC
+        ) AS rn,
+        COUNT(*) OVER (
+          PARTITION BY tenant_id, workspace_id, operation_name, worker_name
+        ) AS n
+      FROM base
+    ),
+    pct AS (
+      SELECT
+        tenant_id,
+        workspace_id,
+        operation_name,
+        worker_name,
+        MAX(CASE WHEN rn = ((n + 1) / 2) THEN duration_ms END) AS median_ms,
+        MAX(CASE WHEN rn = CAST(((n - 1) * 0.95) AS INT) + 1 THEN duration_ms END) AS p95_ms,
+        MAX(CASE WHEN rn = CAST(((n - 1) * 0.99) AS INT) + 1 THEN duration_ms END) AS p99_ms
+      FROM ranked
+      GROUP BY tenant_id, workspace_id, operation_name, worker_name
+    ),
+    agg AS (
+      SELECT
+        tenant_id,
+        workspace_id,
+        operation_name,
+        worker_name,
+        COUNT(*) AS execution_count,
+        SUM(CASE WHEN LOWER(COALESCE(status_code,'')) = 'ok' THEN 1 ELSE 0 END) AS success_count,
+        SUM(CASE WHEN LOWER(COALESCE(status_code,'')) = 'error' THEN 1 ELSE 0 END) AS failure_count,
+        AVG(duration_ms) AS avg_duration_ms,
+        MIN(duration_ms) AS min_duration_ms,
+        MAX(duration_ms) AS max_duration_ms,
+        SUM(COALESCE(d1_rows_read, 0)) AS total_d1_rows_read,
+        SUM(COALESCE(d1_rows_written, 0)) AS total_d1_rows_written
+      FROM base
+      GROUP BY tenant_id, workspace_id, operation_name, worker_name
+    )
+    INSERT INTO agentsam_execution_performance_metrics
+      (id, tenant_id, workspace_id, metric_date, metric_grain, source_table,
+       tool_name, tool_category, trigger_key,
+       execution_count, success_count, failure_count,
+       avg_duration_ms, min_duration_ms, max_duration_ms,
+       median_duration_ms, p95_duration_ms, p99_duration_ms,
+       success_rate_percent, failure_rate_percent,
+       metadata_json, last_computed_at)
+    SELECT
+      'epm_' || lower(hex(randomblob(8))),
+      a.tenant_id,
+      a.workspace_id,
+      ${metricDateExpr},
+      'daily',
+      'otlp_traces',
+      a.operation_name,
+      'tracing',
+      a.worker_name,
+      a.execution_count,
+      a.success_count,
+      a.failure_count,
+      a.avg_duration_ms,
+      a.min_duration_ms,
+      a.max_duration_ms,
+      COALESCE(p.median_ms, 0),
+      COALESCE(p.p95_ms, 0),
+      COALESCE(p.p99_ms, 0),
+      CASE WHEN a.execution_count > 0 THEN ROUND(100.0 * a.success_count / a.execution_count, 2) ELSE 0 END,
+      CASE WHEN a.execution_count > 0 THEN ROUND(100.0 * a.failure_count / a.execution_count, 2) ELSE 0 END,
+      json_object(
+        'worker_name', a.worker_name,
+        'operation_name', a.operation_name,
+        'd1_rows_read_total', a.total_d1_rows_read,
+        'd1_rows_written_total', a.total_d1_rows_written
+      ),
+      unixepoch()
+    FROM agg a
+    LEFT JOIN pct p
+      ON p.tenant_id = a.tenant_id
+     AND p.workspace_id = a.workspace_id
+     AND p.operation_name = a.operation_name
+     AND p.worker_name = a.worker_name
+    ON CONFLICT(
+      tenant_id,
+      workspace_id,
+      metric_date,
+      metric_grain,
+      source_table,
+      command_id,
+      command_slug,
+      tool_name,
+      tool_category,
+      workflow_id,
+      task_type,
+      intent_category,
+      model_key,
+      provider,
+      trigger_key
+    ) DO UPDATE SET
+      execution_count = excluded.execution_count,
+      success_count = excluded.success_count,
+      failure_count = excluded.failure_count,
+      avg_duration_ms = excluded.avg_duration_ms,
+      min_duration_ms = excluded.min_duration_ms,
+      max_duration_ms = excluded.max_duration_ms,
+      median_duration_ms = excluded.median_duration_ms,
+      p95_duration_ms = excluded.p95_duration_ms,
+      p99_duration_ms = excluded.p99_duration_ms,
+      success_rate_percent = excluded.success_rate_percent,
+      failure_rate_percent = excluded.failure_rate_percent,
+      metadata_json = excluded.metadata_json,
+      last_computed_at = unixepoch()
+  `,
+  )
+    .run()
+    .catch((e) => console.warn('[cron] otlp_traces rollup', e?.message ?? e));
+}
+
 export async function runAgentsamMemoryDecay(env) {
   if (!env?.DB) return;
   try {

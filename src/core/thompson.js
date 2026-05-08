@@ -9,15 +9,11 @@
 export function pickRoutingArmByThompson(results) {
   if (!results?.length) return null;
   let best = null;
-  let bestScore = -1;
+  let bestDraw = -1;
   for (const arm of results) {
-    const s = betaSample(arm.success_alpha, arm.success_beta);
-    const score =
-      s -
-      (arm.cost_mean > 0 ? Math.min(arm.cost_mean / 0.01, 1) * 0.1 : 0) -
-      (arm.latency_mean > 0 ? Math.min(arm.latency_mean / 5000, 1) * 0.05 : 0);
-    if (score > bestScore) {
-      bestScore = score;
+    const draw = betaSample(arm.success_alpha, arm.success_beta);
+    if (draw > bestDraw) {
+      bestDraw = draw;
       best = arm;
     }
   }

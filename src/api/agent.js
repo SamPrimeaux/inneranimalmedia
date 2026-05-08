@@ -35,7 +35,8 @@ import {
 import { scheduleInsertAgentCost } from '../core/agent-costs.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
-import { scheduleInsertRoutingDecision } from '../core/routing-decisions-writer.js';
+import { scheduleAgentsamChatAgentRunInsert } from '../core/agent-run-routing.js';
+import { pragmaTableInfo } from '../core/retention.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
@@ -45,6 +46,7 @@ import {
   getDefaultModelForTask,
   scheduleRoutingArmBanditUpdate,
   scheduleRoutingArmQualityUpdate,
+  applyRoutingArmUsageFeedback,
   loadChatRoutingArmsModelKeyOrder,
   resolveRoutingTaskType,
   CHAT_ROUTING_STATIC_FALLBACK_KEYS,
@@ -1116,31 +1118,65 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
     costUsd,
     streamFailed,
     refId,
+    routingArmId,
   } = opts;
   if (!tenantId || !workspaceId) return;
   ctx.waitUntil(
-    env.DB.prepare(`
-      INSERT OR IGNORE INTO agentsam_usage_events
-        (id, tenant_id, workspace_id, user_id, session_id,
-         agent_name, provider, model, tokens_in, tokens_out,
-         cost_usd, status, ref_table, ref_id, created_at)
-      VALUES
-        ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
-         'iam_agent',?,?,?,?,?,?,
-         'agent_chat_sse',?,unixepoch())
-    `).bind(
-      tenantId,
-      workspaceId,
-      userId ?? null,
-      conversationId ?? null,
-      resolvedProvider ?? 'unknown',
-      modelKey ?? 'unknown',
-      Math.floor(Number(inputTokens) || 0),
-      Math.floor(Number(outputTokens) || 0),
-      Number(costUsd) || 0,
-      streamFailed ? 'error' : 'ok',
-      refId ?? 'na',
-    ).run().catch(() => {}),
+    (async () => {
+      const cols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
+      const arm = routingArmId != null ? String(routingArmId).trim().slice(0, 120) : '';
+      const withArm = arm && cols.has('routing_arm_id');
+      try {
+        if (withArm) {
+          await env.DB.prepare(`
+            INSERT OR IGNORE INTO agentsam_usage_events
+              (id, tenant_id, workspace_id, user_id, session_id,
+               agent_name, provider, model, tokens_in, tokens_out,
+               cost_usd, status, ref_table, ref_id, routing_arm_id, created_at)
+            VALUES
+              ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
+               'iam_agent',?,?,?,?,?,?,
+               'agent_chat_sse',?,?,unixepoch())
+          `).bind(
+            tenantId,
+            workspaceId,
+            userId ?? null,
+            conversationId ?? null,
+            resolvedProvider ?? 'unknown',
+            modelKey ?? 'unknown',
+            Math.floor(Number(inputTokens) || 0),
+            Math.floor(Number(outputTokens) || 0),
+            Number(costUsd) || 0,
+            streamFailed ? 'error' : 'ok',
+            refId ?? 'na',
+            arm,
+          ).run();
+        } else {
+          await env.DB.prepare(`
+            INSERT OR IGNORE INTO agentsam_usage_events
+              (id, tenant_id, workspace_id, user_id, session_id,
+               agent_name, provider, model, tokens_in, tokens_out,
+               cost_usd, status, ref_table, ref_id, created_at)
+            VALUES
+              ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
+               'iam_agent',?,?,?,?,?,?,
+               'agent_chat_sse',?,unixepoch())
+          `).bind(
+            tenantId,
+            workspaceId,
+            userId ?? null,
+            conversationId ?? null,
+            resolvedProvider ?? 'unknown',
+            modelKey ?? 'unknown',
+            Math.floor(Number(inputTokens) || 0),
+            Math.floor(Number(outputTokens) || 0),
+            Number(costUsd) || 0,
+            streamFailed ? 'error' : 'ok',
+            refId ?? 'na',
+          ).run();
+        }
+      } catch (_) {}
+    })(),
   );
 }
 
@@ -1157,8 +1193,39 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     routingTaskType,
     qualityScore,
     mcpRuntimeContext,
+    routingArmId: routingArmIdParam,
+    thompsonModelKey: thompsonModelKeyParam,
   } = params;
   const routingWs = workspaceId != null ? String(workspaceId).trim() : '';
+  const loopT0 = Date.now();
+  const routingArmIdStr = routingArmIdParam != null ? String(routingArmIdParam).trim() : '';
+  const thompsonMkStr = thompsonModelKeyParam != null ? String(thompsonModelKeyParam).trim() : '';
+
+  const attributedRoutingArmId = () =>
+    routingArmIdStr && thompsonMkStr && String(modelKey) === thompsonMkStr ? routingArmIdStr : null;
+
+  const routeArmOutcome = (success) => {
+    const aid = attributedRoutingArmId();
+    if (aid) {
+      ctx.waitUntil?.(
+        applyRoutingArmUsageFeedback(env, {
+          armId: aid,
+          success,
+          costUsd: 0,
+          durationMs: Math.max(0, Date.now() - loopT0),
+        }),
+      );
+    } else if (routingWs) {
+      scheduleRoutingArmBanditUpdate(env, ctx, {
+        taskType: routingTaskType || 'chat',
+        mode: mode || 'ask',
+        modelKey,
+        workspaceId: routingWs,
+        success,
+        lastChainId: null,
+      });
+    }
+  };
 
   const modeMax = Math.max(1, Math.floor(Number(maxToolCalls) || 15));
   const polMax = Math.floor(Number(userPolicy?.max_tool_chain_depth));
@@ -1194,14 +1261,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     } catch (e) {
       if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) throw e;
       console.warn('[agent] model call failed:', e?.message ?? e);
-      scheduleRoutingArmBanditUpdate(env, ctx, {
-        taskType: routingTaskType || 'chat',
-        mode: mode || 'ask',
-        modelKey,
-        workspaceId: routingWs,
-        success: false,
-        lastChainId: null,
-      });
+      routeArmOutcome(false);
       emit('error', { message: 'Model call failed' });
       break;
     }
@@ -1303,14 +1363,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       if (!stream.ok) {
         const detail = await stream.text().catch(() => '');
         console.warn('[agent] model stream HTTP error', stream.status);
-        scheduleRoutingArmBanditUpdate(env, ctx, {
-          taskType: routingTaskType || 'chat',
-          mode: mode || 'ask',
-          modelKey,
-          workspaceId: routingWs,
-          success: false,
-          lastChainId: null,
-        });
+        routeArmOutcome(false);
         emit('error', { message: 'Model stream failed' });
         break;
       }
@@ -1378,14 +1431,6 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     conversationMessages.push({ role: 'assistant', content: assistantContent });
     if (!pendingToolCalls.length || stopReason === 'end_turn') {
       if (routingWs) {
-        scheduleRoutingArmBanditUpdate(env, ctx, {
-          taskType: routingTaskType || 'chat',
-          mode: mode || 'ask',
-          modelKey,
-          workspaceId: routingWs,
-          success: true,
-          lastChainId: null,
-        });
         const qs = Number(qualityScore);
         if (Number.isFinite(qs)) {
           scheduleRoutingArmQualityUpdate(env, ctx, {
@@ -1508,6 +1553,11 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       const toolT0 = Date.now();
       let toolOutput = '';
       let execErr = null;
+      emit('tool_start', {
+        tool_name: call.name,
+        input_preview: JSON.stringify(call.input || {}).slice(0, 200),
+      });
+      let toolRows = null;
       try {
         const execResult = await dispatchToolCall(env, call.name, call.input, {
           sessionId,
@@ -1518,6 +1568,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           isSuperadmin: mcpRuntimeContext.isSuperadmin,
           request,
         });
+        if (execResult && typeof execResult === 'object' && Array.isArray(execResult.rows)) {
+          toolRows = execResult.rows;
+        }
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
       } catch (e) {
         execErr = e;
@@ -1526,6 +1579,13 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         emit('tool_error', { tool: call.name, error: 'Tool execution failed' });
       }
       const toolDurMs = Date.now() - toolT0;
+      emit('tool_output', { tool_name: call.name, chunk: String(toolOutput || '').slice(0, 2000) });
+      emit('tool_done', {
+        tool_name: call.name,
+        status: execErr ? 'error' : 'ok',
+        duration_ms: toolDurMs,
+        rows: toolRows ?? null,
+      });
       scheduleAgentsamToolCallLog(env, ctx, {
         tenantId,
         sessionId,
@@ -1576,14 +1636,16 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
 
     if (routingWs) {
-      scheduleRoutingArmBanditUpdate(env, ctx, {
-        taskType: routingTaskType || 'chat',
-        mode: mode || 'ask',
-        modelKey,
-        workspaceId: routingWs,
-        success: true,
-        lastChainId: previousToolChainId,
-      });
+      if (!attributedRoutingArmId()) {
+        scheduleRoutingArmBanditUpdate(env, ctx, {
+          taskType: routingTaskType || 'chat',
+          mode: mode || 'ask',
+          modelKey,
+          workspaceId: routingWs,
+          success: true,
+          lastChainId: previousToolChainId,
+        });
+      }
       const qs = Number(qualityScore);
       if (Number.isFinite(qs)) {
         scheduleRoutingArmQualityUpdate(env, ctx, {
@@ -1600,13 +1662,38 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   }
 
   if (totalUsage.input_tokens || totalUsage.output_tokens) {
-    ctx.waitUntil?.(writeTelemetry(env, {
-      sessionId, tenantId, provider: 'anthropic', model: modelKey,
-      inputTokens: totalUsage.input_tokens, outputTokens: totalUsage.output_tokens,
-      cacheReadTokens: totalUsage.cache_read_input_tokens,
-      cacheWriteTokens: totalUsage.cache_creation_input_tokens,
-      toolCallCount: toolCallsUsed, success: true,
-    }));
+    const aid = attributedRoutingArmId();
+    ctx.waitUntil?.(
+      (async () => {
+        const out = await writeTelemetry(
+          env,
+          {
+            sessionId,
+            tenantId,
+            workspaceId: routingWs || undefined,
+            provider: 'anthropic',
+            model: modelKey,
+            inputTokens: totalUsage.input_tokens,
+            outputTokens: totalUsage.output_tokens,
+            cacheReadTokens: totalUsage.cache_read_input_tokens,
+            cacheWriteTokens: totalUsage.cache_creation_input_tokens,
+            toolCallCount: toolCallsUsed,
+            success: true,
+            routingArmId: aid,
+            latencyMs: Date.now() - loopT0,
+          },
+          null,
+        );
+        if (aid) {
+          await applyRoutingArmUsageFeedback(env, {
+            armId: aid,
+            success: true,
+            costUsd: Number(out?.estimatedCostUsd) || 0,
+            durationMs: Date.now() - loopT0,
+          });
+        }
+      })(),
+    );
   }
 
   emit('done', { tool_calls_used: toolCallsUsed, turns: turnCount });
@@ -1836,6 +1923,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       mode: requestedMode,
       workspaceId,
       toolRequired: requireTools,
+      routeKey:
+        body.route_key != null && String(body.route_key).trim() !== ''
+          ? String(body.route_key).trim()
+          : null,
     });
   } catch (_) {
     routingPick = null;
@@ -1960,21 +2051,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }),
   );
 
-  if (tenantId && workspaceId) {
-    const pickMk = chainRows[0]?.model_key ?? fallbackModelKeys[0] ?? null;
-    const pickPv = chainRows[0]?.provider ?? null;
-    const armId =
-      routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
-    scheduleInsertRoutingDecision(env, ctx, {
-      workspaceId,
-      tenantId,
-      sessionId: sessionId ?? null,
-      routingArmId: armId,
-      armTaskType: resolvedRoutingTaskType,
-      modelKey: pickMk || 'unknown',
-      provider: pickPv,
-    });
-  }
+  const routingArmIdForRun =
+    routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
 
   const ragResult    = await unifiedRagSearch(env, message, {
     topK: modeConfig.context_strategy === 'minimal' ? 3 : 8,
@@ -2031,6 +2109,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     resolved_requested_model: explicitRow?.model_key ?? null,
     auto_model: isAutoModel,
     tool_count: tools.length,
+    routing_arm_id: routingArmIdForRun,
   });
 
   ;(async () => {
@@ -2076,6 +2155,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               routingTaskType: resolvedRoutingTaskType,
               qualityScore: confidence,
               mcpRuntimeContext,
+              routingArmId: routingArmIdForRun,
+              thompsonModelKey: thompsonRow?.model_key ?? null,
             }),
             15000
           );
@@ -2149,6 +2230,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 routingTaskType: resolvedRoutingTaskType,
                 qualityScore: confidence,
                 mcpRuntimeContext,
+                routingArmId: routingArmIdForRun,
+                thompsonModelKey: thompsonRow?.model_key ?? null,
               }),
               15000
             );
@@ -2174,6 +2257,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId,
         });
       }
+
+      const usageRoutingArmId =
+        routingArmIdForRun &&
+        thompsonRow?.model_key &&
+        lastLoopStats?.modelKey === thompsonRow.model_key
+          ? routingArmIdForRun
+          : null;
 
       scheduleAgentsamCommandRunInsert(env, ctx, {
         tenantId,
@@ -2208,6 +2298,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           (lastLoopStats?.totalUsage?.input_tokens ?? 0) +
           (lastLoopStats?.totalUsage?.output_tokens ?? 0),
       });
+      if (userId && resolvedWorkspaceId) {
+        scheduleAgentsamChatAgentRunInsert(env, ctx, {
+          userId,
+          tenantId,
+          workspaceId: resolvedWorkspaceId,
+          conversationId: sessionId ? String(sessionId) : null,
+          routingArmId: routingArmIdForRun,
+          modelKey: lastLoopStats?.modelKey || fallbackModelKeys[0] || null,
+          taskType: resolvedRoutingTaskType,
+          success: succeeded,
+          inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+          outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+          costUsd: 0,
+          durationMs: Date.now() - chatT0,
+          errorMessage: succeeded ? null : 'all_providers_exhausted',
+        });
+      }
       scheduleAgentsamUsageEventFromChat(env, ctx, {
         tenantId,
         workspaceId,
@@ -2220,6 +2327,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         costUsd: 0,
         streamFailed: !succeeded,
         refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
+        routingArmId: usageRoutingArmId,
       });
       if (tenantId) {
         scheduleInsertAgentCost(env, ctx, {
@@ -2272,6 +2380,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         goal: message,
         contextTokenEstimate: 0,
       });
+      if (userId && resolvedWorkspaceId) {
+        scheduleAgentsamChatAgentRunInsert(env, ctx, {
+          userId,
+          tenantId,
+          workspaceId: resolvedWorkspaceId,
+          conversationId: sessionId ? String(sessionId) : null,
+          routingArmId: routingArmIdForRun,
+          modelKey: fallbackModelKeys[0] || null,
+          taskType: resolvedRoutingTaskType,
+          success: false,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          durationMs: Date.now() - chatT0,
+          errorMessage: e?.message != null ? String(e.message).slice(0, 8000) : 'agent_loop_failed',
+        });
+      }
       scheduleAgentsamUsageEventFromChat(env, ctx, {
         tenantId,
         workspaceId,
@@ -2284,6 +2409,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         costUsd: 0,
         streamFailed: true,
         refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
+        routingArmId: null,
       });
       if (tenantId) {
         scheduleInsertAgentCost(env, ctx, {
@@ -3256,6 +3382,45 @@ export async function handleAgentApi(request, url, env, ctx) {
     const now      = Math.floor(Date.now() / 1000);
     await env.DB.prepare(`UPDATE agent_command_proposals SET status='denied', denied_by=?, denied_at=?, denial_reason=?, updated_at=? WHERE id=?`).bind(denier, now, String(body.denial_reason||'').slice(0,4000), now, propId).run();
     return jsonResponse({ ok: true, proposal_id: propId, status: 'denied' });
+  }
+
+  // ── /api/agent/approval/pending ───────────────────────────────────────────
+  if (method === 'GET' && path === '/api/agent/approval/pending') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ approval: null });
+    const row = await env.DB.prepare(
+      `SELECT q.id, q.tool_name, q.description, q.risk_level, q.input_json,
+              q.is_mcp_server, s.display_name as server_display_name,
+              (SELECT COUNT(*) FROM agentsam_approval_queue WHERE status='pending') as queue_count
+       FROM agentsam_approval_queue q
+       LEFT JOIN agentsam_mcp_servers s ON q.server_key = s.server_key
+       WHERE q.status='pending' ORDER BY q.created_at ASC LIMIT 1`,
+    ).first();
+    if (!row) return jsonResponse({ approval: null });
+    const input = JSON.parse(row.input_json || '{}');
+    return jsonResponse({
+      approval: {
+        ...row,
+        preview_sql: input.sql ?? null,
+        preview_command: input.command ?? null,
+      },
+    });
+  }
+
+  // ── PATCH /api/agent/approval/:id ─────────────────────────────────────────
+  const approvalMatch = path.match(/^\/api\/agent\/approval\/([^/]+)$/);
+  if (method === 'PATCH' && approvalMatch) {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const { status } = await request.json().catch(() => ({}));
+    if (!['approved', 'denied'].includes(status)) return jsonResponse({ error: 'invalid status' }, 400);
+    await env.DB
+      .prepare(`UPDATE agentsam_approval_queue SET status=?, updated_at=datetime('now') WHERE id=?`)
+      .bind(status, approvalMatch[1])
+      .run();
+    return jsonResponse({ ok: true });
   }
 
   // ── /api/agent/workflows/trigger ─────────────────────────────────────────

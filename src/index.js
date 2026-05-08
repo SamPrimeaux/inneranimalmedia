@@ -35,6 +35,7 @@ import {
 } from './api/oauth-login-callbacks.js';
 import { handleGithubWebhook } from './api/webhooks/github.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
+import { createTracer } from './core/tracer.js';
 
 // --- Durable Objects (ACTIVE: 3 production classes only) ---
 export { IAMCollaborationSession } from './do/Collaboration.js';
@@ -82,6 +83,9 @@ export default {
         headers: mutableHeaders,
       });
     };
+
+    const tracer = createTracer(env, ctx);
+    ctx.tracer = tracer;
 
     try {
       const methodUpper = (request.method || 'GET').toUpperCase();
@@ -678,6 +682,8 @@ export default {
       }));
 
       return jsonResponse({ error: 'Internal Server Error', detail: e.message }, 500);
+    } finally {
+      tracer.flush();
     }
   },
 

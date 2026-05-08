@@ -4,6 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 import { resolveTelemetryTenantId } from '../core/auth';
+import { pragmaTableInfo } from '../core/retention.js';
 
 /**
  * Standardizes provider names for the spend ledger.
@@ -87,6 +88,7 @@ export async function writeTelemetry(env, data, modelRates) {
     latencyMs,
     success,
     computedCostUsdOverride,
+    routingArmId,
   } = data;
 
   const modelKey = model != null ? String(model) : '';
@@ -119,30 +121,64 @@ export async function writeTelemetry(env, data, modelRates) {
   const totalTok = tokIn + tokOut;
 
   try {
-    await env.DB.prepare(
-      `INSERT INTO agentsam_usage_events (
-        id, tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
-        tokens_in, tokens_out, total_tokens, cost_usd, status,
-        event_type, duration_ms,
-        created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`
-    ).bind(
-      telemetryId,
-      tidInsert,
-      wsInsert,
-      sid,
-      'agent-sam',
-      String(provider || 'unknown'),
-      modelKey,
-      modelKey,
-      tokIn,
-      tokOut,
-      totalTok,
-      estimatedCost ?? 0,
-      success ? 'ok' : 'error',
-      'agent_chat',
-      latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
-    ).run();
+    const usageCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
+    const armCol =
+      routingArmId != null &&
+      String(routingArmId).trim() !== '' &&
+      usageCols.has('routing_arm_id');
+
+    if (armCol) {
+      await env.DB.prepare(
+        `INSERT INTO agentsam_usage_events (
+          id, tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
+          tokens_in, tokens_out, total_tokens, cost_usd, status,
+          event_type, duration_ms, routing_arm_id,
+          created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+      ).bind(
+        telemetryId,
+        tidInsert,
+        wsInsert,
+        sid,
+        'agent-sam',
+        String(provider || 'unknown'),
+        modelKey,
+        modelKey,
+        tokIn,
+        tokOut,
+        totalTok,
+        estimatedCost ?? 0,
+        success ? 'ok' : 'error',
+        'agent_chat',
+        latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
+        String(routingArmId).trim().slice(0, 120),
+      ).run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO agentsam_usage_events (
+          id, tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
+          tokens_in, tokens_out, total_tokens, cost_usd, status,
+          event_type, duration_ms,
+          created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+      ).bind(
+        telemetryId,
+        tidInsert,
+        wsInsert,
+        sid,
+        'agent-sam',
+        String(provider || 'unknown'),
+        modelKey,
+        modelKey,
+        tokIn,
+        tokOut,
+        totalTok,
+        estimatedCost ?? 0,
+        success ? 'ok' : 'error',
+        'agent_chat',
+        latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
+      ).run();
+    }
 
     // PHASE 4B — ai_provider_usage rollup (correct schema: tokens_input/tokens_output/cost_usd/requests)
     // SCHEMA FIX: actual table has NO model or tenant_id column. UNIQUE(provider, date) declared inline.
@@ -185,7 +221,7 @@ export async function writeTelemetry(env, data, modelRates) {
     console.error('[writeTelemetry] failed:', e.message);
   }
 
-  return telemetryId;
+  return { telemetryId, estimatedCostUsd: estimatedCost ?? 0 };
 }
 
 /**

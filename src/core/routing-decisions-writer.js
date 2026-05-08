@@ -1,5 +1,6 @@
 /**
- * routing_decisions rows for Agent Sam (D1). rule_source is always agentsam_routing_arms.
+ * Legacy routing_decisions writer (D1). Chat now persists `routing_arm_id` on `agentsam_agent_run`
+ * and telemetry on `agentsam_usage_events` — avoid new callers; table is read-only / deprecated.
  */
 
 import { pragmaTableInfo } from './retention.js';

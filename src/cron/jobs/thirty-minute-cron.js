@@ -2,6 +2,12 @@
 
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { runOvernightCronStep } from './overnight-progress.js';
+import {
+  reconcileRoutingArmsFromAgentRuns,
+  rollupAgentsamModelRoutingMemory,
+  syncRoutingArmPauseFromDrift,
+  runRoutingAnalyticsRollups,
+} from '../../core/routing-cron.js';
 
 const CRON_30 = '*/30 * * * *';
 
@@ -118,46 +124,9 @@ export async function processQueues(env) {
   }
 }
 
-/** Nightly: update agentsam_routing_arms performance scores from routing_decisions telemetry. */
+/** @deprecated Use reconcileRoutingArmsFromAgentRuns (agentsam_agent_run, not routing_decisions). */
 export async function updateRoutingPerformanceScores(env) {
-  if (!env.DB) return;
-  const begun = await startCronRun(env, {
-    jobName: 'routing_performance_scores',
-    cronExpression: CRON_30,
-    tenantId: null,
-    workspaceId: null,
-  });
-  const runId = begun?.runId ?? null;
-  const startedAt = begun?.startedAt ?? Date.now();
-  try {
-    const r = await env.DB.prepare(`
-      UPDATE agentsam_routing_arms
-      SET
-        performance_score = (
-          SELECT ROUND(AVG(CASE WHEN had_error = 0 THEN 100.0 ELSE 0.0 END), 2)
-          FROM routing_decisions
-          WHERE task_type = agentsam_routing_arms.task_type
-            AND created_at > unixepoch('now', '-7 days')
-        ),
-        avg_latency_ms = (
-          SELECT ROUND(AVG(latency_ms), 0)
-          FROM routing_decisions
-          WHERE task_type = agentsam_routing_arms.task_type
-            AND latency_ms IS NOT NULL
-            AND created_at > unixepoch('now', '-7 days')
-        )
-      WHERE task_type IN (
-        SELECT DISTINCT task_type FROM routing_decisions
-        WHERE created_at > unixepoch('now', '-7 days')
-      )
-    `).run();
-    const rowsWritten = Number(r.meta?.changes ?? r.changes ?? 0) || 0;
-    console.log('[cron] routing performance scores updated');
-    if (runId) await completeCronRun(env, runId, startedAt, { rowsRead: 1, rowsWritten, metadata: {} });
-  } catch (e) {
-    if (runId) await failCronRun(env, runId, startedAt, e);
-    console.warn('[cron] updateRoutingPerformanceScores', e?.message ?? e);
-  }
+  await reconcileRoutingArmsFromAgentRuns(env);
 }
 
 /** Close terminal_sessions idle > 24h so active-count stays accurate. */
@@ -191,7 +160,10 @@ export async function runThirtyMinuteJobs(env, ctx) {
   ctx.waitUntil(
     (async () => {
       await sweepStaleCronRuns(env);
-      await updateRoutingPerformanceScores(env);
+      await reconcileRoutingArmsFromAgentRuns(env);
+      await rollupAgentsamModelRoutingMemory(env);
+      await syncRoutingArmPauseFromDrift(env);
+      await runRoutingAnalyticsRollups(env);
     })(),
   );
   ctx.waitUntil(sweepExpiredApprovalQueue(env));
