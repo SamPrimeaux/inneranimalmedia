@@ -67,6 +67,46 @@ INSERT OR REPLACE INTO agentsam_scripts (
   created_at,
   updated_at
 ) VALUES (
+  'script_cf_worker_smart_build_noop',
+  'ws_inneranimalmedia',
+  'Worker deploy smart-build (noop, skip Vite)',
+  'node scripts/smart-build.mjs',
+  'Logs and exits without running Vite. Worker bundle pipeline only; dashboard assets deploy to R2 separately.',
+  'deploy',
+  'node',
+  0,
+  1,
+  1,
+  NULL,
+  NULL,
+  NULL,
+  'Cloudflare Workers deploy when src/worker/migrations change (dashboard excluded via CF Build watch paths)',
+  'wrangler.production.toml no longer sets [build] command; CF Builds exclusions replace git-diff smart build. Safe doc/manual smoke.',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+  strftime('%Y-%m-%dT%H:%M:%fZ','now')
+);
+
+INSERT OR REPLACE INTO agentsam_scripts (
+  id,
+  workspace_id,
+  name,
+  path,
+  description,
+  purpose,
+  runner,
+  requires_env,
+  owner_only,
+  safe_to_run,
+  run_before,
+  run_after,
+  never_run_with,
+  preferred_for,
+  notes,
+  is_active,
+  created_at,
+  updated_at
+) VALUES (
   'script_learning_os_dashboard_r2_upload_prod',
   'ws_inneranimalmedia',
   'Upload dashboard app bundle to R2',
