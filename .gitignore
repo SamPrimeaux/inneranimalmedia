@@ -68,3 +68,9 @@ captures/*/raw-quality-report/
 captures/*/upload-failures.log
 iam_remediation.py
 iam_remediation_output.txt
+
+# Snapshot / schema audit outputs (local only)
+snapshot-before.json
+snapshot-after.json
+scripts/agentsam_schema_audit.json
+scripts/agentsam_schema_chunks.jsonl
