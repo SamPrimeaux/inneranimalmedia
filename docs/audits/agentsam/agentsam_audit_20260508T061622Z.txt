@@ -1,0 +1,178 @@
+IAM agentsam_* FULL TABLE AUDIT
+Generated : 20260508T061622Z
+Tables    : 83
+────────────────────────────────────────────────────────────────────────────────
+
+▌ ACTIVE  (rows > 0, written within 7d)  [16 tables]
+────────────────────────────────────────────────────────────────────────────────
+  agentsam_artifacts                                      rows=3          last=46.3h ago     idx=1
+  agentsam_bootstrap                                      rows=12         last=48.8h ago     idx=8
+  agentsam_command_run                                    rows=76         last=3.1h ago      idx=5
+  agentsam_cron_runs                                      rows=499        last=0.3h ago      idx=5
+  agentsam_error_log                                      rows=4          last=4.5h ago      idx=4
+  agentsam_eval_runs                                      rows=12         last=109.1h ago    idx=1
+  agentsam_memory                                         rows=116        last=2.8h ago      idx=7
+  agentsam_model_routing_memory                           rows=23         last=3.8h ago      idx=5
+  agentsam_plan_tasks                                     rows=97         last=20.4h ago     idx=11
+  agentsam_plans                                          rows=15         last=20.4h ago     idx=4
+  agentsam_plans_old                                      rows=15         last=20.4h ago     idx=9
+  agentsam_tool_call_log                                  rows=18         last=37.7h ago     idx=5
+  agentsam_tool_chain                                     rows=19         last=49.4h ago     idx=10
+  agentsam_tool_stats_compacted                           rows=81         last=5.3h ago      idx=5
+  agentsam_tools                                          rows=40         last=166.5h ago    idx=2
+  agentsam_workspace_state                                rows=5          last=37.4h ago     idx=4
+
+▌ DORMANT (rows > 0, stale > 7d)  [20 tables]
+────────────────────────────────────────────────────────────────────────────────
+  agentsam_agent_run                                      rows=312        last=—             idx=6
+  agentsam_analytics                                      rows=3          last=—             idx=6
+  agentsam_approval_queue                                 rows=2          last=193.8h ago    idx=8
+  agentsam_cad_jobs                                       rows=2          last=193.8h ago    idx=1
+  agentsam_code_index_job                                 rows=8          last=—             idx=2
+  agentsam_deployment_health                              rows=12         last=—             idx=4
+  agentsam_execution_performance_metrics                  rows=34         last=—             idx=10
+  agentsam_executions                                     rows=12         last=916.4h ago    idx=5
+  agentsam_health_daily                                   rows=3          last=—             idx=3
+  agentsam_hook_execution                                 rows=78         last=—             idx=9
+  agentsam_mcp_tool_execution                             rows=17         last=—             idx=4
+  agentsam_mcp_workflows                                  rows=52         last=—             idx=11
+  agentsam_model_drift_signals                            rows=3          last=190.0h ago    idx=2
+  agentsam_todo                                           rows=85         last=—             idx=6
+  agentsam_usage_events                                   rows=402        last=—             idx=6
+  agentsam_usage_rollups_daily                            rows=27         last=—             idx=1
+  agentsam_webhook_events                                 rows=1,341      last=—             idx=1
+  agentsam_webhook_weekly                                 rows=1          last=—             idx=4
+  agentsam_workflow_edges                                 rows=29         last=—             idx=7
+  agentsam_workflow_nodes                                 rows=22         last=—             idx=7
+
+▌ EMPTY   (0 rows — capability gap)  [11 tables]
+────────────────────────────────────────────────────────────────────────────────
+  agentsam_compaction_events                              rows=0          last=—             idx=2
+  agentsam_context_digest                                 rows=0          last=—             idx=5
+  agentsam_escalation                                     rows=0          last=—             idx=9
+  agentsam_execution_dependency_graph                     rows=0          last=—             idx=9
+  agentsam_execution_steps                                rows=0          last=—             idx=8
+  agentsam_guardrail_events                               rows=0          last=—             idx=5
+  agentsam_prompt_cache_keys                              rows=0          last=—             idx=2
+  agentsam_script_runs                                    rows=0          last=—             idx=1
+  agentsam_skill_invocation                               rows=0          last=—             idx=1
+  agentsam_tool_cache                                     rows=0          last=—             idx=7
+  agentsam_workflow_runs                                  rows=0          last=—             idx=9
+
+▌ CONFIG  (reference/settings data)  [36 tables]
+────────────────────────────────────────────────────────────────────────────────
+  agentsam_ai                                             rows=112        last=83.9h ago     idx=2
+  agentsam_browser_trusted_origin                         rows=10         last=—             idx=1
+  agentsam_command_allowlist                              rows=155        last=—             idx=3
+  agentsam_command_pattern                                rows=10         last=—             idx=3
+  agentsam_commands                                       rows=372        last=—             idx=8
+  agentsam_eval_cases                                     rows=12         last=109.1h ago    idx=1
+  agentsam_eval_suites                                    rows=8          last=109.1h ago    idx=1
+  agentsam_execution_context                              rows=66         last=3.1h ago      idx=4
+  agentsam_feature_flag                                   rows=13         last=—             idx=1
+  agentsam_fetch_domain_allowlist                         rows=18         last=—             idx=3
+  agentsam_guardrail_rulesets                             rows=2          last=—             idx=5
+  agentsam_guardrails                                     rows=13         last=—             idx=6
+  agentsam_hook                                           rows=14         last=—             idx=6
+  agentsam_ignore_pattern                                 rows=10         last=—             idx=3
+  agentsam_mcp_allowlist                                  rows=412        last=—             idx=6
+  agentsam_mcp_servers                                    rows=3          last=80.5h ago     idx=3
+  agentsam_mcp_tools                                      rows=392        last=—             idx=6
+  agentsam_model_catalog                                  rows=19         last=16.2h ago     idx=6
+  agentsam_model_tier                                     rows=5          last=—             idx=2
+  agentsam_project_context                                rows=54         last=—             idx=7
+  agentsam_prompt_routes                                  rows=10         last=17.1h ago     idx=4
+  agentsam_prompt_versions                                rows=11         last=79.7h ago     idx=4
+  agentsam_route_requirements                             rows=10         last=—             idx=3
+  agentsam_routing_arms                                   rows=57         last=—             idx=10
+  agentsam_rules_document                                 rows=4          last=—             idx=2
+  agentsam_scripts                                        rows=106        last=20.5h ago     idx=3
+  agentsam_skill                                          rows=48         last=—             idx=1
+  agentsam_skill_revision                                 rows=0          last=—             idx=3
+  agentsam_slash_commands                                 rows=22         last=—             idx=2
+  agentsam_subagent_profile                               rows=41         last=—             idx=3
+  agentsam_subscription_registry                          rows=16         last=107.5h ago    idx=1
+  agentsam_task_slos                                      rows=3          last=—             idx=1
+  agentsam_user_feature_override                          rows=0          last=—             idx=1
+  agentsam_user_policy                                    rows=4          last=—             idx=2
+  agentsam_workflows                                      rows=10         last=—             idx=6
+  agentsam_workspace                                      rows=23         last=—             idx=3
+
+────────────────────────────────────────────────────────────────────────────────
+ENHANCEMENT SUMMARY (tables with missing expected columns)
+────────────────────────────────────────────────────────────────────────────────
+  agentsam_agent_run: missing ['total_cost_usd', 'model_key']
+  agentsam_ai: missing ['input_cost_per_1m', 'output_cost_per_1m']
+  agentsam_analytics: missing ['event_type', 'created_at', 'payload_json']
+  agentsam_approval_queue: missing ['approved_at']
+  agentsam_artifacts: missing ['run_id', 'size_bytes']
+  agentsam_bootstrap: missing ['key', 'completed_at', 'version']
+  agentsam_browser_trusted_origin: missing ['tenant_id', 'enabled']
+  agentsam_code_index_job: missing ['files_processed']
+  agentsam_command_allowlist: missing ['command_id', 'tenant_id', 'enabled']
+  agentsam_command_pattern: missing ['command_id', 'priority']
+  agentsam_command_run: missing ['command_id', 'command_slug', 'status', 'started_at', 'model_key']
+  agentsam_commands: missing ['name', 'handler', 'enabled']
+  agentsam_compaction_events: missing ['source_table', 'rows_written']
+  agentsam_context_digest: missing ['run_id', 'original_token_count', 'compressed_token_count']
+  agentsam_cron_runs: missing ['cron_key']
+  agentsam_deployment_health: missing ['health_score', 'created_at']
+  agentsam_error_log: missing ['message', 'severity', 'source_table']
+  agentsam_escalation: missing ['escalation_type', 'severity', 'status', 'resolved_at']
+  agentsam_eval_cases: missing ['name']
+  agentsam_eval_runs: missing ['status', 'pass_count', 'fail_count', 'created_at']
+  agentsam_eval_suites: missing ['case_ids']
+  agentsam_execution_context: missing ['execution_id', 'context_json']
+  agentsam_execution_steps: missing ['step_name', 'step_type', 'duration_ms']
+  agentsam_feature_flag: missing ['key', 'enabled', 'tenant_id', 'workspace_id']
+  agentsam_fetch_domain_allowlist: missing ['domain', 'tenant_id', 'enabled', 'added_by']
+  agentsam_guardrail_events: missing ['triggered_at', 'context_json']
+  agentsam_guardrail_rulesets: missing ['name', 'guardrail_ids']
+  agentsam_guardrails: missing ['name', 'rule_type', 'enabled']
+  agentsam_health_daily: missing ['metric_date', 'health_score', 'error_count', 'success_count', 'warning_count']
+  agentsam_hook: missing ['event_type', 'target_url', 'enabled']
+  agentsam_hook_execution: missing ['http_status_code']
+  agentsam_ignore_pattern: missing ['tenant_id']
+  agentsam_mcp_allowlist: missing ['enabled']
+  agentsam_mcp_servers: missing ['name', 'status', 'last_ping_at']
+  agentsam_mcp_tool_execution: missing ['status']
+  agentsam_memory: missing ['memory_text', 'embedding_key']
+  agentsam_model_drift_signals: missing ['signal_type', 'tenant_id']
+  agentsam_model_routing_memory: missing ['routing_arm_id', 'alpha', 'beta', 'last_updated_at']
+  agentsam_model_tier: missing ['model_key', 'tier', 'tenant_id']
+  agentsam_plan_tasks: missing ['task_type']
+  agentsam_plans: missing ['agent_run_id']
+  agentsam_project_context: missing ['context_key', 'context_text']
+  agentsam_prompt_cache_keys: missing ['cache_key', 'created_at']
+  agentsam_prompt_routes: missing ['intent_pattern', 'prompt_key', 'model_key']
+  agentsam_prompt_versions: missing ['content']
+  agentsam_route_requirements: missing ['route_id', 'requirement_type', 'value']
+  agentsam_routing_arms: missing ['weight', 'enabled']
+  agentsam_rules_document: missing ['name', 'tenant_id', 'content', 'enabled']
+  agentsam_script_runs: missing ['output', 'tenant_id']
+  agentsam_scripts: missing ['content', 'language']
+  agentsam_skill: missing ['enabled']
+  agentsam_skill_invocation: missing ['status', 'created_at']
+  agentsam_skill_revision: missing ['file_path']
+  agentsam_slash_commands: missing ['command', 'handler', 'tenant_id']
+  agentsam_subagent_profile: missing ['name', 'model_key', 'system_prompt_key', 'enabled']
+  agentsam_subscription_registry: missing ['event_type', 'subscriber_url', 'enabled']
+  agentsam_task_slos: missing ['max_duration_ms', 'target_success_rate']
+  agentsam_todo: missing ['user_id', 'due_at']
+  agentsam_tool_chain: missing ['run_id', 'step_order', 'status']
+  agentsam_tool_stats_compacted: missing ['metric_date']
+  agentsam_usage_events: missing ['input_tokens', 'output_tokens', 'total_cost_usd']
+  agentsam_usage_rollups_daily: missing ['metric_date', 'model_key', 'provider', 'total_cost_usd', 'total_tokens', 'call_count']
+  agentsam_user_feature_override: missing ['feature_key', 'tenant_id']
+  agentsam_user_policy: missing ['policy_json']
+  agentsam_webhook_events: missing ['payload_size', 'created_at']
+  agentsam_webhook_weekly: missing ['total_events', 'success_count']
+  agentsam_workflow_edges: missing ['workflow_run_id', 'condition', 'traversed_at']
+  agentsam_workflow_nodes: missing ['workflow_run_id', 'status', 'started_at', 'duration_ms']
+  agentsam_workflow_runs: missing ['total_cost_usd']
+  agentsam_workflows: missing ['name', 'enabled', 'definition_json']
+  agentsam_workspace_state: missing ['last_active_at', 'active_sessions']
+
+────────────────────────────────────────────────────────────────────────────────
+END
+────────────────────────────────────────────────────────────────────────────────
