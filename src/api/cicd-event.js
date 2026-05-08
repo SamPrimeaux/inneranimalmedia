@@ -291,6 +291,20 @@ async function fireHooks(trigger, payload, env, isExplicitId = false) {
         output = `notify:webhook → ${webhookUrl} HTTP ${resp.status}`;
         if (!resp.ok) { status = 'fail'; error = `webhook HTTP ${resp.status}`; }
 
+      } else if (cmd === 'trigger:agent_sam_deploy_hook' || cmd === 'trigger:workers_deploy_hook') {
+        const { postAgentSamDeployHook } = await import('../core/workers-deploy-hook.js');
+        const pr = await postAgentSamDeployHook(env);
+        if (pr.error === 'AGENT_SAM_DEPLOY_HOOK_URL not configured') {
+          output = pr.error;
+          status = 'fail';
+        } else if (!pr.ok) {
+          output = `deploy hook HTTP ${pr.status}: ${(pr.raw || pr.error || '').slice(0, 280)}`;
+          status = 'fail';
+        } else {
+          const uuid = pr.json?.result?.build_uuid;
+          output = `Workers deploy hook OK HTTP ${pr.status}${uuid ? ` build_uuid=${uuid}` : ''}`;
+        }
+
       } else {
         // Generic command — log it
         output = `Trigger: ${trigger} | ${summaryText} | cmd: ${cmd.slice(0, 80)}`;

@@ -22,6 +22,7 @@ import { handleDeploymentsApi } from '../api/deployments.js';
 import { handleFinanceApi } from '../api/finance.js';
 import { handleMcpApi } from '../api/mcp.js';
 import { handleNotifyDeployComplete } from '../api/notify-deploy.js';
+import { handleTriggerWorkersBuild } from '../api/trigger-workers-build.js';
 import { handleDrawApi } from '../api/draw.js';
 import { handleThemesApi } from '../api/themes.js';
 import { handleHubApi } from '../api/hub.js';
@@ -192,6 +193,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower === '/api/internal/post-deploy' && request.method === 'POST') {
     return handlePostDeploy(request, env, ctx);
+  }
+
+  if (pathLower === '/api/internal/trigger-workers-build' && methodUpper === 'POST') {
+    return handleTriggerWorkersBuild(request, env, ctx);
   }
 
   if (pathLower.startsWith('/api/internal/designstudio/') || pathLower.startsWith('/api/designstudio/')) {

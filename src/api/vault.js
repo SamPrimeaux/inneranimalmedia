@@ -223,6 +223,7 @@ async function vaultFullAudit(request, env, authUser) {
 
 function vaultRegistry() {
   const secrets = [
+    { name: 'AGENT_SAM_DEPLOY_HOOK_URL', type: 'secret', description: 'Workers Builds deploy hook URL (POST); agent-sam-trigger' },
     { name: 'ANTHROPIC_API_KEY', type: 'secret', description: 'Claude API' },
     { name: 'CF_ACCESS_CLIENT_ID', type: 'secret', description: 'Zero Trust / Access' },
     { name: 'CF_ACCESS_CLIENT_SECRET', type: 'secret', description: 'Zero Trust / Access' },
