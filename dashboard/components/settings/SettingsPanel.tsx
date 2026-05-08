@@ -19,6 +19,7 @@ import { NetworkSection } from './sections/NetworkSection';
 import { ThemesSection } from './sections/ThemesSection';
 import { StorageSection } from './sections/StorageSection';
 import { SecuritySection } from './sections/SecuritySection';
+import { ApiKeysSection } from './sections/ApiKeysSection';
 import { PlanUsageSection } from './sections/PlanUsageSection';
 import { NotificationsSection } from './sections/NotificationsSection';
 import { DocsSection } from './sections/DocsSection';
@@ -109,6 +110,8 @@ export default function SettingsPanel({
         return <StorageSection />;
       case 'Security':
         return <SecuritySection data={data} />;
+      case 'API Keys':
+        return <ApiKeysSection workspaceId={workspaceId} />;
       case 'Plan & Usage':
         return <PlanUsageSection data={data} />;
       case 'Notifications':

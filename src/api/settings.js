@@ -17,6 +17,8 @@ import {
 } from '../core/bootstrap.js';
 import { handleSettingsIntegrationsApi } from './settings-integrations.js';
 import { handleSettingsSectionStatusApi } from './settings-sections.js';
+import { handleSettingsApiKeysApi } from './settings-api-keys.js';
+import { handleSettingsWorkspaceApi } from './settings-workspace.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace, canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
 
@@ -258,6 +260,17 @@ export async function handleSettingsRequest(request, env, ctx) {
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
   const sessionUserId = authUser.id;
 
+  const settingsApiKeysRes = await handleSettingsApiKeysApi(
+    request,
+    env,
+    ctx,
+    authUser,
+    url,
+    pathLower,
+    method,
+  );
+  if (settingsApiKeysRes) return settingsApiKeysRes;
+
   const settingsIntegrationsRes = await handleSettingsIntegrationsApi(
     request,
     env,
@@ -278,6 +291,15 @@ export async function handleSettingsRequest(request, env, ctx) {
     method,
   );
   if (sectionStatusRes) return sectionStatusRes;
+
+  const workspaceSettingsRes = await handleSettingsWorkspaceApi(request, env, ctx, {
+    authUser,
+    url,
+    pathLower,
+    method,
+    sessionUserId,
+  });
+  if (workspaceSettingsRes) return workspaceSettingsRes;
 
   // ── /api/settings/profile ─────────────────────────────────────────────────
   if (pathLower === '/api/settings/profile' && method === 'GET') {
@@ -2641,212 +2663,6 @@ export async function handleSettingsRequest(request, env, ctx) {
   }
 
   // ── WORKSPACE / HOOKS / SECURITY / USAGE (read surfaces) ──────────────────
-  if (pathLower === '/api/settings/workspace' && method === 'GET') {
-    if (!env.DB)
-      return jsonResponse({
-        workspace: null,
-        members: [],
-        indexJob: null,
-        workspace_id: null,
-        cms_context: null,
-        platform_r2_eligible: false,
-      });
-    const tenantId = await resolveAuthTenantId(env, authUser);
-    const isSuper = Number(authUser.is_superadmin) === 1;
-    if (!tenantId && !isSuper) return jsonResponse({ error: 'Tenant required' }, 403);
-
-    const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
-    if (!workspaceId) {
-      return jsonResponse({
-        workspace: null,
-        members: [],
-        indexJob: null,
-        workspace_id: null,
-        cms_context: null,
-        platform_r2_eligible: false,
-        notice: 'No workspace context — set a default workspace or open settings with ?workspace_id=.',
-      });
-    }
-
-    const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
-    if (!okWs) return jsonResponse({ error: 'Forbidden' }, 403);
-
-    try {
-      const tidBind = tenantId ?? '';
-      const isSuperNum = isSuper ? 1 : 0;
-      const workspaceRow = await env.DB.prepare(
-        `SELECT w.*, ws.theme_id, ws.accent_color, ws.timezone,
-                ws.settings_json AS ws_settings_json,
-                wl.max_daily_cost_usd, wl.max_members
-         FROM workspaces w
-         LEFT JOIN workspace_settings ws ON ws.workspace_id = w.id
-         LEFT JOIN workspace_limits wl ON wl.workspace_id = w.id
-         WHERE w.id = ?
-           AND (
-             (? != '' AND w.tenant_id = ?)
-             OR EXISTS (
-               SELECT 1 FROM workspace_members wm
-               WHERE wm.workspace_id = w.id AND wm.user_id = ?
-                 AND COALESCE(wm.is_active, 1) = 1
-             )
-             OR (? = 1)
-           )
-         LIMIT 1`,
-      )
-        .bind(workspaceId, tidBind, tidBind, sessionUserId, isSuperNum)
-        .first()
-        .catch(() => null);
-
-      let cmsPref = null;
-      try {
-        cmsPref = await env.DB.prepare(
-          `SELECT theme_slug, scope, tenant_id FROM cms_theme_preferences
-           WHERE workspace_id = ? AND scope = 'workspace'
-           ORDER BY updated_at DESC LIMIT 1`,
-        )
-          .bind(workspaceId)
-          .first();
-      } catch {
-        cmsPref = null;
-      }
-
-      let parsedSettings = {};
-      try {
-        const rawSj = workspaceRow?.settings_json;
-        parsedSettings =
-          rawSj != null && String(rawSj).trim() !== ''
-            ? typeof rawSj === 'string'
-              ? JSON.parse(rawSj)
-              : rawSj
-            : {};
-      } catch {
-        parsedSettings = {};
-      }
-      const cmsPipeline =
-        parsedSettings.cms_pipeline && typeof parsedSettings.cms_pipeline === 'object'
-          ? parsedSettings.cms_pipeline
-          : {};
-
-      const tidForEligible = tenantId || (workspaceRow?.tenant_id ? String(workspaceRow.tenant_id) : '');
-      const platform_r2_eligible = await canUsePlatformAssetsR2Upload(env, workspaceId, tidForEligible);
-
-      let workspace = workspaceRow;
-      if (workspace && typeof workspace === 'object') {
-        const nm =
-          workspace.display_name != null && String(workspace.display_name).trim()
-            ? String(workspace.display_name).trim()
-            : workspace.name != null && String(workspace.name).trim()
-              ? String(workspace.name).trim()
-              : workspace.id;
-        workspace = {
-          ...workspace,
-          name: nm,
-          cms_pipeline: cmsPipeline,
-        };
-      }
-
-      const agentWsSlug =
-        workspace && workspace.slug != null && String(workspace.slug).trim() !== ''
-          ? String(workspace.slug).trim()
-          : workspaceId;
-
-      const [
-        members,
-        indexJob,
-        agentConfig,
-        userPolicy,
-        domains,
-        usageMetrics,
-      ] = await Promise.all([
-        env.DB.prepare(
-          `SELECT wm.user_id, wm.role, u.display_name, u.email, u.avatar_url
-           FROM workspace_members wm
-           JOIN auth_users u ON u.id = wm.user_id
-           WHERE wm.workspace_id = ?`,
-        )
-          .bind(workspaceId)
-          .all()
-          .then((r) => r.results || [])
-          .catch(() => []),
-        env.DB.prepare(
-          `SELECT status, progress_percent, file_count, indexed_file_count, last_sync_at, last_error
-           FROM agentsam_code_index_job
-           WHERE workspace_id = ?
-           ORDER BY datetime(updated_at) DESC
-           LIMIT 1`,
-        )
-          .bind(workspaceId)
-          .first()
-          .catch(() => null),
-        env.DB.prepare(
-          `SELECT workspace_slug, github_repo, default_model_id,
-                  primary_subagent_id, r2_bucket, r2_prefix,
-                  root_path, description, display_name, status
-           FROM agentsam_workspace
-           WHERE id = ? OR workspace_slug = ?
-           LIMIT 1`,
-        )
-          .bind(workspaceId, agentWsSlug)
-          .first()
-          .catch(() => null),
-        env.DB.prepare(
-          `SELECT auto_run_mode, browser_protection, mcp_tools_protection,
-                  file_deletion_protection, external_file_protection,
-                  max_cost_per_session_usd, max_cost_per_call_usd,
-                  allowed_model_tier_max, tool_risk_level_max,
-                  allow_subagent_spawn, max_spawn_depth,
-                  max_tool_chain_depth, web_search_enabled,
-                  web_fetch_enabled, text_size, default_agent_location
-           FROM agentsam_user_policy
-           WHERE user_id = ? AND workspace_id = ?
-           LIMIT 1`,
-        )
-          .bind(authUser.id, workspaceId)
-          .first()
-          .catch(() => null),
-        env.DB.prepare(
-          `SELECT domain, is_primary, verified, created_at
-           FROM workspace_domains
-           WHERE workspace_id = ?
-           ORDER BY is_primary DESC`,
-        )
-          .bind(workspaceId)
-          .all()
-          .then((r) => r.results || [])
-          .catch(() => []),
-        env.DB.prepare(
-          `SELECT metric_name, metric_value, period, recorded_at
-           FROM workspace_usage_metrics
-           WHERE workspace_id = ?
-           ORDER BY recorded_at DESC
-           LIMIT 20`,
-        )
-          .bind(workspaceId)
-          .all()
-          .then((r) => r.results || [])
-          .catch(() => []),
-      ]);
-
-      return jsonResponse({
-        workspace,
-        members,
-        indexJob,
-        workspace_id: workspaceId,
-        cms_context: {
-          theme_preference_slug: cmsPref?.theme_slug ?? null,
-          theme_preference_scope: cmsPref?.scope ?? null,
-        },
-        platform_r2_eligible,
-        agent_config: agentConfig ?? null,
-        user_policy: userPolicy ?? null,
-        domains,
-        usage_metrics: usageMetrics,
-      });
-    } catch (e) {
-      return jsonResponse({ error: e?.message ?? String(e) }, 500);
-    }
-  }
-
   if (pathLower === '/api/settings/workspace' && method === 'PATCH') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const tenantId = await resolveAuthTenantId(env, authUser);
