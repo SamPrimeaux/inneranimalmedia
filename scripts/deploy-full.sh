@@ -98,3 +98,9 @@ node "$REPO_ROOT/scripts/record-d1-deploy-complete.mjs"
   --mode=post-deploy --older-than-minutes=15 --apply || true
 
 "$REPO_ROOT/scripts/post-deploy-memory-sync.sh"
+
+# R2 orphan prune + agentsam_script_runs telemetry (script_connor_r2_prune). Non-fatal if prune fails.
+echo "[deploy-full] r2:prune (D1 telemetry + prune-r2-orphans)"
+export DEPLOY_PHASE=r2_prune
+export TRIGGER_SOURCE="${TRIGGER_SOURCE:-cicd}"
+npm run r2:prune || echo "[deploy-full] warning: r2:prune non-zero exit (non-fatal)"

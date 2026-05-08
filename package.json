@@ -27,6 +27,7 @@
     "r2:upload:dashboard-app-prod": "./scripts/upload-dashboard-app-r2-prod.sh",
     "r2:prune:dry-run": "node scripts/prune-r2-orphans.mjs --dry-run --bucket inneranimalmedia --tenant-id tenant_sam_primeaux --workspace-id ws_inneranimalmedia --project-id inneranimalmedia",
     "r2:prune:apply": "node scripts/prune-r2-orphans.mjs --apply --bucket inneranimalmedia --tenant-id tenant_sam_primeaux --workspace-id ws_inneranimalmedia --project-id inneranimalmedia",
+    "r2:prune": "node scripts/run-with-agentsam-script-telemetry.mjs --script-id script_connor_r2_prune --workspace-id ws_inneranimalmedia --triggered-by deploy-full -- npm run r2:prune:apply",
     "deploy:full": "./scripts/deploy-full.sh",
     "deploy:full:safe": "SKIP_R2_DEPLOY_RECONCILE=1 npm run deploy:full",
     "deploy:ledger:start": "node scripts/record-supabase-deploy-start.mjs",

@@ -5,8 +5,11 @@
  * Optional: writes agentsam_hook_execution rows when agentsam_hook rows opt in via
  * metadata.agentsam_script_id (see agentsam-hook-script-bridge.js). Pass hookAudit: false to skip.
  *
- * CLI-only runners (e.g. register-agentsam-scripts.mjs) do not pass through the Worker; add
- * optional INSERTs there or in CI if you need the same audit trail for local runs.
+ * CLI / deploy: use `scripts/run-with-agentsam-script-telemetry.mjs` (wraps shell commands with
+ * INSERT/UPDATE on remote D1). Post-deploy: `npm run r2:prune` from deploy-full.sh.
+ *
+ * Worker terminal: POST /api/agent/terminal/run accepts optional `agentsam_script_id`,
+ * `workspace_id`, `trigger_source` for the same audit trail.
  */
 
 import { recordHookExecutionsForAgentsamScriptRun } from './agentsam-hook-script-bridge.js';
