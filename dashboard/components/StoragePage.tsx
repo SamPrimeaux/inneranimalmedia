@@ -239,13 +239,14 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
         <NavBtn k="policies" icon={<Shield size={15} />} label="Policies" />
         <NavBtn k="cleanup" icon={<Trash2 size={15} />} label="Cleanup" />
         <NavBtn k="activity" icon={<History size={15} />} label="Activity" />
+        <NavBtn k="providers" icon={<Settings size={15} />} label="Providers" />
       </aside>
 
       <main className="storage-main">
         <div className="storage-top">
-          <h2>{nav[0].toUpperCase() + nav.slice(1)}</h2>
+          <h2>{nav === 'providers' ? 'Provider Settings' : nav[0].toUpperCase() + nav.slice(1)}</h2>
           <div className="storage-quality">
-            <DataQuality data={nav === 'analytics' ? analytics : nav === 'vectors' ? vectors : nav === 'activity' ? activity : buckets} />
+            <DataQuality data={qualitySource} />
             <button className="storage-btn" onClick={refresh}><RefreshCw size={13} className={loading ? 'animate-spin' : ''} />Refresh</button>
           </div>
         </div>
@@ -324,6 +325,84 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
             <div className="storage-grid"><Stat label="Endpoint" value={<span style={{ fontSize: 12 }}>{s3?.endpoint || 'n/a'}</span>} /><Stat label="Region" value={s3?.region || 'auto'} /><Stat label="Access Keys" value={(s3?.accessKeys || s3?.keys || []).length} /><Stat label="Buckets" value={(s3?.source_buckets || []).length} /></div>
             <div className="storage-card storage-pad" style={{ marginBottom: 14 }}><label className="storage-muted">Source bucket</label><br /><select className="storage-field">{(s3?.source_buckets || bucketRows).map((b: Row) => <option key={b.storage_name || b.bucket_name}>{b.storage_name || b.bucket_name}</option>)}</select><p className="storage-muted">Allowed buckets: {s3?.allowed_buckets_json || '[]'}</p></div>
             <div className="storage-card"><table className="storage-table"><thead><tr><th>Access Key</th><th>Created</th><th>Status</th></tr></thead><tbody>{(s3?.accessKeys || s3?.keys || []).map((k: Row) => <tr key={k.id || k.accessKeyId}><td>{k.accessKeyId || k.id}</td><td>{fmtTs(k.created_at || k.createdAt)}</td><td>{k.status}</td></tr>)}</tbody></table></div>
+          </>
+        )}
+
+        {nav === 'providers' && (
+          <>
+            <p className="storage-muted" style={{ marginBottom: 14 }}>
+              One row per provider in <code className="storage-muted">user_storage_provider_preferences</code>. OAuth status reflects{' '}
+              <code className="storage-muted">user_oauth_tokens</code>.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {providerSpecs.map((spec) => {
+                const open = !!providerExpanded[spec.id];
+                const connected =
+                  spec.oauthKey != null && oauthProviders.includes(String(spec.oauthKey).toLowerCase());
+                const draft = providerDrafts[spec.id] || {};
+                return (
+                  <div className="storage-card" key={spec.id}>
+                    <button
+                      type="button"
+                      className="storage-provider-head"
+                      onClick={() => setProviderExpanded((p) => ({ ...p, [spec.id]: !open }))}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        <strong>{spec.title}</strong>
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {spec.oauthKey != null && (
+                          <Badge tone={connected ? 'ok' : 'muted'}>{connected ? 'Connected' : 'Not connected'}</Badge>
+                        )}
+                      </span>
+                    </button>
+                    {open && (
+                      <div className="storage-provider-body">
+                        {spec.fields.map((f) => {
+                          const readOnlyGoogle =
+                            spec.id === 'google_drive' &&
+                            f === 'folder_name' &&
+                            oauthProviders.includes('google_drive');
+                          const masked = f === 'secret_access_key' && draft[f] === '********';
+                          return (
+                            <label key={f} className="storage-muted" style={{ fontSize: 11 }}>
+                              {fieldLabel(f)}
+                              <input
+                                className="storage-field"
+                                style={{ marginTop: 4 }}
+                                value={masked ? '' : draft[f] != null ? String(draft[f]) : ''}
+                                placeholder={masked ? '•••••••• (saved)' : ''}
+                                readOnly={readOnlyGoogle}
+                                type={f === 'secret_access_key' ? 'password' : 'text'}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setProviderDrafts((prev) => ({
+                                    ...prev,
+                                    [spec.id]: { ...(prev[spec.id] || {}), [f]: v },
+                                  }));
+                                }}
+                              />
+                            </label>
+                          );
+                        })}
+                        <div className="storage-row-actions">
+                          <button
+                            type="button"
+                            className="storage-btn"
+                            disabled={providerSaving === spec.id}
+                            onClick={() => void saveProvider(spec.id)}
+                          >
+                            {providerSaving === spec.id ? <Loader2 size={13} className="animate-spin" /> : null}
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </>
         )}
 
