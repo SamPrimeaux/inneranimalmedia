@@ -4,7 +4,8 @@
  * Owns /api/integrations/* plus inbound provider webhooks.
  */
 import { getAuthUser, isSamOnlyUser, jsonResponse, fallbackSystemTenantId } from '../core/auth.js';
-import { ensureOauthTokenColumns } from './oauth.js';
+import { ensureOauthTokenColumns, resolveOAuthAccessToken } from './oauth.js';
+import { getIntegrationToken } from '../integrations/tokens.js';
 import { recordWorkerAnalyticsError } from './telemetry.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
 
@@ -627,16 +628,20 @@ async function handleProviderTest(env, authUser, provider) {
 async function runProviderHealthCheck(env, authUser, provider) {
     const userId = integrationUserId(authUser);
     if (provider === 'github') {
-        const token = await getIntegrationToken(env.DB, userId, 'github', '');
+        const token = await getIntegrationToken(env, userId, 'github', '');
         if (!token) return { ok: false, status: 'error', error: 'GitHub OAuth token not found' };
-        const res = await fetch('https://api.github.com/user', { headers: { Authorization: `Bearer ${token.access_token}`, 'User-Agent': 'IAM-Platform' } });
+        const ghToken = await resolveOAuthAccessToken(env, token);
+        if (!ghToken) return { ok: false, status: 'error', error: 'GitHub token unavailable — please reconnect' };
+        const res = await fetch('https://api.github.com/user', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });
         const data = await res.json().catch(() => ({}));
         return { ok: res.ok, status: res.ok ? 'ok' : 'error', error: res.ok ? null : data.message || res.statusText, account_info: data.login ? { login: data.login, html_url: data.html_url } : null, response_preview: JSON.stringify({ login: data.login, id: data.id }).slice(0, 500) };
     }
     if (provider === 'google_drive') {
-        const token = await getIntegrationToken(env.DB, userId, 'google_drive', '');
+        const token = await getIntegrationToken(env, userId, 'google_drive', '');
         if (!token) return { ok: false, status: 'error', error: 'Google Drive OAuth token not found' };
-        const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user,storageQuota', { headers: { Authorization: `Bearer ${token.access_token}` } });
+        const gdToken = await resolveOAuthAccessToken(env, token);
+        if (!gdToken) return { ok: false, status: 'error', error: 'Google Drive token unavailable — please reconnect' };
+        const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user,storageQuota', { headers: { Authorization: `Bearer ${gdToken}` } });
         const data = await res.json().catch(() => ({}));
         return { ok: res.ok, status: res.ok ? 'ok' : 'error', error: res.ok ? null : data.error?.message || res.statusText, account_info: data.user || null, response_preview: JSON.stringify(data.user || data.error || {}).slice(0, 500) };
     }
@@ -667,10 +672,13 @@ async function handleProviderSync(env, authUser, provider) {
     const tenantId = resolveTenantId(authUser, env);
     const changes = [];
     if (provider === 'github') {
-        const token = await getIntegrationToken(env.DB, integrationUserId(authUser), 'github', '');
+        const token = await getIntegrationToken(env, integrationUserId(authUser), 'github', '');
         if (token) {
-            const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=10&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${token.access_token}`, 'User-Agent': 'IAM-Platform' } });
-            changes.push({ github_repos_checked: res.ok });
+            const ghToken = await resolveOAuthAccessToken(env, token);
+            if (ghToken) {
+                const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=10&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });
+                changes.push({ github_repos_checked: res.ok });
+            }
         }
     } else if (provider === 'google_drive') {
         changes.push({ token_status: await oauthProviderConnected(env.DB, integrationUserId(authUser), 'google_drive') ? 'valid_row_present' : 'missing' });
@@ -784,50 +792,62 @@ async function handleLegacyProviderBrowser(request, env, authUser, url, pathLowe
     const githubAccount = url.searchParams.get('account') || '';
     if (method === 'GET' && pathLower === '/api/integrations/gdrive/files') {
         const folderId = url.searchParams.get('folderId') || 'root';
-        const tokenRow = await getIntegrationToken(env.DB, userId, 'google_drive', '');
+        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');
         if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+        const gdToken = await resolveOAuthAccessToken(env, tokenRow);
+        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable — please reconnect' }, 401);
         const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
         driveUrl.searchParams.set('q', `'${folderId}' in parents and trashed=false`);
         driveUrl.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
         driveUrl.searchParams.set('orderBy', 'name');
-        const res = await fetch(driveUrl.toString(), { headers: { Authorization: `Bearer ${tokenRow.access_token}` } });
+        const res = await fetch(driveUrl.toString(), { headers: { Authorization: `Bearer ${gdToken}` } });
         return jsonResponse(await res.json(), res.ok ? 200 : res.status);
     }
     if (method === 'GET' && pathLower === '/api/integrations/gdrive/file') {
         const fileId = url.searchParams.get('fileId');
-        const tokenRow = await getIntegrationToken(env.DB, userId, 'google_drive', '');
+        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');
         if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${tokenRow.access_token}` } });
+        const gdToken = await resolveOAuthAccessToken(env, tokenRow);
+        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable — please reconnect' }, 401);
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });
         return jsonResponse({ content: await res.text() }, res.ok ? 200 : res.status);
     }
     if (method === 'GET' && pathLower === '/api/integrations/gdrive/raw') {
         const fileId = url.searchParams.get('fileId');
-        const tokenRow = await getIntegrationToken(env.DB, userId, 'google_drive', '');
+        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');
         if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${tokenRow.access_token}` } });
+        const gdToken = await resolveOAuthAccessToken(env, tokenRow);
+        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable — please reconnect' }, 401);
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });
         if (!res.ok) return jsonResponse({ error: res.statusText || 'Not found' }, res.status);
         return new Response(res.body, { headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/octet-stream', 'Access-Control-Allow-Origin': '*' } });
     }
     if (method === 'GET' && pathLower === '/api/integrations/github/repos') {
-        const tokenRow = await getIntegrationToken(env.DB, userId, 'github', githubAccount);
+        const tokenRow = await getIntegrationToken(env, userId, 'github', githubAccount);
         if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
+        const ghToken = await resolveOAuthAccessToken(env, tokenRow);
+        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable — please reconnect' }, 401);
+        const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });
         return jsonResponse(await res.json(), res.ok ? 200 : res.status);
     }
     if (method === 'GET' && pathLower === '/api/integrations/github/files') {
         const repo = url.searchParams.get('repo');
         const filePath = url.searchParams.get('path') || '';
-        const tokenRow = await getIntegrationToken(env.DB, userId, 'github', githubAccount);
+        const tokenRow = await getIntegrationToken(env, userId, 'github', githubAccount);
         if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
+        const ghToken = await resolveOAuthAccessToken(env, tokenRow);
+        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable — please reconnect' }, 401);
+        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });
         return jsonResponse(await res.json(), res.ok ? 200 : res.status);
     }
     if (method === 'GET' && pathLower === '/api/integrations/github/file') {
         const repo = url.searchParams.get('repo');
         const filePath = url.searchParams.get('path');
-        const tokenRow = await getIntegrationToken(env.DB, userId, 'github', githubAccount);
+        const tokenRow = await getIntegrationToken(env, userId, 'github', githubAccount);
         if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
+        const ghToken = await resolveOAuthAccessToken(env, tokenRow);
+        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable — please reconnect' }, 401);
+        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });
         const data = await res.json();
         const content = atob((data.content || '').replace(/\n/g, ''));
         return jsonResponse({ content, sha: data.sha, name: data.name }, res.ok ? 200 : res.status);
@@ -835,21 +855,15 @@ async function handleLegacyProviderBrowser(request, env, authUser, url, pathLowe
     if (method === 'GET' && pathLower === '/api/integrations/github/raw') {
         const repo = url.searchParams.get('repo');
         const filePath = url.searchParams.get('path');
-        const tokenRow = await getIntegrationToken(env.DB, userId, 'github', githubAccount);
+        const tokenRow = await getIntegrationToken(env, userId, 'github', githubAccount);
         if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const res = await fetch(`https://raw.githubusercontent.com/${encodeURIComponent(repo)}/HEAD/${String(filePath || '').split('/').map((p) => encodeURIComponent(p)).join('/')}`, { headers: { Authorization: `token ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
+        const ghToken = await resolveOAuthAccessToken(env, tokenRow);
+        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable — please reconnect' }, 401);
+        const res = await fetch(`https://raw.githubusercontent.com/${encodeURIComponent(repo)}/HEAD/${String(filePath || '').split('/').map((p) => encodeURIComponent(p)).join('/')}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });
         if (!res.ok) return jsonResponse({ error: res.statusText || 'Not found' }, res.status);
         return new Response(res.body, { headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/octet-stream', 'Access-Control-Allow-Origin': '*' } });
     }
     return null;
-}
-
-async function getIntegrationToken(DB, userId, provider, accountId) {
-    if (!DB || !userId) return null;
-    if (provider === 'github' && !accountId) {
-        return await safeFirst(DB, `SELECT access_token, refresh_token, expires_at, account_identifier FROM user_oauth_tokens WHERE user_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1`, [userId, provider]);
-    }
-    return await safeFirst(DB, `SELECT access_token, refresh_token, expires_at, account_identifier FROM user_oauth_tokens WHERE user_id = ? AND provider = ? AND account_identifier = ? LIMIT 1`, [userId, provider, accountId || '']);
 }
 
 async function oauthProviderConnected(DB, userId, provider) {

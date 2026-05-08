@@ -1,5 +1,6 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
+import { resolveOAuthAccessToken } from '../api/oauth.js';
 import { getIntegrationToken } from './tokens.js';
 
 /**
@@ -19,15 +20,16 @@ export async function handleGitHubApi(request, env) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     // Retrieve the GitHub token from Secret/Vault/KV
-    const token = await getIntegrationToken(env.DB, authUser.id, 'github');
-    if (!token) return jsonResponse({ error: 'GitHub account not linked' }, 403);
+    const tokenRow = await getIntegrationToken(env, authUser.id, 'github', '');
+    const ghAccess = await resolveOAuthAccessToken(env, tokenRow);
+    if (!ghAccess) return jsonResponse({ error: 'GitHub account not linked' }, 403);
 
     // ── GET /api/agent/github/repos ──────────────────────────────────────────
     if (pathLower === '/api/agent/github/repos' && method === 'GET') {
         try {
             const response = await fetch('https://api.github.com/user/repos?sort=updated&per_page=50', {
                 headers: {
-                    'Authorization': `token ${token}`,
+                    'Authorization': `Bearer ${ghAccess}`,
                     'User-Agent': 'AgentSam-Dashboard',
                     'Accept': 'application/vnd.github.v3+json'
                 }
@@ -48,7 +50,7 @@ export async function handleGitHubApi(request, env) {
         try {
             const response = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
                 headers: {
-                    'Authorization': `token ${token}`,
+                    'Authorization': `Bearer ${ghAccess}`,
                     'User-Agent': 'AgentSam-Dashboard',
                     'Accept': 'application/vnd.github.v3.raw'
                 }
@@ -145,14 +147,11 @@ async function getAppInstallationToken(env, owner) {
 
 export async function resolveGitHubToken(env, authUser, owner) {
   // 1. User OAuth token from D1
-  if (authUser?.user_id) {
-    const row = await env.DB.prepare(
-      `SELECT access_token FROM user_oauth_tokens
-       WHERE user_id = ? AND provider = 'github'
-       ORDER BY updated_at DESC LIMIT 1`
-    )
-      .bind(authUser.user_id)
-      .first();
+  const uid = authUser?.user_id != null && String(authUser.user_id).trim() !== ''
+    ? String(authUser.user_id)
+    : String(authUser?.id || '').trim();
+  if (uid) {
+    const row = await getIntegrationToken(env, uid, 'github', '');
     if (row?.access_token) return { token: row.access_token, mode: 'oauth' };
   }
 
@@ -332,8 +331,8 @@ export async function handleGithubApi(request, env, authUser) {
 
   if (method === 'GET' && path === '/api/integrations/gdrive/files') {
     const folderId = url.searchParams.get('folderId') || 'root';
-    const tokenRow = await getIntegrationToken(env.DB, integrationUserId, 'google_drive', '');
-    if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+    const tokenRow = await getIntegrationToken(env, integrationUserId, 'google_drive', '');
+    if (!tokenRow?.access_token) return jsonResponse({ error: 'not_connected' }, 400);
     const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
     driveUrl.searchParams.set('q', `'${folderId}' in parents and trashed=false`);
     driveUrl.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
@@ -341,64 +340,20 @@ export async function handleGithubApi(request, env, authUser) {
     const res = await fetch(driveUrl.toString(), {
       headers: { Authorization: `Bearer ${tokenRow.access_token}` }
     });
-    if (res.status === 401 && tokenRow.refresh_token && env.GOOGLE_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET) {
-      const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: env.GOOGLE_CLIENT_ID,
-          client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
-          refresh_token: tokenRow.refresh_token,
-          grant_type: 'refresh_token'
-        })
-      });
-      const refreshed = await refreshRes.json();
-      if (refreshed.access_token) {
-        await env.DB.prepare(
-          `UPDATE user_oauth_tokens SET access_token = ?, expires_at = ?, updated_at = unixepoch() WHERE user_id = ? AND provider = 'google_drive' AND account_identifier = ''`
-        ).bind(refreshed.access_token, Math.floor(Date.now() / 1000) + (refreshed.expires_in || 3600), integrationUserId).run();
-        const retryUrl = new URL('https://www.googleapis.com/drive/v3/files');
-        retryUrl.searchParams.set('q', `'${folderId}' in parents and trashed=false`);
-        retryUrl.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
-        retryUrl.searchParams.set('orderBy', 'name');
-        const retry = await fetch(retryUrl.toString(), { headers: { Authorization: `Bearer ${refreshed.access_token}` } });
-        return jsonResponse(await retry.json());
-      }
-    }
     return jsonResponse(await res.json());
   }
 
   if (method === 'GET' && path === '/api/integrations/gdrive/file') {
     const fileId = url.searchParams.get('fileId');
-    const tokenRow = await getIntegrationToken(env.DB, integrationUserId, 'google_drive', '');
-    if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+    const tokenRow = await getIntegrationToken(env, integrationUserId, 'google_drive', '');
+    if (!tokenRow?.access_token) return jsonResponse({ error: 'not_connected' }, 400);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${tokenRow.access_token}` } });
-    if (res.status === 401 && tokenRow.refresh_token && env.GOOGLE_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET) {
-      const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: env.GOOGLE_CLIENT_ID,
-          client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
-          refresh_token: tokenRow.refresh_token,
-          grant_type: 'refresh_token'
-        })
-      });
-      const refreshed = await refreshRes.json();
-      if (refreshed.access_token) {
-        await env.DB.prepare(
-          `UPDATE user_oauth_tokens SET access_token = ?, expires_at = ?, updated_at = unixepoch() WHERE user_id = ? AND provider = 'google_drive' AND account_identifier = ''`
-        ).bind(refreshed.access_token, Math.floor(Date.now() / 1000) + (refreshed.expires_in || 3600), integrationUserId).run();
-        const retry = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${refreshed.access_token}` } });
-        return jsonResponse({ content: await retry.text() });
-      }
-    }
     return jsonResponse({ content: await res.text() });
   }
 
   if (method === 'GET' && path === '/api/integrations/github/repos') {
-    const tokenRow = await getIntegrationToken(env.DB, integrationUserId, 'github', githubAccount);
-    if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+    const tokenRow = await getIntegrationToken(env, integrationUserId, 'github', githubAccount);
+    if (!tokenRow?.access_token) return jsonResponse({ error: 'not_connected' }, 400);
     const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
     return jsonResponse(await res.json());
   }
@@ -406,8 +361,8 @@ export async function handleGithubApi(request, env, authUser) {
   if (method === 'GET' && path === '/api/integrations/github/files') {
     const repo = url.searchParams.get('repo');
     const filePath = url.searchParams.get('path') || '';
-    const tokenRow = await getIntegrationToken(env.DB, integrationUserId, 'github', githubAccount);
-    if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+    const tokenRow = await getIntegrationToken(env, integrationUserId, 'github', githubAccount);
+    if (!tokenRow?.access_token) return jsonResponse({ error: 'not_connected' }, 400);
     const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
     return jsonResponse(await res.json());
   }
@@ -415,8 +370,8 @@ export async function handleGithubApi(request, env, authUser) {
   if (method === 'GET' && path === '/api/integrations/github/file') {
     const repo = url.searchParams.get('repo');
     const filePath = url.searchParams.get('path');
-    const tokenRow = await getIntegrationToken(env.DB, integrationUserId, 'github', githubAccount);
-    if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+    const tokenRow = await getIntegrationToken(env, integrationUserId, 'github', githubAccount);
+    if (!tokenRow?.access_token) return jsonResponse({ error: 'not_connected' }, 400);
     const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
     const data = await res.json();
     const content = atob((data.content || '').replace(/\n/g, ''));
@@ -427,8 +382,8 @@ export async function handleGithubApi(request, env, authUser) {
     const repo = url.searchParams.get('repo');
     const filePath = url.searchParams.get('path');
     if (!repo || !filePath) return jsonResponse({ error: 'missing repo or path' }, 400);
-    const tokenRow = await getIntegrationToken(env.DB, integrationUserId, 'github', githubAccount);
-    if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+    const tokenRow = await getIntegrationToken(env, integrationUserId, 'github', githubAccount);
+    if (!tokenRow?.access_token) return jsonResponse({ error: 'not_connected' }, 400);
     const res = await fetch(`https://raw.githubusercontent.com/${encodeURIComponent(repo)}/HEAD/${filePath.split('/').map(p => encodeURIComponent(p)).join('/')}`, { headers: { Authorization: `token ${tokenRow.access_token}`, 'User-Agent': 'IAM-Platform' } });
     if (!res.ok) return jsonResponse({ error: res.statusText || 'Not found' }, res.status);
     const ext = (filePath || '').split('.').pop().toLowerCase();
@@ -441,8 +396,8 @@ export async function handleGithubApi(request, env, authUser) {
   if (method === 'GET' && path === '/api/integrations/gdrive/raw') {
     const fileId = url.searchParams.get('fileId');
     if (!fileId) return jsonResponse({ error: 'missing fileId' }, 400);
-    const tokenRow = await getIntegrationToken(env.DB, integrationUserId, 'google_drive', '');
-    if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
+    const tokenRow = await getIntegrationToken(env, integrationUserId, 'google_drive', '');
+    if (!tokenRow?.access_token) return jsonResponse({ error: 'not_connected' }, 400);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${tokenRow.access_token}` } });
     if (!res.ok) return jsonResponse({ error: res.statusText || 'Not found' }, res.status);
     const contentType = res.headers.get('Content-Type') || 'application/octet-stream';

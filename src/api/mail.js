@@ -8,6 +8,7 @@
 import { getAuthUser } from '../core/auth.js';
 import { jsonResponse } from '../core/responses.js';
 import { sendPlatformEmail, sendUserGmail } from '../lib/email.js';
+import { resolveOAuthAccessToken, resolveOAuthRefreshToken } from './oauth.js';
 
 const PAGE_SIZE = 50;
 const GMAIL_PROVIDER = 'google_gmail';
@@ -209,7 +210,10 @@ async function getGmailTokenRow(env, authUser) {
   const userKey = await getOauthUserKey(authUser);
   if (!userKey) return null;
   const row = await env.DB.prepare(
-    `SELECT user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope
+    `SELECT user_id, provider, account_identifier,
+            access_token, access_token_encrypted,
+            refresh_token, refresh_token_encrypted,
+            expires_at, scope
      FROM user_oauth_tokens
      WHERE user_id = ? AND provider = ?
      ORDER BY updated_at DESC
@@ -219,7 +223,8 @@ async function getGmailTokenRow(env, authUser) {
 }
 
 async function refreshGoogleAccessToken(env, tokenRow) {
-  if (!tokenRow?.refresh_token) return null;
+  const rt = await resolveOAuthRefreshToken(env, tokenRow);
+  if (!rt) return null;
   if (!env?.GOOGLE_CLIENT_ID || !env?.GOOGLE_OAUTH_CLIENT_SECRET) return null;
   const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -227,7 +232,7 @@ async function refreshGoogleAccessToken(env, tokenRow) {
     body: new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
-      refresh_token: tokenRow.refresh_token,
+      refresh_token: rt,
       grant_type: 'refresh_token',
     }).toString(),
   });
@@ -247,7 +252,7 @@ async function refreshGoogleAccessToken(env, tokenRow) {
 }
 
 async function gmailFetchJson(env, tokenRow, url, init) {
-  const tok = tokenRow?.access_token ? String(tokenRow.access_token) : '';
+  const tok = tokenRow ? (await resolveOAuthAccessToken(env, tokenRow) || '') : '';
   if (!tok) return { ok: false, status: 401, json: null };
   let res = await fetch(url, {
     ...(init || {}),
@@ -256,7 +261,7 @@ async function gmailFetchJson(env, tokenRow, url, init) {
       Authorization: `Bearer ${tok}`,
     },
   });
-  if (res.status === 401 && tokenRow?.refresh_token) {
+  if (res.status === 401 && (await resolveOAuthRefreshToken(env, tokenRow))) {
     const refreshed = await refreshGoogleAccessToken(env, tokenRow);
     if (refreshed?.access_token) {
       res = await fetch(url, {
@@ -436,7 +441,8 @@ export async function handleMailApi(request, url, env, ctx) {
     if (method === 'GET' && p === '/api/mail/inbox') {
       // If Gmail is connected, use Gmail as source-of-truth for Inbox.
       const gmailTok = await getGmailTokenRow(env, authUser);
-      if (gmailTok?.access_token) {
+      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+      if (gmailAccessToken) {
         const list = await gmailListMessages(env, gmailTok, ['INBOX']);
         if (!list.ok) return jsonResponse({ error: list.error }, list.status || 502);
         const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
@@ -519,7 +525,8 @@ export async function handleMailApi(request, url, env, ctx) {
     // GET /api/mail/starred
     if (method === 'GET' && p === '/api/mail/starred') {
       const gmailTok = await getGmailTokenRow(env, authUser);
-      if (gmailTok?.access_token) {
+      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+      if (gmailAccessToken) {
         const list = await gmailListMessages(env, gmailTok, ['STARRED']);
         if (!list.ok) return jsonResponse({ error: list.error }, list.status || 502);
         const ids = (list.messages || []).map((m) => String(m?.id || '')).filter(Boolean);
@@ -564,7 +571,8 @@ export async function handleMailApi(request, url, env, ctx) {
     // GET /api/mail/archived
     if (method === 'GET' && p === '/api/mail/archived') {
       const gmailTok = await getGmailTokenRow(env, authUser);
-      if (gmailTok?.access_token) {
+      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+      if (gmailAccessToken) {
         // Archived ~= All mail minus inbox (use label ALL_MAIL and then filter client for INBOX off by Gmail)
         const list = await gmailListMessages(env, gmailTok, ['TRASH']); // not perfect, but avoids "empty archived" when using Gmail.
         if (!list.ok) return jsonResponse({ error: list.error }, list.status || 502);
@@ -646,7 +654,8 @@ export async function handleMailApi(request, url, env, ctx) {
       if (!id) return jsonResponse({ error: 'Not found' }, 404);
 
       const gmailTok = await getGmailTokenRow(env, authUser);
-      if (gmailTok?.access_token) {
+      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+      if (gmailAccessToken) {
         const got = await gmailGetMessage(env, gmailTok, id, 'full');
         if (!got.ok || !got.msg) return jsonResponse({ error: got.error || 'Email not found' }, got.status || 404);
         const msg = got.msg;
@@ -754,7 +763,8 @@ export async function handleMailApi(request, url, env, ctx) {
       const attachmentId = parts[4] ? decodeURIComponent(parts[4]) : '';
       if (!msgId || !attachmentId) return jsonResponse({ error: 'Not found' }, 404);
       const gmailTok = await getGmailTokenRow(env, authUser);
-      if (!gmailTok?.access_token) return jsonResponse({ error: 'Gmail not connected' }, 403);
+      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+      if (!gmailAccessToken) return jsonResponse({ error: 'Gmail not connected' }, 403);
       const got = await gmailGetAttachment(env, gmailTok, msgId, attachmentId);
       if (!got.ok) return jsonResponse({ error: got.error }, got.status || 502);
       const data = got.data ? String(got.data) : '';
@@ -783,7 +793,9 @@ export async function handleMailApi(request, url, env, ctx) {
     // GET /api/mail/senders
     if (method === 'GET' && p === '/api/mail/senders') {
       const gmailTok = await getGmailTokenRow(env, authUser);
-      if (gmailTok && (gmailTok.refresh_token || gmailTok.access_token)) {
+      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+      const gmailRefreshResolved = gmailTok ? await resolveOAuthRefreshToken(env, gmailTok) : null;
+      if (gmailTok && (gmailRefreshResolved || gmailAccessToken)) {
         const account_identifier = String(gmailTok.account_identifier || '');
         return jsonResponse({
           senders: [
@@ -986,7 +998,8 @@ export async function handleMailApi(request, url, env, ctx) {
       const gmailTok = await getGmailTokenRow(env, authUser);
       const connectedAcct = gmailTok?.account_identifier ? String(gmailTok.account_identifier).trim().toLowerCase() : '';
       const fromLower = from.toLowerCase();
-      const wantsGmail = !!(gmailTok?.access_token && connectedAcct && fromLower.includes(connectedAcct));
+      const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+      const wantsGmail = !!(gmailAccessToken && connectedAcct && fromLower.includes(connectedAcct));
       const threadId = body?.thread_id ? String(body.thread_id).trim() : '';
       const inReplyTo = body?.in_reply_to ? String(body.in_reply_to).trim() : '';
       const references = body?.references ? String(body.references).trim() : '';

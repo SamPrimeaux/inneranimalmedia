@@ -183,6 +183,32 @@ async function decryptWithVault(env, encryptedB64) {
   return aesGcmDecryptFromB64(encryptedB64, key);
 }
 
+export async function resolveOAuthAccessToken(env, row) {
+  if (!row) return null;
+  if (row.access_token_encrypted) {
+    try {
+      const dec = await decryptWithVault(env, row.access_token_encrypted);
+      if (dec) return dec;
+    } catch (e) {
+      console.warn('[oauth] decrypt access_token failed:', e?.message);
+    }
+  }
+  return row.access_token || null;
+}
+
+export async function resolveOAuthRefreshToken(env, row) {
+  if (!row) return null;
+  if (row.refresh_token_encrypted) {
+    try {
+      const dec = await decryptWithVault(env, row.refresh_token_encrypted);
+      if (dec) return dec;
+    } catch (e) {
+      console.warn('[oauth] decrypt refresh_token failed:', e?.message);
+    }
+  }
+  return row.refresh_token || null;
+}
+
 async function pragmaColumns(DB, tableName) {
   const out = await DB.prepare(`PRAGMA table_info(${tableName})`).all();
   const cols = new Set();
@@ -382,70 +408,6 @@ export async function upsertOauthToken(
       /* ignore */
     }
   }
-}
-
-async function getOauthTokenRow(env, userId, providerForDb) {
-  if (!env?.DB) return null;
-  const cols = await ensureOauthTokenColumns(env.DB);
-  const row = await env.DB.prepare(
-    `SELECT provider, account_identifier,
-            access_token, refresh_token, expires_at,
-            access_token_encrypted, refresh_token_encrypted
-     FROM user_oauth_tokens
-     WHERE user_id = ? AND provider = ?
-     ORDER BY updated_at DESC LIMIT 1`,
-  )
-    .bind(String(userId), String(providerForDb))
-    .first();
-  if (!row) return null;
-
-  const access =
-    row.access_token_encrypted && env.VAULT_MASTER_KEY
-      ? await decryptWithVault(env, row.access_token_encrypted).catch(() => row.access_token || null)
-      : row.access_token || null;
-  const refresh =
-    row.refresh_token_encrypted && env.VAULT_MASTER_KEY
-      ? await decryptWithVault(env, row.refresh_token_encrypted).catch(() => row.refresh_token || null)
-      : row.refresh_token || null;
-  return { ...row, access_token: access, refresh_token: refresh, _columns: cols };
-}
-
-async function maybeRefreshGoogle(env, userId) {
-  const row = await getOauthTokenRow(env, userId, 'google_drive');
-  if (!row) return null;
-  if (!row.expires_at || !Number.isFinite(Number(row.expires_at))) return row;
-  if (Number(row.expires_at) > nowSeconds() + 30) return row;
-  if (!row.refresh_token) return row;
-  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return row;
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      refresh_token: row.refresh_token,
-      client_id: env.GOOGLE_CLIENT_ID,
-      client_secret: env.GOOGLE_CLIENT_SECRET,
-      grant_type: 'refresh_token',
-    }).toString(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) return row;
-
-  await upsertOauthToken(env, {
-    user_id: userId,
-    tenant_id: row.tenant_id || '',
-    person_uuid: row.person_uuid || '',
-    provider: 'google',
-    access_token: data.access_token,
-    refresh_token: row.refresh_token,
-    scope: data.scope || null,
-    expires_at: data.expires_in ? nowSeconds() + Number(data.expires_in) : row.expires_at,
-    account_identifier: row.account_identifier || '',
-    account_email: row.account_email || null,
-    account_display: row.account_display || null,
-  }).catch(() => {});
-
-  return await getOauthTokenRow(env, userId, 'google_drive');
 }
 
 function githubAuthUrl(env, state, oauthScopeString) {
@@ -683,7 +645,9 @@ async function gmailOAuthCallback(_request, url, env) {
 
   try {
     const tok = await exchangeGoogleAuthCodeForGmail(env, code);
-    const info = await googleUserinfo(tok.access_token);
+    const resolvedTok = await resolveOAuthAccessToken(env, tok);
+    if (!resolvedTok) throw new Error('Google token unavailable — please reconnect');
+    const info = await googleUserinfo(resolvedTok);
     const email = info.email != null ? String(info.email).trim() : '';
     if (!email) throw new Error('missing_email');
 
@@ -1114,22 +1078,7 @@ export async function handleOAuthApi(request, env, ctx) {
   return jsonResponse({ error: 'not_found' }, 404);
 }
 
-/**
- * Internal helper for other modules (future use):
- * returns decrypted access token (and refresh flow when applicable).
- */
-export async function getOAuthToken(env, userId, provider) {
-  const p = normalizeProvider(provider);
-  if (!env?.DB) return null;
-  if (!env.VAULT_MASTER_KEY) return null;
-  if (p === 'google') {
-    const refreshed = await maybeRefreshGoogle(env, userId);
-    return refreshed?.access_token || null;
-  }
-  const providerForDb = mapTokenProviderForStorage(p);
-  const row = await getOauthTokenRow(env, userId, providerForDb);
-  return row?.access_token || null;
-}
+export { getOAuthToken, refreshGoogleToken } from '../core/user-oauth-token.js';
 
 async function refreshSupabaseAccessToken(env, refreshToken) {
   const creds = getSupabaseManagementOAuthCredentials(env);
