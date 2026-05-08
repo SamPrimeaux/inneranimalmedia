@@ -478,22 +478,49 @@ async function loadModeToolPolicy(env, modeSlug) {
   }
 }
 
-function inferIntentHeuristically(lastMessageText) {
-  const text = String(lastMessageText || '').trim();
-  if (!text) return 'question';
-  const low = text.toLowerCase();
-  const hasSql = /\b(select|insert|update|delete|upsert|create|drop|alter|truncate|from|where|join)\b/.test(low) ||
-                 /\bd1_|sql\b/.test(low);
-  const hasShell = /\b(run|execute|terminal|shell|bash|zsh|npm|pnpm|yarn|git|ls|cd|cat|pwd|chmod|curl)\b/.test(low);
-  if (hasSql && hasShell) return 'mixed';
-  if (hasSql) return 'sql';
-  if (hasShell) return 'shell';
-  return 'question';
+function inferIntentHeuristically(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return { taskType: 'chat', mode: 'auto' };
+
+  const is = (pattern) => pattern.test(t);
+  const hasDeploy = is(/\b(deploy|wrangler deploy|npm run deploy|push to prod|promote|release)\b/);
+  const hasSql =
+    is(/\b(select|insert|update|delete|upsert|create table|drop table|alter table|migrate|from\s+\w|where\s+\w)\b/) ||
+    is(/\bd1_query|sql query\b/);
+  const hasShell = is(
+    /\b(run|bash|zsh|terminal|shell|pm2|npm run|pnpm|yarn run|git\s|ls\b|cat\s|chmod|curl\b)\b/,
+  );
+  const hasCode = is(
+    /\b(write|edit|fix|create file|refactor|implement|monaco|\.js\b|\.ts\b|\.jsx\b|worker\.js|function|component|class)\b/,
+  );
+  const hasDebug = is(/\b(debug|error|trace|why.*fail|not working|broken|exception|crash|stack trace)\b/);
+  const hasPlan = is(/\b(plan|roadmap|architect|diagram|excalidraw|spec|wireframe|flowchart)\b/);
+  const hasRecall = is(/\b(recall|remember|what did|history|past session|previous|last time|earlier today)\b/);
+  const hasCms = is(/\b(cms|theme|page|component|liquid|shopify|content edit)\b/);
+  const hasTool = is(/\b(use tool|invoke|mcp tool|call tool|run tool)\b/);
+  const hasWorkflow = is(/\b(run workflow|start workflow|trigger|execute workflow|pipeline)\b/);
+
+  if (hasWorkflow) return { taskType: 'workflow_orchestration', mode: 'agent' };
+  if (hasDeploy) return { taskType: 'deploy', mode: 'agent' };
+  if (hasSql && !hasCode) return { taskType: 'sql_d1_generation', mode: 'agent' };
+  if (hasShell && !hasCode) return { taskType: 'terminal_execution', mode: 'agent' };
+  if (hasDebug) return { taskType: 'debug', mode: 'agent' };
+  if (hasPlan) return { taskType: 'plan', mode: 'agent' };
+  if (hasRecall) return { taskType: 'summary', mode: 'auto' };
+  if (hasCms) return { taskType: 'cms_edit', mode: 'agent' };
+  if (hasTool) return { taskType: 'tool_use', mode: 'agent' };
+  if (hasCode || (hasSql && hasShell)) return { taskType: 'code', mode: 'agent' };
+  return { taskType: 'chat', mode: 'agent' };
 }
 
 async function classifyIntent(_env, lastMessageText) {
-  const intent = inferIntentHeuristically(lastMessageText);
-  return { intent };
+  const { taskType, mode } = inferIntentHeuristically(lastMessageText);
+  const legacyMap = {
+    sql_d1_generation: 'sql',
+    terminal_execution: 'shell',
+    code: 'shell',
+  };
+  return { intent: legacyMap[taskType] ?? 'question', taskType, mode };
 }
 
 async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
@@ -920,6 +947,138 @@ async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
   } catch (_) {
     return normalizeGateParseFailure(message);
   }
+}
+
+async function selectThompsonArm(env, taskType, mode, workspaceId) {
+  if (!env.DB || !taskType) return null;
+  try {
+    const arm = await env.DB.prepare(
+      `SELECT ra.id as arm_id, ra.model_key, ra.provider,
+             ra.tools_json, ra.workflow_agent, ra.reasoning_effort,
+             ai.id as ai_model_id, ai.api_platform
+      FROM agentsam_routing_arms ra
+      LEFT JOIN agentsam_ai ai
+             ON ai.model_key = ra.model_key AND ai.status = 'active'
+      WHERE ra.task_type = ?
+        AND ra.mode = ?
+        AND ra.is_active = 1
+        AND ra.is_eligible = 1
+        AND ra.is_paused = 0
+        AND ra.budget_exhausted = 0
+        AND ra.workspace_id = ?
+      ORDER BY ra.decayed_score DESC
+      LIMIT 1`,
+    )
+      .bind(taskType, mode, workspaceId)
+      .first();
+    if (!arm) return null;
+    return {
+      source: 'thompson',
+      modelId: arm.ai_model_id || arm.model_key,
+      armId: arm.arm_id,
+      toolsJson: arm.tools_json,
+      workflowAgent: arm.workflow_agent,
+      reasoningEffort: arm.reasoning_effort || 'medium',
+    };
+  } catch (e) {
+    console.warn('[routing] selectThompsonArm failed:', e?.message);
+    return null;
+  }
+}
+
+async function recordArmOutcome(env, armId, success) {
+  if (!env.DB || !armId) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE agentsam_routing_arms SET
+        total_executions = total_executions + 1,
+        success_alpha = success_alpha + CASE WHEN ? THEN 0.5 ELSE 0 END,
+        success_beta  = success_beta  + CASE WHEN ? THEN 0 ELSE 0.5 END,
+        decayed_score = (success_alpha + CASE WHEN ? THEN 0.5 ELSE 0 END) /
+          (success_alpha + success_beta + 1.0) *
+          pow(0.995, CAST((unixepoch() - last_decay_at) AS REAL) / 86400.0),
+        last_decay_at = unixepoch(),
+        updated_at = unixepoch()
+      WHERE id = ?`,
+    )
+      .bind(success ? 1 : 0, success ? 1 : 0, success ? 1 : 0, armId)
+      .run();
+  } catch (e) {
+    console.warn('[routing] recordArmOutcome failed:', e?.message);
+  }
+}
+
+async function loadSkillsForTaskType(env, taskType, workspaceId) {
+  if (!env.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, content_markdown
+      FROM agentsam_skill
+      WHERE is_active = 1
+        AND (always_apply = 1
+             OR route_keys_json LIKE ?
+             OR task_types_json LIKE ?)
+        AND (workspace_id = ? OR workspace_id IS NULL OR trim(COALESCE(workspace_id,'')) = '')
+      ORDER BY always_apply DESC, sort_order ASC
+      LIMIT 6`,
+    )
+      .bind(`%"${taskType}"%`, `%"${taskType}"%`, workspaceId)
+      .all();
+    return results || [];
+  } catch {
+    return [];
+  }
+}
+
+async function shouldIncludeRag(env, taskType, tenantId) {
+  if (!env.DB) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT include_rag FROM agentsam_prompt_routes
+      WHERE is_active = 1
+        AND (route_key = ? OR intent_labels LIKE ?)
+        AND (tenant_id IS NULL OR tenant_id = ? OR trim(COALESCE(tenant_id,'')) = '')
+      ORDER BY priority ASC
+      LIMIT 1`,
+    )
+      .bind(taskType, `%"${taskType}"%`, tenantId ?? '')
+      .first();
+    return row?.include_rag === 1;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveWorkflowForMessage(env, taskType, message, workspaceId) {
+  if (!env.DB) return null;
+  const t = String(message || '').toLowerCase();
+  const keywordMap = [
+    [/\b(monaco|edit file|write to file|open file)\b/, 'i-am-builder-monaco'],
+    [/\b(excalidraw|draw|diagram|wireframe|flowchart)\b/, 'i-am-architect-excalidraw'],
+    [/\b(architect|plan|design spec)\b/, 'i-am-architect-plan'],
+    [/\b(playwright|screenshot|browser test|e2e)\b/, 'i-am-inspector-playwright'],
+    [/\b(qa|smoke test|test suite|run tests)\b/, 'i-am-inspector-qa'],
+    [/\b(deploy to cloudflare|wrangler deploy|cf deploy)\b/, 'i-am-operator-deploy'],
+    [/\b(build on github|push to github|git commit)\b/, 'i-am-builder-github'],
+  ];
+  for (const [pattern, wfKey] of keywordMap) {
+    if (pattern.test(t)) {
+      try {
+        const wf = await env.DB.prepare(
+          `SELECT id, workflow_key, display_name, default_task_type,
+                  risk_level, requires_approval
+           FROM agentsam_workflows
+           WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
+        )
+          .bind(wfKey)
+          .first();
+        if (wf) return wf;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  return null;
 }
 
 async function loadIntentPattern(env, intentSlug) {
@@ -1969,6 +2128,37 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   };
 }
 
+async function executeWorkflowAndStream(env, workflowKey, message, actor, workspaceId, ctx) {
+  void ctx;
+  const uid = actor?.id ?? actor?.user_id ?? null;
+  let tid =
+    actor?.tenant_id != null && String(actor.tenant_id).trim() !== ''
+      ? String(actor.tenant_id).trim()
+      : null;
+  if (!tid && uid) tid = await fetchAuthUserTenantId(env, uid);
+  const authLike = {
+    id: uid,
+    tenant_id: tid,
+    email: actor?.email ?? null,
+  };
+  const { executeWorkflowAndStream: workflowGraphSse } = await import('../core/workflow-executor.js');
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        await workflowGraphSse(env, workflowKey, message, authLike, workspaceId, controller);
+      },
+    }),
+    {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      },
+    },
+  );
+}
+
 // ─── SSE Chat Handler ─────────────────────────────────────────────────────────
 
 export async function agentChatSseHandler(env, request, ctx, opts = {}) {
@@ -2102,6 +2292,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const gate = await gateRewriteAndClassify(env, modeConfig, message, tenantId);
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
+  const intentResult = await classifyIntent(env, message);
+
+  const workflowMatch = await resolveWorkflowForMessage(env, intentResult.taskType, message, workspaceId);
+  if (workflowMatch) {
+    const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
+    return executeWorkflowAndStream(env, workflowMatch.workflow_key, message, actor, workspaceId, ctx);
+  }
+
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
   const promptRouteRow = await resolveAgentsamPromptRoute(env, tenantId, requestedMode, intentSlug);
@@ -2201,11 +2399,31 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const isAutoModel = !explicitRow;
 
-  const resolvedRoutingTaskType = resolveRoutingTaskType({
+  let resolvedRoutingTaskType = resolveRoutingTaskType({
     intentSlug,
     requireTools,
     body,
   });
+  const bodyPinsRouting = (() => {
+    const b = body && typeof body === 'object' ? body : {};
+    return (
+      b.debug === true ||
+      String(b.mode || '').toLowerCase() === 'debug' ||
+      b.subagent === true ||
+      (b.subagent_profile_id != null && String(b.subagent_profile_id).trim() !== '') ||
+      b.workflow_step === true ||
+      b.workflow_run_id != null ||
+      b.terminal_session_id != null ||
+      b.pty_session_id != null ||
+      b.intent_classification_only === true ||
+      b.rag_only === true ||
+      b.memory_search_only === true ||
+      b.skill_pick_only === true
+    );
+  })();
+  if (!requireTools && !bodyPinsRouting && intentResult?.taskType) {
+    resolvedRoutingTaskType = String(intentResult.taskType).trim() || resolvedRoutingTaskType;
+  }
 
   let routingPick = null;
   try {
@@ -2222,6 +2440,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     });
   } catch (_) {
     routingPick = null;
+  }
+  const thompsonPick = await selectThompsonArm(
+    env,
+    intentResult.taskType,
+    intentResult.mode || requestedMode,
+    workspaceId,
+  );
+  if (thompsonPick && (!routingPick || routingPick.source !== 'thompson')) {
+    routingPick = thompsonPick;
   }
   const thompsonRow =
     routingPick?.source === 'thompson' && routingPick?.modelId
@@ -2346,12 +2573,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const routingArmIdForRun =
     routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
 
-  const ragResult = skipRagFromRoute
-    ? { matches: [] }
-    : await unifiedRagSearch(env, message, {
+  const needsRag =
+    !skipRagFromRoute && (await shouldIncludeRag(env, intentResult.taskType, tenantId));
+  const ragResult = needsRag
+    ? await unifiedRagSearch(env, message, {
         topK: modeConfig.context_strategy === 'minimal' ? 3 : 8,
         tenantId,
-      });
+      })
+    : { matches: [] };
   const ragContext   = (ragResult.matches || []).join('\n\n');
   const contextBlock = ragContext ? `\n\nRelevant context:\n${ragContext}` : '';
 
@@ -2385,6 +2614,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   } catch (_) { /* memory must not break sessions */ }
 
   try {
+    const skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
+    const skillContext = skillRows
+      .map((s) => `## Skill: ${s.name}\n${s.content_markdown}`)
+      .join('\n\n---\n\n');
+    if (skillContext) {
+      systemPrompt = `${skillContext}\n\n---\n\n${systemPrompt}`;
+    }
+  } catch (_) { /* skills-by-task must not break chat */ }
+
+  try {
     systemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, {
       userId,
       workspaceId,
@@ -2416,6 +2655,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   ;(async () => {
     const chatT0 = Date.now();
     const turnStartNs = chatT0 * 1_000_000;
+    let routingArmOutcomeLogged = false;
     const providerForModelKey = (mk) => {
       const k = mk != null ? String(mk) : '';
       const r = chainRows.find((x) => String(x.model_key || '') === k);
@@ -2551,6 +2791,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         emit('error', { message: 'All providers exhausted', tried });
       }
 
+      if (routingPick?.armId) {
+        await recordArmOutcome(env, routingPick.armId, succeeded);
+        routingArmOutcomeLogged = true;
+      }
+
       if (succeeded && lastAssistantStreamText && inferArtifactFromAssistantText(lastAssistantStreamText)) {
         scheduleAgentsamArtifactFromChatOutput(env, ctx, {
           outputText: lastAssistantStreamText,
@@ -2672,6 +2917,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (e) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
       emit('error', { message: 'Agent loop failed' });
+      if (routingPick?.armId && !routingArmOutcomeLogged) {
+        await recordArmOutcome(env, routingPick.armId, false);
+        routingArmOutcomeLogged = true;
+      }
       scheduleAgentsamCommandRunInsert(env, ctx, {
         tenantId,
         workspaceId: resolvedWorkspaceId ?? '',
@@ -3910,6 +4159,108 @@ export async function handleAgentApi(request, url, env, ctx) {
       .bind(status, String(authUser.email || authUser.id).slice(0, 200), approvalMatch[1])
       .run();
     return jsonResponse({ ok: true });
+  }
+
+  // ── POST /api/agent/workflow/start — DAG graph executor (agentsam_workflow_*)
+  if (path === '/api/agent/workflow/start' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const { workflow_key: workflowKeyBody, input } = body;
+    if (!workflowKeyBody) return jsonResponse({ error: 'workflow_key required' }, 400);
+    const { executeWorkflowGraph } = await import('../core/workflow-executor.js');
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+    if (!tenantId) return jsonResponse({ error: 'Tenant could not be resolved' }, 403);
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
+    const workspaceId =
+      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+        ? String(authUser.active_workspace_id).trim()
+        : null) ||
+      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
+    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    const result = await executeWorkflowGraph(env, {
+      workflowKey: String(workflowKeyBody).trim(),
+      input: input || {},
+      tenantId,
+      workspaceId,
+      userId: authUser.id,
+      userEmail: authUser.email,
+    });
+    return jsonResponse(result);
+  }
+
+  // ── POST /api/agent/workflow/approve — resume workflow after approval_gate
+  if (path === '/api/agent/workflow/approve' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const body = await request.json().catch(() => ({}));
+    const { approval_id: approvalId, decision } = body;
+    if (!approvalId) return jsonResponse({ error: 'approval_id required' }, 400);
+    if (!['approved', 'rejected'].includes(decision)) {
+      return jsonResponse({ error: 'decision must be approved or rejected' }, 400);
+    }
+    if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+
+    const statusDb = decision === 'approved' ? 'approved' : 'denied';
+
+    const updated = await env.DB.prepare(
+      `UPDATE agentsam_approval_queue
+       SET status      = ?,
+           approved_by = ?,
+           decided_at  = unixepoch()
+       WHERE id = ? AND status = 'pending'`,
+    )
+      .bind(statusDb, authUser.id, approvalId)
+      .run()
+      .catch(() => null);
+
+    const changes = updated?.meta?.changes ?? updated?.changes ?? 0;
+    if (!changes) {
+      return jsonResponse({ error: 'approval not found or already decided' }, 404);
+    }
+
+    const apRow = await env.DB.prepare(`SELECT workflow_run_id FROM agentsam_approval_queue WHERE id = ?`)
+      .bind(approvalId)
+      .first()
+      .catch(() => null);
+
+    if (apRow?.workflow_run_id && decision === 'approved') {
+      await env.DB.prepare(
+        `UPDATE agentsam_workflow_runs
+         SET status = 'running', updated_at = datetime('now')
+         WHERE id = ? AND status = 'awaiting_approval'`,
+      )
+        .bind(apRow.workflow_run_id)
+        .run()
+        .catch(() => null);
+    }
+
+    if (apRow?.workflow_run_id && decision === 'rejected') {
+      await env.DB.prepare(
+        `UPDATE agentsam_workflow_runs
+         SET status = 'failed', kill_reason = 'approval_rejected', updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(apRow.workflow_run_id)
+        .run()
+        .catch(() => null);
+    }
+
+    return jsonResponse({
+      ok: true,
+      decision,
+      approval_id: approvalId,
+      run_id: apRow?.workflow_run_id ?? null,
+      message:
+        decision === 'approved'
+          ? 'Approved. Workflow will resume on next heartbeat.'
+          : 'Rejected. Workflow run marked failed.',
+    });
   }
 
   // ── /api/agent/workflows/trigger ─────────────────────────────────────────

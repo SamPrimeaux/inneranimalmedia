@@ -37,6 +37,7 @@ import { handleGithubWebhook } from './api/webhooks/github.js';
 import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { createTracer } from './core/tracer.js';
+import { isLikelyWordPressProbePath } from './core/wp-probe-path.js';
 
 // --- Durable Objects (ACTIVE: 3 production classes only) ---
 export { IAMCollaborationSession } from './do/Collaboration.js';
@@ -90,6 +91,13 @@ export default {
 
     try {
       const methodUpper = (request.method || 'GET').toUpperCase();
+      if (isLikelyWordPressProbePath(pathLower)) {
+        const { globeErrorPage } = await import('./core/error-pages');
+        return new Response(
+          globeErrorPage({ status: 404, title: 'Page not found', url: url.pathname }),
+          { status: 404, headers: { 'Content-Type': 'text/html;charset=UTF-8' } },
+        );
+      }
       const identity = await resolveIdentity(env, request);
       // Canonical auth URLs first — before health, assets, dashboard shell, or legacy fallthrough.
       // Preserve query string (e.g. next=). No-store so stale HTML is not cached at /login.

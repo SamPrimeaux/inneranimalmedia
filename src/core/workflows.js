@@ -24,6 +24,37 @@ export async function startWorkflow(env, ctx, o) {
   const enabled = await isFeatureEnabled(env, 'multi_step_workflows', { userId, tenantId });
   if (!enabled) return { ok: false, error: 'feature_disabled' };
 
+  // Graph-mode check: if agentsam_workflow_nodes exist for this key,
+  // use the DAG executor instead of the flat steps_json runner.
+  if (env.DB && workflowKey) {
+    try {
+      const nodeCheck = await env.DB.prepare(
+        `SELECT COUNT(*) AS n
+        FROM agentsam_workflow_nodes wn
+        JOIN agentsam_workflows w ON w.id = wn.workflow_id
+        WHERE w.workflow_key = ?
+          AND w.is_active    = 1
+          AND wn.is_active   = 1`,
+      )
+        .bind(workflowKey)
+        .first();
+
+      if ((nodeCheck?.n ?? 0) > 0) {
+        const { executeWorkflowGraph } = await import('./workflow-executor.js');
+        return executeWorkflowGraph(env, {
+          workflowKey,
+          input: inputJson ?? {},
+          tenantId,
+          workspaceId,
+          userId,
+          userEmail: null,
+        });
+      }
+    } catch (e) {
+      console.warn('[workflows] graph-mode check failed, falling back:', e?.message);
+    }
+  }
+
   let workflow = null;
   try {
     workflow = await env.DB.prepare(
@@ -323,3 +354,5 @@ async function executeWorkflowSteps(env, ctx, {
     }).catch(() => {});
   }
 }
+
+export { executeWorkflowGraph } from './workflow-executor.js';
