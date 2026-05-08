@@ -2,12 +2,12 @@
 
 Auto-generated from `worker.js` (Cloudflare Workers `fetch`, not Express). Each `##` section below is one ingest chunk (method + path as title).
 
-Total route patterns: **44**.
+Total route patterns: **45**.
 
 ## varies /
 
 - **Handler:** module scope
-- **Line:** ~619
+- **Line:** ~628
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -16,7 +16,7 @@ Total route patterns: **44**.
 ## prefix /api/*
 
 - **Handler:** module scope
-- **Line:** ~565
+- **Line:** ~574
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside module.
 - **Bindings (typical):** DB
@@ -25,7 +25,7 @@ Total route patterns: **44**.
 ## POST /api/admin/run-retention
 
 - **Handler:** module scope
-- **Line:** ~157
+- **Line:** ~166
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -34,7 +34,7 @@ Total route patterns: **44**.
 ## POST /api/agent/approve
 
 - **Handler:** module scope
-- **Line:** ~498
+- **Line:** ~507
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -43,7 +43,7 @@ Total route patterns: **44**.
 ## POST /api/agent/execute
 
 - **Handler:** module scope
-- **Line:** ~454
+- **Line:** ~463
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -52,7 +52,7 @@ Total route patterns: **44**.
 ## POST /api/agent/workflow/start
 
 - **Handler:** module scope
-- **Line:** ~520
+- **Line:** ~529
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** AI, DB, HYPERDRIVE
@@ -61,7 +61,7 @@ Total route patterns: **44**.
 ## prefix /api/auth-hooks/*
 
 - **Handler:** module scope
-- **Line:** ~365
+- **Line:** ~374
 - **Auth:** usually session (see handler)
 - **Description:** Path prefix. Sub-routes resolved inside module.
 - **Bindings (typical):** DB
@@ -70,7 +70,7 @@ Total route patterns: **44**.
 ## GET /api/auth/cloudflare/start
 
 - **Handler:** module scope
-- **Line:** ~335
+- **Line:** ~344
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -79,7 +79,7 @@ Total route patterns: **44**.
 ## GET /api/auth/github/start
 
 - **Handler:** module scope
-- **Line:** ~311
+- **Line:** ~320
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -88,7 +88,7 @@ Total route patterns: **44**.
 ## GET /api/auth/google/start
 
 - **Handler:** module scope
-- **Line:** ~311
+- **Line:** ~320
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -97,7 +97,7 @@ Total route patterns: **44**.
 ## varies /api/auth/google/start
 
 - **Handler:** module scope
-- **Line:** ~316
+- **Line:** ~325
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -106,7 +106,7 @@ Total route patterns: **44**.
 ## varies /api/auth/oauth/consent
 
 - **Handler:** module scope
-- **Line:** ~361
+- **Line:** ~370
 - **Auth:** OAuth state / callback
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -115,7 +115,7 @@ Total route patterns: **44**.
 ## GET/POST /api/auth/oauth/consent/approve
 
 - **Handler:** module scope
-- **Line:** ~350
+- **Line:** ~359
 - **Auth:** OAuth state / callback
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -124,7 +124,7 @@ Total route patterns: **44**.
 ## GET/POST /api/auth/oauth/consent/deny
 
 - **Handler:** module scope
-- **Line:** ~350
+- **Line:** ~359
 - **Auth:** OAuth state / callback
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -133,7 +133,7 @@ Total route patterns: **44**.
 ## varies /api/auth/supabase/callback
 
 - **Handler:** module scope
-- **Line:** ~345
+- **Line:** ~354
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -142,7 +142,7 @@ Total route patterns: **44**.
 ## GET /api/auth/supabase/start
 
 - **Handler:** module scope
-- **Line:** ~332
+- **Line:** ~341
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -151,7 +151,7 @@ Total route patterns: **44**.
 ## varies /api/catalog/integrations
 
 - **Handler:** module scope
-- **Line:** ~185
+- **Line:** ~194
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -160,7 +160,7 @@ Total route patterns: **44**.
 ## varies /api/health
 
 - **Handler:** module scope
-- **Line:** ~143
+- **Line:** ~148
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -169,7 +169,7 @@ Total route patterns: **44**.
 ## varies /api/hooks/supabase
 
 - **Handler:** module scope
-- **Line:** ~152
+- **Line:** ~161
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -178,7 +178,7 @@ Total route patterns: **44**.
 ## POST /api/mcp/token/create
 
 - **Handler:** module scope
-- **Line:** ~414
+- **Line:** ~423
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -187,7 +187,7 @@ Total route patterns: **44**.
 ## POST /api/mcp/token/revoke
 
 - **Handler:** module scope
-- **Line:** ~442
+- **Line:** ~451
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB, KV
@@ -196,7 +196,7 @@ Total route patterns: **44**.
 ## prefix /api/oauth/*
 
 - **Handler:** module scope
-- **Line:** ~322
+- **Line:** ~331
 - **Auth:** OAuth state / callback
 - **Description:** Path prefix. Sub-routes resolved inside module.
 - **Bindings (typical):** DB
@@ -205,7 +205,7 @@ Total route patterns: **44**.
 ## GET /api/provider-colors
 
 - **Handler:** module scope
-- **Line:** ~171
+- **Line:** ~180
 - **Auth:** usually session (see handler)
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -214,16 +214,25 @@ Total route patterns: **44**.
 ## GET /api/system/health
 
 - **Handler:** module scope
-- **Line:** ~394
+- **Line:** ~403
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
 - **Code:** `if (pathLower === '/api/system/health' && request.method === 'GET') {`
 
+## POST /api/webhooks/anthropic
+
+- **Handler:** module scope
+- **Line:** ~157
+- **Auth:** webhook / provider secret
+- **Description:** Matched in worker.js branch.
+- **Bindings (typical):** DB
+- **Code:** `if (pathLower === '/api/webhooks/anthropic' && methodUpper === 'POST') {`
+
 ## POST /api/webhooks/github
 
 - **Handler:** module scope
-- **Line:** ~148
+- **Line:** ~153
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -232,7 +241,7 @@ Total route patterns: **44**.
 ## varies /api/webhooks/supabase
 
 - **Handler:** module scope
-- **Line:** ~152
+- **Line:** ~161
 - **Auth:** webhook / provider secret
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -241,7 +250,7 @@ Total route patterns: **44**.
 ## prefix /assets/*
 
 - **Handler:** module scope
-- **Line:** ~288
+- **Line:** ~297
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside module.
 - **Bindings (typical):** DB
@@ -250,7 +259,7 @@ Total route patterns: **44**.
 ## varies /auth-signin
 
 - **Handler:** module scope
-- **Line:** ~128
+- **Line:** ~133
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -259,7 +268,7 @@ Total route patterns: **44**.
 ## varies /auth-signin.html
 
 - **Handler:** module scope
-- **Line:** ~129
+- **Line:** ~134
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -268,7 +277,7 @@ Total route patterns: **44**.
 ## prefix /auth/*
 
 - **Handler:** module scope
-- **Line:** ~385
+- **Line:** ~394
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside module.
 - **Bindings (typical):** DB
@@ -277,7 +286,7 @@ Total route patterns: **44**.
 ## varies /auth/callback/github
 
 - **Handler:** module scope
-- **Line:** ~379
+- **Line:** ~388
 - **Auth:** OAuth state / callback
 - **Description:** GitHub OAuth callback (locked handler).
 - **Bindings (typical):** DB
@@ -286,7 +295,7 @@ Total route patterns: **44**.
 ## varies /auth/callback/google
 
 - **Handler:** module scope
-- **Line:** ~374
+- **Line:** ~383
 - **Auth:** OAuth state / callback
 - **Description:** Google OAuth callback (locked handler). Uses KV SESSION_CACHE for state.
 - **Bindings (typical):** DB
@@ -295,7 +304,7 @@ Total route patterns: **44**.
 ## varies /auth/callback/supabase
 
 - **Handler:** module scope
-- **Line:** ~345
+- **Line:** ~354
 - **Auth:** OAuth state / callback
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -304,7 +313,7 @@ Total route patterns: **44**.
 ## GET/HEAD /auth/register
 
 - **Handler:** module scope
-- **Line:** ~113
+- **Line:** ~118
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -313,7 +322,7 @@ Total route patterns: **44**.
 ## varies /auth/signin
 
 - **Handler:** module scope
-- **Line:** ~127
+- **Line:** ~132
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -322,7 +331,7 @@ Total route patterns: **44**.
 ## varies /dashboard
 
 - **Handler:** module scope
-- **Line:** ~567
+- **Line:** ~576
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -331,7 +340,7 @@ Total route patterns: **44**.
 ## prefix /dashboard/*
 
 - **Handler:** module scope
-- **Line:** ~568
+- **Line:** ~577
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside module.
 - **Bindings (typical):** DB
@@ -340,7 +349,7 @@ Total route patterns: **44**.
 ## varies /dashboard/
 
 - **Handler:** module scope
-- **Line:** ~629
+- **Line:** ~638
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -349,7 +358,7 @@ Total route patterns: **44**.
 ## varies /health
 
 - **Handler:** module scope
-- **Line:** ~143
+- **Line:** ~148
 - **Auth:** public
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -358,7 +367,7 @@ Total route patterns: **44**.
 ## GET/HEAD /login
 
 - **Handler:** module scope
-- **Line:** ~91
+- **Line:** ~96
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -367,7 +376,7 @@ Total route patterns: **44**.
 ## GET/POST /oauth/consent
 
 - **Handler:** module scope
-- **Line:** ~350
+- **Line:** ~359
 - **Auth:** OAuth state / callback
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -376,7 +385,7 @@ Total route patterns: **44**.
 ## varies /onboarding
 
 - **Handler:** module scope
-- **Line:** ~644
+- **Line:** ~653
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB
@@ -385,7 +394,7 @@ Total route patterns: **44**.
 ## prefix /onboarding/*
 
 - **Handler:** module scope
-- **Line:** ~644
+- **Line:** ~653
 - **Auth:** see handler
 - **Description:** Path prefix. Sub-routes resolved inside module.
 - **Bindings (typical):** DB
@@ -394,7 +403,7 @@ Total route patterns: **44**.
 ## GET/HEAD /signup
 
 - **Handler:** module scope
-- **Line:** ~102
+- **Line:** ~107
 - **Auth:** see handler
 - **Description:** Matched in worker.js branch.
 - **Bindings (typical):** DB

@@ -508,13 +508,18 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
 
   const vec = await openaiCreateEmbedding(env, q);
   const vecLit = vectorLiteral(vec);
+  const dim = vec.length;
+  if (!Number.isFinite(dim) || dim < 1 || dim > 16000) {
+    return { results: [], error: 'invalid embedding dimensions' };
+  }
+  const vecSqlType = `vector(${dim})`;
 
   const lim = Math.min(Math.max(1, limit || 10), 50);
   const thr = typeof threshold === 'number' ? threshold : 0.7;
 
   const ctxP = withPg(env, async (client) => {
     const res = await client.query(
-      `SELECT * FROM public.search_all_context($1::vector, $2::float, $3::int, $4::text)`,
+      `SELECT * FROM public.search_all_context($1::${vecSqlType}, $2::double precision, $3::integer, $4::text)`,
       [vecLit, thr, lim, agentId]
     );
     return res.rows || [];
@@ -524,7 +529,7 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
     includeSessions && tenantId
       ? withPg(env, async (client) => {
           const res = await client.query(
-            `SELECT * FROM public.match_session_summaries($1::vector, $2::text, $3::text, $4::float, $5::int)`,
+            `SELECT * FROM public.match_session_summaries($1::${vecSqlType}, $2::text, $3::text, $4::double precision, $5::integer)`,
             [vecLit, tenantId, agentId, thr, 5]
           );
           return res.rows || [];

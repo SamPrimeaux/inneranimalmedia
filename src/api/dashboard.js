@@ -18,7 +18,7 @@ import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { handleCanvasApi } from '../integrations/canvas.js';
 import { handleHyperdriveRoutes } from '../integrations/hyperdrive.js';
 import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/playwright.js';
-import { handleGitHubApi } from '../integrations/github.js';
+import { handleGitHubApi, resolveGitHubToken } from '../integrations/github.js';
 
 /**
  * Main dispatcher for Dashboard-related API routes (/api/agent/*, /api/terminal/*).
@@ -55,6 +55,151 @@ export async function handleDashboardApi(request, url, env, ctx) {
             });
         } catch (e) {
             return jsonResponse({ error: e.message }, 500);
+        }
+    }
+
+    // ── GET /api/agent/git/branches ───────────────────────────────────────────
+    // Lists branches for the repo linked to latest deployment (GitHub REST API).
+    // Same logical repo as /api/agent/git/status; Workers cannot shell out to git.
+    if (pathLower === '/api/agent/git/branches' && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+        const workerName = 'inneranimalmedia';
+        try {
+            const row = await env.DB.prepare(
+                `SELECT g.repo_full_name
+                 FROM deployments d
+                 LEFT JOIN github_repositories g ON g.cloudflare_worker_name = ?
+                 WHERE d.worker_name = ? AND d.status = 'success'
+                 ORDER BY d.timestamp DESC
+                 LIMIT 1`,
+            )
+                .bind(workerName, workerName)
+                .first();
+            const repoFull = row?.repo_full_name != null ? String(row.repo_full_name).trim() : '';
+            if (!repoFull || !repoFull.includes('/')) {
+                return jsonResponse({
+                    branches: [],
+                    repo_full_name: null,
+                    error: 'no_repository',
+                    hint: 'Link a GitHub repository on deployments / cicd settings.',
+                });
+            }
+            const owner = repoFull.split('/')[0];
+            let token;
+            try {
+                const gh = await resolveGitHubToken(env, authUser, owner);
+                token = gh.token;
+            } catch (e) {
+                return jsonResponse({
+                    branches: [],
+                    repo_full_name: repoFull,
+                    error: 'github_auth',
+                    message: e?.message || String(e),
+                });
+            }
+
+            const ghHeaders = {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.github+json',
+                'User-Agent': 'InnerAnimalMedia-Dashboard',
+            };
+
+            const all = [];
+            for (let page = 1; page <= 5; page++) {
+                const res = await fetch(
+                    `https://api.github.com/repos/${repoFull}/branches?per_page=100&page=${page}`,
+                    { headers: ghHeaders },
+                );
+                if (!res.ok) {
+                    const errBody = await res.text().catch(() => '');
+                    return jsonResponse(
+                        {
+                            branches: [],
+                            repo_full_name: repoFull,
+                            error: 'github_branches',
+                            status: res.status,
+                            detail: errBody.slice(0, 300),
+                        },
+                        res.status >= 400 && res.status < 500 ? res.status : 502,
+                    );
+                }
+                const chunk = await res.json();
+                if (!Array.isArray(chunk) || chunk.length === 0) break;
+                all.push(...chunk);
+                if (chunk.length < 100) break;
+            }
+
+            const maxDetail = 36;
+
+            async function commitMeta(sha) {
+                try {
+                    const res = await fetch(`https://api.github.com/repos/${repoFull}/commits/${sha}`, {
+                        headers: ghHeaders,
+                    });
+                    if (!res.ok) return { subject: '', date_iso: null };
+                    const j = await res.json();
+                    const msg = typeof j.commit?.message === 'string' ? j.commit.message.split('\n')[0].trim() : '';
+                    const date_iso = j.commit?.committer?.date || j.commit?.author?.date || null;
+                    return { subject: msg, date_iso };
+                } catch {
+                    return { subject: '', date_iso: null };
+                }
+            }
+
+            function relativeFromIso(iso) {
+                if (!iso) return '';
+                const t = Date.parse(iso);
+                if (Number.isNaN(t)) return '';
+                const sec = Math.floor((Date.now() - t) / 1000);
+                if (sec < 45) return 'just now';
+                if (sec < 3600) return `${Math.floor(sec / 60)} minutes ago`;
+                if (sec < 86400) return `${Math.floor(sec / 3600)} hours ago`;
+                const d = Math.floor(sec / 86400);
+                if (d < 60) return `${d} days ago`;
+                return `${Math.floor(d / 30)} months ago`;
+            }
+
+            const detailRows = all.slice(0, maxDetail);
+            const BATCH = 8;
+            /** @type {{ subject: string; date_relative: string }[]} */
+            const detailMeta = [];
+            for (let i = 0; i < detailRows.length; i += BATCH) {
+                const chunk = detailRows.slice(i, i + BATCH);
+                const metas = await Promise.all(chunk.map((br) => commitMeta(br.commit?.sha || '')));
+                for (let j = 0; j < chunk.length; j++) {
+                    const m = metas[j];
+                    detailMeta.push({
+                        subject: m.subject,
+                        date_relative: relativeFromIso(m.date_iso),
+                    });
+                }
+            }
+
+            const branchesOut = [];
+            for (let i = 0; i < all.length; i++) {
+                const b = all[i];
+                const name = typeof b.name === 'string' ? b.name : '';
+                const sha = b.commit?.sha || '';
+                if (!name || !sha) continue;
+                const dm = i < detailMeta.length ? detailMeta[i] : { subject: '', date_relative: '' };
+                branchesOut.push({
+                    ref: name,
+                    sha,
+                    subject: dm.subject,
+                    date_relative: dm.date_relative,
+                });
+            }
+
+            return jsonResponse({
+                branches: branchesOut,
+                repo_full_name: repoFull,
+                source: 'github_api',
+            });
+        } catch (e) {
+            return jsonResponse({ branches: [], error: e?.message || String(e) }, 500);
         }
     }
 

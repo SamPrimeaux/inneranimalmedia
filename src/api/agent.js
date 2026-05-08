@@ -446,6 +446,33 @@ function projectIdFromEnv(env) {
   return 'inneranimalmedia';
 }
 
+/**
+ * user_oauth_tokens.user_id may be email OR au_ id depending on which OAuth flow stored it — query both.
+ * @param {{ id: string, email?: string|null }} authUser
+ * @param {any} env
+ */
+async function resolveGitHubToken(authUser, env) {
+  const row = await env.DB.prepare(
+    `SELECT access_token, expires_at
+     FROM user_oauth_tokens
+     WHERE provider = 'github'
+       AND (user_id = ? OR user_id = ?)
+     ORDER BY expires_at DESC
+     LIMIT 1`,
+  )
+    .bind(authUser.id, authUser.email ?? '')
+    .first();
+
+  if (!row?.access_token) return { error: 'No GitHub token. Re-authenticate via GitHub OAuth.', status: 401 };
+
+  // expires_at stored as Unix SECONDS
+  if (row.expires_at && Math.floor(Date.now() / 1000) > row.expires_at) {
+    return { error: 'GitHub token expired. Re-authenticate via GitHub OAuth.', status: 401 };
+  }
+
+  return { token: row.access_token };
+}
+
 function parseJsonSafe(value, fallback = null) {
   if (value == null) return fallback;
   if (typeof value === 'object') return value;
@@ -3326,6 +3353,112 @@ export async function handleAgentApi(request, url, env, ctx) {
       const row = await env.DB.prepare(`SELECT d.git_hash, d.version, d.timestamp, g.repo_full_name, g.default_branch FROM deployments d LEFT JOIN github_repositories g ON g.cloudflare_worker_name = ? WHERE d.worker_name = ? AND d.status = 'success' ORDER BY d.timestamp DESC LIMIT 1`).bind(workerName, workerName).first();
       return jsonResponse({ branch: row?.default_branch || 'main', git_hash: row?.git_hash || null, worker_name: workerName, repo_full_name: row?.repo_full_name || null, sync_last_at: row?.timestamp || null });
     } catch (e) { return jsonResponse({ error: e?.message }, 500); }
+  }
+
+  // ── GET /api/agent/git/branches ───────────────────────────────────────────
+  if (path === '/api/agent/git/branches' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+    const { token, error, status } = await resolveGitHubToken(authUser, env);
+    if (error) return jsonResponse({ error }, status);
+
+    const workerName = projectIdFromEnv(env);
+    const repoRow = await env.DB.prepare(
+      `SELECT repo_full_name, default_branch
+       FROM github_repositories
+       WHERE cloudflare_worker_name = ?
+       LIMIT 1`,
+    )
+      .bind(workerName)
+      .first();
+
+    if (!repoRow?.repo_full_name) {
+      return jsonResponse({ error: 'No repository linked to this worker.', worker: workerName }, 404);
+    }
+
+    const ghRes = await fetch(
+      `https://api.github.com/repos/${repoRow.repo_full_name}/branches?per_page=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'inneranimalmedia-agent/1.0',
+        },
+      },
+    );
+
+    if (!ghRes.ok) {
+      return jsonResponse({ error: 'GitHub API error', status: ghRes.status, detail: await ghRes.text() }, 502);
+    }
+
+    const ghBranches = await ghRes.json();
+
+    // Shape matches existing GitBranchRow type in StatusBar:
+    // { ref: string, sha: string, protected: boolean }
+    return jsonResponse({
+      current: repoRow.default_branch || 'main',
+      repo: repoRow.repo_full_name,
+      branches: ghBranches.map((b) => ({
+        ref: b.name,
+        sha: b.commit.sha.slice(0, 7),
+        protected: b.protected ?? false,
+      })),
+    });
+  }
+
+  // ── GET /api/agent/git/repos ──────────────────────────────────────────────
+  if (path === '/api/agent/git/repos' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+    const { token, error, status } = await resolveGitHubToken(authUser, env);
+    if (error) return jsonResponse({ error }, status);
+
+    const ghRes = await fetch(
+      'https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'inneranimalmedia-agent/1.0',
+        },
+      },
+    );
+
+    if (!ghRes.ok) {
+      return jsonResponse({ error: 'GitHub API error', status: ghRes.status }, 502);
+    }
+
+    const ghRepos = await ghRes.json();
+
+    const linkedRows = await env.DB.prepare(
+      `SELECT repo_full_name, cloudflare_worker_name
+       FROM github_repositories
+       WHERE tenant_id = ?`,
+    )
+      .bind(authUser.tenant_id)
+      .all();
+
+    const linkedMap = Object.fromEntries(
+      (linkedRows.results || []).map((r) => [r.repo_full_name, r.cloudflare_worker_name]),
+    );
+
+    return jsonResponse({
+      repos: ghRepos.map((r) => ({
+        full_name: r.full_name,
+        name: r.name,
+        owner: r.owner.login,
+        private: r.private,
+        pushed_at: r.pushed_at,
+        default_branch: r.default_branch,
+        linked_worker: linkedMap[r.full_name] || null,
+      })),
+    });
   }
 
   // ── /api/agent/git/sync ───────────────────────────────────────────────────
