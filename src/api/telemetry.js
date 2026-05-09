@@ -5,6 +5,7 @@
  */
 import { resolveTelemetryTenantId } from '../core/auth';
 import { pragmaTableInfo } from '../core/retention.js';
+import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
 
 /**
  * Standardizes provider names for the spend ledger.
@@ -98,6 +99,13 @@ export async function writeTelemetry(env, data, modelRates) {
     estimatedCost = Number(computedCostUsdOverride);
   } else if (rates) {
     estimatedCost = computeUsdFromModelRatesRow(modelKey, rates, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
+  } else if (env?.DB && modelKey) {
+    estimatedCost = await estimateCostUsdFromCatalog(
+      env.DB,
+      modelKey,
+      inputTokens,
+      outputTokens,
+    );
   }
 
   const telemetryId = `tel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

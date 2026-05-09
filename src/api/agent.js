@@ -65,6 +65,7 @@ import {
   resolveAgentCommand,
 } from './command-run-telemetry.js';
 import { resolveCanonicalUserId } from './auth.js';
+import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_execute', 'run_command', 'bash']);
@@ -1381,28 +1382,47 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
       const cols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
       const arm = routingArmId != null ? String(routingArmId).trim().slice(0, 120) : '';
       const withArm = arm && cols.has('routing_arm_id');
+      const mk = modelKey ?? 'unknown';
+      const tin = Math.floor(Number(inputTokens) || 0);
+      const tout = Math.floor(Number(outputTokens) || 0);
+      let computedCost = Number(costUsd) || 0;
+      if (!computedCost && (tin > 0 || tout > 0)) {
+        computedCost = await estimateCostUsdFromCatalog(env.DB, mk, tin, tout);
+      }
+      const hasMk = cols.has('model_key');
+      const hasTot = cols.has('total_tokens');
+      const hasEv = cols.has('event_type');
+      const midExtra = hasMk ? ', model_key' : '';
+      const midExtraPh = hasMk ? ',?' : '';
+      const tokExtra = hasTot ? ', total_tokens' : '';
+      const tokExtraPh = hasTot ? ',?' : '';
+      const postStatus = hasEv ? ', event_type' : '';
+      const postStatusPh = hasEv ? ',?' : '';
       try {
         if (withArm) {
           await env.DB.prepare(`
             INSERT OR IGNORE INTO agentsam_usage_events
               (id, tenant_id, workspace_id, user_id, session_id,
-               agent_name, provider, model, tokens_in, tokens_out,
-               cost_usd, status, ref_table, ref_id, routing_arm_id, created_at)
+               agent_name, provider, model${midExtra}, tokens_in, tokens_out${tokExtra},
+               cost_usd, status${postStatus}, ref_table, ref_id, routing_arm_id, created_at)
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
-               'iam_agent',?,?,?,?,?,?,
-               'agent_chat_sse',?,?,unixepoch())
+               'iam_agent',?,?,?${midExtraPh},?,?,?${tokExtraPh},
+               ?,?${postStatusPh}, 'agent_chat_sse', ?, ?, unixepoch())
           `).bind(
             tenantId,
             workspaceId,
             userId ?? null,
             conversationId ?? null,
             resolvedProvider ?? 'unknown',
-            modelKey ?? 'unknown',
-            Math.floor(Number(inputTokens) || 0),
-            Math.floor(Number(outputTokens) || 0),
-            Number(costUsd) || 0,
+            mk,
+            ...(hasMk ? [mk] : []),
+            tin,
+            tout,
+            ...(hasTot ? [tin + tout] : []),
+            computedCost,
             streamFailed ? 'error' : 'ok',
+            ...(hasEv ? ['agent_chat_sse'] : []),
             refId ?? 'na',
             arm,
           ).run();
@@ -1410,23 +1430,26 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
           await env.DB.prepare(`
             INSERT OR IGNORE INTO agentsam_usage_events
               (id, tenant_id, workspace_id, user_id, session_id,
-               agent_name, provider, model, tokens_in, tokens_out,
-               cost_usd, status, ref_table, ref_id, created_at)
+               agent_name, provider, model${midExtra}, tokens_in, tokens_out${tokExtra},
+               cost_usd, status${postStatus}, ref_table, ref_id, created_at)
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
-               'iam_agent',?,?,?,?,?,?,
-               'agent_chat_sse',?,unixepoch())
+               'iam_agent',?,?,?${midExtraPh},?,?,?${tokExtraPh},
+               ?,?${postStatusPh}, 'agent_chat_sse', ?, unixepoch())
           `).bind(
             tenantId,
             workspaceId,
             userId ?? null,
             conversationId ?? null,
             resolvedProvider ?? 'unknown',
-            modelKey ?? 'unknown',
-            Math.floor(Number(inputTokens) || 0),
-            Math.floor(Number(outputTokens) || 0),
-            Number(costUsd) || 0,
+            mk,
+            ...(hasMk ? [mk] : []),
+            tin,
+            tout,
+            ...(hasTot ? [tin + tout] : []),
+            computedCost,
             streamFailed ? 'error' : 'ok',
+            ...(hasEv ? ['agent_chat_sse'] : []),
             refId ?? 'na',
           ).run();
         }

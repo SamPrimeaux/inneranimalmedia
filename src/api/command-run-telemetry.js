@@ -5,6 +5,7 @@ import { resolveCanonicalUserId } from './auth.js';
 import { isFeatureEnabled } from '../core/features.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { pragmaTableInfo } from '../core/retention.js';
+import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
 
 import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
 import { recordSpan } from '../core/tracer.js';
@@ -193,6 +194,8 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     costUsd,
     mcpToolCallId,
     durationMs,
+    inputTokens = 0,
+    outputTokens = 0,
     terminalSessionId,
     tenantId = null,
     userId = null,
@@ -247,6 +250,22 @@ export async function fireForgetAgentToolChainRow(env, opts) {
         ? 'Error'
         : null;
 
+  let afterCompletedCols = '';
+  const afterCompletedVals = [];
+  const durMs = Math.max(0, Math.floor(Number(durationMs) || 0));
+  if (tcCols.has('duration_ms')) {
+    afterCompletedCols += ', duration_ms';
+    afterCompletedVals.push(durMs);
+  }
+  if (tcCols.has('input_tokens')) {
+    afterCompletedCols += ', input_tokens';
+    afterCompletedVals.push(Math.max(0, Math.floor(Number(inputTokens) || 0)));
+  }
+  if (tcCols.has('output_tokens')) {
+    afterCompletedCols += ', output_tokens';
+    afterCompletedVals.push(Math.max(0, Math.floor(Number(outputTokens) || 0)));
+  }
+
   const tryInsert = (sql, binds) => env.DB.prepare(sql).bind(...binds).run();
 
   const tailBinds = [
@@ -255,6 +274,7 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     toolStatus,
     startedAt,
     completedAt,
+    ...afterCompletedVals,
     costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
     mcpToolCallId || null,
     terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
@@ -267,14 +287,16 @@ export async function fireForgetAgentToolChainRow(env, opts) {
   const fallbackBinds = [chainId, ws, ...scopeMidBinds, ...tailBinds];
   const fallbackPlaceholders = fallbackBinds.map(() => '?').join(', ');
 
+  const colAfterTime = `started_at, completed_at${afterCompletedCols}, cost_usd`;
+
   const p = tryInsert(
-    `INSERT INTO agentsam_tool_chain (id, workspace_id, tenant_id, user_id${scopeMid}, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
+    `INSERT INTO agentsam_tool_chain (id, workspace_id, tenant_id, user_id${scopeMid}, agent_session_id, tool_name, tool_status, ${colAfterTime}, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
      VALUES (${primaryPlaceholders})`,
     primaryBinds,
   )
     .catch(() =>
       tryInsert(
-        `INSERT INTO agentsam_tool_chain (id, workspace_id${scopeMid}, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
+        `INSERT INTO agentsam_tool_chain (id, workspace_id${scopeMid}, agent_session_id, tool_name, tool_status, ${colAfterTime}, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
      VALUES (${fallbackPlaceholders})`,
         fallbackBinds,
       ),
@@ -468,6 +490,16 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
       const commandRunId = `run_${crypto.randomUUID().slice(0, 16)}`;
       const modelId = p.modelKey ?? null;
       const canonicalUserId = await resolveCanonicalUserId(p.userId ?? null, env);
+      const inTok = Math.max(0, Math.floor(Number(p.inputTokens) || 0));
+      const outTok = Math.max(0, Math.floor(Number(p.outputTokens) || 0));
+      let costUsdIns = Number(p.costUsd);
+      if (!Number.isFinite(costUsdIns) || costUsdIns <= 0) {
+        if (modelId && (inTok > 0 || outTok > 0)) {
+          costUsdIns = await estimateCostUsdFromCatalog(env.DB, modelId, inTok, outTok);
+        } else {
+          costUsdIns = 0;
+        }
+      }
       try {
         const ins = await env.DB.prepare(
           `INSERT INTO agentsam_command_run
@@ -499,9 +531,9 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
             p.success ? 1 : 0,
             p.exitCode ?? null,
             Math.max(0, Math.floor(p.durationMs || 0)),
-            p.inputTokens ?? 0,
-            p.outputTokens ?? 0,
-            p.costUsd ?? 0,
+            inTok,
+            outTok,
+            costUsdIns,
             p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : null,
             p.selectedCommandId ?? null,
             p.selectedCommandSlug ?? null,
@@ -519,8 +551,8 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
           commandSlug: p.selectedCommandSlug ?? null,
           success: p.success,
           durationMs: Math.max(0, Math.floor(p.durationMs || 0)),
-          costUsd: p.costUsd ?? 0,
-          tokensConsumed: (p.inputTokens ?? 0) + (p.outputTokens ?? 0),
+          costUsd: costUsdIns,
+          tokensConsumed: inTok + outTok,
         });
 
         if (!p.success && p.errorMessage != null && String(p.errorMessage).trim() !== '') {
@@ -553,9 +585,6 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
           p.provider != null && String(p.provider).trim() !== '' ? String(p.provider).trim() : null;
         const exeCols = await pragmaTableInfo(env.DB, 'agentsam_executions');
         const durMs = Math.max(0, Math.floor(p.durationMs || 0));
-        const inTok = Math.max(0, Math.floor(Number(p.inputTokens) || 0));
-        const outTok = Math.max(0, Math.floor(Number(p.outputTokens) || 0));
-        const costU = Number(p.costUsd) || 0;
         const stat = p.success ? 'completed' : 'failed';
         const mk = p.modelKey != null ? String(p.modelKey).trim() : null;
         try {
@@ -581,7 +610,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
                 stat,
                 inTok,
                 outTok,
-                costU,
+                costUsdIns,
                 durMs,
               )
               .run();
