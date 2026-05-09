@@ -1,60 +1,57 @@
 /**
- * src/api/test/code-execution-e2e.js
+ * DB + Anthropic E2E for code_execution_20260120 (programmatic tool calling).
+ * Tables: agentsam_tool_chain, agentsam_usage_events, agentsam_command_run (existing columns only).
  *
- * DB-driven E2E test for Anthropic code_execution_20260120 (programmatic tool calling).
- * Schema-aligned with live D1 agentsam_* tables (PRAGMA-filtered inserts).
- *
- * Tables written:
- *   agentsam_tool_chain   — tool_status, result_json / input_json (no model_used / raw_result_json / created_at)
- *   agentsam_usage_events — tokens + cost_usd + ref → tool_chain id
- *   agentsam_command_run  — overall run record
- *
- * Config read from DB:
- *   agentsam_model_catalog — model_key, anthropic_model_id, cost_per_1k_in, cost_per_1k_out
- *   agentsam_bootstrap     — workspace_id, tenant_id, user_id (env=production, is_active=1)
- *
- * Auth:  X-IAM-Test-Secret == env.IAM_TEST_SECRET ?? env.PTY_AUTH_TOKEN
- * Route: POST /api/test/code-execution-e2e  (production only; see src/index.js)
+ * Gates: production + env.IAM_ENABLE_E2E_TEST_ROUTES === 'true' (see src/index.js).
+ * Auth: X-IAM-Test-Secret == env.IAM_TEST_SECRET ?? env.PTY_AUTH_TOKEN
  *
  * Body:
- *   model_preference  "sonnet"|"haiku"|"opus"  (default "sonnet")
- *   opus_gated        true  — required to unlock opus
- *   dry_run           true  — validates + returns rows, no D1 writes
+ *   mode              happy_path | bad_tool_input | unknown_tool | forced_tool_error |
+ *                     forced_timeout | invalid_model_preference | opus_without_gate
+ *   model_preference  sonnet | haiku | opus
+ *   opus_gated        true to allow opus
+ *   dry_run           true — no D1 writes; still runs validation / optional Anthropic
+ *   test_id_suffix    optional string to stabilize correlation ids
  */
 
 import { resolveCanonicalUserId } from '../auth.js';
 import { pragmaTableInfo } from '../../core/retention.js';
+import { estimateCostUsdFromCatalog, resolveModelKeyFromProviderId } from '../../core/model-catalog-cost.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CODE_EXEC_TOOL_VERSION = 'code_execution_20260120';
 
 const INSERTABLE_TABLES = new Set(['agentsam_tool_chain', 'agentsam_usage_events', 'agentsam_command_run']);
 
-// Maps UI preference → agentsam_model_catalog tier
 const TIER_MAP = {
   sonnet: { provider: 'anthropic', tier: 'power' },
   haiku: { provider: 'anthropic', tier: 'standard' },
   opus: { provider: 'anthropic', tier: 'reasoning', gated: true },
 };
 
-function newId(prefix) {
+const E2E_MODES = new Set([
+  'happy_path',
+  'bad_tool_input',
+  'unknown_tool',
+  'forced_tool_error',
+  'forced_timeout',
+  'invalid_model_preference',
+  'opus_without_gate',
+]);
+
+function newHexId(prefix) {
   const hex = crypto.randomUUID().replace(/-/g, '');
   return `${prefix}${hex.slice(0, 16)}`;
 }
-
-// ─── Auth ─────────────────────────────────────────────────────────────────────
 
 function isAuthorized(request, env) {
   const secret = env.IAM_TEST_SECRET ?? env.PTY_AUTH_TOKEN ?? '';
   return !!secret && (request.headers.get('X-IAM-Test-Secret') ?? '') === String(secret);
 }
 
-// ─── DB: agentsam_model_catalog ───────────────────────────────────────────────
-
 async function resolveModel(env, pref = 'sonnet', opusGated = false) {
   const map = TIER_MAP[pref] ?? TIER_MAP.sonnet;
   if (map.gated && !opusGated) {
-    console.warn('[e2e] opus_gated not true — falling back to sonnet');
     return resolveModel(env, 'sonnet', false);
   }
   try {
@@ -87,8 +84,6 @@ async function resolveModel(env, pref = 'sonnet', opusGated = false) {
   };
 }
 
-// ─── DB: agentsam_bootstrap ───────────────────────────────────────────────────
-
 async function resolveBootstrap(env) {
   try {
     const row = await env.DB.prepare(
@@ -112,16 +107,10 @@ async function resolveBootstrap(env) {
   };
 }
 
-// ─── Tool (callable from code execution) ─────────────────────────────────────
-
 const SAMPLE_TOOL = {
   name: 'query_workspace_stats',
-  description: [
-    'Returns workspace usage stats as JSON:',
-    '{ workspace_id:string, total_sessions:number, total_tool_calls:number,',
-    '  avg_latency_ms:number, model_breakdown:{ [model_key]:number } }.',
-    'Call once only.',
-  ].join(' '),
+  description:
+    'Returns workspace usage stats as JSON from D1 (read-only): counts for agentsam_tool_chain, agentsam_usage_events, agentsam_command_run for the given workspace_id.',
   input_schema: {
     type: 'object',
     properties: {
@@ -133,20 +122,52 @@ const SAMPLE_TOOL = {
   allowed_callers: [CODE_EXEC_TOOL_VERSION],
 };
 
-async function handleSampleTool(env, input) {
-  void env;
-  return JSON.stringify({
-    workspace_id: input.workspace_id,
-    total_sessions: 42,
-    total_tool_calls: 187,
-    avg_latency_ms: 312,
-    model_breakdown: { 'claude-sonnet-4-6': 103, 'claude-haiku-4-5': 84 },
-  });
+let e2eToolHandlerMode = 'happy_path';
+
+async function fetchWorkspaceTelemetryStats(env, workspaceId) {
+  const ws = String(workspaceId || '').trim();
+  if (!ws || !env?.DB) {
+    return { workspace_id: ws, tool_chain_rows: 0, usage_rows: 0, command_run_rows: 0, error: 'no_db_or_workspace' };
+  }
+  try {
+    const tc = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM agentsam_tool_chain WHERE workspace_id = ?`,
+    )
+      .bind(ws)
+      .first();
+    const ue = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM agentsam_usage_events WHERE workspace_id = ?`,
+    )
+      .bind(ws)
+      .first();
+    const cr = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM agentsam_command_run WHERE workspace_id = ?`,
+    )
+      .bind(ws)
+      .first();
+    return {
+      workspace_id: ws,
+      tool_chain_rows: Number(tc?.n) || 0,
+      usage_rows: Number(ue?.n) || 0,
+      command_run_rows: Number(cr?.n) || 0,
+    };
+  } catch (e) {
+    return { workspace_id: ws, error: e?.message ?? String(e) };
+  }
 }
 
-// ─── Anthropic API + multi-turn loop ─────────────────────────────────────────
+async function handleSampleTool(env, input) {
+  if (e2eToolHandlerMode === 'bad_tool_input') {
+    return JSON.stringify({ error: 'malformed_input', detail: 'e2e_bad_tool_input' });
+  }
+  if (e2eToolHandlerMode === 'forced_tool_error') {
+    throw new Error('e2e_forced_tool_error');
+  }
+  const stats = await fetchWorkspaceTelemetryStats(env, input.workspace_id);
+  return JSON.stringify(stats);
+}
 
-async function anthropicPost(apiKey, body) {
+async function anthropicPost(apiKey, body, signal = undefined) {
   const res = await fetch(`${ANTHROPIC_BASE}/messages`, {
     method: 'POST',
     headers: {
@@ -155,6 +176,7 @@ async function anthropicPost(apiKey, body) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
+    signal,
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -164,12 +186,12 @@ async function anthropicPost(apiKey, body) {
   return json;
 }
 
-async function runLoop(apiKey, env, modelId, messages, tools, containerId = null) {
+async function runLoop(apiKey, env, modelId, messages, tools, containerId = null, fetchSignal = undefined) {
   const toolCallLog = [];
   for (let i = 0; i < 10; i++) {
     const body = { model: modelId, max_tokens: 2048, messages, tools };
     if (containerId) body.container = containerId;
-    const resp = await anthropicPost(apiKey, body);
+    const resp = await anthropicPost(apiKey, body, fetchSignal);
     containerId = resp.container?.id ?? containerId;
     const uses = (resp.content ?? []).filter((b) => b.type === 'tool_use');
     toolCallLog.push(...uses);
@@ -182,7 +204,7 @@ async function runLoop(apiKey, env, modelId, messages, tools, containerId = null
         content:
           b.name === 'query_workspace_stats'
             ? await handleSampleTool(env, b.input)
-            : JSON.stringify({ error: `unknown: ${b.name}` }),
+            : JSON.stringify({ error: `unknown_tool: ${b.name}` }),
       })),
     );
     messages = [...messages, { role: 'assistant', content: resp.content }, { role: 'user', content: results }];
@@ -190,140 +212,123 @@ async function runLoop(apiKey, env, modelId, messages, tools, containerId = null
   throw new Error('max iterations exceeded');
 }
 
-// ─── Row builders — agentsam_* column names ──────────────────────────────────
-
-function buildToolChainRow({
-  chainId,
-  tenantId,
-  workspaceId,
-  userId,
-  agentSessionId,
-  modelKey,
-  durationMs,
-  inputTokens,
-  outputTokens,
-  costUsd,
-  toolCallCount,
-  containerId,
-}) {
+function buildToolChainRow(p) {
   const now = Math.floor(Date.now() / 1000);
   return {
-    id: chainId,
-    tenant_id: tenantId ?? null,
-    workspace_id: workspaceId,
-    user_id: userId ?? null,
+    id: p.chainId,
+    tenant_id: p.tenantId ?? null,
+    workspace_id: p.workspaceId,
+    user_id: p.userId ?? null,
     agent_id: null,
     work_session_id: null,
-    agent_session_id: agentSessionId,
+    agent_session_id: p.agentSessionId,
     agent_message_id: null,
     parent_chain_id: null,
     depth: 0,
-    tool_name: 'code_execution',
+    tool_name: p.toolName ?? 'code_execution',
     tool_id: null,
     mcp_tool_ref: null,
     mcp_tool_call_id: null,
     terminal_session_id: null,
     command_execution_id: null,
-    tool_status: 'completed',
-    input_json: JSON.stringify({ model_key: modelKey, tool_calls: toolCallCount }),
-    output_summary: `${toolCallCount} programmatic tool call(s) via code_execution`,
-    result_json: JSON.stringify({ container_id: containerId }),
-    error_message: null,
-    error_type: null,
+    tool_status: p.toolStatus ?? 'completed',
+    input_json: JSON.stringify(
+      p.inputJson ??
+        (p.modelKey
+          ? {
+              model_key: p.modelKey,
+              tool_calls: p.toolCallCount ?? 0,
+              telemetry_actor: p.telemetryActor ?? 'e2e_test',
+              e2e_mode: p.e2eMode,
+            }
+          : { telemetry_actor: p.telemetryActor ?? 'e2e_test', e2e_mode: p.e2eMode, tool_calls: p.toolCallCount ?? 0 }),
+    ),
+    output_summary: p.outputSummary ?? 'e2e',
+    result_json: JSON.stringify(
+      p.resultJson ?? {
+        container_id: p.containerId ?? null,
+        e2e_mode: p.e2eMode,
+        provider_model_id: p.providerModelId ?? null,
+      },
+    ),
+    error_message: p.errorMessage ?? null,
+    error_type: p.errorType ?? null,
     retry_count: 0,
     max_retries: 2,
-    duration_ms: durationMs,
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    cost_usd: costUsd,
-    timed_out: 0,
+    duration_ms: p.durationMs ?? 0,
+    input_tokens: p.inputTokens ?? 0,
+    output_tokens: p.outputTokens ?? 0,
+    cost_usd: p.costUsd ?? 0,
+    timed_out: p.timedOut ? 1 : 0,
     sla_breach: 0,
     timeout_ms: 30000,
     requires_approval: 0,
     approved_by: null,
     approved_at: null,
-    started_at: now - Math.max(1, Math.floor(durationMs / 1000)),
+    started_at: now - Math.max(1, Math.floor((p.durationMs ?? 0) / 1000)),
     completed_at: now,
     execution_step_id: null,
     workflow_run_id: null,
   };
 }
 
-function buildUsageEventRow({
-  usageId,
-  tenantId,
-  workspaceId,
-  userId,
-  agentSessionId,
-  modelKey,
-  anthropicModelId,
-  inputTokens,
-  outputTokens,
-  costUsd,
-  durationMs,
-  toolChainId,
-}) {
+function buildUsageEventRow(p) {
+  const tin = Math.floor(Number(p.inputTokens) || 0);
+  const tout = Math.floor(Number(p.outputTokens) || 0);
   return {
-    id: usageId,
-    tenant_id: tenantId,
-    workspace_id: workspaceId,
-    user_id: userId ?? null,
-    session_id: agentSessionId,
+    id: p.usageId,
+    tenant_id: p.tenantId,
+    workspace_id: p.workspaceId,
+    user_id: p.userId ?? null,
+    session_id: p.agentSessionId,
     agent_name: 'agent-sam',
     provider: 'anthropic',
-    model: anthropicModelId,
-    model_key: modelKey,
-    tokens_in: inputTokens,
-    tokens_out: outputTokens,
-    total_tokens: inputTokens + outputTokens,
-    cost_usd: costUsd,
-    status: 'ok',
+    model: p.anthropicModelId,
+    model_key: p.modelKey,
+    tokens_in: tin,
+    tokens_out: tout,
+    total_tokens: tin + tout,
+    cost_usd: p.costUsd,
+    status: p.status ?? 'ok',
     tool_name: 'code_execution',
     reason: null,
     ref_table: 'agentsam_tool_chain',
-    ref_id: toolChainId,
-    duration_ms: durationMs,
-    event_type: 'code_execution_e2e_test',
+    ref_id: p.toolChainId,
+    duration_ms: p.durationMs,
+    event_type: p.eventType ?? 'code_execution_e2e_test',
     created_at: Math.floor(Date.now() / 1000),
   };
 }
 
-function buildCommandRunRow({
-  runId,
-  workspaceId,
-  tenantId,
-  userId,
-  agentSessionId,
-  modelKey,
-  durationMs,
-  inputTokens,
-  outputTokens,
-  costUsd,
-  outputText,
-}) {
+function buildCommandRunRow(p) {
   return {
-    id: runId,
-    workspace_id: workspaceId,
-    tenant_id: tenantId ?? null,
-    user_id: userId ?? null,
-    session_id: agentSessionId,
+    id: p.runId,
+    workspace_id: p.workspaceId,
+    tenant_id: p.tenantId ?? null,
+    user_id: p.userId ?? null,
+    session_id: p.agentSessionId,
     conversation_id: null,
-    user_input: 'E2E: code_execution_20260120 programmatic tool call test',
+    user_input: `E2E code_execution (${p.e2eMode ?? 'happy_path'})`,
     normalized_intent: 'code_execution_e2e',
     intent_category: 'misc',
     tier_used: 0,
-    model_id: modelKey,
+    model_id: p.modelKey,
     commands_json: '[]',
-    result_json: '{}',
-    output_text: (outputText ?? '').slice(0, 2000) || null,
+    result_json: JSON.stringify(
+      p.resultJson ?? {
+        e2e_mode: p.e2eMode,
+        telemetry_model: p.telemetryModel ?? null,
+      },
+    ),
+    output_text: (p.outputText ?? '').slice(0, 2000) || null,
     confidence_score: 1.0,
-    success: 1,
-    exit_code: 0,
-    duration_ms: durationMs,
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    cost_usd: costUsd,
-    error_message: null,
+    success: p.success ? 1 : 0,
+    exit_code: p.exitCode ?? 0,
+    duration_ms: p.durationMs,
+    input_tokens: p.inputTokens,
+    output_tokens: p.outputTokens,
+    cost_usd: p.costUsd,
+    error_message: p.errorMessage ?? null,
     selected_command_id: null,
     selected_command_slug: 'code_execution_e2e',
     risk_level: 'low',
@@ -331,8 +336,6 @@ function buildCommandRunRow({
     approval_status: 'not_required',
   };
 }
-
-// ─── Validation ───────────────────────────────────────────────────────────────
 
 function validateToolChain(row) {
   const errors = [];
@@ -347,14 +350,13 @@ function validateToolChain(row) {
 
 function validateUsageEvent(row) {
   const errors = [];
-  for (const f of ['tenant_id', 'workspace_id', 'provider', 'model', 'tokens_in', 'tokens_out']) {
+  for (const f of ['tenant_id', 'workspace_id', 'provider', 'model', 'tokens_in', 'tokens_out', 'model_key', 'event_type']) {
     if (row[f] == null) errors.push(`missing: ${f}`);
   }
+  if (row.total_tokens == null) errors.push('missing: total_tokens');
   if (!['ok', 'blocked', 'error', 'timeout'].includes(row.status)) errors.push(`bad status: ${row.status}`);
   return errors;
 }
-
-// ─── D1 writes (PRAGMA-filtered) ─────────────────────────────────────────────
 
 async function insertRow(env, table, row) {
   if (!INSERTABLE_TABLES.has(table)) throw new Error('invalid table');
@@ -386,10 +388,68 @@ async function persistE2eRows(env, toolChainRow, usageRow, commandRunRow) {
   return dbResults;
 }
 
-// ─── Route handler ───────────────────────────────────────────────────────────
+async function readbackRows(env, chainId, usageId, runId) {
+  const db_readback = {};
+  try {
+    db_readback.tool_chain = await env.DB.prepare(`SELECT * FROM agentsam_tool_chain WHERE id = ? LIMIT 1`)
+      .bind(chainId)
+      .first();
+  } catch (e) {
+    db_readback.tool_chain = { error: e?.message ?? String(e) };
+  }
+  try {
+    db_readback.usage_event = await env.DB.prepare(`SELECT * FROM agentsam_usage_events WHERE id = ? LIMIT 1`)
+      .bind(usageId)
+      .first();
+  } catch (e) {
+    db_readback.usage_event = { error: e?.message ?? String(e) };
+  }
+  try {
+    db_readback.command_run = await env.DB.prepare(`SELECT * FROM agentsam_command_run WHERE id = ? LIMIT 1`)
+      .bind(runId)
+      .first();
+  } catch (e) {
+    db_readback.command_run = { error: e?.message ?? String(e) };
+  }
+  return db_readback;
+}
 
-export async function handleCodeExecutionE2E(request, env, ctx) {
-  void ctx;
+function joinCheck(dbReadback) {
+  const tc = dbReadback?.tool_chain;
+  const ue = dbReadback?.usage_event;
+  const cr = dbReadback?.command_run;
+  const joins = {
+    usage_ref_matches_tool_chain:
+      ue && tc && String(ue.ref_table) === 'agentsam_tool_chain' && String(ue.ref_id) === String(tc.id),
+    session_alignment:
+      !!(
+        tc &&
+        ue &&
+        cr &&
+        String(tc.agent_session_id || '') === String(ue.session_id || '') &&
+        String(tc.agent_session_id || '') === String(cr.session_id || '')
+      ),
+  };
+  joins.all_ok = !!(joins.usage_ref_matches_tool_chain && joins.session_alignment);
+  return joins;
+}
+
+function costCheck(usageRow, catalogRow) {
+  const tin = Number(usageRow?.tokens_in) || 0;
+  const tout = Number(usageRow?.tokens_out) || 0;
+  const expected =
+    (tin * Number(catalogRow?.cost_per_1k_in ?? 0)) / 1000 + (tout * Number(catalogRow?.cost_per_1k_out ?? 0)) / 1000;
+  const actual = Number(usageRow?.cost_usd) || 0;
+  return {
+    expected_usd: expected,
+    actual_usd: actual,
+    close: Math.abs(expected - actual) < 0.0001 || (expected === 0 && actual === 0),
+  };
+}
+
+export async function handleCodeExecutionE2E(request, env, _ctx) {
+  const failures = [];
+
   if (!isAuthorized(request, env)) {
     return Response.json({ error: 'unauthorized' }, { status: 401 });
   }
@@ -404,7 +464,74 @@ export async function handleCodeExecutionE2E(request, env, ctx) {
   try {
     body = await request.json();
   } catch {
-    /* empty body */
+    /* empty */
+  }
+
+  const mode = String(body.mode ?? 'happy_path').toLowerCase();
+  if (!E2E_MODES.has(mode)) {
+    return Response.json(
+      {
+        pass: false,
+        mode,
+        dry_run: body.dry_run === true,
+        failures: [`unknown_mode:${mode}`],
+        validation: {},
+        db_writes: {},
+        db_readback: {},
+        joins: {},
+        costs: {},
+        rows: {},
+      },
+      { status: 400 },
+    );
+  }
+
+  const dryRun = body.dry_run === true;
+  const suffix =
+    body.test_id_suffix != null && String(body.test_id_suffix).trim() !== ''
+      ? String(body.test_id_suffix).trim().slice(0, 24).replace(/[^a-zA-Z0-9_-]/g, '_')
+      : `t${Date.now().toString(36)}`;
+
+  const emptyPayload = {
+    pass: false,
+    mode,
+    dry_run: dryRun,
+    model: null,
+    workspace: null,
+    anthropic: {},
+    validation: {},
+    db_writes: {},
+    db_readback: {},
+    joins: {},
+    costs: {},
+    failures,
+    rows: {},
+  };
+
+  if (mode === 'invalid_model_preference') {
+    const badPref = String(body.model_preference ?? '__invalid_e2e_pref__');
+    if (TIER_MAP[badPref]) {
+      failures.push('invalid_model_preference: use a value not in tier map');
+      return Response.json({ ...emptyPayload, pass: false });
+    }
+    return Response.json({
+      ...emptyPayload,
+      pass: true,
+      validation: { rejected_unknown_model_preference: badPref },
+      anthropic: { skipped: true },
+    });
+  }
+
+  if (mode === 'opus_without_gate') {
+    const pref = String(body.model_preference ?? 'opus').toLowerCase();
+    const gated = body.opus_gated === true;
+    const scenarioOk = pref === 'opus' && !gated;
+    return Response.json({
+      ...emptyPayload,
+      pass: scenarioOk,
+      validation: { opus_blocked_without_gate: scenarioOk, model_preference: pref, opus_gated: gated },
+      anthropic: { skipped: true, reason: 'opus_requires_opus_gated_true' },
+    });
   }
 
   const pref = String(body.model_preference ?? 'sonnet').toLowerCase();
@@ -414,46 +541,136 @@ export async function handleCodeExecutionE2E(request, env, ctx) {
   ]);
 
   const userId = await resolveCanonicalUserId(bootstrap.user_id, env);
-  const agentSessionId = `asess_e2e_${Date.now()}`;
-  const dryRun = body.dry_run === true;
+  if (!userId) {
+    failures.push('canonical_user_id_unresolved');
+  }
 
-  const chainId = newId('atc_');
-  const usageId = newId('ue_');
-  const runId = newId('run_');
+  const agentSessionId = `asess_e2e_${suffix}`;
+  const chainId = newHexId('atc_e2e_');
+  const usageId = newHexId('ue_e2e_');
+  const runId = newHexId('run_e2e_');
+
+  const workspaceStats = await fetchWorkspaceTelemetryStats(env, bootstrap.workspace_id);
+
+  e2eToolHandlerMode = mode;
 
   const tools = [{ type: CODE_EXEC_TOOL_VERSION, name: 'code_execution' }, SAMPLE_TOOL];
   const messages = [
     {
       role: 'user',
-      content: `Use code execution to call query_workspace_stats for workspace "${bootstrap.workspace_id}" with since_days=7. Compute percentage breakdown per model. Return JSON only: { model_breakdown_pct: { [model_key]: number }, total_calls: number }`,
+      content: `Use code execution to call query_workspace_stats for workspace "${bootstrap.workspace_id}" with since_days=7. Return JSON only summarizing counts.`,
     },
   ];
 
-  const t0 = Date.now();
-  let finalResponse;
-  let toolCallLog;
-  let containerId;
-  try {
-    ({ response: finalResponse, toolCallLog, containerId } = await runLoop(
-      env.ANTHROPIC_API_KEY,
-      env,
-      modelRow.anthropic_model_id,
-      messages,
-      tools,
-    ));
-  } catch (err) {
-    return Response.json({ error: 'api_loop_failed', detail: err.message }, { status: 502 });
+  let finalResponse = null;
+  let toolCallLog = [];
+  let containerId = null;
+  let durationMs = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let anthropicError = null;
+
+  const skipAnthropic = mode === 'unknown_tool';
+
+  const tLoop = Date.now();
+  if (!skipAnthropic) {
+    try {
+      const signal = mode === 'forced_timeout' ? AbortSignal.timeout(80) : undefined;
+      ({ response: finalResponse, toolCallLog, containerId } = await runLoop(
+        env.ANTHROPIC_API_KEY,
+        env,
+        modelRow.anthropic_model_id,
+        messages,
+        tools,
+        null,
+        signal,
+      ));
+      durationMs = Date.now() - tLoop;
+      const usage = finalResponse?.usage ?? {};
+      inputTokens = usage.input_tokens ?? 0;
+      outputTokens = usage.output_tokens ?? 0;
+    } catch (err) {
+      anthropicError = err?.message ?? String(err);
+      durationMs = Math.max(1, Date.now() - tLoop);
+      if (mode === 'forced_timeout') {
+        anthropicError = anthropicError || 'timeout';
+      } else if (mode !== 'forced_tool_error' && mode !== 'bad_tool_input') {
+        return Response.json(
+          {
+            ...emptyPayload,
+            model: { source: modelRow._source, model_key: modelRow.model_key },
+            workspace: { ...bootstrap, user_id: userId, source: bootstrap._source },
+            anthropic: { error: anthropicError },
+            failures: [...failures, 'api_loop_failed'],
+          },
+          { status: 502 },
+        );
+      }
+    }
   }
 
-  const durationMs = Date.now() - t0;
-  const usage = finalResponse.usage ?? {};
-  const inputTokens = usage.input_tokens ?? 0;
-  const outputTokens = usage.output_tokens ?? 0;
-  const costUsd =
+  if (mode === 'unknown_tool') {
+    inputTokens = 0;
+    outputTokens = 0;
+    durationMs = 12;
+    anthropicError = null;
+  }
+
+  const usage = finalResponse?.usage ?? {};
+  if (!inputTokens && !outputTokens && finalResponse) {
+    inputTokens = usage.input_tokens ?? 0;
+    outputTokens = usage.output_tokens ?? 0;
+  }
+
+  let costUsd =
     (inputTokens * Number(modelRow.cost_per_1k_in ?? 0)) / 1000 +
     (outputTokens * Number(modelRow.cost_per_1k_out ?? 0)) / 1000;
 
-  const textBlock = (finalResponse.content ?? []).find((b) => b.type === 'text');
+  const textBlock = finalResponse?.content ? (finalResponse.content ?? []).find((b) => b.type === 'text') : null;
+
+  let toolStatus = 'completed';
+  let errorMessage = null;
+  let errorType = null;
+  let eventType = 'code_execution_e2e_test';
+  let usageStatus = 'ok';
+
+  if (mode === 'unknown_tool') {
+    toolStatus = 'failed';
+    errorMessage = 'unknown_tool_e2e';
+    errorType = 'tool_not_found';
+    eventType = 'code_execution_e2e_unknown_tool';
+    usageStatus = 'error';
+  } else if (mode === 'forced_tool_error' || (mode === 'forced_tool_error' && anthropicError)) {
+    toolStatus = 'failed';
+    errorMessage = anthropicError || 'e2e_forced_tool_error';
+    errorType = 'tool_execution';
+    usageStatus = 'error';
+  } else if (mode === 'forced_timeout') {
+    toolStatus = 'timeout';
+    errorMessage = anthropicError || 'e2e_forced_timeout';
+    errorType = 'timeout';
+    eventType = 'code_execution_e2e_timeout';
+    usageStatus = 'timeout';
+  } else if (mode === 'bad_tool_input') {
+    toolStatus = 'completed';
+    errorMessage = null;
+    errorType = null;
+  }
+
+  const { modelKey: catalogKey, rawModelId: providerRaw } = await resolveModelKeyFromProviderId(
+    env.DB,
+    'anthropic',
+    modelRow.anthropic_model_id,
+  );
+  const modelKeyForRow = catalogKey || modelRow.model_key;
+  const telemetryModel =
+    providerRaw && catalogKey && catalogKey !== providerRaw
+      ? { provider_model_id: providerRaw, catalog_model_key: catalogKey }
+      : { provider_model_id: modelRow.anthropic_model_id, catalog_model_key: modelKeyForRow };
+
+  if (!costUsd && (inputTokens || outputTokens) && modelKeyForRow) {
+    costUsd = await estimateCostUsdFromCatalog(env.DB, modelKeyForRow, inputTokens, outputTokens);
+  }
 
   const toolChainRow = buildToolChainRow({
     chainId,
@@ -461,13 +678,19 @@ export async function handleCodeExecutionE2E(request, env, ctx) {
     workspaceId: bootstrap.workspace_id,
     userId,
     agentSessionId,
-    modelKey: modelRow.model_key,
+    modelKey: modelKeyForRow,
+    toolName: mode === 'unknown_tool' ? 'nonexistent_tool_e2e' : 'code_execution',
     durationMs,
     inputTokens,
     outputTokens,
     costUsd,
-    toolCallCount: toolCallLog.length,
+    toolCallCount: mode === 'unknown_tool' ? 0 : toolCallLog.length,
     containerId,
+    toolStatus,
+    errorMessage,
+    errorType,
+    e2eMode: mode,
+    providerModelId: modelRow.anthropic_model_id,
   });
 
   const usageRow = buildUsageEventRow({
@@ -476,13 +699,15 @@ export async function handleCodeExecutionE2E(request, env, ctx) {
     workspaceId: bootstrap.workspace_id,
     userId,
     agentSessionId,
-    modelKey: modelRow.model_key,
+    modelKey: modelKeyForRow,
     anthropicModelId: modelRow.anthropic_model_id,
     inputTokens,
     outputTokens,
     costUsd,
     durationMs,
     toolChainId: chainId,
+    status: usageStatus,
+    eventType,
   });
 
   const commandRunRow = buildCommandRunRow({
@@ -491,50 +716,96 @@ export async function handleCodeExecutionE2E(request, env, ctx) {
     tenantId: bootstrap.tenant_id,
     userId,
     agentSessionId,
-    modelKey: modelRow.model_key,
+    modelKey: modelKeyForRow,
     durationMs,
     inputTokens,
     outputTokens,
     costUsd,
     outputText: textBlock?.text,
+    e2eMode: mode,
+    telemetryModel,
+    success: toolStatus === 'completed' && usageStatus === 'ok',
+    exitCode: toolStatus === 'completed' ? 0 : 1,
+    errorMessage,
   });
 
   const chainErrors = validateToolChain(toolChainRow);
   const usageErrors = validateUsageEvent(usageRow);
   const allValid = chainErrors.length === 0 && usageErrors.length === 0;
 
-  let dbResults = { tool_chain: 'skipped', usage_event: 'skipped', command_run: 'skipped' };
+  let db_writes = { tool_chain: 'skipped', usage_event: 'skipped', command_run: 'skipped' };
   if (dryRun) {
-    dbResults = { tool_chain: 'dry_run', usage_event: 'dry_run', command_run: 'dry_run' };
-  } else if (allValid) {
-    dbResults = await persistE2eRows(env, toolChainRow, usageRow, commandRunRow);
+    db_writes = { tool_chain: 'dry_run', usage_event: 'dry_run', command_run: 'dry_run' };
+  } else if (
+    allValid ||
+    mode === 'unknown_tool' ||
+    mode === 'forced_timeout' ||
+    mode === 'forced_tool_error' ||
+    mode === 'bad_tool_input'
+  ) {
+    db_writes = await persistE2eRows(env, toolChainRow, usageRow, commandRunRow);
   }
+
+  let db_readback = {};
+  if (!dryRun && db_writes.tool_chain === 'written' && db_writes.usage_event === 'written' && db_writes.command_run === 'written') {
+    db_readback = await readbackRows(env, chainId, usageId, runId);
+  }
+
+  const joins = joinCheck(db_readback);
+  const costs = costCheck(db_readback.usage_event || usageRow, modelRow);
+
+  if (!dryRun && db_readback.tool_chain && !joins.all_ok) {
+    failures.push('join_verification_failed');
+  }
+  if (!dryRun && db_readback.usage_event && !costs.close && (inputTokens || outputTokens)) {
+    failures.push('cost_mismatch');
+  }
+
+  const writesOk =
+    db_writes.tool_chain === 'written' &&
+    db_writes.usage_event === 'written' &&
+    db_writes.command_run === 'written';
+  const pass =
+    failures.length === 0 && (dryRun ? allValid : writesOk && (!db_readback.tool_chain || joins.all_ok));
 
   const modelMeta = { ...modelRow };
   delete modelMeta._source;
   const workspaceMeta = { ...bootstrap };
   delete workspaceMeta._source;
 
+  e2eToolHandlerMode = 'happy_path';
+
   return Response.json({
-    pass: allValid,
+    pass,
+    mode,
     dry_run: dryRun,
-    validation: { tool_chain_errors: chainErrors, usage_event_errors: usageErrors },
-    db_writes: dbResults,
     model: { ...modelMeta, source: modelRow._source },
     workspace: { ...workspaceMeta, user_id: userId, source: bootstrap._source },
-    run: {
+    anthropic: {
+      skipped: !!skipAnthropic,
+      error: anthropicError,
+      tool_calls: toolCallLog.map((t) => ({ name: t.name, caller_type: t.caller?.type ?? 'direct' })),
+      container_id: containerId,
+    },
+    validation: {
+      tool_chain_errors: chainErrors,
+      usage_event_errors: usageErrors,
+      workspace_stats: workspaceStats,
+    },
+    db_writes,
+    db_readback,
+    joins,
+    costs,
+    failures,
+    rows: {
       tool_chain_id: chainId,
       usage_event_id: usageId,
       command_run_id: runId,
       agent_session_id: agentSessionId,
-      container_id: containerId,
-      duration_ms: durationMs,
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      cost_usd: costUsd,
-      tool_calls: toolCallLog.map((t) => ({ name: t.name, caller_type: t.caller?.type ?? 'direct' })),
+      tool_chain: toolChainRow,
+      usage_event: usageRow,
+      command_run: commandRunRow,
     },
     model_response: textBlock?.text ?? null,
-    rows: { tool_chain: toolChainRow, usage_event: usageRow, command_run: commandRunRow },
   });
 }
