@@ -37,6 +37,12 @@ WHERE COALESCE(enabled, 0) = 1
     OR (?3 != '' AND tenant_id = ?3)
     OR (?4 != '' AND workspace_id = ?4)
     OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
+    OR (
+      trim(COALESCE(user_id, '')) = ''
+      AND trim(COALESCE(person_uuid, '')) = ''
+      AND trim(COALESCE(tenant_id, '')) = ''
+      AND trim(COALESCE(workspace_id, '')) = ''
+    )
   )
   AND (
     tool_key = ?6
@@ -45,6 +51,7 @@ WHERE COALESCE(enabled, 0) = 1
 ORDER BY
   CASE WHEN (?7 != '' AND workspace_id = ?7) THEN 0 ELSE 1 END,
   CASE WHEN (?8 != '' AND tenant_id = ?8) THEN 0 ELSE 1 END,
+  CASE WHEN trim(COALESCE(workspace_id, '')) != '' THEN 0 ELSE 1 END,
   COALESCE(sort_priority, 50) ASC,
   created_at DESC
 LIMIT 1`;
@@ -83,6 +90,12 @@ WHERE COALESCE(enabled, 0) = 1
     OR (?3 != '' AND tenant_id = ?3)
     OR (?4 != '' AND workspace_id = ?4)
     OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
+    OR (
+      trim(COALESCE(user_id, '')) = ''
+      AND trim(COALESCE(person_uuid, '')) = ''
+      AND trim(COALESCE(tenant_id, '')) = ''
+      AND trim(COALESCE(workspace_id, '')) = ''
+    )
   )
 ORDER BY tool_name ASC
 LIMIT ?6`;

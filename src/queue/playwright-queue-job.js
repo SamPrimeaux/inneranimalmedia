@@ -1,6 +1,7 @@
 /**
  * Async Playwright screenshot/render jobs from queue (legacy worker.js parity).
  */
+import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 const DOCS_SCREENSHOTS_PUBLIC_BASE = 'https://docs.inneranimalmedia.com';
 const DASHBOARD_SCREENSHOTS_PUBLIC_BASE = 'https://pub-b845a8f899834f0faf95dc83eda3c505.r2.dev';
 
@@ -49,12 +50,39 @@ export async function handlePlaywrightQueueJob(env, body) {
 
   if (job_type !== 'screenshot' && job_type !== 'render') return;
 
+  const targetUrl = String(url || '').trim() || 'https://example.com';
+  let userId = null;
+  let workspaceId = null;
+  try {
+    const row = await env.DB.prepare('SELECT user_id, workspace_id, url FROM playwright_jobs WHERE id = ?')
+      .bind(jobId)
+      .first();
+    if (row?.user_id) userId = String(row.user_id);
+    if (row?.workspace_id) workspaceId = String(row.workspace_id);
+  } catch (_) {
+    /* non-fatal */
+  }
+  if (userId) {
+    try {
+      await assertBrowserTrustedOrigin(env, {
+        userId,
+        workspaceId,
+        origin: targetUrl,
+      });
+    } catch (err) {
+      await env.DB.prepare("UPDATE playwright_jobs SET status='failed', error=? WHERE id=?")
+        .bind(String(err?.message || err), jobId)
+        .run();
+      return;
+    }
+  }
+
   const { launch } = await import('@cloudflare/playwright');
   const browser = await launch(env.MYBROWSER);
   try {
     const page = await browser.newPage();
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(url || 'https://example.com', { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
     let resultUrl = null;
     if (job_type === 'screenshot') {
       const buf = await page.screenshot({ type: 'png', fullPage: true });

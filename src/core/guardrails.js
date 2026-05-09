@@ -2,7 +2,7 @@
  * Runtime evaluation of D1 `agentsam_guardrails` + audit rows in `agentsam_guardrail_events`.
  */
 
-import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
+import { scheduleAgentsamErrorLog } from './agentsam-ops-ledger.js';
 
 function isGuardrailAuditDebug(env) {
   const v = env?.MCP_TELEMETRY_DEBUG ?? env?.DEBUG_GUARDRAIL_AUDIT;

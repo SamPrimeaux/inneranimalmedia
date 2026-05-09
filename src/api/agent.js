@@ -64,6 +64,7 @@ import {
   fireForgetAgentToolChainRow,
   resolveAgentCommand,
 } from './command-run-telemetry.js';
+import { resolveCanonicalUserId } from './auth.js';
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_execute', 'run_command', 'bash']);
@@ -2028,11 +2029,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         invoked_by: userId || 'iam_agent',
         status: execErr ? 'error' : 'completed',
       });
+      const canonicalToolChainUserId = await resolveCanonicalUserId(userId, env);
       previousToolChainId = await fireForgetAgentToolChainRow(env, {
         toolName: call.name,
         agentSessionId: sessionId,
         workspaceId,
-        userId,
+        userId: canonicalToolChainUserId,
         error: execErr,
         costUsd: 0,
         mcpToolCallId: mcpExecId,
@@ -2041,6 +2043,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         tenantId,
         parentChainId: previousToolChainId,
         toolInputJson: JSON.stringify(call.input || {}),
+        workflowRunId: null,
+        executionStepId: null,
         ctx,
       });
       recordMcpToolOtlpSpan(env, ctx, {
@@ -2157,6 +2161,248 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
       },
     },
   );
+}
+
+/** Wildcard glob match for MCP panel tool allowlists (e.g. `d1_*`, `*`). */
+export function mcpPanelToolMatchesGlob(toolName, pattern) {
+  const n = String(toolName || '').trim();
+  const p = String(pattern || '').trim();
+  if (!n || !p) return false;
+  if (p === '*' || p === '**') return true;
+  const esc = p
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  try {
+    return new RegExp(`^${esc}$`, 'i').test(n);
+  } catch {
+    return false;
+  }
+}
+
+function filterToolsForMcpPanelGlobs(tools, globs) {
+  if (!Array.isArray(tools) || !tools.length) return [];
+  if (!Array.isArray(globs) || !globs.length) return tools;
+  const list = globs.map((g) => String(g || '').trim()).filter(Boolean);
+  if (!list.length) return tools;
+  return tools.filter((t) => list.some((g) => mcpPanelToolMatchesGlob(t?.name, g)));
+}
+
+/**
+ * MCP dashboard subagent chat — reuses {@link runAgentToolLoop} / dispatchStream (same path as agent chat).
+ * Called only from server-side routes with a trusted panel payload (not client-spoofed overrides).
+ *
+ * @param {Record<string, unknown>} panel
+ */
+export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
+  const tenantId = panel.tenantId != null ? String(panel.tenantId).trim() : '';
+  const userId = panel.userId != null ? String(panel.userId).trim() : '';
+  const workspaceId = panel.workspaceId != null ? String(panel.workspaceId).trim() : '';
+  const personUuid =
+    panel.personUuid != null && String(panel.personUuid).trim() !== ''
+      ? String(panel.personUuid).trim()
+      : null;
+  const sessionPkId = panel.sessionPkId != null ? String(panel.sessionPkId).trim() : '';
+  const slug = panel.slug != null ? String(panel.slug).trim() : '';
+  const profile = panel.profile && typeof panel.profile === 'object' ? panel.profile : {};
+  const modelKey = panel.modelKey != null ? String(panel.modelKey).trim() : '';
+  /** @type {{ role: string, content: string }[]} */
+  const messages = Array.isArray(panel.messages) ? panel.messages : [];
+  let toolGlobs = [];
+  try {
+    const raw = profile.allowed_tool_globs;
+    if (typeof raw === 'string') {
+      const j = JSON.parse(raw || '[]');
+      toolGlobs = Array.isArray(j) ? j : [];
+    } else if (Array.isArray(raw)) toolGlobs = raw;
+  } catch {
+    toolGlobs = [];
+  }
+  if (Array.isArray(panel.toolGlobsOverride) && panel.toolGlobsOverride.length) {
+    toolGlobs = panel.toolGlobsOverride.map((x) => String(x || '').trim()).filter(Boolean);
+  }
+
+  if (!tenantId || !userId || !workspaceId || !sessionPkId || !slug || !modelKey) {
+    return jsonResponse({ error: 'mcp_panel_chat: missing tenant/user/workspace/session/model' }, 400);
+  }
+  if (!messages.length) return jsonResponse({ error: 'messages required' }, 400);
+
+  const requestedMode = 'agent';
+  const [modeConfig, userPolicy] = await Promise.all([
+    loadModeConfig(env, requestedMode),
+    loadAgentSamUserPolicy(env, userId, workspaceId),
+  ]);
+
+  const effectiveMaxTools = Math.max(1, Math.min(200, Number(modeConfig.max_tool_calls || 20) || 20));
+
+  const { tools: dbToolsRaw } = await loadToolsForRequest(env, requestedMode, 'question', {
+    limit: effectiveMaxTools,
+    includeSchemas: true,
+    userId,
+    workspaceId,
+    tenantId,
+    personUuid,
+  });
+  let tools = dbToolsRaw.map((t) => {
+    const raw = t.input_schema && typeof t.input_schema === 'object' ? t.input_schema : {};
+    return {
+      name: t.name,
+      description: t.description || t.name,
+      input_schema: Object.assign({ type: 'object', properties: {} }, raw, { type: 'object' }),
+    };
+  });
+  tools = filterToolsForMcpPanelGlobs(tools, toolGlobs);
+
+  const sysInst = String(profile.instructions_markdown || '').trim();
+  const systemPrompt =
+    sysInst +
+    '\n\n## Current Session\n' +
+    `Tenant: ${tenantId}\n` +
+    `Workspace: ${workspaceId}\n` +
+    `Date: ${new Date().toISOString()}\n`;
+
+  const mcpRuntimeContext = {
+    userId,
+    tenantId,
+    workspaceId,
+    personUuid,
+    sessionId: sessionPkId,
+    isSuperadmin: false,
+  };
+
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+
+  const emit = (type, payload) => {
+    try {
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`));
+    } catch (_) {}
+  };
+
+  emit('context', {
+    intent: 'mcp_panel',
+    mode: requestedMode,
+    model: modelKey,
+    tool_count: tools.length,
+    slug,
+  });
+
+  const MCP_CHAT_LOOP_MS = 300000;
+
+  ;(async () => {
+    let assistantAccum = '';
+    try {
+      let textEmitted = 0;
+      const emitWrapped = (type, payload) => {
+        if (type === 'text' && payload?.text) {
+          textEmitted += String(payload.text).length;
+          assistantAccum += String(payload.text);
+        }
+        emit(type, payload);
+      };
+
+      const lastLoopStats = await withTimeout(
+        runAgentToolLoop(env, ctx, emitWrapped, {
+          request,
+          messages,
+          tools,
+          systemPrompt,
+          modelKey,
+          temperature: modeConfig.temperature || 0.7,
+          maxToolCalls: effectiveMaxTools,
+          mode: requestedMode,
+          modeConfig,
+          userPolicy,
+          sessionId: sessionPkId,
+          tenantId,
+          userId,
+          workspaceId,
+          routingTaskType: 'mcp_panel',
+          qualityScore: 1,
+          mcpRuntimeContext,
+          routingArmId: null,
+          thompsonModelKey: null,
+        }),
+        MCP_CHAT_LOOP_MS,
+      );
+
+      const toolCallsUsed = Number(lastLoopStats?.toolCallsUsed) || 0;
+      const tokensIn = Number(lastLoopStats?.totalUsage?.input_tokens) || 0;
+      const tokensOut = Number(lastLoopStats?.totalUsage?.output_tokens) || 0;
+
+      if (textEmitted <= 0) {
+        emit('error', { message: 'empty_stream' });
+      }
+
+      ctx.waitUntil?.(
+        (async () => {
+          try {
+            if (!env.DB) return;
+            const nextMsgs = [
+              ...messages.map((m) => ({
+                role: String(m?.role || ''),
+                content: String(m?.content || ''),
+              })),
+              ...(assistantAccum ? [{ role: 'assistant', content: assistantAccum }] : []),
+            ].filter((m) => m.content && (m.role === 'user' || m.role === 'assistant'));
+            const capped = nextMsgs.slice(-40);
+
+            await env.DB.prepare(
+              `UPDATE mcp_agent_sessions SET
+                 status = 'idle',
+                 messages_json = ?,
+                 cost_usd = COALESCE(cost_usd, 0) + ?,
+                 tool_calls_count = COALESCE(tool_calls_count, 0) + ?,
+                 last_activity = datetime('now'),
+                 updated_at = unixepoch(),
+                 current_task = NULL
+               WHERE id = ? AND tenant_id = ?`,
+            )
+              .bind(
+                JSON.stringify(capped),
+                0,
+                toolCallsUsed,
+                sessionPkId,
+                tenantId,
+              )
+              .run();
+          } catch (e) {
+            console.warn('[mcp_panel_chat] session update failed:', e?.message ?? e);
+          }
+        })(),
+      );
+
+      void tokensIn;
+      void tokensOut;
+    } catch (e) {
+      console.warn('[mcp_panel_chat]', e?.message ?? e);
+      emit('error', { message: String(e?.message || e || 'chat_failed') });
+      ctx.waitUntil?.(
+        (async () => {
+          try {
+            if (!env.DB) return;
+            await env.DB.prepare(
+              `UPDATE mcp_agent_sessions SET status = 'idle', updated_at = unixepoch(), last_activity = datetime('now') WHERE id = ? AND tenant_id = ?`,
+            )
+              .bind(sessionPkId, tenantId)
+              .run();
+          } catch (_) {}
+        })(),
+      );
+    } finally {
+      await writer.close().catch(() => {});
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
 }
 
 // ─── SSE Chat Handler ─────────────────────────────────────────────────────────
@@ -4167,7 +4413,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const body = await request.json().catch(() => ({}));
-    const { workflow_key: workflowKeyBody, input } = body;
+    const { workflow_key: workflowKeyBody, input, trigger_type: triggerTypeBody } = body;
     if (!workflowKeyBody) return jsonResponse({ error: 'workflow_key required' }, 400);
     const { executeWorkflowGraph } = await import('../core/workflow-executor.js');
     let tenantId =
@@ -4190,6 +4436,7 @@ export async function handleAgentApi(request, url, env, ctx) {
       workspaceId,
       userId: authUser.id,
       userEmail: authUser.email,
+      triggerType: triggerTypeBody,
     });
     return jsonResponse(result);
   }

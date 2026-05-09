@@ -171,6 +171,15 @@ export default {
         return handleSupabaseWebhook(request, env, ctx);
       }
 
+      // Anthropic code-execution E2E (gated: production + X-IAM-Test-Secret)
+      if (pathLower === '/api/test/code-execution-e2e' && methodUpper === 'POST') {
+        if (String(env.ENVIRONMENT || '').toLowerCase() !== 'production') {
+          return new Response(null, { status: 404 });
+        }
+        const { handleCodeExecutionE2E } = await import('./api/test/code-execution-e2e.js');
+        return handleCodeExecutionE2E(request, env, ctx);
+      }
+
       if (pathLower === '/api/admin/run-retention' && request.method === 'POST') {
         const { verifyInternalApiSecret, jsonResponse } = await import('./core/auth.js');
         if (!verifyInternalApiSecret(request, env)) {

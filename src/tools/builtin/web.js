@@ -3,7 +3,8 @@
  * Implements 31 tools for browser automation and intelligence.
  */
 
-import { assertBrowserOriginTrusted, assertFetchDomainAllowed } from '../../core/auth.js';
+import { assertFetchDomainAllowed } from '../../core/auth.js';
+import { assertBrowserTrustedOrigin } from '../../core/agentsam-ops-ledger.js';
 
 /**
  * Common fetch bridge for all browser-related operations.
@@ -17,7 +18,7 @@ async function invokeBrowserOp(env, toolName, params) {
         params.workspace_id ?? params.session?.workspace_id ?? params.session?.workspaceId;
     if (targetOriginInput && uid) {
         try {
-            await assertBrowserOriginTrusted(env, {
+            await assertBrowserTrustedOrigin(env, {
                 userId: uid,
                 workspaceId: ws,
                 origin: targetOriginInput,

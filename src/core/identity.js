@@ -217,3 +217,16 @@ export async function resolveSessionIds(env, request) {
     workspaceId: id.workspaceId,
   };
 }
+
+/** Multi-user runtime actor contract (no seed-id fallbacks). */
+export {
+  runtimeActorFromIamContext,
+  assertRuntimeActor,
+  assertRuntimeActorForTool,
+  assertActorContext,
+  isRuntimeActorComplete,
+  ledgerBindingsFromActor,
+  isCanonicalAuthUserId,
+  isTenantId,
+  isWorkspaceId,
+} from './runtime-actor.js';

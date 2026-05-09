@@ -31,12 +31,14 @@ export async function startWorkflow(env, ctx, o) {
       const nodeCheck = await env.DB.prepare(
         `SELECT COUNT(*) AS n
         FROM agentsam_workflow_nodes wn
-        JOIN agentsam_workflows w ON w.id = wn.workflow_id
-        WHERE w.workflow_key = ?
-          AND w.is_active    = 1
-          AND wn.is_active   = 1`,
+        LEFT JOIN agentsam_workflows w
+          ON w.id = wn.workflow_id AND COALESCE(w.is_active, 1) = 1
+        LEFT JOIN agentsam_mcp_workflows m
+          ON m.id = wn.workflow_id AND COALESCE(m.is_active, 1) = 1
+        WHERE COALESCE(wn.is_active, 1) = 1
+          AND (w.workflow_key = ? OR m.workflow_key = ?)`,
       )
-        .bind(workflowKey)
+        .bind(workflowKey, workflowKey)
         .first();
 
       if ((nodeCheck?.n ?? 0) > 0) {
@@ -48,6 +50,7 @@ export async function startWorkflow(env, ctx, o) {
           workspaceId,
           userId,
           userEmail: null,
+          triggerType,
         });
       }
     } catch (e) {

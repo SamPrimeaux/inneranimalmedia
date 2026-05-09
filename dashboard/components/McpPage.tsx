@@ -83,6 +83,8 @@ interface WsMessage {
 type WorkflowRow = {
   id: string;
   name: string;
+  description?: string | null;
+  workflow_key?: string;
   trigger_type: string | null;
   status: string | null;
   last_run_at: unknown;
@@ -102,8 +104,6 @@ type AgentProfile = {
   default_model_id?: string | null;
 };
 
-const IAM_DEFAULT_WORKSPACE_ID = 'ws_inneranimalmedia';
-
 function mcpAgentIdToRouteSlug(agentId: string): string {
   switch (String(agentId || '').trim()) {
     case 'mcp_agent_architect':
@@ -122,6 +122,10 @@ function mcpAgentIdToRouteSlug(agentId: string): string {
 function routeSlugToMcpAgentId(slug: string, configs: AgentConfig[]): string | null {
   const s = String(slug || '').trim().toLowerCase();
   if (!s) return null;
+  const hit = configs.find(
+    (c) => String(c.slug || '').toLowerCase() === s || String(c.id).toLowerCase() === s,
+  );
+  if (hit) return hit.id;
   const legacy: Record<string, string> = {
     architect: 'mcp_agent_architect',
     engineer: 'mcp_agent_builder',
@@ -131,33 +135,14 @@ function routeSlugToMcpAgentId(slug: string, configs: AgentConfig[]): string | n
     devops: 'mcp_agent_operator',
     operator: 'mcp_agent_operator',
   };
-  if (legacy[s]) return legacy[s];
-  const hit = configs.find((c) => String(c.id).toLowerCase() === s || String(c.slug || '').toLowerCase() === s);
-  return hit ? hit.id : null;
-}
-
-async function postAgentsamWorkspaceMcpState(slug: string, actionLabel: string) {
-  try {
-    await fetch(`/api/agent/workspace/${encodeURIComponent(IAM_DEFAULT_WORKSPACE_ID)}`, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        active_agent_slug: slug,
-        active_agent_panel: 'mcp',
-        last_agent_action: actionLabel,
-      }),
-    });
-  } catch {
-    /* non-fatal */
-  }
+  return legacy[s] ?? null;
 }
 
 const FALLBACK_AGENTS: AgentConfig[] = [
   {
     id: 'mcp_agent_architect',
     slug: 'architect',
-    default_model_id: 'claude-haiku-4-5-20251001',
+    default_model_id: null,
     name: 'Architect',
     role: 'Systems design, architecture planning, technical strategy'.slice(0, 60),
     description: 'Systems design, architecture planning, technical strategy',
@@ -168,7 +153,7 @@ const FALLBACK_AGENTS: AgentConfig[] = [
   {
     id: 'mcp_agent_builder',
     slug: 'engineer',
-    default_model_id: 'claude-haiku-4-5-20251001',
+    default_model_id: null,
     name: 'Builder',
     role: 'Full-stack code generation, feature implementation, scaffolding'.slice(0, 60),
     description: 'Full-stack code generation, feature implementation, scaffolding',
@@ -179,7 +164,7 @@ const FALLBACK_AGENTS: AgentConfig[] = [
   {
     id: 'mcp_agent_inspector',
     slug: 'analyst',
-    default_model_id: 'claude-haiku-4-5-20251001',
+    default_model_id: null,
     name: 'Inspector',
     role: 'Code review, bug hunting, test coverage, security audits'.slice(0, 60),
     description: 'Code review, bug hunting, test coverage, security audits',
@@ -190,7 +175,7 @@ const FALLBACK_AGENTS: AgentConfig[] = [
   {
     id: 'mcp_agent_operator',
     slug: 'devops',
-    default_model_id: 'claude-haiku-4-5-20251001',
+    default_model_id: null,
     name: 'Operator',
     role: 'Deployments, health monitoring, infra ops, release management'.slice(0, 60),
     description: 'Deployments, health monitoring, infra ops, release management',
@@ -252,6 +237,72 @@ function mapProfilesToAgents(profiles: AgentProfile[]): AgentConfig[] {
       tools: parseAllowedToolGlobs((p as any).allowed_tool_globs),
       model_key: (p as { model_key?: string | null }).model_key ?? null,
       default_model_id: (p as { default_model_id?: string | null }).default_model_id ?? null,
+    };
+  }).filter((a) => !!a.id);
+}
+
+/** Rows from GET /api/mcp/agents (agentsam_subagent_profile + session). */
+function mergeSessionRowsIntoAgentStates(
+  prev: Record<string, AgentState>,
+  rows: Record<string, unknown>[],
+): Record<string, AgentState> {
+  const next = { ...prev };
+  for (const row of rows) {
+    const id = String(row.slug || '').trim();
+    if (!id) continue;
+    const sess = row.session as Record<string, unknown> | null | undefined;
+    if (!next[id]) {
+      next[id] = {
+        id,
+        status: 'idle',
+        current_task: null,
+        progress_pct: 0,
+        cost_usd: 0,
+        logs: [],
+        session_id: null,
+        session_row_id: null,
+        updated_at: null,
+        last_activity: null,
+        stage: null,
+        is_stale: false,
+      };
+    }
+    if (sess && typeof sess === 'object') {
+      next[id] = {
+        ...next[id],
+        status: (String(sess.status || 'idle').toLowerCase() as AgentStatus) || 'idle',
+        current_task: (sess.current_task as string | null) ?? null,
+        progress_pct: Number(sess.progress_pct) || 0,
+        cost_usd: Number(sess.cost_usd) || 0,
+        session_id: sess.id != null ? String(sess.id) : null,
+        session_row_id: sess.id != null ? String(sess.id) : null,
+        last_activity: sess.last_activity != null ? String(sess.last_activity) : null,
+        updated_at: sess.updated_at != null ? Number(sess.updated_at) : next[id].updated_at,
+      };
+    }
+  }
+  return next;
+}
+
+function mapMcpApiAgentsToConfigs(rows: Record<string, unknown>[]): AgentConfig[] {
+  return rows.map((row, idx) => {
+    const slug = String(row.slug || '').trim();
+    const desc = String(row.description ?? '').trim();
+    const instr = String(row.instructions_markdown ?? '').trim();
+    const firstLine = instr.split('\n').map((l) => l.trim()).filter(Boolean)[0] || '';
+    const subtitle = (desc || firstLine || slug).slice(0, 80);
+    return {
+      id: slug,
+      slug,
+      name: String(row.display_name || slug),
+      role: subtitle,
+      description: desc || firstLine || slug,
+      icon: lucideForIconName((row.icon as string | null) ?? null),
+      accentVar: ACCENT_CYCLE[idx % ACCENT_CYCLE.length],
+      tools: parseAllowedToolGlobs(row.allowed_tool_globs),
+      model_key: null,
+      default_model_id:
+        row.default_model_id != null ? String(row.default_model_id) : null,
     };
   }).filter((a) => !!a.id);
 }
@@ -415,13 +466,55 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (agentId && config) {
-      setMessages([{ role: 'assistant', content: `${config.name} ready. What should I work on?` }]);
-      setInput('');
-      setSessionId(null);
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [agentId]);
+    if (!agentId || !config) return;
+    let cancelled = false;
+    const slug = String(config.slug || agentId).trim();
+    (async () => {
+      try {
+        await fetch('/api/mcp/agent/session/start', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug }),
+        });
+        const sr = await fetch(`/api/mcp/agent/${encodeURIComponent(slug)}/session`, {
+          credentials: 'same-origin',
+        });
+        const sj = await sr.json().catch(() => ({}));
+        const sess = sj.session as { id?: string; messages_json?: string } | undefined;
+        if (sess?.id) setSessionId(sess.id);
+        let hist: WsMessage[] = [
+          { role: 'assistant', content: `${config.name} ready. What should I work on?` },
+        ];
+        try {
+          const mj = sess?.messages_json;
+          const arr =
+            typeof mj === 'string' ? JSON.parse(mj || '[]') : Array.isArray(mj) ? mj : [];
+          const pairs = arr
+            .filter((m: { role?: string }) => m && (m.role === 'user' || m.role === 'assistant'))
+            .map((m: { role: string; content?: string }) => ({
+              role: m.role as WsMessage['role'],
+              content: String(m.content || ''),
+            }));
+          if (pairs.length) hist = pairs;
+        } catch {
+          /* keep greeting */
+        }
+        if (!cancelled) {
+          setMessages(hist);
+          setInput('');
+          setTimeout(() => inputRef.current?.focus(), 100);
+        }
+      } catch {
+        if (!cancelled) {
+          setMessages([{ role: 'assistant', content: `${config.name} ready. What should I work on?` }]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, config]);
 
   useEffect(() => {
     if (messagesRef.current) {
@@ -432,6 +525,7 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
   const send = useCallback(async () => {
     if (!input.trim() || !agentId || sending || !config) return;
     const text = input.trim();
+    const slug = String(config.slug || agentId).trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setSending(true);
@@ -443,37 +537,33 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
       setMessages((prev) => [...stripThinking(prev), { role: 'assistant', content: msg }]);
     };
 
-    const currentMode = 'agent';
-    let agentModelKey = String(config.model_key || config.default_model_id || '').trim();
-    if (!agentModelKey) {
-      try {
-        const modesRes = await fetch('/api/agent/modes', { credentials: 'same-origin' });
-        const modesJson = await modesRes.json();
-        const modesArr = Array.isArray(modesJson) ? modesJson : [];
-        const row = modesArr.find((r: { slug?: string }) => String(r.slug || '') === currentMode);
-        agentModelKey = String((row as { model_preference?: string } | undefined)?.model_preference || '').trim();
-      } catch {
-        /* non-fatal */
-      }
-    }
-
     let convId = sessionId;
     if (!convId) {
-      convId = crypto.randomUUID();
-      setSessionId(convId);
+      await fetch('/api/mcp/agent/session/start', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug }),
+      });
+      const sidRes = await fetch(`/api/mcp/agent/${encodeURIComponent(slug)}/session`, {
+        credentials: 'same-origin',
+      });
+      const sidJson = await sidRes.json().catch(() => ({}));
+      const sid = (sidJson.session as { id?: string } | undefined)?.id;
+      if (sid) {
+        convId = sid;
+        setSessionId(sid);
+      }
     }
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
-      const response = await fetch('/api/agent/chat', {
+      const response = await fetch(`/api/mcp/agent/${encodeURIComponent(slug)}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          mode: currentMode,
-          model: agentModelKey,
-          agent: agentId,
-          conversationId: convId,
+          session_id: convId || undefined,
         }),
         credentials: 'same-origin',
       });
@@ -498,7 +588,7 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
       const streamStartedAt = Date.now();
       let readCount = 0;
       let emptyRun = 0;
-      const MAX_STREAM_MS = 60000;
+      const MAX_STREAM_MS = 300000;
       const MAX_READS = 2000;
       const MAX_EMPTY_RUN = 200;
 
@@ -557,6 +647,9 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
             if (isStreamErrorPayload(data)) {
               const partsErr = [data.error, data.detail, data.provider, data.model].filter(Boolean);
               throw new Error(partsErr.join(' — '));
+            }
+            if (data && typeof data === 'object' && (data as { type?: string }).type === 'done') {
+              break sseLoop;
             }
             if (
               data &&
@@ -720,6 +813,7 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
 export const McpPage: React.FC = () => {
   const navigate = useNavigate();
   const { agentSlug } = useParams<{ agentSlug?: string }>();
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [agentStates, setAgentStates] = useState<Record<string, AgentState>>(() =>
     Object.fromEntries(FALLBACK_AGENTS.map(a => [a.id, {
@@ -735,6 +829,8 @@ export const McpPage: React.FC = () => {
   const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
   const [workflowsLoaded, setWorkflowsLoaded] = useState(false);
   const [workflowsBusyId, setWorkflowsBusyId] = useState<string | null>(null);
+  const [slugWorkflows, setSlugWorkflows] = useState<WorkflowRow[]>([]);
+  const [slugWorkflowsLoaded, setSlugWorkflowsLoaded] = useState(false);
   const [commandInput, setCommandInput] = useState('');
   const [commandFocus, setCommandFocus] = useState(false);
   const [dispatching, setDispatching] = useState(false);
@@ -783,13 +879,61 @@ export const McpPage: React.FC = () => {
 
   useEffect(() => { void loadWorkflows(); }, [loadWorkflows]);
 
+  const loadSlugWorkflows = useCallback(async (slug: string) => {
+    const s = String(slug || '').trim();
+    if (!s) {
+      setSlugWorkflows([]);
+      setSlugWorkflowsLoaded(true);
+      return;
+    }
+    setSlugWorkflowsLoaded(false);
+    try {
+      const res = await fetch(`/api/mcp/agent/${encodeURIComponent(s)}/workflows`, {
+        credentials: 'same-origin',
+      });
+      const data = await res.json().catch(() => ({}));
+      const raw = Array.isArray((data as { workflows?: unknown }).workflows)
+        ? (data as { workflows: Record<string, unknown>[] }).workflows
+        : [];
+      const mapped: WorkflowRow[] = raw.map((w) => {
+        const wfKey = String(w.workflow_key || '').trim();
+        const id = String(w.id || wfKey || '').trim();
+        return {
+          id,
+          workflow_key: wfKey || undefined,
+          name: String(w.display_name || w.name || id),
+          description: w.description != null ? String(w.description) : null,
+          trigger_type: w.trigger_type != null ? String(w.trigger_type) : null,
+          status: w.status != null ? String(w.status) : null,
+          last_run_at: w.last_run_at,
+          run_count: w.run_count != null ? Number(w.run_count) : null,
+        };
+      });
+      setSlugWorkflows(mapped);
+    } catch {
+      setSlugWorkflows([]);
+    } finally {
+      setSlugWorkflowsLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const raw = agentSlug?.trim();
+    if (!raw) {
+      setSlugWorkflows([]);
+      setSlugWorkflowsLoaded(false);
+      return;
+    }
+    void loadSlugWorkflows(decodeURIComponent(raw));
+  }, [agentSlug, loadSlugWorkflows]);
+
   const openAgentPanel = useCallback(
     (id: string) => {
       setActiveAgent(id);
-      const routeSlug = mcpAgentIdToRouteSlug(id);
+      const list = agents.length ? agents : FALLBACK_AGENTS;
+      const cfg = list.find((a) => a.id === id);
+      const routeSlug = String(cfg?.slug || mcpAgentIdToRouteSlug(id));
       navigate(`/dashboard/mcp/${encodeURIComponent(routeSlug)}`);
-      const stateSlug = String(agents.find((a) => a.id === id)?.slug || mcpAgentIdToRouteSlug(id));
-      void postAgentsamWorkspaceMcpState(stateSlug, `open_mcp_agent:${stateSlug}`);
     },
     [navigate, agents],
   );
@@ -817,34 +961,53 @@ export const McpPage: React.FC = () => {
     }
     setWorkflowsBusyId(id);
     try {
-      const res = await fetch(`/api/mcp/workflows/${encodeURIComponent(id)}/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({}),
-      });
-      await res.json().catch(() => ({}));
+      const wfKey = String(wf.workflow_key || '').trim();
+      if (wfKey) {
+        const res = await fetch('/api/agent/workflow/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ workflow_key: wfKey, input: {} }),
+        });
+        await res.json().catch(() => ({}));
+      } else {
+        const res = await fetch(`/api/mcp/workflows/${encodeURIComponent(id)}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({}),
+        });
+        await res.json().catch(() => ({}));
+      }
       await loadWorkflows();
+      const rs = agentSlug?.trim();
+      if (rs) await loadSlugWorkflows(decodeURIComponent(rs));
     } catch {
       /* ignore */
     } finally {
       setWorkflowsBusyId(null);
     }
-  }, [loadWorkflows, workflowsBusyId]);
+  }, [loadWorkflows, loadSlugWorkflows, workflowsBusyId, agentSlug]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setAgentsLoading(true);
       try {
-        const res = await fetch('/api/agent/subagent-profiles', { credentials: 'same-origin' });
+        const res = await fetch('/api/mcp/agents', { credentials: 'same-origin' });
         const data = await res.json().catch(() => ({}));
-        const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
-        const mapped = mapProfilesToAgents(profiles as AgentProfile[]);
+        const rows = Array.isArray(data?.agents) ? data.agents : [];
+        const mapped = mapMcpApiAgentsToConfigs(rows as Record<string, unknown>[]);
         const nextAgents = mapped.length > 0 ? mapped : FALLBACK_AGENTS;
         if (cancelled) return;
         setAgents(nextAgents);
+        setAgentStates((prev) => mergeSessionRowsIntoAgentStates(prev, rows as Record<string, unknown>[]));
       } catch {
-        if (!cancelled) setAgents(FALLBACK_AGENTS);
+        if (!cancelled) {
+          setAgents(FALLBACK_AGENTS);
+        }
+      } finally {
+        if (!cancelled) setAgentsLoading(false);
       }
     })();
     return () => { cancelled = true; };
@@ -874,39 +1037,13 @@ export const McpPage: React.FC = () => {
     });
   }, [agents]);
 
-  // ── D1-backed agent status (/api/mcp/agents/status) ─────────────────────────
-  const loadAgentStatus = useCallback(async () => {
+  // ── Poll MCP grid sessions (GET /api/mcp/agents embeds latest session per slug) ──
+  const loadMcpAgentsPoll = useCallback(async () => {
     try {
-      const res = await fetch('/api/mcp/agents/status', { credentials: 'same-origin' });
+      const res = await fetch('/api/mcp/agents', { credentials: 'same-origin' });
       const data = await res.json().catch(() => ({}));
-      const list = Array.isArray(data?.agents) ? data.agents : [];
-      setAgentStates(prev => {
-        const next = { ...prev };
-        for (const row of list) {
-          const id = String(row?.agent_id || '').trim();
-          if (!id || !next[id]) continue;
-          const logsRaw = row.logs_json;
-          const logsArr = Array.isArray(logsRaw)
-            ? logsRaw.map((x: unknown) => (typeof x === 'string' ? x : JSON.stringify(x)))
-            : [];
-          next[id] = {
-            ...next[id],
-            id,
-            status: (String(row.status || 'idle').toLowerCase() as AgentStatus) || 'idle',
-            current_task: row.current_task ?? null,
-            progress_pct: Number(row.progress_pct) || 0,
-            cost_usd: Number(row.cost_usd) || 0,
-            logs: logsArr,
-            session_id: row.session_id ?? null,
-            session_row_id: row.session_id ?? null,
-            updated_at: row.updated_at != null ? Number(row.updated_at) : null,
-            last_activity: row.last_activity ?? null,
-            stage: row.stage ?? null,
-            is_stale: !!row.is_stale,
-          };
-        }
-        return next;
-      });
+      const rows = Array.isArray(data?.agents) ? data.agents : [];
+      setAgentStates((prev) => mergeSessionRowsIntoAgentStates(prev, rows as Record<string, unknown>[]));
     } catch { /* silent */ }
   }, []);
 
@@ -916,8 +1053,8 @@ export const McpPage: React.FC = () => {
       if (t) clearInterval(t);
       t = null;
       if (typeof document !== 'undefined' && document.hidden) return;
-      void loadAgentStatus();
-      t = setInterval(() => void loadAgentStatus(), 30_000);
+      void loadMcpAgentsPoll();
+      t = setInterval(() => void loadMcpAgentsPoll(), 30_000);
     };
     start();
     const onVis = () => {
@@ -931,7 +1068,7 @@ export const McpPage: React.FC = () => {
       document.removeEventListener('visibilitychange', onVis);
       if (t) clearInterval(t);
     };
-  }, [loadAgentStatus]);
+  }, [loadMcpAgentsPoll]);
 
   const resetStaleSession = useCallback(async (sessionRowId: string) => {
     try {
@@ -941,9 +1078,9 @@ export const McpPage: React.FC = () => {
         credentials: 'same-origin',
         body: JSON.stringify({ id: sessionRowId }),
       });
-      await loadAgentStatus();
+      await loadMcpAgentsPoll();
     } catch { /* silent */ }
-  }, [loadAgentStatus]);
+  }, [loadMcpAgentsPoll]);
 
   const resetAllAgents = useCallback(async () => {
     try {
@@ -953,9 +1090,9 @@ export const McpPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
-      await loadAgentStatus();
+      await loadMcpAgentsPoll();
     } catch { /* silent */ }
-  }, [loadAgentStatus]);
+  }, [loadMcpAgentsPoll]);
 
   // ── Load services ────────────────────────────────────────────────────────────
   const loadServices = useCallback(async () => {
@@ -981,8 +1118,7 @@ export const McpPage: React.FC = () => {
         : list.find((a) => a.id === 'mcp_agent_architect') || list[0];
       const routeSlug = mcpAgentIdToRouteSlug(String(selectedCfg?.id || 'mcp_agent_architect'));
       const dispatchSlug = String(selectedCfg?.slug || routeSlug);
-      const model =
-        String(selectedCfg?.default_model_id || '').trim() || 'claude-haiku-4-5-20251001';
+      const model = String(selectedCfg?.default_model_id || '').trim();
       const res = await fetch('/api/mcp/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -990,19 +1126,19 @@ export const McpPage: React.FC = () => {
         body: JSON.stringify({
           message: prompt,
           mode: 'agent',
-          model,
+          ...(model ? { model } : {}),
           agent: dispatchSlug,
         }),
       });
       const data = await res.json();
       if (data.agent_id) {
         setCommandInput('');
-        await loadAgentStatus();
+        await loadMcpAgentsPoll();
         setTimeout(() => openAgentPanel(String(data.agent_id)), 400);
       }
     } catch { /* silent */ }
     finally { setDispatching(false); }
-  }, [commandInput, dispatching, loadAgentStatus, activeAgent, agents, openAgentPanel]);
+  }, [commandInput, dispatching, loadMcpAgentsPoll, activeAgent, agents, openAgentPanel]);
 
   const healthColor = (status?: string) => {
     const s = (status ?? '').toLowerCase();
@@ -1011,6 +1147,12 @@ export const McpPage: React.FC = () => {
     if (s === 'down') return 'var(--solar-red)';
     return 'var(--text-muted)';
   };
+
+  const routeSlugForWorkflows = agentSlug?.trim()
+    ? decodeURIComponent(agentSlug.trim())
+    : '';
+  const displayWorkflows = routeSlugForWorkflows ? slugWorkflows : workflows;
+  const displayWorkflowsLoaded = routeSlugForWorkflows ? slugWorkflowsLoaded : workflowsLoaded;
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)] text-[var(--text-main)] overflow-hidden">
@@ -1063,7 +1205,7 @@ export const McpPage: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => void loadAgentStatus()}
+          onClick={() => void loadMcpAgentsPoll()}
           className="ml-auto p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)]"
         >
           <RefreshCw size={13} />
@@ -1131,17 +1273,38 @@ export const McpPage: React.FC = () => {
         </div>
 
         {/* Agent grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {(agents.length ? agents : FALLBACK_AGENTS).map(config => (
-            <AgentCard
-              key={config.id}
-              config={config}
-              state={agentStates[config.id]}
-              onOpen={openAgentPanel}
-              onResetStale={resetStaleSession}
-            />
-          ))}
-        </div>
+        {agentsLoading ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-[0.75rem] text-[var(--text-muted)]">
+            <Loader2 size={18} className="animate-spin" /> Loading agents…
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {(agents.length ? agents : FALLBACK_AGENTS).map((config) => (
+              <AgentCard
+                key={config.id}
+                config={config}
+                state={
+                  agentStates[config.id] || {
+                    id: config.id,
+                    status: 'idle',
+                    current_task: null,
+                    progress_pct: 0,
+                    cost_usd: 0,
+                    logs: [],
+                    session_id: null,
+                    session_row_id: null,
+                    updated_at: null,
+                    last_activity: null,
+                    stage: null,
+                    is_stale: false,
+                  }
+                }
+                onOpen={openAgentPanel}
+                onResetStale={resetStaleSession}
+              />
+            ))}
+          </div>
+        )}
 
         {/* MCP Services panel */}
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-subtle)' }}>
@@ -1229,13 +1392,21 @@ export const McpPage: React.FC = () => {
             <div className="flex items-center gap-2.5">
               <Activity size={13} style={{ color: 'var(--solar-cyan)' }} />
               <span className="text-[0.75rem] font-bold text-[var(--text-heading)]">Workflows</span>
-              {workflows.length > 0 && (
-                <span className="text-[0.5rem] font-mono text-[var(--text-muted)] opacity-60">({workflows.length})</span>
+              {routeSlugForWorkflows ? (
+                <span className="text-[0.5rem] font-mono text-[var(--text-muted)] opacity-80">
+                  · {routeSlugForWorkflows}
+                </span>
+              ) : null}
+              {displayWorkflows.length > 0 && (
+                <span className="text-[0.5rem] font-mono text-[var(--text-muted)] opacity-60">({displayWorkflows.length})</span>
               )}
             </div>
             <button
               type="button"
-              onClick={() => void loadWorkflows()}
+              onClick={() => {
+                if (routeSlugForWorkflows) void loadSlugWorkflows(routeSlugForWorkflows);
+                else void loadWorkflows();
+              }}
               className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)]"
               title="Refresh workflows"
             >
@@ -1244,11 +1415,11 @@ export const McpPage: React.FC = () => {
           </div>
 
           <div style={{ borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-app)' }}>
-            {!workflowsLoaded ? (
+            {!displayWorkflowsLoaded ? (
               <div className="flex items-center gap-2 px-5 py-4 text-[var(--text-muted)] text-[0.75rem]">
                 <Loader2 size={13} className="animate-spin" /> Loading workflows…
               </div>
-            ) : workflows.length === 0 ? (
+            ) : displayWorkflows.length === 0 ? (
               <div className="px-5 py-4 text-[0.75rem] text-[var(--text-muted)]">No workflows configured.</div>
             ) : (
               <table className="w-full text-left border-collapse">
@@ -1260,10 +1431,15 @@ export const McpPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {workflows.map((wf) => (
+                  {displayWorkflows.map((wf) => (
                     <tr key={wf.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                       <td className="px-5 py-2.5 text-[0.75rem] font-semibold text-[var(--text-main)]">
-                        {wf.name}
+                        <div>{wf.name}</div>
+                        {wf.description ? (
+                          <div className="text-[0.5625rem] text-[var(--text-muted)] font-normal mt-0.5 line-clamp-2">
+                            {wf.description}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-5 py-2.5 text-[0.625rem] font-mono text-[var(--text-muted)]">
                         {formatRelativeTime(wf.last_run_at)}

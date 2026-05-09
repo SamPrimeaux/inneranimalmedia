@@ -169,6 +169,7 @@ GOOGLE_CLIENT_ID = "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleuse
 TENANT_ID = "tenant_inneranimalmedia"
 WORKSPACE_ID = "ws_inneranimalmedia"
 DEPLOY_ENV = "production"
+ENVIRONMENT = "production"
 AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com"
 
 [observability]

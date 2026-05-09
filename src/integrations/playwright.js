@@ -1,5 +1,6 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
+import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
 
 /**
@@ -25,6 +26,18 @@ export async function handleBrowserRequest(request, url, env) {
     if (pathLower === '/api/browser/screenshot' && method === 'GET') {
         const targetUrl = url.searchParams.get('url');
         if (!targetUrl) return jsonResponse({ error: 'url required' }, 400);
+
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        try {
+            await assertBrowserTrustedOrigin(env, {
+                userId: String(authUser.id),
+                workspaceId: null,
+                origin: targetUrl,
+            });
+        } catch (e) {
+            return jsonResponse({ error: String(e?.message || e) }, 403);
+        }
 
         try {
             const { launch } = await import('@cloudflare/playwright');
@@ -80,6 +93,19 @@ export async function handlePlaywrightJobApi(request, env, url) {
         }
         const targetUrl = String(body.url || '').trim();
         if (!targetUrl) return jsonResponse({ error: 'url required' }, 400);
+
+        try {
+            await assertBrowserTrustedOrigin(env, {
+                userId: String(authUser.id),
+                workspaceId:
+                    body.workspace_id != null && String(body.workspace_id).trim()
+                        ? String(body.workspace_id).trim()
+                        : null,
+                origin: targetUrl,
+            });
+        } catch (e) {
+            return jsonResponse({ error: String(e?.message || e) }, 403);
+        }
 
         const jobId = crypto.randomUUID();
         const workspaceId =

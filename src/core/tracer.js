@@ -1,4 +1,4 @@
-import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
+import { scheduleAgentsamErrorLog } from './agentsam-ops-ledger.js';
 
 /** Default Wrangler `name` — used as OTLP worker_name for rollup dimensions. */
 const DEFAULT_WORKER_NAME = 'inneranimalmedia';

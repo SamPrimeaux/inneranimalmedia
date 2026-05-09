@@ -1,9 +1,10 @@
 /**
  * Unified MCP / builtin tool execution ledger (agentsam_mcp_tool_execution).
- * Inserts align with production D1 columns (inneranimalmedia-business).
+ * Inserts bind every table column explicitly (no reliance on D1 defaults).
  */
 
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
+import { recordSpan } from './tracer.js';
 
 /** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
 export async function hashToolInputJson(obj) {
@@ -114,18 +115,164 @@ export async function writeAgentsamToolCacheAfterSuccess(env, o) {
     console.warn('[agentsam_tool_cache] write', e?.message ?? e);
   }
 }
-import { recordSpan } from './tracer.js';
 
-async function pragmaTableInfo(db, tableName) {
-  if (!db || !tableName) return new Set();
+const MCP_EXEC_TABLE = 'agentsam_mcp_tool_execution';
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} tableName
+ * @returns {Promise<{ name: string, nameLower: string, type: string, notnull: boolean }[]>}
+ */
+async function pragmaTableColumns(db, tableName) {
+  if (!db || !tableName) return [];
   const safe = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(String(tableName)) ? String(tableName) : '';
-  if (!safe) return new Set();
+  if (!safe) return [];
   try {
     const { results } = await db.prepare(`PRAGMA table_info(${safe})`).all();
-    return new Set((results || []).map((r) => String(r.name || '').toLowerCase()));
+    return (results || []).map((r) => ({
+      name: String(r.name),
+      nameLower: String(r.name).toLowerCase(),
+      type: String(r.type || ''),
+      notnull: Number(r.notnull) === 1,
+    }));
   } catch {
-    return new Set();
+    return [];
   }
+}
+
+/**
+ * @param {{ type: string, nameLower: string, notnull: boolean }} col
+ * @param {unknown} value
+ */
+function coerceForColumn(col, value) {
+  if (value === null || value === undefined) {
+    const t = col.type.toUpperCase();
+    if (t.includes('INT')) return col.notnull ? 0 : null;
+    if (t.includes('REAL') || t.includes('FLOA') || t.includes('DOUB')) return col.notnull ? 0 : null;
+    return col.notnull ? '' : null;
+  }
+  const t = col.type.toUpperCase();
+  if (t.includes('INT')) {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (t.includes('REAL') || t.includes('FLOA') || t.includes('DOUB')) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return String(value);
+}
+
+/**
+ * @param {{ type: string, nameLower: string, notnull: boolean }} col
+ */
+function defaultForMcpExecColumn(col) {
+  const n = col.nameLower;
+  const t = col.type.toUpperCase();
+  if (n === 'created_at') {
+    return new Date().toISOString();
+  }
+  if (n === 'input_json' || n === 'output_json') return '{}';
+  if (n === 'policy_decision_json' || n === 'error_detail_json') return '{}';
+  if ((n === 'duration_ms' || n === 'latency_ms') && !col.notnull) return null;
+  if (t.includes('INT')) return 0;
+  if (t.includes('REAL') || t.includes('FLOA') || t.includes('DOUB')) return 0;
+  if (col.notnull) return '';
+  return null;
+}
+
+/**
+ * @param {Record<string, unknown>} fields
+ * @param {string} id
+ * @returns {Record<string, unknown>}
+ */
+function normalizeMcpExecutionFields(fields, id) {
+  const f = fields && typeof fields === 'object' ? fields : {};
+  const pick = (snake, ...alts) => {
+    if (f[snake] !== undefined) return f[snake];
+    for (const a of alts) {
+      if (f[a] !== undefined) return f[a];
+    }
+    return undefined;
+  };
+
+  const errRaw = pick('error_message', 'errorMessage', 'error');
+  const errStr = errRaw != null ? String(errRaw).slice(0, 8000) : null;
+  let successInt;
+  if (pick('success') !== undefined) successInt = pick('success') ? 1 : 0;
+  else if (errStr) successInt = 0;
+  else successInt = String(pick('status') || '').toLowerCase() === 'error' ? 0 : 1;
+
+  const inputRaw = pick('input_json', 'inputJson', 'input', 'toolArgs');
+  const inputJson =
+    inputRaw !== undefined
+      ? typeof inputRaw === 'string'
+        ? inputRaw
+        : JSON.stringify(inputRaw ?? {})
+      : undefined;
+
+  const outputRaw = pick('output_json', 'outputJson', 'output');
+  const outputJson =
+    outputRaw !== undefined
+      ? typeof outputRaw === 'string'
+        ? outputRaw
+        : JSON.stringify(outputRaw ?? null)
+      : undefined;
+
+  const userId =
+    pick('user_id', 'userId', 'invoked_by', 'invokedBy') != null
+      ? String(pick('user_id', 'userId', 'invoked_by', 'invokedBy')).trim() || null
+      : null;
+
+  const out = {
+    id,
+    tool_id: pick('tool_id', 'toolId'),
+    agentsam_tools_id: pick('agentsam_tools_id', 'agentsamToolsId'),
+    tool_name: pick('tool_name', 'toolName'),
+    tool_key: pick('tool_key', 'toolKey'),
+    tenant_id: pick('tenant_id', 'tenantId'),
+    workspace_id: pick('workspace_id', 'workspaceId'),
+    user_id: userId,
+    person_uuid: pick('person_uuid', 'personUuid'),
+    session_id: pick('session_id', 'sessionId'),
+    agent_id: pick('agent_id', 'agentId'),
+    workflow_id: pick('workflow_id', 'workflowId'),
+    input_json: inputJson,
+    output_json: outputJson,
+    success: successInt,
+    error_message: errStr,
+    duration_ms: pick('duration_ms', 'durationMs'),
+    cost_usd: pick('cost_usd', 'costUsd'),
+    input_tokens: pick('input_tokens', 'inputTokens'),
+    output_tokens: pick('output_tokens', 'outputTokens'),
+    retry_count: pick('retry_count', 'retryCount'),
+    requires_approval: pick('requires_approval', 'requiresApproval'),
+    status: pick('status'),
+    tool_chain_id: pick('tool_chain_id', 'toolChainId'),
+    timed_out: pick('timed_out', 'timedOut'),
+    sla_breach: pick('sla_breach', 'slaBreach'),
+    timeout_ms: pick('timeout_ms', 'timeoutMs'),
+    invoked_by: pick('invoked_by', 'invokedBy'),
+    latency_ms: pick('latency_ms', 'latencyMs'),
+    request_args_json: pick('request_args_json', 'requestArgsJson'),
+    action_type: pick('action_type', 'actionType'),
+    resource_type: pick('resource_type', 'resourceType'),
+    resource_id: pick('resource_id', 'resourceId'),
+    actor_type: pick('actor_type', 'actorType'),
+    actor_source: pick('actor_source', 'actorSource'),
+    policy_decision_json: pick('policy_decision_json', 'policyDecisionJson'),
+    denial_code: pick('denial_code', 'denialCode'),
+    error_code: pick('error_code', 'errorCode'),
+    error_family: pick('error_family', 'errorFamily'),
+    error_detail_json: pick('error_detail_json', 'errorDetailJson'),
+    error_log_id: pick('error_log_id', 'errorLogId'),
+    created_at: pick('created_at', 'createdAt'),
+  };
+
+  for (const k of Object.keys(out)) {
+    if (out[k] === undefined) delete out[k];
+  }
+  return out;
 }
 
 function newExecId() {
@@ -163,20 +310,36 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
           ? String(merged.tenant_id).trim()
           : '';
       if (!ws || !tid) return execId;
+      let policy = null;
+      try {
+        policy =
+          merged.policy_decision_json != null ? JSON.parse(String(merged.policy_decision_json)) : null;
+      } catch {
+        policy = null;
+      }
       scheduleAgentsamErrorLog(env, ctx, {
         workspaceId: ws,
         tenantId: tid,
         sessionId: merged.session_id ?? merged.sessionId ?? null,
-        errorCode: 'mcp_exec_failed',
-        errorType: 'mcp_tool_execution',
+        errorCode: merged.error_code != null ? String(merged.error_code).slice(0, 120) : 'mcp_exec_failed',
+        errorType: merged.error_family != null ? String(merged.error_family).slice(0, 120) : 'mcp_tool_execution',
         errorMessage:
           merged.error_message != null && String(merged.error_message).trim() !== ''
             ? String(merged.error_message).slice(0, 8000)
             : 'mcp_tool_execution_failed',
-        source: 'mcp_tool_execution',
+        source: 'agentsam_mcp_tool_execution',
         sourceId: execId,
         contextJson: JSON.stringify({
-          tool_name: merged.tool_name,
+          tool_id: merged.tool_id ?? merged.agentsam_tools_id ?? null,
+          tool_key: merged.tool_key ?? null,
+          tool_name: merged.tool_name ?? null,
+          user_id: merged.user_id ?? null,
+          workspace_id: ws,
+          tenant_id: tid,
+          action_type: merged.action_type ?? null,
+          resource_type: merged.resource_type ?? null,
+          policy_decision: policy,
+          denial_code: merged.denial_code ?? null,
           input_json:
             merged.input_json != null ? String(merged.input_json).slice(0, 8000) : null,
         }),
@@ -190,175 +353,147 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
 }
 
 /**
+ * Structured execution row after policy + tool resolution.
+ *
+ * @param {any} env
+ * @param {{
+ *   actor: Record<string, unknown>,
+ *   tool?: Record<string, unknown>|null,
+ *   decision?: Record<string, unknown>|null,
+ *   status: string,
+ *   inputJson?: unknown,
+ *   outputJson?: unknown,
+ *   error?: string | null,
+ *   sessionId?: string | null,
+ *   agentId?: string | null,
+ *   actionType?: string | null,
+ *   resourceType?: string | null,
+ *   resourceId?: string | null,
+ *   id?: string | null,
+ *   errorCode?: string | null,
+ *   errorFamily?: string | null,
+ * }} o
+ * @returns {Promise<string|null>}
+ */
+export async function logMcpExecution(env, o) {
+  const actor = o?.actor || {};
+  const tool = o?.tool || {};
+  const decision = o?.decision || {};
+  const policyJson = JSON.stringify({
+    allowed: decision.allowed,
+    requiresApproval: decision.requiresApproval,
+    denialCode: decision.denialCode,
+    policySource: decision.policySource,
+    maxTimeoutMs: decision.maxTimeoutMs,
+  });
+  const inputJson =
+    typeof o.inputJson === 'string' ? o.inputJson : JSON.stringify(o.inputJson ?? {});
+  const outputJson =
+    typeof o.outputJson === 'string' ? o.outputJson : JSON.stringify(o.outputJson ?? {});
+  const toolRowId = tool.id != null ? String(tool.id).trim() : '';
+  const toolKey = tool.tool_key != null ? String(tool.tool_key).trim() : '';
+  const toolName = tool.tool_name != null ? String(tool.tool_name).trim() : toolKey || 'unknown';
+
+  return recordMcpToolExecution(env, {
+    id: o.id,
+    tenant_id: actor.tenantId,
+    workspace_id: actor.workspaceId,
+    user_id: actor.userId,
+    person_uuid: actor.personUuid,
+    session_id: o.sessionId ?? actor.sessionId,
+    agent_id: o.agentId ?? actor.agentId,
+    tool_id: toolRowId || null,
+    agentsam_tools_id: toolRowId || null,
+    tool_key: toolKey || null,
+    tool_name: toolName,
+    action_type: o.actionType,
+    resource_type: o.resourceType,
+    resource_id: o.resourceId,
+    actor_type: actor.actorType,
+    actor_source: actor.actorSource,
+    policy_decision_json: policyJson,
+    denial_code: decision.denialCode,
+    success: String(o.status || '').toLowerCase() === 'success',
+    status: o.status,
+    error_message: o.error,
+    error_code: o.errorCode,
+    error_family: o.errorFamily,
+    input_json: inputJson,
+    output_json: outputJson,
+  });
+}
+
+/**
  * @param {any} env
  * @param {object} fields
  * @returns {Promise<string|null>} execution id
  */
 export async function recordMcpToolExecution(env, fields) {
   if (!env?.DB) return null;
-  const cols = await pragmaTableInfo(env.DB, 'agentsam_mcp_tool_execution');
-  if (!cols.size) return null;
+
+  const columns = await pragmaTableColumns(env.DB, MCP_EXEC_TABLE);
+  if (!columns.length) return null;
 
   const id = fields.id && String(fields.id).trim() !== '' ? String(fields.id).trim() : newExecId();
-  const tenantId =
-    fields.tenant_id != null && String(fields.tenant_id).trim() !== ''
-      ? String(fields.tenant_id).trim()
-      : null;
-  const workspaceId =
-    fields.workspace_id != null && String(fields.workspace_id).trim() !== ''
-      ? String(fields.workspace_id).trim()
-      : null;
-  const userId =
-    fields.user_id != null && String(fields.user_id).trim() !== ''
-      ? String(fields.user_id).trim()
-      : fields.invoked_by != null && String(fields.invoked_by).trim() !== ''
-        ? String(fields.invoked_by).trim()
-        : null;
-  const personUuid =
-    fields.person_uuid != null && String(fields.person_uuid).trim() !== ''
-      ? String(fields.person_uuid).trim()
-      : fields.personUuid != null && String(fields.personUuid).trim() !== ''
-        ? String(fields.personUuid).trim()
-        : null;
-  const sessionId = fields.session_id ?? fields.sessionId ?? null;
-  const toolId =
-    fields.tool_id != null && String(fields.tool_id).trim() !== ''
-      ? String(fields.tool_id).trim()
-      : null;
-  const toolName = String(fields.tool_name || fields.toolName || 'unknown').slice(0, 500);
-  const inputJson =
-    fields.input_json != null
-      ? String(fields.input_json)
-      : JSON.stringify(fields.input ?? fields.toolArgs ?? {});
-  const outputJson =
-    fields.output_json != null
-      ? String(fields.output_json)
-      : fields.output != null
-        ? String(fields.output)
-        : '';
-  const success =
-    fields.success !== undefined
-      ? !!fields.success
-      : !fields.error_message && String(fields.status || '').toLowerCase() !== 'error';
-  const successInt = success ? 1 : 0;
-  const err = fields.error_message != null ? String(fields.error_message).slice(0, 8000) : null;
-  const costUsd = Number(fields.cost_usd ?? fields.costUsd ?? 0) || 0;
-  const inTok = Math.max(0, Math.floor(Number(fields.input_tokens ?? fields.inputTokens ?? 0) || 0));
-  const outTok = Math.max(0, Math.floor(Number(fields.output_tokens ?? fields.outputTokens ?? 0) || 0));
-  const dur = Math.max(0, Math.floor(Number(fields.duration_ms ?? fields.durationMs ?? 0) || 0));
-  const retry = Math.max(0, Math.floor(Number(fields.retry_count ?? fields.retryCount ?? 0) || 0));
-  const reqAppr = Number(fields.requires_approval ?? 0) === 1 ? 1 : 0;
+  const normalized = normalizeMcpExecutionFields(fields, id);
 
-  // Hard rule: authenticated execution rows must have a real workspace_id.
-  // '__tenant__' is reserved for true platform/system rows, not user actions.
-  if (userId && (!workspaceId || workspaceId === '__tenant__')) {
-    throw new Error('WORKSPACE_CONTEXT_MISSING');
-  }
-  if (cols.has('tenant_id') && !tenantId) {
+  const colSet = new Set(columns.map((c) => c.nameLower));
+  const tenantId =
+    normalized.tenant_id != null && String(normalized.tenant_id).trim() !== ''
+      ? String(normalized.tenant_id).trim()
+      : null;
+  if (colSet.has('tenant_id') && !tenantId) {
     return null;
   }
 
-  try {
-    const insertCols = [
-      cols.has('id') && 'id',
-      cols.has('tool_id') && 'tool_id',
-      cols.has('tool_name') && 'tool_name',
-      cols.has('tenant_id') && 'tenant_id',
-      cols.has('workspace_id') && 'workspace_id',
-      cols.has('user_id') && 'user_id',
-      cols.has('person_uuid') && 'person_uuid',
-      cols.has('session_id') && 'session_id',
-      cols.has('input_json') && 'input_json',
-      cols.has('output_json') && 'output_json',
-      cols.has('success') && 'success',
-      cols.has('error_message') && 'error_message',
-      cols.has('duration_ms') && 'duration_ms',
-      cols.has('cost_usd') && 'cost_usd',
-      cols.has('input_tokens') && 'input_tokens',
-      cols.has('output_tokens') && 'output_tokens',
-      cols.has('retry_count') && 'retry_count',
-      cols.has('requires_approval') && 'requires_approval',
-      cols.has('status') && 'status',
-      cols.has('created_at') && 'created_at',
-    ].filter(Boolean);
+  const workspaceId =
+    normalized.workspace_id != null && String(normalized.workspace_id).trim() !== ''
+      ? String(normalized.workspace_id).trim()
+      : null;
+  const userId =
+    normalized.user_id != null && String(normalized.user_id).trim() !== ''
+      ? String(normalized.user_id).trim()
+      : null;
 
-    const insertVals = [];
-    const binds = [];
-    const push = (col, valExpr, bindVal) => {
-      insertVals.push(valExpr);
-      if (valExpr === '?') binds.push(bindVal);
-    };
-    for (const c of insertCols) {
-      switch (c) {
-        case 'id':
-          push(c, '?', id);
-          break;
-        case 'tool_id':
-          push(c, '?', toolId);
-          break;
-        case 'tool_name':
-          push(c, '?', toolName);
-          break;
-        case 'tenant_id':
-          push(c, '?', tenantId);
-          break;
-        case 'workspace_id':
-          push(c, '?', workspaceId);
-          break;
-        case 'user_id':
-          push(c, '?', userId);
-          break;
-        case 'person_uuid':
-          push(c, '?', personUuid);
-          break;
-        case 'session_id':
-          push(c, '?', sessionId);
-          break;
-        case 'input_json':
-          push(c, '?', inputJson.slice(0, 100000));
-          break;
-        case 'output_json':
-          push(c, '?', outputJson.slice(0, 50000));
-          break;
-        case 'success':
-          push(c, '?', successInt);
-          break;
-        case 'error_message':
-          push(c, '?', err);
-          break;
-        case 'duration_ms':
-          push(c, '?', dur);
-          break;
-        case 'cost_usd':
-          push(c, '?', costUsd);
-          break;
-        case 'input_tokens':
-          push(c, '?', inTok);
-          break;
-        case 'output_tokens':
-          push(c, '?', outTok);
-          break;
-        case 'retry_count':
-          push(c, '?', retry);
-          break;
-        case 'requires_approval':
-          push(c, '?', reqAppr);
-          break;
-        case 'status':
-          push(c, '?', String(fields.status || (success ? 'completed' : 'error')).slice(0, 40));
-          break;
-        case 'created_at':
-          push(c, `datetime('now')`, null);
-          break;
-        default:
-          push(c, '?', null);
-          break;
-      }
+  if (userId && (!workspaceId || workspaceId === '__tenant__')) {
+    throw new Error('WORKSPACE_CONTEXT_MISSING');
+  }
+
+  const names = [];
+  const binds = [];
+
+  for (const col of columns) {
+    const key = col.nameLower;
+    let val = Object.prototype.hasOwnProperty.call(normalized, key) ? normalized[key] : undefined;
+    if (val === undefined) val = defaultForMcpExecColumn(col);
+
+    if (
+      (key === 'policy_decision_json' || key === 'error_detail_json' || key === 'request_args_json') &&
+      val != null &&
+      typeof val === 'object'
+    ) {
+      val = JSON.stringify(val);
     }
 
+    if (key === 'tool_name' && (val === null || val === '')) {
+      val = 'unknown';
+    }
+    if (key === 'input_json') val = String(val ?? '{}').slice(0, 100000);
+    if (key === 'output_json') val = String(val ?? '{}').slice(0, 50000);
+    if (key === 'error_message' && val != null) val = String(val).slice(0, 8000);
+    if (key === 'status' && (val === null || val === '')) {
+      const ok = Number(normalized.success) === 1;
+      val = String(fields.status || (ok ? 'completed' : 'error')).slice(0, 40);
+    }
+
+    val = coerceForColumn(col, val);
+    names.push(col.name);
+    binds.push(val);
+  }
+
+  try {
     await env.DB.prepare(
-      `INSERT INTO agentsam_mcp_tool_execution (${insertCols.join(', ')})
-       VALUES (${insertVals.join(', ')})`,
+      `INSERT INTO ${MCP_EXEC_TABLE} (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
     )
       .bind(...binds)
       .run();

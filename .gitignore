@@ -77,3 +77,9 @@ scripts/agentsam_schema_chunks.jsonl
 
 # Local deploy/test reports
 iam-test-reports/
+.env.rotate
+
+.env.mcp.local
+.mcp_exports.sh
+
+__pycache__/

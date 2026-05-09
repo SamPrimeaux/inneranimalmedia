@@ -12,6 +12,11 @@ export const IAM_KV_SESSION_KEY_PREFIX = 'iam_sess_v1:';
 export const AUTH_COOKIE_NAME = 'session';
 export const AUTH_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
+/** Short-lived sessions minted for automation (POST /api/auth/agent-session/mint). */
+export const MIN_AGENT_SESSION_TTL_SECONDS = 60;
+export const MAX_AGENT_SESSION_TTL_SECONDS = 86400;
+export const DEFAULT_AGENT_SESSION_TTL_SECONDS = 900;
+
 /** Canonical browser routes (never send users to legacy `/login` or `/signup`). */
 export const AUTH_LOGIN_PATH = '/auth/login';
 export const AUTH_SIGNUP_PATH = '/auth/signup';
@@ -555,9 +560,21 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
  * Creates auth_sessions + legacy sessions + KV (used by email login, OAuth login, signup).
  * @returns {Promise<string>} session id
  */
-export async function createLoginSession(request, env, userId, sessionProvider = 'email') {
+export async function createLoginSession(request, env, userId, sessionProvider = 'email', opts = {}) {
   const sessionId = crypto.randomUUID();
-  const expiresTs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+  let expiresTs;
+  if (opts != null && opts.ttlSeconds != null) {
+    const raw = Number(opts.ttlSeconds);
+    const sec = Number.isFinite(raw)
+      ? Math.min(
+          MAX_AGENT_SESSION_TTL_SECONDS,
+          Math.max(MIN_AGENT_SESSION_TTL_SECONDS, raw),
+        )
+      : DEFAULT_AGENT_SESSION_TTL_SECONDS;
+    expiresTs = Date.now() + sec * 1000;
+  } else {
+    expiresTs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+  }
   const expiresAtIso = new Date(expiresTs).toISOString();
 
   const ip = request.headers.get('cf-connecting-ip') || '';
@@ -626,6 +643,20 @@ export function verifyInternalApiSecret(request, env) {
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
   const header = (request.headers.get('X-Internal-Secret') || '').trim();
   return bearer === secret || header === secret;
+}
+
+/**
+ * Automation-only: mint short-lived browser sessions (see POST /api/auth/agent-session/mint).
+ * Use Worker secret AGENT_SESSION_MINT_SECRET — narrower blast radius than INTERNAL_API_SECRET.
+ */
+export function verifyAgentSessionMintSecret(request, env) {
+  const secret = env?.AGENT_SESSION_MINT_SECRET;
+  if (!secret || String(secret).trim() === '') return false;
+  const s = String(secret).trim();
+  const auth = request.headers.get('Authorization') || '';
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  const header = (request.headers.get('X-Agent-Session-Mint-Secret') || '').trim();
+  return bearer === s || header === s;
 }
 
 export function jsonResponse(body, status = 200) {

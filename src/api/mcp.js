@@ -3,13 +3,17 @@
  * Handles agent session tracking, tool registration listings, and intent-based routing.
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
-import { resolveIamActorContext } from '../core/identity.js';
+import { resolveIamActorContext, resolveIdentity } from '../core/identity.js';
 import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import { validateMcpToken } from '../core/mcp-auth.js';
-import { maxAgentsamWorkflowTimeoutSeconds } from '../core/agentsam-workflows.js';
+import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
 import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { resolveActorContext } from '../core/actor-context.js';
+import { authorizeMcpTool } from '../core/mcp-authorization.js';
 import { resolveMcpServerForTool } from '../core/mcp-servers.js';
+import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
+import { mcpPanelAgentChatSse } from './agent.js';
 
 const MCP_CARD_AGENT_IDS = [
   'mcp_agent_architect',
@@ -24,9 +28,103 @@ function normalizeMcpAgentId(agentId) {
   return s;
 }
 
+/** Deterministic MCP panel session PK per subagent slug + tenant (matches INSERT upsert). */
+function deterministicMcpPanelSessionId(slug, tenantId) {
+  const s = String(slug || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 80);
+  const t = String(tenantId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 120);
+  return `mcpsess_${s}_${t}`;
+}
+
+/**
+ * Resolve dispatch row from agentsam_ai only — no hardcoded model keys.
+ * @param {string|null|undefined} tenantId Reserved for future tenant-scoped catalog filtering.
+ */
+async function resolveAgentModel(env, preferredModelKey, tenantId) {
+  void tenantId;
+  const pref =
+    preferredModelKey != null && String(preferredModelKey).trim() !== ''
+      ? String(preferredModelKey).trim()
+      : '';
+
+  if (pref) {
+    let row = await env.DB.prepare(
+      `SELECT * FROM agentsam_ai
+       WHERE model_key = ? AND status = 'active'
+       LIMIT 1`,
+    )
+      .bind(pref)
+      .first()
+      .catch(() => null);
+    if (row) return row;
+
+    row = await env.DB.prepare(
+      `SELECT * FROM agentsam_ai WHERE id = ? AND status = 'active' LIMIT 1`,
+    )
+      .bind(pref)
+      .first()
+      .catch(() => null);
+    if (row) return row;
+  }
+
+  const fallback = await env.DB.prepare(
+    `SELECT * FROM agentsam_ai
+     WHERE status = 'active'
+       AND supports_tools = 1
+     ORDER BY COALESCE(input_rate_per_mtok, 9999) ASC,
+              COALESCE(sort_order, 999) ASC
+     LIMIT 1`,
+  )
+    .first()
+    .catch(() => null);
+
+  return fallback || null;
+}
+
+const MCP_PANEL_SLUG_DENYLIST = [
+  'recall',
+  'toolbox',
+  'tester',
+  'codex-default',
+  'codex-worker',
+  'codex-explorer',
+  'pr-explorer',
+  'batch-processor',
+  'course_users',
+  'code-check',
+  'ollama-boilerplate',
+  'ollama-analyst',
+  'ollama-agent',
+  'cadcreator',
+  'cadvalidator',
+  'assetpublisher',
+  'excalidrawplanner',
+  'meauxcad-operator',
+  'wai-tier1-agentic',
+  'wai-tier2-limited',
+  'wai-tier3-textonly',
+];
+
+const MCP_PANEL_AGENT_TYPES = [
+  'custom',
+  'builtin_orchestrator',
+  'builtin_worker',
+  'builtin_explorer',
+  'orchestrator',
+  'deploy',
+];
+
 /** Non-blocking agentsam_tool_call_log row for MCP dispatch endpoints. */
 function scheduleDispatchToolCallLog(env, ctx, { tenantId, sessionId, userId, workspaceId, inputSummary }) {
   if (!env?.DB) return;
+  const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
+  const ws = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+  if (!tid || !ws) return;
   const sum = String(inputSummary ?? '').slice(0, 200);
   const p = env.DB
     .prepare(
@@ -35,7 +133,7 @@ function scheduleDispatchToolCallLog(env, ctx, { tenantId, sessionId, userId, wo
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .bind(
-      tenantId != null ? String(tenantId) : 'system',
+      tid,
       sessionId ?? null,
       'mcp_dispatch',
       'pending',
@@ -44,7 +142,7 @@ function scheduleDispatchToolCallLog(env, ctx, { tenantId, sessionId, userId, wo
       0,
       0,
       userId ?? null,
-      workspaceId ?? null,
+      ws,
       null,
       sum,
     )
@@ -209,14 +307,174 @@ export async function handleMcpApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-    const tenantId =
-      actorCtx?.tenantId ||
-      resolveMcpTenantId(authUser, env) ||
-      (Number(authUser?.is_superadmin) === 1
-        ? (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : 'system')
-        : null);
+    const tenantId = actorCtx?.tenantId || resolveMcpTenantId(authUser, env);
     if (!tenantId) {
       return jsonResponse({ error: 'TENANT_CONTEXT_MISSING', code: 'TENANT_CONTEXT_MISSING' }, 400);
+    }
+
+    // ── MCP dashboard panel: session start, chat (SSE), session row, per-slug workflows ──
+    if (pathLower === '/api/mcp/agent/session/start' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const slug = String(body.slug || '').trim();
+      if (!slug) return jsonResponse({ error: 'slug required' }, 400);
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
+      if (!wsRes || wsRes.error || !wsRes.workspaceId) {
+        return jsonResponse({ error: wsRes?.error || 'no_workspace', redirect: '/onboarding' }, 403);
+      }
+      let profile = null;
+      try {
+        profile = await env.DB.prepare(
+          `SELECT * FROM agentsam_subagent_profile WHERE slug = ? AND is_active = 1 LIMIT 1`,
+        )
+          .bind(slug)
+          .first();
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e) }, 500);
+      }
+      if (!profile) return jsonResponse({ error: 'agent not found' }, 404);
+
+      const sessionId = deterministicMcpPanelSessionId(slug, tenantId);
+      const activeToolsJson = String(profile.allowed_tool_globs || '[]');
+      const now = Math.floor(Date.now() / 1000);
+      try {
+        await env.DB.prepare(
+          `INSERT INTO mcp_agent_sessions (
+             id, agent_id, tenant_id, status, current_task, progress_pct, stage,
+             logs_json, active_tools_json, cost_usd, messages_json, tool_calls_count,
+             last_activity, created_at, updated_at, panel
+           ) VALUES (?, ?, ?, 'idle', NULL, 0, NULL, '[]', ?, 0, '[]', 0, datetime('now'), ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             active_tools_json = excluded.active_tools_json,
+             panel             = excluded.panel,
+             status            = 'idle',
+             updated_at        = excluded.updated_at,
+             last_activity     = excluded.last_activity`,
+        )
+          .bind(sessionId, slug, tenantId, activeToolsJson, now, now, slug)
+          .run();
+      } catch (e) {
+        return jsonResponse({ error: 'session upsert failed', detail: String(e?.message || e) }, 503);
+      }
+      return jsonResponse({
+        session_id: sessionId,
+        slug,
+        status: 'idle',
+        display_name: profile.display_name || slug,
+      });
+    }
+
+    const mcpAgentChatMatch = pathLower.match(/^\/api\/mcp\/agent\/([^/]+)\/chat$/);
+    if (mcpAgentChatMatch && method === 'POST') {
+      const slug = decodeURIComponent(String(mcpAgentChatMatch[1] || '').trim());
+      const body = await request.json().catch(() => ({}));
+      const message = String(body.message || '').trim();
+      if (!slug || !message) return jsonResponse({ error: 'slug and message required' }, 400);
+
+      const identity = await resolveIdentity(env, request);
+      if (!identity?.workspaceId) {
+        return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+      }
+      const workspaceId = String(identity.workspaceId).trim();
+
+      let profile = null;
+      try {
+        profile = await env.DB.prepare(
+          `SELECT * FROM agentsam_subagent_profile WHERE slug = ? AND is_active = 1 LIMIT 1`,
+        )
+          .bind(slug)
+          .first();
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e) }, 500);
+      }
+      if (!profile) return jsonResponse({ error: 'agent not found' }, 404);
+
+      const expectedSession = deterministicMcpPanelSessionId(slug, tenantId);
+      const sessionPk = String(body.session_id || '').trim() || expectedSession;
+      if (String(body.session_id || '').trim() && sessionPk !== expectedSession) {
+        return jsonResponse({ error: 'invalid session_id' }, 400);
+      }
+
+      const modelRow = await resolveAgentModel(env, profile.default_model_id, tenantId);
+      if (!modelRow) {
+        return jsonResponse(
+          { error: 'No active model available. Add a model to agentsam_ai.' },
+          503,
+        );
+      }
+
+      let sessRow = null;
+      try {
+        sessRow = await env.DB.prepare(
+          `SELECT messages_json FROM mcp_agent_sessions WHERE id = ? AND tenant_id = ?`,
+        )
+          .bind(sessionPk, tenantId)
+          .first();
+      } catch (_) {
+        sessRow = null;
+      }
+      let prior = [];
+      try {
+        const mj = sessRow?.messages_json;
+        prior = typeof mj === 'string' ? JSON.parse(mj || '[]') : Array.isArray(mj) ? mj : [];
+      } catch {
+        prior = [];
+      }
+      const recent = prior
+        .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+        .map((m) => ({ role: m.role, content: String(m.content || '') }))
+        .slice(-20);
+      const messages = [...recent, { role: 'user', content: message }];
+
+      const personUuid =
+        actorCtx?.personUuid != null && String(actorCtx.personUuid).trim() !== ''
+          ? String(actorCtx.personUuid).trim()
+          : null;
+
+      return mcpPanelAgentChatSse(env, request, ctx, {
+        tenantId,
+        userId: String(authUser.id),
+        workspaceId,
+        personUuid,
+        sessionPkId: sessionPk,
+        slug,
+        profile,
+        modelKey: modelRow.model_key,
+        messages,
+      });
+    }
+
+    const mcpAgentSessionGet = pathLower.match(/^\/api\/mcp\/agent\/([^/]+)\/session$/);
+    if (mcpAgentSessionGet && method === 'GET') {
+      const slug = decodeURIComponent(String(mcpAgentSessionGet[1] || '').trim());
+      if (!slug) return jsonResponse({ error: 'slug required' }, 400);
+      const sid = deterministicMcpPanelSessionId(slug, tenantId);
+      const row = await env.DB.prepare(
+        `SELECT id, agent_id, tenant_id, status, messages_json, cost_usd, tool_calls_count, last_activity,
+                current_task, progress_pct, updated_at, panel
+           FROM mcp_agent_sessions WHERE id = ? AND tenant_id = ?`,
+      )
+        .bind(sid, tenantId)
+        .first()
+        .catch(() => null);
+      if (!row) return jsonResponse({ error: 'session not found' }, 404);
+      return jsonResponse({ session: row });
+    }
+
+    const mcpAgentWfMatch = pathLower.match(/^\/api\/mcp\/agent\/([^/]+)\/workflows$/);
+    if (mcpAgentWfMatch && method === 'GET') {
+      const slug = decodeURIComponent(String(mcpAgentWfMatch[1] || '').trim());
+      if (!slug) return jsonResponse({ error: 'slug required' }, 400);
+      const r = await env.DB.prepare(
+        `SELECT id, workflow_key, display_name, description, category, trigger_type
+           FROM ${AGENTSAM_MCP_WORKFLOWS}
+          WHERE COALESCE(is_active, 1) = 1 AND subagent_slug = ?
+          ORDER BY display_name ASC
+          LIMIT 50`,
+      )
+        .bind(slug)
+        .all()
+        .catch(() => ({ results: [] }));
+      return jsonResponse({ workflows: r.results || [] });
     }
 
     // ── POST /api/mcp/invoke — dashboard proxy (session auth in, MCP token out)
@@ -479,38 +737,80 @@ export async function handleMcpApi(request, url, env, ctx) {
     }
 
     if (pathLower === '/api/mcp/agents' && method === 'GET') {
-      let rows = [];
+      const typePlace = MCP_PANEL_AGENT_TYPES.map(() => '?').join(', ');
+      const slugPlace = MCP_PANEL_SLUG_DENYLIST.map(() => '?').join(', ');
+      const sql = `
+        SELECT id, slug, display_name, agent_type, default_model_id,
+               instructions_markdown, allowed_tool_globs,
+               COALESCE(description, '') AS description,
+               COALESCE(icon, '') AS icon,
+               COALESCE(sort_order, 0) AS sort_order,
+               COALESCE(can_spawn_subagents, 0) AS can_spawn_subagents
+          FROM agentsam_subagent_profile
+         WHERE is_active = 1
+           AND COALESCE(agent_type, 'custom') IN (${typePlace})
+           AND slug NOT IN (${slugPlace})
+           AND (
+                 COALESCE(is_platform_global, 0) = 1
+              OR COALESCE(tenant_id, '') = ''
+              OR tenant_id = ?
+           )
+         ORDER BY COALESCE(sort_order, 0) ASC, display_name ASC`;
+      const bindList = [...MCP_PANEL_AGENT_TYPES, ...MCP_PANEL_SLUG_DENYLIST, tenantId];
+      let profiles = [];
       try {
-        const stmt = env.DB.prepare(
-          `SELECT a.id, a.name, a.role_name, a.tool_permissions_json, a.model_policy_json,
-                  s.status, s.current_task, s.progress_pct, s.stage, s.logs_json, s.active_tools_json, s.cost_usd
-                 FROM agentsam_ai a
-                 LEFT JOIN mcp_agent_sessions s ON s.agent_id = a.id AND s.id = (
-                   SELECT id FROM mcp_agent_sessions WHERE agent_id = a.id ORDER BY created_at DESC LIMIT 1
-                 )
-                 WHERE a.id IN ('mcp_agent_architect','mcp_agent_builder','mcp_agent_tester','mcp_agent_operator')
-                 ORDER BY CASE a.id WHEN 'mcp_agent_architect' THEN 1 WHEN 'mcp_agent_builder' THEN 2 WHEN 'mcp_agent_tester' THEN 3 WHEN 'mcp_agent_operator' THEN 4 END`
-        );
-        const r = await stmt.all();
-        rows = r.results || [];
-      } catch (_) {
-        const fallback = await env.DB.prepare(
-          "SELECT id, name, role_name, tool_permissions_json, model_policy_json FROM agentsam_ai WHERE id IN ('mcp_agent_architect','mcp_agent_builder','mcp_agent_tester','mcp_agent_operator') ORDER BY CASE id WHEN 'mcp_agent_architect' THEN 1 WHEN 'mcp_agent_builder' THEN 2 WHEN 'mcp_agent_tester' THEN 3 WHEN 'mcp_agent_operator' THEN 4 END"
-        )
-          .all()
-          .catch(() => ({ results: [] }));
-        rows = (fallback.results || []).map((a) => ({
-          ...a,
-          status: 'idle',
-          current_task: null,
-          progress_pct: 0,
-          stage: null,
-          logs_json: '[]',
-          active_tools_json: '[]',
-          cost_usd: 0,
-        }));
+        const q = await env.DB.prepare(sql).bind(...bindList).all();
+        profiles = q.results || [];
+      } catch (e) {
+        try {
+          const sqlFallback = `
+            SELECT id, slug, display_name,
+                   COALESCE(agent_type, 'custom') AS agent_type,
+                   default_model_id,
+                   instructions_markdown, allowed_tool_globs,
+                   COALESCE(description, '') AS description,
+                   COALESCE(icon, '') AS icon,
+                   COALESCE(sort_order, 0) AS sort_order
+              FROM agentsam_subagent_profile
+             WHERE is_active = 1
+               AND COALESCE(agent_type, 'custom') IN (${typePlace})
+               AND slug NOT IN (${slugPlace})
+               AND (
+                     COALESCE(is_platform_global, 0) = 1
+                  OR COALESCE(tenant_id, '') = ''
+                  OR tenant_id = ?
+               )
+             ORDER BY COALESCE(sort_order, 0) ASC, display_name ASC`;
+          const q2 = await env.DB.prepare(sqlFallback).bind(...bindList).all();
+          profiles = q2.results || [];
+        } catch (e2) {
+          return jsonResponse({ error: 'agents query failed', detail: String(e2?.message || e2) }, 500);
+        }
       }
-      return jsonResponse({ agents: rows });
+
+      const agents = [];
+      for (const p of profiles) {
+        const slug = String(p.slug || '').trim();
+        let session = null;
+        if (slug) {
+          try {
+            session = await env.DB.prepare(
+              `SELECT id, status, current_task, progress_pct, cost_usd,
+                      tool_calls_count, last_activity
+                 FROM mcp_agent_sessions
+                WHERE agent_id = ? AND tenant_id = ?
+                ORDER BY updated_at DESC
+                LIMIT 1`,
+            )
+              .bind(slug, tenantId)
+              .first();
+          } catch (_) {
+            session = null;
+          }
+        }
+        agents.push({ ...p, session: session || null });
+      }
+      return jsonResponse({ agents });
     }
 
     if (pathLower === '/api/mcp/tools' && method === 'GET') {
@@ -680,6 +980,43 @@ export async function handleMcpApi(request, url, env, ctx) {
       };
       const agentName = names[agentId] || 'Builder';
 
+      const workspaceParam =
+        body.workspace_id != null && String(body.workspace_id).trim() !== ''
+          ? String(body.workspace_id).trim()
+          : '';
+
+      const actorRes = await resolveActorContext(request, env, {
+        workspaceIdParam: workspaceParam || null,
+        actorSource: 'mcp_dispatch',
+        agentId,
+      });
+      if (!actorRes.ok) {
+        const st = actorRes.code === 'WORKSPACE_ACCESS_DENIED' ? 403 : 400;
+        return jsonResponse({ error: actorRes.message, code: actorRes.code }, st);
+      }
+
+      const authDispatch = await authorizeMcpTool(env, {
+        actor: actorRes,
+        toolKey: 'mcp_dispatch',
+        actionType: 'read',
+        resourceType: 'cms',
+        resourceId: null,
+        riskLevel: 'low',
+        inputJson: { prompt: prompt.slice(0, 500) },
+      });
+      if (!authDispatch.decision.allowed) {
+        return jsonResponse(
+          {
+            error: authDispatch.decision.denialCode,
+            code: authDispatch.decision.denialCode,
+            decision: authDispatch.decision,
+          },
+          403,
+        );
+      }
+
+      const dispatchTenantId = actorRes.tenantId;
+
       const sessionId = crypto.randomUUID();
       const toolCallId = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
@@ -688,46 +1025,47 @@ export async function handleMcpApi(request, url, env, ctx) {
         await env.DB.prepare(
           `INSERT INTO mcp_agent_sessions (id, agent_id, tenant_id, status, current_task, progress_pct, stage, logs_json, active_tools_json, cost_usd, messages_json, tool_calls_count, last_activity, created_at, updated_at)
                VALUES (?, ?, ?, 'running', ?, 0, 'queued', '[]', '[]', 0, ?, 1, ?, ?, ?)`
-        ).bind(sessionId, agentId, tenantId, prompt, messagesJson, String(now), now, now).run();
+        ).bind(sessionId, agentId, dispatchTenantId, prompt, messagesJson, String(now), now, now).run();
       } catch (err) {
         return jsonResponse(
           { error: 'mcp_agent_sessions table missing or insert failed', detail: String(err?.message || err) },
           503
         );
       }
-      const actorCtxDp = await resolveIamActorContext(request, env).catch(() => null);
-      const wsDp =
-        actorCtxDp?.workspaceId != null && String(actorCtxDp.workspaceId).trim() !== ''
-          ? String(actorCtxDp.workspaceId).trim()
-          : null;
-      const uidDp =
-        actorCtxDp?.userId != null && String(actorCtxDp.userId).trim() !== ''
-          ? String(actorCtxDp.userId).trim()
-          : authUser?.id != null
-            ? String(authUser.id).trim()
-            : null;
-      if (!wsDp) {
-        return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
-      }
+
+      const mcpRow = authDispatch.mcpRow || {};
+      const toolRowId = mcpRow.id != null ? String(mcpRow.id).trim() : '';
+
       scheduleRecordMcpToolExecution(env, ctx, {
         id: toolCallId,
-        tenant_id: tenantId,
-        workspace_id: wsDp,
-        user_id: uidDp,
-        person_uuid: actorCtxDp?.personUuid ?? null,
+        tenant_id: actorRes.tenantId,
+        workspace_id: actorRes.workspaceId,
+        user_id: actorRes.userId,
+        person_uuid: actorRes.personUuid,
         session_id: sessionId,
+        agent_id: agentId,
+        tool_id: toolRowId || null,
+        agentsam_tools_id: toolRowId || null,
+        tool_key: 'mcp_dispatch',
         tool_name: 'mcp_dispatch',
-        input_json: '{}',
-        output_json: '',
+        action_type: 'read',
+        resource_type: 'cms',
+        actor_type: actorRes.actorType,
+        actor_source: actorRes.actorSource,
+        policy_decision_json: JSON.stringify(authDispatch.decision),
+        denial_code: authDispatch.decision.denialCode,
+        requires_approval: authDispatch.decision.requiresApproval ? 1 : 0,
+        timeout_ms: authDispatch.decision.maxTimeoutMs,
+        input_json: JSON.stringify({ prompt: prompt.slice(0, 500) }),
+        output_json: '{}',
         success: false,
-        invoked_by: uidDp || 'dashboard',
         status: 'pending',
       });
       scheduleDispatchToolCallLog(env, ctx, {
-        tenantId,
+        tenantId: actorRes.tenantId,
         sessionId,
-        userId: uidDp,
-        workspaceId: wsDp,
+        userId: actorRes.userId,
+        workspaceId: actorRes.workspaceId,
         inputSummary: JSON.stringify({ route: 'mcp/dispatch', prompt: prompt.slice(0, 120) }),
       });
       return jsonResponse({

@@ -246,6 +246,18 @@ function vaultRegistry() {
     { name: 'GOOGLE_CLIENT_SECRET', type: 'secret', description: 'Google OAuth' },
     { name: 'GOOGLE_OAUTH_CLIENT_SECRET', type: 'secret', description: 'Google OAuth (alternate)' },
     { name: 'INTERNAL_API_SECRET', type: 'secret', description: 'Internal APIs (post-deploy, X-Internal-Secret, admin routes)' },
+    {
+      name: 'AGENT_SESSION_MINT_SECRET',
+      type: 'secret',
+      description:
+        'POST /api/auth/agent-session/mint (Bearer) — mint short-lived browser session cookies for automation',
+    },
+    {
+      name: 'AGENT_SESSION_DEFAULT_USER_ID',
+      type: 'plaintext',
+      description:
+        'Optional: auth_users.id when mint body omits user_id/user_email (narrow CI user; prefer explicit body)',
+    },
     { name: 'INGEST_SECRET', type: 'secret', description: 'X-Ingest-Secret bypass for /api/rag/ingest, /api/rag/query, /api/rag/feedback (MCP)' },
     { name: 'INTERNAL_WEBHOOK_SECRET', type: 'secret', description: '/api/webhooks/internal X-IAM-Signature HMAC' },
     { name: 'MCP_AUTH_TOKEN', type: 'secret', description: 'MCP server auth' },
