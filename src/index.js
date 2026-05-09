@@ -616,7 +616,8 @@ export default {
         );
       }
 
-      // 3. Domain dispatch — single source: src/core/production-dispatch.js (re-exported from router.js)
+      // 3. Domain dispatch — single source: src/core/production-dispatch.js (re-exported from router.js).
+      // Includes /api/integrations/* (e.g. GET /api/integrations/github/repos via handleIntegrationsRequest).
       const domainRes = await dispatchProductionDomainRoutes({
         request,
         url,

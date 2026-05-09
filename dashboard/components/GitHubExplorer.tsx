@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Github,
   Folder,
@@ -27,12 +27,29 @@ function utf8ToBase64(text: string) {
   return btoa(unescape(encodeURIComponent(text)));
 }
 
+/** Same OAuth entry as the initial Connect button (integration GitHub, not login-only). */
+const GITHUB_INTEGRATION_OAUTH_HREF = '/api/oauth/github/start?return_to=/dashboard/agent';
+
+const GITHUB_REPOS_RL_UNTIL_KEY = 'iam_github_repos_rl_until';
+
+type RepoListErrorKind = 'reconnect' | 'rate_limit' | 'unavailable' | 'other';
+
+function repoListErrorKind(status: number): RepoListErrorKind {
+  if (status === 401 || status === 403 || status === 404) return 'reconnect';
+  if (status === 429) return 'rate_limit';
+  if (status >= 500) return 'unavailable';
+  return 'other';
+}
+
+
 export const GitHubExplorer: React.FC<{
   onOpenInEditor?: (file: ActiveFile) => void;
   expandRepoFullName?: string | null;
   onExpandRepoConsumed?: () => void;
 }> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(true);
+  /** True when repo list returned 404 — show “Reconnect” copy vs first-time connect. */
+  const [reconnectAfterReposFailure, setReconnectAfterReposFailure] = useState(false);
   const [repos, setRepos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -41,24 +58,122 @@ export const GitHubExplorer: React.FC<{
   const [pathByRepo, setPathByRepo] = useState<Record<string, string>>({});
   const [itemsByRepoPath, setItemsByRepoPath] = useState<Record<string, GhItem[]>>({});
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
+  const rateLimitedUntil = useRef(0);
+
+  const readReposRateLimitUntil = (): number => {
+    try {
+      const n = Number(sessionStorage.getItem(GITHUB_REPOS_RL_UNTIL_KEY) || 0);
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  };
 
   const fetchRepos = async () => {
+    const rlUntil = Math.max(rateLimitedUntil.current, readReposRateLimitUntil());
+    if (Date.now() < rlUntil) {
+      rateLimitedUntil.current = rlUntil;
+      setLoadError('Rate limited — try again shortly');
+      setRepos([]);
+      setIsAuthenticated(true);
+      setReconnectAfterReposFailure(false);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setLoadError(null);
     try {
       const res = await fetch('/api/integrations/github/repos', { credentials: 'same-origin' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 400) setIsAuthenticated(false);
-        setLoadError(typeof data.message === 'string' ? data.message : data.error || `HTTP ${res.status}`);
+      const bodyText = await res.text();
+      let data: Record<string, unknown> | unknown[] = {};
+      try {
+        data = bodyText ? JSON.parse(bodyText) : {};
+      } catch {
+        data = { _parseError: true, raw: bodyText };
+      }
+      if (res.status !== 200) {
+        console.warn('[GitHubExplorer] GET /api/integrations/github/repos non-200', {
+          status: res.status,
+          body: bodyText,
+        });
+        const kind = repoListErrorKind(res.status);
+        if (kind === 'reconnect') {
+          setIsAuthenticated(false);
+          setReconnectAfterReposFailure(true);
+          setRepos([]);
+          return;
+        }
+        if (kind === 'rate_limit') {
+          const until = Date.now() + 60_000;
+          rateLimitedUntil.current = until;
+          try {
+            sessionStorage.setItem(GITHUB_REPOS_RL_UNTIL_KEY, String(until));
+          } catch {
+            /* private mode */
+          }
+          setIsAuthenticated(true);
+          setReconnectAfterReposFailure(false);
+          setRepos([]);
+          setLoadError('Rate limited — try again shortly');
+          return;
+        }
+        if (kind === 'unavailable') {
+          setIsAuthenticated(true);
+          setReconnectAfterReposFailure(false);
+          setRepos([]);
+          setLoadError('GitHub sync unavailable');
+          return;
+        }
+        if (res.status === 400) {
+          let parsed: Record<string, unknown> = {};
+          try {
+            parsed = bodyText ? JSON.parse(bodyText) : {};
+          } catch {
+            parsed = {};
+          }
+          const errStr = String(parsed.error || '').toLowerCase();
+          const msgStr = String(parsed.message || '').toLowerCase();
+          if (errStr === 'not_connected' || msgStr.includes('not_connected')) {
+            setIsAuthenticated(false);
+            setReconnectAfterReposFailure(true);
+            setRepos([]);
+            return;
+          }
+          setIsAuthenticated(true);
+          setReconnectAfterReposFailure(false);
+          setRepos([]);
+          setLoadError(
+            typeof parsed.message === 'string'
+              ? parsed.message
+              : typeof parsed.error === 'string'
+                ? parsed.error
+                : 'Request failed (400)',
+          );
+          return;
+        }
+        const d = data as Record<string, unknown>;
+        setIsAuthenticated(true);
+        setReconnectAfterReposFailure(false);
         setRepos([]);
+        setLoadError(
+          typeof d.message === 'string'
+            ? d.message
+            : typeof d.error === 'string'
+              ? d.error
+              : `Request failed (${res.status})`,
+        );
         return;
       }
-      const list = Array.isArray(data) ? data : data.repos || [];
+      setReconnectAfterReposFailure(false);
+      const d = data as Record<string, unknown> | unknown[];
+      const list = Array.isArray(d) ? d : ((d as Record<string, unknown>).repos as unknown[]) || [];
       setRepos(list);
       setIsAuthenticated(true);
     } catch (err) {
+      console.warn('[GitHubExplorer] GET /api/integrations/github/repos exception', err);
       setIsAuthenticated(false);
+      setReconnectAfterReposFailure(false);
       setLoadError(err instanceof Error ? err.message : 'Failed to load repos');
       setRepos([]);
     } finally {
@@ -67,6 +182,13 @@ export const GitHubExplorer: React.FC<{
   };
 
   useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(GITHUB_REPOS_RL_UNTIL_KEY);
+      const n = raw ? Number(raw) : 0;
+      if (Number.isFinite(n) && n > Date.now()) rateLimitedUntil.current = n;
+    } catch {
+      /* ignore */
+    }
     void fetchRepos();
   }, []);
 
@@ -100,10 +222,41 @@ export const GitHubExplorer: React.FC<{
         `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs}`,
         { credentials: 'same-origin' },
       );
-      const data = await res.json();
-      if (!res.ok) {
+      const bodyText = await res.text();
+      let data: unknown = {};
+      try {
+        data = bodyText ? JSON.parse(bodyText) : {};
+      } catch {
+        data = { raw: bodyText };
+      }
+      if (res.status !== 200) {
+        console.warn('[GitHubExplorer] GET /api/github/repos/.../contents non-200', {
+          status: res.status,
+          body: bodyText,
+        });
         setItemsByRepoPath((prev) => ({ ...prev, [ck]: [] }));
-        setLoadError(typeof data.message === 'string' ? data.message : `List failed (${res.status})`);
+        const ckKind = repoListErrorKind(res.status);
+        if (ckKind === 'reconnect') {
+          setIsAuthenticated(false);
+          setReconnectAfterReposFailure(true);
+          setLoadError(null);
+          return;
+        }
+        if (ckKind === 'rate_limit') {
+          setLoadError('Rate limited — try again shortly');
+          return;
+        }
+        if (ckKind === 'unavailable') {
+          setLoadError('GitHub sync unavailable');
+          return;
+        }
+        const msg =
+          typeof data === 'object' &&
+          data !== null &&
+          typeof (data as { message?: string }).message === 'string'
+            ? (data as { message: string }).message
+            : `Request failed (${res.status})`;
+        setLoadError(msg);
         return;
       }
       const list = Array.isArray(data) ? data : [];
@@ -276,7 +429,7 @@ export const GitHubExplorer: React.FC<{
   };
 
   const handleConnect = () => {
-    window.location.href = '/api/oauth/github/start?return_to=/dashboard/agent';
+    window.location.href = GITHUB_INTEGRATION_OAUTH_HREF;
   };
 
   if (!isAuthenticated) {
@@ -288,16 +441,20 @@ export const GitHubExplorer: React.FC<{
             <Lock size={12} className="text-[var(--text-muted)]" />
           </div>
         </div>
-        <h3 className="text-[14px] font-bold mb-2 uppercase tracking-widest text-[var(--text-heading)]">GitHub</h3>
+        <h3 className="text-[14px] font-bold mb-2 uppercase tracking-widest text-[var(--text-heading)]">
+          {reconnectAfterReposFailure ? 'Reconnect GitHub' : 'GitHub'}
+        </h3>
         <p className="text-[11px] font-mono text-[var(--text-muted)] mb-8 max-w-[220px]">
-          Connect GitHub OAuth to list repos, browse, open, create, save, and delete files (per repo permissions).
+          {reconnectAfterReposFailure
+            ? 'GitHub returned an authorization or endpoint error (expired token, revoked access, or missing route). Use Reconnect to run the same OAuth flow as Connect.'
+            : 'Connect GitHub OAuth to list repos, browse, open, create, save, and delete files (per repo permissions).'}
         </p>
         <button
           type="button"
           onClick={handleConnect}
           className="flex items-center justify-center gap-2 px-4 py-2 bg-[var(--text-main)] text-[var(--bg-panel)] hover:brightness-110 rounded text-[11px] font-bold transition-all w-full max-w-[220px]"
         >
-          <ExternalLink size={14} /> Connect GitHub
+          <ExternalLink size={14} /> {reconnectAfterReposFailure ? 'Reconnect GitHub' : 'Connect GitHub'}
         </button>
       </div>
     );

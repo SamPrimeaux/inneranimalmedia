@@ -4,6 +4,7 @@
  */
 
 import { getAuthUser } from '../core/auth.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
 import { startAgentsamScriptRun, finalizeAgentsamScriptRun } from '../core/agentsam-script-runs.js';
 import { runTerminalCommand } from '../core/terminal.js';
 
@@ -83,11 +84,21 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
       // Audit execution to D1
       if (wid) {
         try {
+          let uidForRun = hookCtx?.userId ?? null;
+          if (uidForRun == null) {
+            try {
+              const au = await getAuthUser(request, env);
+              uidForRun = au?.id ?? null;
+            } catch (_) {}
+          }
+          const canonicalUserId = await resolveCanonicalUserId(uidForRun, env);
           await env.DB.prepare(
             `INSERT INTO agentsam_command_run 
-         (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
-         VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
-          ).bind(execId, tenantId, wid, session_id || null, runCommand, output).run();
+         (id, tenant_id, workspace_id, user_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, 'terminal_run', ?, ?, 'completed', unixepoch(), unixepoch())`
+          )
+            .bind(execId, tenantId, wid, canonicalUserId, session_id || null, runCommand, output)
+            .run();
         } catch (_) {}
       }
 

@@ -91,6 +91,127 @@ async function loadCatalogRow(env, slug) {
   }
 }
 
+/** Allowed tunnel bases: https + *.trycloudflare.com or *.inneranimalmedia.com */
+function parseAndValidateTunnelUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { ok: false, error: 'tunnel_url required' };
+  let u;
+  try {
+    u = new URL(s);
+  } catch {
+    return { ok: false, error: 'invalid_tunnel_url' };
+  }
+  if (u.protocol !== 'https:') return { ok: false, error: 'invalid_tunnel_url' };
+  const host = u.hostname.toLowerCase();
+  const okHost =
+    host.endsWith('.trycloudflare.com') ||
+    host.endsWith('.inneranimalmedia.com') ||
+    host === 'inneranimalmedia.com';
+  if (!okHost) return { ok: false, error: 'invalid_tunnel_url' };
+  let base = u.origin;
+  if (u.pathname && u.pathname !== '/') {
+    base = `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+  }
+  return { ok: true, base, displayHost: host };
+}
+
+/** Bearer for IAM PTY /health (must match iam-pty; worker secret, never stored in config_json). */
+function ptyBearerForTunnelHealth(env) {
+  const a = typeof env.PTY_AUTH_TOKEN === 'string' ? env.PTY_AUTH_TOKEN.trim() : '';
+  if (a) return a;
+  const b = typeof env.TERMINAL_SECRET === 'string' ? env.TERMINAL_SECRET.trim() : '';
+  return b || '';
+}
+
+/**
+ * POST /api/integrations/local_tunnel/connect — body { tunnel_url }.
+ * Persists integration_registry with config_json; status connected; auth_type none (DB CHECK has no 'manual').
+ */
+async function handleLocalTunnelConnect(env, authUser, body) {
+  if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+  const tenantId = tenantIdFromAuth(authUser, env);
+  if (!tenantId) return jsonResponse({ error: 'tenant_required' }, 400);
+
+  const tunnelRaw = body?.tunnel_url ?? body?.tunnelUrl;
+  const v = parseAndValidateTunnelUrl(tunnelRaw);
+  if (!v.ok) return jsonResponse({ error: v.error || 'invalid_tunnel_url' }, 400);
+
+  const ptyTok = ptyBearerForTunnelHealth(env);
+  if (!ptyTok) {
+    return jsonResponse({ error: 'pty_auth_not_configured' }, 503);
+  }
+
+  const healthUrl = `${v.base}/health`;
+  const t0 = Date.now();
+  let res;
+  try {
+    res = await fetch(healthUrl, {
+      method: 'GET',
+      signal: AbortSignal.timeout(3000),
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        Authorization: `Bearer ${ptyTok}`,
+      },
+    });
+  } catch (e) {
+    const name = e?.name || '';
+    if (name === 'AbortError' || name === 'TimeoutError') {
+      return jsonResponse({ error: 'tunnel_unreachable' }, 503);
+    }
+    return jsonResponse({ error: 'tunnel_unreachable' }, 503);
+  }
+  const latencyMs = Date.now() - t0;
+  if (!res.ok) {
+    return jsonResponse({ error: 'tunnel_unreachable' }, 503);
+  }
+
+  const now = Date.now();
+  const configJson = JSON.stringify({
+    tunnel_url: v.base,
+    setup: 'manual_tunnel',
+    config_schema: { tunnel_url: 'string' },
+    last_verified_at: now,
+  });
+  const rowId = `int_lt_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const preview = JSON.stringify({ tunnel_host: v.displayHost, ok: true }).slice(0, 500);
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO integration_registry (
+           id, tenant_id, provider_key, display_name, category, auth_type, status,
+           config_json, account_display, sort_order, updated_at,
+           last_health_check_at, last_health_status, last_health_latency_ms
+         ) VALUES (?, ?, 'local_tunnel', 'Local Machine', 'deployment', 'none', 'connected',
+           ?, ?, 35, datetime('now'), datetime('now'), 'ok', ?)
+         ON CONFLICT(tenant_id, provider_key) DO UPDATE SET
+           config_json = excluded.config_json,
+           status = excluded.status,
+           auth_type = excluded.auth_type,
+           account_display = excluded.account_display,
+           last_health_check_at = datetime('now'),
+           last_health_status = 'ok',
+           last_health_latency_ms = excluded.last_health_latency_ms,
+           updated_at = datetime('now')`,
+      ).bind(rowId, tenantId, configJson, v.displayHost, latencyMs),
+      env.DB.prepare(
+        `INSERT INTO integration_health_checks (tenant_id, provider_key, status, latency_ms, error_message, checked_by, response_preview)
+         VALUES (?, ?, 'ok', ?, NULL, 'local_tunnel_connect', ?)`,
+      ).bind(tenantId, 'local_tunnel', latencyMs, preview),
+    ]);
+  } catch (e) {
+    console.warn('[integrations/connect] local_tunnel upsert', e?.message || e);
+    return jsonResponse({ error: 'registry_write_failed' }, 500);
+  }
+
+  return jsonResponse({
+    ok: true,
+    provider_key: 'local_tunnel',
+    tunnel_url: v.base,
+    status: 'connected',
+    last_verified_at: now,
+  });
+}
+
 async function deleteOauthTokensForSlug(DB, userId, slug) {
   const s = normalizeSlug(String(slug || '')).replace(/-/g, '_');
   const providers = new Set();
@@ -144,6 +265,7 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
   if (connectMatch) {
     const slugRaw = decodeURIComponent(connectMatch[1] || '');
     const slug = normalizeSlug(slugRaw);
+    const slugNorm = slug.replace(/-/g, '_');
 
     const cat = await loadCatalogRow(env, slugRaw);
     if (cat) {
@@ -154,6 +276,18 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
     }
 
     if (method === 'GET') {
+      if (slugNorm === 'local_tunnel') {
+        return jsonResponse(
+          {
+            manual_setup: true,
+            type: 'manual_setup',
+            message: 'POST JSON { tunnel_url } to this URL.',
+            config_schema: { tunnel_url: 'string' },
+            tunnel_rules: ['https://*.trycloudflare.com', 'https://*.inneranimalmedia.com', 'https://inneranimalmedia.com'],
+          },
+          200,
+        );
+      }
       const start = oauthStartPathForSlug(slugRaw);
       if (!start) {
         return jsonResponse(
@@ -185,6 +319,9 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
         body = bodyText ? JSON.parse(bodyText) : {};
       } catch {
         return jsonResponse({ error: 'Invalid JSON body' }, 400);
+      }
+      if (slugNorm === 'local_tunnel') {
+        return handleLocalTunnelConnect(env, authUser, body);
       }
       if (!body.api_key || typeof body.api_key !== 'string') {
         return jsonResponse({ error: 'api_key required' }, 400);
@@ -226,13 +363,15 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       console.warn('[integrations/connect] user_api_keys delete', e?.message || e);
     }
 
+    const slugNormDisconnect = normalizeSlug(slugRaw).replace(/-/g, '_');
+    const registrySql =
+      slugNormDisconnect === 'local_tunnel'
+        ? `UPDATE integration_registry SET status = 'disconnected', config_json = '{}', account_display = NULL, updated_at = datetime('now')
+           WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`
+        : `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now')
+           WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`;
     try {
-      await env.DB.prepare(
-        `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now')
-         WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`,
-      )
-        .bind(tenantId, slugRaw)
-        .run();
+      await env.DB.prepare(registrySql).bind(tenantId, slugRaw).run();
     } catch (e) {
       console.warn('[integrations/connect] registry update', e?.message || e);
     }

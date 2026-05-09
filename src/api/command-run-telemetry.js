@@ -1,9 +1,11 @@
 /**
  * agentsam_command_run + agentsam_execution_context — async telemetry (waitUntil).
  */
+import { resolveCanonicalUserId } from './auth.js';
 import { isFeatureEnabled } from '../core/features.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { pragmaTableInfo } from '../core/retention.js';
+
 import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
 import { recordSpan } from '../core/tracer.js';
 
@@ -197,6 +199,8 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     parentChainId = null,
     ctx = null,
     toolInputJson = null,
+    workflowRunId = null,
+    executionStepId = null,
   } = opts || {};
   if (!env?.DB) return null;
   const ws =
@@ -204,6 +208,23 @@ export async function fireForgetAgentToolChainRow(env, opts) {
       ? String(opts.workspaceId).trim()
       : '';
   if (!ws) return null;
+  const tcCols = await pragmaTableInfo(env.DB, 'agentsam_tool_chain');
+  const wrId =
+    workflowRunId != null && String(workflowRunId).trim() !== '' ? String(workflowRunId).trim() : null;
+  const esId =
+    executionStepId != null && String(executionStepId).trim() !== ''
+      ? String(executionStepId).trim()
+      : null;
+  let scopeMid = '';
+  const scopeMidBinds = [];
+  if (tcCols.has('workflow_run_id')) {
+    scopeMid += ', workflow_run_id';
+    scopeMidBinds.push(wrId);
+  }
+  if (tcCols.has('execution_step_id')) {
+    scopeMid += ', execution_step_id';
+    scopeMidBinds.push(esId);
+  }
   const completedAt = Math.floor(Date.now() / 1000);
   const durSec = Math.max(0, Math.ceil((Number(durationMs) || 0) / 1000));
   const startedAt = Math.max(0, completedAt - durSec);
@@ -228,46 +249,34 @@ export async function fireForgetAgentToolChainRow(env, opts) {
 
   const tryInsert = (sql, binds) => env.DB.prepare(sql).bind(...binds).run();
 
+  const tailBinds = [
+    agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
+    toolName,
+    toolStatus,
+    startedAt,
+    completedAt,
+    costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
+    mcpToolCallId || null,
+    terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
+    parentId,
+    errorMessage,
+    errorType,
+  ];
+  const primaryBinds = [chainId, ws, tenant, uid, ...scopeMidBinds, ...tailBinds];
+  const primaryPlaceholders = primaryBinds.map(() => '?').join(', ');
+  const fallbackBinds = [chainId, ws, ...scopeMidBinds, ...tailBinds];
+  const fallbackPlaceholders = fallbackBinds.map(() => '?').join(', ');
+
   const p = tryInsert(
-    `INSERT INTO agentsam_tool_chain (id, workspace_id, tenant_id, user_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      chainId,
-      ws,
-      tenant,
-      uid,
-      agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
-      toolName,
-      toolStatus,
-      startedAt,
-      completedAt,
-      costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
-      mcpToolCallId || null,
-      terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
-      parentId,
-      errorMessage,
-      errorType,
-    ],
+    `INSERT INTO agentsam_tool_chain (id, workspace_id, tenant_id, user_id${scopeMid}, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
+     VALUES (${primaryPlaceholders})`,
+    primaryBinds,
   )
     .catch(() =>
       tryInsert(
-        `INSERT INTO agentsam_tool_chain (id, workspace_id, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          chainId,
-          ws,
-          agentSessionId != null && String(agentSessionId).trim() !== '' ? String(agentSessionId) : null,
-          toolName,
-          toolStatus,
-          startedAt,
-          completedAt,
-          costUsd != null && Number.isFinite(Number(costUsd)) ? Number(costUsd) : 0,
-          mcpToolCallId || null,
-          terminalSessionId != null && String(terminalSessionId).trim() !== '' ? String(terminalSessionId) : null,
-          parentId,
-          errorMessage,
-          errorType,
-        ],
+        `INSERT INTO agentsam_tool_chain (id, workspace_id${scopeMid}, agent_session_id, tool_name, tool_status, started_at, completed_at, cost_usd, mcp_tool_call_id, terminal_session_id, parent_chain_id, error_message, error_type)
+     VALUES (${fallbackPlaceholders})`,
+        fallbackBinds,
       ),
     )
     .then(() => {
@@ -458,10 +467,11 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
     (async () => {
       const commandRunId = `run_${crypto.randomUUID().slice(0, 16)}`;
       const modelId = p.modelKey ?? null;
+      const canonicalUserId = await resolveCanonicalUserId(p.userId ?? null, env);
       try {
         const ins = await env.DB.prepare(
           `INSERT INTO agentsam_command_run
-            (id, tenant_id, workspace_id, session_id, conversation_id,
+            (id, tenant_id, workspace_id, user_id, session_id, conversation_id,
              user_input, normalized_intent, intent_category,
              model_id, commands_json, result_json, output_text,
              confidence_score, success, exit_code, duration_ms,
@@ -469,12 +479,13 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
              selected_command_id, selected_command_slug,
              risk_level, requires_confirmation, approval_status)
            VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
           .bind(
             commandRunId,
             String(p.tenantId),
             ws,
+            canonicalUserId,
             p.sessionId ?? null,
             p.conversationId ?? null,
             p.userInput ?? '',

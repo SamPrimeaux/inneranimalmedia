@@ -103,6 +103,33 @@ export const GoogleDriveExplorer: React.FC<{
     void fetchFiles();
   }, [fetchFiles]);
 
+  /** OAuth return: worker redirects with ?connected=google&success=true (see oauth callback). */
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('connected') !== 'google' || params.get('success') !== 'true') return;
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete('connected');
+      url.searchParams.delete('success');
+      const qs = url.searchParams.toString();
+      window.history.replaceState({}, '', `${url.pathname}${qs ? `?${qs}` : ''}${url.hash}`);
+
+      void (async () => {
+        try {
+          await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
+        } catch {
+          /* non-fatal */
+        }
+        await fetchFiles();
+      })();
+    } catch {
+      /* ignore */
+    }
+    // One-shot handling for full-page return from Google OAuth; fetchFiles matches mount folder.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleConnect = () => {
     window.location.href = '/api/oauth/google/start?return_to=/dashboard/agent&connect=drive';
   };

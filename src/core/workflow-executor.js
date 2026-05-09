@@ -2,12 +2,82 @@
  * Executes agentsam_workflow_nodes / agentsam_workflow_edges as a directed graph.
  * Persists state to agentsam_workflow_runs row by row.
  */
+import { pragmaTableInfo } from './retention.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
+
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
+
+const TRIGGER_TYPES_SAFE = new Set([
+  'manual',
+  'agent',
+  'cursor',
+  'github_push',
+  'scheduled',
+  'cicd',
+  'deploy',
+  'api',
+  'smoke',
+]);
+
+/**
+ * MCP catalog row that owns agentsam_workflow_nodes.workflow_id (D1 FK).
+ * Prefers tenant + workspace match, then tenant-scoped, then platform-global rows.
+ */
+async function resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId) {
+  if (!db) return null;
+  const key = String(workflowKey || '').trim();
+  if (!key) return null;
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  const wid = workspaceId != null ? String(workspaceId).trim() : '';
+
+  const first = async (sql, binds) =>
+    db
+      .prepare(sql)
+      .bind(...binds)
+      .first()
+      .catch(() => null);
+
+  if (tid && wid) {
+    const exact = await first(
+      `SELECT * FROM agentsam_mcp_workflows
+       WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1
+         AND tenant_id = ? AND (workspace_id = ? OR workspace_id IS NULL)
+       ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END, updated_at DESC
+       LIMIT 1`,
+      [key, tid, wid, wid],
+    );
+    if (exact) return exact;
+  }
+  if (tid) {
+    const tenantRow = await first(
+      `SELECT * FROM agentsam_mcp_workflows
+       WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 AND tenant_id = ?
+       ORDER BY (workspace_id IS NOT NULL) DESC, updated_at DESC
+       LIMIT 1`,
+      [key, tid],
+    );
+    if (tenantRow) return tenantRow;
+  }
+  return first(
+    `SELECT * FROM agentsam_mcp_workflows
+     WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1
+       AND tenant_id IS NULL AND workspace_id IS NULL
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [key],
+  );
+}
+
+function normalizeTriggerType(raw) {
+  const t = String(raw || 'agent').toLowerCase().trim();
+  return TRIGGER_TYPES_SAFE.has(t) ? t : 'agent';
+}
 
 // ── Node type dispatchers ────────────────────────────────────────────
 
 async function dispatchNode(env, node, input, runContext) {
   const { node_type: nodeType, handler_key: handlerKey } = node;
+  const smoke = Boolean(input?.smoke);
 
   switch (nodeType) {
     case 'agent': {
@@ -20,6 +90,17 @@ async function dispatchNode(env, node, input, runContext) {
     }
 
     case 'mcp_tool': {
+      if (smoke) {
+        return {
+          ok: true,
+          output: {
+            smoke: true,
+            skipped: true,
+            handler_key: handlerKey,
+            note: 'mcp_tool smoke short-circuit',
+          },
+        };
+      }
       const [, method] = (handlerKey || '').split('.');
       const toolKey = method || handlerKey;
 
@@ -73,6 +154,12 @@ async function dispatchNode(env, node, input, runContext) {
     }
 
     case 'terminal': {
+      if (smoke) {
+        return {
+          ok: true,
+          output: { smoke: true, skipped: true, note: 'terminal smoke short-circuit' },
+        };
+      }
       const termUrl = env.TERMINAL_WS_URL
         ? env.TERMINAL_WS_URL.replace('wss://', 'https://').replace('ws://', 'http://')
         : null;
@@ -122,6 +209,12 @@ async function dispatchNode(env, node, input, runContext) {
     }
 
     case 'approval_gate': {
+      if (smoke) {
+        return {
+          ok: true,
+          output: { status: 'approved', smoke: true, skipped: true },
+        };
+      }
       if (!env.DB) return { ok: false, error: 'DB not available' };
       const approvalId = `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
       const meta = runContext?.runMeta || {};
@@ -196,6 +289,80 @@ function evaluateEdge(edge, nodeOutput) {
   }
 }
 
+function pickUsageFromNodeOutput(nodeOutput) {
+  const o = nodeOutput?.output;
+  if (!o || typeof o !== 'object') return { tin: 0, tout: 0, cost: 0 };
+  const u = o.usage && typeof o.usage === 'object' ? o.usage : o;
+  const tin = Number(u.input_tokens ?? u.prompt_tokens ?? o.tokens_in ?? 0) || 0;
+  const tout = Number(u.output_tokens ?? u.completion_tokens ?? o.tokens_out ?? 0) || 0;
+  const cost = Number(o.cost_usd ?? u.cost_usd ?? 0) || 0;
+  return { tin, tout, cost };
+}
+
+/** Fire-and-forget pending row — failures ignored. */
+function ffPendingExecutionStep(db, cols, stepId, workflowRunId, node, inputPayload) {
+  if (!db || !cols?.has?.('execution_id')) return;
+  const nk = String(node?.node_key ?? '').slice(0, 500);
+  const nt = String(node?.node_type ?? '').slice(0, 120);
+  const ij = JSON.stringify(inputPayload ?? {}).slice(0, 8000);
+  const hasAttempt = cols.has('attempt');
+  const sql = hasAttempt
+    ? `INSERT INTO agentsam_execution_steps (id, execution_id, node_key, node_type, status, input_json, attempt, created_at) VALUES (?,?,?,?,?,?,?,datetime('now'))`
+    : `INSERT INTO agentsam_execution_steps (id, execution_id, node_key, node_type, status, input_json, created_at) VALUES (?,?,?,?,?,?,datetime('now'))`;
+  const binds = hasAttempt ? [stepId, workflowRunId, nk, nt, 'running', ij, 1] : [stepId, workflowRunId, nk, nt, 'running', ij];
+  void db
+    .prepare(sql)
+    .bind(...binds)
+    .run()
+    .catch(() => {});
+}
+
+/** Fire-and-forget completion update — failures ignored. */
+function ffCompleteExecutionStep(db, cols, stepId, nodeStartMs, nodeOutput) {
+  if (!db || !cols?.has?.('execution_id')) return;
+  const ok = !!nodeOutput?.ok;
+  const latency = Math.max(0, Date.now() - nodeStartMs);
+  const outJson = JSON.stringify(nodeOutput ?? {}).slice(0, 16000);
+  const errObj = ok ? '{}' : JSON.stringify({ message: String(nodeOutput?.error ?? 'failed') }).slice(0, 8000);
+  const { tin, tout, cost } = pickUsageFromNodeOutput(nodeOutput);
+  const sets = [];
+  const binds = [];
+  sets.push('status = ?');
+  binds.push(ok ? 'success' : 'failed');
+  if (cols.has('output_json')) {
+    sets.push('output_json = ?');
+    binds.push(outJson);
+  }
+  if (cols.has('error_json')) {
+    sets.push('error_json = ?');
+    binds.push(errObj);
+  }
+  if (cols.has('completed_at')) sets.push('completed_at = unixepoch()');
+  if (cols.has('latency_ms')) {
+    sets.push('latency_ms = ?');
+    binds.push(latency);
+  }
+  if (cols.has('tokens_in')) {
+    sets.push('tokens_in = ?');
+    binds.push(tin);
+  }
+  if (cols.has('tokens_out')) {
+    sets.push('tokens_out = ?');
+    binds.push(tout);
+  }
+  if (cols.has('cost_usd')) {
+    sets.push('cost_usd = ?');
+    binds.push(cost);
+  }
+  binds.push(stepId);
+  const sql = `UPDATE agentsam_execution_steps SET ${sets.join(', ')} WHERE id = ?`;
+  void db
+    .prepare(sql)
+    .bind(...binds)
+    .run()
+    .catch(() => {});
+}
+
 // ── Main executor ────────────────────────────────────────────────────
 
 export async function executeWorkflowGraph(env, opts) {
@@ -206,9 +373,12 @@ export async function executeWorkflowGraph(env, opts) {
     workspaceId,
     userId,
     userEmail,
+    triggerType: triggerTypeRaw,
   } = opts;
 
   if (!env.DB) return { ok: false, error: 'DB not available' };
+
+  const triggerType = normalizeTriggerType(triggerTypeRaw);
 
   const workflow = await env.DB.prepare(
     `SELECT * FROM agentsam_workflows WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
@@ -217,19 +387,42 @@ export async function executeWorkflowGraph(env, opts) {
     .first();
   if (!workflow) return { ok: false, error: `workflow not found: ${workflowKey}` };
 
-  const { results: nodes } = await env.DB.prepare(
-    `SELECT * FROM agentsam_workflow_nodes
-     WHERE workflow_id = ? AND COALESCE(is_active, 1) = 1 ORDER BY sort_order ASC`,
-  )
-    .bind(workflow.id)
-    .all();
-  const { results: edges } = await env.DB.prepare(
-    `SELECT * FROM agentsam_workflow_edges WHERE workflow_id = ? ORDER BY priority ASC`,
-  )
-    .bind(workflow.id)
-    .all();
+  const mcpRow = await resolveMcpWorkflowRow(env.DB, workflowKey, tenantId, workspaceId);
+  const dagIds = [mcpRow?.id, workflow.id].filter(Boolean);
+  const seen = new Set();
+  const orderedDagIds = dagIds.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  let nodes = [];
+  let edges = [];
+  let dagWorkflowId = null;
+  for (const wid of orderedDagIds) {
+    const nRes = await env.DB.prepare(
+      `SELECT * FROM agentsam_workflow_nodes
+       WHERE workflow_id = ? AND COALESCE(is_active, 1) = 1 ORDER BY sort_order ASC`,
+    )
+      .bind(wid)
+      .all();
+    const eRes = await env.DB.prepare(
+      `SELECT * FROM agentsam_workflow_edges WHERE workflow_id = ? ORDER BY priority ASC`,
+    )
+      .bind(wid)
+      .all();
+    const nl = nRes?.results || [];
+    if (nl.length) {
+      nodes = nl;
+      edges = eRes?.results || [];
+      dagWorkflowId = wid;
+      break;
+    }
+  }
 
   if (!nodes?.length) return { ok: false, error: 'no nodes found for workflow' };
+
+  const runWorkflowId = mcpRow?.id ?? dagWorkflowId ?? workflow.id;
 
   const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const firstKey = nodes[0]?.node_key || '';
@@ -243,7 +436,7 @@ export async function executeWorkflowGraph(env, opts) {
       started_at, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?,
-      ?, ?, 'agent', 'running',
+      ?, ?, ?, 'running',
       ?, '{}', '[]', '{}',
       ?, 0, 'production',
       1, ?,
@@ -252,17 +445,21 @@ export async function executeWorkflowGraph(env, opts) {
   )
     .bind(
       runId,
-      workflow.id,
+      runWorkflowId,
       workflowKey,
       tenantId,
       workspaceId,
       userId ?? null,
       userEmail ?? null,
+      triggerType,
       JSON.stringify(input ?? {}),
       nodes.length,
       firstKey,
     )
     .run();
+
+  const canonicalUserId = await resolveCanonicalUserId(userId, env);
+  const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
 
   const nodeMap = Object.fromEntries(nodes.map((n) => [n.node_key, n]));
   const edgeMap = {};
@@ -271,8 +468,8 @@ export async function executeWorkflowGraph(env, opts) {
     edgeMap[e.from_node_key].push(e);
   }
 
-  const runMeta = { tenantId, workspaceId, userId };
-  const runContext = { runId, runMeta };
+  const runMeta = { tenantId, workspaceId, userId: canonicalUserId };
+  const runContext = { runId, runMeta, workflowRunId: runId, canonicalUserId };
   const stepResults = [];
   let currentNodeKey = firstKey;
   let stepsCompleted = 0;
@@ -317,10 +514,20 @@ export async function executeWorkflowGraph(env, opts) {
     const nodeInput =
       stepResults.length > 0 ? stepResults[stepResults.length - 1].output ?? input : input;
 
-    const nodeOutput = await dispatchNode(env, node, nodeInput, { ...runContext, node }).catch((e) => ({
+    const stepId = `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const nodeStartTime = Date.now();
+    ffPendingExecutionStep(env.DB, stepCols, stepId, runId, node, nodeInput);
+
+    const nodeOutput = await dispatchNode(env, node, nodeInput, {
+      ...runContext,
+      node,
+      executionStepId: stepId,
+    }).catch((e) => ({
       ok: false,
       error: e?.message || String(e),
     }));
+
+    ffCompleteExecutionStep(env.DB, stepCols, stepId, nodeStartTime, nodeOutput);
 
     stepResults.push({
       node_key: currentNodeKey,

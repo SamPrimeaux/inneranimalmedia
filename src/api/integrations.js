@@ -14,6 +14,9 @@ const REGISTRY_SEED = [
     ['int_google_drive', 'google_drive', 'Google Drive', 'storage', 'oauth2', 'disconnected', 20, null],
     ['int_cloudflare_oauth', 'cloudflare_oauth', 'Cloudflare (OAuth)', 'deployment', 'oauth2', 'disconnected', 25, 'CLOUDFLARE_OAUTH_CLIENT_ID'],
     ['int_cloudflare_r2', 'cloudflare_r2', 'Cloudflare R2', 'storage', 'worker_binding', 'disconnected', 30, 'R2'],
+    // local_tunnel — cloudflared quick tunnel / IAM hostname; connect via POST { tunnel_url } (see integrations/connect.js).
+    // integration_registry CHECK: category 'deployment', auth_type 'none'; live tunnel URL stored in config_json after connect.
+    ['int_local_tunnel', 'local_tunnel', 'Local Machine', 'deployment', 'none', 'disconnected', 35, null],
     ['int_mcp', 'mcp_servers', 'MCP Servers', 'automation', 'api_key', 'disconnected', 40, null],
     ['int_resend', 'resend', 'Resend', 'communication', 'api_key', 'disconnected', 50, 'RESEND_API_KEY'],
     ['int_anthropic', 'anthropic', 'Anthropic', 'ai_provider', 'api_key', 'disconnected', 60, 'ANTHROPIC_API_KEY'],

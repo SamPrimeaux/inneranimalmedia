@@ -17,6 +17,10 @@ import {
   resolveUserEnrichment,
   establishIamSession,
   createLoginSession,
+  verifyAgentSessionMintSecret,
+  DEFAULT_AGENT_SESSION_TTL_SECONDS,
+  MIN_AGENT_SESSION_TTL_SECONDS,
+  MAX_AGENT_SESSION_TTL_SECONDS,
 } from '../core/auth';
 
 import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
@@ -32,6 +36,10 @@ import { upsertOauthToken } from './oauth.js';
 export async function handleAuthApi(request, url, env) {
   const path = url.pathname.toLowerCase();
   const method = request.method.toUpperCase();
+
+  if (path === '/api/auth/agent-session/mint' && method === 'POST') {
+    return handleAgentSessionMint(request, env);
+  }
 
   if (path === '/api/auth/login' && method === 'POST') {
     return handleEmailPasswordLogin(request, url, env);
@@ -106,6 +114,90 @@ export async function handleAuthApi(request, url, env) {
   }
 
   return jsonResponse({ error: 'Auth route not found' }, 404);
+}
+
+/**
+ * POST /api/auth/agent-session/mint
+ * Auth: Worker secret AGENT_SESSION_MINT_SECRET (Bearer or X-Agent-Session-Mint-Secret).
+ * Body: { user_id?, user_email?, ttl_seconds? } — or rely on env AGENT_SESSION_DEFAULT_USER_ID.
+ * Returns a short-lived session id (same as browser `session` cookie value).
+ */
+async function handleAgentSessionMint(request, env) {
+  if (!env?.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+  if (!env.AGENT_SESSION_MINT_SECRET || String(env.AGENT_SESSION_MINT_SECRET).trim() === '') {
+    return jsonResponse({ error: 'Agent session mint is not configured' }, 503);
+  }
+  if (!verifyAgentSessionMintSecret(request, env)) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+
+  const ttlRaw = body.ttl_seconds ?? body.ttlSeconds;
+  let ttlSeconds = DEFAULT_AGENT_SESSION_TTL_SECONDS;
+  if (ttlRaw != null && ttlRaw !== '') {
+    const n = Number(ttlRaw);
+    if (Number.isFinite(n)) {
+      ttlSeconds = Math.min(MAX_AGENT_SESSION_TTL_SECONDS, Math.max(MIN_AGENT_SESSION_TTL_SECONDS, n));
+    }
+  }
+
+  let userId = String(body.user_id || body.userId || '').trim();
+  const email = String(body.user_email || body.userEmail || '')
+    .trim()
+    .toLowerCase();
+  if (!userId && email && env.DB) {
+    const row = await env.DB.prepare(`SELECT id FROM auth_users WHERE LOWER(email) = ? LIMIT 1`)
+      .bind(email)
+      .first()
+      .catch(() => null);
+    if (row?.id) userId = String(row.id);
+  }
+  if (!userId) {
+    const def = String(env.AGENT_SESSION_DEFAULT_USER_ID || '').trim();
+    if (def) userId = def;
+  }
+  if (!userId) {
+    return jsonResponse(
+      { error: 'user_id, user_email, or AGENT_SESSION_DEFAULT_USER_ID binding is required' },
+      400,
+    );
+  }
+
+  const userCheck = await env.DB.prepare(`SELECT id FROM auth_users WHERE id = ? LIMIT 1`)
+    .bind(userId)
+    .first()
+    .catch(() => null);
+  if (!userCheck) {
+    return jsonResponse({ error: 'user not found' }, 404);
+  }
+
+  try {
+    const sessionId = await createLoginSession(request, env, userId, 'agent_mint', { ttlSeconds });
+    const expiresAtMs = Date.now() + ttlSeconds * 1000;
+    await logAuthEvent(env, {
+      request,
+      eventType: 'auth_agent_session_minted',
+      status: 'ok',
+      metadata: { ttl_seconds: ttlSeconds, user_id: userId },
+    });
+    return jsonResponse({
+      ok: true,
+      session_id: sessionId,
+      cookie_name: AUTH_COOKIE_NAME,
+      cookie_header: `${AUTH_COOKIE_NAME}=${sessionId}`,
+      ttl_seconds: ttlSeconds,
+      expires_at: new Date(expiresAtMs).toISOString(),
+    });
+  } catch (e) {
+    console.warn('[agent-session/mint]', e?.message ?? e);
+    return jsonResponse({ error: e?.message || 'mint_failed' }, 500);
+  }
 }
 
 /**
@@ -1951,4 +2043,29 @@ export async function handleOAuthConsentPage(request, env) {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
     },
   );
+}
+
+/**
+ * Resolve a stable canonical app user id (`au_*`) from session/workspace ids (`usr_*`, etc.).
+ * Never throws; returns null when input is empty.
+ * @param {string | null | undefined} userId
+ * @param {any} env
+ * @returns {Promise<string | null>}
+ */
+export async function resolveCanonicalUserId(userId, env) {
+  if (userId == null || userId === '') return null;
+  const s = String(userId).trim();
+  if (!s) return null;
+  if (s.startsWith('au_')) return s;
+  if (s.startsWith('usr_')) {
+    if (!env?.DB) return s;
+    try {
+      const row = await env.DB.prepare(`SELECT auth_id FROM users WHERE id = ? LIMIT 1`).bind(s).first();
+      const aid = row?.auth_id != null ? String(row.auth_id).trim() : '';
+      return aid || s;
+    } catch {
+      return s;
+    }
+  }
+  return s;
 }

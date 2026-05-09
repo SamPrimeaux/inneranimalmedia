@@ -18,6 +18,7 @@ import {
     Plus,
     Search,
     RefreshCw,
+    AlertTriangle,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
@@ -236,6 +237,8 @@ export const LocalExplorer: React.FC<{
         github: true,
         drive: true,
     });
+    /** Local tunnel registry row is connected but last_verified_at is missing or older than 5 minutes. */
+    const [localTunnelVerifyWarning, setLocalTunnelVerifyWarning] = useState(false);
 
     const [r2Buckets, setR2Buckets] = useState<string[]>([]);
     const [selectedR2Bucket, setSelectedR2Bucket] = useState<string>('');
@@ -265,6 +268,47 @@ export const LocalExplorer: React.FC<{
     useEffect(() => {
         loadR2Buckets();
     }, [loadR2Buckets]);
+
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const res = await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
+                if (!res.ok || cancelled) return;
+                const data = (await res.json()) as {
+                    items?: Array<{
+                        derived_status?: string;
+                        connection?: { provider_key?: string; status?: string; config_json?: Record<string, unknown> };
+                        integration_status?: { connected?: boolean; last_verified_at?: number };
+                    }>;
+                };
+                const items = Array.isArray(data.items) ? data.items : [];
+                const lt = items.find(
+                    (i) => String(i?.connection?.provider_key || '').toLowerCase() === 'local_tunnel',
+                );
+                const tunnelConnected =
+                    String(lt?.derived_status || '').toLowerCase() === 'connected' ||
+                    lt?.integration_status?.connected === true;
+                if (!lt || !tunnelConnected) {
+                    if (!cancelled) setLocalTunnelVerifyWarning(false);
+                    return;
+                }
+                const ts =
+                    typeof lt?.integration_status?.last_verified_at === 'number'
+                        ? lt.integration_status.last_verified_at
+                        : typeof lt?.connection?.config_json?.last_verified_at === 'number'
+                          ? (lt.connection.config_json.last_verified_at as number)
+                          : null;
+                const stale = ts == null || !Number.isFinite(ts) || Date.now() - ts > 5 * 60 * 1000;
+                if (!cancelled) setLocalTunnelVerifyWarning(stale);
+            } catch {
+                if (!cancelled) setLocalTunnelVerifyWarning(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         if (displayR2Buckets.length === 0) {
@@ -745,6 +789,22 @@ export const LocalExplorer: React.FC<{
             <div className="flex items-center justify-between px-4 py-3 shrink-0">
                 <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--text-muted)]">Explorer</span>
             </div>
+
+            {localTunnelVerifyWarning ? (
+                <div className="mx-3 mb-2 flex items-start gap-2 rounded border border-[var(--solar-orange)]/45 bg-[var(--solar-orange)]/10 px-2.5 py-2 text-[10px] text-[var(--text-main)] leading-snug">
+                    <AlertTriangle size={14} className="shrink-0 text-[var(--solar-orange)] mt-0.5" aria-hidden />
+                    <div>
+                        Local tunnel has not been verified recently (&gt;5 min). Re-run connect in settings if the tunnel
+                        may have changed.
+                        <a
+                            href="/dashboard/settings/integrations"
+                            className="ml-1 text-[var(--solar-cyan)] underline font-medium"
+                        >
+                            Verify connection
+                        </a>
+                    </div>
+                </div>
+            ) : null}
 
             {/* Section 1: Local Workspace */}
             <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 pt-1">

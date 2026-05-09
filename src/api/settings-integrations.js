@@ -132,6 +132,7 @@ async function getConnectedIntegrations(env, authUser) {
           }
         : null;
 
+    const cfg = parseJson(row.config_json, {});
     const connection = {
       id: row.id,
       tenant_id: row.tenant_id,
@@ -141,7 +142,7 @@ async function getConnectedIntegrations(env, authUser) {
       auth_type: row.auth_type,
       status: row.status,
       scopes_json: parseJson(row.scopes_json, []),
-      config_json: parseJson(row.config_json, {}),
+      config_json: cfg,
       account_display: row.account_display,
       secret_binding_name: row.secret_binding_name,
       last_sync_at: row.last_sync_at,
@@ -169,11 +170,32 @@ async function getConnectedIntegrations(env, authUser) {
       derived_status = 'available';
     } else if (pk === 'mcp_servers') {
       derived_status = tokProviders.size > 0 ? derived_status : 'available';
+    } else if (pk === 'local_tunnel' && String(row.status || '').toLowerCase() === 'connected') {
+      derived_status = 'connected';
     }
+
+    const regStatus = String(row.status || '').toLowerCase();
+    let integrationError;
+    if (regStatus === 'auth_expired') integrationError = 'token_expired';
+    else if (pk === 'local_tunnel' && regStatus === 'degraded') integrationError = 'tunnel_unreachable';
+
+    const lastVerified =
+      typeof cfg.last_verified_at === 'number' && Number.isFinite(cfg.last_verified_at)
+        ? cfg.last_verified_at
+        : undefined;
+
+    const integration_status = {
+      connected: derived_status === 'connected',
+      slug: pk,
+      account_display: row.account_display ? String(row.account_display) : undefined,
+      last_verified_at: lastVerified,
+      error: integrationError,
+    };
 
     return {
       catalog,
       connection: { ...connection, status: derived_status },
+      integration_status,
       legacy: leg
         ? { is_connected: leg.is_connected, last_used: leg.last_used }
         : null,
@@ -187,7 +209,10 @@ async function getConnectedIntegrations(env, authUser) {
   return jsonResponse({
     tenant_id: tenantId,
     items,
-    connected_slugs: items.map((i) => String(i.connection?.provider_key || '').toLowerCase()).filter(Boolean),
+    connected_slugs: items
+      .filter((i) => i.integration_status?.connected)
+      .map((i) => String(i.connection?.provider_key || '').toLowerCase())
+      .filter(Boolean),
   });
 }
 

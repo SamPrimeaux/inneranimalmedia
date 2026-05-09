@@ -117,7 +117,9 @@ export async function dispatchProductionDomainRoutes(rc) {
     pathLower === '/api/email/inbound'
   ) {
     const res = await handleIntegrationsRequest(request, env, ctx, authUser);
-    if (res && res.status !== 404) return res;
+    // Always return the integrations handler response (including 404 JSON from GitHub passthrough
+    // or explicit not_found). Skipping 404 caused fallthrough to generic { error: 'Not found' } in index.js.
+    if (res) return res;
   }
 
   if (pathLower.startsWith('/api/vault')) {

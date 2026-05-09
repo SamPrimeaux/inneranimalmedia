@@ -12,6 +12,7 @@ import { selectAgentsamMcpToolRow } from './agentsam-mcp-tools.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { runTerminalCommand } from './terminal.js';
 import { scheduleRecordMcpToolExecution } from './mcp-tool-execution.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
 
 function isLikelySafeShellCommand(cmd) {
   const c = String(cmd || '').trim();
@@ -182,14 +183,16 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
   const execId = crypto.randomUUID();
   if (env.DB) {
     try {
+      const canonicalUserId = await resolveCanonicalUserId(uid, env);
       await env.DB.prepare(
         `INSERT INTO agentsam_command_run
-         (id, tenant_id, workspace_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
-         VALUES (?, ?, ?, ?, 'terminal_run', ?, ?, ?, unixepoch(), unixepoch())`,
+         (id, tenant_id, workspace_id, user_id, session_id, command_name, command_text, output_text, status, started_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, 'terminal_run', ?, ?, ?, unixepoch(), unixepoch())`,
       ).bind(
         execId,
         tenantId,
         targetWorkspace,
+        canonicalUserId,
         sessionId || null,
         runCommand,
         execErr ? String(execErr.message || execErr).slice(0, 12000) : output.slice(0, 12000),
