@@ -74,7 +74,11 @@ export default {
         v => v.startsWith('session=') && !v.includes('Expires=Thu, 01 Jan 1970')
       );
 
-      if (!isSettingSession) {
+      // Only strip duplicate domain-scoped session cookies when the browser actually sent
+      // more than one `session=` (e.g. stale Domain=.inneranimalmedia.com vs host-only).
+      // Unconditional clears on every dashboard HTML response can break post-OAuth flows and
+      // contribute to “half-loaded” SPAs (APIs 401 / odd cache behavior).
+      if (!isSettingSession && sessionCount > 1) {
         mutableHeaders.append('Set-Cookie', 'session=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax');
         mutableHeaders.append('Set-Cookie', 'session=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax');
       }
@@ -673,7 +677,13 @@ export default {
 
             if (pathLower.startsWith('/dashboard/') || pathLower === '/onboarding' || pathLower.startsWith('/onboarding/')) {
               const index = await getDashboardSpaHtmlShell(env.DASHBOARD);
-              if (index) return withSessionHealing(new Response(index.body, { headers: { 'Content-Type': 'text/html' } }));
+              if (index) {
+                const h = new Headers({
+                  'Content-Type': 'text/html; charset=utf-8',
+                  'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+                });
+                return withSessionHealing(new Response(index.body, { headers: h }));
+              }
             }
           }
         }

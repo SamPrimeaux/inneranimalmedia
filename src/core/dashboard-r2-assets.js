@@ -53,6 +53,8 @@ export async function getDashboardSpaHtmlShell(bucket) {
   const shellKeys = [
     'static/dashboard/app.html',
     'static/dashboard/app/index.html',
+    // deploy-frontend.sh syncs Vite dist to static/dashboard/agent/ (includes index.html)
+    'static/dashboard/agent/index.html',
     'static/dashboard/agent.html',
     'dashboard/app/agent.html',
     'index.html',
