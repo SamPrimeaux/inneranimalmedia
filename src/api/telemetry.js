@@ -6,7 +6,7 @@
 import { resolveTelemetryTenantId } from '../core/auth';
 import { resolveCanonicalUserId } from './auth.js';
 import { pragmaTableInfo } from '../core/retention.js';
-import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
+import { estimateCostUsdFromCatalog, resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
 
 /**
  * Standardizes provider names for the spend ledger.
@@ -101,17 +101,32 @@ export async function writeTelemetry(env, data, modelRates) {
     routingArmId,
   } = data;
 
-  const modelKey = model != null ? String(model) : '';
-  const rates = modelKey && modelRates ? modelRates[modelKey] : null;
+  const rawModel = model != null ? String(model).trim() : '';
+  let catalogModelKey = rawModel;
+  if (env?.DB && rawModel) {
+    const { modelKey: resolved } = await resolveModelKeyFromProviderId(env.DB, provider, rawModel);
+    if (resolved) catalogModelKey = resolved;
+  }
+  const rates =
+    rawModel && modelRates
+      ? modelRates[rawModel] || (catalogModelKey ? modelRates[catalogModelKey] : undefined)
+      : null;
   let estimatedCost = null;
   if (computedCostUsdOverride != null && Number.isFinite(Number(computedCostUsdOverride))) {
     estimatedCost = Number(computedCostUsdOverride);
   } else if (rates) {
-    estimatedCost = computeUsdFromModelRatesRow(modelKey, rates, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
-  } else if (env?.DB && modelKey) {
+    estimatedCost = computeUsdFromModelRatesRow(
+      rawModel && modelRates?.[rawModel] ? rawModel : catalogModelKey,
+      rates,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+    );
+  } else if (env?.DB && catalogModelKey) {
     estimatedCost = await estimateCostUsdFromCatalog(
       env.DB,
-      modelKey,
+      catalogModelKey,
       inputTokens,
       outputTokens,
     );
@@ -169,8 +184,8 @@ export async function writeTelemetry(env, data, modelRates) {
         sid,
         'agent-sam',
         String(provider || 'unknown'),
-        modelKey,
-        modelKey,
+        rawModel || 'unknown',
+        catalogModelKey || rawModel || 'unknown',
         tokIn,
         tokOut,
         totalTok,
@@ -196,8 +211,8 @@ export async function writeTelemetry(env, data, modelRates) {
         sid,
         'agent-sam',
         String(provider || 'unknown'),
-        modelKey,
-        modelKey,
+        rawModel || 'unknown',
+        catalogModelKey || rawModel || 'unknown',
         tokIn,
         tokOut,
         totalTok,
@@ -272,7 +287,7 @@ export async function writeTelemetry(env, data, modelRates) {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
          lid, mid, 'default', 'inneranimalmedia', spFixed, 'api_direct',
-        Math.floor(Date.now() / 1000), estimatedCost, modelKey, inputTokens, outputTokens,
+        Math.floor(Date.now() / 1000), estimatedCost, catalogModelKey || rawModel, inputTokens, outputTokens,
         sid || 'unknown', 'proj_inneranimalmedia_main_prod_013',
         'agentsam_usage_events', telemetryId
       ).run();
