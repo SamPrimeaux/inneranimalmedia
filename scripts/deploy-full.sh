@@ -104,3 +104,6 @@ echo "[deploy-full] r2:prune (D1 telemetry + prune-r2-orphans)"
 export DEPLOY_PHASE=r2_prune
 export TRIGGER_SOURCE="${TRIGGER_SOURCE:-cicd}"
 npm run r2:prune || echo "[deploy-full] warning: r2:prune non-zero exit (non-fatal)"
+
+# Read-only / auth smoke (non-fatal; does not run E2E dry_run:false)
+"$REPO_ROOT/scripts/post-deploy-smoke.sh" || echo "[deploy-full] warning: post-deploy-smoke non-zero (non-fatal)"

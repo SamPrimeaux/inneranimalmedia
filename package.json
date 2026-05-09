@@ -50,6 +50,8 @@
     "smoke:ai": "node scripts/ai-smoke-report.mjs",
     "smoke:mcp": "node scripts/mcp-smoke.mjs",
     "smoke:code-execution-e2e": "node scripts/test-code-execution-e2e.mjs",
+    "smoke:post-deploy": "./scripts/post-deploy-smoke.sh",
+    "verify:agentsam-telemetry": "./scripts/verify-agentsam-telemetry-after-deploy.sh",
     "smoke:mcp-actor": "node scripts/mcp-actor-authorization-smoke.mjs",
     "smoke:workflow-runs:seed": "./scripts/with-cloudflare-env.sh node scripts/seed-agentsam-workflow-runs.mjs",
     "smoke:workflow-runs:http": "./scripts/with-cloudflare-env.sh node scripts/run-workflow-start-batch.mjs",
