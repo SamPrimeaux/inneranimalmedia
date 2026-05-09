@@ -14,6 +14,7 @@ import { authorizeMcpTool } from '../core/mcp-authorization.js';
 import { resolveMcpServerForTool } from '../core/mcp-servers.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { mcpPanelAgentChatSse } from './agent.js';
+import { resolveCanonicalUserId } from './auth.js';
 
 const MCP_CARD_AGENT_IDS = [
   'mcp_agent_architect',
@@ -126,28 +127,18 @@ function scheduleDispatchToolCallLog(env, ctx, { tenantId, sessionId, userId, wo
   const ws = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
   if (!tid || !ws) return;
   const sum = String(inputSummary ?? '').slice(0, 200);
-  const p = env.DB
-    .prepare(
-      `INSERT INTO agentsam_tool_call_log
+  const p = (async () => {
+    let uid = userId ?? null;
+    if (uid) uid = await resolveCanonicalUserId(String(uid).trim(), env);
+    await env.DB
+      .prepare(
+        `INSERT INTO agentsam_tool_call_log
        (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    )
-    .bind(
-      tid,
-      sessionId ?? null,
-      'mcp_dispatch',
-      'pending',
-      0,
-      0,
-      0,
-      0,
-      userId ?? null,
-      ws,
-      null,
-      sum,
-    )
-    .run()
-    .catch((e) => console.warn('[mcp_dispatch tool_call_log]', e?.message ?? e));
+      )
+      .bind(tid, sessionId ?? null, 'mcp_dispatch', 'pending', 0, 0, 0, 0, uid, ws, null, sum)
+      .run();
+  })().catch((e) => console.warn('[mcp_dispatch tool_call_log]', e?.message ?? e));
   if (ctx?.waitUntil) ctx.waitUntil(p);
   else void p;
 }

@@ -271,28 +271,31 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
   const summary = String(inputSummary ?? '').slice(0, 200);
   const errMsg = errorMessage != null ? String(errorMessage).slice(0, 8000) : null;
   const correlationId = `tcl_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const p = env.DB
-    .prepare(
-      `INSERT INTO agentsam_tool_call_log
+  const p = (async () => {
+    let uid = userId ?? null;
+    if (uid) uid = await resolveCanonicalUserId(String(uid).trim(), env);
+    await env.DB
+      .prepare(
+        `INSERT INTO agentsam_tool_call_log
        (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    )
-    .bind(
-      tid,
-      sessionId ?? null,
-      String(toolName || 'unknown'),
-      stat,
-      Math.max(0, Math.floor(Number(durationMs) || 0)),
-      Number(costUsd) || 0,
-      Math.max(0, Math.floor(Number(inputTokens) || 0)),
-      Math.max(0, Math.floor(Number(outputTokens) || 0)),
-      userId ?? null,
-      ws,
-      errMsg,
-      summary,
-    )
-    .run()
-    .catch((e) => console.warn('[agentsam_tool_call_log]', e?.message ?? e));
+      )
+      .bind(
+        tid,
+        sessionId ?? null,
+        String(toolName || 'unknown'),
+        stat,
+        Math.max(0, Math.floor(Number(durationMs) || 0)),
+        Number(costUsd) || 0,
+        Math.max(0, Math.floor(Number(inputTokens) || 0)),
+        Math.max(0, Math.floor(Number(outputTokens) || 0)),
+        uid,
+        ws,
+        errMsg,
+        summary,
+      )
+      .run();
+  })().catch((e) => console.warn('[agentsam_tool_call_log]', e?.message ?? e));
   if (ctx?.waitUntil) ctx.waitUntil(p);
   else void p;
   if (stat === 'error' && errMsg && ctx?.waitUntil) {
@@ -1270,7 +1273,11 @@ async function createApprovalRequest(env, ctx, opts) {
     throw new Error('WORKSPACE_CONTEXT_MISSING');
   }
   try {
-    const uid = userId != null && String(userId).trim() !== '' ? String(userId).trim() : 'iam_agent';
+    let uidResolved = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
+    if (uidResolved) {
+      uidResolved = await resolveCanonicalUserId(uidResolved, env);
+    }
+    const uid = uidResolved ?? 'iam_agent';
     const summary = rationale || `Tool call requires approval: ${toolName}`;
     const inputJson = JSON.stringify({
       command_text: `${toolName}(${argsStr.slice(0, 500)})`,
@@ -1301,7 +1308,7 @@ async function createApprovalRequest(env, ctx, opts) {
     scheduleRecordMcpToolExecution(env, ctx, {
       tenant_id: tenantId,
       workspace_id: workspaceId,
-      user_id: userId,
+      user_id: uidResolved ?? userId,
       person_uuid: personUuid,
       session_id: sessionId,
       tool_name: toolName,
@@ -1389,6 +1396,10 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
       if (!computedCost && (tin > 0 || tout > 0)) {
         computedCost = await estimateCostUsdFromCatalog(env.DB, mk, tin, tout);
       }
+      let uidEv = userId ?? null;
+      if (uidEv) {
+        uidEv = await resolveCanonicalUserId(String(uidEv).trim(), env);
+      }
       const hasMk = cols.has('model_key');
       const hasTot = cols.has('total_tokens');
       const hasEv = cols.has('event_type');
@@ -1412,7 +1423,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
           `).bind(
             tenantId,
             workspaceId,
-            userId ?? null,
+            uidEv,
             conversationId ?? null,
             resolvedProvider ?? 'unknown',
             mk,
@@ -1439,7 +1450,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
           `).bind(
             tenantId,
             workspaceId,
-            userId ?? null,
+            uidEv,
             conversationId ?? null,
             resolvedProvider ?? 'unknown',
             mk,
@@ -2121,6 +2132,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             sessionId,
             tenantId,
             workspaceId: routingWs || undefined,
+            userId,
             provider: 'anthropic',
             model: modelKey,
             inputTokens: totalUsage.input_tokens,

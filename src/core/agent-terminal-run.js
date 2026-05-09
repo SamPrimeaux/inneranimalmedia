@@ -38,28 +38,31 @@ function scheduleTerminalToolCallLog(env, ctx, params) {
     errorMessage,
     inputSummary,
   } = params;
-  const p = env.DB
-    .prepare(
-      `INSERT INTO agentsam_tool_call_log
+  const p = (async () => {
+    let uid = userId ?? null;
+    if (uid) uid = await resolveCanonicalUserId(String(uid).trim(), env);
+    await env.DB
+      .prepare(
+        `INSERT INTO agentsam_tool_call_log
        (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    )
-    .bind(
-      tenantId != null ? String(tenantId) : 'system',
-      sessionId ?? null,
-      String(toolName || 'terminal_run'),
-      status === 'success' ? 'success' : 'error',
-      Math.max(0, Math.floor(Number(durationMs) || 0)),
-      0,
-      0,
-      0,
-      userId ?? null,
-      workspaceId ?? null,
-      errorMessage != null ? String(errorMessage).slice(0, 8000) : null,
-      String(inputSummary ?? '').slice(0, 200),
-    )
-    .run()
-    .catch((e) => console.warn('[agent-terminal-run tool_call_log]', e?.message ?? e));
+      )
+      .bind(
+        tenantId != null ? String(tenantId) : 'system',
+        sessionId ?? null,
+        String(toolName || 'terminal_run'),
+        status === 'success' ? 'success' : 'error',
+        Math.max(0, Math.floor(Number(durationMs) || 0)),
+        0,
+        0,
+        0,
+        uid,
+        workspaceId ?? null,
+        errorMessage != null ? String(errorMessage).slice(0, 8000) : null,
+        String(inputSummary ?? '').slice(0, 200),
+      )
+      .run();
+  })().catch((e) => console.warn('[agent-terminal-run tool_call_log]', e?.message ?? e));
   if (ctx?.waitUntil) ctx.waitUntil(p);
   else void p;
 }

@@ -5,6 +5,7 @@
 
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 import { recordSpan } from './tracer.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
 
 /** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
 export async function hashToolInputJson(obj) {
@@ -457,6 +458,10 @@ export async function recordMcpToolExecution(env, fields) {
 
   if (userId && (!workspaceId || workspaceId === '__tenant__')) {
     throw new Error('WORKSPACE_CONTEXT_MISSING');
+  }
+
+  if (userId) {
+    normalized.user_id = await resolveCanonicalUserId(String(normalized.user_id).trim(), env);
   }
 
   const names = [];

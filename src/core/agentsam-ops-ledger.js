@@ -11,6 +11,7 @@
 
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 import { assertBrowserOriginTrusted } from './auth.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
 
 export { scheduleAgentsamErrorLog };
 
@@ -147,6 +148,11 @@ export function scheduleToolCallLog(env, ctx, fields) {
     const meta = await pragmaTableColumnMeta(env.DB, 'agentsam_tool_call_log');
     if (!meta.length) return;
 
+    let uidLog = fields.userId ?? fields.user_id ?? null;
+    if (uidLog) {
+      uidLog = await resolveCanonicalUserId(String(uidLog).trim(), env);
+    }
+
     const v = {
       id: `tcl_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`,
       tenant_id: tid,
@@ -158,7 +164,7 @@ export function scheduleToolCallLog(env, ctx, fields) {
       cost_usd: costUsd,
       input_tokens: inTok,
       output_tokens: outTok,
-      user_id: fields.userId ?? fields.user_id ?? null,
+      user_id: uidLog,
       error_message: errMsg,
       input_summary: inputSummary || null,
       trace_id: fields.traceId ?? null,

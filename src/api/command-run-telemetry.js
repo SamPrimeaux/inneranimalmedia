@@ -5,7 +5,7 @@ import { resolveCanonicalUserId } from './auth.js';
 import { isFeatureEnabled } from '../core/features.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { pragmaTableInfo } from '../core/retention.js';
-import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
+import { estimateCostUsdFromCatalog, resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
 
 import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
 import { recordSpan } from '../core/tracer.js';
@@ -235,8 +235,11 @@ export async function fireForgetAgentToolChainRow(env, opts) {
   const chainId = `atc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const tenant =
     tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
-  const uid =
+  let uid =
     userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
+  if (uid) {
+    uid = await resolveCanonicalUserId(uid, env);
+  }
   const parentId =
     parentChainId != null && String(parentChainId).trim() !== '' ? String(parentChainId).trim() : null;
   const errorMessage =
@@ -488,14 +491,53 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
   ctx.waitUntil(
     (async () => {
       const commandRunId = `run_${crypto.randomUUID().slice(0, 16)}`;
-      const modelId = p.modelKey ?? null;
+      const rawModelKey = p.modelKey != null ? String(p.modelKey).trim() : '';
+      const provForResolve =
+        p.provider != null && String(p.provider).trim() !== '' ? String(p.provider).trim() : '';
+
+      let resultMerged =
+        p.result !== undefined && p.result !== null && typeof p.result === 'object' && !Array.isArray(p.result)
+          ? { ...p.result }
+          : p.result !== undefined
+            ? { _command_result: p.result }
+            : {};
+
+      let modelIdForRow = rawModelKey || null;
+      if (rawModelKey) {
+        const { modelKey: canonMk, rawModelId } = await resolveModelKeyFromProviderId(
+          env.DB,
+          provForResolve,
+          rawModelKey,
+        );
+        const telemBase =
+          typeof resultMerged.telemetry_model === 'object' && resultMerged.telemetry_model
+            ? resultMerged.telemetry_model
+            : {};
+        if (canonMk && canonMk !== rawModelKey) {
+          resultMerged.telemetry_model = {
+            ...telemBase,
+            provider_model_id: rawModelId,
+            catalog_model_key: canonMk,
+          };
+          modelIdForRow = canonMk;
+        } else if (canonMk) {
+          modelIdForRow = canonMk;
+        } else {
+          resultMerged.telemetry_model = {
+            ...telemBase,
+            provider_model_id: rawModelId,
+            catalog_model_key: null,
+          };
+        }
+      }
+
       const canonicalUserId = await resolveCanonicalUserId(p.userId ?? null, env);
       const inTok = Math.max(0, Math.floor(Number(p.inputTokens) || 0));
       const outTok = Math.max(0, Math.floor(Number(p.outputTokens) || 0));
       let costUsdIns = Number(p.costUsd);
       if (!Number.isFinite(costUsdIns) || costUsdIns <= 0) {
-        if (modelId && (inTok > 0 || outTok > 0)) {
-          costUsdIns = await estimateCostUsdFromCatalog(env.DB, modelId, inTok, outTok);
+        if (modelIdForRow && (inTok > 0 || outTok > 0)) {
+          costUsdIns = await estimateCostUsdFromCatalog(env.DB, modelIdForRow, inTok, outTok);
         } else {
           costUsdIns = 0;
         }
@@ -523,9 +565,9 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
             p.userInput ?? '',
             p.normalizedIntent ?? null,
             sanitizeIntentCategoryForCommandRun(p.intentCategory),
-            modelId,
+            modelIdForRow,
             JSON.stringify(p.commandsExecuted ?? []),
-            JSON.stringify(p.result ?? {}),
+            JSON.stringify(resultMerged),
             p.outputText != null ? String(p.outputText).slice(0, 50000) : null,
             p.confidenceScore ?? null,
             p.success ? 1 : 0,
@@ -575,8 +617,6 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
         const execId = `exec_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
         const taskId =
           p.taskId != null && String(p.taskId).trim() !== '' ? String(p.taskId).trim() : commandRunId;
-        const uid =
-          p.userId != null && String(p.userId).trim() !== '' ? String(p.userId).trim() : null;
         const cmd =
           p.command != null && String(p.command).trim() !== ''
             ? String(p.command).trim().slice(0, 4000)
@@ -586,7 +626,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
         const exeCols = await pragmaTableInfo(env.DB, 'agentsam_executions');
         const durMs = Math.max(0, Math.floor(p.durationMs || 0));
         const stat = p.success ? 'completed' : 'failed';
-        const mk = p.modelKey != null ? String(p.modelKey).trim() : null;
+        const mk = modelIdForRow;
         try {
           if (exeCols.has('model_key') && exeCols.has('status')) {
             await env.DB
@@ -600,7 +640,7 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
                 execId,
                 String(p.tenantId),
                 ws,
-                uid,
+                canonicalUserId,
                 commandRunId,
                 taskId,
                 'command',
@@ -621,7 +661,17 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
                  (id, tenant_id, workspace_id, user_id, command_run_id, task_id, execution_type, command, duration_ms, created_at)
                  VALUES (?,?,?,?,?,?,?,?,?,unixepoch())`,
               )
-              .bind(execId, String(p.tenantId), ws, uid, commandRunId, taskId, 'command', cmd, durMs)
+              .bind(
+                execId,
+                String(p.tenantId),
+                ws,
+                canonicalUserId,
+                commandRunId,
+                taskId,
+                'command',
+                cmd,
+                durMs,
+              )
               .run();
           }
         } catch (e) {
@@ -741,6 +791,11 @@ export async function executeCommand(env, ctx, o) {
   const critical = String(cmd.risk_level || '').toLowerCase() === 'critical';
   const needsApproval = approvalEnabled && (reqApr || critical);
 
+  const canonicalCmdUser =
+    userId != null && String(userId).trim() !== ''
+      ? await resolveCanonicalUserId(String(userId).trim(), env)
+      : null;
+
   if (needsApproval) {
     const approvalId = 'appr_' + crypto.randomUUID().slice(0, 16);
     await env.DB
@@ -753,7 +808,7 @@ export async function executeCommand(env, ctx, o) {
       .bind(
         approvalId,
         tenantId,
-        userId,
+        canonicalCmdUser ?? userId,
         sessionId,
         cmd.mapped_command,
         `${cmd.display_name}: ${JSON.stringify(args).slice(0, 300)}`,
@@ -771,27 +826,64 @@ export async function executeCommand(env, ctx, o) {
 
   const chainId = 'atc_' + crypto.randomUUID().slice(0, 16);
 
-  await env.DB
+  const tidIns =
+    tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
+  const inputPayload =
+    canonicalCmdUser == null
+      ? {
+          ...(typeof args === 'object' && args && !Array.isArray(args) ? args : { args }),
+          telemetry_actor: 'system',
+        }
+      : args;
+
+  const insRunning = await env.DB
     .prepare(
       `INSERT INTO agentsam_tool_chain
-      (id, plan_id, todo_id, workspace_id, agent_session_id, tool_name, tool_id,
+      (id, plan_id, todo_id, workspace_id, tenant_id, user_id, agent_session_id, tool_name, tool_id,
        tool_status, input_json, started_at, requires_approval, depth)
-      VALUES (?,?,?,?,?,?,?,?,?, unixepoch(), ?, ?)`,
+      VALUES (?,?,?,?,?,?,?,?,?,?,?, unixepoch(), ?, ?)`,
     )
     .bind(
       chainId,
       planId,
       todoId,
       resolvedWorkspace,
+      tidIns,
+      canonicalCmdUser,
       sessionId || null,
       cmd.mapped_command,
       null,
       'running',
-      JSON.stringify(args),
+      JSON.stringify(inputPayload),
       0,
       0,
     )
-    .run();
+    .run()
+    .catch(() => null);
+
+  if (!insRunning?.success) {
+    await env.DB
+      .prepare(
+        `INSERT INTO agentsam_tool_chain
+      (id, plan_id, todo_id, workspace_id, agent_session_id, tool_name, tool_id,
+       tool_status, input_json, started_at, requires_approval, depth)
+      VALUES (?,?,?,?,?,?,?,?,?, unixepoch(), ?, ?)`,
+      )
+      .bind(
+        chainId,
+        planId,
+        todoId,
+        resolvedWorkspace,
+        sessionId || null,
+        cmd.mapped_command,
+        null,
+        'running',
+        JSON.stringify(inputPayload),
+        0,
+        0,
+      )
+      .run();
+  }
 
   if (planId && todoId) {
     await registerExecutionDependency(env, chainId, planId, todoId, tenantId).catch(() => {});

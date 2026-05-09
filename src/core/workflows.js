@@ -2,6 +2,7 @@
  * Multi-step workflow runner — D1 agentsam_mcp_workflows + agentsam_workflow_runs.
  */
 import { executeCommand } from '../api/command-run-telemetry.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
 import { isFeatureEnabled } from './features.js';
 import { pragmaTableInfo } from './retention.js';
 
@@ -174,7 +175,10 @@ async function executeWorkflowSteps(env, ctx, {
   const workflowExecId = `exec_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   if (execCols.size && execCols.has('task_id')) {
     try {
-      const uid = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
+      const uid =
+        userId != null && String(userId).trim() !== ''
+          ? await resolveCanonicalUserId(String(userId).trim(), env)
+          : null;
       if (execCols.has('model_key')) {
         await env.DB
           .prepare(

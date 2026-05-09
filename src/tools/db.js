@@ -6,11 +6,15 @@
 import { d1_query as d1QueryCore } from '../core/d1.js';
 import { assertD1ReadOnlySelect } from '../core/d1-read-validator.js';
 import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
 
-function logPolicyBlock(env, fields) {
+async function logPolicyBlock(env, fields) {
   if (!env?.DB) return;
   const tenantId = fields.tenant_id != null ? String(fields.tenant_id) : 'system';
-  const userId = fields.user_id ?? null;
+  let userId = fields.user_id ?? null;
+  if (userId) {
+    userId = await resolveCanonicalUserId(String(userId).trim(), env);
+  }
   const sessionId = fields.session_id ?? null;
   const workspaceId = fields.workspace_id != null ? String(fields.workspace_id) : null;
   const sqlSnippet = String(fields.sql || '').slice(0, 2000);
@@ -52,7 +56,7 @@ export const handlers = {
 
     const gate = assertD1ReadOnlySelect(sql);
     if (!gate.ok) {
-      logPolicyBlock(env, {
+      await logPolicyBlock(env, {
         sql,
         error: gate.error || 'policy_block',
         tenant_id: tenant_id ?? null,

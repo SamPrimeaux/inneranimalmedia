@@ -4,6 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 import { resolveTelemetryTenantId } from '../core/auth';
+import { resolveCanonicalUserId } from './auth.js';
 import { pragmaTableInfo } from '../core/retention.js';
 import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
 
@@ -84,8 +85,16 @@ export function computeUsdFromModelRatesRow(modelKey, ratesRow, inputTokens, out
  */
 export async function writeTelemetry(env, data, modelRates) {
   const {
-    sessionId, tenantId, workspaceId, provider, model,
-    inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
+    sessionId,
+    tenantId,
+    workspaceId,
+    userId,
+    provider,
+    model,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
     latencyMs,
     success,
     computedCostUsdOverride,
@@ -130,6 +139,15 @@ export async function writeTelemetry(env, data, modelRates) {
 
   try {
     const usageCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
+    let uidUsage = userId != null ? String(userId).trim() : '';
+    if (uidUsage) {
+      uidUsage = await resolveCanonicalUserId(uidUsage, env);
+    } else {
+      uidUsage = null;
+    }
+    const hasUid = usageCols.has('user_id');
+    const uidMid = hasUid ? ', user_id' : '';
+    const uidMidPh = hasUid ? ',?' : '';
     const armCol =
       routingArmId != null &&
       String(routingArmId).trim() !== '' &&
@@ -138,15 +156,16 @@ export async function writeTelemetry(env, data, modelRates) {
     if (armCol) {
       await env.DB.prepare(
         `INSERT INTO agentsam_usage_events (
-          id, tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
+          id, tenant_id, workspace_id${uidMid}, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status,
           event_type, duration_ms, routing_arm_id,
           created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
       ).bind(
         telemetryId,
         tidInsert,
         wsInsert,
+        ...(hasUid ? [uidUsage] : []),
         sid,
         'agent-sam',
         String(provider || 'unknown'),
@@ -164,15 +183,16 @@ export async function writeTelemetry(env, data, modelRates) {
     } else {
       await env.DB.prepare(
         `INSERT INTO agentsam_usage_events (
-          id, tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
+          id, tenant_id, workspace_id${uidMid}, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status,
           event_type, duration_ms,
           created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
       ).bind(
         telemetryId,
         tidInsert,
         wsInsert,
+        ...(hasUid ? [uidUsage] : []),
         sid,
         'agent-sam',
         String(provider || 'unknown'),
