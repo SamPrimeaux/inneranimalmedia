@@ -28,7 +28,13 @@ async function resolveAutoModelKey(env, params) {
   });
 
   if (thompsonEnabled) {
-    const arm = await thompsonSample(env, params.taskType || 'chat', params.mode || 'auto').catch(() => null);
+    const ws =
+      params.workspaceId != null && String(params.workspaceId).trim() !== ''
+        ? String(params.workspaceId).trim()
+        : '';
+    const arm = await thompsonSample(env, params.taskType || 'chat', params.mode || 'auto', ws).catch(
+      () => null,
+    );
     if (arm?.model_key) {
       params.model = arm.model_key;
       params.provider = arm.provider;

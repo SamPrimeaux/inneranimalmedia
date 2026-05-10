@@ -820,7 +820,7 @@ export async function executeCommand(env, ctx, o) {
   }
 
   const effectiveTaskType = taskType || (cmd.task_type != null ? String(cmd.task_type) : null) || 'tool_use';
-  const arm = await thompsonSample(env, effectiveTaskType, 'agent').catch(() => null);
+  const arm = await thompsonSample(env, effectiveTaskType, 'agent', resolvedWorkspace).catch(() => null);
   const modelKey = arm?.model_key || 'gpt-4.1-mini';
   const provider = arm?.provider || 'openai';
 
@@ -1053,7 +1053,7 @@ export async function completeCommand(env, ctx, o) {
     );
   }
 
-  if (modelKey && taskType) {
+  if (modelKey && taskType && traceTenantWorkspace?.workspace_id) {
     ctx.waitUntil(
       recordCallOutcome(env, {
         taskType,
@@ -1063,6 +1063,7 @@ export async function completeCommand(env, ctx, o) {
         success,
         costUsd,
         durationMs,
+        workspaceId: traceTenantWorkspace.workspace_id,
       }),
     );
   }

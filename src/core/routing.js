@@ -190,24 +190,62 @@ export function thompsonSelectArm(arms, cols) {
  * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
  * @param {{ taskType: string, mode: string, workspaceId: string, toolRequired?: boolean }} q
  */
+/** Routes/tasks where Workers AI arms are allowed to compete fairly (not forced last). */
+const ROUTE_KEYS_ALLOW_WORKERS_AI = new Set([
+  'classifier',
+  'tiny_summary',
+  'embedding_fallback',
+  'smoke_test',
+]);
+
+const TASK_TYPES_ALLOW_WORKERS_AI = new Set([
+  'intent_classification',
+  'embedding',
+  'smoke_test',
+  'tiny_summary',
+]);
+
+function routingAllowsWorkersAiEarly(routeKey, taskType) {
+  const rk = routeKey != null ? String(routeKey).trim().toLowerCase() : '';
+  const tt = taskType != null ? String(taskType).trim().toLowerCase() : '';
+  if (rk && ROUTE_KEYS_ALLOW_WORKERS_AI.has(rk)) return true;
+  if (tt && TASK_TYPES_ALLOW_WORKERS_AI.has(tt)) return true;
+  return false;
+}
+
+/**
+ * Live D1: arms reference canonical catalog keys. Block the **base** SKU `gpt-5.5` only (not API-accessible).
+ * `gpt-5.5-pro` may exist in catalog; eligibility is governed by `agentsam_model_catalog.is_active` (keep off until smoke-tested).
+ * Workers AI (`provider` / `wai-*` / `@cf/*`) is sorted last unless the route/task explicitly allows it.
+ */
 export async function queryRoutingArmsCandidates(env, q) {
   const db = env?.DB;
   if (!db) return [];
   const tt = q.taskType != null ? String(q.taskType).trim() : 'chat';
   const m = q.mode != null && String(q.mode).trim() !== '' ? String(q.mode).trim() : 'auto';
   const toolReq = !!q.toolRequired;
-  const toolsClause = toolReq ? ' AND supports_tools = 1' : '';
-  const baseWhere = `task_type = ? AND mode = ? AND is_active = 1 AND is_eligible = 1 AND is_paused = 0 AND budget_exhausted = 0${toolsClause}`;
+  const routeKey = q.routeKey != null ? String(q.routeKey).trim() : '';
+  const allowWaiSort = routingAllowsWorkersAiEarly(routeKey || undefined, tt);
+  const toolsClause = toolReq ? ' AND ra.supports_tools = 1' : '';
   const ws = q.workspaceId != null ? String(q.workspaceId).trim() : '';
+  if (!ws) return [];
+
+  const catalogOk =
+    ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
+  /** Base-only ban; `gpt-5.5-pro` is allowed through only when catalog marks it active. */
+  const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
+  const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${toolsClause}${catalogOk}${blockGpt55Base}`;
+
+  const orderSql = allowWaiSort
+    ? `ra.decayed_score DESC, COALESCE(ra.priority, 50) ASC`
+    : `(CASE WHEN LOWER(COALESCE(ra.provider,'')) IN ('cloudflare','workers_ai')
+             OR ra.model_key LIKE 'wai-%' OR ra.model_key LIKE '@cf/%' THEN 1 ELSE 0 END) ASC,
+       ra.decayed_score DESC, COALESCE(ra.priority, 50) ASC`;
+
   try {
-    if (ws) {
-      const sqlWs = `SELECT * FROM ${TABLE} WHERE ${baseWhere} AND workspace_id = ? ORDER BY decayed_score DESC, priority ASC LIMIT 40`;
-      const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
-      if (r1.results?.length) return r1.results;
-    }
-    const sqlGlobal = `SELECT * FROM ${TABLE} WHERE ${baseWhere} ORDER BY decayed_score DESC LIMIT 40`;
-    const r2 = await db.prepare(sqlGlobal).bind(tt, m).all();
-    return r2.results || [];
+    const sqlWs = `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
+    const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
+    return r1.results || [];
   } catch {
     return [];
   }
@@ -406,6 +444,7 @@ export async function getDefaultModelForTask(env, ctx = {}) {
       mode,
       workspaceId,
       toolRequired: !!ctx.toolRequired,
+      routeKey: ctx.routeKey ?? null,
     });
     arms = await filterArmsForRouteKey(env, ctx.routeKey ?? null, arms);
     arms = await mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms);
@@ -492,6 +531,7 @@ export async function loadChatRoutingArmsModelKeyOrder(env, mode, workspaceId, o
     mode: m,
     workspaceId: ws,
     toolRequired: !!opts.toolRequired,
+    routeKey: opts.routeKey ?? null,
   });
   const keys = rows.map((r) => String(r?.model_key ?? '').trim()).filter(Boolean);
   if (keys.length) return keys;

@@ -20,18 +20,30 @@ export function pickRoutingArmByThompson(results) {
   return best;
 }
 
-export async function thompsonSample(env, taskType, mode) {
+/**
+ * Single-draw Thompson sample for command/auto flows (workspace-scoped arms only).
+ * @param {string} [workspaceId] required for live D1 (routing arms are per workspace)
+ */
+export async function thompsonSample(env, taskType, mode, workspaceId = '') {
   if (!env?.DB) return null;
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!ws) return null;
   const { results } = await env.DB.prepare(
     `
-    SELECT id, model_key, provider, success_alpha, success_beta,
-           cost_mean, latency_mean
-    FROM agentsam_routing_arms
-    WHERE task_type = ? AND mode = ?
-      AND is_eligible = 1 AND is_paused = 0
+    SELECT ra.id, ra.model_key, ra.provider, ra.success_alpha, ra.success_beta,
+           ra.cost_mean, ra.latency_mean
+    FROM agentsam_routing_arms ra
+    WHERE ra.task_type = ? AND ra.mode = ?
+      AND ra.workspace_id = ?
+      AND ra.is_eligible = 1 AND ra.is_paused = 0
+      AND EXISTS (
+        SELECT 1 FROM agentsam_model_catalog mc
+        WHERE mc.model_key = ra.model_key AND mc.is_active = 1
+      )
+      AND lower(trim(ra.model_key)) != 'gpt-5.5'
     `,
   )
-    .bind(taskType, mode || 'auto')
+    .bind(taskType, mode || 'auto', ws)
     .all()
     .catch(() => ({ results: [] }));
   return pickRoutingArmByThompson(results);
@@ -42,8 +54,8 @@ export async function updateArmsFromMetrics(env) {
   const { results: metrics } = await env.DB
     .prepare(
       `
-    SELECT command_id, execution_count, success_count, failure_count,
-           avg_duration_ms, total_cost_cents
+    SELECT routing_arm_id, model_key, workspace_id, execution_count, success_count, failure_count,
+           avg_duration_ms, total_cost_cents, command_id
     FROM agentsam_execution_performance_metrics
     WHERE metric_date = date('now','-1 day') AND execution_count > 0
   `,
@@ -52,21 +64,56 @@ export async function updateArmsFromMetrics(env) {
     .catch(() => ({ results: [] }));
 
   for (const m of metrics || []) {
-    const arm = await env.DB
-      .prepare(
-        `
+    let arm = null;
+    const rid = m.routing_arm_id != null ? String(m.routing_arm_id).trim() : '';
+    if (rid) {
+      arm = await env.DB
+        .prepare(
+          `
+      SELECT id, success_alpha, success_beta, cost_n, cost_mean, latency_n, latency_mean
+      FROM agentsam_routing_arms WHERE id = ? LIMIT 1
+    `,
+        )
+        .bind(rid)
+        .first()
+        .catch(() => null);
+    }
+    const mk = m.model_key != null ? String(m.model_key).trim() : '';
+    const wsv = m.workspace_id != null ? String(m.workspace_id).trim() : '';
+    if (!arm && mk && wsv) {
+      arm = await env.DB
+        .prepare(
+          `
+      SELECT id, success_alpha, success_beta, cost_n, cost_mean, latency_n, latency_mean
+      FROM agentsam_routing_arms
+      WHERE model_key = ? AND workspace_id = ?
+      LIMIT 1
+    `,
+        )
+        .bind(mk, wsv)
+        .first()
+        .catch(() => null);
+    }
+
+    if (!arm && mk && !wsv) {
+      arm = await env.DB
+        .prepare(
+          `
       SELECT id, success_alpha, success_beta, cost_n, cost_mean, latency_n, latency_mean
       FROM agentsam_routing_arms WHERE model_key = ? LIMIT 1
     `,
-      )
-      .bind(m.command_id)
-      .first()
-      .catch(() => null);
+        )
+        .bind(mk)
+        .first()
+        .catch(() => null);
+    }
+
     if (!arm) continue;
 
+    const execN = Math.max(1, Number(m.execution_count) || 1);
     const newAlpha = arm.success_alpha + (m.success_count || 0);
     const newBeta = arm.success_beta + (m.failure_count || 0);
-    const costUsd = ((m.total_cost_cents || 0) / 100) / m.execution_count;
+    const costUsd = ((m.total_cost_cents || 0) / 100) / execN;
     const cn = arm.cost_n + 1;
     const newCostMean = arm.cost_mean + (costUsd - arm.cost_mean) / cn;
     const ln = arm.latency_n + 1;
@@ -100,31 +147,44 @@ export async function updateArmsFromMetrics(env) {
       .catch(() => {});
   }
 
-  const { results: comps } = await env.DB
-    .prepare(
-      `
-    SELECT tc.tool_name as model_key
+  let hasToolChain = false;
+  try {
+    const probe = await env.DB.prepare(
+      `SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'agentsam_tool_chain' LIMIT 1`,
+    ).first();
+    hasToolChain = !!probe?.ok;
+  } catch {
+    hasToolChain = false;
+  }
+  if (hasToolChain) {
+    const { results: comps } = await env.DB
+      .prepare(
+        `
+    SELECT tc.tool_name AS model_key
     FROM agentsam_execution_dependency_graph edg
     JOIN agentsam_tool_chain tc ON tc.id = edg.depends_on_chain_id
     WHERE edg.dependency_type = 'compensation'
       AND edg.created_at > unixepoch('now','-1 day')
   `,
-    )
-    .all()
-    .catch(() => ({ results: [] }));
+      )
+      .all()
+      .catch(() => ({ results: [] }));
 
-  for (const c of comps || []) {
-    await env.DB
-      .prepare(
-        `
+    for (const c of comps || []) {
+      const cmk = c.model_key != null ? String(c.model_key).trim() : '';
+      if (!cmk) continue;
+      await env.DB
+        .prepare(
+          `
       UPDATE agentsam_routing_arms
       SET success_beta = success_beta + 1, updated_at = unixepoch()
       WHERE model_key = ?
     `,
-      )
-      .bind(c.model_key)
-      .run()
-      .catch(() => {});
+        )
+        .bind(cmk)
+        .run()
+        .catch(() => {});
+    }
   }
 }
 
@@ -137,7 +197,9 @@ export async function recordCallOutcome(env, payload) {
   if (!env?.DB) return;
   const taskType = payload?.taskType != null ? String(payload.taskType).trim() : '';
   const modelKey = payload?.modelKey != null ? String(payload.modelKey).trim() : '';
-  if (!taskType || !modelKey) return;
+  const workspaceId =
+    payload?.workspaceId != null ? String(payload.workspaceId).trim() : '';
+  if (!taskType || !modelKey || !workspaceId) return;
   const mode = payload?.mode != null ? String(payload.mode).trim() : 'auto';
   const success = !!payload?.success;
   const costUsd = Number(payload?.costUsd) || 0;
@@ -154,18 +216,18 @@ export async function recordCallOutcome(env, payload) {
           latency_mean  = CASE WHEN latency_n = 0 THEN ?
                   ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
           updated_at    = unixepoch()
-         WHERE task_type = ? AND mode = ? AND model_key = ?`,
+         WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`,
       )
-        .bind(costUsd, costUsd, durationMs, durationMs, taskType, mode, modelKey)
+        .bind(costUsd, costUsd, durationMs, durationMs, taskType, mode, modelKey, workspaceId)
         .run();
     } else {
       await env.DB.prepare(
         `UPDATE agentsam_routing_arms SET
           success_beta = success_beta + 1,
           updated_at = unixepoch()
-         WHERE task_type = ? AND mode = ? AND model_key = ?`,
+         WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`,
       )
-        .bind(taskType, mode, modelKey)
+        .bind(taskType, mode, modelKey, workspaceId)
         .run();
     }
   } catch (e) {

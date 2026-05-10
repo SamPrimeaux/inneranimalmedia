@@ -11,6 +11,7 @@
  */
 
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { resolveIamActorContext } from '../core/identity.js';
 
 // --- R2 Helpers ---
 
@@ -94,7 +95,14 @@ export async function handleCmsApi(request, url, env, ctx) {
   // Scoping context
   const tenantId = authUser.tenant_id;
   const personUuid = authUser.person_uuid;
-  const workspaceId = authUser.workspace_id || tenantId || 'ws_default';
+  const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+  const workspaceId = actorCtx?.workspaceId || (authUser.workspace_id ? String(authUser.workspace_id).trim() : '') || null;
+  if (!tenantId || String(tenantId).trim() === '') {
+    return jsonResponse({ error: 'TENANT_CONTEXT_MISSING' }, 400);
+  }
+  if (!workspaceId) {
+    return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+  }
 
   if (!env.DB) return jsonResponse({ error: 'Database unavailable' }, 503);
 

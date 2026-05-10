@@ -4,6 +4,7 @@
  */
 import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
+import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
 
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
 
@@ -299,27 +300,120 @@ function pickUsageFromNodeOutput(nodeOutput) {
   return { tin, tout, cost };
 }
 
-/** Fire-and-forget pending row — failures ignored. */
-function ffPendingExecutionStep(db, cols, stepId, workflowRunId, node, inputPayload) {
-  if (!db || !cols?.has?.('execution_id')) return;
+function pickModelFromNodeOutput(nodeOutput) {
+  const o = nodeOutput?.output;
+  if (!o || typeof o !== 'object') return null;
+  const u = o.usage && typeof o.usage === 'object' ? o.usage : o;
+  const m = o.model_key ?? o.model ?? u.model_key ?? u.model ?? null;
+  if (m == null || String(m).trim() === '') return null;
+  return String(m).slice(0, 500);
+}
+
+/**
+ * Canonical execution ledger row — agentsam_execution_steps.execution_id FK targets this id (not wrun_*).
+ * Mirrors src/core/workflows.js flat runner.
+ */
+async function insertAgentsamExecutionForGraph(env, execCols, { tenantId, workspaceId, userId, runId, workflowKey }) {
+  if (!env?.DB || !execCols?.size || !execCols.has('task_id')) return null;
+  const workflowExecId = `exec_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const wfKey = workflowKey != null ? String(workflowKey).slice(0, 500) : '';
+  const uid =
+    userId != null && String(userId).trim() !== ''
+      ? await resolveCanonicalUserId(String(userId).trim(), env)
+      : null;
+  try {
+    if (execCols.has('model_key')) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO agentsam_executions
+         (id, tenant_id, workspace_id, user_id, command_run_id, task_id, execution_type, command,
+          status, duration_ms, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+      )
+        .bind(
+          workflowExecId,
+          tenantId ?? null,
+          workspaceId,
+          uid,
+          null,
+          runId,
+          'workflow',
+          wfKey || null,
+          'running',
+          0,
+        )
+        .run();
+    } else {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO agentsam_executions
+         (id, tenant_id, workspace_id, user_id, task_id, execution_type, command, duration_ms, created_at)
+         VALUES (?,?,?,?,?,?,?,?,unixepoch())`,
+      )
+        .bind(workflowExecId, tenantId ?? null, workspaceId, uid, runId, 'workflow', wfKey || null, 0)
+        .run();
+    }
+    return workflowExecId;
+  } catch (e) {
+    console.warn('[workflow-graph] agentsam_executions insert failed', e?.message ?? e);
+    return null;
+  }
+}
+
+/** Pending step row — execution_id must be agentsam_executions.id when that FK exists. */
+function ffPendingExecutionStep(db, cols, stepId, executionParentId, workflowRunId, node, inputPayload) {
+  if (!db || !cols?.size) return;
+  const hasExecCol = cols.has('execution_id');
+  const hasWrunCol = cols.has('workflow_run_id');
+  if (!hasExecCol && !hasWrunCol) return;
+  if (hasExecCol && !executionParentId) return;
+
   const nk = String(node?.node_key ?? '').slice(0, 500);
   const nt = String(node?.node_type ?? '').slice(0, 120);
   const ij = JSON.stringify(inputPayload ?? {}).slice(0, 8000);
-  const hasAttempt = cols.has('attempt');
-  const sql = hasAttempt
-    ? `INSERT INTO agentsam_execution_steps (id, execution_id, node_key, node_type, status, input_json, attempt, created_at) VALUES (?,?,?,?,?,?,?,datetime('now'))`
-    : `INSERT INTO agentsam_execution_steps (id, execution_id, node_key, node_type, status, input_json, created_at) VALUES (?,?,?,?,?,?,datetime('now'))`;
-  const binds = hasAttempt ? [stepId, workflowRunId, nk, nt, 'running', ij, 1] : [stepId, workflowRunId, nk, nt, 'running', ij];
+
+  const colNames = [];
+  const placeholders = [];
+  const binds = [];
+
+  colNames.push('id');
+  placeholders.push('?');
+  binds.push(stepId);
+  if (hasExecCol) {
+    colNames.push('execution_id');
+    placeholders.push('?');
+    binds.push(executionParentId);
+  }
+  if (hasWrunCol) {
+    colNames.push('workflow_run_id');
+    placeholders.push('?');
+    binds.push(workflowRunId);
+  }
+  colNames.push('node_key', 'node_type', 'status', 'input_json');
+  placeholders.push('?', '?', '?', '?');
+  binds.push(nk, nt, 'running', ij);
+  if (cols.has('attempt')) {
+    colNames.push('attempt');
+    placeholders.push('?');
+    binds.push(1);
+  }
+  if (cols.has('started_at')) {
+    colNames.push('started_at');
+    placeholders.push('?');
+    binds.push(Math.floor(Date.now() / 1000));
+  }
+  colNames.push('created_at');
+  placeholders.push(`datetime('now')`);
+
+  const sql = `INSERT INTO agentsam_execution_steps (${colNames.join(', ')}) VALUES (${placeholders.join(', ')})`;
   void db
     .prepare(sql)
     .bind(...binds)
     .run()
-    .catch(() => {});
+    .catch((e) => console.warn('[workflow-graph] execution_steps insert', e?.message ?? e));
 }
 
-/** Fire-and-forget completion update — failures ignored. */
+/** Fire-and-forget completion update — keyed by step id. */
 function ffCompleteExecutionStep(db, cols, stepId, nodeStartMs, nodeOutput) {
-  if (!db || !cols?.has?.('execution_id')) return;
+  if (!db || !cols?.size || !stepId) return;
   const ok = !!nodeOutput?.ok;
   const latency = Math.max(0, Date.now() - nodeStartMs);
   const outJson = JSON.stringify(nodeOutput ?? {}).slice(0, 16000);
@@ -360,7 +454,17 @@ function ffCompleteExecutionStep(db, cols, stepId, nodeStartMs, nodeOutput) {
     .prepare(sql)
     .bind(...binds)
     .run()
-    .catch(() => {});
+    .catch((e) => console.warn('[workflow-graph] execution_steps complete', e?.message ?? e));
+}
+
+function ffPatchExecutionStepEdge(db, cols, stepId, edge) {
+  if (!db || !cols?.has?.('edge_taken') || !stepId || !edge) return;
+  const label = String(edge.edge_key ?? edge.id ?? `${edge.from_node_key}->${edge.to_node_key}`).slice(0, 500);
+  void db
+    .prepare(`UPDATE agentsam_execution_steps SET edge_taken = ? WHERE id = ?`)
+    .bind(label, stepId)
+    .run()
+    .catch((e) => console.warn('[workflow-graph] execution_steps edge_taken', e?.message ?? e));
 }
 
 // ── Main executor ────────────────────────────────────────────────────
@@ -460,6 +564,14 @@ export async function executeWorkflowGraph(env, opts) {
 
   const canonicalUserId = await resolveCanonicalUserId(userId, env);
   const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
+  const execCols = await pragmaTableInfo(env.DB, 'agentsam_executions');
+  const workflowExecId = await insertAgentsamExecutionForGraph(env, execCols, {
+    tenantId,
+    workspaceId,
+    userId,
+    runId,
+    workflowKey,
+  });
 
   const nodeMap = Object.fromEntries(nodes.map((n) => [n.node_key, n]));
   const edgeMap = {};
@@ -469,13 +581,23 @@ export async function executeWorkflowGraph(env, opts) {
   }
 
   const runMeta = { tenantId, workspaceId, userId: canonicalUserId };
-  const runContext = { runId, runMeta, workflowRunId: runId, canonicalUserId };
+  const runContext = {
+    runId,
+    runMeta,
+    workflowRunId: runId,
+    canonicalUserId,
+    workflowExecId,
+  };
   const stepResults = [];
   let currentNodeKey = firstKey;
   let stepsCompleted = 0;
   let totalCostUsd = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let lastModelUsed = null;
   let runOk = true;
   let killReason = null;
+  let previousStepId = null;
 
   // 5. Walk the graph
   const visited = new Set();
@@ -516,7 +638,13 @@ export async function executeWorkflowGraph(env, opts) {
 
     const stepId = `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
     const nodeStartTime = Date.now();
-    ffPendingExecutionStep(env.DB, stepCols, stepId, runId, node, nodeInput);
+    ffPendingExecutionStep(env.DB, stepCols, stepId, workflowExecId, runId, node, nodeInput);
+
+    if (tenantId && previousStepId && workspaceId) {
+      void insertExecutionDependencyGraphEdge(env, tenantId, stepId, previousStepId, workspaceId).catch(
+        () => {},
+      );
+    }
 
     const nodeOutput = await dispatchNode(env, node, nodeInput, {
       ...runContext,
@@ -528,6 +656,15 @@ export async function executeWorkflowGraph(env, opts) {
     }));
 
     ffCompleteExecutionStep(env.DB, stepCols, stepId, nodeStartTime, nodeOutput);
+
+    const usage = pickUsageFromNodeOutput(nodeOutput);
+    totalInputTokens += usage.tin;
+    totalOutputTokens += usage.tout;
+    totalCostUsd += usage.cost;
+    const stepModel = pickModelFromNodeOutput(nodeOutput);
+    if (stepModel) lastModelUsed = stepModel;
+
+    previousStepId = stepId;
 
     stepResults.push({
       node_key: currentNodeKey,
@@ -561,11 +698,15 @@ export async function executeWorkflowGraph(env, opts) {
       await env.DB
         .prepare(
           `UPDATE agentsam_workflow_runs SET
-          status     = 'awaiting_approval',
-          updated_at = datetime('now')
+          status         = 'awaiting_approval',
+          input_tokens   = ?,
+          output_tokens  = ?,
+          cost_usd       = ?,
+          model_used     = ?,
+          updated_at     = datetime('now')
         WHERE id = ?`,
         )
-        .bind(runId)
+        .bind(totalInputTokens, totalOutputTokens, totalCostUsd, lastModelUsed, runId)
         .run()
         .catch(() => null);
       return {
@@ -583,12 +724,16 @@ export async function executeWorkflowGraph(env, opts) {
     });
 
     let nextNodeKey = null;
+    let chosenEdge = null;
     for (const edge of outEdges) {
       if (evaluateEdge(edge, nodeOutput)) {
         nextNodeKey = edge.to_node_key;
+        chosenEdge = edge;
         break;
       }
     }
+
+    ffPatchExecutionStepEdge(env.DB, stepCols, stepId, chosenEdge);
 
     currentNodeKey = nextNodeKey;
   }
@@ -607,7 +752,10 @@ export async function executeWorkflowGraph(env, opts) {
       output_json       = ?,
       step_results_json = ?,
       steps_completed   = ?,
+      input_tokens      = ?,
+      output_tokens     = ?,
       cost_usd          = ?,
+      model_used        = ?,
       completed_at      = unixepoch(),
       ${killClause}
       updated_at        = datetime('now')
@@ -618,7 +766,10 @@ export async function executeWorkflowGraph(env, opts) {
       JSON.stringify(lastOutput),
       JSON.stringify(stepResults),
       stepsCompleted,
+      totalInputTokens,
+      totalOutputTokens,
       totalCostUsd,
+      lastModelUsed,
       ...killBinds,
       runId,
     )

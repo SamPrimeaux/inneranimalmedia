@@ -281,7 +281,7 @@ export async function resolveActiveBootstrap(env, opts) {
 export async function resolveBootstrapWorkspaceContext(env, request, userId, cache) {
   const uid = userId != null ? String(userId).trim() : '';
   if (!uid) {
-    return { workspace_id: IAM_SAM_FALLBACK_WORKSPACE_ID, bootstrap: null, error: null };
+    return { workspace_id: null, bootstrap: null, error: WORKSPACE_CONTEXT_MISSING };
   }
 
   if (cache && typeof cache === 'object' && cache.__bootstrapCtx != null) {

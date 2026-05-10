@@ -56,9 +56,11 @@ import {
   scheduleRoutingArmQualityUpdate,
   applyRoutingArmUsageFeedback,
   loadChatRoutingArmsModelKeyOrder,
+  queryRoutingArmsCandidates,
   resolveRoutingTaskType,
   CHAT_ROUTING_STATIC_FALLBACK_KEYS,
 } from '../core/routing.js';
+import { pickRoutingArmByThompson } from '../core/thompson.js';
 import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
@@ -954,33 +956,31 @@ async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
   }
 }
 
-async function selectThompsonArm(env, taskType, mode, workspaceId) {
-  if (!env.DB || !taskType) return null;
+async function selectThompsonArm(env, taskType, mode, workspaceId, routeKey) {
+  if (!env.DB || !taskType || !workspaceId) return null;
   try {
-    const arm = await env.DB.prepare(
-      `SELECT ra.id as arm_id, ra.model_key, ra.provider,
-             ra.tools_json, ra.workflow_agent, ra.reasoning_effort,
-             ai.id as ai_model_id, ai.api_platform
-      FROM agentsam_routing_arms ra
-      LEFT JOIN agentsam_ai ai
-             ON ai.model_key = ra.model_key AND ai.status = 'active'
-      WHERE ra.task_type = ?
-        AND ra.mode = ?
-        AND ra.is_active = 1
-        AND ra.is_eligible = 1
-        AND ra.is_paused = 0
-        AND ra.budget_exhausted = 0
-        AND ra.workspace_id = ?
-      ORDER BY ra.decayed_score DESC
-      LIMIT 1`,
+    const arms = await queryRoutingArmsCandidates(env, {
+      taskType,
+      mode,
+      workspaceId,
+      toolRequired: false,
+      routeKey: routeKey ?? null,
+    });
+    const arm = pickRoutingArmByThompson(arms);
+    if (!arm?.model_key) return null;
+    const aiRow = await env.DB.prepare(
+      `SELECT ai.id AS ai_model_id, ai.api_platform
+       FROM agentsam_ai ai
+       WHERE ai.model_key = ? AND ai.mode = 'model' AND ai.status = 'active'
+       LIMIT 1`,
     )
-      .bind(taskType, mode, workspaceId)
-      .first();
-    if (!arm) return null;
+      .bind(String(arm.model_key))
+      .first()
+      .catch(() => null);
     return {
       source: 'thompson',
-      modelId: arm.ai_model_id || arm.model_key,
-      armId: arm.arm_id,
+      modelId: aiRow?.ai_model_id || arm.model_key,
+      armId: arm.id,
       toolsJson: arm.tools_json,
       workflowAgent: arm.workflow_agent,
       reasoningEffort: arm.reasoning_effort || 'medium',
@@ -1186,6 +1186,7 @@ async function loadChatRoutingFallbackRows(env, opts = {}) {
       : '';
   let keyOrder = await loadChatRoutingArmsModelKeyOrder(env, mode, ws, {
     toolRequired: requireTools,
+    routeKey: opts.routeKey ?? null,
   });
   keyOrder = keyOrder.filter((k) => !excludeSet.has(k));
 
@@ -1354,15 +1355,49 @@ async function checkApprovalGate(env, userId, toolName) {
 async function auditToolDecision(env, opts) {
   if (!env.DB) return;
   const tid = opts.tenantId != null && String(opts.tenantId).trim() !== '' ? String(opts.tenantId).trim() : '';
-  if (!tid) return;
+  const wid =
+    opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : '';
+  const uid =
+    opts.userId != null && String(opts.userId).trim() !== '' ? String(opts.userId).trim() : '';
+  if (!tid || !wid || !uid) return;
   try {
+    const hook = await env.DB.prepare(
+      `SELECT id FROM agentsam_hook
+       WHERE is_active = 1 AND trigger IN ('tool_audit','agent_tool_audit')
+         AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)
+         AND (workspace_id IS NULL OR workspace_id = '' OR workspace_id = ?)
+       ORDER BY CASE WHEN workspace_id IS NOT NULL AND workspace_id != '' THEN 0 ELSE 1 END
+       LIMIT 1`,
+    )
+      .bind(tid, wid)
+      .first()
+      .catch(() => null);
+    if (!hook?.id) return;
+    const execId = `hexec_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const blocked = String(opts.eventType || '').includes('blocked');
     await env.DB.prepare(
-      `INSERT INTO agentsam_hook_execution (id, tenant_id, actor_role_id, event_type, message, metadata_json)
-       VALUES (?, ?, 'iam_agent', ?, ?, ?)`
-    ).bind(
-      crypto.randomUUID(), tid, opts.eventType, opts.message,
-      JSON.stringify({ tool: opts.toolName, reason: opts.reason, risk: opts.riskLevel })
-    ).run();
+      `INSERT INTO agentsam_hook_execution (
+         id, hook_id, tenant_id, workspace_id, user_id,
+         event_type, status, payload_json, metadata_json, ran_at
+       ) VALUES (?,?,?,?,?,?,?,?,?, datetime('now'))`,
+    )
+      .bind(
+        execId,
+        String(hook.id),
+        tid,
+        wid,
+        uid,
+        String(opts.eventType || 'tool_audit'),
+        blocked ? 'blocked' : 'success',
+        JSON.stringify({
+          message: opts.message ?? null,
+          tool: opts.toolName ?? null,
+        }),
+        JSON.stringify({ reason: opts.reason ?? null, risk: opts.riskLevel ?? null }),
+      )
+      .run();
   } catch (_) {}
 }
 
@@ -1874,7 +1909,16 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           errorMessage: validation.reason,
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
         });
-        await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_blocked', message: `Blocked: ${call.name} — ${validation.reason}`, riskLevel: 'blocked', reason: validation.reason });
+        await auditToolDecision(env, {
+          tenantId,
+          workspaceId,
+          userId,
+          toolName: call.name,
+          eventType: 'tool_blocked',
+          message: `Blocked: ${call.name} — ${validation.reason}`,
+          riskLevel: 'blocked',
+          reason: validation.reason,
+        });
         emit('tool_blocked', { tool: call.name, reason: validation.reason });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Tool not available in ${mode} mode: ${validation.reason}` });
         continue;
@@ -1919,6 +1963,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         });
         await auditToolDecision(env, {
           tenantId,
+          workspaceId,
+          userId,
           toolName: call.name,
           eventType: 'tool_blocked',
           message: `Guardrail blocked: ${call.name}`,
@@ -1996,7 +2042,16 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       toolCallsUsed++;
       executedToolNames.push(call.name);
       emit('tool_call', { tool: call.name, args: call.input });
-      await auditToolDecision(env, { tenantId, toolName: call.name, eventType: 'tool_executed', message: `Executing: ${call.name}`, riskLevel: validation.riskLevel, reason: 'allowed' });
+      await auditToolDecision(env, {
+        tenantId,
+        workspaceId,
+        userId,
+        toolName: call.name,
+        eventType: 'tool_executed',
+        message: `Executing: ${call.name}`,
+        riskLevel: validation.riskLevel,
+        reason: 'allowed',
+      });
       const toolT0 = Date.now();
       const toolStartNs = toolT0 * 1_000_000;
       let toolOutput = '';
@@ -2727,6 +2782,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     intentResult.taskType,
     intentResult.mode || requestedMode,
     workspaceId,
+    promptRouteRow?.route_key ?? null,
   );
   if (thompsonPick && (!routingPick || routingPick.source !== 'thompson')) {
     routingPick = thompsonPick;
@@ -2759,6 +2815,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     mode: requestedMode,
     excludeModelKeys: reservedForFallback,
     requireTools,
+    routeKey: promptRouteRow?.route_key ?? null,
   });
   let poolRows = dedupeModelsByKey(
     [
