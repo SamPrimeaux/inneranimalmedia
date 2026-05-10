@@ -3,6 +3,7 @@
  * Handles activity strips, deployment history, and stats.
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { handleOverviewDashboardBundle } from './overview-bundle.js';
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
 async function pragmaColumnSet(db, tableName) {
@@ -119,6 +120,7 @@ export async function handleOverviewApi(request, url, env, ctx) {
   if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
   try {
+    if (pathLower === '/api/overview/dashboard-bundle') return handleOverviewDashboardBundle(authUser, env, url);
     if (pathLower === '/api/overview/activity-strip') return handleOverviewActivityStrip(authUser, env);
     if (pathLower === '/api/overview/agent-activity') return handleOverviewAgentActivity(env);
     if (pathLower === '/api/overview/commands-workflows') return handleOverviewCommandsWorkflows(env);
