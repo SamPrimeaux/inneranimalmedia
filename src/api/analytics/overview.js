@@ -79,6 +79,111 @@ function kpi(value, sourceTables, timeWindow, isLive, warning = null, extra = {}
   };
 }
 
+/** Aligns with workflow-executor step_results_json entries. */
+function usageFromGraphStepResult(s) {
+  const o = s?.output;
+  if (!o || typeof o !== 'object') return { tin: 0, tout: 0, cost: 0 };
+  const u = o.usage && typeof o.usage === 'object' ? o.usage : o;
+  const tin = Number(u.input_tokens ?? u.prompt_tokens ?? o.tokens_in ?? 0) || 0;
+  const tout = Number(u.output_tokens ?? u.completion_tokens ?? o.tokens_out ?? 0) || 0;
+  const cost = Number(o.cost_usd ?? u.cost_usd ?? 0) || 0;
+  return { tin, tout, cost };
+}
+
+/**
+ * Build waterfall steps from agentsam_workflow_runs.step_results_json when
+ * agentsam_execution_steps is sparse or missing (e.g. ledger not linked).
+ */
+function coerceStepResultsJsonField(row) {
+  if (!row || row.step_results_json == null) return row;
+  const sr = row.step_results_json;
+  if (typeof sr === 'string') return row;
+  try {
+    return { ...row, step_results_json: JSON.stringify(sr) };
+  } catch {
+    return row;
+  }
+}
+
+function waterfallFromStepResultsJson(stepResultsJson) {
+  let arr = [];
+  const raw =
+    stepResultsJson != null && typeof stepResultsJson !== 'string'
+      ? JSON.stringify(stepResultsJson)
+      : stepResultsJson;
+  try {
+    arr = JSON.parse(raw || '[]');
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const rows = arr.map((s) => {
+    const u = usageFromGraphStepResult(s);
+    const ok = s?.ok !== false && s?.error == null;
+    return {
+      node_key: s.node_key ?? s.nodeKey ?? null,
+      status: ok ? 'completed' : 'failed',
+      latency_ms: Number(s.latency_ms ?? 0) || 0,
+      tokens_in: u.tin,
+      tokens_out: u.tout,
+      cost_usd: u.cost,
+    };
+  });
+  const maxLat = Math.max(1, ...rows.map((r) => Number(r.latency_ms) || 0));
+  return rows.map((r) => ({
+    ...r,
+    bar: maxLat ? (Number(r.latency_ms) || 0) / maxLat : 0,
+  }));
+}
+
+/** @param {import('@cloudflare/workers-types').D1Database} db */
+async function fetchWorkflowRunRowById(db, runId, tid, ctx, warnings) {
+  if (!runId || !db) return null;
+  const id = String(runId);
+  const cols =
+    'id, run_group_id, model_used, input_tokens, output_tokens, cost_usd, step_results_json, status, tenant_id, workspace_id';
+  const strictBinds = [id];
+  let strictSql = `SELECT ${cols} FROM agentsam_workflow_runs WHERE id = ?`;
+  if (tid) {
+    strictSql += ' AND tenant_id = ?';
+    strictBinds.push(tid);
+  }
+  strictSql += ' LIMIT 1';
+  let row = await d1First(db, 'wrun_highlight_strict', strictSql, strictBinds, ctx);
+  if (!row && tid) {
+    row = await d1First(
+      db,
+      'wrun_highlight_loose',
+      `SELECT ${cols} FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`,
+      [id],
+      ctx,
+    );
+    if (row?.tenant_id && row.tenant_id !== tid) {
+      warnings.push({
+        code: 'HIGHLIGHT_RUN_TENANT_MISMATCH',
+        message: `highlightRun ${id} belongs to tenant ${row.tenant_id}; request tenant ${tid}.`,
+        backend: 'd1',
+        severity: 'warn',
+      });
+    }
+  }
+  return row || null;
+}
+
+async function loadWorkflowRunFromSupabase(env, runId) {
+  const r = await supabaseQuery(
+    env,
+    `SELECT id, run_group_id, model_used, input_tokens, output_tokens, cost_usd,
+            step_results_json, status, tenant_id
+     FROM public.agentsam_workflow_runs
+     WHERE id = $1
+     LIMIT 1`,
+    [runId],
+  );
+  if (!r.ok || !r.rows?.[0]) return null;
+  return coerceStepResultsJsonField(r.rows[0]);
+}
+
 async function loadSubJson(request, url, env, path, range, tenantId) {
   const u = new URL(url);
   u.pathname = path;
@@ -156,6 +261,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
       },
       workflowRunsOverTime: [],
       latestExecutionWaterfall: { workflow_run_id: null, run_group_id: null, steps: [], state: 'BLOCKED', reason: 'D1 missing' },
+      verifiedTrace: null,
       errorInbox: [],
       modelLeaderboard: [],
       costLatencyScatter: [],
@@ -697,30 +803,61 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
   );
 
   let waterfallRunId = latestRun?.id ? String(latestRun.id) : null;
-  const highlight = url.searchParams.get('highlightRun');
-  if (highlight && /^wrun_[a-zA-Z0-9_]+$/.test(String(highlight))) {
-    const hlBinds = [String(highlight)];
-    let hlSql = `SELECT id FROM agentsam_workflow_runs WHERE id = ?`;
-    if (tid) {
-      hlSql += ' AND tenant_id = ?';
-      hlBinds.push(tid);
+  const highlightRaw = url.searchParams.get('highlightRun');
+  const highlight =
+    highlightRaw && /^wrun_[a-zA-Z0-9_]+$/.test(String(highlightRaw)) ? String(highlightRaw) : null;
+
+  /** Full row for the run driving the waterfall (tokens, run_group, step_results_json). */
+  let waterfallRunRow = null;
+
+  if (highlight) {
+    let hlRow = await fetchWorkflowRunRowById(db, highlight, tid, ctx, warnings);
+    if (!hlRow && hasHyperdrive) {
+      hlRow = await loadWorkflowRunFromSupabase(env, highlight);
+      if (hlRow) markLive('Supabase agentsam_workflow_runs (highlightRun)');
     }
-    hlSql += ' LIMIT 1';
-    const exists = await d1First(db, 'hl_wrun', hlSql, hlBinds, ctx);
-    if (exists?.id) waterfallRunId = String(exists.id);
+    if (hlRow?.id) {
+      waterfallRunId = String(hlRow.id);
+      waterfallRunRow = coerceStepResultsJsonField(hlRow);
+    }
   }
 
+  if (waterfallRunId && !waterfallRunRow) {
+    let wr = await fetchWorkflowRunRowById(db, waterfallRunId, tid, ctx, warnings);
+    if (!wr && hasHyperdrive) {
+      wr = await loadWorkflowRunFromSupabase(env, waterfallRunId);
+      if (wr) markLive('Supabase agentsam_workflow_runs (waterfall run row)');
+    }
+    waterfallRunRow = coerceStepResultsJsonField(wr);
+  }
+
+  let verifiedTrace = null;
+  if (highlight && waterfallRunRow?.id != null && String(waterfallRunRow.id) === highlight) {
+    const tin = Number(waterfallRunRow.input_tokens ?? 0) || 0;
+    const tout = Number(waterfallRunRow.output_tokens ?? 0) || 0;
+    verifiedTrace = {
+      workflow_run_id: String(waterfallRunRow.id),
+      run_group_id: waterfallRunRow.run_group_id != null ? String(waterfallRunRow.run_group_id) : null,
+      model: waterfallRunRow.model_used != null ? String(waterfallRunRow.model_used) : null,
+      input_tokens: tin,
+      output_tokens: tout,
+      total_tokens: tin + tout,
+      cost_usd: Number(waterfallRunRow.cost_usd ?? 0) || 0,
+      status: waterfallRunRow.status != null ? String(waterfallRunRow.status) : null,
+    };
+  }
+
+  const exeCols = await pragmaTableInfo(db, 'agentsam_executions');
   let latestExecutionWaterfall = [];
   if (waterfallRunId) {
-    const execIds = await d1All(
-      db,
-      'exec_ids',
-      `SELECT id FROM agentsam_executions
-       WHERE workflow_run_id = ? OR task_id = ?
-       LIMIT 50`,
-      [waterfallRunId, waterfallRunId],
-      ctx,
-    );
+    let execSql = 'SELECT id FROM agentsam_executions WHERE task_id = ?';
+    const execBinds = [waterfallRunId];
+    if (exeCols.has('workflow_run_id')) {
+      execSql = 'SELECT id FROM agentsam_executions WHERE task_id = ? OR workflow_run_id = ?';
+      execBinds.push(waterfallRunId);
+    }
+    execSql += ' LIMIT 50';
+    const execIds = await d1All(db, 'exec_ids', execSql, execBinds, ctx);
     const execIdVals = execIds.map((r) => r.id).filter(Boolean);
     const inIds = [...new Set([waterfallRunId, ...execIdVals])];
     const placeholders = inIds.map(() => '?').join(',');
@@ -735,7 +872,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
       ctx,
     );
     const maxLat = Math.max(1, ...wfSteps.map((s) => Number(s.latency_ms ?? 0) || 0));
-    latestExecutionWaterfall = wfSteps.map((s) => ({
+    let fromLedger = wfSteps.map((s) => ({
       node_key: s.node_key,
       status: s.status,
       latency_ms: Number(s.latency_ms ?? 0) || 0,
@@ -744,9 +881,27 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
       tokens_out: Number(s.tokens_out ?? 0) || 0,
       cost_usd: Number(s.cost_usd ?? 0) || 0,
     }));
-    if (latestExecutionWaterfall.length) {
+
+    const fromJson = waterfallRunRow?.step_results_json
+      ? waterfallFromStepResultsJson(waterfallRunRow.step_results_json)
+      : null;
+    const highlightAligned = Boolean(
+      highlight && waterfallRunId && String(waterfallRunId) === highlight,
+    );
+    if (highlightAligned && fromJson?.length) {
+      latestExecutionWaterfall = fromJson;
+      markLive('agentsam_workflow_runs.step_results_json (highlightRun trace)');
+    } else if (fromJson?.length && (!fromLedger.length || fromJson.length > fromLedger.length)) {
+      latestExecutionWaterfall = fromJson;
+      markLive('agentsam_workflow_runs.step_results_json (waterfall)');
+    } else if (fromLedger.length) {
+      latestExecutionWaterfall = fromLedger;
       markLive('D1 agentsam_execution_steps (waterfall)');
+    } else if (fromJson?.length) {
+      latestExecutionWaterfall = fromJson;
+      markLive('agentsam_workflow_runs.step_results_json (waterfall)');
     } else {
+      latestExecutionWaterfall = [];
       markEmpty('D1 agentsam_execution_steps (no rows for latest run)');
     }
   } else {
@@ -1028,7 +1183,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     codebase_file_count: codebasePack.json?.summary?.file_count,
     monthly_cost_usd: monthlyCost,
     waterfall_run_id: waterfallRunId,
-    latest_run_group_id: latestRun?.run_group_id ?? null,
+    latest_run_group_id: waterfallRunRow?.run_group_id ?? latestRun?.run_group_id ?? null,
   };
 
   const rows = [
@@ -1051,9 +1206,10 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     workflowRunsOverTime: wfTrend,
     latestExecutionWaterfall: {
       workflow_run_id: waterfallRunId,
-      run_group_id: latestRun?.run_group_id ?? null,
+      run_group_id: waterfallRunRow?.run_group_id ?? latestRun?.run_group_id ?? null,
       steps: latestExecutionWaterfall,
     },
+    verifiedTrace,
     errorInbox,
     modelLeaderboard,
     costLatencyScatter: scatterRows,

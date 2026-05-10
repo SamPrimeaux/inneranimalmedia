@@ -20,6 +20,7 @@ export function analyticsResponse({
   kpis = undefined,
   workflowRunsOverTime = undefined,
   latestExecutionWaterfall = undefined,
+  verifiedTrace = undefined,
   errorInbox = undefined,
   modelLeaderboard = undefined,
   costLatencyScatter = undefined,
@@ -45,6 +46,7 @@ export function analyticsResponse({
   if (kpis !== undefined) body.kpis = kpis;
   if (workflowRunsOverTime !== undefined) body.workflowRunsOverTime = workflowRunsOverTime;
   if (latestExecutionWaterfall !== undefined) body.latestExecutionWaterfall = latestExecutionWaterfall;
+  if (verifiedTrace !== undefined) body.verifiedTrace = verifiedTrace;
   if (errorInbox !== undefined) body.errorInbox = errorInbox;
   if (modelLeaderboard !== undefined) body.modelLeaderboard = modelLeaderboard;
   if (costLatencyScatter !== undefined) body.costLatencyScatter = costLatencyScatter;
