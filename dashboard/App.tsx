@@ -79,6 +79,7 @@ const ImagesPage = lazy(() => import('./components/ImagesPage'));
 const MailPage = lazy(() => import('./components/MailPage').then((m) => ({ default: m.MailPage })));
 const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
+const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 
 function DashboardRoutesFallback() {
   return (
@@ -2160,6 +2161,7 @@ const App: React.FC = () => {
                       <Route path="/dashboard/calendar" element={<CalendarPage />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
+                      <Route path="/dashboard/tasks" element={<TasksPage />} />
                       <Route path="/dashboard/analytics" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/analytics/:tab" element={<AnalyticsPage />} />
                       <Route path="/dashboard/health" element={<Navigate to="/dashboard/analytics/overview" replace />} />
