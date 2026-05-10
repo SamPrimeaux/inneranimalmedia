@@ -65,7 +65,7 @@ import ProjectManagement from "./pages/projects/ProjectManagement";
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
 const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
-const OverviewPage = lazy(() => import('./components/OverviewPage').then((m) => ({ default: m.OverviewPage })));
+const OverviewPage = lazy(() => import('./components/overview'));
 const HealthPage = lazy(() => import('./pages/HealthPage').then((m) => ({ default: m.HealthPage })));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
 const RedirectHealthToAnalytics = lazy(() =>
