@@ -798,7 +798,7 @@ function QuickNav() {
   return (
     <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
       {links.map(l => (
-        
+        <a
           key={l.label}
           href={l.href}
           style={{
