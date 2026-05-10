@@ -23,24 +23,29 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
     (env && env.TENANT_ID ? String(env.TENANT_ID) : null) ||
     null;
 
+  const workspaceId =
+    (identity && identity.workspaceId ? String(identity.workspaceId) : null) ||
+    (authUser && authUser.workspace_id ? String(authUser.workspace_id) : null) ||
+    null;
+
   if (pathLower === '/api/analytics/layout' && request.method === 'GET') {
-    return handleAnalyticsLayout(request, url, env, { tenantId });
+    return handleAnalyticsLayout(request, url, env, { tenantId, workspaceId });
   }
 
   if (pathLower === '/api/analytics/source-health' && request.method === 'GET') {
-    return handleAnalyticsSourceHealth(request, url, env, { tenantId });
+    return handleAnalyticsSourceHealth(request, url, env, { tenantId, workspaceId });
   }
 
   if (pathLower === '/api/analytics/overview' && request.method === 'GET') {
-    return handleAnalyticsOverview(request, url, env, { tenantId });
+    return handleAnalyticsOverview(request, url, env, { tenantId, workspaceId });
   }
 
   if (pathLower === '/api/analytics/rag' && request.method === 'GET') {
-    return handleAnalyticsRag(request, url, env, { tenantId });
+    return handleAnalyticsRag(request, url, env, { tenantId, workspaceId });
   }
 
   if (pathLower === '/api/analytics/codebase' && request.method === 'GET') {
-    return handleAnalyticsCodebase(request, url, env, { tenantId });
+    return handleAnalyticsCodebase(request, url, env, { tenantId, workspaceId });
   }
 
   // Stub endpoints for now — return standard AnalyticsResponse shape.

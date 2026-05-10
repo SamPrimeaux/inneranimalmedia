@@ -22,6 +22,22 @@ async function pgHasColumn(env, tableName, colName) {
   }
 }
 
+/**
+ * Run arbitrary read-only SQL against Supabase via Hyperdrive.
+ * @returns {{ ok: boolean, rows: any[], warning?: string }}
+ */
+export async function supabaseQuery(env, sql, params = []) {
+  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') {
+    return { ok: false, rows: [], warning: 'hyperdrive_missing' };
+  }
+  try {
+    const res = await env.HYPERDRIVE.query(sql, params);
+    return { ok: true, rows: res?.rows ?? [] };
+  } catch (e) {
+    return { ok: false, rows: [], warning: e?.message ? String(e.message) : 'query_failed' };
+  }
+}
+
 export async function supabaseCountLatest(env, tableName, { tenantId = null, range = null } = {}) {
   if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') {
     return { ok: false, count: 0, latest: null, time_col: null, has_tenant: false, warning: 'hyperdrive_missing' };
