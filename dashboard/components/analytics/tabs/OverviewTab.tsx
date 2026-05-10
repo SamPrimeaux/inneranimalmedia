@@ -1,17 +1,82 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+  ZAxis,
+} from 'recharts';
 import type { AnalyticsLayoutResponse } from '../types';
-import { EmptyTelemetryCard } from '../cards/EmptyTelemetryCard';
+import { formatCost } from '@/lib/formatCost';
 
 type Props = { layout: AnalyticsLayoutResponse | null };
 
-type AnalyticsResponse = {
+const VERIFIED_RUN = 'wrun_model_20260509_235456';
+
+type SourceStatus = {
+  live: string[];
+  empty: string[];
+  blocked: string[];
+  errors: string[];
+};
+
+type KpiMetric = {
+  value: Record<string, unknown> | number | string | null;
+  sourceTables: string[];
+  timeWindow: string;
+  isLive: boolean;
+  warning?: string | null;
+  sparkline?: number[] | null;
+};
+
+type PulseResponse = {
   ok: boolean;
-  backend: 'd1' | 'supabase' | 'mixed';
-  range: '24h' | '7d' | '30d' | 'all';
+  backend: string;
+  range: string;
   generated_at: number;
-  summary: Record<string, any>;
-  rows: Array<Record<string, any>>;
-  warnings: Array<{ code: string; message: string; severity: 'info' | 'warn' | 'critical' }>;
+  summary: Record<string, unknown>;
+  warnings: Array<{ code: string; message: string; severity?: string }>;
+  kpis?: Record<string, KpiMetric>;
+  workflowRunsOverTime?: Array<{ day?: string; status?: string; c?: number }>;
+  latestExecutionWaterfall?: {
+    workflow_run_id?: string | null;
+    run_group_id?: string | null;
+    steps?: Array<{
+      node_key?: string;
+      status?: string;
+      latency_ms?: number;
+      bar?: number;
+      tokens_in?: number;
+      tokens_out?: number;
+      cost_usd?: number;
+    }>;
+    state?: string;
+    reason?: string;
+  };
+  errorInbox?: Array<{
+    time?: string;
+    source?: string;
+    message?: string;
+    severity?: string;
+    run_group_id?: string | null;
+    resolved?: boolean;
+  }>;
+  modelLeaderboard?: Array<Record<string, unknown>>;
+  costLatencyScatter?: Array<Record<string, unknown>>;
+  tokensOverTime?: Array<{ day?: string; tin?: number; tout?: number }>;
+  codebaseOverview?: Record<string, unknown>;
+  ragHealth?: Record<string, unknown>;
+  deployments?: Record<string, unknown>;
+  sourceStatus?: SourceStatus;
+  meta?: { generatedAt?: string; timeRange?: string; workspaceId?: string | null; tenantId?: string | null };
 };
 
 async function getJson<T>(url: string): Promise<T | null> {
@@ -32,128 +97,639 @@ function fmtNumber(n: unknown): string {
   return String(Math.round(v));
 }
 
-function fmtCurrency(n: unknown): string {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '—';
-  return `$${v.toFixed(v < 1 ? 4 : 2)}`;
-}
-
 function fmtMs(n: unknown): string {
   const v = Number(n);
   if (!Number.isFinite(v)) return '—';
   if (v < 1000) return `${Math.round(v)} ms`;
-  return `${Math.round((v / 1000) * 10) / 10}s`;
+  return `${Math.round((v / 1000) * 1000) / 1000}s`;
 }
 
-function SourceBadge({ backend }: { backend: 'd1' | 'supabase' | 'mixed' }) {
-  const label = backend === 'd1' ? 'D1' : backend === 'supabase' ? 'Supabase' : 'Mixed';
+function isStubPayload(w: { warnings?: Array<{ code?: string }> } | null): boolean {
+  return !!(w?.warnings || []).some((x) => x?.code === 'ANALYTICS_ENDPOINT_NOT_IMPLEMENTED');
+}
+
+function MiniSparkline({ data, color }: { data: number[]; color: string }) {
+  if (!data.length) return <div className="h-8 text-[10px] text-[var(--text-muted)]">No trend</div>;
+  const chartData = data.map((v, i) => ({ i, v }));
   return (
-    <span className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-canvas)]">
-      {label}
-    </span>
+    <div className="h-8 w-full mt-1">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+          <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
+function BlockedCallout({
+  title,
+  endpoint,
+  tables,
+  nextStep,
+}: {
+  title: string;
+  endpoint?: string;
+  tables?: string[];
+  nextStep?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-[12px] text-[var(--text)]">
+      <div className="font-semibold text-amber-200/90">{title}</div>
+      {endpoint ? (
+        <div className="mt-1 font-mono text-[11px] text-[var(--text-muted)]">{endpoint}</div>
+      ) : null}
+      {tables?.length ? (
+        <div className="mt-1 text-[var(--text-muted)]">Intended tables: {tables.join(', ')}</div>
+      ) : null}
+      {nextStep ? <div className="mt-1 text-[var(--text-muted)]">Next: {nextStep}</div> : null}
+    </div>
+  );
+}
+
+const SCATTER_COLORS = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#f472b6', '#94a3b8'];
+
 export default function OverviewTab(_props: Props) {
-  const [overview, setOverview] = useState<AnalyticsResponse | null>(null);
-  const [health, setHealth] = useState<AnalyticsResponse | null>(null);
+  const [pulse, setPulse] = useState<PulseResponse | null>(null);
+  const [health, setHealth] = useState<{ rows?: Array<Record<string, unknown>>; warnings?: unknown[] } | null>(null);
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [o, h] = await Promise.all([
-        getJson<AnalyticsResponse>('/api/analytics/overview?range=7d'),
-        getJson<AnalyticsResponse>('/api/analytics/source-health?range=30d'),
+      const q = new URLSearchParams({ range: '7d', highlightRun: VERIFIED_RUN });
+      const [p, h] = await Promise.all([
+        getJson<PulseResponse>(`/api/analytics/overview?${q.toString()}`),
+        getJson<{ rows?: Array<Record<string, unknown>> }>('/api/analytics/source-health?range=30d'),
       ]);
       if (!alive) return;
-      setOverview(o);
+      setPulse(p);
       setHealth(h);
+      setLoadedAt(Date.now());
     })();
     return () => {
       alive = false;
     };
   }, []);
 
-  const kpis = useMemo(() => {
-    const s = overview?.summary || {};
-    const b = (overview?.backend || 'mixed') as 'd1' | 'supabase' | 'mixed';
-    return [
-      { label: 'Workflow Runs', value: fmtNumber(s.workflow_run_count), backend: 'd1' as const },
-      { label: 'Tool Success', value: s.tool_success_rate != null ? `${s.tool_success_rate}%` : '—', backend: 'd1' as const },
-      { label: 'Open Errors', value: fmtNumber(s.open_error_count), backend: 'd1' as const },
-      { label: 'Token Usage', value: fmtNumber(s.total_tokens), backend: 'd1' as const },
-      { label: 'AI Cost', value: fmtCurrency(s.total_cost_usd), backend: 'd1' as const },
-      { label: 'Avg Latency', value: fmtMs(s.avg_latency_ms), backend: 'd1' as const },
-      { label: 'RAG Documents', value: fmtNumber(s.rag_document_count), backend: b !== 'd1' ? ('supabase' as const) : ('d1' as const) },
-      { label: 'Codebase Files', value: fmtNumber(s.codebase_file_count), backend: b !== 'd1' ? ('supabase' as const) : ('d1' as const) },
-      { label: 'Eval Runs', value: fmtNumber(s.eval_run_count), backend: b !== 'd1' ? ('supabase' as const) : ('d1' as const) },
-      { label: 'Deploy Events', value: fmtNumber(s.deploy_event_count), backend: b !== 'd1' ? ('supabase' as const) : ('d1' as const) },
-    ];
-  }, [overview]);
+  const wfChart = useMemo(() => {
+    const rows = pulse?.workflowRunsOverTime || [];
+    const dayMap: Record<string, Record<string, number>> = {};
+    for (const r of rows) {
+      const day = String(r.day || '');
+      const st = String(r.status || 'unknown');
+      const c = Number(r.c ?? 0) || 0;
+      if (!dayMap[day]) dayMap[day] = {};
+      dayMap[day][st] = (dayMap[day][st] || 0) + c;
+    }
+    const days = Object.keys(dayMap).sort();
+    return days.map((day) => ({
+      day,
+      completed: dayMap[day].completed || 0,
+      failed: dayMap[day].failed || 0,
+      running: dayMap[day].running || 0,
+      other: Object.entries(dayMap[day])
+        .filter(([k]) => !['completed', 'failed', 'running'].includes(k))
+        .reduce((s, [, v]) => s + v, 0),
+    }));
+  }, [pulse?.workflowRunsOverTime]);
+
+  const tokenChart = useMemo(() => {
+    return (pulse?.tokensOverTime || []).map((r) => ({
+      day: String(r.day || ''),
+      in: Number(r.tin ?? 0) || 0,
+      out: Number(r.tout ?? 0) || 0,
+    }));
+  }, [pulse?.tokensOverTime]);
+
+  const scatterData = useMemo(() => {
+    return (pulse?.costLatencyScatter || []).map((r) => ({
+      model: String(r.model || ''),
+      provider: String(r.provider || 'unknown'),
+      x: Number(r.latency_ms ?? 0) || 0,
+      y: Number(r.cost_usd ?? 0) || 0,
+      z: Math.max(8, Number(r.total_tokens ?? 0) || 0),
+    }));
+  }, [pulse?.costLatencyScatter]);
+
+  const scatterProviders = useMemo(() => [...new Set(scatterData.map((d) => d.provider))], [scatterData]);
+
+  const kpis = pulse?.kpis;
+  const wf = kpis?.workflowRuns?.value as Record<string, unknown> | undefined;
+  const wfTotal = Number(wf?.total ?? pulse?.summary?.workflow_run_count ?? 0) || 0;
+
+  const tokenKpi = kpis?.tokenUsage?.value as Record<string, unknown> | undefined;
+  const costKpi = kpis?.aiCost?.value as Record<string, unknown> | undefined;
+  const latencyKpi = kpis?.avgLatency?.value as Record<string, unknown> | undefined;
+
+  const waterfall = pulse?.latestExecutionWaterfall;
+  const wfSteps = waterfall?.steps || [];
+
+  const codebase = pulse?.codebaseOverview;
+  const rag = pulse?.ragHealth;
+  const codebaseStub = codebase && isStubPayload(codebase as { warnings?: Array<{ code?: string }> });
+  const ragStub = rag && isStubPayload(rag as { warnings?: Array<{ code?: string }> });
+
+  if (!pulse?.ok) {
+    return (
+      <div className="space-y-3">
+        <BlockedCallout
+          title="Overview pulse unavailable"
+          endpoint="/api/analytics/overview"
+          tables={['agentsam_workflow_runs', 'agentsam_usage_events', 'agentsam_execution_steps']}
+          nextStep="Confirm session, env.DB binding, and tenant resolution on the Worker."
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        {overview?.ok ? (
-          kpis.map((k) => (
-            <div key={k.label} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">{k.label}</div>
-                <SourceBadge backend={k.backend} />
-              </div>
-              <div className="mt-1 text-[18px] font-semibold text-[var(--text)]">{k.value}</div>
+    <div className="space-y-3 text-[var(--text)]">
+      <div className="flex flex-wrap items-start justify-between gap-2 text-[11px] text-[var(--text-muted)]">
+        <div>
+          System Pulse
+          {pulse.meta?.tenantId ? (
+            <span className="ml-2 font-mono text-[10px]">tenant:{String(pulse.meta.tenantId).slice(0, 24)}</span>
+          ) : null}
+          {pulse.meta?.workspaceId ? (
+            <span className="ml-2 font-mono text-[10px]">ws:{String(pulse.meta.workspaceId).slice(0, 24)}</span>
+          ) : null}
+        </div>
+        <div className="text-right">
+          <div>Range: {pulse.range}</div>
+          <div>Refreshed: {loadedAt ? new Date(loadedAt).toLocaleString() : '—'}</div>
+          {pulse.meta?.generatedAt ? <div className="font-mono text-[10px]">API: {pulse.meta.generatedAt}</div> : null}
+        </div>
+      </div>
+
+      {(pulse.warnings || []).length ? (
+        <div className="rounded-lg border border-amber-500/30 bg-[var(--bg-panel)] p-2 space-y-1">
+          <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Warnings</div>
+          {(pulse.warnings || []).map((w, i) => (
+            <div key={i} className="text-[12px] text-amber-100/90">
+              [{w.code}] {w.message}
             </div>
-          ))
+          ))}
+        </div>
+      ) : null}
+
+      <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4">
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 shadow-[0_0_0_1px_rgba(148,163,184,0.04)]">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Workflow runs</div>
+          <div className="mt-1 text-[20px] font-semibold">{fmtNumber(wfTotal)}</div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            done {fmtNumber(wf?.completed)} / fail {fmtNumber(wf?.failed)} / run {fmtNumber(wf?.running)}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)]">{kpis?.workflowRuns?.sourceTables?.join(', ')}</div>
+          <MiniSparkline data={(kpis?.workflowRuns?.sparkline || []) as number[]} color="#38bdf8" />
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Eval pass rate</div>
+          <div className="mt-1 text-[20px] font-semibold">
+            {kpis?.evalPassRate?.isLive ? (
+              <>
+                {fmtNumber((kpis.evalPassRate.value as { pass_rate_percent?: number })?.pass_rate_percent)}
+                <span className="text-[14px] font-normal text-[var(--text-muted)]">%</span>
+              </>
+            ) : (
+              <span className="text-[var(--text-muted)]">BLOCKED</span>
+            )}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            passed {(kpis?.evalPassRate?.value as { passed?: number })?.passed ?? '—'} / total{' '}
+            {(kpis?.evalPassRate?.value as { total?: number })?.total ?? '—'}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Tool / execution success</div>
+          <div className="mt-1 text-[20px] font-semibold">
+            {(kpis?.toolSuccess?.value as { success_rate_percent?: number })?.success_rate_percent != null
+              ? `${fmtNumber((kpis?.toolSuccess?.value as { success_rate_percent?: number }).success_rate_percent)}%`
+              : wfSteps.length
+                ? '—'
+                : 'EMPTY'}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            calls {fmtNumber((kpis?.toolSuccess?.value as { calls?: number })?.calls)}
+          </div>
+          <div className="text-[10px] font-mono text-[var(--text-muted)]">
+            {(kpis?.toolSuccess?.value as { source_table?: string })?.source_table}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Open errors</div>
+          <div className="mt-1 text-[20px] font-semibold">
+            {fmtNumber((kpis?.openErrors?.value as { count?: number })?.count)}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            {(kpis?.openErrors?.value as { source_table?: string })?.source_table}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Token usage</div>
+          <div className="mt-1 text-[20px] font-semibold">{fmtNumber(tokenKpi?.total)}</div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            in {fmtNumber(tokenKpi?.input)} / out {fmtNumber(tokenKpi?.output)}
+          </div>
+          {kpis?.tokenUsage?.warning ? (
+            <div className="text-[10px] text-amber-200/80 mt-1">{kpis.tokenUsage.warning}</div>
+          ) : null}
+          <MiniSparkline data={(kpis?.tokenUsage?.sparkline || []) as number[]} color="#a78bfa" />
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">AI cost</div>
+          <div className="mt-1 text-[20px] font-semibold tabular-nums">{formatCost(costKpi?.period_usd)}</div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            30d rollup {formatCost(costKpi?.monthly_30d_usd)}
+            {costKpi?.routing_decisions_usd != null && Number(costKpi.routing_decisions_usd) > 0 ? (
+              <span className="ml-2">routing Σ {formatCost(costKpi.routing_decisions_usd)}</span>
+            ) : null}
+          </div>
+          {kpis?.aiCost?.warning ? (
+            <div className="text-[10px] text-amber-200/80 mt-1">{kpis.aiCost.warning}</div>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Avg latency</div>
+          <div className="mt-1 text-[20px] font-semibold">{fmtMs(latencyKpi?.avg_ms)}</div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            p95 {fmtMs(latencyKpi?.p95_ms)} · latest model {String(latencyKpi?.latest_model || '—')}
+          </div>
+          {latencyKpi?.latest_model_latency_ms != null ? (
+            <div className="text-[10px] text-[var(--text-muted)]">last call {fmtMs(latencyKpi.latest_model_latency_ms)}</div>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Data health</div>
+          <div className="mt-1 text-[20px] font-semibold">
+            {String((kpis?.dataHealth?.value as { score?: string })?.score || '—')}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] mt-1">
+            live {fmtNumber((kpis?.dataHealth?.value as { live_sources?: number })?.live_sources)} · empty{' '}
+            {fmtNumber((kpis?.dataHealth?.value as { empty_sources?: number })?.empty_sources)} · blocked{' '}
+            {fmtNumber((kpis?.dataHealth?.value as { blocked_sources?: number })?.blocked_sources)}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-[11px] uppercase text-[var(--text-muted)]">Workflow runs over time</div>
+              <div className="text-[12px] text-[var(--text-muted)]">agentsam_workflow_runs · by status</div>
+            </div>
+            {pulse.summary?.waterfall_run_id ? (
+              <div className="text-[10px] font-mono text-[var(--text-muted)]">
+                highlight {String(pulse.summary.waterfall_run_id).slice(0, 28)}
+              </div>
+            ) : null}
+          </div>
+          <div className="h-56 mt-2">
+            {wfChart.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={wfChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                  <XAxis dataKey="day" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', fontSize: 11 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Bar dataKey="completed" stackId="a" fill="#34d399" name="completed" />
+                  <Bar dataKey="failed" stackId="a" fill="#f87171" name="failed" />
+                  <Bar dataKey="running" stackId="a" fill="#38bdf8" name="running" />
+                  <Bar dataKey="other" stackId="a" fill="#94a3b8" name="other" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-[12px] text-[var(--text-muted)] p-4">EMPTY · no workflow rows in window</div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[11px] uppercase text-[var(--text-muted)]">Tokens over time</div>
+          <div className="text-[12px] text-[var(--text-muted)] mb-2">agentsam_usage_events · in vs out</div>
+          <div className="h-56">
+            {tokenChart.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={tokenChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                  <XAxis dataKey="day" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', fontSize: 11 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Line type="monotone" dataKey="in" name="input" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="out" name="output" stroke="#c084fc" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-[12px] text-[var(--text-muted)] p-4">EMPTY · no usage rows in window</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] uppercase text-[var(--text-muted)]">Execution waterfall</div>
+            <div className="text-[12px] text-[var(--text-muted)]">
+              agentsam_execution_steps · run {waterfall?.workflow_run_id || '—'}
+            </div>
+          </div>
+          <div className="text-[10px] font-mono text-[var(--text-muted)]">group {waterfall?.run_group_id || '—'}</div>
+        </div>
+        {waterfall?.state === 'BLOCKED' ? (
+          <div className="mt-2 text-[12px] text-[var(--text-muted)]">{waterfall.reason}</div>
+        ) : wfSteps.length ? (
+          <div className="mt-3 space-y-2">
+            {wfSteps.map((s, idx) => (
+              <div key={`${s.node_key}-${idx}`} className="flex items-center gap-2 text-[11px]">
+                <div className="w-40 shrink-0 font-mono truncate" title={s.node_key}>
+                  {s.node_key}
+                </div>
+                <div className="flex-1 h-2 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)] overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-sky-500/80 to-violet-500/80"
+                    style={{ width: `${Math.round((s.bar || 0) * 100)}%` }}
+                  />
+                </div>
+                <div className="w-24 text-right text-[var(--text-muted)]">{fmtMs(s.latency_ms)}</div>
+                {String(s.node_key || '').includes('call_openai_model') ||
+                String(s.node_key || '').includes('openai') ||
+                String(s.node_key || '').includes('model') ? (
+                  <div className="w-44 text-right font-mono text-[10px] text-[var(--text-muted)]">
+                    tok {fmtNumber((s.tokens_in || 0) + (s.tokens_out || 0))} · {formatCost(s.cost_usd)}
+                  </div>
+                ) : (
+                  <div className="w-44" />
+                )}
+              </div>
+            ))}
+          </div>
         ) : (
-          <EmptyTelemetryCard
-            title="Overview KPIs"
-            dataSourceKey="systemPulse"
-            status="not_connected_yet"
-            reason="Overview KPI endpoint is not returning yet (D1 and/or Hyperdrive bindings missing, or tenant not resolved)."
-            suggestedAction="Verify env.DB and env.HYPERDRIVE bindings, and confirm tenant identity resolves in requests."
+          <div className="mt-2 text-[12px] text-[var(--text-muted)]">EMPTY · no steps for selected workflow run</div>
+        )}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 overflow-auto">
+          <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">Error inbox</div>
+          <table className="w-full text-left text-[11px]">
+            <thead className="text-[var(--text-muted)] uppercase">
+              <tr>
+                <th className="p-1">Time</th>
+                <th className="p-1">Src</th>
+                <th className="p-1">Message</th>
+                <th className="p-1">Run group</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(pulse.errorInbox || []).slice(0, 25).map((r, i) => (
+                <tr key={i} className="border-t border-[var(--border-subtle)]">
+                  <td className="p-1 whitespace-nowrap">{r.time ? String(r.time).slice(0, 19) : '—'}</td>
+                  <td className="p-1">{r.source}</td>
+                  <td className="p-1 max-w-[220px] truncate" title={r.message}>
+                    {r.message}
+                  </td>
+                  <td className="p-1 font-mono text-[10px]">{r.run_group_id || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!(pulse.errorInbox || []).length ? (
+            <div className="text-[12px] text-[var(--text-muted)] mt-2">
+              EMPTY · Supabase agentsam_error_events (no rows returned)
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 overflow-auto">
+          <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">Model leaderboard</div>
+          <table className="w-full text-left text-[11px]">
+            <thead className="text-[var(--text-muted)] uppercase">
+              <tr>
+                <th className="p-1">Model</th>
+                <th className="p-1">Prov</th>
+                <th className="p-1">Runs</th>
+                <th className="p-1">OK%</th>
+                <th className="p-1">Lat</th>
+                <th className="p-1">Cost</th>
+                <th className="p-1">Priced</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(pulse.modelLeaderboard || []).map((r, i) => (
+                <tr key={i} className="border-t border-[var(--border-subtle)]">
+                  <td className="p-1 font-mono">{String(r.model)}</td>
+                  <td className="p-1">{String(r.provider)}</td>
+                  <td className="p-1">{fmtNumber(r.runs)}</td>
+                  <td className="p-1">{r.success_rate != null ? `${fmtNumber(r.success_rate)}%` : '—'}</td>
+                  <td className="p-1">{fmtMs(r.avg_latency_ms)}</td>
+                  <td className="p-1 font-mono">{formatCost(r.avg_cost)}</td>
+                  <td className="p-1">{r.priced ? 'yes' : 'no'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!(pulse.modelLeaderboard || []).length ? (
+            <div className="text-[12px] text-[var(--text-muted)] mt-2">EMPTY · no usage_events in window</div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+        <div className="text-[11px] uppercase text-[var(--text-muted)] mb-1">Cost vs latency</div>
+        <div className="text-[12px] text-[var(--text-muted)] mb-2">
+          agentsam_usage_events · y=cost · x=latency · size=tokens
+        </div>
+        <div className="h-64">
+          {scatterData.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  name="latency_ms"
+                  tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
+                  label={{ value: 'ms', position: 'insideBottom', offset: -4, fill: 'var(--text-muted)', fontSize: 10 }}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  name="cost_usd"
+                  tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
+                  tickFormatter={(v) => formatCost(v)}
+                />
+                <ZAxis type="number" dataKey="z" range={[40, 400]} />
+                <Tooltip
+                  cursor={{ strokeDasharray: '3 3' }}
+                  formatter={(v: number, name: string) => (name === 'cost_usd' ? formatCost(v) : v)}
+                  contentStyle={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', fontSize: 11 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                {scatterProviders.map((prov, idx) => (
+                  <Scatter
+                    key={prov}
+                    name={prov}
+                    data={scatterData.filter((d) => d.provider === prov)}
+                    fill={SCATTER_COLORS[idx % SCATTER_COLORS.length]}
+                  />
+                ))}
+              </ScatterChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-[12px] text-[var(--text-muted)] p-4">EMPTY · no usage points with cost/latency</div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[11px] uppercase text-[var(--text-muted)]">Codebase overview</div>
+          {codebaseStub ? (
+            <BlockedCallout
+              title="Stub or not implemented"
+              endpoint="/api/analytics/codebase"
+              tables={['codebase_files', 'codebase_chunks', 'codebase_symbols']}
+              nextStep="Implement handler or fix Hyperdrive"
+            />
+          ) : codebase?.ok ? (
+            <div className="mt-2 text-[12px] space-y-1">
+              <div>Files {fmtNumber((codebase.summary as { file_count?: number })?.file_count)}</div>
+              <div>Chunks {fmtNumber((codebase.summary as { chunk_count?: number })?.chunk_count)}</div>
+              <div>Symbols {fmtNumber((codebase.summary as { symbol_count?: number })?.symbol_count)}</div>
+            </div>
+          ) : (
+            <BlockedCallout
+              title="Codebase panel blocked"
+              endpoint="/api/analytics/codebase"
+              nextStep={String((codebase as { reason?: string })?.reason || 'Fix Supabase / Hyperdrive')}
+            />
+          )}
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[11px] uppercase text-[var(--text-muted)]">RAG / document health</div>
+          {ragStub ? (
+            <BlockedCallout title="Stub" endpoint="/api/analytics/rag" tables={['documents', 'semantic_search_log']} />
+          ) : rag?.ok ? (
+            <div className="mt-2 text-[12px] space-y-1">
+              <div>Documents {fmtNumber((rag.summary as { document_count?: number })?.document_count)}</div>
+              <div>Embedded {fmtNumber((rag.summary as { embedded_document_count?: number | null })?.embedded_document_count)}</div>
+              <div>Search logs {fmtNumber((rag.summary as { search_log_count?: number })?.search_log_count)}</div>
+              {(rag.breakdowns as Array<{ rows?: Array<{ key?: string; count?: number }> }> | undefined)?.[0]?.rows
+                ?.length ? (
+                <div className="text-[10px] text-[var(--text-muted)]">Source breakdown available in breakdowns</div>
+              ) : (
+                <div className="text-[10px] text-amber-200/80">
+                  Source breakdown unavailable — documents.source / metadata mapping not exposed in this rollup
+                </div>
+              )}
+            </div>
+          ) : (
+            <BlockedCallout title="RAG panel blocked" endpoint="/api/analytics/rag" />
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+        <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">Deployments</div>
+        {pulse.deployments?.state === 'BLOCKED' ? (
+          <BlockedCallout
+            title="Deployments blocked"
+            tables={['build_deploy_events', 'cicd_github_runs', 'deployments (D1)']}
+            nextStep={String(pulse.deployments.nextStep || pulse.deployments.reason || '')}
           />
+        ) : (
+          <div className="text-[12px] font-mono space-y-1">
+            {(pulse.deployments?.rows as Array<Record<string, unknown>> | undefined)?.slice(0, 12).map((r, i) => (
+              <div key={i} className="flex justify-between gap-2 border-t border-[var(--border-subtle)] pt-1">
+                <span className="truncate">{String(r.id || r.run_id || i)}</span>
+                <span className="text-[var(--text-muted)]">{String(r.status || '—')}</span>
+                <span className="text-[var(--text-muted)] whitespace-nowrap">
+                  {r.created_at ? String(r.created_at).slice(0, 19) : r.timestamp ? String(r.timestamp).slice(0, 19) : '—'}
+                </span>
+              </div>
+            ))}
+            {!(pulse.deployments?.rows as unknown[])?.length ? (
+              <div className="text-[var(--text-muted)]">EMPTY · no deploy rows</div>
+            ) : null}
+          </div>
         )}
       </div>
 
       <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">Source status</div>
+        <div className="grid gap-2 sm:grid-cols-2 text-[11px]">
           <div>
-            <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Data quality</div>
-            <div className="text-sm font-semibold text-[var(--text)]">Sources and freshness</div>
+            <div className="text-[var(--text-muted)]">live</div>
+            <ul className="list-disc pl-4">
+              {(pulse.sourceStatus?.live || []).map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
           </div>
-          <SourceBadge backend="mixed" />
+          <div>
+            <div className="text-[var(--text-muted)]">empty</div>
+            <ul className="list-disc pl-4">
+              {(pulse.sourceStatus?.empty || []).map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="text-[var(--text-muted)]">blocked</div>
+            <ul className="list-disc pl-4">
+              {(pulse.sourceStatus?.blocked || []).map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="text-[var(--text-muted)]">errors</div>
+            <ul className="list-disc pl-4">
+              {(pulse.sourceStatus?.errors || []).map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
+          </div>
         </div>
+      </div>
 
-        <div className="mt-3 overflow-auto border border-[var(--border-subtle)] rounded">
-          <table className="w-full text-left text-[12px]">
-            <thead className="sticky top-0 bg-[var(--bg-panel)] text-[11px] uppercase text-[var(--text-muted)]">
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+        <div className="text-[11px] uppercase text-[var(--text-muted)] mb-2">D1 / Supabase freshness (source-health)</div>
+        <div className="overflow-auto border border-[var(--border-subtle)] rounded max-h-56">
+          <table className="w-full text-left text-[11px]">
+            <thead className="sticky top-0 bg-[var(--bg-panel)] text-[var(--text-muted)] uppercase">
               <tr>
-                <th className="p-2">Source</th>
                 <th className="p-2">Backend</th>
                 <th className="p-2">Table</th>
                 <th className="p-2">Rows</th>
-                <th className="p-2">Latest</th>
                 <th className="p-2">Status</th>
               </tr>
             </thead>
             <tbody>
-              {(health?.rows || []).slice(0, 20).map((r: any, idx: number) => (
-                <tr key={`${r.table}-${idx}`} className="border-t border-[var(--border-subtle)]">
-                  <td className="p-2">{r.source}</td>
-                  <td className="p-2">{r.backend}</td>
-                  <td className="p-2 font-mono text-[11px]">{r.table}</td>
+              {(health?.rows || []).slice(0, 24).map((r: Record<string, unknown>, idx: number) => (
+                <tr key={idx} className="border-t border-[var(--border-subtle)]">
+                  <td className="p-2">{String(r.backend)}</td>
+                  <td className="p-2 font-mono">{String(r.table)}</td>
                   <td className="p-2">{fmtNumber(r.row_count)}</td>
-                  <td className="p-2 text-[var(--text-muted)]">{String(r.latest_row ?? '—')}</td>
-                  <td className="p-2">{String(r.status || 'unknown')}</td>
+                  <td className="p-2">{String(r.status || '—')}</td>
                 </tr>
               ))}
-              {!(health?.rows || []).length ? (
-                <tr>
-                  <td className="p-2 text-[var(--text-muted)]" colSpan={6}>
-                    Source health is not connected yet. Wire `/api/analytics/source-health` and verify Hyperdrive + D1 bindings.
-                  </td>
-                </tr>
-              ) : null}
             </tbody>
           </table>
         </div>
@@ -161,4 +737,3 @@ export default function OverviewTab(_props: Props) {
     </div>
   );
 }
-
