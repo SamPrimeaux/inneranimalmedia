@@ -61,7 +61,7 @@ import { AuthResetPage } from './components/auth/AuthResetPage';
 import { AuthOAuthConsentPage } from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing } from 'lucide-react';
-import ProjectManagement from "./components/ProjectManagement";
+import ProjectManagement from "./pages/projects/ProjectManagement";
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
 const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
