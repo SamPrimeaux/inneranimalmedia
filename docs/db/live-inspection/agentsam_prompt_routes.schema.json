@@ -1,0 +1,208 @@
+[
+  {
+    "results": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'route_' || lower(hex(randomblob(6)))",
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "route_key",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "display_name",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "intent_labels",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "command_categories",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "trigger_keywords",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "prompt_layer_keys",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'[\"core_identity\"]'",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "tool_categories",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "tool_keys",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "max_tools",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "8",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "preferred_model",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "fallback_model",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "include_rag",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "include_active_plan",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "1",
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "include_recent_memory",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "1",
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "memory_limit",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "5",
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "include_workspace_ctx",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "1",
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "token_budget",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "2000",
+        "pk": 0
+      },
+      {
+        "cid": 18,
+        "name": "is_active",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "1",
+        "pk": 0
+      },
+      {
+        "cid": 19,
+        "name": "priority",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "50",
+        "pk": 0
+      },
+      {
+        "cid": 20,
+        "name": "tenant_id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 21,
+        "name": "created_at",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "unixepoch()",
+        "pk": 0
+      },
+      {
+        "cid": 22,
+        "name": "updated_at",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "unixepoch()",
+        "pk": 0
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "EWR",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.1601
+      },
+      "duration": 0.1601,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 39063552,
+      "rows_read": 0,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

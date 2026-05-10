@@ -1,0 +1,89 @@
+[
+  {
+    "results": [
+      {
+        "model_key": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "rows": 69
+      },
+      {
+        "model_key": "gemini-2.5-flash",
+        "provider": "google",
+        "rows": 12
+      },
+      {
+        "model_key": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "rows": 10
+      },
+      {
+        "model_key": "@cf/qwen/qwen2.5-coder-32b-instruct",
+        "provider": "workers_ai",
+        "rows": 6
+      },
+      {
+        "model_key": "gemini-2.5-flash-lite",
+        "provider": "google",
+        "rows": 6
+      },
+      {
+        "model_key": "gpt-4.1-mini",
+        "provider": "openai",
+        "rows": 5
+      },
+      {
+        "model_key": "gpt-4.1-nano",
+        "provider": "openai",
+        "rows": 5
+      },
+      {
+        "model_key": "gpt-5.4",
+        "provider": "openai",
+        "rows": 5
+      },
+      {
+        "model_key": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "provider": "workers_ai",
+        "rows": 4
+      },
+      {
+        "model_key": "gpt-5.4-mini",
+        "provider": "openai",
+        "rows": 2
+      },
+      {
+        "model_key": "@cf/baai/bge-large-en-v1.5",
+        "provider": "workers_ai",
+        "rows": 1
+      },
+      {
+        "model_key": "@cf/qwen/qwq-32b",
+        "provider": "workers_ai",
+        "rows": 1
+      },
+      {
+        "model_key": "gpt-5.4-nano",
+        "provider": "openai",
+        "rows": 1
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "EWR",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.3699
+      },
+      "duration": 0.3699,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 39063552,
+      "rows_read": 267,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

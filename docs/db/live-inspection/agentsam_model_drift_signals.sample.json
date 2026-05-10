@@ -1,0 +1,90 @@
+[
+  {
+    "results": [
+      {
+        "id": "mds_qwen_ts_handler_regression",
+        "model_key": "@cf/qwen/qwen2.5-coder-32b-instruct",
+        "provider": "workers-ai",
+        "task_type": "code_generation_typescript",
+        "case_id": "evc_ts_worker_d1_handler",
+        "baseline_score": 0.84,
+        "baseline_run_id": null,
+        "current_score": 0.71,
+        "current_run_id": "evr_ts_handler_qwen_001",
+        "delta": -0.13,
+        "delta_pct": -0.1548,
+        "detected_at": 1777536923,
+        "severity": "regression",
+        "acknowledged": 0,
+        "acknowledged_by": null,
+        "acknowledged_at": null,
+        "notes": "Qwen 32B started emitting raw template literal SQL interpolation instead of prepared statements on this canonical case. Baseline 0.84 was set 2026-04-08; current 0.71 from nightly run 2026-04-30. Delta -15.5pct exceeds 10pct alert threshold for code_generation_typescript. Possible cause: Workers AI rolled a new Qwen weight checkpoint. Pause arm pending investigation.",
+        "ai_model_id": null,
+        "routing_arm_paused": 0,
+        "routing_arm_id": null
+      },
+      {
+        "id": "mds_llama_intent_warn",
+        "model_key": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "provider": "workers-ai",
+        "task_type": "intent_classification",
+        "case_id": "evc_intent_classify_deploy",
+        "baseline_score": 0.96,
+        "baseline_run_id": null,
+        "current_score": 0.94,
+        "current_run_id": "evr_intent_deploy_llama_001",
+        "delta": -0.02,
+        "delta_pct": -0.0208,
+        "detected_at": 1777536923,
+        "severity": "warn",
+        "acknowledged": 0,
+        "acknowledged_by": null,
+        "acknowledged_at": null,
+        "notes": "Minor confidence calibration drift on multi-step intent classification. Llama dropped from 0.85 confidence baseline to 0.82. Within natural sampling variance. Marked warn for trend tracking; no action needed unless 3 consecutive nights show negative delta.",
+        "ai_model_id": null,
+        "routing_arm_paused": 0,
+        "routing_arm_id": null
+      },
+      {
+        "id": "mds_opus_sql_info",
+        "model_key": "anthropic/claude-opus-4.7",
+        "provider": "workers-ai",
+        "task_type": "sql_d1_generation",
+        "case_id": "evc_sql_d1_count_active_clients",
+        "baseline_score": 0.91,
+        "baseline_run_id": null,
+        "current_score": 0.91,
+        "current_run_id": "evr_sql_count_opus_001",
+        "delta": 0,
+        "delta_pct": 0,
+        "detected_at": 1777536923,
+        "severity": "info",
+        "acknowledged": 0,
+        "acknowledged_by": null,
+        "acknowledged_at": null,
+        "notes": "No drift detected. Stable score on canonical D1 aggregation case across 30-day window. This row is logged at info level for the drift heatmap to show coverage of all (model x case) cells, not just regressions.",
+        "ai_model_id": null,
+        "routing_arm_paused": 0,
+        "routing_arm_id": null
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "EWR",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.2039
+      },
+      "duration": 0.2039,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 39063552,
+      "rows_read": 3,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

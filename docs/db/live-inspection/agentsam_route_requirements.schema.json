@@ -1,0 +1,192 @@
+[
+  {
+    "results": [
+      {
+        "cid": 0,
+        "name": "id",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'req_' || lower(hex(randomblob(6)))",
+        "pk": 1
+      },
+      {
+        "cid": 1,
+        "name": "route_key",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": null,
+        "pk": 0
+      },
+      {
+        "cid": 2,
+        "name": "task_type",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 3,
+        "name": "min_context_window",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 4,
+        "name": "min_output_tokens",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 5,
+        "name": "requires_tools",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 6,
+        "name": "requires_vision",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 7,
+        "name": "requires_json_mode",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 8,
+        "name": "requires_reasoning",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "0",
+        "pk": 0
+      },
+      {
+        "cid": 9,
+        "name": "requires_streaming",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "1",
+        "pk": 0
+      },
+      {
+        "cid": 10,
+        "name": "max_cost_per_1k_in",
+        "type": "REAL",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 11,
+        "name": "max_cost_per_1k_out",
+        "type": "REAL",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 12,
+        "name": "max_cost_per_call",
+        "type": "REAL",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 13,
+        "name": "max_latency_p50_ms",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 14,
+        "name": "min_quality_score",
+        "type": "REAL",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 15,
+        "name": "preferred_tier",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 16,
+        "name": "max_tier",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "NULL",
+        "pk": 0
+      },
+      {
+        "cid": 17,
+        "name": "budget_priority",
+        "type": "TEXT",
+        "notnull": 1,
+        "dflt_value": "'balanced'",
+        "pk": 0
+      },
+      {
+        "cid": 18,
+        "name": "preferred_providers",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 19,
+        "name": "blocked_providers",
+        "type": "TEXT",
+        "notnull": 0,
+        "dflt_value": "'[]'",
+        "pk": 0
+      },
+      {
+        "cid": 20,
+        "name": "is_active",
+        "type": "INTEGER",
+        "notnull": 0,
+        "dflt_value": "1",
+        "pk": 0
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "EWR",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.2054
+      },
+      "duration": 0.2054,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 39063552,
+      "rows_read": 0,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
