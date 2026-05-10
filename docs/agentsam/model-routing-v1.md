@@ -9,20 +9,20 @@ This document defines production-intent routing policy and constraints. Applicat
 - **`ai_models`** is the **canonical** production catalog: routing, picker exposure, dispatch metadata, billing math, and tool/vision flags.
 - **`agent_model_registry`** is **legacy / staging / enrichment only**. Do not use it for production routing, picker, dispatch, billing, or `agentsam_routing_arms` seeding.
 
-## GPT-5.5 — API access not verified (hard constraint)
+## GPT-5.5 family — base vs pro (hard constraint on base)
 
-The OpenAI/API project used for production traffic **does not currently have access** to `gpt-5.5` (confirmed via API error: project does not have access to model gpt-5.5).
+The OpenAI/API project used for production traffic **does not have access to the base SKU** `gpt-5.5` (API error: project does not have access to model `gpt-5.5`). Runtime routing **always excludes** that exact `model_key`.
 
-Until access is verified end-to-end with a successful smoke call in the production credential context:
+**`gpt-5.5-pro`** is a **distinct catalog SKU**: it may be present in **`agentsam_model_catalog` / `agentsam_ai`** for visibility, but it must stay **`is_active = 0`** (and off routing arms) until a **successful smoke call** in the production credential path and an intentional decision to enable it.
 
-- **Do not** seed **`agentsam_routing_arms`** with `gpt-5.5` or **`gpt-5.5-pro`** (or any alias that resolves to unavailable GPT-5.5 SKUs).
-- **Do not** make GPT-5.5 the default for Tier 2 (or any tier).
-- **Do not** add GPT-5.5 as fallback or escalation in production routing.
-- **Do not** reference GPT-5.5 in **`ai_models`** for active routing unless the row is explicitly **`is_active = 0`** and/or labeled **`access_pending`** / unavailable — prefer omitting or inactive rows until verified.
-- **Do not** let **AUTO** routing choose GPT-5.5.
-- **Do not** expose GPT-5.5 in the picker until access is verified.
+Until then:
 
-**Tier 2 “senior review” (future):** GPT-5.5 is **reserved** for when API project access is confirmed; document any SKU names (`gpt-5.5`, `gpt-5.5-pro`, etc.) here when live.
+- **Do not** seed **`agentsam_routing_arms`** with **`gpt-5.5`** (base).
+- **Do not** activate **`gpt-5.5-pro`** for AUTO routing or picker until smoke-verified; keep catalog inactive until then.
+- **Do not** make either SKU the default for any tier until policy and verification say otherwise.
+- **Do not** let **AUTO** routing choose **`gpt-5.5`** (enforced in code). **`gpt-5.5-pro`** is gated only by **`is_active`** and arm seeds.
+
+**Tier 2 “senior review” (future):** Prefer **`gpt-5.5-pro`** after smoke verification, not the base `gpt-5.5` key.
 
 ## Temporary V1 tiers (live policy — verified models only)
 
@@ -53,10 +53,10 @@ Eligible examples:
 
 ### Tier 2 — senior review (current-access fallback)
 
-Until GPT-5.5 is available:
+Until **`gpt-5.5-pro`** is smoke-verified and intentionally activated:
 
 - Use the **best verified** alternative among **GPT-5.4**, **Claude Opus or Sonnet**, **Gemini Pro** — constrained by smoke verification and task tier policy.  
-- **GPT-5.5 is not eligible** until API access is confirmed.
+- **`gpt-5.5` (base) is never eligible** (no API access). **`gpt-5.5-pro`** is not eligible until catalog + routing arms are explicitly enabled after smoke tests.
 
 ### Tier 3 — emergency / final boss
 
@@ -82,8 +82,8 @@ A model may **only** be seeded as an eligible arm when **all** of the following 
 
 Additionally:
 
-- **Do not** deploy or seed routing arms that reference **unavailable** model keys (including GPT-5.5 until verified).
-- **Do not deploy** `agentsam_routing_arms` rows that point at **`gpt-5.5`** or **`gpt-5.5-pro`** until this document is updated with verification evidence.
+- **Do not** deploy routing arms for **`gpt-5.5`** (base); it is blocked in code.
+- **Do not deploy** `agentsam_routing_arms` rows for **`gpt-5.5-pro`** until smoke verification and this document are updated with evidence.
 
 ## References
 

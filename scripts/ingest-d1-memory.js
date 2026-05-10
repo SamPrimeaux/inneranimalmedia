@@ -13,6 +13,14 @@ import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+
+function requireIdentity(name, value) {
+  if (!value || !String(value).trim()) {
+    throw new Error(`Missing ${name}. Refusing to run without explicit tenant/workspace/user scope.`);
+  }
+  return String(value).trim();
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 try {
   const lines = readFileSync(resolve(__dirname, '../.env.cloudflare'), 'utf8').split('\n');
@@ -38,8 +46,8 @@ const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || 'ede6590ac0d2fb7daf155b3
 const MODEL = '@cf/baai/bge-large-en-v1.5';
 const EMBED_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/run/${MODEL}`;
 const PROJECT_ID = process.env.DOCUMENTS_PROJECT_ID || 'inneranimalmedia';
-const WORKSPACE_ID = process.env.WORKSPACE_ID || 'ws_inneranimalmedia';
-const TENANT_ID_ENV = process.env.TENANT_ID || 'tenant_sam_primeaux';
+const WORKSPACE_ID = process.env.WORKSPACE_ID;
+const TENANT_ID_ENV = process.env.TENANT_ID;
 const DELAY_MS = Number(process.env.INGEST_DELAY_MS || 150);
 
 const token = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
@@ -221,8 +229,8 @@ try {
   const deployHash = execSync('git rev-parse --short HEAD', { cwd: root, encoding: 'utf8' }).trim();
   const deployMsg = execSync('git log -1 --pretty=%s', { cwd: root, encoding: 'utf8' }).trim();
   const deployTime = new Date().toISOString();
-  const workspaceId = process.env.WORKSPACE_ID || 'ws_inneranimalmedia';
-  const tenantId = process.env.TENANT_ID || 'tenant_sam_primeaux';
+  const workspaceId = process.env.WORKSPACE_ID;
+  const tenantId = process.env.TENANT_ID;
   const userId = process.env.USER_ID || 'usr_sam_iam';
   const memId = `mem_last_deploy_${workspaceId}`;
 

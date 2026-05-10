@@ -36,6 +36,14 @@ import {
   guardrailDocumentMetadata,
 } from './lib/agentsam-guardrails-ingest.mjs';
 
+
+function requireIdentity(name, value) {
+  if (!value || !String(value).trim()) {
+    throw new Error(`Missing ${name}. Refusing to run without explicit tenant/workspace/user scope.`);
+  }
+  return String(value).trim();
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = pathMod.join(__dirname, '..');
 

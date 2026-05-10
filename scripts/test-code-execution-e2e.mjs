@@ -16,6 +16,14 @@
  * Deps: Node 18+ (native fetch). No SDK required.
  */
 
+
+function requireIdentity(name, value) {
+  if (!value || !String(value).trim()) {
+    throw new Error(`Missing ${name}. Refusing to run without explicit tenant/workspace/user scope.`);
+  }
+  return String(value).trim();
+}
+
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';

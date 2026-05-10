@@ -69,7 +69,8 @@
     "theme:package": "node scripts/themes/generate-theme-package.mjs",
     "theme:preview": "node scripts/themes/generate-theme-previews.mjs",
     "theme:preview:all": "node scripts/themes/generate-theme-previews.mjs --all-active",
-    "theme:preview:upload": "node scripts/themes/generate-theme-previews.mjs --all-active --upload-r2 --remote"
+    "theme:preview:upload": "node scripts/themes/generate-theme-previews.mjs --all-active --upload-r2 --remote",
+    "smoke:agentsam:r2-env": "bash -lc 'source scripts/load-agentsam-env.sh && SMOKE_ID=r2_env_smoke_$(date +%Y%m%d_%H%M%S) && SMOKE_KEY=$AGENTSAM_R2_RESULTS_PREFIX/$SMOKE_ID.json && mkdir -p tmp/r2-smoke && printf \"{\\\"smoke_id\\\":\\\"$SMOKE_ID\\\",\\\"bucket\\\":\\\"$AGENTSAM_R2_BUCKET\\\",\\\"key\\\":\\\"$SMOKE_KEY\\\",\\\"workspace_id\\\":\\\"$IAM_WORKSPACE_ID\\\",\\\"tenant_id\\\":\\\"$IAM_TENANT_ID\\\",\\\"user_id\\\":\\\"$IAM_USER_ID\\\",\\\"created_at\\\":\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\",\\\"purpose\\\":\\\"validate Agent Sam R2 env target\\\"}\\n\" > tmp/r2-smoke/$SMOKE_ID.json && npx wrangler r2 object put \"$AGENTSAM_R2_BUCKET/$SMOKE_KEY\" --file tmp/r2-smoke/$SMOKE_ID.json --remote && npx wrangler r2 object get \"$AGENTSAM_R2_BUCKET/$SMOKE_KEY\" --file tmp/r2-smoke/$SMOKE_ID.readback.json --remote && cat tmp/r2-smoke/$SMOKE_ID.readback.json | jq'"
   },
   "keywords": [],
   "author": "",

@@ -83,3 +83,8 @@ iam-test-reports/
 .mcp_exports.sh
 
 __pycache__/
+
+# Agent Sam local smoke/eval secrets
+.env.agentsam.local
+.env.openai-smoke.local
+.env.anthropic-smoke.local
