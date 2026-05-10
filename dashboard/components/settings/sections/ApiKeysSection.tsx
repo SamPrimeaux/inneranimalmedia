@@ -85,6 +85,20 @@ function ScopePill({ scope }: { scope: string }) {
 
 export type ApiKeysSectionProps = { workspaceId?: string | null };
 
+function apiKeysJsonHeaders(workspaceId: string | null) {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (workspaceId) h['X-IAM-Workspace-Id'] = workspaceId;
+  return h;
+}
+
+function readApiError(j: Record<string, unknown>, fallback: string): string {
+  const msg = j.message;
+  const err = j.error;
+  if (typeof msg === 'string' && msg.trim()) return msg.trim();
+  if (typeof err === 'string' && err.trim()) return err.trim();
+  return fallback;
+}
+
 export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -122,9 +136,10 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
     try {
       const r = await fetch(`/api/settings/api-keys`, {
         credentials: 'same-origin',
+        headers: ws ? { 'X-IAM-Workspace-Id': ws } : undefined,
       });
-      const j = (await r.json().catch(() => ({}))) as { items?: ApiKeyItem[]; error?: string };
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Load failed (${r.status})`);
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown> & { items?: ApiKeyItem[] };
+      if (!r.ok) throw new Error(readApiError(j, `Load failed (${r.status})`));
       setItems(Array.isArray(j.items) ? j.items : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load API keys');
@@ -139,12 +154,12 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
     setAuditLoading(true);
     setAuditError(null);
     try {
-      const r = await fetch(
-        `/api/settings/api-keys/audit?limit=20`,
-        { credentials: 'same-origin' },
-      );
-      const j = (await r.json().catch(() => ({}))) as { items?: AuditRow[]; error?: string };
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Audit load failed (${r.status})`);
+      const r = await fetch(`/api/settings/api-keys/audit?limit=20`, {
+        credentials: 'same-origin',
+        headers: ws ? { 'X-IAM-Workspace-Id': ws } : undefined,
+      });
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown> & { items?: AuditRow[] };
+      if (!r.ok) throw new Error(readApiError(j, `Audit load failed (${r.status})`));
       setAuditRows(Array.isArray(j.items) ? j.items : []);
     } catch (e) {
       setAuditRows([]);
@@ -172,27 +187,45 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
 
   const onCreate = async () => {
     if (!ws) return;
+    const labelT = label.trim();
+    const keyT = apiKey.trim();
+    if (!provider.trim()) {
+      setError('Provider is required.');
+      return;
+    }
+    if (!labelT) {
+      setError('Label is required.');
+      return;
+    }
+    if (!keyT) {
+      setError('API key is required.');
+      return;
+    }
+    if (!scope) {
+      setError('Scope is required.');
+      return;
+    }
     setSaving(true);
     setError(null);
-    const keyToSend = apiKey;
-    setApiKey('');
     try {
       const r = await fetch('/api/settings/api-keys', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiKeysJsonHeaders(ws),
         body: JSON.stringify({
-          provider,
-          label,
-          api_key: keyToSend,
+          provider: provider.trim().toLowerCase(),
+          label: labelT,
+          key_name: labelT,
+          api_key: keyT,
           scope,
           expires_at: expiresAt.trim() ? expiresAt.trim() : null,
         }),
       });
-      const j = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Create failed (${r.status})`);
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!r.ok) throw new Error(readApiError(j, `Create failed (${r.status})`));
       setCreateOpen(false);
       setLabel('');
+      setApiKey('');
       setProvider('openai');
       setScope('workspace');
       setExpiresAt('');
@@ -221,11 +254,11 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
       const r = await fetch(`/api/settings/api-keys/${encodeURIComponent(rotateTarget.id)}/rotate`, {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiKeysJsonHeaders(ws),
         body: JSON.stringify({ api_key: keyToSend }),
       });
-      const j = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Rotate failed (${r.status})`);
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!r.ok) throw new Error(readApiError(j, `Rotate failed (${r.status})`));
       setRotateOpen(false);
       setRotateTarget(null);
       await load();
@@ -246,11 +279,11 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
       const r = await fetch(`/api/settings/api-keys/${encodeURIComponent(row.id)}`, {
         method: 'DELETE',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiKeysJsonHeaders(ws),
         body: JSON.stringify({}),
       });
-      const j = (await r.json().catch(() => ({}))) as { error?: string };
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Revoke failed (${r.status})`);
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!r.ok) throw new Error(readApiError(j, `Revoke failed (${r.status})`));
       await load();
       await loadAudit();
     } catch (e) {
@@ -540,7 +573,7 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
               </button>
               <button
                 type="button"
-                disabled={saving || !label.trim() || !ws}
+                disabled={saving || !label.trim() || !apiKey.trim() || !provider.trim() || !ws}
                 className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 disabled:opacity-50"
                 onClick={() => void onCreate()}
               >

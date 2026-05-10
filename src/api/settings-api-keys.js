@@ -87,6 +87,34 @@ function has(cols, col) {
   return cols && cols.has(col);
 }
 
+/** @param {string} code @param {string} message @param {number} [status] */
+function clientError(code, message, status = 400) {
+  return jsonResponse({ ok: false, error: code, message }, status);
+}
+
+/** @param {unknown} e */
+function sqliteErrorMessage(e) {
+  const raw = e?.message != null ? String(e.message) : String(e);
+  if (/NOT NULL constraint failed:\s*user_api_keys\.key_name/i.test(raw)) {
+    return {
+      code: 'KEY_NAME_REQUIRED',
+      message: 'API key label is required.',
+    };
+  }
+  if (/NOT NULL constraint failed:\s*user_api_keys\.(\w+)/i.test(raw)) {
+    const m = raw.match(/NOT NULL constraint failed:\s*user_api_keys\.(\w+)/i);
+    const col = m ? m[1] : 'field';
+    return {
+      code: 'D1_CONSTRAINT',
+      message: `Missing required field (${col}). Check that label, provider, and key are set.`,
+    };
+  }
+  if (/UNIQUE constraint failed/i.test(raw)) {
+    return { code: 'D1_UNIQUE', message: 'This key record conflicts with an existing row.' };
+  }
+  return { code: 'D1_ERROR', message: raw.length > 200 ? `${raw.slice(0, 200)}…` : raw };
+}
+
 async function resolveWorkspaceIdStrict(env, request, authUser) {
   const headerWs = String(request?.headers?.get('x-iam-workspace-id') || '').trim();
   if (headerWs) return headerWs;
@@ -166,7 +194,11 @@ async function loadApiKeyRowScoped(env, authUser, id, workspaceId) {
     has(cols, 'label') ? 'label' : has(cols, 'key_name') ? 'key_name AS label' : 'NULL AS label',
     has(cols, 'status') ? 'status' : `'active' AS status`,
     has(cols, 'scope') ? 'scope' : `'workspace' AS scope`,
-    has(cols, 'last_four') ? 'last_four' : has(cols, 'key_preview') ? 'key_preview AS last_four' : 'NULL AS last_four',
+    has(cols, 'last_four')
+      ? 'last_four'
+      : has(cols, 'key_preview')
+        ? 'key_preview AS last_four'
+        : 'NULL AS last_four',
     has(cols, 'vault_secret_id') ? 'vault_secret_id' : 'NULL AS vault_secret_id',
     has(cols, 'created_at') ? 'created_at' : 'NULL AS created_at',
     has(cols, 'updated_at') ? 'updated_at' : 'NULL AS updated_at',
@@ -193,7 +225,11 @@ async function listApiKeys(request, env, authUser, url) {
   if (!ok) return jsonResponse({ items: [] });
 
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
-  if (wsRes.error) return jsonResponse({ error: wsRes.error }, wsRes.error === 'Forbidden' ? 403 : 400);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing. Open this page from a workspace or set your active workspace.');
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
 
   const cols = await tableColumns(db, 'user_api_keys');
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
@@ -223,7 +259,11 @@ async function listApiKeys(request, env, authUser, url) {
     has(cols, 'label') ? 'label' : has(cols, 'key_name') ? 'key_name AS label' : 'NULL AS label',
     has(cols, 'status') ? 'status' : `'active' AS status`,
     has(cols, 'scope') ? 'scope' : `'workspace' AS scope`,
-    has(cols, 'last_four') ? 'last_four' : 'NULL AS last_four',
+    has(cols, 'last_four')
+      ? 'last_four'
+      : has(cols, 'key_preview')
+        ? 'key_preview AS last_four'
+        : 'NULL AS last_four',
     has(cols, 'created_at') ? 'created_at' : 'NULL AS created_at',
     has(cols, 'updated_at') ? 'updated_at' : 'NULL AS updated_at',
     has(cols, 'last_used_at') ? 'last_used_at' : 'NULL AS last_used_at',
@@ -254,25 +294,39 @@ async function createApiKey(env, authUser, request) {
   if (!(await tableExists(db, 'user_secrets'))) return jsonResponse({ error: 'user_secrets table missing' }, 503);
 
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
-  if (wsRes.error) return jsonResponse({ error: wsRes.error }, wsRes.error === 'Forbidden' ? 403 : 400);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing. Open this page from a workspace or set your active workspace.');
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
 
   const cols = await tableColumns(db, 'user_api_keys');
   const sCols = await tableColumns(db, 'user_secrets');
   const body = await request.json().catch(() => ({}));
 
   const provider = String(body.provider || '').trim().toLowerCase();
-  const label = String(body.label || '').trim();
+  const keyLabel = String(body.label ?? body.key_name ?? '').trim();
   const api_key = String(body.api_key || '').trim();
-  const scope = String(body.scope || 'workspace').trim().toLowerCase();
+  const scopeRaw =
+    body.scope == null || String(body.scope).trim() === ''
+      ? 'workspace'
+      : String(body.scope).trim().toLowerCase();
+  const scope = scopeRaw;
   const workspaceId = wsRes.workspaceId;
   const expires_at = body.expires_at ?? null;
   const metadata = body.metadata ?? null;
 
-  if (!PROVIDERS.has(provider)) return jsonResponse({ error: 'Invalid provider' }, 400);
-  if (!label) return jsonResponse({ error: 'label required' }, 400);
-  if (!api_key) return jsonResponse({ error: 'api_key required' }, 400);
-  if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
-  if (!['user', 'workspace'].includes(scope)) return jsonResponse({ error: 'scope must be user or workspace' }, 400);
+  if (!provider) return clientError('PROVIDER_REQUIRED', 'Provider is required.');
+  if (!PROVIDERS.has(provider)) {
+    return clientError('INVALID_PROVIDER', 'Choose a supported provider (OpenAI, Anthropic, Google, etc.).');
+  }
+  if (!keyLabel) {
+    return clientError('KEY_NAME_REQUIRED', 'API key label is required.');
+  }
+  if (!api_key) return clientError('API_KEY_REQUIRED', 'API key value is required.');
+  if (!['user', 'workspace'].includes(scope)) {
+    return clientError('INVALID_SCOPE', 'Scope must be user or workspace.');
+  }
 
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
   const userId = String(authUser?.id || '').trim();
@@ -294,9 +348,9 @@ async function createApiKey(env, authUser, request) {
       ['secret_name', `api_key:${provider}:${keyRowId}`],
       ['secret_value_encrypted', encrypted],
       ['service_name', provider],
-      ['description', label],
+      ['description', keyLabel],
       ['project_label', 'user_api_keys'],
-      ['metadata_json', JSON.stringify({ api_key_id: keyRowId, provider, label, last_four })],
+      ['metadata_json', JSON.stringify({ api_key_id: keyRowId, provider, label: keyLabel, last_four })],
       ['is_active', 1],
       ['created_at', nowIso()],
       ['updated_at', nowIso()],
@@ -310,12 +364,26 @@ async function createApiKey(env, authUser, request) {
       .bind(...secretFields.map(([, v]) => v))
       .run();
   } catch (e) {
-    return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    const { code, message } = sqliteErrorMessage(e);
+    return jsonResponse({ ok: false, error: code, message }, 500);
   }
 
-  // Insert metadata row
+  // Insert metadata row — support legacy columns (key_name, key_preview) and newer (label, last_four, vault_secret_id).
   try {
     const metaJson = metadata != null ? JSON.stringify(metadata) : null;
+    // key_preview: store last 4 chars only — UI prefixes with ••••
+    const keyPreviewVal = last_four;
+
+    if (!has(cols, 'label') && !has(cols, 'key_name')) {
+      try {
+        await db.prepare(`UPDATE user_secrets SET is_active = 0 WHERE id = ?`).bind(vaultSecretId).run();
+      } catch {}
+      return clientError(
+        'SCHEMA_UNSUPPORTED',
+        'Database schema is missing both label and key_name on user_api_keys; cannot save.',
+        503,
+      );
+    }
 
     const fields = [
       ['id', keyRowId],
@@ -323,10 +391,12 @@ async function createApiKey(env, authUser, request) {
       ['user_id', userId],
       ['workspace_id', workspaceId],
       ['provider', provider],
-      ['label', label],
+      ['label', keyLabel],
+      ['key_name', keyLabel],
       ['status', 'active'],
       ['scope', scope],
       ['last_four', last_four],
+      ['key_preview', keyPreviewVal],
       ['vault_secret_id', vaultSecretId],
       ['expires_at', expires_at],
       ['metadata_json', metaJson],
@@ -360,12 +430,13 @@ async function createApiKey(env, authUser, request) {
     try {
       await db.prepare(`UPDATE user_secrets SET is_active = 0 WHERE id = ?`).bind(vaultSecretId).run();
     } catch {}
-    return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    const { code, message } = sqliteErrorMessage(e);
+    return jsonResponse({ ok: false, error: code, message }, 500);
   }
 
   const { row } = await loadApiKeyRowScoped(env, authUser, keyRowId, workspaceId);
-  if (!row) return jsonResponse({ error: 'Created but could not re-load row' }, 500);
-  return jsonResponse(toSafeItem(row, cols));
+  if (!row) return clientError('RELOAD_FAILED', 'Key was created but could not be reloaded.', 500);
+  return jsonResponse({ ok: true, item: toSafeItem(row, cols) });
 }
 
 async function patchApiKey(env, authUser, request, id) {
@@ -373,18 +444,36 @@ async function patchApiKey(env, authUser, request, id) {
   const db = env.DB;
   const body = await request.json().catch(() => ({}));
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
-  if (wsRes.error) return jsonResponse({ error: wsRes.error }, wsRes.error === 'Forbidden' ? 403 : 400);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing. Open this page from a workspace or set your active workspace.');
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
   const workspaceId = wsRes.workspaceId;
 
   const { row, cols, tenantId, userId } = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
-  if (!row) return jsonResponse({ error: 'Not found' }, 404);
+  if (!row) return clientError('NOT_FOUND', 'API key not found.', 404);
 
   const updates = [];
   const binds = [];
 
-  if (body.label != null && has(cols, 'label')) {
-    updates.push('label = ?');
-    binds.push(String(body.label).trim());
+  if (body.label != null) {
+    const v = String(body.label).trim();
+    if (v && has(cols, 'label')) {
+      updates.push('label = ?');
+      binds.push(v);
+    }
+    if (v && has(cols, 'key_name')) {
+      updates.push('key_name = ?');
+      binds.push(v);
+    }
+  }
+  if (body.key_name != null && has(cols, 'key_name') && body.label == null) {
+    const v = String(body.key_name).trim();
+    if (v) {
+      updates.push('key_name = ?');
+      binds.push(v);
+    }
   }
   if (body.status != null && has(cols, 'status')) {
     updates.push('status = ?');
@@ -405,7 +494,7 @@ async function patchApiKey(env, authUser, request, id) {
     binds.push(body.metadata == null ? null : JSON.stringify(body.metadata));
   }
 
-  if (!updates.length) return jsonResponse(toSafeItem(row, cols));
+  if (!updates.length) return jsonResponse({ ok: true, item: toSafeItem(row, cols) });
 
   if (has(cols, 'updated_at')) {
     updates.push('updated_at = ?');
@@ -433,12 +522,13 @@ async function patchApiKey(env, authUser, request, id) {
       .bind(...binds, ...whereBinds)
       .run();
   } catch (e) {
-    return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    const { code, message } = sqliteErrorMessage(e);
+    return jsonResponse({ ok: false, error: code, message }, 500);
   }
 
   const re = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
-  if (!re.row) return jsonResponse({ error: 'Updated but could not re-load row' }, 500);
-  return jsonResponse(toSafeItem(re.row, cols));
+  if (!re.row) return clientError('RELOAD_FAILED', 'Updated but could not re-load row.', 500);
+  return jsonResponse({ ok: true, item: toSafeItem(re.row, cols) });
 }
 
 async function rotateApiKey(env, authUser, request, id) {
@@ -446,11 +536,15 @@ async function rotateApiKey(env, authUser, request, id) {
   const db = env.DB;
   const body = await request.json().catch(() => ({}));
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
-  if (wsRes.error) return jsonResponse({ error: wsRes.error }, wsRes.error === 'Forbidden' ? 403 : 400);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing. Open this page from a workspace or set your active workspace.');
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
   const workspaceId = wsRes.workspaceId;
 
   const { row, cols, tenantId, userId } = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
-  if (!row) return jsonResponse({ error: 'Not found' }, 404);
+  if (!row) return clientError('NOT_FOUND', 'API key not found.', 404);
 
   const api_key = String(body.api_key || '').trim();
   if (!api_key) return jsonResponse({ error: 'api_key required' }, 400);
@@ -516,6 +610,10 @@ async function rotateApiKey(env, authUser, request, id) {
       updates.push('last_four = ?');
       binds.push(newLast4);
     }
+    if (!has(cols, 'last_four') && has(cols, 'key_preview')) {
+      updates.push('key_preview = ?');
+      binds.push(newLast4);
+    }
     if (has(cols, 'rotated_at')) {
       updates.push('rotated_at = ?');
       binds.push(nowIso());
@@ -524,7 +622,13 @@ async function rotateApiKey(env, authUser, request, id) {
       updates.push('updated_at = ?');
       binds.push(nowIso());
     }
-    if (!updates.length) return jsonResponse({ error: 'Schema missing last_four/rotated_at/updated_at' }, 500);
+    if (!updates.length) {
+      return clientError(
+        'SCHEMA_UNSUPPORTED',
+        'Cannot rotate: table is missing last_four, key_preview, rotated_at, and updated_at.',
+        500,
+      );
+    }
 
     const where = ['id = ?'];
     const wBinds = [id];
@@ -559,23 +663,28 @@ async function rotateApiKey(env, authUser, request, id) {
       secretSource: 'user_api_keys',
     });
   } catch (e) {
-    return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    const { code, message } = sqliteErrorMessage(e);
+    return jsonResponse({ ok: false, error: code, message }, 500);
   }
 
   const re = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
-  if (!re.row) return jsonResponse({ error: 'Rotated but could not re-load row' }, 500);
-  return jsonResponse(toSafeItem(re.row, cols));
+  if (!re.row) return clientError('RELOAD_FAILED', 'Rotated but could not re-load row.', 500);
+  return jsonResponse({ ok: true, item: toSafeItem(re.row, cols) });
 }
 
 async function revokeApiKey(env, authUser, request, id) {
   if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
   const db = env.DB;
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
-  if (wsRes.error) return jsonResponse({ error: wsRes.error }, wsRes.error === 'Forbidden' ? 403 : 400);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing. Open this page from a workspace or set your active workspace.');
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
   const workspaceId = wsRes.workspaceId;
 
   const { row, cols, tenantId, userId } = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
-  if (!row) return jsonResponse({ error: 'Not found' }, 404);
+  if (!row) return clientError('NOT_FOUND', 'API key not found.', 404);
 
   const previousLast4 =
     row.last_four != null && String(row.last_four).trim() !== ''
@@ -637,7 +746,7 @@ async function revokeApiKey(env, authUser, request, id) {
     return jsonResponse({ error: e?.message ?? String(e) }, 500);
   }
 
-  return jsonResponse({ ok: true });
+  return jsonResponse({ ok: true, revoked: true });
 }
 
 async function auditApiKeys(request, env, authUser, url) {
@@ -649,7 +758,11 @@ async function auditApiKeys(request, env, authUser, url) {
   }
 
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
-  if (wsRes.error) return jsonResponse({ error: wsRes.error }, wsRes.error === 'Forbidden' ? 403 : 400);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing. Open this page from a workspace or set your active workspace.');
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
 
   const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '50', 10) || 50));
   const offset = Math.max(0, Number.parseInt(url.searchParams.get('offset') || '0', 10) || 0);

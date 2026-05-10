@@ -5,6 +5,7 @@
 import { AwsClient } from 'aws4fetch';
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
+import { runHyperdriveQuery } from '../core/hyperdrive-query.js';
 
 export const RAG_CHUNK_MAX_CHARS = 600;
 export const RAG_CHUNK_OVERLAP = 80;
@@ -311,12 +312,9 @@ export async function searchAgentMemoryHybrid(env, query, workspaceId, options =
   const params = [vecLit, q, workspaceId, matchLimit, keywordWeight, semanticWeight];
 
   try {
-    if (typeof env.HYPERDRIVE.query === 'function') {
-      const result = await env.HYPERDRIVE.query(sql, params);
-      return result?.rows ?? [];
-    }
-    const result = await withPg(env, (client) => client.query(sql, params));
-    return result?.rows ?? [];
+    const r = await runHyperdriveQuery(env, sql, params);
+    if (!r.ok) return null;
+    return r.rows ?? [];
   } catch (e) {
     console.error('[rag] searchAgentMemoryHybrid failed:', e?.message);
     return null;
@@ -443,11 +441,8 @@ async function logSemanticSearch(env, args) {
     $10::jsonb, $11::integer, $12::jsonb
   )`;
   try {
-    if (env?.HYPERDRIVE && typeof env.HYPERDRIVE.query === 'function') {
-      await env.HYPERDRIVE.query(sql, params);
-      return;
-    }
-    await withPg(env, (client) => client.query(sql, params));
+    const r = await runHyperdriveQuery(env, sql, params);
+    if (!r.ok) await withPg(env, (client) => client.query(sql, params));
   } catch (e) {
     console.warn('[rag] log_semantic_search:', e?.message ?? e);
   }

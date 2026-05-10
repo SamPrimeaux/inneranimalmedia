@@ -19,6 +19,7 @@ import { handleCanvasApi } from '../integrations/canvas.js';
 import { handleHyperdriveRoutes } from '../integrations/hyperdrive.js';
 import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/playwright.js';
 import { handleGitHubApi, resolveGitHubToken } from '../integrations/github.js';
+import { handleAgentArtifactsApi } from './agent-artifacts.js';
 
 /**
  * Main dispatcher for Dashboard-related API routes (/api/agent/*, /api/terminal/*).
@@ -27,6 +28,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
     const pathLower = url.pathname.toLowerCase();
     const method = request.method.toUpperCase();
     const isWebSocketUpgrade = (request.headers.get('Upgrade') || '').toLowerCase() === 'websocket';
+
+    const artifactsRes = await handleAgentArtifactsApi(request, url, env);
+    if (artifactsRes) return artifactsRes;
 
     // ── /api/agent/git/status ────────────────────────────────────────────────
     if (pathLower === '/api/agent/git/status' && method === 'GET') {

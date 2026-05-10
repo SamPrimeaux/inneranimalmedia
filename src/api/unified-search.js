@@ -3,6 +3,7 @@
  */
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
+import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 import { documentsSourceFilterSql, normalizeSourceFilters } from '../core/unified-source-filters.js';
 import { resolveGitHubToken } from '../core/github-token.js';
 
@@ -43,14 +44,13 @@ function documentFacetIdsOnly(facetIds) {
  * @param {unknown[]} params
  */
 async function hyperdriveQuery(env, sql, params) {
-  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') return [];
-  try {
-    const result = await env.HYPERDRIVE.query(sql, params);
-    return result?.rows ?? [];
-  } catch (e) {
-    console.warn('[unified-search] hyperdrive', e?.message ?? e);
+  if (!isHyperdriveUsable(env)) return [];
+  const r = await runHyperdriveQuery(env, sql, params);
+  if (!r.ok) {
+    console.warn('[unified-search] hyperdrive', r.error ?? 'query_failed');
     return [];
   }
+  return r.rows ?? [];
 }
 
 /**
@@ -146,7 +146,7 @@ function mapDocumentRowToHit(row) {
  * @param {object} args
  */
 async function logSemanticSearch(env, args) {
-  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') return;
+  if (!isHyperdriveUsable(env)) return;
   const {
     searchFn,
     tenantId,
@@ -162,7 +162,8 @@ async function logSemanticSearch(env, args) {
     metadata,
   } = args;
   try {
-    await env.HYPERDRIVE.query(
+    await runHyperdriveQuery(
+      env,
       `SELECT public.log_semantic_search(
         $1::text, $2::text, $3::text, $4::text,
         $5::double precision, $6::integer, $7::integer,
@@ -204,7 +205,7 @@ async function logSemanticSearch(env, args) {
  * }} [opts]
  */
 async function searchDocumentsVector(env, query, limit, opts = {}) {
-  if (!env?.AI || !env?.HYPERDRIVE) return [];
+  if (!env?.AI || !isHyperdriveUsable(env)) return [];
   const t0 = Date.now();
   let embResult;
   try {

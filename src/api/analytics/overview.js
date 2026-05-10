@@ -1,5 +1,6 @@
 import { parseRange, analyticsResponse } from './sources/normalize.js';
 import { supabaseQuery } from './sources/supabase.js';
+import { isHyperdriveBindingPresent, isHyperdriveUsable } from '../../core/hyperdrive-query.js';
 import { tableExists, pragmaTableInfo } from '../../core/retention.js';
 import { handleAnalyticsCodebase } from './codebase.js';
 import { handleAnalyticsRag } from './rag.js';
@@ -207,9 +208,20 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
   const range = parseRange(url);
   const warnings = [];
   const db = env?.DB || null;
-  const hasHyperdrive = !!env?.HYPERDRIVE && typeof env.HYPERDRIVE.query === 'function';
+  const hasBindingShell = isHyperdriveBindingPresent(env);
+  const hyperdriveReady = isHyperdriveUsable(env);
   const tid = tenantId && String(tenantId).trim() ? String(tenantId).trim() : null;
   const wid = workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null;
+
+  console.log('[hyperdrive.health]', {
+    hasHyperdrive: hasBindingShell,
+    hasQueryable: typeof env?.HYPERDRIVE?.query === 'function',
+    hasConnectionString: !!(
+      env?.HYPERDRIVE?.connectionString && String(env.HYPERDRIVE.connectionString).trim()
+    ),
+    route: url.pathname,
+    runtime: 'cloudflare-worker',
+  });
 
   const ctx = {
     sourceStatus: { live: [], empty: [], blocked: [], errors: [] },
@@ -244,7 +256,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     markBlocked('D1 env.DB');
     return analyticsResponse({
       ok: true,
-      backend: hasHyperdrive ? 'mixed' : 'd1',
+      backend: hyperdriveReady ? 'mixed' : 'd1',
       range,
       summary: {},
       rows: [],
@@ -296,14 +308,33 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     });
   }
 
-  if (!hasHyperdrive) {
+  if (!hasBindingShell) {
     warnings.push({
       code: 'HYPERDRIVE_BINDING_MISSING',
-      message: 'Hyperdrive is not configured; Supabase panels (errors, evals) may be partial.',
+      message: 'Hyperdrive binding env.HYPERDRIVE is not present; Supabase panels (errors, evals) are unavailable.',
       backend: 'supabase',
       severity: 'warn',
     });
     markBlocked('Supabase via env.HYPERDRIVE');
+  } else if (!hyperdriveReady) {
+    warnings.push({
+      code: 'HYPERDRIVE_BINDING_MISSING',
+      message:
+        'Hyperdrive binding is present but not usable (no native .query and no connectionString); Supabase panels may be partial.',
+      backend: 'supabase',
+      severity: 'warn',
+    });
+    markBlocked('Supabase via env.HYPERDRIVE');
+  } else {
+    const probe = await supabaseQuery(env, 'SELECT 1 AS one', []);
+    if (!probe.ok) {
+      warnings.push({
+        code: 'HYPERDRIVE_QUERY_FAILED',
+        message: `Supabase/Hyperdrive query probe failed: ${probe.warning || 'unknown'}`.slice(0, 500),
+        backend: 'supabase',
+        severity: 'warn',
+      });
+    }
   }
 
   const wfWhere = [wfRangeClause(range)];
@@ -490,7 +521,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
 
   let openErr = 0;
   let errTableUsed = 'agentsam_error_events (Supabase)';
-  if (hasHyperdrive) {
+  if (hyperdriveReady) {
     const errTry = await supabaseQuery(
       env,
       `SELECT COUNT(*)::int AS c
@@ -542,7 +573,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
       openErr = c;
       errTableUsed = 'agentsam_error_log (D1)';
       markLive('D1 agentsam_error_log');
-    } else if (!hasHyperdrive) {
+    } else if (!hyperdriveReady) {
       markEmpty('D1 agentsam_error_log (window)');
     }
   }
@@ -616,7 +647,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
   let supabaseEvalProbeOk = false;
   const d1HasEvalTable = await tableExists(db, 'agentsam_eval_runs');
 
-  if (hasHyperdrive) {
+  if (hyperdriveReady) {
     const evInterval = pgRangeInterval(range);
     let ev = await supabaseQuery(
       env,
@@ -812,7 +843,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
 
   if (highlight) {
     let hlRow = await fetchWorkflowRunRowById(db, highlight, tid, ctx, warnings);
-    if (!hlRow && hasHyperdrive) {
+    if (!hlRow && hyperdriveReady) {
       hlRow = await loadWorkflowRunFromSupabase(env, highlight);
       if (hlRow) markLive('Supabase agentsam_workflow_runs (highlightRun)');
     }
@@ -824,7 +855,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
 
   if (waterfallRunId && !waterfallRunRow) {
     let wr = await fetchWorkflowRunRowById(db, waterfallRunId, tid, ctx, warnings);
-    if (!wr && hasHyperdrive) {
+    if (!wr && hyperdriveReady) {
       wr = await loadWorkflowRunFromSupabase(env, waterfallRunId);
       if (wr) markLive('Supabase agentsam_workflow_runs (waterfall run row)');
     }
@@ -926,7 +957,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
   }
 
   let errorInbox = [];
-  if (hasHyperdrive) {
+  if (hyperdriveReady) {
     let inbox = await supabaseQuery(
       env,
       `SELECT created_at, severity, message, run_group_id, resolved
@@ -984,7 +1015,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
   const monthlyCost = Number(monthlyCostRow?.c ?? 0) || 0;
 
   let routingCostSupabase = null;
-  if (hasHyperdrive) {
+  if (hyperdriveReady) {
     const rc = await supabaseQuery(
       env,
       `SELECT COALESCE(SUM(estimated_cost_usd), 0) AS s
@@ -1010,7 +1041,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
   ]);
 
   let deployments = { state: 'BLOCKED', rows: [], reason: 'No deployment query', nextStep: 'Wire build_deploy_events or D1 deployments' };
-  if (hasHyperdrive) {
+  if (hyperdriveReady) {
     const dep = await supabaseQuery(
       env,
       `SELECT id, status, created_at, event_type, metadata
@@ -1197,7 +1228,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
 
   return analyticsResponse({
     ok: true,
-    backend: hasHyperdrive ? 'mixed' : 'd1',
+    backend: hyperdriveReady ? 'mixed' : 'd1',
     range,
     summary,
     rows,

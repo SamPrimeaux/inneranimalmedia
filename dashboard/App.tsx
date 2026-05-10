@@ -60,7 +60,7 @@ import { AuthForgotPage } from './components/auth/AuthForgotPage';
 import { AuthResetPage } from './components/auth/AuthResetPage';
 import { AuthOAuthConsentPage } from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing } from 'lucide-react';
+import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library } from 'lucide-react';
 import ProjectManagement from "./pages/projects/ProjectManagement";
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
@@ -80,6 +80,7 @@ const MailPage = lazy(() => import('./components/MailPage').then((m) => ({ defau
 const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
+const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
 
 function DashboardRoutesFallback() {
   return (
@@ -1937,6 +1938,13 @@ const App: React.FC = () => {
           >
               <ActivityRailItem icon={Home} label="Overview" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/overview'} onClick={() => navigate('/dashboard/overview')} />
               <ActivityRailItem
+                icon={Library}
+                label="Library"
+                expanded={sidebarRailExpanded}
+                active={location.pathname === '/dashboard/library'}
+                onClick={() => navigate('/dashboard/library')}
+              />
+              <ActivityRailItem
                 icon={ChartColumnIncreasing}
                 label="Analytics"
                 expanded={sidebarRailExpanded}
@@ -2160,6 +2168,7 @@ const App: React.FC = () => {
                     <Routes>
                       <Route path="/dashboard/calendar" element={<CalendarPage />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
+                      <Route path="/dashboard/library" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
                       <Route path="/dashboard/analytics" element={<Navigate to="/dashboard/analytics/overview" replace />} />

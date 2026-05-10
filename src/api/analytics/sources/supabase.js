@@ -1,3 +1,5 @@
+import { runHyperdriveQuery, isHyperdriveUsable } from '../../../core/hyperdrive-query.js';
+
 function pgQuoteIdent(ident) {
   const s = String(ident || '').trim();
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)) {
@@ -7,16 +9,17 @@ function pgQuoteIdent(ident) {
 }
 
 async function pgHasColumn(env, tableName, colName) {
-  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') return false;
+  if (!isHyperdriveUsable(env)) return false;
   try {
-    const res = await env.HYPERDRIVE.query(
+    const r = await runHyperdriveQuery(
+      env,
       `SELECT 1 AS ok
        FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
        LIMIT 1`,
       [tableName, colName],
     );
-    return (res?.rows || []).length > 0;
+    return r.ok && (r.rows || []).length > 0;
   } catch {
     return false;
   }
@@ -27,19 +30,18 @@ async function pgHasColumn(env, tableName, colName) {
  * @returns {{ ok: boolean, rows: any[], warning?: string }}
  */
 export async function supabaseQuery(env, sql, params = []) {
-  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') {
+  if (!isHyperdriveUsable(env)) {
     return { ok: false, rows: [], warning: 'hyperdrive_missing' };
   }
-  try {
-    const res = await env.HYPERDRIVE.query(sql, params);
-    return { ok: true, rows: res?.rows ?? [] };
-  } catch (e) {
-    return { ok: false, rows: [], warning: e?.message ? String(e.message) : 'query_failed' };
+  const r = await runHyperdriveQuery(env, sql, params);
+  if (!r.ok) {
+    return { ok: false, rows: [], warning: r.error || 'query_failed' };
   }
+  return { ok: true, rows: r.rows ?? [] };
 }
 
 export async function supabaseCountLatest(env, tableName, { tenantId = null, range = null } = {}) {
-  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') {
+  if (!isHyperdriveUsable(env)) {
     return { ok: false, count: 0, latest: null, time_col: null, has_tenant: false, warning: 'hyperdrive_missing' };
   }
 
@@ -76,18 +78,30 @@ export async function supabaseCountLatest(env, tableName, { tenantId = null, ran
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   try {
-    const countRes = await env.HYPERDRIVE.query(
+    const countR = await runHyperdriveQuery(
+      env,
       `SELECT COUNT(*)::int AS c FROM public.${ident} ${whereSql}`,
       params,
     );
-    const count = Number(countRes?.rows?.[0]?.c ?? 0) || 0;
+    if (!countR.ok) {
+      return {
+        ok: false,
+        count: 0,
+        latest: null,
+        time_col: timeCol,
+        has_tenant: hasTenant,
+        warning: countR.error || 'query_failed',
+      };
+    }
+    const count = Number(countR.rows?.[0]?.c ?? 0) || 0;
     let latest = null;
     if (timeCol) {
-      const latestRes = await env.HYPERDRIVE.query(
+      const latestR = await runHyperdriveQuery(
+        env,
         `SELECT MAX(${pgQuoteIdent(timeCol)}) AS latest FROM public.${ident} ${whereSql}`,
         params,
       );
-      latest = latestRes?.rows?.[0]?.latest ?? null;
+      if (latestR.ok) latest = latestR.rows?.[0]?.latest ?? null;
     }
     return { ok: true, count, latest, time_col: timeCol, has_tenant: hasTenant };
   } catch (e) {
@@ -101,4 +115,3 @@ export async function supabaseCountLatest(env, tableName, { tenantId = null, ran
     };
   }
 }
-

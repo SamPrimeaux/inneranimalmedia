@@ -1,4 +1,5 @@
 import { parseRange, analyticsResponse } from './sources/normalize.js';
+import { isHyperdriveUsable, runHyperdriveQuery } from '../../core/hyperdrive-query.js';
 
 function safeTableIdent(ident) {
   const s = String(ident || '').trim();
@@ -7,13 +8,10 @@ function safeTableIdent(ident) {
 }
 
 async function hyperdriveQuery(env, sql, params = []) {
-  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') return { ok: false, rows: [], warning: 'hyperdrive_missing' };
-  try {
-    const res = await env.HYPERDRIVE.query(sql, params);
-    return { ok: true, rows: res?.rows ?? [] };
-  } catch (e) {
-    return { ok: false, rows: [], warning: e?.message ? String(e.message) : 'query_failed' };
-  }
+  if (!isHyperdriveUsable(env)) return { ok: false, rows: [], warning: 'hyperdrive_missing' };
+  const r = await runHyperdriveQuery(env, sql, params);
+  if (!r.ok) return { ok: false, rows: [], warning: r.error || 'query_failed' };
+  return { ok: true, rows: r.rows ?? [] };
 }
 
 async function hasColumn(env, tableName, colName) {
@@ -47,7 +45,7 @@ export async function handleAnalyticsCodebase(_request, url, env, { tenantId }) 
   const warnings = [];
   const tid = tenantId && String(tenantId).trim() ? String(tenantId).trim() : null;
 
-  if (!env?.HYPERDRIVE || typeof env.HYPERDRIVE.query !== 'function') {
+  if (!isHyperdriveUsable(env)) {
     return analyticsResponse({
       ok: true,
       backend: 'supabase',
@@ -59,7 +57,8 @@ export async function handleAnalyticsCodebase(_request, url, env, { tenantId }) 
       warnings: [
         {
           code: 'HYPERDRIVE_BINDING_MISSING',
-          message: 'Hyperdrive binding env.HYPERDRIVE is not configured; Supabase-backed codebase analytics are unavailable.',
+          message:
+            'Hyperdrive is not usable (binding missing or no .query / connectionString); Supabase-backed codebase analytics are unavailable.',
           backend: 'supabase',
           severity: 'critical',
         },

@@ -14,6 +14,7 @@ import {
 import { buildAdvisors } from './advisors.js';
 import { runMcpProbes } from './mcpChecks.js';
 import { fetchAgentsamD1Telemetry } from './d1Telemetry.js';
+import { handlePublicHyperdriveHealth } from './hyperdrive-health.js';
 
 export function handleHealthCheck(request, env) {
   return jsonResponse({
@@ -26,6 +27,7 @@ export function handleHealthCheck(request, env) {
       browser: !!env.MYBROWSER,
       queue: !!env.MY_QUEUE,
       ai: !!env.AI,
+      hyperdrive: !!env.HYPERDRIVE,
     },
     timestamp: Date.now(),
   });
@@ -40,6 +42,10 @@ export function handleHealthCheck(request, env) {
 export async function handleHealthApi(request, url, env, _ctx) {
   const pathLower = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
   const method = request.method.toUpperCase();
+
+  if (pathLower === '/api/health/hyperdrive' && method === 'GET') {
+    return await handlePublicHyperdriveHealth(env, url);
+  }
 
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);

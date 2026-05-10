@@ -1,6 +1,7 @@
 import { parseRange, analyticsResponse } from './sources/normalize.js';
 import { d1CountLatest } from './sources/d1.js';
 import { supabaseCountLatest } from './sources/supabase.js';
+import { isHyperdriveBindingPresent, isHyperdriveUsable } from '../../core/hyperdrive-query.js';
 
 const D1_TABLES = [
   { key: 'usage', table: 'agentsam_usage_events', backend: 'd1' },
@@ -41,7 +42,8 @@ export async function handleAnalyticsSourceHealth(_request, url, env, { tenantId
 
   const d1 = env?.DB || null;
   const hasD1 = !!d1;
-  const hasHyperdrive = !!env?.HYPERDRIVE && typeof env.HYPERDRIVE.query === 'function';
+  const hasBindingShell = isHyperdriveBindingPresent(env);
+  const hasHyperdrive = isHyperdriveUsable(env);
 
   if (!hasD1) {
     warnings.push({
@@ -51,10 +53,18 @@ export async function handleAnalyticsSourceHealth(_request, url, env, { tenantId
       severity: 'warn',
     });
   }
-  if (!hasHyperdrive) {
+  if (!hasBindingShell) {
     warnings.push({
       code: 'HYPERDRIVE_BINDING_MISSING',
-      message: 'Hyperdrive binding env.HYPERDRIVE is not configured; Supabase source health is partial.',
+      message: 'Hyperdrive binding env.HYPERDRIVE is not present; Supabase source health is partial.',
+      backend: 'supabase',
+      severity: 'warn',
+    });
+  } else if (!hasHyperdrive) {
+    warnings.push({
+      code: 'HYPERDRIVE_BINDING_MISSING',
+      message:
+        'Hyperdrive binding is present but not usable (no .query / no connectionString); Supabase source health is partial.',
       backend: 'supabase',
       severity: 'warn',
     });

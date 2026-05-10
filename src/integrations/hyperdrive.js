@@ -1,5 +1,6 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, authUserIsSuperadmin } from '../core/auth.js';
+import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 
 /** @param {string} ident */
 function pgQuoteIdent(ident) {
@@ -28,8 +29,8 @@ function sqlStatementKind(sql) {
  * @param {{ requireSuperadminForDdl?: boolean }} [opts]
  */
 async function executeHyperdriveSqlFromRequest(request, env) {
-  if (!env.HYPERDRIVE) {
-    return jsonResponse({ error: 'Hyperdrive binding not configured' }, 503);
+  if (!isHyperdriveUsable(env)) {
+    return jsonResponse({ error: 'Hyperdrive binding not configured or not usable' }, 503);
   }
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -51,28 +52,32 @@ async function executeHyperdriveSqlFromRequest(request, env) {
     return jsonResponse({ error: 'Superadmin required for DDL statements' }, 403);
   }
 
-  try {
-    const t0 = Date.now();
-    const result = await env.HYPERDRIVE.query(trimmed, params);
-    const rows = result?.rows ?? [];
-    const executionMs = Date.now() - t0;
-    return jsonResponse({
-      ok: true,
-      success: true,
-      rows,
-      results: rows,
-      meta: result?.meta ?? {
-        duration_ms: executionMs,
-        rows_read: rows.length,
-      },
-      executionMs,
-    });
-  } catch (e) {
+  const t0 = Date.now();
+  const result = await runHyperdriveQuery(env, trimmed, params);
+  const executionMs = Date.now() - t0;
+  if (!result.ok) {
     return jsonResponse(
-      { error: 'Hyperdrive query failed', detail: e?.message ?? String(e), results: [], rows: [] },
+      {
+        error: 'Hyperdrive query failed',
+        detail: result.error ?? 'unknown',
+        results: [],
+        rows: [],
+      },
       500,
     );
   }
+  const rows = result.rows ?? [];
+  return jsonResponse({
+    ok: true,
+    success: true,
+    rows,
+    results: rows,
+    meta: result.meta ?? {
+      duration_ms: executionMs,
+      rows_read: rows.length,
+    },
+    executionMs,
+  });
 }
 
 /**
@@ -94,8 +99,8 @@ export async function handleHyperdriveRoutes(request, url, env) {
   const pathLower = url.pathname.toLowerCase();
   const method = request.method.toUpperCase();
 
-  if (!env.HYPERDRIVE) {
-    return jsonResponse({ error: 'Hyperdrive binding not configured' }, 503);
+  if (!isHyperdriveUsable(env)) {
+    return jsonResponse({ error: 'Hyperdrive binding not configured or not usable' }, 503);
   }
 
   const authUser = await getAuthUser(request, env);
@@ -111,20 +116,19 @@ export async function handleHyperdriveRoutes(request, url, env) {
 
   if ((pathLower === '/api/hyperdrive/health' || pathLower === '/api/hyperdrive/status') && method === 'GET') {
     const t0 = Date.now();
-    try {
-      await env.HYPERDRIVE.query('SELECT 1 AS ok', []);
-      const latency_ms = Date.now() - t0;
-      return jsonResponse({
-        ok: true,
-        latency_ms,
-        active_connections: null,
-      });
-    } catch (e) {
+    const r = await runHyperdriveQuery(env, 'SELECT 1 AS ok', []);
+    const latency_ms = Date.now() - t0;
+    if (!r.ok) {
       return jsonResponse(
-        { ok: false, error: e?.message ?? String(e), latency_ms: Date.now() - t0 },
+        { ok: false, error: r.error ?? 'query_failed', latency_ms },
         503,
       );
     }
+    return jsonResponse({
+      ok: true,
+      latency_ms,
+      active_connections: null,
+    });
   }
 
   if (pathLower === '/api/hyperdrive/tables' && method === 'GET') {
@@ -133,8 +137,9 @@ export async function handleHyperdriveRoutes(request, url, env) {
       WHERE table_schema = 'public'
       ORDER BY table_name`;
     try {
-      const result = await env.HYPERDRIVE.query(sql, []);
-      const rows = result?.rows ?? [];
+      const result = await runHyperdriveQuery(env, sql, []);
+      if (!result.ok) throw new Error(result.error || 'query_failed');
+      const rows = result.rows ?? [];
       const tables = rows
         .map((r) => ({
           name: String(r.table_name || '').trim(),
@@ -165,7 +170,7 @@ export async function handleHyperdriveRoutes(request, url, env) {
 
     if (action === 'schema') {
       try {
-        const cols = await env.HYPERDRIVE.query(
+        const colsR = await runHyperdriveQuery(env,
           `SELECT c.ordinal_position - 1 AS cid,
                   c.column_name AS name,
                   c.data_type AS type,
@@ -188,14 +193,16 @@ export async function handleHyperdriveRoutes(request, url, env) {
             ORDER BY c.ordinal_position`,
           [tableRaw],
         );
-        const idx = await env.HYPERDRIVE.query(
+        if (!colsR.ok) throw new Error(colsR.error || 'schema_columns_failed');
+        const idxR = await runHyperdriveQuery(env,
           `SELECT indexname AS name, indexdef AS sql
              FROM pg_indexes
             WHERE schemaname = 'public' AND tablename = $1
             ORDER BY indexname`,
           [tableRaw],
         );
-        const fk = await env.HYPERDRIVE.query(
+        if (!idxR.ok) throw new Error(idxR.error || 'schema_indexes_failed');
+        const fkR = await runHyperdriveQuery(env,
           `SELECT kcu.column_name AS source_column,
                   ccu.table_name AS target_table,
                   ccu.column_name AS target_column,
@@ -212,10 +219,11 @@ export async function handleHyperdriveRoutes(request, url, env) {
               AND tc.table_name = $1`,
           [tableRaw],
         );
+        if (!fkR.ok) throw new Error(fkR.error || 'schema_fk_failed');
         return jsonResponse({
-          columns: cols?.rows ?? [],
-          indexes: idx?.rows ?? [],
-          foreign_keys: fk?.rows ?? [],
+          columns: colsR.rows ?? [],
+          indexes: idxR.rows ?? [],
+          foreign_keys: fkR.rows ?? [],
         });
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -237,16 +245,20 @@ export async function handleHyperdriveRoutes(request, url, env) {
     }
     const offset = (pageNum - 1) * limit;
     try {
-      const countRes = await env.HYPERDRIVE.query(
+      const countRes = await runHyperdriveQuery(
+        env,
         `SELECT COUNT(*)::int AS count FROM public.${identQuoted}`,
         [],
       );
-      const total = Number(countRes?.rows?.[0]?.count ?? 0);
-      const rowsRes = await env.HYPERDRIVE.query(
+      if (!countRes.ok) throw new Error(countRes.error || 'count_failed');
+      const total = Number(countRes.rows?.[0]?.count ?? 0);
+      const rowsRes = await runHyperdriveQuery(
+        env,
         `SELECT * FROM public.${identQuoted}${order} LIMIT $1 OFFSET $2`,
         [limit, offset],
       );
-      const rowList = rowsRes?.rows ?? [];
+      if (!rowsRes.ok) throw new Error(rowsRes.error || 'select_failed');
+      const rowList = rowsRes.rows ?? [];
       return jsonResponse({
         rows: rowList,
         total_count: total,
