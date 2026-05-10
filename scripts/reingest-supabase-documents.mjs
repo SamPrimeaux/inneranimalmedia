@@ -798,8 +798,14 @@ async function main() {
     let appliedIns = 0;
     let appliedUpd = 0;
     let n = 0;
+    let skipped = 0;
     for (const chunk of planned) {
       n += 1;
+      const ex = existing.get(`${chunk.source}::${chunk.source_chunk_id}`);
+      if (ex && ex.content_hash === chunk.content_hash) {
+        skipped += 1;
+        continue;
+      }
       const vec = await embedText(chunk.content);
       const literal = '[' + vec.join(',') + ']';
       const kind = await upsertChunk(client, chunk, literal);
@@ -808,6 +814,7 @@ async function main() {
       if (n % 25 === 0) console.log(`  ... embedded ${n}/${planned.length}`);
       await sleep(DELAY_MS);
     }
+    if (skipped > 0) console.log(`  skipped ${skipped} unchanged chunks — no embed call`);
 
     if (!noPrune) {
       for (const source of MANAGED_SOURCES) {
