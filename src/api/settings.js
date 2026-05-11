@@ -887,11 +887,19 @@ export async function handleSettingsRequest(request, env, ctx) {
         const current = us?.default_workspace_id || env.DEFAULT_WORKSPACE_ID || null;
         return jsonResponse({ data: wsRows.length > 0 ? wsRows : CORE_WORKSPACES_DATA, current, workspaceThemes, workspaces });
       } catch (e) {
-        return jsonResponse({
-          data: CORE_WORKSPACES_DATA,
-          current: env.DEFAULT_WORKSPACE_ID || null,
-          error: e?.message,
-        }, 500);
+        const msg = e?.message != null ? String(e.message) : String(e);
+        const stack = typeof e?.stack === 'string' ? e.stack : '';
+        console.error('[GET /api/settings/workspaces]', msg, stack || '');
+        return jsonResponse(
+          {
+            data: CORE_WORKSPACES_DATA,
+            current: env.DEFAULT_WORKSPACE_ID || null,
+            error: msg,
+            error_name: e?.name != null ? String(e.name) : 'Error',
+            detail: stack ? stack.split('\n').slice(0, 12).join('\n') : msg,
+          },
+          500,
+        );
       }
     }
 
