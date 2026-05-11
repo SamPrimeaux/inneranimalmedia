@@ -3,10 +3,31 @@
  * Establishes supabase_run_id on the D1 row via syncWorkflowRunToSupabase → patchD1WorkflowRunSupabaseMirrorState.
  */
 import { syncWorkflowRunToSupabase } from './agentsam-supabase-sync.js';
-import { resolveWorkspaceCapabilityShellWorkflowId } from './workspace-capability-actions/index.js';
 import { upsertAgentsamMemory } from './memory.js';
 
 export const ALIGNMENT_WORKFLOW_KEY = 'wf_cursor_alignment_snapshot';
+
+async function resolveAlignmentWorkflowId(env) {
+  if (!env?.DB) return null;
+
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id
+       FROM agentsam_workflows
+       WHERE workflow_key = ?
+         AND COALESCE(is_active, 1) = 1
+       LIMIT 1`
+    )
+      .bind(ALIGNMENT_WORKFLOW_KEY)
+      .first();
+
+    return row?.id ? String(row.id) : null;
+  } catch (e) {
+    console.warn('[alignment-sync] resolveAlignmentWorkflowId failed:', e?.message ?? e);
+    return null;
+  }
+}
+
 
 /**
  * @param {any} env
@@ -32,8 +53,8 @@ export async function recordAlignmentSnapshot(env, ctx, payload) {
     return { ok: false, error: 'missing tenant_id, workspace_id, or user_id' };
   }
 
-  const wfId = await resolveWorkspaceCapabilityShellWorkflowId(env);
-  if (!wfId) return { ok: false, error: 'workflow_shell_missing' };
+  const wfId = await resolveAlignmentWorkflowId(env);
+  if (!wfId) return { ok: false, error: 'alignment_workflow_missing', workflow_key: ALIGNMENT_WORKFLOW_KEY };
 
   const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const startedSec = Math.floor(Date.now() / 1000);
