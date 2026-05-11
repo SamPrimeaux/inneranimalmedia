@@ -8,6 +8,7 @@ import {
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { getWorkspaceTheme, normalizeThemeSlug } from '../core/themes.js';
 import { getDefaultTerminalConnection } from '../core/terminal.js';
+import { handleTerminalApi } from './terminal.js';
 import { executeScopedAgentTerminalRun } from '../core/agent-terminal-run.js';
 
 // Integrations
@@ -31,6 +32,11 @@ export async function handleDashboardApi(request, url, env, ctx) {
 
     const artifactsRes = await handleAgentArtifactsApi(request, url, env);
     if (artifactsRes) return artifactsRes;
+
+    if (pathLower.startsWith('/api/terminal/') && pathLower !== '/api/terminal/session/resume') {
+        const termRes = await handleTerminalApi(request, url, env, ctx);
+        if (termRes.status !== 404) return termRes;
+    }
 
     // ── /api/agent/git/status ────────────────────────────────────────────────
     if (pathLower === '/api/agent/git/status' && method === 'GET') {
@@ -284,7 +290,11 @@ export async function handleDashboardApi(request, url, env, ctx) {
         let dbBridgeOk = false;
         if (env.DB) {
             try {
-                const conn = await getDefaultTerminalConnection(env.DB);
+                const wsCtx =
+                    authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+                        ? String(authUser.active_workspace_id).trim()
+                        : null;
+                const conn = await getDefaultTerminalConnection(env.DB, authUser.id, wsCtx);
                 const wsPart = String(conn?.ws_url || '').trim();
                 const secretName = String(conn?.auth_token_secret_name || '').trim();
                 const tok = secretName && env[secretName] != null
@@ -324,13 +334,22 @@ export async function handleDashboardApi(request, url, env, ctx) {
             return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
         }
         const workspaceId = tw.workspaceId;
-        const sessionName = `terminal:v2:${authUser.id}:${workspaceId}:${executionMode}`;
+        /** Optional second+ PTY (split pane); alphanumeric slug → distinct DO instance / upstream PTY. */
+        const ptySlotRaw = (url.searchParams.get('pty_slot') || '').trim();
+        const ptySlot =
+            ptySlotRaw && /^[a-zA-Z0-9_-]{1,16}$/.test(ptySlotRaw) ? ptySlotRaw : '';
+        const slotSuffix = ptySlot ? `:${ptySlot}` : '';
+        const sessionName = `terminal:v2:${authUser.id}:${workspaceId}:${executionMode}${slotSuffix}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
         const doUrl = new URL(request.url);
         doUrl.pathname = '/terminal/ws';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
+        if (ptySlot) doUrl.searchParams.set('pty_slot', ptySlot);
+        /** Forward shell preference for iam-pty (e.g. /bin/zsh vs /bin/bash). Validated in DO. */
+        const shellQ = (url.searchParams.get('shell') || '').trim();
+        if (shellQ) doUrl.searchParams.set('shell', shellQ);
         if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
             doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
         } else {

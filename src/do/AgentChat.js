@@ -10,7 +10,7 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from "../core/bootstrap.js";
 import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
-import { computeTerminalSessionAuthTokenHash } from "../core/terminal.js";
+import { computeTerminalSessionAuthTokenHash, mintSessionToken } from "../core/terminal.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
 const TERMINAL_WS_TAG = "terminal";
@@ -43,6 +43,17 @@ function parseSshTargets(env) {
 
 function shellSingleQuote(value) {
   return `'${String(value || "").replace(/'/g, `'\"'\"'`)}'`;
+}
+
+/** @param {string} raw */
+function normalizeShellOverride(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  const nick = { zsh: "/bin/zsh", bash: "/bin/bash", sh: "/bin/sh" };
+  if (nick[lower]) return nick[lower];
+  if (s.startsWith("/") && /^\/[\w/.-]{1,64}$/.test(s)) return s;
+  return null;
 }
 
 function normalizeWebSocketUrl(raw) {
@@ -127,6 +138,8 @@ export class AgentChatSqlV1 extends DurableObject {
     this.historySequence = 0;
     this._ptyOutBuf = "";
     this._ptyOutFlushTimer = null;
+    /** @type {string | null} PTY shell from browser query (?shell=); applied on connectPty. */
+    this.terminalShellOverride = null;
   }
 
   closeTerminalSessionInD1() {
@@ -549,6 +562,8 @@ export class AgentChatSqlV1 extends DurableObject {
       tokRes.repo_path != null && String(tokRes.repo_path).trim() !== "" ? String(tokRes.repo_path).trim() : null;
     this.ptyRepoPath = rp;
 
+    this.terminalShellOverride = normalizeShellOverride(url.searchParams.get("shell"));
+
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     this.ctx.acceptWebSocket(server, [TERMINAL_WS_TAG, `mode:${executionMode}`]);
@@ -742,25 +757,44 @@ export class AgentChatSqlV1 extends DurableObject {
     const now = Math.floor(Date.now() / 1000);
     const pid = personUuid != null && String(personUuid).trim() !== "" ? String(personUuid).trim() : null;
     let authHash = "";
+    let _mintedToken = null; // rawToken for token_mint connections
     try {
+      // conn resolved below — reorder: get conn first, then decide hash strategy
       authHash = await computeTerminalSessionAuthTokenHash(this.env, sessionId);
     } catch (_) {
       authHash = "";
     }
+    let conn = null;
+    try {
+      conn = await getDefaultTerminalConnection(this.env.DB, uid, wid);
+    } catch (_) {}
+    const shellVal = String(conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
+    const connectionId = conn?.id != null && String(conn.id).trim() !== "" ? String(conn.id).trim() : null;
+    if (conn?.auth_mode === 'token_mint') {
+      try {
+        const { rawToken, tokenHash } = await mintSessionToken();
+        authHash = tokenHash;
+        _mintedToken = rawToken;
+      } catch (_) {}
+    }
+    const agentSessionId = this.state?.id?.toString?.() || this.ctx?.id?.toString?.() || null;
     try {
       await this.env.DB.prepare(
-        `INSERT INTO terminal_sessions (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', '', 'active', ?, ?, ?)
+        `INSERT INTO terminal_sessions (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at, connection_id, agent_session_id)
+         VALUES (?, ?, ?, ?, ?, '', 220, 50, ?, '', 'active', ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            tenant_id = excluded.tenant_id,
            user_id = excluded.user_id,
            workspace_id = excluded.workspace_id,
            person_uuid = excluded.person_uuid,
            auth_token_hash = COALESCE(excluded.auth_token_hash, auth_token_hash),
+           shell = COALESCE(excluded.shell, shell),
+           connection_id = COALESCE(excluded.connection_id, connection_id),
+           agent_session_id = COALESCE(excluded.agent_session_id, agent_session_id),
            status = 'active',
            updated_at = excluded.updated_at`,
       )
-        .bind(sessionId, tid, uid, wid, pid, authHash || null, now, now)
+        .bind(sessionId, tid, uid, wid, pid, shellVal, authHash || null, now, now, connectionId, agentSessionId)
         .run();
     } catch (e) {
       console.warn("[terminal_sessions upsert]", e?.message);
@@ -829,20 +863,6 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   async connectPty() {
-    let resolvedWsUrl = null;
-    let token = String(this.env?.PTY_AUTH_TOKEN || this.env?.TERMINAL_SECRET || "").trim();
-    if (this.env?.DB) {
-      try {
-        const conn = await getDefaultTerminalConnection(this.env.DB);
-        if (conn?.ws_url?.trim()) resolvedWsUrl = conn.ws_url.trim();
-        const secretName = String(conn?.auth_token_secret_name || "").trim();
-        if (secretName && this.env[secretName] != null) {
-          const t = String(this.env[secretName]).trim();
-          if (t) token = t;
-        }
-      } catch (_) {}
-    }
-
     const wid = String(this.workspaceId || "").trim();
     if (!wid) throw new Error("PTY workspace_id missing");
     const uid = String(this.ptSessionUserId || "").trim();
@@ -855,6 +875,22 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     if (!tid) throw new Error("PTY tenant_id missing");
 
+    let resolvedWsUrl = null;
+    let token = String(this.env?.PTY_AUTH_TOKEN || this.env?.TERMINAL_SECRET || "").trim();
+    let conn = null;
+    if (this.env?.DB) {
+      try {
+        conn = await getDefaultTerminalConnection(this.env.DB, uid, wid);
+        if (conn?.ws_url?.trim()) resolvedWsUrl = conn.ws_url.trim();
+        const secretName = String(conn?.auth_token_secret_name || "").trim();
+        if (secretName && this.env[secretName] != null) {
+          const t = String(this.env[secretName]).trim();
+          if (t) token = t;
+        }
+      } catch (_) {}
+    }
+    const shellOpt = String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
+
     const cwdOpt = String(this.ptyRepoPath || "").trim();
 
     // VPC Service path (private — `PTY_SERVICE` tunnels to localhost:3099; no worker-side auth headers)
@@ -864,6 +900,7 @@ export class AgentChatSqlV1 extends DurableObject {
         vpcUrl.searchParams.set("tenant_id", tid);
         vpcUrl.searchParams.set("user_id", uid);
         vpcUrl.searchParams.set("workspace_id", wid);
+        vpcUrl.searchParams.set("shell", shellOpt);
         if (cwdOpt) vpcUrl.searchParams.set("cwd", cwdOpt);
         const resp = await this.env.PTY_SERVICE.fetch(
           new Request(vpcUrl.toString(), {
@@ -929,6 +966,8 @@ export class AgentChatSqlV1 extends DurableObject {
     let wsUrl = normalizeWebSocketUrl(rawUrl);
     const sep = wsUrl.includes("?") ? "&" : "?";
     wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}&tenant_id=${encodeURIComponent(tid)}&user_id=${encodeURIComponent(uid)}&workspace_id=${encodeURIComponent(wid)}`;
+    const shellSep = wsUrl.includes("?") ? "&" : "?";
+    wsUrl = `${wsUrl}${shellSep}shell=${encodeURIComponent(shellOpt)}`;
     if (cwdOpt) {
       const s2 = wsUrl.includes("?") ? "&" : "?";
       wsUrl = `${wsUrl}${s2}cwd=${encodeURIComponent(cwdOpt)}`;
@@ -1007,9 +1046,11 @@ export class AgentChatSqlV1 extends DurableObject {
 
     let execBase = String(this.env?.TERMINAL_WS_URL || "").trim();
     let dbTok = null;
+    const execUid = String(this.ptSessionUserId || "").trim();
+    const execWid = String(this.workspaceId || "").trim();
     if (this.env?.DB) {
       try {
-        const conn = await getDefaultTerminalConnection(this.env.DB);
+        const conn = await getDefaultTerminalConnection(this.env.DB, execUid, execWid);
         if (conn?.ws_url?.trim()) execBase = conn.ws_url.trim();
         const sn = String(conn?.auth_token_secret_name || "").trim();
         if (sn && this.env[sn] != null) dbTok = String(this.env[sn]).trim();
