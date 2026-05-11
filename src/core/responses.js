@@ -4,7 +4,7 @@
  * @param {number} status 
  * @returns {Response}
  */
-export function jsonResponse(body, status = 200) {
+export function jsonResponse(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -12,6 +12,7 @@ export function jsonResponse(body, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Terminal-Secret',
+      ...extraHeaders,
     },
   });
 }

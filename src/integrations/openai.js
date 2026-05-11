@@ -9,6 +9,12 @@ import { jsonResponse } from '../core/responses.js';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
 
+/** Strip obvious secrets before logging provider error bodies. */
+function sanitizeOpenAiErrorBodyForLog(text) {
+  const s = String(text || '').slice(0, 2000);
+  return s.replace(/\bsk-[a-zA-Z0-9]{10,}\b/g, '[redacted]');
+}
+
 // ─── Tool Format ──────────────────────────────────────────────────────────────
 
 /**
@@ -279,8 +285,16 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
 
   if (!upstream.ok) {
     const err = await upstream.text().catch(() => '');
+    const safe = sanitizeOpenAiErrorBodyForLog(err);
+    console.warn(
+      `[openai_responses] http_error status=${upstream.status} model=${modelForApi} body=${safe}`,
+    );
     return jsonResponse(
-      { error: 'OpenAI Responses API error', status: upstream.status, detail: err.slice(0, 500) },
+      {
+        error: 'OpenAI Responses API error',
+        status: upstream.status,
+        detail: safe,
+      },
       upstream.status,
     );
   }

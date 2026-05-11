@@ -270,6 +270,7 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
   if (!tid || !ws) return;
   let stat = 'success';
   if (status === 'error') stat = 'error';
+  else if (status === 'timeout') stat = 'timeout';
   else if (status === 'blocked') stat = 'blocked';
   else if (status === 'pending') stat = 'pending';
   const summary = String(inputSummary ?? '').slice(0, 200);
@@ -1018,6 +1019,62 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
   return out;
 }
 
+/** Per-tool wall-clock budget for Promise.race around dispatchToolCall (ms). */
+function resolveToolExecutionBudgetMs(toolName, input) {
+  const n = String(toolName || '').toLowerCase();
+  const inp = input && typeof input === 'object' ? input : {};
+  const rawTimeout = inp.timeout_ms != null ? Number(inp.timeout_ms) : NaN;
+  const terminalNames = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
+  if (terminalNames.has(n)) {
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 20000) return Math.floor(rawTimeout);
+    return 20000;
+  }
+  if (n === 'd1_query' || (n.startsWith('d1_') && n.includes('query'))) {
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout <= 10000) return Math.floor(rawTimeout);
+    return 10000;
+  }
+  if (n.startsWith('r2_')) {
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 20000) return Math.floor(rawTimeout);
+    return 20000;
+  }
+  if (
+    n.startsWith('browser_') ||
+    n.startsWith('playwright') ||
+    n.startsWith('cdt_') ||
+    n === 'preview_in_browser' ||
+    n === 'playwright_screenshot'
+  ) {
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
+    return 30000;
+  }
+  if (n.startsWith('github_')) {
+    if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
+    return 30000;
+  }
+  if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
+  return 30000;
+}
+
+async function dispatchToolCallWithBudget(env, toolName, input, context, budgetMs) {
+  let tid;
+  const err = /** @type {Error & { code?: string; budgetMs?: number }} */ (
+    Object.assign(new Error(`Tool timed out after ${budgetMs}ms`), {
+      code: 'tool_timeout',
+      budgetMs,
+    })
+  );
+  try {
+    return await Promise.race([
+      dispatchToolCall(env, toolName, input, context),
+      new Promise((_, reject) => {
+        tid = setTimeout(() => reject(err), budgetMs);
+      }),
+    ]);
+  } finally {
+    if (tid) clearTimeout(tid);
+  }
+}
+
 // ─── Request-scoped Context Loaders ──────────────────────────────────────────
 
 async function loadModeConfig(env, modeSlug) {
@@ -1027,6 +1084,8 @@ async function loadModeConfig(env, modeSlug) {
     temperature: 0.7,
     auto_run: 0,
     max_tool_calls: 15,
+    max_runtime_ms: 90000,
+    max_turns: 6,
     system_prompt_fragment: null,
     context_strategy: 'standard',
     tool_policy_json: null,
@@ -2057,9 +2116,23 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     mcpRuntimeContext,
     routingArmId: routingArmIdParam,
     thompsonModelKey: thompsonModelKeyParam,
+    runStartedAt: runStartedAtParam,
+    maxRuntimeMs: maxRuntimeMsParam,
   } = params;
   const routingWs = workspaceId != null ? String(workspaceId).trim() : '';
   const loopT0 = Date.now();
+  const runStartedAt = runStartedAtParam != null ? Number(runStartedAtParam) : loopT0;
+  const maxRunMs =
+    Number(modeConfig?.max_runtime_ms) ||
+    Number(maxRuntimeMsParam) ||
+    90000;
+  const maxTurns = Math.max(1, Math.min(20, Number(modeConfig?.max_turns) || 6));
+  const doneGuard = params.doneGuard ?? { emitted: false };
+  const safeDone = (payload) => {
+    if (doneGuard.emitted) return;
+    doneGuard.emitted = true;
+    emit('done', payload);
+  };
   const routingArmIdStr = routingArmIdParam != null ? String(routingArmIdParam).trim() : '';
   const thompsonMkStr = thompsonModelKeyParam != null ? String(thompsonModelKeyParam).trim() : '';
 
@@ -2105,8 +2178,20 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   let openaiPreviousResponseId = null;
 
   try {
-  while (turnCount < 10) {
+  while (turnCount < maxTurns) {
     turnCount++;
+    if (Date.now() - runStartedAt > maxRunMs) {
+      emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
+      safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount, code: 'agent_run_timeout' });
+      return {
+        totalUsage,
+        toolCallsUsed,
+        executedToolNames,
+        modelKey,
+        turnCount,
+        timedOut: true,
+      };
+    }
     const modelT0 = Date.now();
     let stream;
     let isWorkersAiStream = false;
@@ -2142,8 +2227,11 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) throw e;
       console.warn('[agent] model call failed:', e?.message ?? e);
       routeArmOutcome(false);
-      emit('error', { message: 'Model call failed' });
-      break;
+      const detail = e?.message != null ? String(e.message).slice(0, 8000) : String(e).slice(0, 8000);
+      emit('error', { message: detail || 'Model call failed', detail });
+      const fail = new Error('MODEL_DISPATCH_FAILED');
+      fail.code = 'MODEL_DISPATCH_FAILED';
+      throw fail;
     }
 
     const pendingToolCalls = [];
@@ -2241,11 +2329,27 @@ async function runAgentToolLoop(env, ctx, emit, params) {
 
     if (stream instanceof Response) {
       if (!stream.ok) {
-        const detail = await stream.text().catch(() => '');
-        console.warn('[agent] model stream HTTP error', stream.status);
+        const detailRaw = await stream.text().catch(() => '');
+        let detailMsg = String(detailRaw || '').slice(0, 8000);
+        try {
+          const j = JSON.parse(detailRaw);
+          const m = j?.error?.message ?? (typeof j?.error === 'string' ? j.error : null) ?? j?.message ?? j?.detail;
+          if (m) detailMsg = String(m).slice(0, 8000);
+        } catch {
+          /* keep detailRaw slice */
+        }
+        console.warn('[agent] model stream HTTP error', stream.status, detailMsg.slice(0, 500));
         routeArmOutcome(false);
-        emit('error', { message: 'Model stream failed' });
-        break;
+        emit('error', {
+          message: detailMsg || 'Model stream failed',
+          status: stream.status,
+          detail: detailRaw.slice(0, 8000),
+        });
+        const hard = new Error('__IAM_PROVIDER_HTTP__');
+        hard.code = 'IAM_PROVIDER_HTTP';
+        hard.status = stream.status;
+        hard.detail = detailRaw.slice(0, 8000);
+        throw hard;
       }
       const streamMeta = await resolveModelMeta(env, modelKey);
       const platform = String(streamMeta?.api_platform || '').toLowerCase();
@@ -2686,16 +2790,23 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         input_preview: JSON.stringify(call.input || {}).slice(0, 200),
       });
       let toolRows = null;
+      const toolBudgetMs = resolveToolExecutionBudgetMs(call.name, call.input);
       try {
-        const execResult = await dispatchToolCall(env, call.name, call.input, {
-          sessionId,
-          tenantId,
-          userId,
-          workspaceId,
-          personUuid: mcpRuntimeContext.personUuid,
-          isSuperadmin: mcpRuntimeContext.isSuperadmin,
-          request,
-        });
+        const execResult = await dispatchToolCallWithBudget(
+          env,
+          call.name,
+          call.input,
+          {
+            sessionId,
+            tenantId,
+            userId,
+            workspaceId,
+            personUuid: mcpRuntimeContext.personUuid,
+            isSuperadmin: mcpRuntimeContext.isSuperadmin,
+            request,
+          },
+          toolBudgetMs,
+        );
         if (execResult && typeof execResult === 'object') {
           if (Array.isArray(execResult.rows)) toolRows = execResult.rows;
           else if (Array.isArray(execResult.results)) toolRows = execResult.results;
@@ -2703,13 +2814,23 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
       } catch (e) {
         execErr = e;
-        const detail =
-          e && typeof e === 'object' && 'message' in e && typeof e.message === 'string'
+        const isTimeout =
+          e &&
+          typeof e === 'object' &&
+          'code' in e &&
+          /** @type {{ code?: string }} */ (e).code === 'tool_timeout';
+        const detail = isTimeout
+          ? `Tool timed out after ${toolBudgetMs}ms`
+          : e && typeof e === 'object' && 'message' in e && typeof e.message === 'string'
             ? e.message
             : String(e ?? 'unknown_error');
         toolOutput = `Tool execution failed: ${detail}`;
         console.warn('[agent] tool_error', call.name, detail);
-        emit('tool_error', { tool: call.name, error: detail });
+        emit('tool_error', {
+          tool: call.name,
+          error: detail,
+          ...(isTimeout ? { code: 'tool_timeout' } : {}),
+        });
       }
       const toolDurMs = Date.now() - toolT0;
       emit('tool_output', {
@@ -2747,7 +2868,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         tenantId,
         sessionId,
         toolName: call.name,
-        status: execErr ? 'error' : 'success',
+        status: execErr
+          ? execErr &&
+              typeof execErr === 'object' &&
+              'code' in execErr &&
+              /** @type {{ code?: string }} */ (execErr).code === 'tool_timeout'
+            ? 'timeout'
+            : 'error'
+          : 'success',
         durationMs: toolDurMs,
         costUsd: 0,
         inputTokens: 0,
@@ -2802,6 +2930,20 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       const tr = { type: 'tool_result', tool_use_id: call.id, content: toolOutput };
       if (execErr) tr.is_error = true;
       toolResults.push(tr);
+
+      if (Date.now() - runStartedAt > maxRunMs) {
+        emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
+        if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
+        safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount, code: 'agent_run_timeout' });
+        return {
+          totalUsage,
+          toolCallsUsed,
+          executedToolNames,
+          modelKey,
+          turnCount,
+          timedOut: true,
+        };
+      }
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
 
@@ -2883,12 +3025,13 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     );
   }
 
-  emit('done', { tool_calls_used: toolCallsUsed, turns: turnCount });
+  safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount });
   return {
     totalUsage,
     toolCallsUsed,
     executedToolNames,
     modelKey,
+    turnCount,
   };
 }
 
@@ -3456,6 +3599,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const isAutoModel = !explicitRow;
 
+  /** User set `model` / `model_id` in the request (not omitted, not `auto`). */
+  const explicitModelFromRequest = Boolean(
+    (body?.model != null &&
+      String(body.model).trim() !== '' &&
+      String(body.model).trim().toLowerCase() !== 'auto') ||
+      (rawRequestedKey && String(rawRequestedKey).trim() !== '') ||
+      (rawRequestedId && String(rawRequestedId).trim() !== ''),
+  );
+
   let resolvedRoutingTaskType = resolveRoutingTaskType({
     intentSlug,
     requireTools,
@@ -3554,7 +3706,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   );
 
   let chainRows;
-  if (explicitRow) {
+  if (explicitRow && explicitModelFromRequest) {
+    chainRows = dedupeModelsByKey([explicitRow]);
+    chainRows = filterChainToolPolicy(chainRows, requireTools);
+  } else if (explicitRow) {
     chainRows = dedupeModelsByKey([
       explicitRow,
       ...poolRows.filter((r) => r.model_key !== explicitRow.model_key),
@@ -3761,6 +3916,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   ;(async () => {
     const chatT0 = Date.now();
+    const runStartedAt = chatT0;
+    const maxRunMsChat =
+      Number(modeConfig?.max_runtime_ms) || Number(body?.max_runtime_ms) || 90000;
+    const doneGuard = { emitted: false };
+    const safeDoneChat = (payload) => {
+      if (doneGuard.emitted) return;
+      doneGuard.emitted = true;
+      emit('done', payload);
+    };
     const turnStartNs = chatT0 * 1_000_000;
     let routingArmOutcomeLogged = false;
     const providerForModelKey = (mk) => {
@@ -3818,14 +3982,25 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
       const tried = [];
       const startIdx = (confidence < escalationThreshold && fallbackModelKeys.length > 1) ? 1 : 0;
+      const maxProviderAttempts = explicitModelFromRequest
+        ? 1
+        : Math.min(3, chainRows.length || 0);
+      let providerAttempts = 0;
       let succeeded = false;
+      let explicitProviderFailure = false;
       let lastLoopStats = null;
       let lastAssistantStreamText = '';
 
-      for (let i = startIdx; i < chainRows.length; i++) {
+      for (let i = startIdx; i < chainRows.length && providerAttempts < maxProviderAttempts; i++) {
+        if (Date.now() - runStartedAt > maxRunMsChat) {
+          emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
+          safeDoneChat({ tool_calls_used: lastLoopStats?.toolCallsUsed ?? 0, code: 'agent_run_timeout' });
+          break;
+        }
         const row = chainRows[i];
         const modelKey = row?.model_key;
         if (!modelKey) continue;
+        providerAttempts += 1;
         tried.push(modelKey);
         try {
           let textEmitted = 0;
@@ -3853,8 +4028,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               mcpRuntimeContext,
               routingArmId: routingArmIdForRun,
               thompsonModelKey: thompsonRow?.model_key ?? null,
+              doneGuard,
+              runStartedAt,
+              maxRuntimeMs: maxRunMsChat,
             }),
-            15000
+            maxRunMsChat + 5000
           );
           if (textEmitted <= 0) throw new Error('empty_stream');
           succeeded = true;
@@ -3871,20 +4049,36 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         } catch (e) {
           if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) {
             console.warn('[agent] ollama skipped; trying next model');
+          } else if (e?.code === 'IAM_PROVIDER_HTTP' && explicitModelFromRequest) {
+            explicitProviderFailure = true;
+            succeeded = false;
+            break;
+          } else if (e?.code === 'MODEL_DISPATCH_FAILED' && explicitModelFromRequest) {
+            succeeded = false;
+            break;
+          } else if (String(e?.message || '') === 'empty_stream' && explicitModelFromRequest) {
+            succeeded = false;
+            break;
           } else {
-            console.warn('[agent] model fallback:', { provider: row?.provider, model_key: row?.model_key, error: e?.message });
-            try {
-              const more = await loadToolFallbackChain(env, {
-                tenantId,
-                excludeModelKeys: tried,
-                limit: 3,
-              });
-              const moreFiltered = await filterWorkspaceModelTierPool(env, workspaceId, more);
-              for (let j = moreFiltered.length - 1; j >= 0; j--) {
-                chainRows.splice(i + 1, 0, moreFiltered[j]);
+            console.warn('[agent] model fallback:', {
+              provider: row?.provider,
+              model_key: row?.model_key,
+              error: e?.detail ?? e?.message,
+            });
+            if (!explicitModelFromRequest) {
+              try {
+                const more = await loadToolFallbackChain(env, {
+                  tenantId,
+                  excludeModelKeys: tried,
+                  limit: 3,
+                });
+                const moreFiltered = await filterWorkspaceModelTierPool(env, workspaceId, more);
+                for (let j = moreFiltered.length - 1; j >= 0; j--) {
+                  chainRows.splice(i + 1, 0, moreFiltered[j]);
+                }
+              } catch (_) {
+                /* extra fallbacks are optional */
               }
-            } catch (_) {
-              /* extra fallbacks are optional */
             }
           }
         }
@@ -3899,7 +4093,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           if (gateRow?.model_key) finalKey = gateRow.model_key;
         }
         const alreadyTried = new Set(tried);
-        if (finalKey && !alreadyTried.has(finalKey)) {
+        if (!explicitModelFromRequest && finalKey && !alreadyTried.has(finalKey)) {
           tried.push(finalKey);
           console.log('[agent] routing_model', JSON.stringify({ final_fallback: finalKey }));
           try {
@@ -3928,8 +4122,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 mcpRuntimeContext,
                 routingArmId: routingArmIdForRun,
                 thompsonModelKey: thompsonRow?.model_key ?? null,
+                doneGuard,
+                runStartedAt,
+                maxRuntimeMs: maxRunMsChat,
               }),
-              15000
+              maxRunMsChat + 5000
             );
             if (textEmitted > 0) {
               succeeded = true;
@@ -3941,10 +4138,21 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         }
       }
 
-      if (!succeeded) {
+      if (
+        !succeeded &&
+        !(explicitProviderFailure && explicitModelFromRequest) &&
+        !(explicitModelFromRequest && tried.length === 1)
+      ) {
         emit('error', { message: 'All providers exhausted', tried });
       }
 
+      if (!doneGuard.emitted) {
+        safeDoneChat({
+          tool_calls_used: lastLoopStats?.toolCallsUsed ?? 0,
+          turns: lastLoopStats?.turnCount ?? 0,
+          ...(succeeded ? {} : { stream_failed: true, provider_error: !!explicitProviderFailure }),
+        });
+      }
       if (routingPick?.armId) {
         await recordArmOutcome(env, routingPick.armId, succeeded);
         routingArmOutcomeLogged = true;
@@ -4071,6 +4279,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (e) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
       emit('error', { message: 'Agent loop failed' });
+      if (!doneGuard.emitted) {
+        safeDoneChat({ stream_failed: true, fatal: true });
+      }
       if (routingPick?.armId && !routingArmOutcomeLogged) {
         await recordArmOutcome(env, routingPick.armId, false);
         routingArmOutcomeLogged = true;
@@ -5280,8 +5491,8 @@ export async function handleAgentApi(request, url, env, ctx) {
   // ── /api/agent/approval/pending ───────────────────────────────────────────
   if (method === 'GET' && path === '/api/agent/approval/pending') {
     const authUser = await getAuthUser(request, env);
-    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    if (!env.DB) return jsonResponse({ approval: null });
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401, { 'Cache-Control': 'no-store' });
+    if (!env.DB) return jsonResponse({ approval: null }, 200, { 'Cache-Control': 'no-store' });
     const row = await env.DB.prepare(
       `SELECT q.id, q.tool_name, q.action_summary AS description, q.risk_level, q.input_json,
               0 AS is_mcp_server, NULL AS server_display_name,
@@ -5289,15 +5500,19 @@ export async function handleAgentApi(request, url, env, ctx) {
        FROM agentsam_approval_queue q
        WHERE q.status='pending' ORDER BY q.created_at ASC LIMIT 1`,
     ).first();
-    if (!row) return jsonResponse({ approval: null });
+    if (!row) return jsonResponse({ approval: null }, 200, { 'Cache-Control': 'no-store' });
     const input = JSON.parse(row.input_json || '{}');
-    return jsonResponse({
-      approval: {
-        ...row,
-        preview_sql: input.sql ?? null,
-        preview_command: input.command ?? null,
+    return jsonResponse(
+      {
+        approval: {
+          ...row,
+          preview_sql: input.sql ?? null,
+          preview_command: input.command ?? null,
+        },
       },
-    });
+      200,
+      { 'Cache-Control': 'no-store' },
+    );
   }
 
   // ── PATCH /api/agent/approval/:id ─────────────────────────────────────────
