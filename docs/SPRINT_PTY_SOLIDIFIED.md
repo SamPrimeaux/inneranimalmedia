@@ -109,9 +109,11 @@ export OLLAMA_LOCAL="http://localhost:11434"
 
 ## What's Still Needed (Ordered by Priority)
 
+**Codebase sync (May 2026):** P0 items **1–4** are implemented in this repo (`src/core/terminal.js`, `src/do/AgentChat.js`, `src/api/terminal.js`). **P1 #7–8** are implemented (`generateUserBridgeKey` uses `is_active = 1`; `hub.js` orders `terminal_history` by `recorded_at`). Remaining gaps: **iam-pty** should honor a `shell` query param (**P0 #5**), **`GET /health` JSON** (**P1 #6**), and **Ollama proxy routes** (**P2**). Session verify (**P0 #4**) returns `{ ok, session_id }`; extend with `tenant_id` / `user_id` / `workspace_id` when the PTY `token_mint` path needs them.
+
 ### P0 — Blocking terminal end-to-end
 
-**1. `getDefaultTerminalConnection()` — resolve by workspace/user**
+**1. `getDefaultTerminalConnection()` — resolve by workspace/user** — **Done**
 File: `src/core/terminal.js`
 
 Current (broken for multi-user):
@@ -133,20 +135,22 @@ WHERE workspace_id = ? AND user_id IS NULL AND is_active = 1 LIMIT 1
 SELECT * FROM terminal_connections
 WHERE is_default = 1 AND is_active = 1 LIMIT 1
 ```
-Also add to SELECT: `shell`, `platform`, `auth_mode`, `token_verify_endpoint`, `user_id`
+Also add to SELECT: `shell`, `platform`, `auth_mode`, `token_verify_endpoint`, `user_id`  
+*(Implemented via `TERMINAL_CONN_SELECT` in `getDefaultTerminalConnection`.)*
 
-**2. `connectPty()` — pass userId + workspaceId, read shell**
+**2. `connectPty()` — pass userId + workspaceId, read shell** — **Done**
 File: `src/do/AgentChat.js`
 - Pass `(userId, workspaceId)` into `getDefaultTerminalConnection()`
 - Read `shell` from connection row → send in spawn request to PTY
-- Set `connection_id` on terminal_sessions INSERT after minting token
+- Set `connection_id` on terminal_sessions INSERT after minting token  
+*(VPC and tunnel WebSocket URLs include `shell` from the resolved connection row.)*
 
-**3. `upsertTerminalSessionRow()` — add missing fields**
+**3. `upsertTerminalSessionRow()` — add missing fields** — **Done**
 File: `src/do/AgentChat.js`
 - Add `connection_id` (from resolved connection row)
 - Add `agent_session_id` (from `this.state.id`)
 
-**4. `POST /api/terminal/session/verify` — make auth_token_hash do real work**
+**4. `POST /api/terminal/session/verify` — make auth_token_hash do real work** — **Partial**
 File: `src/api/terminal.js`
 ```
 Accepts: { token, session_id }
@@ -156,7 +160,9 @@ Returns: 200 { valid: true, tenant_id, user_id, workspace_id } | 401
 ```
 This is what makes per-user PTY auth real. Without it, auth_token_hash is audit-only.
 
-**5. iam-pty — read shell from spawn request**
+Implemented: `SHA256(token)` compared to `terminal_sessions.auth_token_hash`; 401 on mismatch. Response today: `{ ok: true, session_id }`. Optional next step: include `tenant_id`, `user_id`, `workspace_id` on 200 for PTY `token_mint` callers.
+
+**5. iam-pty — read shell from spawn request** — **Open**
 File: `~/iam-pty/server.js`
 - PTY currently hardcodes shell candidates internally
 - Must read `shell` from WebSocket query params or session payload
@@ -164,7 +170,7 @@ File: `~/iam-pty/server.js`
 
 ### P1 — Multi-user correctness
 
-**6. `/health` endpoint — upgrade to JSON**
+**6. `/health` endpoint — upgrade to JSON** — **Open**
 File: `~/iam-pty/server.js` (line ~392)
 
 Current: returns plain text `ok`
@@ -183,21 +189,18 @@ Target:
 }
 ```
 
-**7. `generateUserBridgeKey()` — wire to provisioning**
+**7. `generateUserBridgeKey()` — wire to provisioning** — **Done** (insert active row)
 File: `src/api/provisioning.js`
-- Currently inserts with `is_active = 0` — invisible to all runtime queries
-- Fix: `is_active = 1` on insert
-- Wire to signup/workspace creation flow
-- For `token_mint` users (Connor): skip bridge_key_hash, set `token_verify_endpoint`
+- Inserts with `is_active = 1`; `ensureUserTerminalConnection` can invoke after auth when tenant/workspace are present
+- For `token_mint` users (Connor): skip `bridge_key_hash`, set `token_verify_endpoint`
 
-**8. `hub.js` — fix ORDER BY column name**
+**8. `hub.js` — fix ORDER BY column name** — **Done**
 File: `src/api/hub.js`
-- Query uses `ORDER BY created_at` on terminal_history
-- Column is `recorded_at` — fix the ORDER BY
+- Recent terminal commands query uses `ORDER BY recorded_at` on `terminal_history` (not `created_at`)
 
 ### P2 — Ollama integration
 
-**9. Ollama Worker proxy endpoint**
+**9. Ollama Worker proxy endpoint** — **Open**
 ```
 GET/POST /api/ollama/generate → proxies to localhost:11434 via VPC
 GET      /api/ollama/models   → returns available models per workspace
@@ -207,7 +210,7 @@ Worker uses VPC internal route (not public tunnel) → fastest path, no CF Acces
 Per-workspace Ollama access controlled by `agentsam_user_policy.allow_platform_fallback`
 or a new `ollama_enabled` column.
 
-**10. `qwen2.5-coder:7b` — wire to Agent Sam terminal assist**
+**10. `qwen2.5-coder:7b` — wire to Agent Sam terminal assist** — **Open / partial**
 - Already responding inline in terminal panel (confirmed April 2026)
 - Ensure `api_platform = 'ollama'` filter works in `/api/agent/models`
 - Start `OLLAMA_ORIGINS="*" OLLAMA_HOST="0.0.0.0:11434"`
@@ -228,10 +231,37 @@ gcloud compute ssh iam-tunnel --zone=us-central1-f --project=$GCP_PROJECT_ID \
 ```
 
 **12. Connor MCP token**
-- Mint token, hash it, insert into `mcp_workspace_tokens`
-- `allowed_tools`: d1_query, r2_read, r2_list, r2_search, knowledge_search,
-  agent_memory_search, platform_info, telemetry_query
-- NO terminal_execute, NO r2_write, NO d1_write
+
+Mint token first (run in terminal, save the output):
+
+```bash
+export CONNOR_TOKEN="iam-mcp-$(openssl rand -hex 28)"
+export CONNOR_HASH=$(echo -n "$CONNOR_TOKEN" | openssl dgst -sha256 | awk '{print $2}')
+```
+
+```sql
+INSERT INTO mcp_workspace_tokens (
+  id, workspace_id, tenant_id, label,
+  token_hash, allowed_tools, is_active
+) VALUES (
+  'tok_connor_main',
+  'ws_connor_mcneely',
+  'tenant_connor_mcneely',
+  'Connor McNeely – Full Access',
+  '<CONNOR_HASH>',
+  NULL,   -- NULL = ALL tools, scoped to his workspace by auth context
+  1
+);
+```
+
+`allowed_tools = NULL` means all tools — workspace scoping in `agentsam_mcp_tools` and `agentsam_user_policy` is what isolates him to his own data, not an artificial tool allowlist.
+
+What actually gates Connor's access:
+
+- `mcp_workspace_tokens.workspace_id = ws_connor_mcneely` → all MCP queries run as `ws_connor_mcneely` / `tenant_connor_mcneely`
+- `agentsam_user_policy` (`user_id` = Connor's `au_*`) → `tool_risk_level_max`, `max_cost_per_session_usd`, `allow_subagent_spawn`, etc.
+- `terminal_connections.user_id` = Connor's `au_*` → lands in `/workspace/tenant_connor_mcneely/au_*/` filesystem only
+- R2 bucket prefix scoping in tool handlers → `r2_write` goes to his prefix, not Sam's
 
 ---
 
@@ -254,16 +284,18 @@ gcloud compute ssh iam-tunnel --zone=us-central1-f --project=$GCP_PROJECT_ID \
 | `agentsam_script_runs` | Audit log for script executions |
 | `agentsam_error_log` | Captures terminal tool call failures |
 
-### ⚠️ Relevant but has hardcoded ws_* — fix before multi-user
+### ⚠️ Relevant but had hardcoded ws_* — **repaired (migration 325, May 2026)**
 
-| Table | Problem | Fix |
+| Table | Was | Now |
 |---|---|---|
-| `agentsam_tools` | `workspace_scope DEFAULT '["ws_inneranimalmedia"]'` | Remove default, require explicit value |
-| `agentsam_scripts` | `workspace_id NOT NULL DEFAULT 'ws_inneranimalmedia'` | Remove default |
-| `agentsam_script_runs` | `workspace_id NOT NULL DEFAULT 'ws_inneranimalmedia'` | Remove default |
-| `agentsam_mcp_tool_execution` | `tenant_id DEFAULT 'tenant_sam_primeaux'` | Remove default |
-| `agentsam_webhook_events` | `tenant_id DEFAULT 'tenant_sam_primeaux'` | Remove default |
-| `agentsam_mcp_tools` | `workspace_scope DEFAULT '["ws_inneranimalmedia"]'` | Remove default |
+| `agentsam_tools` | `workspace_scope` defaulted to IAM | `workspace_scope TEXT NOT NULL` (no default; backfilled legacy nulls) |
+| `agentsam_scripts` | `workspace_id` defaulted to IAM | `workspace_id TEXT NOT NULL` (no default; backfilled) |
+| `agentsam_script_runs` | same | same |
+| `agentsam_mcp_tool_execution` | `tenant_id` defaulted to Sam tenant | `tenant_id TEXT NOT NULL` (no default; backfilled) |
+| `agentsam_webhook_events` | `tenant_id` defaulted to Sam tenant | `tenant_id TEXT NOT NULL` (no default; backfilled) |
+| `agentsam_mcp_tools` | `workspace_scope` defaulted to IAM | `workspace_scope TEXT NOT NULL` (no default; backfilled) |
+
+Baseline migrations `283_agentsam_scripts_registry.sql` and `295_agentsam_script_runs.sql` updated so fresh DBs match prod.
 
 ### 📋 Relevant later — not blocking PTY sprint
 
@@ -310,7 +342,7 @@ Todo: add a CF Access policy or origin rule to route non-dev traffic to GCP repl
 
 | Token | Header | Validated by | Scope | In D1? |
 |---|---|---|---|---|
-| `MCP_AUTH_TOKEN` (iam-mcp-*) | `Authorization: Bearer` | MCP Worker SHA-256 → `mcp_workspace_tokens` | Per-workspace tool allowlist | Hash only |
+| `MCP_AUTH_TOKEN` (iam-mcp-*) | `Authorization: Bearer` | MCP Worker SHA-256 → `mcp_workspace_tokens` | Workspace-scoped; optional `allowed_tools` (NULL = all tools, context still enforces isolation) | Hash only |
 | `PTY_AUTH_TOKEN` (iam-pty-*) | `?token=` query param | iam-pty direct comparison | Terminal session auth | No — Wrangler secret |
 | `AGENTSAM_BRIDGE_KEY` (iam-bridge-*) | `X-Bridge-Key` | Internal workers | Worker-to-Worker | Hash in `terminal_connections.bridge_key_hash` |
 | Per-session minted token | `auth_token_hash` | `POST /api/terminal/session/verify` (P0) | Per-session isolation | Hash in `terminal_sessions` |
@@ -324,7 +356,7 @@ Todo: add a CF Access policy or origin rule to route non-dev traffic to GCP repl
 3. Never commit `ecosystem.config.cjs`, `.env`, `.env.local`, `.secrets` to any repo
 4. `PTY_AUTH_TOKEN` and `AGENTSAM_BRIDGE_KEY` never go in D1 — Wrangler secrets only
 5. `X-Bridge-Key` header for Worker-to-Worker — never `Authorization: Bearer`
-6. `terminal_execute` is allowlist-gated — Connor's token does not include it
+6. MCP tokens with `allowed_tools = NULL` expose the full tool surface for that workspace key; isolation is enforced by workspace/tenant on the token, `agentsam_mcp_tools`, `agentsam_user_policy`, `terminal_connections`, and R2 prefix rules — not by shrinking the token's tool list
 7. Every terminal session must have `workspace_id`, `tenant_id`, `connection_id` set on INSERT
 8. Wrangler commands against prod D1 require `--remote -c wrangler.production.toml`
 9. Verify before claiming success — always curl/log confirm after any config change
