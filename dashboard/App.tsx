@@ -929,6 +929,33 @@ const App: React.FC = () => {
     }
   }, [revealMainWorkspaceIfNarrow, isNarrowViewport, openTab]);
 
+  /** Agent Sam SSE `surface_open` / orchestration — open the right workspace tab without new buttons. */
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ surface?: string; url?: string }>).detail;
+      const s = String(d?.surface || '').toLowerCase();
+      if (!s) return;
+      revealMainWorkspaceIfNarrow();
+      if (s === 'browser') {
+        if (d?.url?.trim()) {
+          setBrowserAddressDisplay(null);
+          setBrowserTabTitle(null);
+          setBrowserUrl(d.url.trim());
+        }
+        openTab('browser');
+        if (isNarrowViewport) setToastMsg('Browser tab opened. Tap Chat to return to Agent Sam.');
+      } else if (s === 'excalidraw') {
+        openTab('excalidraw');
+        if (isNarrowViewport) setToastMsg('Canvas opened. Tap Chat to return to Agent Sam.');
+      } else if (s === 'monaco' || s === 'code') {
+        openTab('code');
+        if (isNarrowViewport) setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
+      }
+    };
+    window.addEventListener('iam:agent-open-surface', h as EventListener);
+    return () => window.removeEventListener('iam:agent-open-surface', h as EventListener);
+  }, [openTab, revealMainWorkspaceIfNarrow, isNarrowViewport]);
+
   const consumeGithubExpandRepo = useCallback(() => setGithubExpandRepo(null), []);
 
   useEffect(() => {

@@ -796,6 +796,27 @@ const BrowserPane: React.FC<PaneProps> = ({
     currentUrlRef.current = currentUrl;
   }, [currentUrl]);
 
+  /** Latest BrowserView URL/viewport for ChatAssistant `browserContext` (user visual context, not server automation). */
+  useEffect(() => {
+    if (typeof window === 'undefined' || !currentUrl?.trim()) return;
+    let routePath = '';
+    try {
+      routePath = new URL(currentUrl).pathname;
+    } catch {
+      routePath = '';
+    }
+    window.dispatchEvent(
+      new CustomEvent('iam-browser-surface-context', {
+        detail: {
+          url: currentUrl,
+          route_path: routePath,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          source: 'browser_pane',
+        },
+      }),
+    );
+  }, [currentUrl]);
+
   const inspectSameOrigin = useMemo(() => {
     try {
       return new URL(currentUrl).origin === window.location.origin;
@@ -856,6 +877,24 @@ const BrowserPane: React.FC<PaneProps> = ({
       if (e.data?.type === 'iam-navigation' && typeof e.data?.url === 'string') {
         setCurrentUrl(e.data.url);
         setInputVal(e.data.url);
+        const title = typeof e.data?.title === 'string' ? e.data.title : '';
+        let routePath = '';
+        try {
+          routePath = new URL(e.data.url).pathname;
+        } catch {
+          routePath = '';
+        }
+        window.dispatchEvent(
+          new CustomEvent('iam-browser-surface-context', {
+            detail: {
+              url: e.data.url,
+              title: title || null,
+              route_path: routePath,
+              viewport: { width: window.innerWidth, height: window.innerHeight },
+              source: 'iframe_navigation',
+            },
+          }),
+        );
       }
       if (e.data?.type === 'iam-element-selected' && e.data.element && typeof e.data.element === 'object') {
         const el = e.data.element as InspectedElement;

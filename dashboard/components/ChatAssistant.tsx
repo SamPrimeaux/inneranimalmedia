@@ -729,6 +729,28 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   /** Structured BrowserView selection — appended to next Agent Sam message as JSON context. */
   const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);
+  /** Latest `iam-browser-surface-context` from BrowserView (URL, route, viewport). */
+  const browserSurfaceRef = useRef<Record<string, unknown> | null>(null);
+  /** Optional workflow run stream (`agent_universal_autonomous_run` / graph SSE). */
+  const [workflowLedger, setWorkflowLedger] = useState<{
+    runId: string | null;
+    stepsTotal: number | null;
+    stepsCompleted: number;
+    currentNodeKey: string | null;
+    runCost: number | null;
+    runTokensIn: number | null;
+    runTokensOut: number | null;
+    lastError: string | null;
+  }>({
+    runId: null,
+    stepsTotal: null,
+    stepsCompleted: 0,
+    currentNodeKey: null,
+    runCost: null,
+    runTokensIn: null,
+    runTokensOut: null,
+    lastError: null,
+  });
   const totalStagedBytes = useMemo(
     () => attachments.reduce((sum, a) => sum + (a.file.size || 0), 0),
     [attachments]
@@ -769,6 +791,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     };
     window.addEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
     return () => window.removeEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const onSurface = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object') browserSurfaceRef.current = d;
+    };
+    window.addEventListener('iam-browser-surface-context', onSurface as EventListener);
+    return () => window.removeEventListener('iam-browser-surface-context', onSurface as EventListener);
   }, []);
 
   useEffect(() => {
@@ -1335,6 +1366,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
     const userMessage = text || '(attachment)';
     setPendingToolApproval(null);
+    setWorkflowLedger({
+      runId: null,
+      stepsTotal: null,
+      stepsCompleted: 0,
+      currentNodeKey: null,
+      runCost: null,
+      runTokensIn: null,
+      runTokensOut: null,
+      lastError: null,
+    });
     setInput('');
     requestAnimationFrame(() => {
       syncComposerTextareaHeight(
@@ -1410,6 +1451,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     form.append('provider', selectedModelProvider);
     form.append('conversationId', effectiveConvId);
     form.append('contextMode', String(activeProject));
+    try {
+      const browserCtxPayload: Record<string, unknown> = {
+        ...(browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object' ? browserSurfaceRef.current : {}),
+        dashboard_route: typeof window !== 'undefined' ? window.location.pathname : '',
+      };
+      if (browserElementContext && typeof browserElementContext === 'object') {
+        browserCtxPayload.selected_element = browserElementContext;
+      }
+      form.append('browserContext', JSON.stringify(browserCtxPayload));
+    } catch {
+      /* ignore */
+    }
     attachments.forEach((a) => form.append('files', a.file));
 
     const applyAssistantError = (msg: string) => {
@@ -1522,6 +1575,111 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           handleSend(next);
         }
               }
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              ((data as { type?: string }).type === 'capability_selected' ||
+                (data as { type?: string }).type === 'agent_capability_selected')
+            ) {
+              const d = data as { decision?: Record<string, unknown> };
+              const dec = d.decision;
+              if (dec && typeof dec === 'object') {
+                const intent = String(dec.intent ?? '—');
+                const surf = String(dec.default_surface ?? 'chat');
+                const b = dec.should_use_browser ? 'yes' : 'no';
+                assistantStreamBuf += `\n\n_Capabilities:_ **${intent}** · surface **${surf}** · browser=${b}\n`;
+                assistantContent = assistantStreamBuf;
+                setMessages((prev) => {
+                  const last = [...prev];
+                  last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                  return last;
+                });
+              }
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              ((data as { type?: string }).type === 'surface_open' ||
+                (data as { type?: string }).type === 'agent_surface_open')
+            ) {
+              const d = data as { surface?: string; url?: string; reason?: string };
+              window.dispatchEvent(
+                new CustomEvent('iam:agent-open-surface', {
+                  detail: { surface: d.surface, url: d.url, reason: d.reason },
+                }),
+              );
+              if (d.surface === 'browser' && typeof d.url === 'string' && d.url.trim()) {
+                onBrowserNavigate?.({ type: 'browser_navigate', url: d.url.trim() });
+              }
+              continue;
+            }
+            if (data && typeof data === 'object' && (data as { type?: string }).type === 'workflow_start') {
+              const w = data as { type: string; run_id?: string; steps_total?: number | null };
+              setWorkflowLedger((prev) => ({
+                ...prev,
+                runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
+                stepsTotal: w.steps_total != null ? Number(w.steps_total) : prev.stepsTotal,
+                lastError: null,
+              }));
+              continue;
+            }
+            if (data && typeof data === 'object' && (data as { type?: string }).type === 'workflow_step') {
+              const w = data as {
+                type: string;
+                run_id?: string;
+                node_key?: string;
+                current_node_key?: string;
+                steps_completed?: number;
+                steps_total?: number;
+                cost_usd?: number;
+                input_tokens?: number;
+                output_tokens?: number;
+              };
+              setWorkflowLedger((prev) => ({
+                ...prev,
+                runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
+                currentNodeKey:
+                  (typeof w.current_node_key === 'string' && w.current_node_key) ||
+                  (typeof w.node_key === 'string' && w.node_key) ||
+                  prev.currentNodeKey,
+                stepsCompleted:
+                  w.steps_completed != null ? Number(w.steps_completed) : prev.stepsCompleted,
+                stepsTotal: w.steps_total != null ? Number(w.steps_total) : prev.stepsTotal,
+                runCost: w.cost_usd != null ? Number(w.cost_usd) : prev.runCost,
+                runTokensIn: w.input_tokens != null ? Number(w.input_tokens) : prev.runTokensIn,
+                runTokensOut: w.output_tokens != null ? Number(w.output_tokens) : prev.runTokensOut,
+              }));
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
+              ((data as { type?: string }).type === 'workflow_complete' ||
+                (data as { type?: string }).type === 'workflow_error' ||
+                (data as { type?: string }).type === 'workflow_approval_required')
+            ) {
+              const w = data as { type: string; run_id?: string; message?: string; status?: string };
+              setWorkflowLedger((prev) => ({
+                ...prev,
+                runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
+                lastError: w.type === 'workflow_error' ? String(w.message || 'workflow_error') : null,
+              }));
+              const tag =
+                w.type === 'workflow_complete'
+                  ? 'complete'
+                  : w.type === 'workflow_approval_required'
+                    ? 'approval'
+                    : 'error';
+              assistantStreamBuf += `\n\n_Workflow ${tag}:_ ${String(w.message || w.status || '').slice(0, 800)}\n`;
+              assistantContent = assistantStreamBuf;
+              setMessages((prev) => {
+                const last = [...prev];
+                last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                return last;
+              });
               continue;
             }
             if (
@@ -2444,6 +2602,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </div>
             </div>
           )}
+          {workflowLedger.runId ? (
+            <div className="px-3 py-1.5 text-[0.625rem] font-mono text-[var(--dashboard-muted)] border-b border-[var(--dashboard-border)]/60 bg-[var(--scene-bg)]/80">
+              Workflow{' '}
+              <span className="text-[var(--solar-cyan)]">{workflowLedger.runId.slice(0, 18)}</span>
+              {workflowLedger.stepsTotal != null
+                ? ` · steps ${workflowLedger.stepsCompleted}/${workflowLedger.stepsTotal}`
+                : ` · steps ${workflowLedger.stepsCompleted}`}
+              {workflowLedger.currentNodeKey ? ` · ${workflowLedger.currentNodeKey}` : ''}
+              {workflowLedger.runCost != null ? ` · $${workflowLedger.runCost.toFixed(4)}` : ''}
+              {workflowLedger.lastError ? ` · err: ${workflowLedger.lastError.slice(0, 120)}` : ''}
+            </div>
+          ) : null}
           {browserElementContext ? (
             <div className="flex items-start gap-2 rounded-lg border border-[var(--solar-cyan)]/25 bg-[var(--scene-bg)] px-3 py-2 text-[0.6875rem]">
               <div className="min-w-0 flex-1">
