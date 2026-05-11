@@ -2248,6 +2248,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     thompsonModelKey: thompsonModelKeyParam,
     runStartedAt: runStartedAtParam,
     maxRuntimeMs: maxRuntimeMsParam,
+    /** @type {Record<string, unknown>|null|undefined} */
+    promptAuditContext: promptAuditContextParam,
   } = params;
   const routingWs = workspaceId != null ? String(workspaceId).trim() : '';
   const loopT0 = Date.now();
@@ -2351,6 +2353,10 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         taskType: routingTaskType || 'chat',
         mode: mode || 'auto',
         openaiPreviousResponseId,
+        promptAuditContext:
+          promptAuditContextParam && typeof promptAuditContextParam === 'object'
+            ? { ...promptAuditContextParam, loop_turn: turnCount }
+            : promptAuditContextParam,
       });
       isWorkersAiStream = false;
     } catch (e) {
@@ -2644,6 +2650,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             taskType: routingTaskType || 'chat',
             mode: mode || 'auto',
             anthropicContainerId: containerId,
+            promptAuditContext:
+              promptAuditContextParam && typeof promptAuditContextParam === 'object'
+                ? {
+                    ...promptAuditContextParam,
+                    loop_turn: turnCount,
+                    pause_turn_continuation: true,
+                  }
+                : promptAuditContextParam,
           });
         } catch (e) {
           console.warn('[agent] pause_turn continuation request failed:', e?.message ?? e);
@@ -3356,6 +3370,13 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
           mcpRuntimeContext,
           routingArmId: null,
           thompsonModelKey: null,
+          promptAuditContext: {
+            route: 'mcp_panel_chat',
+            mcp_slug: slug,
+            session_id: sessionPkId,
+            workspace_id: workspaceId,
+            mode: requestedMode,
+          },
         }),
         MCP_CHAT_LOOP_MS,
       );
@@ -4152,6 +4173,19 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       let lastLoopStats = null;
       let lastAssistantStreamText = '';
 
+      /** TEMP prompt-size audit (see dispatchStream maybeLogAgentChatPromptAudit); no raw prompt content. */
+      const promptAuditContext = {
+        route: 'agent_chat_sse',
+        agent_id: body.agentId != null ? String(body.agentId).trim() : null,
+        session_id: sessionId,
+        workspace_id: workspaceId,
+        mode: requestedMode,
+        intent_slug: intentSlug,
+        capability_families: capabilityDecision
+          ? requestedFamiliesForAgentTools(message, intentResult, capabilityDecision)
+          : [],
+      };
+
       for (let i = startIdx; i < chainRows.length && providerAttempts < maxProviderAttempts; i++) {
         if (Date.now() - runStartedAt > maxRunMsChat) {
           emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
@@ -4192,6 +4226,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               doneGuard,
               runStartedAt,
               maxRuntimeMs: maxRunMsChat,
+              promptAuditContext,
             }),
             maxRunMsChat + 5000
           );
@@ -4286,6 +4321,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 doneGuard,
                 runStartedAt,
                 maxRuntimeMs: maxRunMsChat,
+                promptAuditContext,
               }),
               maxRunMsChat + 5000
             );

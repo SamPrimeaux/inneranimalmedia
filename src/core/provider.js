@@ -309,6 +309,110 @@ export async function resolveModelMeta(env, modelKey) {
   return null;
 }
 
+function estimateTokensFromChars(value) {
+  return Math.ceil(String(value ?? '').length / 4);
+}
+
+function safeJsonLength(value) {
+  try {
+    return JSON.stringify(value ?? null).length;
+  } catch {
+    return 0;
+  }
+}
+
+function toolNamesForPromptAudit(tools) {
+  if (!Array.isArray(tools)) return [];
+  const out = [];
+  for (const t of tools.slice(0, 100)) {
+    if (!t || typeof t !== 'object') continue;
+    const n = t.name || t.function?.name;
+    if (n) out.push(String(n));
+  }
+  return out;
+}
+
+function systemPromptStringForAudit(systemPrompt) {
+  if (systemPrompt == null) return '';
+  if (typeof systemPrompt === 'string') return systemPrompt;
+  try {
+    return JSON.stringify(systemPrompt);
+  } catch {
+    return '';
+  }
+}
+
+function agentPromptAuditEnvEnabled(env) {
+  const v = env?.AGENT_SAM_PROMPT_AUDIT;
+  return (
+    v === true ||
+    v === 1 ||
+    String(v ?? '').toLowerCase() === 'true' ||
+    String(v) === '1'
+  );
+}
+
+/**
+ * TEMP: token/char estimates only — no raw prompts, cookies, or API keys.
+ * Runs when `params.promptAuditContext` is set (SSE agent / MCP panel) or `AGENT_SAM_PROMPT_AUDIT` is truthy on env.
+ */
+function maybeLogAgentChatPromptAudit(env, params, resolvedModelKey, meta) {
+  const rawCtx = params.promptAuditContext;
+  const enabledByEnv = agentPromptAuditEnvEnabled(env);
+  if (!enabledByEnv && (rawCtx === undefined || rawCtx === null)) return;
+
+  const { systemPrompt, messages, tools = [] } = params;
+  const platform = String(meta?.api_platform || 'unknown').toLowerCase();
+  const providerHint = meta?.provider != null ? String(meta.provider) : null;
+  const messagesJson = JSON.stringify(messages || []);
+  const toolsJson = JSON.stringify(tools || []);
+  const sysStr = systemPromptStringForAudit(systemPrompt);
+  const estimatedMessageTokens = estimateTokensFromChars(messagesJson);
+  const estimatedToolTokens = estimateTokensFromChars(toolsJson);
+  const estimatedSystemTokens = estimateTokensFromChars(sysStr);
+  const narrowCtx =
+    rawCtx && typeof rawCtx === 'object'
+      ? {
+          route: rawCtx.route,
+          agent_id: rawCtx.agent_id,
+          session_id: rawCtx.session_id,
+          workspace_id: rawCtx.workspace_id,
+          mode: rawCtx.mode,
+          intent_slug: rawCtx.intent_slug,
+          capability_families: Array.isArray(rawCtx.capability_families)
+            ? rawCtx.capability_families.slice(0, 32).map((x) => String(x || '').slice(0, 64))
+            : undefined,
+          loop_turn: rawCtx.loop_turn,
+          pause_turn_continuation: rawCtx.pause_turn_continuation,
+          mcp_slug: rawCtx.mcp_slug,
+        }
+      : {};
+  const promptAudit = {
+    source: 'agent_chat_prompt_audit',
+    model_key: resolvedModelKey,
+    api_platform: platform,
+    provider: providerHint,
+    provider_model_id:
+      meta?.provider_model_id != null && String(meta.provider_model_id).trim() !== ''
+        ? String(meta.provider_model_id).trim()
+        : null,
+    message_count: Array.isArray(messages) ? messages.length : 0,
+    tool_count: Array.isArray(tools) ? tools.length : 0,
+    messages_chars: safeJsonLength(messages),
+    tools_chars: safeJsonLength(tools),
+    system_prompt_chars: sysStr.length,
+    estimated_message_tokens: estimatedMessageTokens,
+    estimated_tool_tokens: estimatedToolTokens,
+    estimated_system_tokens: estimatedSystemTokens,
+    estimated_total_prompt_tokens:
+      estimatedMessageTokens + estimatedToolTokens + estimatedSystemTokens,
+    tool_names: toolNamesForPromptAudit(tools),
+    ...Object.fromEntries(Object.entries(narrowCtx).filter(([, v]) => v !== undefined)),
+    created_at: new Date().toISOString(),
+  };
+  console.log('[agent_prompt_audit]', JSON.stringify(promptAudit));
+}
+
 export async function dispatchStream(env, request, params) {
   const modelKey = await resolveAutoModelKey(env, params);
   if (modelKey == null || String(modelKey).trim() === '') {
@@ -322,6 +426,7 @@ export async function dispatchStream(env, request, params) {
   }
   const { systemPrompt, messages, tools = [], options = {}, userId, anthropicContainerId } = params;
   const meta = await resolveModelMeta(env, modelKey);
+  maybeLogAgentChatPromptAudit(env, params, modelKey, meta);
   const platform = String(meta?.api_platform || 'anthropic').toLowerCase();
   const providerModelId =
     meta?.provider_model_id != null && String(meta.provider_model_id).trim() !== ''
