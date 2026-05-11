@@ -88,3 +88,6 @@ __pycache__/
 .env.agentsam.local
 .env.openai-smoke.local
 .env.anthropic-smoke.local
+
+# Generated site preview output
+scripts/generated-sites/
