@@ -7,6 +7,89 @@ export const AGENTSAM_WORKFLOW_RUNS_TABLE = 'agentsam_workflow_runs';
 
 const WORKFLOW_RUNS_PATH = '/rest/v1/workflow_runs';
 
+/** @param {import('@cloudflare/workers-types').D1Database} db */
+async function pragmaAgentsamWorkflowRunsColumns(db) {
+  try {
+    const { results } = await db.prepare(`PRAGMA table_info(${AGENTSAM_WORKFLOW_RUNS_TABLE})`).all();
+    return new Set((results || []).map((r) => String(r.name || '').toLowerCase()));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Reflect Supabase mirror outcome on the D1 workflow run row (optional columns for older DBs).
+ * @param {any} env
+ * @param {string} d1RunId
+ * @param {{ ok: boolean, supabaseRunId?: string|null, error?: string|null }} outcome
+ */
+export async function patchD1WorkflowRunSupabaseMirrorState(env, d1RunId, outcome) {
+  const db = env?.DB;
+  const rid = String(d1RunId || '').trim();
+  if (!db || !rid) return;
+  const cols = await pragmaAgentsamWorkflowRunsColumns(db);
+  const fragments = [];
+  const binds = [];
+
+  if (cols.has('updated_at')) {
+    fragments.push(`updated_at = datetime('now')`);
+  }
+
+  if (outcome.ok) {
+    if (cols.has('supabase_sync_status')) fragments.push(`supabase_sync_status = 'synced'`);
+    if (cols.has('supabase_sync_error')) fragments.push(`supabase_sync_error = NULL`);
+    if (cols.has('supabase_synced_at')) fragments.push(`supabase_synced_at = datetime('now')`);
+    const sid = outcome.supabaseRunId != null ? String(outcome.supabaseRunId).trim() : '';
+    if (sid && cols.has('supabase_run_id')) {
+      fragments.push(`supabase_run_id = ?`);
+      binds.push(sid);
+    }
+    if (cols.has('supabase_sync_attempts')) {
+      fragments.push(`supabase_sync_attempts = COALESCE(supabase_sync_attempts, 0) + 1`);
+    }
+  } else {
+    const msg = String(outcome.error || 'supabase_sync_failed').slice(0, 8000);
+    if (cols.has('supabase_sync_status')) fragments.push(`supabase_sync_status = 'failed'`);
+    if (cols.has('supabase_sync_error')) {
+      fragments.push(`supabase_sync_error = ?`);
+      binds.push(msg);
+    }
+    if (cols.has('supabase_sync_attempts')) {
+      fragments.push(`supabase_sync_attempts = COALESCE(supabase_sync_attempts, 0) + 1`);
+    }
+  }
+
+  if (!fragments.length) return;
+  binds.push(rid);
+  const sql = `UPDATE ${AGENTSAM_WORKFLOW_RUNS_TABLE} SET ${fragments.join(', ')} WHERE id = ?`;
+  try {
+    await db.prepare(sql).bind(...binds).run();
+  } catch (e) {
+    console.warn('[agentsam-supabase-sync] patchD1WorkflowRunSupabaseMirrorState', e?.message ?? e);
+  }
+}
+
+/** @param {string} text */
+function parseSupabaseRpcWorkflowRunId(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  try {
+    const j = JSON.parse(raw);
+    if (j == null) return null;
+    if (typeof j === 'string' && j) return j;
+    if (typeof j === 'number' && Number.isFinite(j)) return String(j);
+    if (typeof j === 'object' && !Array.isArray(j) && j.id != null) return String(j.id);
+    if (Array.isArray(j) && j.length) {
+      const x = j[0];
+      if (typeof x === 'string') return x;
+      if (x && typeof x === 'object' && x.id != null) return String(x.id);
+    }
+  } catch {
+    // non-JSON body (rare)
+  }
+  return null;
+}
+
 /**
  * @param {import('@cloudflare/workers-types').D1Result} result
  * @param {string} label
@@ -224,15 +307,21 @@ export async function syncWorkflowRunToSupabase(env, run) {
         p_model_id: run.model_used ?? run.model_id ?? null,
       }),
     });
-    if (!res.ok) return;
-    await db
-      .prepare(
-        `UPDATE ${AGENTSAM_WORKFLOW_RUNS_TABLE} SET supabase_sync_status=?, supabase_synced_at=? WHERE id=?`,
-      )
-      .bind('synced', new Date().toISOString(), run.id)
-      .run();
-  } catch {
-    // Non-fatal — D1 is source of truth, Supabase is analytics layer
+    const bodyText = await res.text();
+    if (!res.ok) {
+      await patchD1WorkflowRunSupabaseMirrorState(env, run.id, {
+        ok: false,
+        error: `sync_workflow_run HTTP ${res.status}: ${bodyText.slice(0, 2000)}`,
+      });
+      return;
+    }
+    const supabaseRunId = parseSupabaseRpcWorkflowRunId(bodyText);
+    await patchD1WorkflowRunSupabaseMirrorState(env, run.id, { ok: true, supabaseRunId });
+  } catch (e) {
+    await patchD1WorkflowRunSupabaseMirrorState(env, run.id, {
+      ok: false,
+      error: e?.message != null ? String(e.message) : String(e),
+    });
   }
 }
 
