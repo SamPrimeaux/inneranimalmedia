@@ -113,13 +113,18 @@ async function getVertexAccessToken(env) {
  */
 export async function chatWithToolsVertex(env, request, params) {
   const {
-    modelKey     = 'gemini-1.5-pro',
+    modelKey = 'gemini-1.5-pro',
+    providerModelId,
     messages,
     systemPrompt,
-    region       = 'us-central1',
-    temperature  = 0.7,
-    maxTokens    = 8192,
+    region = 'us-central1',
+    temperature = 0.7,
+    maxTokens = 8192,
   } = params;
+  const vertexModel =
+    providerModelId != null && String(providerModelId).trim() !== ''
+      ? String(providerModelId).trim()
+      : modelKey;
 
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -137,7 +142,7 @@ export async function chatWithToolsVertex(env, request, params) {
 
   const endpoint =
     `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}` +
-    `/locations/${region}/publishers/google/models/${modelKey}:streamGenerateContent`;
+    `/locations/${region}/publishers/google/models/${vertexModel}:streamGenerateContent`;
 
   const body = {
     contents: messages.map((m) => ({

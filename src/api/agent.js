@@ -3,7 +3,7 @@
  * Handles all /api/agent/* routes.
  *
  * Key notes:
- *  - Canonical production catalog: D1 agentsam_ai only (routing, picker metadata, pricing, dispatch).
+ *  - Provider dispatch metadata: D1 agentsam_model_catalog (canonical); agentsam_ai is legacy/persona/BYOK overlay.
  *  - agent_model_registry is legacy/staging/enrichment — never used for chat routing or billing math here.
  *  - No hardcoded model strings — always resolved from DB
  *  - Tool definitions loaded per-request via classifyIntent + loadToolsForRequest

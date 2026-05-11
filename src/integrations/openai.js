@@ -1,7 +1,7 @@
 /**
  * Integration Layer: OpenAI
  * Streaming chat completions via api.openai.com.
- * Key resolved from agentsam_ai.secret_key_name and resolveApiKey (user_secrets + env).
+ * Key resolved via resolveModelApiKey (BYOK / agentsam_ai.secret_key_name / env).
  * Proxies OpenAI SSE stream directly — frontend handles choices[0].delta.content format.
  */
 import { resolveModelApiKey } from './tokens.js';
@@ -167,11 +167,15 @@ function buildOpenAIMessages(systemPrompt, messages) {
  * Returns a Response with the OpenAI SSE stream proxied directly.
  */
 export async function chatWithToolsOpenAI(env, request, params) {
-  const { modelKey, systemPrompt, messages = [], tools = [], userId } = params;
+  const { modelKey, providerModelId, systemPrompt, messages = [], tools = [], userId } = params;
+  const modelForApi =
+    providerModelId != null && String(providerModelId).trim() !== ''
+      ? String(providerModelId).trim()
+      : String(modelKey || '').trim();
 
   const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
   if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);
-  if (!modelKey) return jsonResponse({ error: 'modelKey required' }, 400);
+  if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);
 
   const oaiMessages = buildOpenAIMessages(systemPrompt, messages);
   const oaiTools    = toOpenAITools(tools);
@@ -180,7 +184,7 @@ export async function chatWithToolsOpenAI(env, request, params) {
   const verbosity       = params.verbosity       || null;
 
   const body = {
-    model:    modelKey,
+    model:    modelForApi,
     messages: oaiMessages,
     stream:   true,
     ...(oaiTools?.length   ? { tools:     oaiTools                   } : {}),
@@ -226,6 +230,7 @@ export async function chatWithToolsOpenAI(env, request, params) {
 export async function chatWithToolsOpenAIResponses(env, request, params) {
   const {
     modelKey,
+    providerModelId,
     systemPrompt,
     messages = [],
     tools = [],
@@ -234,17 +239,21 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
     reasoningEffort,
     verbosity,
   } = params;
+  const modelForApi =
+    providerModelId != null && String(providerModelId).trim() !== ''
+      ? String(providerModelId).trim()
+      : String(modelKey || '').trim();
 
   const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
   if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);
-  if (!modelKey) return jsonResponse({ error: 'modelKey required' }, 400);
+  if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
   const input = buildOpenAIResponsesInput(messages, prev || null);
   const oaiTools = toOpenAIResponsesTools(tools);
 
   const body = {
-    model: modelKey,
+    model: modelForApi,
     input,
     stream: true,
     ...(prev ? { previous_response_id: prev } : {}),
@@ -291,7 +300,11 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
  * Use for batch / background tasks where streaming is not needed.
  */
 export async function completeWithOpenAI(env, params) {
-  const { modelKey, systemPrompt, messages = [], tools = [], userId } = params;
+  const { modelKey, providerModelId, systemPrompt, messages = [], tools = [], userId } = params;
+  const modelForApi =
+    providerModelId != null && String(providerModelId).trim() !== ''
+      ? String(providerModelId).trim()
+      : String(modelKey || '').trim();
 
   const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
   if (!apiKey) throw new Error('OpenAI API key not configured');
@@ -303,7 +316,7 @@ export async function completeWithOpenAI(env, params) {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body:    JSON.stringify({
-      model:    modelKey,
+      model:    modelForApi,
       messages: oaiMessages,
       ...(oaiTools?.length ? { tools: oaiTools } : {}),
     }),

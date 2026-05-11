@@ -38,11 +38,12 @@ export function normalizeGeminiTools(tools) {
  * The Core Gemini Engine (Public API).
  */
 export async function chatWithToolsGemini(env, request, params) {
-    const { 
-        modelKey, 
-        messages, 
+    const {
+        modelKey,
+        providerModelId,
+        messages,
         tools: toolDefinitions,
-        systemPrompt 
+        systemPrompt,
     } = params;
 
     const authUser = await getAuthUser(request, env);
@@ -53,7 +54,12 @@ export async function chatWithToolsGemini(env, request, params) {
     if (!apiKey.trim()) return jsonResponse({ error: 'Google AI API key not configured' }, 503);
 
     const geminiTools = normalizeGeminiTools(toolDefinitions);
-    const resolvedModel = modelKey || 'gemini-1.5-pro-latest';
+    const resolvedModel =
+      (providerModelId != null && String(providerModelId).trim() !== ''
+        ? String(providerModelId).trim()
+        : null) ||
+      modelKey ||
+      'gemini-1.5-pro-latest';
 
     // Initial SSE Setup
     const { readable, writable } = new TransformStream();

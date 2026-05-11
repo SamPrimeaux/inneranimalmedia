@@ -98,13 +98,20 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured for this user');
 
   const client = new Anthropic({ apiKey });
-  const modelKey = options.model || 'claude-3-5-sonnet-20240620';
-  
-  // Dynamic feature and rate lookup from D1 (Zero-Hardcoding Compliance)
-  const modelInfo = await dbHandlers.d1_query({ 
-    sql: "SELECT * FROM agentsam_ai WHERE model_key = ?", 
-    params: [modelKey] 
-  }, env);
+  const modelForApi = options.model || 'claude-3-5-sonnet-20240620';
+  const logicalModelKey =
+    options.catalogModelKey != null && String(options.catalogModelKey).trim() !== ''
+      ? String(options.catalogModelKey).trim()
+      : modelForApi;
+
+  // Dynamic feature and rate lookup from D1 (logical model_key; API id may differ)
+  const modelInfo = await dbHandlers.d1_query(
+    {
+      sql: 'SELECT * FROM agentsam_ai WHERE model_key = ?',
+      params: [logicalModelKey],
+    },
+    env,
+  );
   
   const modelData = modelInfo.results?.[0] || {};
   const features = JSON.parse(modelData.features_json || '{}');
@@ -123,7 +130,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   if (features.prompt_caching) betas.push('prompt-caching-2024-07-31');
   if (features.thinking) betas.push('thinking-2024-10-22');
 
-  const builtTools = buildAnthropicMessagesTools(tools, { modelKey, features });
+  const builtTools = buildAnthropicMessagesTools(tools, { modelKey: logicalModelKey, features });
   if (anthropicCodeExecutionNeeds202508Beta(builtTools)) {
     betas.push(ANTHROPIC_CODE_EXECUTION_BETA);
   }
@@ -136,7 +143,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   );
 
   const streamParams = {
-    model: modelKey,
+    model: modelForApi,
     max_tokens: options.max_tokens || 4096,
     system: options.systemPrompt || 'You are Agent Sam, a high-performance coding assistant.',
     messages: messages.map(m => ({
@@ -150,7 +157,9 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   };
 
   // 2. Adaptive Thinking & Effort (v4.6 GA Path)
-  const isSotaModel = (modelKey.includes('4-6') || modelKey.includes('4-5')) && !modelKey.includes('haiku');
+  const isSotaModel =
+    (logicalModelKey.includes('4-6') || logicalModelKey.includes('4-5')) &&
+    !logicalModelKey.includes('haiku');
   if (isSotaModel) {
     streamParams.thinking = { type: 'adaptive' };
     if (options.effort) {

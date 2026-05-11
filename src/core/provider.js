@@ -1,7 +1,7 @@
 /**
  * IAM — Unified Provider Dispatch
- * Routes agent calls to correct provider based on agentsam_ai.api_platform.
- * No hardcoded model strings or provider names.
+ * Routes agent calls using agentsam_model_catalog as canonical execution metadata
+ * (api_platform, provider ids). agentsam_ai is legacy/persona fallback when no catalog row exists.
  */
 import { chatWithAnthropic }   from '../integrations/anthropic.js';
 import { chatWithToolsOpenAI,
@@ -13,9 +13,43 @@ import { jsonResponse }        from './responses.js';
 import { resolveApiKey }       from './vault.js';
 import { thompsonSample }      from './thompson.js';
 import { isFeatureEnabled }    from './features.js';
+import { pragmaTableInfo }     from './retention.js';
 
 /** Thrown when Ollama is skipped so the agent model chain can try the next provider (no SSE error text). */
 export const OLLAMA_SKIP_MESSAGE = 'ollama_skip';
+
+function shouldLogModelMetaFallback(env) {
+  const d = env?.AGENT_SAM_DEBUG ?? env?.AGENT_SAM_MODEL_DEBUG ?? env?.DEBUG;
+  return d === true || d === 1 || String(d || '').toLowerCase() === 'true' || String(d || '') === '1';
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {boolean} allowDegraded
+ */
+async function pickFallbackCatalogModelKey(db, allowDegraded) {
+  const cols = await pragmaTableInfo(db, 'agentsam_model_catalog');
+  if (!cols.has('model_key')) return null;
+  const hasTenant = cols.has('tenant_id') && cols.has('workspace_id');
+  const hasDegraded = cols.has('is_degraded');
+  const hasTier = cols.has('tier');
+  const scope = hasTenant ? `AND COALESCE(tenant_id,'') = '' AND COALESCE(workspace_id,'') = ''` : '';
+  const degradedClause =
+    !allowDegraded && hasDegraded ? 'AND COALESCE(is_degraded,0) = 0' : '';
+  const orderBy = hasTier
+    ? `CASE LOWER(COALESCE(tier,'')) WHEN 'micro' THEN 0 WHEN 'flash' THEN 1 WHEN 'standard' THEN 2 WHEN 'power' THEN 3 WHEN 'reasoning' THEN 4 WHEN 'frontier' THEN 5 ELSE 9 END, model_key ASC`
+    : 'model_key ASC';
+  const sql = `SELECT model_key FROM agentsam_model_catalog
+     WHERE is_active = 1 ${degradedClause} ${scope}
+     ORDER BY ${orderBy}
+     LIMIT 1`;
+  try {
+    const row = await db.prepare(sql).first();
+    return row?.model_key != null ? String(row.model_key).trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 /** @param {any} params */
 async function resolveAutoModelKey(env, params) {
@@ -44,6 +78,12 @@ async function resolveAutoModelKey(env, params) {
     }
   }
 
+  if (env?.DB) {
+    let ck = await pickFallbackCatalogModelKey(env.DB, false);
+    if (!ck) ck = await pickFallbackCatalogModelKey(env.DB, true);
+    if (ck) return ck;
+  }
+
   const fallback = await env?.DB?.prepare(
     `SELECT model_key FROM agentsam_ai
      WHERE mode = 'model' AND status = 'active'
@@ -56,11 +96,174 @@ async function resolveAutoModelKey(env, params) {
   return 'gpt-4.1-mini';
 }
 
+/**
+ * Provider-specific API model id from catalog columns (logical model_key may differ).
+ * @param {Record<string, unknown>} row
+ * @param {string} provider
+ */
+function pickProviderModelIdFromCatalogRow(row, provider) {
+  const p = String(provider || '').toLowerCase();
+  if (p === 'openai') return row.openai_model_id ?? null;
+  if (p === 'anthropic') return row.anthropic_model_id ?? null;
+  if (p === 'google' || p === 'gemini') return row.google_model_id ?? null;
+  if (p === 'workers_ai' || p === 'cloudflare') return row.workers_ai_model_id ?? null;
+  if (p === 'vertex') return row.google_model_id ?? row.vertex_model_id ?? null;
+  return null;
+}
+
+/**
+ * When catalog omits api_platform, derive a dispatch platform from provider slug.
+ * @param {string} provider
+ * @param {string} [rawPlatform]
+ */
+function deriveApiPlatformFromProvider(provider, rawPlatform) {
+  let plat = rawPlatform != null ? String(rawPlatform).trim() : '';
+  if (plat.toLowerCase() === 'unknown') plat = '';
+  if (plat) return plat;
+  const p = String(provider || '').toLowerCase();
+  if (p === 'openai') return 'openai_chat_completions';
+  if (p === 'anthropic') return 'anthropic';
+  if (p === 'google' || p === 'gemini') return 'gemini_api';
+  if (p === 'workers_ai' || p === 'cloudflare') return 'workers_ai';
+  if (p === 'vertex') return 'vertex';
+  if (p === 'ollama') return 'ollama';
+  return 'anthropic';
+}
+
+/**
+ * @param {Record<string, unknown>} catalogRow
+ * @param {Set<string>} colset
+ * @param {string} logicalModelKey
+ */
+function normalizeCatalogModelMeta(catalogRow, colset, logicalModelKey) {
+  const provider = catalogRow.provider != null ? String(catalogRow.provider) : '';
+  const rawPlat = colset.has('api_platform') && catalogRow.api_platform != null
+    ? String(catalogRow.api_platform).trim()
+    : '';
+  const apiPlatform = deriveApiPlatformFromProvider(provider, rawPlat);
+
+  const name =
+    (colset.has('display_name') && catalogRow.display_name != null && String(catalogRow.display_name).trim())
+      ? String(catalogRow.display_name).trim()
+      : logicalModelKey;
+
+  const contextMax =
+    (colset.has('context_max_tokens') ? catalogRow.context_max_tokens : null) ??
+    (colset.has('context_window') ? catalogRow.context_window : null) ??
+    null;
+  const outputMax =
+    (colset.has('output_max_tokens') ? catalogRow.output_max_tokens : null) ??
+    (colset.has('max_output_tokens') ? catalogRow.max_output_tokens : null) ??
+    null;
+
+  let inputMtok = colset.has('input_rate_per_mtok') ? catalogRow.input_rate_per_mtok : null;
+  let outputMtok = colset.has('output_rate_per_mtok') ? catalogRow.output_rate_per_mtok : null;
+  if ((inputMtok == null || Number(inputMtok) === 0) && colset.has('cost_per_1k_in')) {
+    const c1k = Number(catalogRow.cost_per_1k_in);
+    if (!Number.isNaN(c1k)) inputMtok = c1k * 1000;
+  }
+  if ((outputMtok == null || Number(outputMtok) === 0) && colset.has('cost_per_1k_out')) {
+    const c1k = Number(catalogRow.cost_per_1k_out);
+    if (!Number.isNaN(c1k)) outputMtok = c1k * 1000;
+  }
+
+  const rawProvId = pickProviderModelIdFromCatalogRow(catalogRow, provider);
+  const providerModelId =
+    rawProvId != null && String(rawProvId).trim() !== '' ? String(rawProvId).trim() : null;
+
+  const supportsStreaming = colset.has('supports_streaming')
+    ? catalogRow.supports_streaming
+    : 1;
+
+  return {
+    id: catalogRow.id != null ? String(catalogRow.id) : null,
+    name,
+    model_key: logicalModelKey,
+    provider,
+    api_platform: apiPlatform,
+    provider_model_id: providerModelId,
+    secret_key_name: colset.has('secret_key_name') ? catalogRow.secret_key_name ?? null : null,
+    supports_tools: catalogRow.supports_tools ?? null,
+    supports_vision: catalogRow.supports_vision ?? null,
+    supports_streaming: supportsStreaming,
+    context_max_tokens: contextMax,
+    output_max_tokens: outputMax,
+    input_rate_per_mtok: inputMtok,
+    output_rate_per_mtok: outputMtok,
+    tool_invocation_style: colset.has('tool_invocation_style') ? catalogRow.tool_invocation_style ?? null : null,
+    thinking_mode: colset.has('thinking_mode') ? catalogRow.thinking_mode ?? null : null,
+    effort: colset.has('effort') ? catalogRow.effort ?? null : null,
+  };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} logicalModelKey
+ */
+async function fetchCatalogModelRow(db, logicalModelKey) {
+  const colset = await pragmaTableInfo(db, 'agentsam_model_catalog');
+  if (!colset.has('model_key') || !colset.has('is_active')) return null;
+
+  const candidates = [
+    { label: 'global_non_degraded', allowDegraded: false, globalOnly: true },
+    { label: 'global_any', allowDegraded: true, globalOnly: true },
+    { label: 'scoped_non_degraded', allowDegraded: false, globalOnly: false },
+    { label: 'scoped_any', allowDegraded: true, globalOnly: false },
+  ];
+
+  const baseCols = [
+    'id', 'model_key', 'provider', 'is_active', 'supports_tools', 'supports_vision',
+    'display_name', 'api_platform', 'tenant_id', 'workspace_id', 'is_degraded',
+    'openai_model_id', 'anthropic_model_id', 'google_model_id', 'workers_ai_model_id', 'vertex_model_id',
+    'context_window', 'max_output_tokens', 'context_max_tokens', 'output_max_tokens',
+    'cost_per_1k_in', 'cost_per_1k_out', 'input_rate_per_mtok', 'output_rate_per_mtok',
+    'supports_streaming', 'secret_key_name', 'tool_invocation_style', 'thinking_mode', 'effort',
+  ];
+  const selectList = baseCols.filter((c) => colset.has(c));
+  if (!selectList.includes('model_key')) return null;
+
+  const hasTenant = colset.has('tenant_id') && colset.has('workspace_id');
+  const hasDegraded = colset.has('is_degraded');
+
+  for (const c of candidates) {
+    if (c.globalOnly && !hasTenant) continue;
+    const parts = [`model_key = ?`, `is_active = 1`];
+    const binds = [logicalModelKey];
+    if (c.globalOnly) {
+      parts.push(`COALESCE(tenant_id,'') = ''`);
+      parts.push(`COALESCE(workspace_id,'') = ''`);
+    }
+    if (!c.allowDegraded && hasDegraded) {
+      parts.push(`COALESCE(is_degraded,0) = 0`);
+    }
+    const sql = `SELECT ${selectList.join(', ')} FROM agentsam_model_catalog WHERE ${parts.join(' AND ')} LIMIT 1`;
+    try {
+      const row = await db.prepare(sql).bind(...binds).first();
+      if (row && row.model_key != null) return { row, colset };
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
 /** Exported for agent tool-loop stream parsing (OpenAI vs Anthropic vs Gemini). */
 export async function resolveModelMeta(env, modelKey) {
   if (!env.DB || !modelKey) return null;
+  const logicalKey = String(modelKey).trim();
+  if (!logicalKey) return null;
+
   try {
-    return await env.DB.prepare(
+    const pack = await fetchCatalogModelRow(env.DB, logicalKey);
+    if (pack) {
+      return normalizeCatalogModelMeta(pack.row, pack.colset, logicalKey);
+    }
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    const legacy = await env.DB.prepare(
       `SELECT id, name, model_key, api_platform, provider,
        secret_key_name, supports_tools, supports_vision,
        context_max_tokens, output_max_tokens,
@@ -69,18 +272,45 @@ export async function resolveModelMeta(env, modelKey) {
        FROM agentsam_ai
        WHERE model_key = ?
          AND mode = 'model' AND status = 'active'
-       LIMIT 1`
-    ).bind(modelKey).first();
-  } catch (_) { return null; }
+       LIMIT 1`,
+    )
+      .bind(logicalKey)
+      .first();
+    if (legacy) {
+      if (shouldLogModelMetaFallback(env)) {
+        console.warn(
+          '[provider] resolveModelMeta: using agentsam_ai fallback (no active agentsam_model_catalog row)',
+          logicalKey,
+        );
+      }
+      const p = legacy.provider != null ? String(legacy.provider) : '';
+      const ap = legacy.api_platform != null ? String(legacy.api_platform).trim() : '';
+      return {
+        ...legacy,
+        api_platform: deriveApiPlatformFromProvider(p, ap),
+        provider_model_id: null,
+        supports_streaming: legacy.supports_streaming ?? 1,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 export async function dispatchStream(env, request, params) {
   const modelKey = await resolveAutoModelKey(env, params);
   const { systemPrompt, messages, tools = [], options = {}, userId, anthropicContainerId } = params;
-  const meta     = await resolveModelMeta(env, modelKey);
-  const platform = meta?.api_platform || 'anthropic';
-  const dp       = {
+  const meta = await resolveModelMeta(env, modelKey);
+  const platform = String(meta?.api_platform || 'anthropic').toLowerCase();
+  const providerModelId =
+    meta?.provider_model_id != null && String(meta.provider_model_id).trim() !== ''
+      ? String(meta.provider_model_id).trim()
+      : null;
+  const modelForUpstream = providerModelId || modelKey;
+  const dp = {
     modelKey,
+    providerModelId,
     systemPrompt,
     messages,
     tools,
@@ -109,7 +339,8 @@ export async function dispatchStream(env, request, params) {
       return chatWithAnthropic({
         messages, tools, env, userId,
         options: {
-          model: modelKey,
+          model: modelForUpstream,
+          catalogModelKey: modelKey,
           systemPrompt,
           ...options,
           ...(anthropicContainerId != null && String(anthropicContainerId).trim() !== ''
@@ -123,21 +354,31 @@ export async function dispatchStream(env, request, params) {
 export async function dispatchComplete(env, params) {
   const modelKey = await resolveAutoModelKey(env, params);
   const { systemPrompt, messages, tools = [], options = {}, userId } = params;
-  const meta     = await resolveModelMeta(env, modelKey);
-  const platform = meta?.api_platform || 'anthropic';
+  const meta = await resolveModelMeta(env, modelKey);
+  const platform = String(meta?.api_platform || 'anthropic').toLowerCase();
+  const providerModelId =
+    meta?.provider_model_id != null && String(meta.provider_model_id).trim() !== ''
+      ? String(meta.provider_model_id).trim()
+      : null;
+  const modelForUpstream = providerModelId || modelKey;
 
-  if (platform === 'openai') {
+  if (platform === 'openai' || platform === 'openai_chat_completions') {
     return completeWithOpenAI(env, {
-      modelKey, systemPrompt, messages, tools, userId,
+      modelKey,
+      providerModelId,
+      systemPrompt,
+      messages,
+      tools,
+      userId,
       reasoningEffort: options.reasoningEffort || 'none',
-      verbosity:       options.verbosity       || 'low',
+      verbosity: options.verbosity || 'low',
     });
   }
 
   // Fallback non-streaming via Anthropic
   const res = await chatWithAnthropic({
     messages, tools, env, userId,
-    options: { model: modelKey, systemPrompt, stream: false },
+    options: { model: modelForUpstream, catalogModelKey: modelKey, systemPrompt, stream: false },
   });
   if (res instanceof Response) {
     const text = await res.text();
@@ -161,7 +402,8 @@ function extractWorkersAiSseToken(obj) {
 }
 
 async function dispatchWorkersAI(env, request, params) {
-  const { modelKey, systemPrompt, messages, userId } = params;
+  const { modelKey, providerModelId, systemPrompt, messages, userId } = params;
+  const waiModel = providerModelId || modelKey;
   const waiMessages = [
     ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
     ...messages,
@@ -186,7 +428,7 @@ async function dispatchWorkersAI(env, request, params) {
 
   let response;
   try {
-    response = await env.AI.run(modelKey, { messages: waiMessages, stream: true });
+    response = await env.AI.run(waiModel, { messages: waiMessages, stream: true });
   } catch (e) {
     return openAiFallback(e);
   }
@@ -284,7 +526,8 @@ async function dispatchOllama(env, request, params) {
     (env.OLLAMA_BASE_URL && String(env.OLLAMA_BASE_URL).trim()) ||
     (env.OLLAMA_TUNNEL_URL && String(env.OLLAMA_TUNNEL_URL).trim()) ||
     'https://ollama.inneranimalmedia.com';
-  const { modelKey, systemPrompt, messages } = params;
+  const { modelKey, providerModelId, systemPrompt, messages } = params;
+  const ollamaModel = providerModelId || modelKey;
   const ollamaMessages = [
     ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
     ...messages,
@@ -301,7 +544,7 @@ async function dispatchOllama(env, request, params) {
             }
           : {}),
       },
-      body: JSON.stringify({ model: modelKey, messages: ollamaMessages, stream: true, keep_alive: '10m' }),
+      body: JSON.stringify({ model: ollamaModel, messages: ollamaMessages, stream: true, keep_alive: '10m' }),
     });
     if (!upstream.ok) {
       if (upstream.status === 403) {
