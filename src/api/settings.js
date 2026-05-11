@@ -829,13 +829,17 @@ export async function handleSettingsRequest(request, env, ctx) {
               .all();
             return res.results || [];
           } catch (e) {
-            if (String(e?.message || '').includes('no such column: theme')) {
+            const errMsg = String(e?.message || '');
+            if (errMsg.includes('no such column: theme')) {
               const res = await env.DB.prepare(
                 'SELECT workspace_id, brand, plans, budget, time FROM user_workspace_settings WHERE user_id = ?',
               )
                 .bind(uid)
                 .all();
               return res.results || [];
+            }
+            if (errMsg.includes('no such table') && errMsg.includes('user_workspace_settings')) {
+              return [];
             }
             throw e;
           }
@@ -918,6 +922,16 @@ export async function handleSettingsRequest(request, env, ctx) {
         ).bind(sessionUserId, workspace_id, brand ?? '', plans ?? '', budget ?? '', time ?? '').run();
         return jsonResponse({ ok: true });
       } catch (e) {
+        const msg = String(e?.message || '');
+        if (msg.includes('no such table') && msg.includes('user_workspace_settings')) {
+          return jsonResponse(
+            {
+              error: 'user_workspace_settings table missing',
+              hint: 'Apply migrations/141_user_workspace_settings.sql (optional theme column: migrations/148_workspace_default_and_theme.sql)',
+            },
+            503,
+          );
+        }
         return jsonResponse({ error: e?.message ?? 'Save failed' }, 500);
       }
     }
@@ -1018,6 +1032,16 @@ export async function handleSettingsRequest(request, env, ctx) {
       ).bind(sessionUserId, workspaceId, theme || null).run();
       return jsonResponse({ ok: true });
     } catch (e) {
+      const msg = String(e?.message || '');
+      if (msg.includes('no such table') && msg.includes('user_workspace_settings')) {
+        return jsonResponse(
+          {
+            error: 'user_workspace_settings table missing',
+            hint: 'Apply migrations/141_user_workspace_settings.sql and migrations/148_workspace_default_and_theme.sql',
+          },
+          503,
+        );
+      }
       return jsonResponse({ error: e?.message ?? 'Save failed' }, 500);
     }
   }
