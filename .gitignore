@@ -12,6 +12,9 @@ IAM_SECRETS.env
 node_modules/
 dashboard/node_modules/
 
+# Supabase CLI local cache (version pins, etc.)
+supabase/.temp/
+
 # build/cache/logs
 .wrangler/
 .cache/
