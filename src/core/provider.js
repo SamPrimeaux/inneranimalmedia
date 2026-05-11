@@ -5,6 +5,7 @@
  */
 import { chatWithAnthropic }   from '../integrations/anthropic.js';
 import { chatWithToolsOpenAI,
+         chatWithToolsOpenAIResponses,
          completeWithOpenAI }  from '../integrations/openai.js';
 import { chatWithToolsGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
@@ -55,6 +56,7 @@ async function resolveAutoModelKey(env, params) {
   return 'gpt-4.1-mini';
 }
 
+/** Exported for agent tool-loop stream parsing (OpenAI vs Anthropic vs Gemini). */
 export async function resolveModelMeta(env, modelKey) {
   if (!env.DB || !modelKey) return null;
   try {
@@ -77,11 +79,23 @@ export async function dispatchStream(env, request, params) {
   const { systemPrompt, messages, tools = [], options = {}, userId, anthropicContainerId } = params;
   const meta     = await resolveModelMeta(env, modelKey);
   const platform = meta?.api_platform || 'anthropic';
-  const dp       = { modelKey, systemPrompt, messages, tools, userId, ...options };
+  const dp       = {
+    modelKey,
+    systemPrompt,
+    messages,
+    tools,
+    userId,
+    openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
+    ...options,
+  };
 
   switch (platform) {
     case 'openai':
+    case 'openai_chat_completions':
       return chatWithToolsOpenAI(env, request, dp);
+    case 'openai_responses':
+    case 'responses':
+      return chatWithToolsOpenAIResponses(env, request, dp);
     case 'gemini_api':
       return chatWithToolsGemini(env, request, dp);
     case 'vertex':
