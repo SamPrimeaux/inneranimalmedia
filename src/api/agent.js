@@ -2696,15 +2696,20 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           isSuperadmin: mcpRuntimeContext.isSuperadmin,
           request,
         });
-        if (execResult && typeof execResult === 'object' && Array.isArray(execResult.rows)) {
-          toolRows = execResult.rows;
+        if (execResult && typeof execResult === 'object') {
+          if (Array.isArray(execResult.rows)) toolRows = execResult.rows;
+          else if (Array.isArray(execResult.results)) toolRows = execResult.results;
         }
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
       } catch (e) {
         execErr = e;
-        toolOutput = `Tool execution failed: ${e.message}`;
-        console.warn('[agent] tool_error', call.name, e?.message ?? e);
-        emit('tool_error', { tool: call.name, error: 'Tool execution failed' });
+        const detail =
+          e && typeof e === 'object' && 'message' in e && typeof e.message === 'string'
+            ? e.message
+            : String(e ?? 'unknown_error');
+        toolOutput = `Tool execution failed: ${detail}`;
+        console.warn('[agent] tool_error', call.name, detail);
+        emit('tool_error', { tool: call.name, error: detail });
       }
       const toolDurMs = Date.now() - toolT0;
       emit('tool_output', {
@@ -2716,6 +2721,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         status: execErr ? 'error' : 'ok',
         duration_ms: toolDurMs,
         rows: toolRows ?? null,
+        ...(execErr
+          ? {
+              error:
+                execErr && typeof execErr === 'object' && 'message' in execErr
+                  ? String(execErr.message || '').slice(0, 4000)
+                  : String(execErr || '').slice(0, 4000),
+            }
+          : {}),
       });
       if (agentToolLedger) {
         try {

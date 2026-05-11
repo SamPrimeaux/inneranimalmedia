@@ -265,12 +265,11 @@ function normalizeAssistantSseText(parsed: unknown): string {
 function isStreamErrorPayload(
   parsed: unknown
 ): parsed is { error: string; detail?: string; provider?: string; model?: string } {
-  return !!(
-    parsed &&
-    typeof parsed === 'object' &&
-    'error' in parsed &&
-    typeof (parsed as { error: unknown }).error === 'string'
-  );
+  if (!parsed || typeof parsed !== 'object') return false;
+  const p = parsed as { error?: unknown; type?: string };
+  // Tool SSE events use `error` for the message but must not abort the whole chat stream.
+  if (p.type === 'tool_error') return false;
+  return 'error' in p && typeof p.error === 'string';
 }
 
 /** Decode minimal XML entities inside `<parameter>` bodies from streamed tool XML. */
@@ -1728,6 +1727,37 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             if (
               data &&
               typeof data === 'object' &&
+              (data as { type?: string }).type === 'tool_error'
+            ) {
+              const d = data as { type?: string; tool?: string; error?: string };
+              const msg = String(d.error || 'tool_error').slice(0, 4000);
+              setExecPanel((p) =>
+                p
+                  ? {
+                      ...p,
+                      status: 'error',
+                      lines: [...p.lines, `[${d.tool || 'tool'}] ${msg}`],
+                    }
+                  : {
+                      tool_name: String(d.tool || 'tool'),
+                      status: 'error',
+                      lines: [msg],
+                      started: new Date().toLocaleTimeString(),
+                      is_sql: String(d.tool || '').includes('d1'),
+                    },
+              );
+              assistantStreamBuf += `\n\n_Tool error (${String(d.tool || 'tool')}):_ ${msg}\n`;
+              assistantContent = assistantStreamBuf;
+              setMessages((prev) => {
+                const last = [...prev];
+                last[last.length - 1] = { role: 'assistant', content: assistantContent };
+                return last;
+              });
+              continue;
+            }
+            if (
+              data &&
+              typeof data === 'object' &&
               (data as { type?: string }).type === 'tool_output' &&
               typeof (data as { chunk?: unknown }).chunk === 'string'
             ) {
@@ -1744,6 +1774,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 status?: string;
                 duration_ms?: number;
                 rows?: Record<string, unknown>[] | null;
+                error?: string;
               };
               setExecPanel((p) =>
                 p
@@ -1752,6 +1783,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                       status: d.status === 'error' ? 'error' : 'done',
                       duration_ms: d.duration_ms,
                       sql_rows: d.rows ?? undefined,
+                      lines:
+                        d.status === 'error' && d.error
+                          ? [...p.lines, String(d.error).slice(0, 4000)]
+                          : p.lines,
                     }
                   : p,
               );
