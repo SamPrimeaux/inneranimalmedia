@@ -1,6 +1,15 @@
 #!/usr/bin/env zsh
 # Full production deploy: ledger (Supabase), R2, Worker, optional reingest, codebase index, smoke eval.
 # Optional/required deploy env → DB tables: docs/DEPLOY_ENV_SUPABASE_MAPPING.md
+#
+# ── Fast paths (use most of the time; full pipeline only for releases) ─────────
+#   Worker only (~1 min):     npm run deploy
+#   Frontend + R2 + Worker:   npm run deploy:frontend   (runs Vite unless SKIP_VITE_BUILD=1)
+#   Everything below + ledger/eval/prune/smoke (~several min):  npm run deploy:full:safe
+#
+# ── Skips (content-hash vs last run, stored in .deploy-*-hash files; gitignored) ─
+#   Override reingest:        FORCE_SUPABASE_REINGEST=1 npm run deploy:full
+#   Override D1 memory:       FORCE_D1_MEMORY_INGEST=1 npm run deploy:full
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -65,21 +74,32 @@ BUILD_END_EPOCH=$(date +%s)
 BUILD_MS=$(( (BUILD_END_EPOCH - BUILD_START_EPOCH) * 1000 ))
 node -e "const fs=require('fs');const p='${REPO_ROOT}/.deploy-pipeline-stats.json';let o={};try{if(fs.existsSync(p))o=JSON.parse(fs.readFileSync(p,'utf8'));}catch(e){}o.build_ms=${BUILD_MS};fs.writeFileSync(p,JSON.stringify(o));"
 
-# Docs/context → Supabase documents (canonical writer — no ingest:docs duplicate here)
-if git diff HEAD~1 --name-only 2>/dev/null | grep -qE 'docs/route-map|docs/d1-agentic-schema|scripts/supabase-documents-selected-manifest\.json'; then
-  echo "[deploy-full] docs/context manifest paths changed — reingest Supabase documents"
+# Docs/context → Supabase documents (hash of docs/ + manifest — not git diff HEAD~1, which misfires when
+# docs ship in the same commit as unrelated code)
+DOCS_HASH_FILE="$REPO_ROOT/.deploy-supabase-docs-hash"
+DOCS_HASH=$(node "$REPO_ROOT/scripts/compute-deploy-input-hash.mjs" supabase-docs)
+LAST_DOCS_HASH=""
+[[ -f "$DOCS_HASH_FILE" ]] && LAST_DOCS_HASH="$(<"$DOCS_HASH_FILE")"
+if [[ "${FORCE_SUPABASE_REINGEST:-0}" == "1" ]] || [[ -z "$LAST_DOCS_HASH" ]] || [[ "$DOCS_HASH" != "$LAST_DOCS_HASH" ]]; then
+  echo "[deploy-full] Supabase document inputs changed (sha256) — reingest (was: git-diff HEAD~1; now content-hash)"
   export DEPLOY_PHASE=reingest_supabase_documents
   npm run reingest:supabase-documents:apply
+  echo "$DOCS_HASH" >"$DOCS_HASH_FILE"
 else
-  echo "[deploy-full] docs/context unchanged — skipping reingest:supabase-documents"
+  echo "[deploy-full] Supabase document inputs unchanged — skipping reingest:supabase-documents"
 fi
 
-if git diff HEAD~1 --name-only 2>/dev/null | grep -qE 'migrations/'; then
-  echo "[deploy-full] migrations found — running ingest:d1-memory"
+MIG_HASH_FILE="$REPO_ROOT/.deploy-migrations-hash"
+MIG_HASH=$(node "$REPO_ROOT/scripts/compute-deploy-input-hash.mjs" migrations)
+LAST_MIG_HASH=""
+[[ -f "$MIG_HASH_FILE" ]] && LAST_MIG_HASH="$(<"$MIG_HASH_FILE")"
+if [[ "${FORCE_D1_MEMORY_INGEST:-0}" == "1" ]] || [[ -z "$LAST_MIG_HASH" ]] || [[ "$MIG_HASH" != "$LAST_MIG_HASH" ]]; then
+  echo "[deploy-full] migrations tree changed (sha256) — ingest:d1-memory"
   export DEPLOY_PHASE=ingest_d1_memory
   npm run ingest:d1-memory
+  echo "$MIG_HASH" >"$MIG_HASH_FILE"
 else
-  echo "[deploy-full] no migrations — skipping ingest:d1-memory"
+  echo "[deploy-full] migrations unchanged — skipping ingest:d1-memory"
 fi
 
 export DEPLOY_PHASE=deploy_frontend

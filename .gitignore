@@ -54,6 +54,9 @@ analytics/deploys/
 .deploy-pipeline-stats.json
 .deploy-route-stats.json
 .deploy-codebase-index-stats.json
+# Deploy-full content-hash checkpoints (local / CI cache — skip redundant Supabase embed + D1 memory ingest)
+.deploy-supabase-docs-hash
+.deploy-migrations-hash
 
 # R2 asset URL dumps (local inventory exports)
 *-r2-asset-urls.txt
