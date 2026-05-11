@@ -5957,7 +5957,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401, { 'Cache-Control': 'no-store' });
     const workspaceId = String(url.searchParams.get('workspace_id') || '').trim();
     if (!workspaceId) {
-      return jsonResponse({ error: 'workspace_id_required' }, 400, { 'Cache-Control': 'no-store' });
+      return jsonResponse({ pending: [] }, 200, { 'Cache-Control': 'no-store' });
     }
     const runId = String(url.searchParams.get('run_id') || '').trim();
     if (!env.DB) {
