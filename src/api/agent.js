@@ -52,7 +52,7 @@ import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
-import { runBuiltinTool }                               from '../tools/ai-dispatch.js';
+import { runBuiltinTool, normalizeToolName } from '../tools/ai-dispatch.js';
 import {
   getDefaultModelForTask,
   scheduleRoutingArmBanditUpdate,
@@ -78,6 +78,25 @@ import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
+
+/** Builtin tools blocked from POST /api/agent/tool-smoke (mutations / prod blast radius). */
+const TOOL_SMOKE_DENYLIST = new Set([
+  'cdt_evaluate_script',
+  'cdt_upload_file',
+  'd1_write',
+  'd1_batch_write',
+  'worker_deploy',
+  'resend_send_broadcast',
+  'resend_create_api_key',
+  'meshyai_image_to_3d',
+  'meshyai_text_to_3d',
+  'agentsam_run_agent',
+  'python_execute',
+  'terminal_run',
+  'terminal_execute',
+  'run_command',
+  'bash',
+]);
 
 /** Registry ids in `agentsam_prompt_versions.id` — content always loaded from D1. */
 const AP_SYS = {
@@ -560,6 +579,102 @@ function capabilityFamiliesFromUserMessage(message, intentResult) {
 }
 
 /** D1 agentsam_tools-backed minimum bar + schema source of truth for agent chat. */
+
+function agentToolDebugEnabled(env) {
+  return String(env?.AGENTSAM_TOOL_DEBUG || env?.AGENT_TOOL_DEBUG || '').trim() === '1';
+}
+
+function agentToolNameOf(t) {
+  return String(t?.name || t?.tool_name || '').trim();
+}
+
+function agentToolCategoryOf(t) {
+  return String(t?.tool_category || t?.category || '').trim().toLowerCase();
+}
+
+function agentToolFamily(t) {
+  const n = agentToolNameOf(t).toLowerCase();
+  const c = agentToolCategoryOf(t);
+
+  if (n === 'd1_query' || n.startsWith('d1_') || c.includes('d1') || c.includes('database')) return 'd1';
+  if (n.startsWith('github_') || n === 'github_file' || c.includes('github')) return 'github';
+  if (n === 'terminal_run' || n === 'terminal_execute' || n === 'run_command' || n === 'bash' || c.includes('terminal')) return 'terminal';
+  if (n.startsWith('r2_') || c.includes('r2') || c.includes('storage')) return 'r2';
+  if (n.startsWith('browser_') || n.startsWith('cdt_') || n.startsWith('playwright_') || n === 'browser_content' || c.includes('browser')) return 'browser';
+  if (n.startsWith('agentsam_')) return 'agentsam';
+  if (n.startsWith('ai_')) return 'ai';
+  return 'general';
+}
+
+function requestedFamiliesForAgentTools(message, intentResult, capabilityDecision = null) {
+  const fams = new Set(capabilityFamiliesFromUserMessage(message, intentResult));
+  const d = capabilityDecision && typeof capabilityDecision === 'object' ? capabilityDecision : {};
+
+  if (d.should_use_d1) fams.add('d1');
+  if (d.should_use_github) fams.add('github');
+  if (d.should_use_terminal) fams.add('terminal');
+  if (d.should_use_browser) fams.add('browser');
+  if (d.should_use_artifact_r2) fams.add('r2');
+
+  return [...fams].filter(Boolean);
+}
+
+function filterAgentToolsForRequest(env, tools, message, intentResult, capabilityDecision = null) {
+  if (!Array.isArray(tools) || tools.length === 0) return [];
+
+  const families = requestedFamiliesForAgentTools(message, intentResult, capabilityDecision);
+  if (!families.length) return tools;
+
+  const wanted = new Set(families);
+  const m = String(message || '').toLowerCase();
+
+  const hardD1Ask =
+    /\bd1\b|agentsam_|hyperdrive|\bsql\b|query the (?:d1 )?database|from agentsam_|pragma|select\s+count/i.test(m) ||
+    String(intentResult?.taskType || '').toLowerCase().includes('sql');
+
+  let out = tools.filter((t) => {
+    const fam = agentToolFamily(t);
+    if (wanted.has(fam)) return true;
+
+    // Important: for explicit D1/database asks, do not let generic agentsam_* or ai_* tools steal the turn.
+    if (hardD1Ask) return false;
+
+    return fam === 'general';
+  });
+
+  if (hardD1Ask) {
+    const hasD1 = out.some((t) => agentToolNameOf(t) === 'd1_query');
+    const d1FromOriginal = tools.find((t) => agentToolNameOf(t) === 'd1_query');
+    if (!hasD1 && d1FromOriginal) out.unshift(d1FromOriginal);
+
+    out = out.filter((t) => agentToolNameOf(t) === 'd1_query' || agentToolFamily(t) === 'd1');
+
+    out.sort((a, b) => {
+      const an = agentToolNameOf(a);
+      const bn = agentToolNameOf(b);
+      if (an === 'd1_query') return -1;
+      if (bn === 'd1_query') return 1;
+      return an.localeCompare(bn);
+    });
+  }
+
+  if (!out.length) out = tools;
+
+  if (agentToolDebugEnabled(env)) {
+    console.log('[agent-tools] request_scope', JSON.stringify({
+      families,
+      hardD1Ask,
+      before_count: tools.length,
+      after_count: out.length,
+      before_tools: tools.map(agentToolNameOf).filter(Boolean).slice(0, 80),
+      after_tools: out.map(agentToolNameOf).filter(Boolean).slice(0, 80),
+    }));
+  }
+
+  return out;
+}
+
+
 const AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY = 'agent_chat_tool_session';
 const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
   'd1_query',
@@ -3566,6 +3681,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   if (requestedMode === 'agent' && env.DB) {
     tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools);
+
+    tools = filterAgentToolsForRequest(env, tools, message, intentResult).slice(0, effectiveMaxTools);
   }
 
   /** @type {Record<string, unknown>|null} */
@@ -3910,8 +4027,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   });
 
   if (capabilityDecision) {
-    emit('capability_selected', { decision: capabilityDecision });
-    emit('agent_capability_selected', { decision: capabilityDecision });
+      const capFamilies = requestedFamiliesForAgentTools(message, intentResult, capabilityDecision);
+      const beforeCapTools = tools.length;
+      tools = filterAgentToolsForRequest(env, tools, message, intentResult, capabilityDecision).slice(0, effectiveMaxTools);
+      if (agentToolDebugEnabled(env) || beforeCapTools !== tools.length) {
+        console.log('[agent-tools] capability_scope', JSON.stringify({
+          families: capFamilies,
+          before_count: beforeCapTools,
+          after_count: tools.length,
+          tools: tools.map(agentToolNameOf).filter(Boolean).slice(0, 80),
+        }));
+      }
+
+    emit('capability_selected', { decision: capabilityDecision, tool_families: capFamilies });
+    emit('agent_capability_selected', { decision: capabilityDecision, tool_families: capFamilies });
     const surf = String(capabilityDecision.default_surface || 'chat');
     if (surf === 'browser' && capabilityDecision.should_use_browser) {
       emit('surface_open', { surface: 'browser', reason: capabilityDecision.reason });
@@ -4567,6 +4696,86 @@ export async function handleAgentApi(request, url, env, ctx) {
     }
 
     return jsonResponse({ tools: deduped, total: deduped.length });
+  }
+
+  // POST /api/agent/tool-smoke — run builtin dispatcher without LLM (cheap wiring check)
+  if (path === '/api/agent/tool-smoke' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const rawTool = body.tool ?? body.tool_name ?? body.name;
+    const toolRaw = String(rawTool || '').trim();
+    if (!toolRaw) return jsonResponse({ error: 'tool required' }, 400);
+
+    const toolName = normalizeToolName(toolRaw);
+    if (TOOL_SMOKE_DENYLIST.has(toolName)) {
+      return jsonResponse(
+        { ok: false, tool: toolName, error: 'tool_blocked_for_smoke_endpoint', results: [] },
+        403,
+      );
+    }
+
+    if (body.dry_run === true) {
+      const payload = {
+        ok: true,
+        tool: toolName,
+        dry_run: true,
+        results: [],
+      };
+      if (toolRaw !== toolName) payload.normalized_from = toolRaw;
+      return jsonResponse(payload);
+    }
+
+    const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+    const sess = {
+      user_id: identity.userId,
+      workspace_id: identity.workspaceId,
+      workspaceId: identity.workspaceId,
+      tenant_id: identity.tenantId,
+      session_id: body.session_id ?? identity.sessionId ?? null,
+      person_uuid: actorCtx?.personUuid ?? identity.personUuid ?? null,
+      is_superadmin: !!identity.isSuperadmin,
+    };
+    const args = body.args && typeof body.args === 'object' ? body.args : {};
+    const params = {
+      ...args,
+      session: sess,
+      session_id: sess.session_id,
+      tenant_id: sess.tenant_id,
+      user_id: sess.user_id,
+      workspace_id: sess.workspace_id,
+      person_uuid: sess.person_uuid,
+      request,
+    };
+
+    try {
+      const raw = await runBuiltinTool(env, toolName, params);
+      if (raw && typeof raw === 'object' && raw.error) {
+        const errMsg = typeof raw.error === 'string' ? raw.error : JSON.stringify(raw.error);
+        return jsonResponse({
+          ok: false,
+          tool: toolName,
+          error: errMsg,
+          results: [],
+        });
+      }
+      let results = [];
+      if (Array.isArray(raw?.results)) {
+        results = raw.results;
+      } else if (raw != null && typeof raw === 'object') {
+        results = [raw];
+      } else if (raw != null) {
+        results = [raw];
+      }
+      return jsonResponse({ ok: true, tool: toolName, results });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return jsonResponse({ ok: false, tool: toolName, error: msg, results: [] }, 500);
+    }
   }
 
   // GET /api/agent/todo — multi-tenant agentsam_todo

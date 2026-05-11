@@ -21,11 +21,34 @@ import { python_execute } from './builtin/python.js';
 import { handlers as aiOpsHandlers } from './builtin/ai-ops.js';
 import { handlers as githubWorkerHandlers } from './builtin/github-worker.js';
 
+
+export function normalizeToolName(toolName) {
+    const n = String(toolName || '').trim();
+    const aliases = {
+        terminal_execute: 'terminal_run',
+        run_command: 'terminal_run',
+        bash: 'terminal_run',
+
+        github_file: 'github_get_file',
+        github_read: 'github_get_file',
+        github_repo: 'github_repos',
+        github_list_repos: 'github_repos',
+
+        // ai-ops.js registers ai_complete / ai_compare / ai_embed (not agentsam_*).
+        // Legacy or mistaken names route to the same handlers.
+        agentsam_complete: 'ai_complete',
+        agentsam_compare: 'ai_compare',
+        agentsam_embed: 'ai_embed',
+    };
+    return aliases[n] || n;
+}
+
 /**
  * Universal Tool Dispatcher (Omni-Sam v2.0).
  * Routes 100+ model-requested tools to their modular production handlers.
  */
 export async function runBuiltinTool(env, toolName, params) {
+    toolName = normalizeToolName(toolName);
     console.log(`[AI Dispatcher] Executing: ${toolName}`);
 
     // High-priority tools that normally require frontend approval gates
@@ -107,6 +130,21 @@ export async function runBuiltinTool(env, toolName, params) {
         case toolName.startsWith('telemetry_'):
             return await telemetryHandlers[toolName]?.(params, env);
 
+        // ── CATEGORY: intelligence / llm ops (Workers AI + embeddings) ───
+        case toolName.startsWith('ai_'):
+        case toolName === 'agentsam_complete':
+        case toolName === 'agentsam_compare':
+        case toolName === 'agentsam_embed': {
+            const key =
+                toolName.startsWith('ai_')
+                    ? toolName
+                    : { agentsam_complete: 'ai_complete', agentsam_compare: 'ai_compare', agentsam_embed: 'ai_embed' }[
+                          toolName
+                      ];
+            const out = key ? await aiOpsHandlers[key]?.(params, env) : undefined;
+            return out ?? { error: `Tool integration for '${toolName}' not found.` };
+        }
+
         // ── CATEGORY: agent (3 Tools) ────────────────────────────────────
         case toolName.startsWith('agentsam_'):
             return await agentHandlers[toolName]?.(params, env);
@@ -126,11 +164,6 @@ export async function runBuiltinTool(env, toolName, params) {
             return await anthropicCliHandlers[toolName]?.(params, env);
         case toolName.startsWith('anthropic_batch'):
             return await anthropicBatchHandlers[toolName]?.(params, env);
-
-        case toolName === 'ai_complete':
-        case toolName === 'ai_compare':
-        case toolName === 'ai_embed':
-            return await aiOpsHandlers[toolName]?.(params, env);
 
         default:
             return { error: `Tool integration for '${toolName}' not found.` };
