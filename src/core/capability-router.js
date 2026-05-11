@@ -17,6 +17,7 @@ const DEFAULT_DECISION = {
   should_use_artifact_r2: false,
   should_use_d1: false,
   should_use_terminal: false,
+  should_use_github: false,
   risk_level: 'low',
   approval_required: false,
   reason: 'default',
@@ -39,6 +40,7 @@ function heuristicDecision(message, browserContext) {
     );
   const artifactCue = /\b(publish|artifact|r2|upload|deploy asset|register the artifact|store in library)\b/i.test(m);
   const d1Cue = /\b(d1|hyperdrive|query the db|agentsam_|workflow_runs|select from)\b/i.test(m);
+  const githubCue = /\bgithub\b|github\.com\/|pull request|\.git\b/i.test(m);
   const terminalCue = /\b(run tests|wrangler|npm run|curl |deploy|execute script|terminal)\b/i.test(m);
 
   /** @type {string[]} */
@@ -50,6 +52,7 @@ function heuristicDecision(message, browserContext) {
   if (monacoCue) required.push('monaco');
   if (artifactCue) required.push('artifact');
   if (d1Cue) required.push('d1');
+  if (githubCue) required.push('github');
   if (terminalCue) optional.push('terminal');
 
   let default_surface = 'chat';
@@ -67,6 +70,7 @@ function heuristicDecision(message, browserContext) {
     should_use_monaco: monacoCue,
     should_use_artifact_r2: artifactCue,
     should_use_d1: d1Cue,
+    should_use_github: githubCue,
     should_use_terminal: terminalCue,
     risk_level: terminalCue || artifactCue ? 'medium' : 'low',
     approval_required: terminalCue || artifactCue,
@@ -111,6 +115,7 @@ function normalizeDecision(raw) {
     should_use_monaco: !!raw.should_use_monaco,
     should_use_artifact_r2: !!raw.should_use_artifact_r2,
     should_use_d1: !!raw.should_use_d1,
+    should_use_github: !!raw.should_use_github,
     should_use_terminal: !!raw.should_use_terminal,
     risk_level: String(raw.risk_level || 'low').slice(0, 16),
     approval_required: !!raw.approval_required,
@@ -144,11 +149,12 @@ Rules:
 - should_use_monaco true for code/file edits, refactors, new files.
 - should_use_artifact_r2 true for publishing/storing generated sites, assets, bundles.
 - should_use_d1 true for SQL/schema/workflow run data inspection.
+- should_use_github true for repo file edits, PRs, GitHub API tasks.
 - should_use_terminal true for run/build/test/deploy/script execution (often approval).
 - default_surface is one of: chat, browser, monaco, excalidraw (primary UI focus).
 - Never set should_use_browser true for pure conceptual questions with no page/URL/visual angle.
 Output shape:
-{"intent":"slug","needs_capabilities":[],"optional_capabilities":[],"default_surface":"chat","should_use_browser":false,"should_use_excalidraw":false,"should_use_monaco":false,"should_use_artifact_r2":false,"should_use_d1":false,"should_use_terminal":false,"risk_level":"low|medium|high|critical","approval_required":false,"reason":"short"}`;
+{"intent":"slug","needs_capabilities":[],"optional_capabilities":[],"default_surface":"chat","should_use_browser":false,"should_use_excalidraw":false,"should_use_monaco":false,"should_use_artifact_r2":false,"should_use_d1":false,"should_use_github":false,"should_use_terminal":false,"risk_level":"low|medium|high|critical","approval_required":false,"reason":"short"}`;
 
   const user = JSON.stringify(
     {
@@ -208,6 +214,7 @@ export function capabilityRouterPromptBlock(decision) {
     '- Excalidraw: when should_use_excalidraw is true, describe diagram structure; workspace may sync canvas via collab/excalidraw tools when registered.',
     '- Artifacts/R2: when should_use_artifact_r2 is true, use existing r2/artifact tools and register rows when appropriate.',
     '- D1: when should_use_d1 is true, prefer read-only D1/query tools unless user explicitly requests writes (approval).',
+    '- GitHub: when should_use_github is true, use github_* tools (OAuth-linked account required).',
     '- Terminal/scripts: when should_use_terminal is true, use terminal/script tools and honor approval gates.',
     '',
     JSON.stringify(d, null, 2),

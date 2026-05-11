@@ -103,4 +103,68 @@ export const handlers = {
       return { error: `D1 Batch Write Failed: ${e.message}` };
     }
   },
+
+  /**
+   * EXPLAIN QUERY PLAN for a read-only SELECT / WITH (same gate as d1_query).
+   */
+  async d1_explain({ sql, tenant_id, user_id, workspace_id, session_id }, env) {
+    if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
+    if (!sql) return { error: 'SQL query required' };
+    if (
+      user_id &&
+      (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')
+    ) {
+      return { error: 'WORKSPACE_CONTEXT_MISSING' };
+    }
+    const gate = assertD1ReadOnlySelect(sql);
+    if (!gate.ok) {
+      await logPolicyBlock(env, {
+        sql,
+        error: gate.error || 'policy_block',
+        tenant_id: tenant_id ?? null,
+        user_id: user_id ?? null,
+        workspace_id: workspace_id ?? null,
+        session_id: session_id ?? null,
+      });
+      return { error: `${gate.error} EXPLAIN is read-only.` };
+    }
+    const explainSql = `EXPLAIN QUERY PLAN ${sql}`;
+    try {
+      const res = await env.DB.prepare(explainSql).all();
+      return { success: true, results: res?.results || [], meta: {} };
+    } catch (e) {
+      return { error: `d1_explain failed: ${e.message}` };
+    }
+  },
+
+  /**
+   * List tables/views or PRAGMA table_info for one validated identifier.
+   */
+  async d1_schema_introspect({ table, tenant_id, user_id, workspace_id, session_id }, env) {
+    if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
+    if (
+      user_id &&
+      (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')
+    ) {
+      return { error: 'WORKSPACE_CONTEXT_MISSING' };
+    }
+    const tbl = table != null ? String(table).trim() : '';
+    try {
+      if (tbl) {
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tbl)) {
+          return { error: 'Invalid table name (use letters, digits, underscore).' };
+        }
+        const res = await env.DB.prepare(`PRAGMA table_info(${tbl})`).all();
+        return { success: true, table: tbl, columns: res?.results || [] };
+      }
+      const res = await env.DB.prepare(
+        `SELECT name, type, sql FROM sqlite_master
+         WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%'
+         ORDER BY name ASC LIMIT 500`,
+      ).all();
+      return { success: true, objects: res?.results || [] };
+    } catch (e) {
+      return { error: `d1_schema_introspect failed: ${e.message}` };
+    }
+  },
 };

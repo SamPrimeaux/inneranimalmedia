@@ -20,10 +20,6 @@ async function invokeExternalApi(env, endpoint, method = 'POST', body = null) {
 }
 
 export const handlers = {
-    // ── GitHub (Source Control) ───────────────────────────────────────────
-    async github_repos(params, env) { return await invokeExternalApi(env, '/api/github/repos', 'GET'); },
-    async github_file(params, env) { return await invokeExternalApi(env, '/api/github/file', 'POST', params); },
-
     // ── Resend (Email Intelligence) ───────────────────────────────────────
     async resend_send_email(params, env) { return await sendEmail(env, params); },
     async resend_send_and_wait(params, env, ctx, session) { 

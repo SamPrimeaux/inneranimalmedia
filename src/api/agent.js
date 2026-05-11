@@ -70,6 +70,11 @@ import {
 } from './command-run-telemetry.js';
 import { resolveCanonicalUserId } from './auth.js';
 import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
+import {
+  classifyWorkspaceCapabilities,
+  capabilityRouterPromptBlock,
+} from '../core/capability-router.js';
+import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter.js';
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
@@ -1029,7 +1034,12 @@ function resolveToolExecutionBudgetMs(toolName, input) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 20000) return Math.floor(rawTimeout);
     return 20000;
   }
-  if (n === 'd1_query' || (n.startsWith('d1_') && n.includes('query'))) {
+  if (
+    n === 'd1_query' ||
+    n === 'd1_explain' ||
+    n === 'd1_schema_introspect' ||
+    (n.startsWith('d1_') && n.includes('query'))
+  ) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout <= 10000) return Math.floor(rawTimeout);
     return 10000;
   }
@@ -3440,6 +3450,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   kickoffModelTierMigration(env, ctx);
 
   const gate = await gateRewriteAndClassify(env, modeConfig, message, tenantId);
+
+  /** @type {Record<string, unknown>|null} */
+  let browserContextPayload = null;
+  try {
+    const bc = body.browserContext ?? body.browser_context;
+    if (typeof bc === 'string' && bc.trim()) browserContextPayload = parseJsonSafe(bc.trim(), null);
+    else if (bc && typeof bc === 'object') browserContextPayload = bc;
+  } catch (_) {
+    browserContextPayload = null;
+  }
+
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentResult = await classifyIntent(env, message);
   if (requestedMode === 'agent' && (!intentResult || typeof intentResult !== 'object')) {
@@ -3545,6 +3566,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   if (requestedMode === 'agent' && env.DB) {
     tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools);
+  }
+
+  /** @type {Record<string, unknown>|null} */
+  let capabilityDecision = null;
+  if (requestedMode === 'agent' && !ingestBypass) {
+    try {
+      capabilityDecision = await classifyWorkspaceCapabilities(env, {
+        message: gate.rewritten_query || message,
+        browserContext: browserContextPayload,
+        userId,
+        tenantId,
+      });
+      tools = await filterToolsForCapabilityDecision(env, tools, capabilityDecision, gate.rewritten_query || message, {
+        requestedMode,
+      });
+    } catch (e) {
+      console.warn('[agent] capability_tool_filter', e?.message ?? e);
+    }
   }
 
   const confidence = Number(gate.confidence || 0);
@@ -3847,33 +3886,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     console.warn('[agent] skills/rules prompt enrich', e?.message ?? e);
   }
 
-  /** @type {Record<string, unknown>|null} */
-  let browserContextPayload = null;
-  try {
-    const bc = body.browserContext ?? body.browser_context;
-    if (typeof bc === 'string' && bc.trim()) browserContextPayload = parseJsonSafe(bc.trim(), null);
-    else if (bc && typeof bc === 'object') browserContextPayload = bc;
-  } catch (_) {
-    browserContextPayload = null;
-  }
-
-  /** @type {Record<string, unknown>|null} */
-  let capabilityDecision = null;
-  if (requestedMode === 'agent' && !ingestBypass) {
-    try {
-      const { classifyWorkspaceCapabilities, capabilityRouterPromptBlock } = await import('../core/capability-router.js');
-      capabilityDecision = await classifyWorkspaceCapabilities(env, {
-        message: gate.rewritten_query || message,
-        browserContext: browserContextPayload,
-        userId,
-        tenantId,
-      });
-      if (capabilityDecision) {
-        systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
-      }
-    } catch (e) {
-      console.warn('[agent] capability_router', e?.message ?? e);
-    }
+  if (capabilityDecision) {
+    systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
   }
 
   const encoder = new TextEncoder();

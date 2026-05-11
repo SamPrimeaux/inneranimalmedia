@@ -18,6 +18,8 @@ import { handlers as anthropicBatchHandlers } from './builtin/anthropic-batch.js
 import { imessageTools } from './builtin/imessage.js';
 import { getComputerUseTools, specializedSchemas } from './builtin/computer-use.js';
 import { python_execute } from './builtin/python.js';
+import { handlers as aiOpsHandlers } from './builtin/ai-ops.js';
+import { handlers as githubWorkerHandlers } from './builtin/github-worker.js';
 
 /**
  * Universal Tool Dispatcher (Omni-Sam v2.0).
@@ -79,11 +81,13 @@ export async function runBuiltinTool(env, toolName, params) {
             return await workflowHandlers[toolName]?.(params, env);
 
         // ── CATEGORY: email / imessage / integrations / conversion (18 Tools) ──
+        case toolName.startsWith('github_'):
+            return await githubWorkerHandlers[toolName]?.(params, env);
+
         case toolName.startsWith('resend_'):
         case toolName.startsWith('imessage.'):
         case toolName.startsWith('cf_images_'):
         case toolName.startsWith('gdrive_'):
-        case toolName.startsWith('github_'):
         case toolName.startsWith('cloudconvert_'):
             return await integrationsHandlers[toolName]?.(params, env) || await imessageTools[toolName]?.({ env, session: params.session }, params);
 
@@ -122,6 +126,11 @@ export async function runBuiltinTool(env, toolName, params) {
             return await anthropicCliHandlers[toolName]?.(params, env);
         case toolName.startsWith('anthropic_batch'):
             return await anthropicBatchHandlers[toolName]?.(params, env);
+
+        case toolName === 'ai_complete':
+        case toolName === 'ai_compare':
+        case toolName === 'ai_embed':
+            return await aiOpsHandlers[toolName]?.(params, env);
 
         default:
             return { error: `Tool integration for '${toolName}' not found.` };
