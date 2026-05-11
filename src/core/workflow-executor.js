@@ -79,13 +79,21 @@ function normalizeTriggerType(raw) {
 async function dispatchNode(env, node, input, runContext) {
   const { node_type: nodeType, handler_key: handlerKey } = node;
   const smoke = Boolean(input?.smoke);
+  const hk = String(handlerKey || '').trim();
+
+  if (hk) {
+    try {
+      const stepMod = await import('./agent-step.js');
+      if (stepMod.isRegisteredAgentStepHandler?.(hk)) {
+        return stepMod.agentChatStep(env, { handler_key: hk, input, runContext, node, smoke });
+      }
+    } catch (e) {
+      console.warn('[workflow-graph] agent-step', e?.message ?? e);
+    }
+  }
 
   switch (nodeType) {
     case 'agent': {
-      const { agentChatStep } = await import('./agent-step.js').catch(() => ({ agentChatStep: null }));
-      if (agentChatStep) {
-        return agentChatStep(env, { handler_key: handlerKey, input, runContext });
-      }
       const prompt = JSON.stringify(input);
       return { ok: true, output: { result: prompt, note: 'agent_stub' } };
     }
@@ -478,6 +486,9 @@ export async function executeWorkflowGraph(env, opts) {
     userId,
     userEmail,
     triggerType: triggerTypeRaw,
+    toolBridge = null,
+    onStep = null,
+    onRunCreated = null,
   } = opts;
 
   if (!env.DB) return { ok: false, error: 'DB not available' };
@@ -562,6 +573,13 @@ export async function executeWorkflowGraph(env, opts) {
     )
     .run();
 
+  const runStartedAt = Date.now();
+  try {
+    onRunCreated?.(runId, { steps_total: nodes.length });
+  } catch (_) {
+    /* non-fatal */
+  }
+
   const canonicalUserId = await resolveCanonicalUserId(userId, env);
   const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
   const execCols = await pragmaTableInfo(env.DB, 'agentsam_executions');
@@ -587,6 +605,8 @@ export async function executeWorkflowGraph(env, opts) {
     workflowRunId: runId,
     canonicalUserId,
     workflowExecId,
+    toolBridge,
+    workflowKey,
   };
   const stepResults = [];
   let currentNodeKey = firstKey;
@@ -688,6 +708,23 @@ export async function executeWorkflowGraph(env, opts) {
       .run()
       .catch(() => null);
 
+    try {
+      onStep?.({
+        run_id: runId,
+        workflow_key: workflowKey,
+        node_key: currentNodeKey,
+        current_node_key: currentNodeKey,
+        steps_completed: stepsCompleted,
+        steps_total: nodes.length,
+        input_tokens: totalInputTokens,
+        output_tokens: totalOutputTokens,
+        cost_usd: totalCostUsd,
+        ok: nodeOutput.ok,
+      });
+    } catch (_) {
+      /* ignore stream errors */
+    }
+
     if (!nodeOutput.ok) {
       runOk = false;
       killReason = nodeOutput.error || 'node_failed';
@@ -741,9 +778,12 @@ export async function executeWorkflowGraph(env, opts) {
   // 6. Finalize run row
   const finalStatus = runOk ? 'completed' : 'failed';
   const lastOutput = stepResults[stepResults.length - 1]?.output ?? {};
+  const runDurationMs = Math.max(0, Date.now() - runStartedAt);
 
   const killClause = killReason ? 'kill_reason = ?,' : '';
   const killBinds = killReason ? [killReason] : [];
+  const errClause = !runOk && killReason ? 'error_message = ?,' : '';
+  const errBinds = !runOk && killReason ? [String(killReason).slice(0, 4000)] : [];
 
   await env.DB
     .prepare(
@@ -756,8 +796,10 @@ export async function executeWorkflowGraph(env, opts) {
       output_tokens     = ?,
       cost_usd          = ?,
       model_used        = ?,
+      duration_ms       = ?,
       completed_at      = unixepoch(),
       ${killClause}
+      ${errClause}
       updated_at        = datetime('now')
     WHERE id = ?`,
     )
@@ -770,7 +812,9 @@ export async function executeWorkflowGraph(env, opts) {
       totalOutputTokens,
       totalCostUsd,
       lastModelUsed,
+      runDurationMs,
       ...killBinds,
+      ...errBinds,
       runId,
     )
     .run()
@@ -788,7 +832,15 @@ export async function executeWorkflowGraph(env, opts) {
 
 // ── SSE streaming wrapper ────────────────────────────────────────────
 
-export async function executeWorkflowAndStream(env, workflowKey, message, authUser, workspaceId, controller) {
+export async function executeWorkflowAndStream(
+  env,
+  workflowKey,
+  inputOrMessage,
+  authUser,
+  workspaceId,
+  controller,
+  streamOpts = {},
+) {
   const encoder = new TextEncoder();
   const send = (data) => {
     try {
@@ -798,15 +850,35 @@ export async function executeWorkflowAndStream(env, workflowKey, message, authUs
     }
   };
 
-  send({ type: 'workflow_start', workflow_key: workflowKey, message });
+  const input =
+    typeof inputOrMessage === 'string'
+      ? { message: inputOrMessage }
+      : inputOrMessage && typeof inputOrMessage === 'object'
+        ? inputOrMessage
+        : { message: String(inputOrMessage || '') };
+
+  const { toolBridge: streamToolBridge } = streamOpts;
+  const mergedBridge =
+    streamToolBridge && typeof streamToolBridge === 'object'
+      ? { ...streamToolBridge, emitSse: send }
+      : { emitSse: send };
 
   const result = await executeWorkflowGraph(env, {
     workflowKey,
-    input: { message },
+    input,
     tenantId: authUser?.tenant_id ?? null,
     workspaceId,
     userId: authUser?.id ?? null,
     userEmail: authUser?.email ?? null,
+    toolBridge: mergedBridge,
+    onRunCreated: (runId, meta) =>
+      send({
+        type: 'workflow_start',
+        workflow_key: workflowKey,
+        run_id: runId,
+        steps_total: meta?.steps_total ?? null,
+      }),
+    onStep: (evt) => send({ type: 'workflow_step', ...evt }),
   }).catch((e) => ({
     ok: false,
     status: 'error',
@@ -814,10 +886,6 @@ export async function executeWorkflowAndStream(env, workflowKey, message, authUs
     step_results: [],
     kill_reason: e?.message || String(e),
   }));
-
-  for (const step of result.step_results || []) {
-    send({ type: 'workflow_step', ...step });
-  }
 
   if (result.status === 'awaiting_approval') {
     send({
