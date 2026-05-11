@@ -4902,6 +4902,34 @@ export async function handleAgentApi(request, url, env, ctx) {
     return handleAgentMemorySync(request, env);
   }
 
+  // ── /api/agent/alignment-sync — D1 workflow run + Supabase mirror (+ agentsam_memory) ──
+  if (path === '/api/agent/alignment-sync' && method === 'POST') {
+    if (!identity?.userId || !identity?.tenantId || !identity?.workspaceId) {
+      return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+    }
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const { recordAlignmentSnapshot } = await import('../core/alignment-sync.js');
+    const out = await recordAlignmentSnapshot(env, ctx, {
+      tenantId: identity.tenantId,
+      workspaceId: identity.workspaceId,
+      userId: identity.userId,
+      sessionId: body.session_id ?? body.sessionId ?? null,
+      todoId: body.todo_id ?? body.todoId ?? null,
+      planTaskId: body.plan_task_id ?? body.planTaskId ?? null,
+      planId: body.plan_id ?? body.planId ?? null,
+      summary: body.summary != null ? String(body.summary) : '',
+      filesChanged: Array.isArray(body.files_changed)
+        ? body.files_changed
+        : Array.isArray(body.filesChanged)
+          ? body.filesChanged
+          : [],
+      memory: body.memory !== false,
+    });
+    if (!out.ok) return jsonResponse(out, 400);
+    return jsonResponse(out);
+  }
+
   // ── /api/agent/db/tables ──────────────────────────────────────────────────
   if (path === '/api/agent/db/tables' && method === 'GET') {
     const authUser = await getAuthUser(request, env);
