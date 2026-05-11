@@ -705,6 +705,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [input, setInput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  /** After SSE `done`, ignore duplicate terminal events for this request. */
+  const streamFinalizedRef = useRef(false);
   const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1359,6 +1361,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
+    streamFinalizedRef.current = false;
     const signal = abortControllerRef.current.signal;
 
     if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) return;
@@ -1541,6 +1544,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               continue;
             }
             if (signal.aborted) break sseLoop;
+
+            const evType = (data as { type?: string }).type;
+            if (evType === 'done') {
+              if (!streamFinalizedRef.current) {
+                streamFinalizedRef.current = true;
+                setIsLoading(false);
+              }
+              continue;
+            }
+            if (streamFinalizedRef.current && evType === 'error') {
+              continue;
+            }
+
             if (data && typeof data === 'object' && Array.isArray((data as { choices?: unknown }).choices)) {
               const ch0 = (data as { choices: Array<{ delta?: { content?: string | null; reasoning_content?: unknown } }> })
                 .choices[0];
@@ -1555,6 +1571,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               continue;
             }
             if (isStreamErrorPayload(data)) {
+              streamFinalizedRef.current = true;
               const partsErr = [data.error, data.detail, data.provider, data.model].filter(Boolean);
               throw new Error(partsErr.join(' — '));
             }
@@ -1869,6 +1886,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         });
       } else {
         console.error('Chat request failed:', error);
+        streamFinalizedRef.current = true;
         const msg = error instanceof Error ? error.message : String(error);
         setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
       }
@@ -1944,6 +1962,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               <pre className="text-[0.6875rem] font-mono text-[var(--solar-green)] bg-[var(--bg-code-pre)] rounded-lg p-3 overflow-x-auto overflow-y-hidden whitespace-pre border border-[var(--dashboard-border)] max-w-full min-w-0">
                 {code}
               </pre>
+              <p className="text-[0.625rem] text-[var(--dashboard-muted)] mt-2 mb-0">
+                Stop with Ctrl+C when you have enough logs.
+              </p>
               <div className="flex gap-2 mt-2">
                 <button
                   type="button"
