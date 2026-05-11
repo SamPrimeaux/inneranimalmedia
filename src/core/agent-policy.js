@@ -36,6 +36,15 @@ export const BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST = new Set([
   'rag_search',
 ]);
 
+/** Minimum /dashboard/agent chat tool bar (also allowed when strict MCP allowlist is on). */
+export const AGENT_CHAT_ESSENTIAL_TOOL_KEYS = new Set([
+  'd1_query',
+  'github_file',
+  'terminal_run',
+  'r2_read',
+  'r2_write',
+]);
+
 export const DEFAULT_USER_POLICY = {
   auto_run_mode: 'allowlist',
   mcp_tools_protection: 1,
@@ -254,7 +263,7 @@ export function logMcpPolicyDenial(toolKey, scope, pathTried, reason) {
  * @param {string} toolName
  * @param {object|null} mcpRow
  */
-export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcpRow) {
+export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcpRow, opts = {}) {
   if (!policy || Number(policy.require_allowlist_for_mcp || 0) !== 1) {
     return { allowed: true, reason: null, path: null };
   }
@@ -263,6 +272,10 @@ export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcp
 
   if (BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST.has(name)) {
     return { allowed: true, reason: 'baseline_builtin', path: 'baseline_builtin' };
+  }
+
+  if (opts.agentMode && AGENT_CHAT_ESSENTIAL_TOOL_KEYS.has(name)) {
+    return { allowed: true, reason: 'agent_chat_essential', path: 'agent_chat_essential' };
   }
 
   const ws = trimId(scope?.workspaceId);

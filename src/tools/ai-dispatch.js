@@ -108,6 +108,7 @@ export async function runBuiltinTool(env, toolName, params) {
             return await agentHandlers[toolName]?.(params, env);
 
         // ── CATEGORY: terminal / execution (3 Tools) ──────────────────────
+        case toolName === 'terminal_run':
         case toolName === 'terminal_execute':
         case toolName === 'run_command':
         case toolName === 'bash':

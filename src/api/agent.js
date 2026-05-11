@@ -12,7 +12,10 @@
  *  - Tool execution delegated to src/tools/ai-dispatch.js
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
-import { dispatchStream, OLLAMA_SKIP_MESSAGE }         from '../core/provider.js';
+import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/provider.js';
+import { loadAvailableToolsForCapability } from '../core/tool-registry.js';
+import { resolveWorkspaceCapabilityShellWorkflowId } from '../core/workspace-capability-actions/index.js';
+import { syncWorkflowRunToSupabase } from '../core/agentsam-supabase-sync.js';
 import { unifiedRagSearch, handleAgentMemorySync }      from './rag.js';
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
@@ -70,7 +73,7 @@ import { resolveCanonicalUserId } from './auth.js';
 import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
-const TERM_WRITE_TOOLS = new Set(['terminal_execute', 'run_command', 'bash']);
+const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
 
 /** Registry ids in `agentsam_prompt_versions.id` — content always loaded from D1. */
 const AP_SYS = {
@@ -530,6 +533,264 @@ async function classifyIntent(_env, lastMessageText) {
   return { intent: legacyMap[taskType] ?? 'question', taskType, mode };
 }
 
+/** Heuristic capability families for merging registry tools before routing (runs before nano capability router). */
+function capabilityFamiliesFromUserMessage(message, intentResult) {
+  const m = String(message || '').toLowerCase();
+  const fams = [];
+  const tt = String(intentResult?.taskType || '').toLowerCase();
+  if (
+    /\bd1\b|agentsam_|hyperdrive|\bsql\b|query the (?:d1 )?database|from agentsam_/i.test(m) ||
+    tt.includes('sql')
+  ) {
+    fams.push('d1');
+  }
+  if (/\bgithub\b|github\.com\/|raw\.githubusercontent/i.test(m)) fams.push('github');
+  if (/\bterminal\b|run_command|\brun ls\b|\bwrangler\b|\bnpm run\b|\bbash\b/i.test(m) || tt.includes('shell')) {
+    fams.push('terminal');
+  }
+  if (/\b(browser|screenshot|inspect).*\bhttps?:\/\//i.test(m) || /\bhttps?:\/\/\S+.*\b(inspect|screenshot)\b/i.test(m)) {
+    fams.push('browser');
+  }
+  return [...new Set(fams)];
+}
+
+/** D1 agentsam_tools-backed minimum bar + schema source of truth for agent chat. */
+const AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY = 'agent_chat_tool_session';
+const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
+  'd1_query',
+  'github_file',
+  'terminal_run',
+  'r2_read',
+  'r2_write',
+];
+const TOOL_OUTPUT_SSE_MAX = 12000;
+
+function inputSchemaFromAgentsamToolRow(row) {
+  const parsed = parseJsonSafe(row?.input_schema, null);
+  if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+    const o = { ...parsed };
+    if (!o.type) o.type = 'object';
+    return o;
+  }
+  const hc = parseJsonSafe(row?.handler_config, null);
+  if (hc && typeof hc === 'object') {
+    if (hc.parameters && typeof hc.parameters === 'object') {
+      const o = { ...hc.parameters };
+      if (!o.type) o.type = 'object';
+      return o;
+    }
+    if (hc.input_schema && typeof hc.input_schema === 'object') {
+      const o = { ...hc.input_schema };
+      if (!o.type) o.type = 'object';
+      return o;
+    }
+  }
+  return { type: 'object', properties: {} };
+}
+
+async function fetchAgentsamToolRowsByName(env, names) {
+  if (!env?.DB || !names.length) return [];
+  const placeholders = names.map(() => '?').join(',');
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT tool_name, description, input_schema, handler_config, tool_category, requires_approval
+       FROM agentsam_tools
+       WHERE COALESCE(is_active, 1) = 1 AND tool_name IN (${placeholders})`,
+    )
+      .bind(...names)
+      .all();
+    return results || [];
+  } catch (e) {
+    console.warn('[agent] fetchAgentsamToolRowsByName', e?.message ?? e);
+    return [];
+  }
+}
+
+async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTools) {
+  if (String(mode || '').toLowerCase() !== 'agent' || !env?.DB) return tools;
+  const nameSet = new Set(tools.map((t) => String(t.name)));
+  const fetchNames = [...new Set([...nameSet, ...AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS])];
+  const rows = await fetchAgentsamToolRowsByName(env, fetchNames);
+  const byName = Object.fromEntries(rows.map((r) => [String(r.tool_name), r]));
+
+  const out = [];
+  for (const t of tools) {
+    const row = byName[t.name];
+    if (row) {
+      out.push({
+        ...t,
+        description: String(row.description || t.description || t.name).slice(0, 4000),
+        input_schema: inputSchemaFromAgentsamToolRow(row),
+      });
+    } else {
+      out.push(t);
+    }
+  }
+  const seen = new Set(out.map((x) => x.name));
+  for (const req of AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS) {
+    if (seen.has(req)) continue;
+    if (out.length >= effectiveMaxTools) break;
+    const row = byName[req];
+    if (!row) continue;
+    seen.add(req);
+    out.push({
+      name: req,
+      description: String(row.description || req).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'builtin'),
+      requires_approval: Number(row.requires_approval || 0) === 1,
+    });
+  }
+  return out;
+}
+
+async function pragmaAgentsamWorkflowRunColumnSet(db) {
+  try {
+    const { results } = await db.prepare(`PRAGMA table_info(agentsam_workflow_runs)`).all();
+    return new Set((results || []).map((r) => String(r.name || '').toLowerCase()));
+  } catch {
+    return new Set();
+  }
+}
+
+async function createAgentChatToolLedgerRun(env, p) {
+  const { tenantId, workspaceId, userId, sessionId, modelKey, stepsTotal } = p;
+  const wfId = await resolveWorkspaceCapabilityShellWorkflowId(env);
+  if (!wfId || !tenantId || !workspaceId) return null;
+  const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const cols = await pragmaAgentsamWorkflowRunColumnSet(env.DB);
+  const hbFrag = cols.has('heartbeat_at') ? ', heartbeat_at' : '';
+  const hbVal = cols.has('heartbeat_at') ? ', unixepoch()' : '';
+  const startedSec = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `INSERT INTO agentsam_workflow_runs (
+      id, workflow_id, workflow_key, display_name, tenant_id, workspace_id,
+      user_id, session_id, trigger_type, status,
+      input_json, output_json, step_results_json, steps_total, steps_completed,
+      input_tokens, output_tokens, cost_usd, supabase_sync_status,
+      model_used, started_at, created_at, updated_at
+      ${hbFrag}
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, 'agent', 'running',
+      ?, '{}', '[]', ?, 0,
+      0, 0, 0, 'pending',
+      ?, unixepoch(), datetime('now'), datetime('now')
+      ${hbVal}
+    )`,
+  )
+    .bind(
+      runId,
+      wfId,
+      AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY,
+      'Agent chat · tool session',
+      String(tenantId).trim(),
+      String(workspaceId).trim(),
+      userId != null ? String(userId) : null,
+      sessionId != null ? String(sessionId) : null,
+      JSON.stringify({ model_key: modelKey, session_id: sessionId }),
+      Math.max(1, Number(stepsTotal) || 1),
+      modelKey != null ? String(modelKey) : null,
+    )
+    .run();
+  return {
+    runId,
+    workflowId: wfId,
+    steps: [],
+    startedAt: Date.now(),
+    startedSec,
+    stepsTotal: Math.max(1, Number(stepsTotal) || 1),
+    hasHeartbeat: cols.has('heartbeat_at'),
+    tenantId: String(tenantId).trim(),
+    workspaceId: String(workspaceId).trim(),
+  };
+}
+
+async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
+  if (!ledger?.runId || !env?.DB) return;
+  ledger.steps.push(stepEntry);
+  const stepJson = JSON.stringify(ledger.steps);
+  const outSummary = {
+    last_tool: stepEntry.tool_name,
+    last_ok: stepEntry.ok,
+    steps_completed: ledger.steps.length,
+  };
+  let sql = `UPDATE agentsam_workflow_runs SET
+    step_results_json = ?,
+    steps_completed = ?,
+    output_json = ?,
+    updated_at = datetime('now')`;
+  const binds = [stepJson, ledger.steps.length, JSON.stringify(outSummary)];
+  if (ledger.hasHeartbeat) {
+    sql += ', heartbeat_at = unixepoch()';
+  }
+  sql += ' WHERE id = ?';
+  binds.push(ledger.runId);
+  await env.DB.prepare(sql).bind(...binds).run();
+  emit('workflow_step', {
+    run_id: ledger.runId,
+    node_key: stepEntry.tool_name,
+    current_node_key: stepEntry.tool_name,
+    steps_completed: ledger.steps.length,
+    steps_total: ledger.stepsTotal,
+    ok: stepEntry.ok,
+    output_preview: String(stepEntry.output_preview || '').slice(0, 4000),
+  });
+}
+
+async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMessage }) {
+  if (!ledger?.runId || !env?.DB) return;
+  const duration = Math.max(0, Date.now() - ledger.startedAt);
+  const err = ok ? null : String(errorMessage || 'agent_tool_session_failed').slice(0, 4000);
+  let sql = `UPDATE agentsam_workflow_runs SET
+    status = ?,
+    duration_ms = ?,
+    completed_at = unixepoch(),
+    error_message = ?,
+    updated_at = datetime('now')`;
+  const binds = [ok ? 'completed' : 'failed', duration, err];
+  if (ledger.hasHeartbeat) {
+    sql += ', heartbeat_at = unixepoch()';
+  }
+  sql += ' WHERE id = ?';
+  binds.push(ledger.runId);
+  await env.DB.prepare(sql).bind(...binds).run();
+  if (ok) {
+    emit('workflow_complete', {
+      run_id: ledger.runId,
+      status: 'completed',
+      message: `Executed ${ledger.steps.length} tool call(s).`,
+    });
+  } else {
+    emit('workflow_error', {
+      run_id: ledger.runId,
+      status: 'failed',
+      message: err || 'failed',
+    });
+  }
+  const runForSb = {
+    id: ledger.runId,
+    workflow_key: AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY,
+    display_name: 'Agent chat · tool session',
+    tenant_id: ledger.tenantId,
+    workspace_id: ledger.workspaceId,
+    status: ok ? 'completed' : 'failed',
+    started_at: ledger.startedSec,
+    completed_at: Math.floor(Date.now() / 1000),
+    duration_ms: duration,
+    cost_usd: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    error_message: err,
+    step_results_json: JSON.stringify(ledger.steps),
+  };
+  // Supabase RPC is best-effort for UX; D1 row is updated inside syncWorkflowRunToSupabase via
+  // patchD1WorkflowRunSupabaseMirrorState (synced / failed, optional supabase_run_id).
+  const p = syncWorkflowRunToSupabase(env, runForSb);
+  if (ctx?.waitUntil) ctx.waitUntil(p);
+  else await p;
+}
+
 async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   const lim = Math.max(1, Math.min(200, Number(opts.limit || 20) || 20));
   if (!env.DB) return { tools: [] };
@@ -667,6 +928,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     },
     name,
     row,
+    { agentMode: String(modeSlug || '').toLowerCase() === 'agent' },
   );
   if (!allowRes.allowed) {
     return {
@@ -1504,6 +1766,271 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
   );
 }
 
+// ─── OpenAI streaming (chat.completions): accumulate tool_calls + text ───────
+
+/** Concatenated `function.arguments` from OpenAI chat.completions stream; repairable failures keep raw. */
+function safeJsonParse(value) {
+  if (!value || typeof value !== 'string') return {};
+  try {
+    return JSON.parse(value);
+  } catch {
+    return { __raw: value, __parse_error: true };
+  }
+}
+
+/**
+ * OpenAI /v1/chat/completions stream (`delta.tool_calls`). Merges tool call fragments by `index`
+ * (id may be omitted on later chunks). Not for Responses API — use a separate adapter there.
+ * Without reconstructing tool_calls here, pendingToolCalls stay empty and no tools run.
+ */
+async function consumeOpenAIChatCompletionsSse(readable, emit) {
+  const reader = readable.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  /** @type {Map<number, { id?: string, name?: string, args: string }>} */
+  const tcByIndex = new Map();
+  let textBuf = '';
+  /** @type {string|null} */
+  let finishReason = null;
+
+  const mergeDelta = (delta) => {
+    if (delta == null || typeof delta !== 'object') return;
+    const content = delta.content;
+    if (typeof content === 'string' && content) {
+      textBuf += content;
+      emit('text', { text: content });
+    }
+    if (!Array.isArray(delta.tool_calls)) return;
+    for (const part of delta.tool_calls) {
+      const idx = Number(part.index ?? 0);
+      if (!Number.isFinite(idx)) continue;
+      if (!tcByIndex.has(idx)) tcByIndex.set(idx, { args: '' });
+      const slot = tcByIndex.get(idx);
+      if (typeof part.id === 'string' && part.id) slot.id = part.id;
+      const fn = part.function;
+      if (fn && typeof fn === 'object') {
+        if (typeof fn.name === 'string' && fn.name) slot.name = fn.name;
+        if (typeof fn.arguments === 'string' && fn.arguments) slot.args += fn.arguments;
+      }
+    }
+  };
+
+  const processPayload = (payload) => {
+    if (payload === '[DONE]') return;
+    let json;
+    try {
+      json = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    const choices = json?.choices;
+    if (!Array.isArray(choices) || !choices.length) return;
+    const ch = choices[0];
+    if (ch.finish_reason != null && String(ch.finish_reason).trim() !== '') {
+      finishReason = String(ch.finish_reason);
+    }
+    if (ch.delta) mergeDelta(ch.delta);
+  };
+
+  /** One SSE event: join all `data:` lines (spec allows multi-line data fields). */
+  const processEventBlock = (blockText) => {
+    const lines = blockText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const dataLines = lines.filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart());
+    if (!dataLines.length) return;
+    processPayload(dataLines.join('\n').trim());
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep;
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const part = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+      processEventBlock(part);
+    }
+  }
+  const tail = buf.trim();
+  if (tail) processEventBlock(tail);
+
+  const pendingToolCalls = [...tcByIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, slot]) => ({
+      type: 'tool_use',
+      id: slot.id || `openai_tool_${index}`,
+      name: slot.name,
+      input: safeJsonParse(slot.args || '{}'),
+      raw_input: slot.args || '{}',
+      provider: 'openai_chat_completions',
+      index,
+    }))
+    .filter((c) => c.name);
+
+  return { text: textBuf, finishReason, pendingToolCalls };
+}
+
+/**
+ * OpenAI /v1/responses SSE — NOT chat.completions. Events like `response.output_text.delta`,
+ * `response.output_item.added` (function_call), `response.completed`.
+ * Normalizes to the same bridge as consumeOpenAIChatCompletionsSse; adds `responseId` for chaining.
+ */
+async function consumeOpenAIResponsesSse(readable, emit) {
+  const reader = readable.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let textBuf = '';
+  let streamFinish = null;
+  let responseId = null;
+
+  const slots = [];
+  const byCallId = new Map();
+  const byItemId = new Map();
+
+  const mergeSlot = (callId, itemId, name, outputIndex) => {
+    let idx;
+    if (callId && byCallId.has(callId)) idx = byCallId.get(callId);
+    else if (itemId && byItemId.has(itemId)) idx = byItemId.get(itemId);
+    if (idx == null) {
+      idx = slots.length;
+      slots.push({
+        id: itemId || null,
+        call_id: callId || null,
+        name: name || '',
+        args: '',
+        outputIndex: outputIndex != null ? Number(outputIndex) : null,
+      });
+      if (callId) byCallId.set(callId, idx);
+      if (itemId) byItemId.set(itemId, idx);
+    }
+    const s = slots[idx];
+    if (callId) {
+      s.call_id = callId;
+      byCallId.set(callId, idx);
+    }
+    if (itemId) {
+      s.id = itemId;
+      byItemId.set(itemId, idx);
+    }
+    if (name) s.name = name;
+    if (outputIndex != null && s.outputIndex == null) s.outputIndex = Number(outputIndex);
+    return s;
+  };
+
+  const handleObj = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    const t = String(obj.type || '');
+
+    if (t === 'response.created' || t === 'response.in_progress') {
+      const rid = obj.response?.id;
+      if (rid) responseId = String(rid);
+      return;
+    }
+
+    if (t === 'response.output_text.delta') {
+      const d = typeof obj.delta === 'string' ? obj.delta : '';
+      if (d) {
+        textBuf += d;
+        emit('text', { text: d });
+      }
+      return;
+    }
+
+    if (t === 'response.output_item.added' || t === 'response.output_item.done') {
+      const item = obj.item;
+      if (item?.type === 'function_call') {
+        const s = mergeSlot(item.call_id, item.id, item.name, obj.output_index);
+        if (typeof item.arguments === 'string' && item.arguments) s.args = item.arguments;
+      }
+      return;
+    }
+
+    if (t.includes('function_call_arguments') && t.includes('delta')) {
+      const callId = obj.call_id || obj.callId;
+      const itemId = obj.item_id || obj.itemId;
+      const delta =
+        typeof obj.delta === 'string'
+          ? obj.delta
+          : typeof obj.arguments_delta === 'string'
+            ? obj.arguments_delta
+            : '';
+      if ((callId || itemId) && delta) {
+        const s = mergeSlot(callId, itemId, undefined, obj.output_index);
+        s.args += delta;
+      }
+      return;
+    }
+
+    if (t === 'response.completed') {
+      const resp = obj.response;
+      if (resp?.id) responseId = String(resp.id);
+      if (Array.isArray(resp?.output)) {
+        resp.output.forEach((it, i) => {
+          if (it?.type === 'function_call') {
+            const s = mergeSlot(it.call_id, it.id, it.name, i);
+            if (typeof it.arguments === 'string' && it.arguments) s.args = it.arguments;
+          }
+        });
+      }
+      const st = resp?.status != null ? String(resp.status) : '';
+      if (st) streamFinish = st;
+    }
+  };
+
+  const processEventBlock = (blockText) => {
+    const dataParts = [];
+    for (const line of blockText.split(/\r?\n/)) {
+      const s = line.trim();
+      if (s.startsWith('data:')) dataParts.push(s.slice(5).trimStart());
+    }
+    if (!dataParts.length) return;
+    const payload = dataParts.join('\n').trim();
+    if (!payload || payload === '[DONE]') return;
+    try {
+      handleObj(JSON.parse(payload));
+    } catch {
+      /* ignore non-JSON */
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep;
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      processEventBlock(buf.slice(0, sep));
+      buf = buf.slice(sep + 2);
+    }
+  }
+  if (buf.trim()) processEventBlock(buf.trim());
+
+  slots.sort((a, b) => (a.outputIndex ?? 1e9) - (b.outputIndex ?? 1e9));
+
+  const pendingToolCalls = slots
+    .filter((s) => s.name)
+    .map((s, index) => {
+      const raw = s.args || '';
+      const itemId = s.id || `openai_response_tool_${index}`;
+      return {
+        type: 'tool_use',
+        id: itemId,
+        call_id: s.call_id || null,
+        name: s.name,
+        input: safeJsonParse(raw || '{}'),
+        raw_input: raw || '{}',
+        provider: 'openai_responses',
+        index,
+      };
+    });
+
+  let finishReason = 'end_turn';
+  if (pendingToolCalls.length) finishReason = 'tool_use';
+  else if (streamFinish === 'completed') finishReason = 'end_turn';
+
+  return { text: textBuf, finishReason, pendingToolCalls, responseId };
+}
+
 // ─── SSE Tool Loop ────────────────────────────────────────────────────────────
 
 async function runAgentToolLoop(env, ctx, emit, params) {
@@ -1561,7 +2088,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   const executedToolNames = [];
   let totalUsage    = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   let turnCount     = 0;
+  let agentToolLedger = null;
+  let ledgerLoopThrew = false;
+  let ledgerErrorMsg = null;
+  let openaiPreviousResponseId = null;
 
+  try {
   while (turnCount < 10) {
     turnCount++;
     const modelT0 = Date.now();
@@ -1592,6 +2124,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         tenantId,
         taskType: routingTaskType || 'chat',
         mode: mode || 'auto',
+        openaiPreviousResponseId,
       });
       isWorkersAiStream = false;
     } catch (e) {
@@ -1703,9 +2236,46 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         emit('error', { message: 'Model stream failed' });
         break;
       }
-      assistantContent.push({ type: 'text', text: '' });
-      if (stream.body) await consumeSseText(stream.body);
-      stopReason = 'end_turn';
+      const streamMeta = await resolveModelMeta(env, modelKey);
+      const platform = String(streamMeta?.api_platform || '').toLowerCase();
+      const useOpenAIResponses = platform === 'openai_responses' || platform === 'responses';
+      const useOpenAIChatCompletions =
+        platform === 'openai' || platform === 'openai_chat_completions';
+
+      const applyNormalizedOpenAI = (parsed) => {
+        const textBlock = assistantContent[assistantContent.length - 1];
+        if (textBlock && textBlock.type === 'text') textBlock.text = parsed.text || '';
+        for (const tc of parsed.pendingToolCalls) {
+          const linkId = String(tc.call_id || tc.id || '').trim() || tc.id;
+          assistantContent.push({ type: 'tool_use', id: linkId, name: tc.name, input: tc.input });
+          pendingToolCalls.push({ ...tc, id: linkId, _done: true, _server: false });
+        }
+        const fr = parsed.finishReason || '';
+        stopReason =
+          fr === 'tool_use' || fr === 'tool_calls'
+            ? 'tool_use'
+            : fr === 'stop' || fr === '' || fr === 'end_turn' || fr === 'completed'
+              ? 'end_turn'
+              : fr || 'end_turn';
+      };
+
+      if (stream.body && useOpenAIResponses) {
+        assistantContent.push({ type: 'text', text: '' });
+        const parsed = await consumeOpenAIResponsesSse(stream.body, emit);
+        applyNormalizedOpenAI(parsed);
+        if (parsed.responseId) openaiPreviousResponseId = parsed.responseId;
+      } else if (stream.body && useOpenAIChatCompletions && tools.length > 0) {
+        assistantContent.push({ type: 'text', text: '' });
+        const parsed = await consumeOpenAIChatCompletionsSse(stream.body, emit);
+        applyNormalizedOpenAI(parsed);
+      } else if (stream.body) {
+        assistantContent.push({ type: 'text', text: '' });
+        await consumeSseText(stream.body);
+        stopReason = 'end_turn';
+      } else {
+        assistantContent.push({ type: 'text', text: '' });
+        stopReason = 'end_turn';
+      }
     } else if (stream && typeof stream.getReader === 'function') {
       assistantContent.push({ type: 'text', text: '' });
       if (isWorkersAiStream) {
@@ -1856,7 +2426,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
 
     conversationMessages.push({ role: 'assistant', content: assistantContent });
     const clientToolCalls = pendingToolCalls.filter((c) => !c._server);
-    if (!clientToolCalls.length || stopReason === 'end_turn') {
+    if (!clientToolCalls.length) {
       if (routingWs) {
         const qs = Number(qualityScore);
         if (Number.isFinite(qs)) {
@@ -1878,6 +2448,30 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       if (toolCallsUsed >= effectiveMaxToolCalls) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached.' });
+        continue;
+      }
+      if (call.input && typeof call.input === 'object' && call.input.__parse_error === true) {
+        const raw = String(call.raw_input != null ? call.raw_input : call.input.__raw || '').slice(0, 2000);
+        scheduleRecordMcpToolExecution(env, ctx, {
+          tenant_id: tenantId,
+          workspace_id: workspaceId,
+          user_id: userId,
+          session_id: sessionId,
+          tool_name: call.name,
+          tool_id: null,
+          input_json: JSON.stringify({ __parse_error: true, __raw: raw }),
+          success: false,
+          error_message: 'tool_arguments_json_parse_error',
+          duration_ms: 0,
+          status: 'error',
+        });
+        emit('tool_error', { tool: call.name, error: 'tool_arguments_json_parse_error' });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: `Tool arguments are not valid JSON (repairable). Raw: ${raw}`,
+          is_error: true,
+        });
         continue;
       }
       const validation = await validateToolCall(env, mode, call.name, mcpRuntimeContext, userPolicy);
@@ -2039,6 +2633,26 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Awaiting approval (proposal_id: ${proposalId}).` });
         continue;
       }
+      if (String(mode || '').toLowerCase() === 'agent' && env?.DB && !agentToolLedger) {
+        try {
+          agentToolLedger = await createAgentChatToolLedgerRun(env, {
+            tenantId,
+            workspaceId,
+            userId,
+            sessionId,
+            modelKey,
+            stepsTotal: effectiveMaxToolCalls,
+          });
+          if (agentToolLedger) {
+            emit('workflow_start', {
+              run_id: agentToolLedger.runId,
+              steps_total: agentToolLedger.stepsTotal,
+            });
+          }
+        } catch (e) {
+          console.warn('[agent] agent_tool_ledger_create', e?.message ?? e);
+        }
+      }
       toolCallsUsed++;
       executedToolNames.push(call.name);
       emit('tool_call', { tool: call.name, args: call.input });
@@ -2082,13 +2696,29 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         emit('tool_error', { tool: call.name, error: 'Tool execution failed' });
       }
       const toolDurMs = Date.now() - toolT0;
-      emit('tool_output', { tool_name: call.name, chunk: String(toolOutput || '').slice(0, 2000) });
+      emit('tool_output', {
+        tool_name: call.name,
+        chunk: String(toolOutput || '').slice(0, TOOL_OUTPUT_SSE_MAX),
+      });
       emit('tool_done', {
         tool_name: call.name,
         status: execErr ? 'error' : 'ok',
         duration_ms: toolDurMs,
         rows: toolRows ?? null,
       });
+      if (agentToolLedger) {
+        try {
+          await appendAgentChatToolLedgerStep(env, emit, agentToolLedger, {
+            tool_name: call.name,
+            ok: !execErr,
+            duration_ms: toolDurMs,
+            output_preview: String(toolOutput || '').slice(0, 8000),
+            error: execErr ? String(execErr.message || execErr).slice(0, 2000) : null,
+          });
+        } catch (e) {
+          console.warn('[agent] agent_tool_ledger_step', e?.message ?? e);
+        }
+      }
       scheduleAgentsamToolCallLog(env, ctx, {
         tenantId,
         sessionId,
@@ -2132,7 +2762,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         tenantId,
         parentChainId: previousToolChainId,
         toolInputJson: JSON.stringify(call.input || {}),
-        workflowRunId: null,
+        workflowRunId: agentToolLedger?.runId ?? null,
         executionStepId: null,
         ctx,
       });
@@ -2144,7 +2774,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         end_time_unix_nano: Date.now() * 1_000_000,
         execErr,
       });
-      emit('tool_result', { tool: call.name, output: toolOutput.slice(0, 2000) });
+      emit('tool_result', { tool: call.name, output: toolOutput.slice(0, TOOL_OUTPUT_SSE_MAX) });
       const tr = { type: 'tool_result', tool_use_id: call.id, content: toolOutput };
       if (execErr) tr.is_error = true;
       toolResults.push(tr);
@@ -2175,6 +2805,22 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
 
     if (stopReason === 'end_turn') break;
+  }
+  } catch (e) {
+    ledgerLoopThrew = true;
+    ledgerErrorMsg = e?.message != null ? String(e.message) : String(e);
+    throw e;
+  } finally {
+    if (agentToolLedger?.runId) {
+      try {
+        await finalizeAgentChatToolLedger(env, ctx, emit, agentToolLedger, {
+          ok: !ledgerLoopThrew,
+          errorMessage: ledgerErrorMsg,
+        });
+      } catch (fe) {
+        console.warn('[agent] agent_tool_ledger_finalize', fe?.message ?? fe);
+      }
+    }
   }
 
   if (totalUsage.input_tokens || totalUsage.output_tokens) {
@@ -2629,6 +3275,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const gate = await gateRewriteAndClassify(env, modeConfig, message, tenantId);
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentResult = await classifyIntent(env, message);
+  if (requestedMode === 'agent' && (!intentResult || typeof intentResult !== 'object')) {
+    console.error('[agent] classifyIntent_invalid', { message: String(message || '').slice(0, 240) });
+  }
 
   const workflowMatch = await resolveWorkflowForMessage(env, intentResult.taskType, message, workspaceId);
   if (workflowMatch) {
@@ -2696,11 +3345,59 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     tools = tools.filter((t) => allow.has(t.name));
   }
 
+  if (requestedMode === 'agent' && env.DB && userId && tenantId && workspaceId) {
+    const fams = capabilityFamiliesFromUserMessage(message, intentResult);
+    const seen = new Set(tools.map((t) => t.name));
+    for (const fam of fams) {
+      try {
+        const capRows = await loadAvailableToolsForCapability(
+          env,
+          tenantId,
+          workspaceId,
+          userId,
+          fam,
+        );
+        for (const row of capRows) {
+          const nm = String(row.tool_name || '').trim();
+          if (!nm || seen.has(nm)) continue;
+          if (tools.length >= effectiveMaxTools) break;
+          seen.add(nm);
+          const raw =
+            row.input_schema && typeof row.input_schema === 'object' ? row.input_schema : {};
+          tools.push({
+            name: nm,
+            description: String(row.schema_hint || row.tool_category || nm).slice(0, 800),
+            input_schema: Object.assign({ type: 'object', properties: {} }, raw, { type: 'object' }),
+          });
+        }
+      } catch (e) {
+        console.warn('[agent] capability_tool_merge', fam, e?.message ?? e);
+      }
+    }
+  }
+
+  if (requestedMode === 'agent' && env.DB) {
+    tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools);
+  }
+
   const confidence = Number(gate.confidence || 0);
   const threshold = Number(modeConfig?.escalation_threshold);
   const escalationThreshold = Number.isFinite(threshold) ? threshold : 0;
 
   const requireTools = tools.length > 0;
+  if (requestedMode === 'agent' && !requireTools) {
+    console.error(
+      '[agent] agent_mode_zero_tools',
+      JSON.stringify({
+        intentSlug,
+        taskType: intentResult?.taskType ?? null,
+        workspaceId,
+        rawMcpCount: dbToolsRaw?.length ?? 0,
+        afterCategoryFilter: dbTools?.length ?? 0,
+        intentPatternToolCount: Array.isArray(toolsFromPattern) ? toolsFromPattern.length : 0,
+      }),
+    );
+  }
   const {
     row: requestedCatalogRow,
     rawRequestedKey,
@@ -2971,6 +3668,35 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     console.warn('[agent] skills/rules prompt enrich', e?.message ?? e);
   }
 
+  /** @type {Record<string, unknown>|null} */
+  let browserContextPayload = null;
+  try {
+    const bc = body.browserContext ?? body.browser_context;
+    if (typeof bc === 'string' && bc.trim()) browserContextPayload = parseJsonSafe(bc.trim(), null);
+    else if (bc && typeof bc === 'object') browserContextPayload = bc;
+  } catch (_) {
+    browserContextPayload = null;
+  }
+
+  /** @type {Record<string, unknown>|null} */
+  let capabilityDecision = null;
+  if (requestedMode === 'agent' && !ingestBypass) {
+    try {
+      const { classifyWorkspaceCapabilities, capabilityRouterPromptBlock } = await import('../core/capability-router.js');
+      capabilityDecision = await classifyWorkspaceCapabilities(env, {
+        message: gate.rewritten_query || message,
+        browserContext: browserContextPayload,
+        userId,
+        tenantId,
+      });
+      if (capabilityDecision) {
+        systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
+      }
+    } catch (e) {
+      console.warn('[agent] capability_router', e?.message ?? e);
+    }
+  }
+
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer  = writable.getWriter();
@@ -2990,6 +3716,25 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     routing_arm_id: routingArmIdForRun,
   });
 
+  if (capabilityDecision) {
+    emit('capability_selected', { decision: capabilityDecision });
+    emit('agent_capability_selected', { decision: capabilityDecision });
+    const surf = String(capabilityDecision.default_surface || 'chat');
+    if (surf === 'browser' && capabilityDecision.should_use_browser) {
+      emit('surface_open', { surface: 'browser', reason: capabilityDecision.reason });
+      emit('agent_surface_open', { surface: 'browser', reason: capabilityDecision.reason });
+    } else if (surf === 'excalidraw' && capabilityDecision.should_use_excalidraw) {
+      emit('surface_open', { surface: 'excalidraw', reason: capabilityDecision.reason });
+      emit('agent_surface_open', { surface: 'excalidraw', reason: capabilityDecision.reason });
+    } else if (
+      (surf === 'monaco' || surf === 'code') &&
+      capabilityDecision.should_use_monaco
+    ) {
+      emit('surface_open', { surface: 'monaco', reason: capabilityDecision.reason });
+      emit('agent_surface_open', { surface: 'monaco', reason: capabilityDecision.reason });
+    }
+  }
+
   ;(async () => {
     const chatT0 = Date.now();
     const turnStartNs = chatT0 * 1_000_000;
@@ -3000,6 +3745,53 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       return r?.provider != null ? String(r.provider) : 'unknown';
     };
     try {
+      let capabilityArtifactForModel = null;
+      if (requestedMode === 'agent' && capabilityDecision && userId && tenantId && workspaceId && env.DB) {
+        try {
+          const { runWorkspaceCapabilityAction, buildCapabilityPlanFromDecision } = await import(
+            '../core/workspace-capability-actions/index.js'
+          );
+          const userMsg = gate.rewritten_query || message;
+          const plan = buildCapabilityPlanFromDecision(userMsg, capabilityDecision);
+          if (plan) {
+            const capRes = await runWorkspaceCapabilityAction({
+              env,
+              ctx,
+              tenantId,
+              workspaceId,
+              userId,
+              sessionId: sessionId ? String(sessionId) : null,
+              message: userMsg,
+              requestedMode,
+              capabilityPlan: plan,
+              browserContext: browserContextPayload,
+              emit,
+            });
+            if (capRes?.artifact_for_model) capabilityArtifactForModel = capRes.artifact_for_model;
+          }
+        } catch (e) {
+          console.warn('[agent] workspace_capability_action', e?.message ?? e);
+        }
+      }
+
+      const chatMessagesBase =
+        Array.isArray(body.messages) && body.messages.length
+          ? [...body.messages]
+          : [{ role: 'user', content: gate.rewritten_query || message }];
+      const chatMessages =
+        capabilityArtifactForModel
+          ? [
+              ...chatMessagesBase,
+              {
+                role: 'user',
+                content:
+                  'Workspace capability runtime finished. Use ONLY this JSON as ground truth for what the tools observed (URLs, excerpts, errors). Do not fabricate success or page content.\n```json\n' +
+                  JSON.stringify(capabilityArtifactForModel, null, 2).slice(0, 24000) +
+                  '\n```',
+              },
+            ]
+          : chatMessagesBase;
+
       const tried = [];
       const startIdx = (confidence < escalationThreshold && fallbackModelKeys.length > 1) ? 1 : 0;
       let succeeded = false;
@@ -3025,7 +3817,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           lastLoopStats = await withTimeout(
             runAgentToolLoop(env, ctx, emitWrapped, {
               request,
-              messages: body.messages || [{ role: 'user', content: gate.rewritten_query || message }],
+              messages: chatMessages,
               tools, systemPrompt, modelKey,
               temperature:  modeConfig.temperature || 0.7,
               maxToolCalls: effectiveMaxTools,
@@ -3100,7 +3892,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             lastLoopStats = await withTimeout(
               runAgentToolLoop(env, ctx, emitWrapped, {
                 request,
-                messages: body.messages || [{ role: 'user', content: gate.rewritten_query || message }],
+                messages: chatMessages,
                 tools, systemPrompt, modelKey: finalKey,
                 temperature:  modeConfig.temperature || 0.7,
                 maxToolCalls: effectiveMaxTools,
