@@ -224,10 +224,15 @@ export default {
         return handleTunnelStatusGet(request, env);
       }
 
-      // Collab workspace room -> IAM_COLLAB DO (path segment after /api/collab/; casing preserved)
+      // Collab workspace room -> IAM_COLLAB DO (`/api/collab/room/{room}` → DO name = decoded room, e.g. canvas:ws_…)
       if (/^\/api\/collab\/room\//i.test(path)) {
-        const collabMatch = path.match(/^\/api\/collab\/(.+)$/i);
-        const room = collabMatch ? decodeURIComponent(collabMatch[1]) : '';
+        const collabMatch = path.match(/^\/api\/collab\/room\/(.+)$/i);
+        let room = '';
+        try {
+          room = collabMatch ? decodeURIComponent(collabMatch[1]) : '';
+        } catch (_) {
+          room = collabMatch ? collabMatch[1] : '';
+        }
         if (env.IAM_COLLAB && room) {
           const id = env.IAM_COLLAB.idFromName(room);
           const stub = env.IAM_COLLAB.get(id);

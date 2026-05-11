@@ -13,6 +13,26 @@ import {
 import { notifySam } from './notifications';
 
 /**
+ * Deterministic SHA-256 for `terminal_sessions.auth_token_hash` (never store raw session secrets in D1).
+ * Pepper order: TERMINAL_SESSION_PEPPER → PTY_AUTH_TOKEN → INTERNAL_API_SECRET → dev fallback.
+ * @param {Record<string, unknown>} env
+ * @param {string} sessionId
+ * @returns {Promise<string>} 64-char hex
+ */
+export async function computeTerminalSessionAuthTokenHash(env, sessionId) {
+  const sid = String(sessionId || '').trim();
+  const pepper = String(
+    env?.TERMINAL_SESSION_PEPPER ||
+      env?.PTY_AUTH_TOKEN ||
+      env?.INTERNAL_API_SECRET ||
+      'iam-terminal-session-pepper',
+  ).trim();
+  const payload = `${sid}:${pepper}`;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Default PTY bridge from D1 (terminal_connections). Falls back to env.TERMINAL_WS_URL when absent.
  */
 export async function getDefaultTerminalConnection(db) {

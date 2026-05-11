@@ -84,6 +84,8 @@ interface ChatAssistantProps {
   onOpenChatHistory?: () => void;
   /** `agentsam_user_policy` row fields for the active workspace (from App bootstrap). */
   agentsamPolicy?: Record<string, unknown> | null;
+  /** IAM workspace id (`auth_users.active_workspace_id` / settings) — scopes approval polling and APIs. */
+  workspaceId?: string | null;
 }
 
 type StagedAttachment = {
@@ -696,6 +698,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onOpenCodeTab,
   onOpenChatHistory,
   agentsamPolicy = null,
+  workspaceId = null,
 }) => {
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
   useEffect(() => {
@@ -2572,7 +2575,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               )}
             </div>
           )}
-          <ToolApprovalModal />
+          <ToolApprovalModal
+            workspaceId={workspaceId}
+            agentRunId={workflowLedger.runId}
+            toolExecutionActive={execPanel?.status === 'running'}
+          />
         </div>
         )}
 

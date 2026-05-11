@@ -82,15 +82,25 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
         const body = await request.json().catch(() => ({}));
         const t = body?.type;
         const type = t === 'github' || t === 'r2' ? t : 'local';
+        const tenantId = String(authUser.tenant_id ?? '').trim();
+        if (!tenantId) {
+            return jsonResponse({ error: 'tenant_required', detail: 'auth_users.tenant_id missing' }, 400);
+        }
+        const userId = String(authUser.id ?? '').trim();
         const wsUuid = crypto.randomUUID();
-        const rowId = `uws:${String(authUser.tenant_id ?? '').trim()}:${String(authUser.id ?? '').trim()}:${wsUuid}`;
+        const rowId = `uws:${tenantId}:${userId}:${wsUuid}`;
         const now = Date.now();
-        
+        const workspaceSlug = `uws_${wsUuid.replace(/-/g, '').slice(0, 24)}`;
+        const displayName =
+            typeof body.folderName === 'string' && body.folderName.trim()
+                ? body.folderName.trim()
+                : 'Local workspace';
+
         const record = {
             schema: 'user_workspace_v1',
             id: wsUuid,
-            userId: String(authUser.id ?? '').trim(),
-            tenantId: String(authUser.tenant_id ?? '').trim(),
+            userId,
+            tenantId,
             type,
             folderName: typeof body.folderName === 'string' ? body.folderName : undefined,
             lastKnownPath: typeof body.lastKnownPath === 'string' ? body.lastKnownPath : 'unknown',
@@ -99,14 +109,45 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
             lastOpenedAt: typeof body.lastOpenedAt === 'number' ? body.lastOpenedAt : now,
             recentFiles: Array.isArray(body.recentFiles) ? body.recentFiles.slice(0, 24) : [],
         };
-        
+
         const stateJson = JSON.stringify(record);
-        await env.DB.prepare(
-            `INSERT INTO agentsam_workspace_state (id, state_json, updated_at) VALUES (?, ?, unixepoch())
-             ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`
-        ).bind(rowId, stateJson).run();
-        
-        return jsonResponse({ workspaceId: wsUuid });
+
+        try {
+            await env.DB.prepare(
+                `INSERT INTO agentsam_workspace
+                   (id, workspace_slug, tenant_id, name, status, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'active', unixepoch(), unixepoch())`,
+            )
+                .bind(wsUuid, workspaceSlug, tenantId, displayName)
+                .run();
+        } catch (e) {
+            return jsonResponse(
+                { error: 'workspace_create_failed', step: 'agentsam_workspace', detail: e?.message ?? String(e) },
+                500,
+            );
+        }
+
+        try {
+            await env.DB.prepare(
+                `INSERT INTO agentsam_workspace_state
+                   (id, workspace_id, workspace_type, files_open, state_json, updated_at)
+                 VALUES (?, ?, 'ide', '[]', ?, unixepoch())`,
+            )
+                .bind(rowId, wsUuid, stateJson)
+                .run();
+        } catch (e) {
+            await env.DB.prepare(`DELETE FROM agentsam_workspace WHERE id = ?`).bind(wsUuid).run().catch(() => {});
+            return jsonResponse(
+                {
+                    error: 'workspace_state_failed',
+                    step: 'agentsam_workspace_state',
+                    detail: e?.message ?? String(e),
+                },
+                500,
+            );
+        }
+
+        return jsonResponse({ ok: true, workspaceId: wsUuid });
     }
 
     // ── /api/workspace/:id (Ephemeral User State Fetch/Update) ─────────────

@@ -2054,6 +2054,7 @@ const App: React.FC = () => {
                         editorCursorLine={cursorPos.line}
                         editorCursorColumn={cursorPos.col}
                         agentsamPolicy={agentsamChatPolicy}
+                        workspaceId={authWorkspaceId}
                         messages={chatMessages} 
                         setMessages={setChatMessages} 
                         onOpenChatHistory={() => setActiveActivity('search')}
@@ -2506,6 +2507,7 @@ const App: React.FC = () => {
                             editorCursorLine={cursorPos.line}
                             editorCursorColumn={cursorPos.col}
                             agentsamPolicy={agentsamChatPolicy}
+                            workspaceId={authWorkspaceId}
                             messages={chatMessages} 
                             setMessages={setChatMessages} 
                             onOpenChatHistory={() => setActiveActivity('search')}

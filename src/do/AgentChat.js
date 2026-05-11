@@ -10,6 +10,7 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from "../core/bootstrap.js";
 import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
+import { computeTerminalSessionAuthTokenHash } from "../core/terminal.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
 const TERMINAL_WS_TAG = "terminal";
@@ -740,19 +741,26 @@ export class AgentChatSqlV1 extends DurableObject {
     if (!tid || !uid || !wid) return;
     const now = Math.floor(Date.now() / 1000);
     const pid = personUuid != null && String(personUuid).trim() !== "" ? String(personUuid).trim() : null;
+    let authHash = "";
+    try {
+      authHash = await computeTerminalSessionAuthTokenHash(this.env, sessionId);
+    } catch (_) {
+      authHash = "";
+    }
     try {
       await this.env.DB.prepare(
-        `INSERT INTO terminal_sessions (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', '', 'active', ?, ?)
+        `INSERT INTO terminal_sessions (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', '', 'active', ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            tenant_id = excluded.tenant_id,
            user_id = excluded.user_id,
            workspace_id = excluded.workspace_id,
            person_uuid = excluded.person_uuid,
+           auth_token_hash = COALESCE(excluded.auth_token_hash, auth_token_hash),
            status = 'active',
            updated_at = excluded.updated_at`,
       )
-        .bind(sessionId, tid, uid, wid, pid, now, now)
+        .bind(sessionId, tid, uid, wid, pid, authHash || null, now, now)
         .run();
     } catch (e) {
       console.warn("[terminal_sessions upsert]", e?.message);

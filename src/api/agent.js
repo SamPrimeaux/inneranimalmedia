@@ -3733,8 +3733,27 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const threshold = Number(modeConfig?.escalation_threshold);
   const escalationThreshold = Number.isFinite(threshold) ? threshold : 0;
 
-  const requireTools = tools.length > 0;
-  if (requestedMode === 'agent' && !requireTools) {
+  /** Only force tool-capable models + provider tool arrays when intent clearly needs execution surfaces. */
+  const TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL = new Set([
+    'workflow_orchestration',
+    'deploy',
+    'sql_d1_generation',
+    'terminal_execution',
+    'debug',
+    'cms_edit',
+    'tool_use',
+    'code',
+  ]);
+  const taskTypeKey = String(intentResult?.taskType || '').toLowerCase();
+  const agentWantsToolExecution = TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL.has(taskTypeKey);
+  const toolsBuiltCount = tools.length;
+
+  if (requestedMode === 'agent' && !agentWantsToolExecution) {
+    tools = [];
+  }
+
+  const requireTools = requestedMode === 'agent' && tools.length > 0 && agentWantsToolExecution;
+  if (requestedMode === 'agent' && agentWantsToolExecution && toolsBuiltCount === 0) {
     console.error(
       '[agent] agent_mode_zero_tools',
       JSON.stringify({
@@ -5879,15 +5898,23 @@ export async function handleAgentApi(request, url, env, ctx) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse([]);
-    const { results } = await env.DB.prepare(
-      `SELECT q.id, q.tenant_id, q.session_id AS agent_session_id, q.user_id AS proposed_by,
+    const uid = String(authUser.id || '').trim();
+    const wsQ = String(url.searchParams.get('workspace_id') || '').trim();
+    const tid = String(authUser.tenant_id || '').trim();
+    let sql = `SELECT q.id, q.tenant_id, q.session_id AS agent_session_id, q.user_id AS proposed_by,
               q.tool_name AS command_name,
               COALESCE(json_extract(q.input_json, '$.command_text'), q.action_summary) AS command_text,
               q.input_json AS filled_template, q.action_summary AS rationale, q.risk_level, q.status,
               q.created_at
        FROM agentsam_approval_queue q
-       WHERE q.status = 'pending' ORDER BY q.created_at DESC`,
-    ).all().catch(() => ({ results: [] }));
+       WHERE q.status = 'pending' AND q.user_id = ?`;
+    const binds = [uid];
+    if (wsQ) {
+      sql += ` AND (q.workspace_id = ? OR (q.workspace_id IS NULL AND q.tenant_id = ?))`;
+      binds.push(wsQ, tid);
+    }
+    sql += ` ORDER BY q.created_at DESC`;
+    const { results } = await env.DB.prepare(sql).bind(...binds).all().catch(() => ({ results: [] }));
     return jsonResponse(results || []);
   }
 
@@ -5928,23 +5955,59 @@ export async function handleAgentApi(request, url, env, ctx) {
   if (method === 'GET' && path === '/api/agent/approval/pending') {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401, { 'Cache-Control': 'no-store' });
-    if (!env.DB) return jsonResponse({ approval: null }, 200, { 'Cache-Control': 'no-store' });
+    const workspaceId = String(url.searchParams.get('workspace_id') || '').trim();
+    if (!workspaceId) {
+      return jsonResponse({ error: 'workspace_id_required' }, 400, { 'Cache-Control': 'no-store' });
+    }
+    const runId = String(url.searchParams.get('run_id') || '').trim();
+    if (!env.DB) {
+      return jsonResponse({ approval: null, pending_count: 0 }, 200, { 'Cache-Control': 'no-store' });
+    }
+    const uid = String(authUser.id || '').trim();
+    const tid = String(authUser.tenant_id || '').trim();
+    const scopeBinds = [uid, workspaceId, tid];
+    const runBinds = runId ? [runId, runId, runId] : [];
+    const runFilterTable = runId
+      ? ` AND (workflow_run_id = ? OR session_id = ? OR command_run_id = ?)`
+      : '';
+    const runFilterAlias = runId
+      ? ` AND (q.workflow_run_id = ? OR q.session_id = ? OR q.command_run_id = ?)`
+      : '';
+
+    const countRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM agentsam_approval_queue
+       WHERE status='pending' AND user_id = ?
+         AND (workspace_id = ? OR (workspace_id IS NULL AND tenant_id = ?))${runFilterTable}`,
+    )
+      .bind(...scopeBinds, ...runBinds)
+      .first()
+      .catch(() => ({ c: 0 }));
+    const pendingCount = Number(countRow?.c || 0) || 0;
+
     const row = await env.DB.prepare(
       `SELECT q.id, q.tool_name, q.action_summary AS description, q.risk_level, q.input_json,
-              0 AS is_mcp_server, NULL AS server_display_name,
-              (SELECT COUNT(*) FROM agentsam_approval_queue WHERE status='pending') as queue_count
+              0 AS is_mcp_server, NULL AS server_display_name
        FROM agentsam_approval_queue q
-       WHERE q.status='pending' ORDER BY q.created_at ASC LIMIT 1`,
-    ).first();
-    if (!row) return jsonResponse({ approval: null }, 200, { 'Cache-Control': 'no-store' });
+       WHERE q.status='pending' AND q.user_id = ?
+         AND (q.workspace_id = ? OR (q.workspace_id IS NULL AND q.tenant_id = ?))${runFilterAlias}
+       ORDER BY q.created_at ASC LIMIT 1`,
+    )
+      .bind(...scopeBinds, ...runBinds)
+      .first()
+      .catch(() => null);
+    if (!row) {
+      return jsonResponse({ approval: null, pending_count: pendingCount }, 200, { 'Cache-Control': 'no-store' });
+    }
     const input = JSON.parse(row.input_json || '{}');
     return jsonResponse(
       {
         approval: {
           ...row,
+          queue_count: pendingCount,
           preview_sql: input.sql ?? null,
           preview_command: input.command ?? null,
         },
+        pending_count: pendingCount,
       },
       200,
       { 'Cache-Control': 'no-store' },

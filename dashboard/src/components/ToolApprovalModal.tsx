@@ -13,21 +13,38 @@ type Approval = {
   queue_count: number;
 };
 
-const BACKOFF_MS = [3000, 10000, 30000, 60000];
+const BACKOFF_MS = [5000, 15000, 45000];
+const RECENT_PENDING_MS = 120_000;
 
-function shouldPollApprovals(pathname: string, hasVisibleApproval: boolean): boolean {
+type ToolApprovalModalProps = {
+  workspaceId?: string | null;
+  agentRunId?: string | null;
+  toolExecutionActive?: boolean;
+};
+
+function shouldPollApprovals(opts: {
+  pathname: string;
+  hasVisibleApproval: boolean;
+  workspaceId: string;
+  agentRunId: string | null;
+  toolExecutionActive: boolean;
+  recentPending: boolean;
+}): boolean {
+  const { pathname, hasVisibleApproval, workspaceId, agentRunId, toolExecutionActive, recentPending } = opts;
+  if (!workspaceId) return false;
   if (hasVisibleApproval) return true;
+  if (toolExecutionActive) return true;
+  if (agentRunId) return true;
+  if (recentPending) return true;
   const p = pathname.toLowerCase();
-  return (
-    p.includes('/agent') ||
-    p.includes('workflow') ||
-    p.includes('approval') ||
-    p.includes('/overview') ||
-    p.includes('/mcp')
-  );
+  return p.includes('/dashboard/agent');
 }
 
-export function ToolApprovalModal() {
+export function ToolApprovalModal({
+  workspaceId = null,
+  agentRunId = null,
+  toolExecutionActive = false,
+}: ToolApprovalModalProps) {
   const location = useLocation();
   const [approval, setApproval] = useState<Approval | null>(null);
   const approvalRef = useRef<Approval | null>(null);
@@ -40,6 +57,9 @@ export function ToolApprovalModal() {
 
   const backoffRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPendingSignalRef = useRef(0);
+
+  const ws = typeof workspaceId === 'string' ? workspaceId.trim() : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -54,18 +74,40 @@ export function ToolApprovalModal() {
     async function run() {
       if (cancelled) return;
       if (pollStopped401) return;
-      if (document.hidden) {
-        kick(3000);
+      if (!ws) {
+        kick(30_000);
         return;
       }
-      if (!shouldPollApprovals(location.pathname, approvalRef.current != null)) {
-        kick(10000);
+      if (document.hidden) {
+        kick(8000);
+        return;
+      }
+      const recentPending = Date.now() - lastPendingSignalRef.current < RECENT_PENDING_MS;
+      if (
+        !shouldPollApprovals({
+          pathname: location.pathname,
+          hasVisibleApproval: approvalRef.current != null,
+          workspaceId: ws,
+          agentRunId: agentRunId ?? null,
+          toolExecutionActive,
+          recentPending,
+        })
+      ) {
+        kick(45_000);
         return;
       }
       try {
-        const r = await fetch('/api/agent/approval/pending', { credentials: 'same-origin' });
+        const runQ = agentRunId?.trim() ? `&run_id=${encodeURIComponent(agentRunId.trim())}` : '';
+        const r = await fetch(
+          `/api/agent/approval/pending?workspace_id=${encodeURIComponent(ws)}${runQ}`,
+          { credentials: 'same-origin' },
+        );
         if (r.status === 401) {
           setPollStopped401(true);
+          return;
+        }
+        if (r.status === 400) {
+          kick(20_000);
           return;
         }
         if (!r.ok) {
@@ -75,9 +117,11 @@ export function ToolApprovalModal() {
           return;
         }
         backoffRef.current = 0;
-        const d = (await r.json()) as { approval?: Approval | null };
+        const d = (await r.json()) as { approval?: Approval | null; pending_count?: number };
+        const pc = typeof d.pending_count === 'number' ? d.pending_count : d.approval?.queue_count ?? 0;
+        if (pc > 0) lastPendingSignalRef.current = Date.now();
         if (!cancelled) setApproval(d.approval ?? null);
-        kick(3000);
+        kick(4000);
       } catch {
         const i = Math.min(backoffRef.current, BACKOFF_MS.length - 1);
         backoffRef.current = Math.min(backoffRef.current + 1, BACKOFF_MS.length - 1);
@@ -91,18 +135,18 @@ export function ToolApprovalModal() {
     }
 
     const onVis = () => {
-      if (!document.hidden && !pollStopped401) kick(3000);
+      if (!document.hidden && !pollStopped401) kick(4000);
     };
     document.addEventListener('visibilitychange', onVis);
     backoffRef.current = 0;
-    kick(3000);
+    kick(4000);
 
     return () => {
       cancelled = true;
       document.removeEventListener('visibilitychange', onVis);
       clearTimer();
     };
-  }, [location.pathname, pollStopped401]);
+  }, [location.pathname, pollStopped401, ws, agentRunId, toolExecutionActive]);
 
   if (!approval) return null;
 

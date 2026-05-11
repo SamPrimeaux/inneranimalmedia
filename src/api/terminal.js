@@ -15,6 +15,7 @@ import {
 } from '../core/bootstrap.js';
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
+import { computeTerminalSessionAuthTokenHash } from '../core/terminal.js';
 
 // ── Token validation ───────────────────────────────────────────────────────────
 export async function handleTerminalApi(request, url, env, ctx) {
@@ -110,15 +111,18 @@ export async function handleTerminalApi(request, url, env, ctx) {
       return jsonResponse({ error: 'Terminal execution mode not permitted' }, 403);
     }
 
+    const authTokenHash = await computeTerminalSessionAuthTokenHash(env, session_id);
+
     await env.DB?.prepare(
       `INSERT INTO terminal_sessions
-       (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+       (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          status=excluded.status, updated_at=excluded.updated_at,
          tunnel_url=excluded.tunnel_url,
          workspace_id=excluded.workspace_id,
-         person_uuid=excluded.person_uuid`
+         person_uuid=excluded.person_uuid,
+         auth_token_hash=COALESCE(excluded.auth_token_hash, auth_token_hash)`
     ).bind(
       session_id,
       regTid,
@@ -130,6 +134,7 @@ export async function handleTerminalApi(request, url, env, ctx) {
       rows || 50,
       shell || '/bin/zsh',
       cwd || '',
+      authTokenHash,
       now,
       now,
     )
