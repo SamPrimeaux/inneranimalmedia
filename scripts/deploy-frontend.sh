@@ -198,6 +198,37 @@ else
   echo "✓ Worker deployed (could not parse Current Version ID from wrangler output)"
 fi
 
+# KV deploy markers + agentsam_hook trigger=post_deploy (writes agentsam_hook_execution)
+GIT_SHORT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+echo "→ Worker post-deploy (KV + agentsam_hook post_deploy)..."
+if command -v jq >/dev/null 2>&1; then
+  POST_DEPLOY_BODY=$(
+    jq -n \
+      --arg env "production" \
+      --arg gh "${GIT_FULL_SHA:-unknown}" \
+      --arg v "${GIT_SHORT_HASH}" \
+      --arg wv "${WORKER_VERSION_ID:-unknown}" \
+      --argjson dur "${DEPLOY_DURATION_MS:-0}" \
+      --arg uid "${D1_AUTH_USER_ID:-usr_sam_iam}" \
+      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid}'
+  )
+  if [ -n "${AGENTSAM_BRIDGE_KEY:-}" ]; then
+    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
+      -H "Authorization: Bearer ${AGENTSAM_BRIDGE_KEY}" \
+      -H "Content-Type: application/json" \
+      -d "$POST_DEPLOY_BODY" --max-time 90 || echo "[deploy-frontend] warning: /api/internal/post-deploy non-zero (non-fatal)"
+  elif [ -n "${INTERNAL_API_SECRET:-}" ]; then
+    curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \
+      -H "X-Internal-Secret: ${INTERNAL_API_SECRET}" \
+      -H "Content-Type: application/json" \
+      -d "$POST_DEPLOY_BODY" --max-time 90 || echo "[deploy-frontend] warning: /api/internal/post-deploy non-zero (non-fatal)"
+  else
+    echo "[deploy-frontend] warning: AGENTSAM_BRIDGE_KEY or INTERNAL_API_SECRET unset — skipping Worker post-deploy (KV + hooks)"
+  fi
+else
+  echo "[deploy-frontend] warning: jq missing — skipping Worker post-deploy JSON body"
+fi
+
 # Worker stats JSON is written at end of this script (after email notify) so notify_status is accurate.
 DEPLOY_COMPLETED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 

@@ -225,8 +225,9 @@ try {
     `Summary — d1:project_memory: ${n1} rows | d1:guardrails: ${n2} rows | d1:agent_rules: ${n3} rows`
   );
 
-  // Post-deploy memory sync
+  // Post-deploy: upsert agentsam_memory (UNIQUE tenant_id, user_id, key) — same contract as post-deploy-memory-sync.sh
   const deployHash = execSync('git rev-parse --short HEAD', { cwd: root, encoding: 'utf8' }).trim();
+  const deployFullSha = execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf8' }).trim();
   const deployMsg = execSync('git log -1 --pretty=%s', { cwd: root, encoding: 'utf8' }).trim();
   const deployTime = new Date().toISOString();
   const workspaceId = process.env.WORKSPACE_ID;
@@ -234,27 +235,39 @@ try {
   const userId = process.env.USER_ID || 'usr_sam_iam';
   const memId = `mem_last_deploy_${workspaceId}`;
 
-  runD1Write(`INSERT OR REPLACE INTO agentsam_memory
-    (id, tenant_id, user_id, workspace_id, memory_type, key, value, source, confidence, tags)
-  VALUES (
+  runD1Write(`INSERT INTO agentsam_memory (
+    id, tenant_id, user_id, workspace_id, memory_type, key, value, source, confidence, decay_score, tags, updated_at
+  ) VALUES (
     '${escapeSqlLiteral(memId)}',
     '${escapeSqlLiteral(tenantId)}',
     '${escapeSqlLiteral(userId)}',
     '${escapeSqlLiteral(workspaceId)}',
     'fact',
     'last_successful_deploy',
-    json_object('hash', '${escapeSqlLiteral(deployHash)}', 'message', '${escapeSqlLiteral(deployMsg)}', 'deployed_at', '${escapeSqlLiteral(deployTime)}', 'branch', 'main'),
+    json_object(
+      'hash', '${escapeSqlLiteral(deployHash)}',
+      'full_sha', '${escapeSqlLiteral(deployFullSha)}',
+      'message', '${escapeSqlLiteral(deployMsg)}',
+      'deployed_at', '${escapeSqlLiteral(deployTime)}',
+      'branch', 'main',
+      'workspace_id', '${escapeSqlLiteral(workspaceId)}'
+    ),
     'post_deploy_hook',
     1.0,
-    '["deploy","production","state"]')`);
+    1.0,
+    '["deploy","production","state"]',
+    unixepoch()
+  )
+  ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+    value = excluded.value,
+    workspace_id = excluded.workspace_id,
+    source = excluded.source,
+    confidence = excluded.confidence,
+    decay_score = excluded.decay_score,
+    tags = excluded.tags,
+    updated_at = excluded.updated_at`);
 
-  runD1Write(`UPDATE agentsam_project_context
-  SET last_cursor_session = '${escapeSqlLiteral(deployTime)}',
-      notes = COALESCE(notes,'') || ' | deployed ' || '${escapeSqlLiteral(deployHash)}' || ' at ' || '${escapeSqlLiteral(deployTime)}',
-      updated_at = unixepoch()
-  WHERE workspace_id = '${escapeSqlLiteral(workspaceId)}' AND status = 'active'`);
-
-  console.log(`[post-deploy] memory synced — ${deployHash}`);
+  console.log(`[post-deploy] agentsam_memory synced — ${deployHash}`);
 } finally {
   await client.end().catch(() => {});
 }
