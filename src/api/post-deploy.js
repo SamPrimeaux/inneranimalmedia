@@ -1,9 +1,9 @@
 /**
  * API Handler: POST /api/internal/post-deploy
  *
- * Called after a successful worker deployment (e.g. promote-to-prod / CI).
- * Syncs Agent Sam's knowledge context cache
- * in KV so the AI has fresh awareness of the codebase state.
+ * Called after a successful worker deployment (e.g. promote-to-prod / CI / deploy-frontend.sh).
+ * Syncs Agent Sam deploy markers in KV and runs D1 agentsam_hook rows with trigger = post_deploy
+ * (see fireHooks in cicd-event.js → agentsam_hook_execution).
  *
  * Auth (any one): X-Ingest-Secret (INGEST_SECRET), X-Internal-Secret or Bearer INTERNAL_API_SECRET,
  *                 or Bearer AGENTSAM_BRIDGE_KEY (same key as MCP bridge).
@@ -11,6 +11,7 @@
  */
 
 import { isIngestSecretAuthorized, verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
+import { fireHooks } from './cicd-event.js';
 
 function isPostDeployAuthorized(request, env) {
   if (isIngestSecretAuthorized(request, env)) return true;
@@ -39,6 +40,10 @@ export async function handlePostDeploy(request, env, ctx) {
   const gitHash       = body.git_hash      || body.gitHash || 'unknown';
   const version       = body.version       || body.dashboard_version || 'unknown';
   const workerVersion = body.worker_version_id || 'unknown';
+  const deployDurationMs =
+    typeof body.deploy_duration_ms === 'number' && Number.isFinite(body.deploy_duration_ms)
+      ? body.deploy_duration_ms
+      : undefined;
 
   if (!env.KV) {
     return jsonResponse({ ok: false, error: 'KV not bound' }, 503);
@@ -96,6 +101,23 @@ export async function handlePostDeploy(request, env, ctx) {
       .bind(gitHash, JSON.stringify({ environment, version, keys_written: keysWritten, synced_at: now }))
       .run()
       .catch(() => {})
+    );
+
+    // agentsam_hook rows with trigger = post_deploy (notify, webhooks, etc.) + agentsam_hook_execution audit
+    const hookPayload = {
+      environment,
+      git_hash: gitHash,
+      dashboard_version: version,
+      worker_version_id: workerVersion,
+      user_id: typeof body.user_id === 'string' && body.user_id.trim() ? body.user_id.trim() : undefined,
+      ms_wall: deployDurationMs,
+      health_status: body.health_status,
+      health_ms: body.health_ms,
+    };
+    ctx.waitUntil(
+      fireHooks('post_deploy', hookPayload, env).catch((e) =>
+        console.warn('[post-deploy] fireHooks post_deploy', e?.message || e),
+      ),
     );
   }
 

@@ -230,15 +230,15 @@ async function handleSessionEnd(p, env) {
   return Response.json({ ok: true, hours });
 }
 
-async function fireHooks(trigger, payload, env, isExplicitId = false) {
-  let query = `SELECT id, command FROM agentsam_hook WHERE trigger = ? AND is_active = 1`;
+export async function fireHooks(trigger, payload, env, isExplicitId = false) {
+  let query = `SELECT id, command, user_id FROM agentsam_hook WHERE trigger = ? AND is_active = 1`;
   if (isExplicitId) {
-    query = `SELECT id, command FROM agentsam_hook WHERE id = ? AND is_active = 1`;
+    query = `SELECT id, command, user_id FROM agentsam_hook WHERE id = ? AND is_active = 1`;
   }
 
   const hooks = await env.DB.prepare(query).bind(trigger).all();
 
-  for (const hook of hooks.results) {
+  for (const hook of hooks.results || []) {
     const start = Date.now();
     let status = 'success', error = null, output = null;
 
@@ -317,15 +317,26 @@ async function fireHooks(trigger, payload, env, isExplicitId = false) {
     }
 
     const executionId = `hke-${hook.id}-${Date.now()}`;
-    const actor =
+    const runUserId =
       (typeof payload?.user_id === 'string' && payload.user_id.trim()) ||
+      (typeof hook.user_id === 'string' && hook.user_id.trim()) ||
       (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ||
-      null;
+      'system_post_deploy';
     await env.DB.prepare(`
       INSERT INTO agentsam_hook_execution
         (id, hook_id, user_id, status, duration_ms, output, error, ran_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `).bind(executionId, hook.id, actor, status, Date.now() - start, output, error).run();
+    `).bind(executionId, hook.id, runUserId, status, Date.now() - start, output, error).run();
+
+    await env.DB.prepare(`
+      UPDATE agentsam_hook
+      SET run_count = COALESCE(run_count, 0) + 1,
+          last_run_at = datetime('now')
+      WHERE id = ?
+    `)
+      .bind(hook.id)
+      .run()
+      .catch(() => {});
 
     // Update hook_subscriptions counters
     await env.DB.prepare(`

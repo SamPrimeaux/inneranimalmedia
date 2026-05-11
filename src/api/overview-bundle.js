@@ -31,6 +31,16 @@ function mapErrorLogSeverity(errorType) {
   return 'low';
 }
 
+/** @param {string | null | undefined} status */
+function cronHeatmapCell(status) {
+  const x = String(status || '').toLowerCase();
+  if (x === 'failed' || x === 'error' || x === 'timeout') return 'fail';
+  if (x === 'skipped' || x === 'cancelled') return 'skip';
+  if (x === 'running' || x === 'started' || x === 'pending') return 'warn';
+  if (x === 'completed' || x === 'success' || x === 'ok') return 'ok';
+  return 'empty';
+}
+
 /** @param {unknown} v */
 function errorLogTsMs(v) {
   if (v == null || v === '') return 0;
@@ -81,6 +91,10 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
     routing_arms: [],
     routing_timeseries: [],
     cron_latest: [],
+    /** @type {Array<{ job_name: string; runs: Array<'ok'|'fail'|'skip'|'warn'|'empty'> }>} */
+    cron_heatmap: [],
+    /** @type {Array<{ date: string; high: number; medium: number; low: number }>} */
+    error_severity_timeseries: [],
     github_push_events: [],
     deployment_stats: { total: 0, succeeded: 0, failed: 0, cancelled: 0, avg_ms: 0 },
     deployment_timeseries: [],
@@ -368,7 +382,55 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
     const mergedErr = [...fromTable, ...fromWf].sort(
       (a, b) => errorLogTsMs(b.created_at) - errorLogTsMs(a.created_at),
     );
-    out.error_log = mergedErr.slice(0, 15);
+    out.error_log = mergedErr.slice(0, 40);
+
+    // Stacked severity counts by day (7d) for Error Inbox chart
+    const sevRows = await all(
+      db,
+      `SELECT date(datetime(created_at, 'unixepoch')) AS d,
+        SUM(CASE
+          WHEN LOWER(COALESCE(error_type,'')) LIKE '%fatal%' OR LOWER(COALESCE(error_type,'')) LIKE '%crash%' THEN 1 ELSE 0 END) AS high,
+        SUM(CASE
+          WHEN LOWER(COALESCE(error_type,'')) LIKE '%fatal%' OR LOWER(COALESCE(error_type,'')) LIKE '%crash%' THEN 0
+          WHEN LOWER(COALESCE(error_type,'')) LIKE '%degraded%' OR LOWER(COALESCE(error_type,'')) LIKE '%eval%' THEN 1
+          ELSE 0 END) AS medium,
+        SUM(CASE
+          WHEN LOWER(COALESCE(error_type,'')) LIKE '%fatal%' OR LOWER(COALESCE(error_type,'')) LIKE '%crash%' THEN 0
+          WHEN LOWER(COALESCE(error_type,'')) LIKE '%degraded%' OR LOWER(COALESCE(error_type,'')) LIKE '%eval%' THEN 0
+          ELSE 1 END) AS low
+       FROM agentsam_error_log
+       WHERE workspace_id = ? AND resolved = 0
+         AND created_at >= (unixepoch() - 7 * 86400)
+       GROUP BY 1 ORDER BY 1 ASC`,
+      [workspaceId],
+    );
+    const wfDayRows = await all(
+      db,
+      `SELECT date(datetime(started_at, 'unixepoch')) AS d, COUNT(*) AS n
+       FROM agentsam_workflow_runs
+       WHERE tenant_id = ? AND workspace_id = ?
+         AND status IN ('failed', 'timeout')
+         AND started_at >= (unixepoch() - 7 * 86400)
+       GROUP BY 1 ORDER BY 1 ASC`,
+      [tid, workspaceId],
+    );
+    const byDay = new Map();
+    for (const r of sevRows) {
+      const d = String(r.d || '');
+      byDay.set(d, {
+        date: d,
+        high: Number(r.high) || 0,
+        medium: Number(r.medium) || 0,
+        low: Number(r.low) || 0,
+      });
+    }
+    for (const r of wfDayRows) {
+      const d = String(r.d || '');
+      const cur = byDay.get(d) || { date: d, high: 0, medium: 0, low: 0 };
+      cur.medium += Number(r.n) || 0;
+      byDay.set(d, cur);
+    }
+    out.error_severity_timeseries = [...byDay.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
   } else {
     out._meta.warnings.push('error_log_skipped_no_workspace_id');
   }
@@ -680,6 +742,39 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
      ORDER BY c.job_name ASC LIMIT 40`,
     [tid, tid],
   );
+
+  // ── Cron heatmap: up to 36 jobs × 7 most recent runs (pass/fail cells) ──
+  const cronRanked = await all(
+    db,
+    `WITH ranked AS (
+       SELECT job_name, status, started_at,
+         ROW_NUMBER() OVER (PARTITION BY job_name ORDER BY started_at DESC) AS rn
+       FROM agentsam_cron_runs
+       WHERE tenant_id IS NULL OR tenant_id = ?
+     )
+     SELECT job_name, status, started_at, rn FROM ranked WHERE rn <= 7`,
+    [tid],
+  );
+  /** @type {Map<string, Array<'ok'|'fail'|'skip'|'warn'|'empty'>>} */
+  const jobCells = new Map();
+  /** @type {Map<string, number>} */
+  const jobLatestTs = new Map();
+  for (const row of cronRanked) {
+    const jn = String(row.job_name || 'job');
+    const rn = Number(row.rn) || 1;
+    const idx = rn - 1;
+    if (idx < 0 || idx > 6) continue;
+    if (!jobCells.has(jn)) jobCells.set(jn, /** @type {Array<'ok'|'fail'|'skip'|'warn'|'empty'>} */ (['empty', 'empty', 'empty', 'empty', 'empty', 'empty', 'empty']));
+    const arr = jobCells.get(jn);
+    arr[idx] = cronHeatmapCell(row.status);
+    const ts = Number(row.started_at) || 0;
+    if (!jobLatestTs.has(jn) || ts > jobLatestTs.get(jn)) jobLatestTs.set(jn, ts);
+  }
+  const jobsSorted = [...jobCells.keys()].sort((a, b) => (jobLatestTs.get(b) || 0) - (jobLatestTs.get(a) || 0)).slice(0, 36);
+  out.cron_heatmap = jobsSorted.map((job_name) => ({
+    job_name,
+    runs: jobCells.get(job_name) || ['empty', 'empty', 'empty', 'empty', 'empty', 'empty', 'empty'],
+  }));
 
   // ── GitHub webhook timeline (richest deploy signal) ─────────────────────
   out.github_push_events = await all(
