@@ -4699,7 +4699,30 @@ export async function handleAgentApi(request, url, env, ctx) {
   }
 
   // POST /api/agent/tool-smoke — run builtin dispatcher without LLM (cheap wiring check)
-  if (path === '/api/agent/tool-smoke' && method === 'POST') {
+  if (path === '/api/agent/tool-smoke') {
+    if (method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          Allow: 'POST, OPTIONS',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Terminal-Secret',
+        },
+      });
+    }
+    if (method !== 'POST') {
+      return jsonResponse(
+        {
+          error: 'method_not_allowed',
+          path,
+          allowed: 'POST',
+          hint: 'Send POST with JSON: { "tool": "d1_query", "args": { "sql": "SELECT 1" } }',
+        },
+        405,
+      );
+    }
+
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!identity?.workspaceId) {
