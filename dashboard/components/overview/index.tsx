@@ -174,7 +174,7 @@ export default function OverviewPage() {
         <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.2fr 1.5fr 1.1fr", gap: 10, marginBottom: 10 }}>
           <WorkflowRunsChart workflowTimeseries={bundle?.workflow_timeseries} stackRows={bundle?.workflow_by_day_status} />
           <ToolWaterfall toolWaterfall={bundle?.tool_waterfall} />
-          <ErrorInbox errorLog={bundle?.error_log} />
+          <ErrorInbox errorLog={bundle?.error_log} errorSeverityTimeseries={bundle?.error_severity_timeseries} />
           <TokensChart tokenTimeseries={bundle?.token_timeseries} />
         </div>
 
@@ -192,7 +192,7 @@ export default function OverviewPage() {
             deploymentStats={bundle?.deployment_stats}
             deploymentTimeseries={bundle?.deployment_timeseries}
           />
-          <SystemHealth crons={bundle?.cron_latest} />
+          <SystemHealth crons={bundle?.cron_latest} cronHeatmap={bundle?.cron_heatmap} />
         </div>
 
         <ActiveProjects projects={top} plans={bundle?.active_plans} />

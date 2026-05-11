@@ -2,6 +2,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { T, fmt } from "../constants";
 import { Card, CardHeader, Tip, Ico } from "../primitives";
 
+const BAR_FILLS = [T.accent, T.blue, T.violet, T.green, T.amber, "#94a3b8", "#f472b6"];
+
 export function TopServices({ events }: { events: Array<{ type: string; count: number }> }) {
   const svcs =
     events.length > 0
@@ -27,10 +29,7 @@ export function TopServices({ events }: { events: Array<{ type: string; count: n
           <Tooltip content={<Tip fmt={(v: number) => fmt.num(v)} />} />
           <Bar dataKey="value" name="Calls" radius={[0, 3, 3, 0]}>
             {chartData.map((_, i) => (
-              <Cell
-                key={i}
-                fill={`color-mix(in srgb, var(--accent-secondary, var(--solar-cyan)) ${Math.max(28, Math.round((1 - i * 0.11) * 100))}%, transparent)`}
-              />
+              <Cell key={i} fill={BAR_FILLS[i % BAR_FILLS.length]} fillOpacity={0.92} stroke={T.border} strokeWidth={0.5} />
             ))}
           </Bar>
         </BarChart>
@@ -39,13 +38,14 @@ export function TopServices({ events }: { events: Array<{ type: string; count: n
         {svcs.slice(0, 4).map((s, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 9, color: T.muted }}>
             <span style={{ width: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.type}</span>
-            <div style={{ flex: 1, height: 3, background: T.track, borderRadius: 2, overflow: "hidden" }}>
+            <div style={{ flex: 1, height: 4, background: T.track, borderRadius: 2, overflow: "hidden" }}>
               <div
                 style={{
                   height: "100%",
                   width: `${(s.count / maxCalls) * 100}%`,
-                  background: `color-mix(in srgb, var(--accent-secondary, var(--solar-cyan)) ${Math.max(25, Math.round((0.9 - i * 0.18) * 100))}%, transparent)`,
+                  background: BAR_FILLS[i % BAR_FILLS.length],
                   borderRadius: 2,
+                  opacity: 0.95,
                 }}
               />
             </div>

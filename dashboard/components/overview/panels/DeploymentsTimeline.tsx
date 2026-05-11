@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import type { DashboardBundle, DeployData } from "../types";
 import { T, DAYS } from "../constants";
 import { Card, CardHeader, Dot, Pill, Tip, Ico } from "../primitives";
+
+const COMMIT_PREVIEW = 7;
 
 export function DeploymentsTimeline({
   data,
@@ -47,6 +50,10 @@ export function DeploymentsTimeline({
       repo: String(g.repo_full_name || ""),
     })) || [];
   const rows = ghRows.length > 0 ? ghRows : deploys.length > 0 ? deploys : fallback;
+  const [commitsExpanded, setCommitsExpanded] = useState(false);
+  const visibleRows = commitsExpanded ? rows : rows.slice(0, COMMIT_PREVIEW);
+  const moreCommits = rows.length > COMMIT_PREVIEW;
+
   return (
     <Card style={{ flex: "2 1 340px" }}>
       <CardHeader icon={Ico.deploy} title="Deployments Timeline" action={<Pill label="agentsam_webhook_events" />} />
@@ -83,8 +90,20 @@ export function DeploymentsTimeline({
           </div>
         ))}
       </div>
+      <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>Recent activity</span>
+        {moreCommits ? (
+          <button
+            type="button"
+            onClick={() => setCommitsExpanded((v) => !v)}
+            style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0, fontWeight: 600 }}
+          >
+            {commitsExpanded ? "Show less" : `View all (${rows.length})`}
+          </button>
+        ) : null}
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-        {rows.map((d: any, i: number) => (
+        {visibleRows.map((d: any, i: number) => (
           <div
             key={i}
             style={{
@@ -92,7 +111,7 @@ export function DeploymentsTimeline({
               alignItems: "center",
               gap: 8,
               padding: "6px 0",
-              borderBottom: i < rows.length - 1 ? `1px solid ${T.border}` : "none",
+              borderBottom: i < visibleRows.length - 1 ? `1px solid ${T.border}` : "none",
               fontSize: 10,
             }}
           >

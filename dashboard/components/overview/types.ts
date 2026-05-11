@@ -93,6 +93,8 @@ export type DashboardBundle = {
     created_at: number;
     severity: "high" | "medium" | "low";
   }>;
+  /** 7d stacked severity counts (high / medium / low) for Error Inbox chart */
+  error_severity_timeseries?: Array<{ date: string; high: number; medium: number; low: number }>;
   tokens_by_day?: Array<{ day: string; tin: number; tout: number }>;
   token_timeseries?: Array<{ date: string; input: number; output: number; cached: number }>;
   model_leaderboard?: Array<{
@@ -135,6 +137,8 @@ export type DashboardBundle = {
   }>;
   routing_timeseries?: Array<{ date: string; primary: number; fallback: number }>;
   cron_latest?: Array<{ job_name: string; status: string; duration_ms: number; error_message?: string | null; started_at?: number }>;
+  /** Newest-first run outcomes per job (length 7); cells: ok | fail | skip | warn | empty */
+  cron_heatmap?: Array<{ job_name: string; runs: Array<"ok" | "fail" | "skip" | "warn" | "empty"> }>;
   github_push_events?: Array<{
     commit_message?: string | null;
     author_username?: string | null;
