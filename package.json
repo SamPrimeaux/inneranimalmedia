@@ -13,6 +13,7 @@
     "start": "node server.js",
     "deploy": "./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml",
     "generate:route-map": "node scripts/generate-route-map.js",
+    "build:codebase-priority": "node scripts/build-index-priority-files.mjs",
     "ingest:docs": "./scripts/with-cloudflare-env.sh node scripts/ingest-docs.js",
     "ingest:d1-memory": "./scripts/with-cloudflare-env.sh node scripts/ingest-d1-memory.js",
     "reingest:supabase-documents:dry-run": "./scripts/with-cloudflare-env.sh node scripts/reingest-supabase-documents.mjs --dry-run",

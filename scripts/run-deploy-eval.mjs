@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Post-deploy smoke: health check + semantic_search_log via Postgres RPC (when SUPABASE_DB_URL set).
+ * Post-deploy smoke: health check + semantic_search_log insert (when SUPABASE_DB_URL set).
  * Writes .deploy-eval-results.json for record-supabase-deploy-complete.mjs
  *
  * Semantic RPC smoke is advisory unless STRICT_SEMANTIC_SMOKE=1 (then failure fails overall_success).
@@ -40,8 +40,14 @@ async function logSemanticSearchPg(client, args) {
     latencyMs,
     metadata,
   } = args;
+  const t = tenantId != null ? String(tenantId).trim() : '';
+  if (!t) return;
   await client.query(
-    `SELECT public.log_semantic_search(
+    `INSERT INTO public.semantic_search_log (
+      search_fn, tenant_id, session_id, query_preview,
+      match_threshold, match_count_requested, match_count_returned,
+      top_similarity, avg_similarity, sources_hit, latency_ms, metadata
+    ) VALUES (
       $1::text, $2::text, $3::text, $4::text,
       $5::double precision, $6::integer, $7::integer,
       $8::double precision, $9::double precision,
@@ -49,9 +55,9 @@ async function logSemanticSearchPg(client, args) {
     )`,
     [
       searchFn,
-      tenantId ?? null,
+      t,
       sessionId ?? null,
-      String(queryPreview ?? '').slice(0, 500),
+      String(queryPreview ?? '').slice(0, 300),
       matchThreshold,
       matchCountRequested,
       matchCountReturned,

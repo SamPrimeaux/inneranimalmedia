@@ -5,7 +5,12 @@
  * (identity + policy strings). Do not prepend ahead of core system instructions.
  */
 
-import { searchAgentMemoryHybrid } from '../api/rag.js';
+import {
+  logSemanticSearch,
+  ragEmbeddingDims,
+  ragEmbeddingModel,
+  searchAgentMemoryHybrid,
+} from '../api/rag.js';
 import { compactToolStatsCompacted } from './tool-stats-rollup.js';
 
 const IAM_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
@@ -87,10 +92,35 @@ export async function loadAgentMemoryForPrompt(env, tenantId, ctx = {}) {
       : null;
 
   if (workspaceId) {
+    const tHybrid = Date.now();
     const hybridRows = await searchAgentMemoryHybrid(env, userMessage, workspaceId, {});
-    if (Array.isArray(hybridRows) && hybridRows.length > 0) {
+    const hybridMs = Date.now() - tHybrid;
+    const hr = Array.isArray(hybridRows) ? hybridRows : [];
+    const hybridSims = hr.map((r) => Number(r.hybrid_score)).filter((n) => Number.isFinite(n));
+    const topHybrid = hybridSims.length ? Math.max(...hybridSims) : null;
+    const avgHybrid = hybridSims.length ? hybridSims.reduce((a, b) => a + b, 0) / hybridSims.length : null;
+    await logSemanticSearch(env, {
+      searchFn: 'agent_memory_search',
+      tenantId,
+      sessionId: ctx.sessionId ?? null,
+      queryPreview: userMessage,
+      matchThreshold: 0.75,
+      matchCountRequested: 10,
+      matchCountReturned: hr.length,
+      topSimilarity: topHybrid,
+      avgSimilarity: avgHybrid,
+      sourcesHit: ['agent_memory'],
+      latencyMs: hybridMs,
+      metadata: {
+        workspace_id: workspaceId,
+        path: 'hyperdrive_search_agent_memory',
+        embed_model: ragEmbeddingModel(env) || null,
+        embedding_dims: Number.isFinite(ragEmbeddingDims(env)) ? ragEmbeddingDims(env) : null,
+      },
+    });
+    if (hr.length > 0) {
       console.log('[rag] memory search via', 'hyperdrive');
-      const mapped = hybridRows.map((r) => ({
+      const mapped = hr.map((r) => ({
         similarity: r.hybrid_score,
         content: r.content,
       }));
@@ -105,6 +135,7 @@ export async function loadAgentMemoryForPrompt(env, tenantId, ctx = {}) {
     return fallback();
   }
   try {
+    const tRecall = Date.now();
     const resp = await env.AI.run(IAM_EMBED_MODEL, {
       text: [userMessage.slice(0, 8000)],
     });
@@ -123,7 +154,31 @@ export async function loadAgentMemoryForPrompt(env, tenantId, ctx = {}) {
       ctx.agentId ?? null,
       ctx.workspaceId ?? null,
     );
-    if (!Array.isArray(recalled) || !recalled.length) return fallback();
+    const recallMs = Date.now() - tRecall;
+    const rec = Array.isArray(recalled) ? recalled : [];
+    const recSims = rec.map((r) => Number(r.similarity)).filter((n) => Number.isFinite(n));
+    const topRec = recSims.length ? Math.max(...recSims) : null;
+    const avgRec = recSims.length ? recSims.reduce((a, b) => a + b, 0) / recSims.length : null;
+    await logSemanticSearch(env, {
+      searchFn: 'agent_memory_search',
+      tenantId,
+      sessionId: ctx.sessionId ?? null,
+      queryPreview: userMessage,
+      matchThreshold: 0.75,
+      matchCountRequested: 10,
+      matchCountReturned: rec.length,
+      topSimilarity: topRec,
+      avgSimilarity: avgRec,
+      sourcesHit: ['agent_memory'],
+      latencyMs: recallMs,
+      metadata: {
+        workspace_id: workspaceId,
+        path: 'supabase_recall_agent_memory',
+        embed_model: IAM_EMBED_MODEL,
+        embedding_dims: queryEmbedding.length,
+      },
+    });
+    if (!rec.length) return fallback();
     const block = formatSemanticRecallBlock(recalled);
     return block || fallback();
   } catch {

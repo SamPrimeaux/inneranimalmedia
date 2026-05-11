@@ -93,11 +93,11 @@ function ragDocumentsProjectId(env) {
   return String(env.RAG_DOCUMENTS_PROJECT_ID || '').trim();
 }
 
-function ragEmbeddingModel(env) {
+export function ragEmbeddingModel(env) {
   return String(env.RAG_OPENAI_EMBEDDING_MODEL || '').trim();
 }
 
-function ragEmbeddingDims(env) {
+export function ragEmbeddingDims(env) {
   const n = Number(env.RAG_EMBEDDING_DIMENSIONS || 1024);
   return Number.isFinite(n) && n > 0 ? n : NaN;
 }
@@ -387,7 +387,8 @@ async function documentSourceExists(env, source, projectId) {
 }
 
 /**
- * Same contract as unified-search: `public.log_semantic_search` → `semantic_search_log`.
+ * Insert one observability row into `public.semantic_search_log` (Hyperdrive / pg).
+ * Skips when tenant_id is missing (required NOT NULL + RLS tenant scope).
  *
  * @param {any} env
  * @param {{
@@ -405,10 +406,12 @@ async function documentSourceExists(env, source, projectId) {
  *   metadata?: Record<string, unknown>,
  * }} args
  */
-async function logSemanticSearch(env, args) {
+export async function logSemanticSearch(env, args) {
+  const tenantRaw = args.tenantId != null ? String(args.tenantId).trim() : '';
+  if (!tenantRaw) return;
+
   const {
     searchFn,
-    tenantId,
     sessionId,
     queryPreview,
     matchThreshold,
@@ -420,11 +423,16 @@ async function logSemanticSearch(env, args) {
     latencyMs,
     metadata,
   } = args;
+
+  const metaObj = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
+  const sessionTrim =
+    sessionId != null && String(sessionId).trim() !== '' ? String(sessionId).trim().slice(0, 500) : null;
+
   const params = [
-    searchFn,
-    tenantId ?? null,
-    sessionId ?? null,
-    String(queryPreview ?? '').slice(0, 500),
+    String(searchFn || 'unknown').slice(0, 200),
+    tenantRaw,
+    sessionTrim,
+    String(queryPreview ?? '').slice(0, 300),
     matchThreshold,
     matchCountRequested,
     matchCountReturned,
@@ -432,19 +440,25 @@ async function logSemanticSearch(env, args) {
     avgSimilarity ?? null,
     JSON.stringify(Array.isArray(sourcesHit) ? sourcesHit : []),
     Math.max(0, Math.floor(latencyMs ?? 0)),
-    JSON.stringify(metadata && typeof metadata === 'object' ? metadata : {}),
+    JSON.stringify(metaObj),
   ];
-  const sql = `SELECT public.log_semantic_search(
+
+  const sql = `INSERT INTO public.semantic_search_log (
+    search_fn, tenant_id, session_id, query_preview,
+    match_threshold, match_count_requested, match_count_returned,
+    top_similarity, avg_similarity, sources_hit, latency_ms, metadata
+  ) VALUES (
     $1::text, $2::text, $3::text, $4::text,
     $5::double precision, $6::integer, $7::integer,
     $8::double precision, $9::double precision,
     $10::jsonb, $11::integer, $12::jsonb
   )`;
+
   try {
     const r = await runHyperdriveQuery(env, sql, params);
     if (!r.ok) await withPg(env, (client) => client.query(sql, params));
   } catch (e) {
-    console.warn('[rag] log_semantic_search:', e?.message ?? e);
+    console.warn('[rag] semantic_search_log insert:', e?.message ?? e);
   }
 }
 
@@ -567,17 +581,50 @@ export async function unifiedRagSearch(env, query, opts = {}) {
   const topK = Math.min(Math.max(1, opts.topK || 8), 24);
   const _t0 = Date.now();
   const tenantId = opts.tenantId != null && String(opts.tenantId).trim() !== '' ? String(opts.tenantId).trim() : null;
-  const { results, error } = await runUnifiedRagQuery(env, {
+  const workspaceId =
+    opts.workspaceId != null && String(opts.workspaceId).trim() !== '' ? String(opts.workspaceId).trim() : null;
+  const sessionId =
+    opts.sessionId != null && String(opts.sessionId).trim() !== '' ? String(opts.sessionId).trim() : null;
+  const reqLimit = Math.max(topK, 10);
+  const { results, error, embeddingDims } = await runUnifiedRagQuery(env, {
     query: q,
     tenantId,
     threshold: 0.7,
-    limit: Math.max(topK, 10),
+    limit: reqLimit,
     includeSessions: true,
   });
+  const latencyMs = Date.now() - _t0;
   if (error) {
     return { matches: [], results: [], count: 0, _error: error };
   }
   const sliced = results.slice(0, topK);
+
+  if (tenantId) {
+    const sims = sliced.map((r) => r.similarity).filter((n) => Number.isFinite(n));
+    const topSim = sims.length ? Math.max(...sims) : null;
+    const avgSim = sims.length ? sims.reduce((a, b) => a + b, 0) / sims.length : null;
+    const sourcesHit = [...new Set(sliced.map((r) => String(r.source || '')).filter(Boolean))];
+    await logSemanticSearch(env, {
+      searchFn: 'unified_rag_search',
+      tenantId,
+      sessionId,
+      queryPreview: q,
+      matchThreshold: 0.7,
+      matchCountRequested: reqLimit,
+      matchCountReturned: sliced.length,
+      topSimilarity: topSim,
+      avgSimilarity: avgSim,
+      sourcesHit,
+      latencyMs,
+      metadata: {
+        workspace_id: workspaceId,
+        embed_model: ragEmbeddingModel(env) || null,
+        embedding_dims: embeddingDims ?? null,
+        rag_documents_project_id: ragDocumentsProjectId(env) || null,
+      },
+    });
+  }
+
   return {
     matches: sliced.map((x) => {
       const tag = x.source ? `[${x.source}] ` : '';
@@ -590,7 +637,7 @@ export async function unifiedRagSearch(env, query, opts = {}) {
       score: Math.round(x.similarity * 1000) / 1000,
     })),
     count: sliced.length,
-    _meta: { duration_ms: Date.now() - _t0 },
+    _meta: { duration_ms: latencyMs },
   };
 }
 
@@ -737,7 +784,7 @@ async function handleRagSearchRoute(request, env) {
   }
 
   const tSearch = Date.now();
-  const { results, error: searchErr } = await runUnifiedRagQuery(env, {
+  const { results, error: searchErr, embeddingDims } = await runUnifiedRagQuery(env, {
     query,
     tenantId,
     threshold,
@@ -766,7 +813,8 @@ async function handleRagSearchRoute(request, env) {
     latencyMs,
     metadata: {
       include_sessions: includeSessions,
-      openai_embedding_model: ragEmbeddingModel(env) || null,
+      embed_model: ragEmbeddingModel(env) || null,
+      embedding_dims: embeddingDims ?? null,
       rag_documents_project_id: ragDocumentsProjectId(env) || null,
     },
   });
@@ -836,6 +884,188 @@ async function handleRagSync(request, env) {
   }
 
   return jsonResponse({ ok: true, synced: synced.length, skipped: skipped.length, errors });
+}
+
+/**
+ * Insert one curated row into `public.agent_memory` with an OpenAI embedding (same model/dims as RAG).
+ * Requires HYPERDRIVE, OPENAI_API_KEY, OPENAI_API_BASE_URL, RAG_OPENAI_EMBEDDING_MODEL, RAG_EMBEDDING_DIMENSIONS.
+ *
+ * @param {any} env
+ * @param {{
+ *   content: string,
+ *   session_id: string,
+ *   role?: string,
+ *   agent_id?: string,
+ *   metadata?: Record<string, unknown>,
+ *   workspace_id?: string | null,
+ *   tenant_id?: string | null,
+ *   user_id?: string | null,
+ * }} params
+ * @returns {Promise<{ id: string, embedding_dims: number, embed_model: string }>}
+ */
+export async function insertCuratedAgentMemory(env, params) {
+  const content = String(params.content || '').trim();
+  if (!content) throw new Error('content required');
+  const session_id = String(params.session_id || '').trim();
+  if (!session_id) throw new Error('session_id required');
+
+  const roleRaw = String(params.role || 'assistant').toLowerCase();
+  if (roleRaw !== 'user' && roleRaw !== 'assistant') {
+    throw new Error('role must be user or assistant');
+  }
+  const agent_id = String(params.agent_id || 'agent-sam').trim() || 'agent-sam';
+  const metadata =
+    params.metadata && typeof params.metadata === 'object' && params.metadata !== null && !Array.isArray(params.metadata)
+      ? params.metadata
+      : {};
+
+  const workspace_id =
+    params.workspace_id != null && String(params.workspace_id).trim() !== ''
+      ? String(params.workspace_id).trim()
+      : null;
+  const tenant_id =
+    params.tenant_id != null && String(params.tenant_id).trim() !== '' ? String(params.tenant_id).trim() : null;
+  const user_id =
+    params.user_id != null && String(params.user_id).trim() !== '' ? String(params.user_id).trim() : null;
+
+  const embed_model = ragEmbeddingModel(env);
+  const expectedDims = ragEmbeddingDims(env);
+  if (!embed_model) throw new Error('RAG_OPENAI_EMBEDDING_MODEL not configured');
+  if (!Number.isFinite(expectedDims)) throw new Error('RAG_EMBEDDING_DIMENSIONS not configured');
+
+  const embedding = await openaiCreateEmbedding(env, content);
+  const dims = embedding.length;
+  if (dims !== expectedDims) {
+    throw new Error(`embedding length ${dims} does not match RAG_EMBEDDING_DIMENSIONS (${expectedDims})`);
+  }
+
+  const vecLit = vectorLiteral(embedding);
+
+  return await withPg(env, async (client) => {
+    const ins = await client.query(
+      `INSERT INTO public.agent_memory (
+        session_id, agent_id, role, content, metadata,
+        embedding, workspace_id, embed_model, tenant_id, user_id
+      ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::vector, $7, $8, $9, $10)
+      RETURNING id`,
+      [
+        session_id,
+        agent_id,
+        roleRaw,
+        content,
+        metadata,
+        vecLit,
+        workspace_id,
+        embed_model,
+        tenant_id,
+        user_id,
+      ],
+    );
+    const id = ins.rows?.[0]?.id;
+    if (!id) throw new Error('insert returned no id');
+
+    const verify = await client.query(
+      `SELECT vector_dims(embedding) AS dims FROM public.agent_memory WHERE id = $1::uuid`,
+      [id],
+    );
+    const vd = verify.rows?.[0]?.dims;
+    if (vd != null && Number(vd) !== expectedDims) {
+      throw new Error(`vector_dims check failed: got ${vd}, expected ${expectedDims}`);
+    }
+
+    return {
+      id: String(id),
+      embedding_dims: dims,
+      embed_model,
+    };
+  });
+}
+
+/**
+ * Semantic-only search on `public.agent_memory` (cosine distance via pgvector).
+ * Unlike `search_agent_memory`, this does **not** require trigram `%` on query text,
+ * so paraphrased questions still match.
+ *
+ * @param {any} env
+ * @param {{
+ *   query: string,
+ *   workspace_id: string,
+ *   tenant_id: string | null,
+ *   user_id?: string | null,
+ *   session_id?: string | null,
+ *   limit?: number,
+ * }} opts
+ * @returns {Promise<{ embed_model: string, results: Array<Record<string, unknown>> }>}
+ */
+export async function searchCuratedAgentMemory(env, opts) {
+  const query = String(opts.query || '').trim();
+  if (!query) throw new Error('query required');
+  const workspace_id = String(opts.workspace_id || '').trim();
+  if (!workspace_id) throw new Error('workspace_id required');
+
+  const tenant_id =
+    opts.tenant_id != null && String(opts.tenant_id).trim() !== '' ? String(opts.tenant_id).trim() : null;
+  const user_id =
+    opts.user_id != null && String(opts.user_id).trim() !== '' ? String(opts.user_id).trim() : null;
+  const session_id =
+    opts.session_id != null && String(opts.session_id).trim() !== '' ? String(opts.session_id).trim() : null;
+
+  let limit = Number(opts.limit);
+  if (!Number.isFinite(limit) || limit < 1) limit = 10;
+  if (limit > 50) limit = 50;
+
+  const embed_model = ragEmbeddingModel(env);
+  if (!embed_model) throw new Error('RAG_OPENAI_EMBEDDING_MODEL not configured');
+  if (!Number.isFinite(ragEmbeddingDims(env))) throw new Error('RAG_EMBEDDING_DIMENSIONS not configured');
+
+  const embedding = await openaiCreateEmbedding(env, query);
+  const vecLit = vectorLiteral(embedding);
+
+  return await withPg(env, async (client) => {
+    const sql = `
+      SELECT
+        am.id,
+        am.session_id,
+        am.agent_id,
+        am.role,
+        am.content,
+        am.metadata,
+        am.created_at,
+        am.tenant_id,
+        am.workspace_id,
+        am.user_id,
+        (am.embedding <=> $1::vector)::double precision AS embedding_distance
+      FROM public.agent_memory am
+      WHERE am.embedding IS NOT NULL
+        AND am.workspace_id = $2
+        AND ($3::text IS NULL OR am.tenant_id = $3)
+        AND ($4::text IS NULL OR am.user_id = $4 OR am.user_id IS NULL)
+        AND ($5::text IS NULL OR am.session_id = $5)
+      ORDER BY am.embedding <=> $1::vector
+      LIMIT $6`;
+    const { rows } = await client.query(sql, [vecLit, workspace_id, tenant_id, user_id, session_id, limit]);
+
+    const results = (rows || []).map((r) => {
+      const d = r.embedding_distance != null ? Number(r.embedding_distance) : NaN;
+      const similarity = Number.isFinite(d) ? Math.max(0, Math.min(1, 1 - d)) : null;
+      return {
+        id: r.id,
+        session_id: r.session_id,
+        agent_id: r.agent_id,
+        role: r.role,
+        content: r.content,
+        metadata: r.metadata,
+        created_at: r.created_at,
+        tenant_id: r.tenant_id,
+        workspace_id: r.workspace_id,
+        user_id: r.user_id,
+        embedding_distance: r.embedding_distance,
+        similarity,
+      };
+    });
+
+    return { embed_model, results };
+  });
 }
 
 /**

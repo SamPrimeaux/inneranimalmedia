@@ -55,6 +55,9 @@ trap deploy_full_err ERR
 export DEPLOY_PHASE=generate_route_map
 npm run generate:route-map
 
+export DEPLOY_PHASE=build_codebase_priority
+node "$REPO_ROOT/scripts/build-index-priority-files.mjs" || true
+
 export DEPLOY_PHASE=vite_build
 BUILD_START_EPOCH=$(date +%s)
 npm run build:vite-only

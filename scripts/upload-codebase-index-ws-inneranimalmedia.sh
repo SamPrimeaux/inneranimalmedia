@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/Users/samprimeaux/Downloads/inneranimalmedia"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKSPACE_ID="ws_inneranimalmedia"
 BUCKET="inneranimalmedia"
 

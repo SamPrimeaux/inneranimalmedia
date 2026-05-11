@@ -255,7 +255,6 @@ export async function syncWorkflowRunToSupabase(env, run) {
   const key = env?.SUPABASE_SERVICE_ROLE_KEY;
   const db = env?.DB;
   if (!key || !run?.id || !db) return;
-  const base = restOriginForRpc(env);
   const secToIso = (t) => {
     if (t == null || t === '') return null;
     const n = Number(t);
@@ -278,44 +277,29 @@ export async function syncWorkflowRunToSupabase(env, run) {
   if (status === 'success') status = 'completed';
 
   try {
-    const res = await fetch(`${base}/rest/v1/rpc/sync_workflow_run`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-        apikey: key,
-      },
-      body: JSON.stringify({
-        p_d1_workflow_id: run.id,
-        p_workflow_key: run.workflow_key ?? '',
-        p_display_name: run.display_name ?? '',
-        p_tenant_id: run.tenant_id ?? '',
-        p_workspace_id:
-          run.workspace_id ||
-          (env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-            ? String(env.DEFAULT_WORKSPACE_ID).trim()
-            : ''),
-        p_status: status || 'unknown',
-        p_started_at: secToIso(run.started_at),
-        p_completed_at: secToIso(run.completed_at),
-        p_duration_ms: run.duration_ms != null ? Number(run.duration_ms) : null,
-        p_cost_usd: run.cost_usd != null ? Number(run.cost_usd) : 0,
-        p_input_tokens: run.input_tokens != null ? Number(run.input_tokens) : 0,
-        p_output_tokens: run.output_tokens != null ? Number(run.output_tokens) : 0,
-        p_tool_calls_count: toolCallsCount,
-        p_error_message: run.error_message ?? null,
-        p_model_id: run.model_used ?? run.model_id ?? null,
-      }),
+    const supabaseRow = await createSupabaseWorkflowRun(env, {
+      d1_workflow_id: run.id,
+      workflow_key: run.workflow_key ?? '',
+      display_name: run.display_name ?? '',
+      tenant_id: run.tenant_id ?? '',
+      workspace_id:
+        run.workspace_id ||
+        (env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
+          ? String(env.DEFAULT_WORKSPACE_ID).trim()
+          : ''),
+      status: status || 'unknown',
+      started_at: secToIso(run.started_at),
+      completed_at: secToIso(run.completed_at),
+      duration_ms: run.duration_ms != null ? Number(run.duration_ms) : null,
+      cost_usd: run.cost_usd != null ? Number(run.cost_usd) : 0,
+      input_tokens: run.input_tokens != null ? Number(run.input_tokens) : 0,
+      output_tokens: run.output_tokens != null ? Number(run.output_tokens) : 0,
+      tool_calls_count: toolCallsCount,
+      error_message: run.error_message ?? null,
+      model_id: run.model_used ?? run.model_id ?? null,
     });
-    const bodyText = await res.text();
-    if (!res.ok) {
-      await patchD1WorkflowRunSupabaseMirrorState(env, run.id, {
-        ok: false,
-        error: `sync_workflow_run HTTP ${res.status}: ${bodyText.slice(0, 2000)}`,
-      });
-      return;
-    }
-    const supabaseRunId = parseSupabaseRpcWorkflowRunId(bodyText);
+
+    const supabaseRunId = supabaseRow?.id != null ? String(supabaseRow.id) : null;
     await patchD1WorkflowRunSupabaseMirrorState(env, run.id, { ok: true, supabaseRunId });
   } catch (e) {
     await patchD1WorkflowRunSupabaseMirrorState(env, run.id, {

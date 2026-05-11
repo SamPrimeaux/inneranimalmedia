@@ -6,6 +6,7 @@ import { getAuthUser } from '../core/auth.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 import { documentsSourceFilterSql, normalizeSourceFilters } from '../core/unified-source-filters.js';
 import { resolveGitHubToken } from '../core/github-token.js';
+import { logSemanticSearch } from './rag.js';
 
 /**
  * Must match `public.documents.embed_model` + `vector(1024)` ingest (Workers AI bge-large).
@@ -139,55 +140,6 @@ function mapDocumentRowToHit(row) {
     url,
     source: src,
   };
-}
-
-/**
- * @param {any} env
- * @param {object} args
- */
-async function logSemanticSearch(env, args) {
-  if (!isHyperdriveUsable(env)) return;
-  const {
-    searchFn,
-    tenantId,
-    sessionId,
-    queryPreview,
-    matchThreshold,
-    matchCountRequested,
-    matchCountReturned,
-    topSimilarity,
-    avgSimilarity,
-    sourcesHit,
-    latencyMs,
-    metadata,
-  } = args;
-  try {
-    await runHyperdriveQuery(
-      env,
-      `SELECT public.log_semantic_search(
-        $1::text, $2::text, $3::text, $4::text,
-        $5::double precision, $6::integer, $7::integer,
-        $8::double precision, $9::double precision,
-        $10::jsonb, $11::integer, $12::jsonb
-      )`,
-      [
-        searchFn,
-        tenantId ?? null,
-        sessionId ?? null,
-        String(queryPreview ?? '').slice(0, 500),
-        matchThreshold,
-        matchCountRequested,
-        matchCountReturned,
-        topSimilarity ?? null,
-        avgSimilarity ?? null,
-        JSON.stringify(Array.isArray(sourcesHit) ? sourcesHit : []),
-        Math.max(0, Math.floor(latencyMs ?? 0)),
-        JSON.stringify(metadata && typeof metadata === 'object' ? metadata : {}),
-      ],
-    );
-  } catch (e) {
-    console.warn('[unified-search] log_semantic_search', e?.message ?? e);
-  }
 }
 
 /**

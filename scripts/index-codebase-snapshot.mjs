@@ -15,6 +15,7 @@ import {
   DEPLOY_TOOL_EVENTS_FILE,
   DEPLOY_CODEBASE_INDEX_STATS_FILE,
 } from './lib/supabase-deploy-paths.mjs';
+import { collectAllPriorityRelPaths, AGENT_SAM_CANONICAL_KNOWLEDGE_EDGES } from './lib/priority-codebase-sources.mjs';
 
 const MODEL = '@cf/baai/bge-large-en-v1.5';
 
@@ -125,6 +126,51 @@ function chunkText(s, max = 5500) {
   return parts;
 }
 
+/** Line windows for code/SQL — better semantic chunks than raw char splits. */
+function chunkByLines(text, lineWindow = 100, overlap = 18) {
+  const lines = String(text ?? '').split('\n');
+  if (!lines.length) return [''];
+  const win = Math.max(20, lineWindow);
+  const ov = Math.max(0, Math.min(overlap, win - 1));
+  const out = [];
+  for (let i = 0; i < lines.length; i += win - ov) {
+    out.push(lines.slice(i, i + win).join('\n'));
+    if (i + win >= lines.length) break;
+  }
+  return out.length ? out : [''];
+}
+
+function chunkSourceForIndex(rel, body) {
+  if (/\.sql$/i.test(rel)) return chunkByLines(body, 85, 14);
+  if (/\.(tsx?|jsx?|mjs|cjs)$/i.test(rel)) return chunkByLines(body, 110, 20);
+  return chunkText(body, 5200);
+}
+
+const MAX_PRIORITY_EMBEDDED_CHUNKS = 220;
+const MAX_CHUNKS_PER_PRIORITY_FILE = 38;
+
+async function upsertCanonicalKnowledgeEdges(base, key, tenantId, workspaceId, snapshotId) {
+  const rows = AGENT_SAM_CANONICAL_KNOWLEDGE_EDGES.map((e) => ({
+    entity_a: e.entity_a,
+    relation: e.relation,
+    entity_b: e.entity_b,
+    source_type: e.source_type,
+    tenant_id: tenantId,
+    confidence: 1,
+    metadata: {
+      workspace_id: workspaceId,
+      snapshot_id: snapshotId,
+      ingested_via: 'index_codebase_snapshot',
+    },
+  }));
+  const q = new URLSearchParams({
+    on_conflict: 'entity_a,relation,entity_b,tenant_id',
+  });
+  await sbRequest('POST', `${base}/rest/v1/knowledge_edges?${q}`, key, rows, {
+    Prefer: 'resolution=merge-duplicates,return=minimal',
+  });
+}
+
 async function main() {
   const root = repoRoot();
   let scope = resolveDeployScope({ repoRoot: root, strict: false });
@@ -215,7 +261,12 @@ async function main() {
   const roots = ['src', 'docs', 'scripts'].map((d) => join(root, d)).filter((p) => existsSync(p));
   let paths = [];
   for (const r0 of roots) walkFiles(r0, root, paths);
-  paths = [...new Set(paths)].slice(0, 900);
+  const priorityRelSet = new Set(collectAllPriorityRelPaths(root));
+  for (const rel of priorityRelSet) {
+    const abs = join(root, rel);
+    if (existsSync(abs) && !paths.includes(abs)) paths.push(abs);
+  }
+  paths = [...new Set(paths)].slice(0, 950);
 
   let totalLines = 0;
   let totalBytes = 0;
@@ -241,8 +292,14 @@ async function main() {
       file_size_bytes: bytes,
       line_count: lines,
       language: langFromPath(rel),
-      category: rel.startsWith('docs/') ? 'docs' : rel.startsWith('src/') ? 'src' : 'scripts',
-      is_priority: /unified-search|route-map|index\.js|production-dispatch/.test(rel),
+      category: rel.startsWith('docs/')
+        ? 'docs'
+        : rel.startsWith('src/')
+          ? 'src'
+          : rel.startsWith('dashboard/')
+            ? 'dashboard'
+            : 'scripts',
+      is_priority: priorityRelSet.has(rel),
       metadata: { indexed_at: new Date().toISOString() },
     });
   }
@@ -253,10 +310,9 @@ async function main() {
     symbols = parseRouteMapSymbols(readFileSync(routeMapPath, 'utf8'), 'docs/route-map.md');
   }
 
-  const priorityFiles = fileRows
-    .filter((f) => f.is_priority)
-    .map((f) => join(root, f.file_path))
-    .slice(0, 25);
+  const priorityFiles = [...priorityRelSet]
+    .map((rel) => join(root, rel))
+    .filter((abs) => existsSync(abs));
 
   const base = sb.supabaseUrl.replace(/\/$/, '');
   const key = sb.serviceKey;
@@ -355,12 +411,15 @@ async function main() {
 
     let chunkTotal = 0;
     if (priorityFiles.length && token && accountId) {
-      for (const fp of priorityFiles) {
+      outer: for (const fp of priorityFiles) {
         const rel = relative(root, fp).replace(/\\/g, '/');
         const body = readFileSync(fp, 'utf8');
-        const parts = chunkText(body, 5200);
+        const parts = chunkSourceForIndex(rel, body);
         let idx = 0;
+        let perFile = 0;
         for (const part of parts) {
+          if (perFile >= MAX_CHUNKS_PER_PRIORITY_FILE) break;
+          if (chunkTotal >= MAX_PRIORITY_EMBEDDED_CHUNKS) break outer;
           const vec = await embedText(token, accountId, part);
           await new Promise((r) => setTimeout(r, Number(process.env.INGEST_DELAY_MS || 120)));
           const row = {
@@ -378,22 +437,28 @@ async function main() {
             symbol_name: null,
             language: langFromPath(rel),
             embed_model: MODEL,
-            metadata: { deploy_index: true },
+            metadata: { deploy_index: true, priority_source: true },
           };
           await sbRequest('POST', `${base}/rest/v1/codebase_chunks`, key, row, {
             Prefer: 'return=minimal',
           });
           chunkTotal += 1;
+          perFile += 1;
           idx += 1;
-          if (chunkTotal >= 80) break;
         }
-        if (chunkTotal >= 80) break;
       }
     } else if (!token || !accountId) {
       console.warn('[index-codebase] No CLOUDFLARE_API_TOKEN/ACCOUNT_ID — skipped chunk embeddings');
     }
 
     await setSnapshotUploadStatus('complete', { chunk_count: chunkTotal });
+
+    try {
+      await upsertCanonicalKnowledgeEdges(base, key, tenantId, workspaceId, snapshotId);
+      console.log('[index-codebase] knowledge_edges canonical upsert ok');
+    } catch (ke) {
+      console.warn('[index-codebase] knowledge_edges upsert skipped:', ke?.message ?? ke);
+    }
 
     try {
       writeFileSync(

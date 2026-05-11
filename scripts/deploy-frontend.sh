@@ -255,11 +255,24 @@ echo "[deploy] build manifest → analytics/app-builds/${TS}.json"
 
 # Expire old build manifests (90 days) under analytics/app-builds/
 echo "→ Ensuring R2 lifecycle rule for analytics/app-builds/ (expire after 90 days)..."
-if ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle list "$BUCKET" -c "$TOML" 2>/dev/null | grep -q 'app-builds-manifests-90d'; then
-  echo "  (lifecycle rule app-builds-manifests-90d already present)"
+if ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle list "$BUCKET" -c "$TOML" 2>/dev/null | grep -qE 'app-builds-manifests-90d|app-builds/'; then
+  echo "  (lifecycle rule for app-builds/ likely already present — skipping add)"
 else
-  ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle add "$BUCKET" app-builds-manifests-90d analytics/app-builds/ \
-    --expire-days 90 --force -c "$TOML"
+  set +e
+  _lif_out=$(
+    ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle add "$BUCKET" app-builds-manifests-90d analytics/app-builds/ \
+      --expire-days 90 --force -c "$TOML" 2>&1
+  )
+  _lif_rc=$?
+  set -e
+  if [ "$_lif_rc" -ne 0 ]; then
+    if echo "$_lif_out" | grep -qE '10061|Rule IDs must be unique|unique'; then
+      echo "  (lifecycle rule already exists on bucket — continuing)"
+    else
+      echo "$_lif_out" >&2
+      exit "$_lif_rc"
+    fi
+  fi
 fi
 
 # Post-deploy: Supabase pgvector backfill for rows with NULL embedding (Edge Function).

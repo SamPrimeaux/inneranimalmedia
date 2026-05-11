@@ -16,7 +16,12 @@ import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/p
 import { loadAvailableToolsForCapability } from '../core/tool-registry.js';
 import { resolveWorkspaceCapabilityShellWorkflowId } from '../core/workspace-capability-actions/index.js';
 import { syncWorkflowRunToSupabase } from '../core/agentsam-supabase-sync.js';
-import { unifiedRagSearch, handleAgentMemorySync }      from './rag.js';
+import {
+  unifiedRagSearch,
+  handleAgentMemorySync,
+  insertCuratedAgentMemory,
+  searchCuratedAgentMemory,
+} from './rag.js';
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
 import { jsonResponse }                                 from '../core/responses.js';
@@ -3943,12 +3948,25 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const routingArmIdForRun =
     routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
 
+  // Retrieval should be available by default in live agent mode.
+  // Only an explicit route include_rag = 0 should disable it.
+  // Previous behavior required shouldIncludeRag(...) === true, which meant missing/misaligned
+  // agentsam_prompt_routes rows silently disabled RAG even when Hyperdrive/OpenAI/Supabase worked.
+  const routeWantsRag = await shouldIncludeRag(env, intentResult.taskType, tenantId).catch(() => false);
   const needsRag =
-    !skipRagFromRoute && (await shouldIncludeRag(env, intentResult.taskType, tenantId));
+    !skipRagFromRoute &&
+    (
+      requestedMode === 'agent' ||
+      routeWantsRag === true ||
+      Number(promptRouteRow?.include_rag) === 1
+    );
+
   const ragResult = needsRag
     ? await unifiedRagSearch(env, message, {
         topK: modeConfig.context_strategy === 'minimal' ? 3 : 8,
         tenantId,
+        workspaceId: workspaceId || null,
+        sessionId: sessionId ?? null,
       })
     : { matches: [] };
   const ragContext   = (ragResult.matches || []).join('\n\n');
@@ -5129,6 +5147,114 @@ export async function handleAgentApi(request, url, env, ctx) {
     return jsonResponse({ items: (results||[]).filter(r=>r.key) });
   }
 
+  // ── POST /api/agent/memory/upsert — curated Supabase agent_memory + OpenAI embedding (Worker control plane)
+  if (path === '/api/agent/memory/upsert' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const { isHyperdriveUsable } = await import('../core/hyperdrive-query.js');
+    if (!isHyperdriveUsable(env)) {
+      return jsonResponse({ error: 'HYPERDRIVE not configured' }, 503);
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const session_id = String(body.session_id ?? body.sessionId ?? '').trim();
+    const content = String(body.content ?? '').trim();
+    if (!session_id) return jsonResponse({ error: 'session_id required' }, 400);
+    if (!content) return jsonResponse({ error: 'content required' }, 400);
+
+    const workspace_id = String(body.workspace_id ?? identity.workspaceId ?? '').trim();
+    const tenant_id = String(body.tenant_id ?? identity.tenantId ?? '').trim();
+    const user_id = String(body.user_id ?? identity.userId ?? '').trim();
+
+    const meta =
+      body.metadata && typeof body.metadata === 'object' && body.metadata !== null && !Array.isArray(body.metadata)
+        ? body.metadata
+        : {};
+
+    try {
+      const result = await insertCuratedAgentMemory(env, {
+        content,
+        session_id,
+        role: body.role,
+        agent_id: body.agent_id,
+        metadata: meta,
+        workspace_id,
+        tenant_id,
+        user_id,
+      });
+      const dims = result.embedding_dims;
+      return jsonResponse({
+        ok: true,
+        id: result.id,
+        session_id,
+        has_embedding: dims === 1024,
+        embedding_dims: dims,
+        embed_model: result.embed_model,
+        workspace_id,
+        tenant_id,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const lower = msg.toLowerCase();
+      const status =
+        lower.includes('not configured') || lower.includes('hyperdrive') ? 503 : 400;
+      return jsonResponse({ ok: false, error: msg }, status);
+    }
+  }
+
+  // ── POST /api/agent/memory/search — semantic vector search on public.agent_memory
+  if (path === '/api/agent/memory/search' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const { isHyperdriveUsable } = await import('../core/hyperdrive-query.js');
+    if (!isHyperdriveUsable(env)) {
+      return jsonResponse({ error: 'HYPERDRIVE not configured' }, 503);
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const q = String(body.query ?? body.q ?? '').trim();
+    if (!q) return jsonResponse({ error: 'query required' }, 400);
+
+    const workspace_id = String(body.workspace_id ?? identity.workspaceId ?? '').trim();
+    const tenant_id = String(body.tenant_id ?? identity.tenantId ?? '').trim();
+    const session_id = body.session_id != null ? String(body.session_id).trim() : '';
+    const user_id = body.user_id != null ? String(body.user_id).trim() : '';
+    const filter_user_id = body.filter_user_id === true;
+    const limit = body.limit;
+
+    try {
+      const { embed_model, results } = await searchCuratedAgentMemory(env, {
+        query: q,
+        workspace_id,
+        tenant_id: tenant_id || null,
+        user_id: filter_user_id ? String(identity.userId || '').trim() || null : user_id || null,
+        session_id: session_id || null,
+        limit,
+      });
+      return jsonResponse({
+        ok: true,
+        query: q,
+        embed_model,
+        workspace_id,
+        tenant_id: tenant_id || null,
+        count: results.length,
+        results,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const lower = msg.toLowerCase();
+      const status =
+        lower.includes('not configured') || lower.includes('hyperdrive') ? 503 : 400;
+      return jsonResponse({ ok: false, error: msg }, status);
+    }
+  }
+
   // ── /api/agent/memory/sync ────────────────────────────────────────────────
   if (path === '/api/agent/memory/sync' && method === 'POST') {
     return handleAgentMemorySync(request, env);
@@ -5932,7 +6058,12 @@ export async function handleAgentApi(request, url, env, ctx) {
     const body  = await request.json().catch(() => ({}));
     const query = (body.query || body.q || '').trim();
     if (!query) return jsonResponse({ error: 'query required', matches: [], results: [], count: 0 }, 400);
-    const out = await unifiedRagSearch(env, query, { topK: body.top_k || 8 });
+    const out = await unifiedRagSearch(env, query, {
+      topK: body.top_k || 8,
+      tenantId: identity?.tenantId ?? null,
+      workspaceId: identity?.workspaceId ?? null,
+      sessionId: identity?.sessionId ?? null,
+    });
     return jsonResponse({ matches: out.matches||[], results: out.results||[], count: out.count||0 });
   }
 
