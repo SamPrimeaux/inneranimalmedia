@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS agentsam_scripts (
   id TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL DEFAULT 'ws_inneranimalmedia',
+  workspace_id TEXT NOT NULL,
   name TEXT NOT NULL,
   path TEXT NOT NULL,
   description TEXT NOT NULL,

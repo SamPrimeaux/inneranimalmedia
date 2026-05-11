@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS agentsam_script_runs (
   id              TEXT PRIMARY KEY DEFAULT ('sr_' || lower(hex(randomblob(8)))),
   script_id       TEXT NOT NULL REFERENCES agentsam_scripts(id),
-  workspace_id    TEXT NOT NULL DEFAULT 'ws_inneranimalmedia',
+  workspace_id    TEXT NOT NULL,
   triggered_by    TEXT NOT NULL DEFAULT 'agent',
   trigger_source  TEXT NOT NULL DEFAULT 'agent_sam'
     CHECK(trigger_source IN ('agent_sam','cursor','manual','github_push','scheduled','cicd')),
