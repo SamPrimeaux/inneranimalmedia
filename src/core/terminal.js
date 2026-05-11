@@ -32,23 +32,80 @@ export async function computeTerminalSessionAuthTokenHash(env, sessionId) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+const TERMINAL_CONN_SELECT = `
+  id, ws_url, auth_token_secret_name, connection_type, ollama_url,
+  shell, platform, user_id, auth_mode, token_verify_endpoint`;
+
 /**
- * Default PTY bridge from D1 (terminal_connections). Falls back to env.TERMINAL_WS_URL when absent.
+ * Resolve PTY bridge row from D1 (terminal_connections).
+ * Priority: user+workspace active → workspace-shared (user_id NULL) → global is_default.
+ * Falls back to env.TERMINAL_WS_URL when absent downstream.
+ *
+ * @param {import('@cloudflare/workers-types').D1Database | null} db
+ * @param {string | null | undefined} userId
+ * @param {string | null | undefined} workspaceId
  */
-export async function getDefaultTerminalConnection(db) {
+export async function getDefaultTerminalConnection(db, userId = null, workspaceId = null) {
   if (!db) return null;
+  const uid =
+    userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
+  const wid =
+    workspaceId != null && String(workspaceId).trim() !== ''
+      ? String(workspaceId).trim()
+      : null;
   try {
-    const conn = await db.prepare(
-      `SELECT ws_url, auth_token_secret_name, connection_type, ollama_url
-       FROM terminal_connections
-       WHERE is_default = 1 AND is_active = 1
-       LIMIT 1`,
-    ).first();
+    if (uid && wid) {
+      const row = await db
+        .prepare(
+          `SELECT ${TERMINAL_CONN_SELECT}
+           FROM terminal_connections
+           WHERE user_id = ? AND workspace_id = ? AND is_active = 1
+           LIMIT 1`,
+        )
+        .bind(uid, wid)
+        .first();
+      if (row) return row;
+    }
+    if (wid) {
+      const row = await db
+        .prepare(
+          `SELECT ${TERMINAL_CONN_SELECT}
+           FROM terminal_connections
+           WHERE workspace_id = ? AND user_id IS NULL AND is_active = 1
+           LIMIT 1`,
+        )
+        .bind(wid)
+        .first();
+      if (row) return row;
+    }
+    const conn = await db
+      .prepare(
+        `SELECT ${TERMINAL_CONN_SELECT}
+         FROM terminal_connections
+         WHERE is_default = 1 AND is_active = 1
+         LIMIT 1`,
+      )
+      .first();
     return conn ?? null;
   } catch (e) {
     console.warn('[getDefaultTerminalConnection]', e?.message ?? e);
     return null;
   }
+}
+
+/**
+ * SHA-256 hex of raw UTF-8 token (for PTY token_mint verify vs terminal_sessions.auth_token_hash).
+ * @param {string} token
+ */
+export async function mintSessionToken() {
+  const raw = crypto.randomUUID().replace(/-/g,'') + crypto.randomUUID().replace(/-/g,'');
+  const hash = await sha256HexUtf8(raw);
+  return { rawToken: raw, tokenHash: hash };
+}
+
+export async function sha256HexUtf8(token) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token ?? '')));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**

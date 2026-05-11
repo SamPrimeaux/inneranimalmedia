@@ -4,6 +4,7 @@
  * POST /api/terminal/assist          — AI assist for terminal context
  * POST /api/terminal/session/register — register new PTY session
  * GET  /api/terminal/session/validate — validate PTY auth token via KV
+ * POST /api/terminal/session/verify — PTY backend: SHA256(token) vs terminal_sessions.auth_token_hash
  */
 import { jsonResponse }      from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
@@ -15,12 +16,39 @@ import {
 } from '../core/bootstrap.js';
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
-import { computeTerminalSessionAuthTokenHash } from '../core/terminal.js';
+import { computeTerminalSessionAuthTokenHash, sha256HexUtf8, mintSessionToken } from '../core/terminal.js';
 
 // ── Token validation ───────────────────────────────────────────────────────────
 export async function handleTerminalApi(request, url, env, ctx) {
   const path   = url.pathname;
   const method = request.method.toUpperCase();
+
+  // POST /api/terminal/session/verify — PTY backend validates bearer vs D1 terminal_sessions (token_mint)
+  if (path === '/api/terminal/session/verify' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch (_) {}
+    const token = typeof body?.token === 'string' ? body.token.trim() : '';
+    const sessionId = typeof body?.session_id === 'string' ? body.session_id.trim() : '';
+    if (!token || !sessionId) return jsonResponse({ error: 'token and session_id required' }, 400);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+    try {
+      const row = await env.DB.prepare(
+        `SELECT auth_token_hash FROM terminal_sessions WHERE id = ? LIMIT 1`,
+      )
+        .bind(sessionId)
+        .first();
+      const stored = row?.auth_token_hash != null ? String(row.auth_token_hash).trim() : '';
+      if (!stored) return jsonResponse({ error: 'invalid session' }, 401);
+      const digest = await sha256HexUtf8(token);
+      if (digest !== stored) return jsonResponse({ error: 'invalid token' }, 401);
+      return jsonResponse({ ok: true, session_id: sessionId });
+    } catch (e) {
+      return jsonResponse({ error: 'verify failed', detail: e?.message || String(e) }, 500);
+    }
+  }
 
   // GET /api/terminal/session/validate
   if (path === '/api/terminal/session/validate' && method === 'GET') {
@@ -111,7 +139,11 @@ export async function handleTerminalApi(request, url, env, ctx) {
       return jsonResponse({ error: 'Terminal execution mode not permitted' }, 403);
     }
 
-    const authTokenHash = await computeTerminalSessionAuthTokenHash(env, session_id);
+    // If PTY sends a session_token (token_mint flow), store its SHA-256
+    // Otherwise fall back to legacy pepper+sessionId hash
+    const authTokenHash = body.session_token
+      ? await sha256HexUtf8(String(body.session_token))
+      : await computeTerminalSessionAuthTokenHash(env, session_id);
 
     await env.DB?.prepare(
       `INSERT INTO terminal_sessions

@@ -409,61 +409,81 @@ export async function hashBridgeKey(key) {
 }
 
 /**
- * Create per-user bridge key row; returns raw key once (caller must show UI once).
+ * Create per-user terminal connection row (bridge or token_mint). Idempotent when a row already exists for user+workspace.
+ * @param {{ authMode?: 'bridge' | 'token_mint' }} [opts]
+ * @returns {Promise<string|null>} Raw bridge key once for auth_mode bridge; null for token_mint.
  */
-export async function generateUserBridgeKey(env, userId, tenantId) {
-  if (!env?.DB || !userId || !tenantId) throw new Error('generateUserBridgeKey: missing DB, user, or tenant');
+export async function generateUserBridgeKey(env, userId, tenantId, workspaceId, opts = {}) {
+  if (!env?.DB || !userId || !tenantId || !workspaceId) {
+    throw new Error('generateUserBridgeKey: missing DB, user, tenant, or workspace');
+  }
+
+  const wid = String(workspaceId).trim();
+  const authMode = String(opts.authMode || 'bridge').trim() || 'bridge';
+  if (authMode !== 'bridge' && authMode !== 'token_mint') {
+    throw new Error('generateUserBridgeKey: invalid authMode');
+  }
+
+  try {
+    const exists = await env.DB.prepare(
+      `SELECT id FROM terminal_connections WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(userId, wid)
+      .first();
+    if (exists?.id) return null;
+  } catch (_) {}
 
   const raw = `iamb_${crypto.randomUUID().replace(/-/g, '')}`;
-  const hash = await hashBridgeKey(raw);
+  const hash = authMode === 'token_mint' ? null : await hashBridgeKey(raw);
   const connId = `conn_${userId.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 48)}_${crypto.randomUUID().slice(0, 6)}`;
+  const now = Math.floor(Date.now() / 1000);
+  const tokenVerify =
+    authMode === 'token_mint' ? '/api/terminal/session/verify' : null;
 
-  const attempts = [
-    () =>
-      env.DB.prepare(
-        `INSERT INTO terminal_connections
-           (id, name, type, ws_url, connection_type, user_id, tenant_id, bridge_key_hash, is_default, is_active, created_at)
-         VALUES (?, 'IAM Bridge', 'pty', '', 'pty_tunnel', ?, ?, ?, 0, 0, unixepoch())`,
-      )
-        .bind(connId, userId, tenantId, hash)
-        .run(),
-    () =>
-      env.DB.prepare(
-        `INSERT INTO terminal_connections
-           (id, name, type, ws_url, user_id, tenant_id, bridge_key_hash, is_default, is_active, created_at)
-         VALUES (?, 'IAM Bridge', 'pty', '', ?, ?, ?, 0, 0, unixepoch())`,
-      )
-        .bind(connId, userId, tenantId, hash)
-        .run(),
-    () =>
-      env.DB.prepare(
-        `INSERT INTO terminal_connections
-           (id, name, type, ws_url, bridge_key_hash, is_default, is_active, created_at)
-         VALUES (?, 'IAM Bridge', 'pty', '', ?, 0, 0, unixepoch())`,
-      )
-        .bind(connId, hash)
-        .run(),
-    () =>
-      env.DB.prepare(
-        `INSERT INTO terminal_connections
-           (id, name, type, ws_url, auth_token_secret_name, is_default, is_active, created_at)
-         VALUES (?, 'IAM Bridge', 'pty', '', ?, 0, 0, unixepoch())`,
-      )
-        .bind(connId, `bridge_sha256:${hash}`)
-        .run(),
-  ];
+  await env.DB.prepare(
+    `INSERT INTO terminal_connections
+       (id, name, type, ws_url, connection_type, workspace_id, tenant_id, user_id,
+        shell, bridge_key_hash, auth_mode, token_verify_endpoint, is_default, is_active, created_at, updated_at)
+     VALUES (?, 'IAM Bridge', 'pty', '', 'pty_tunnel', ?, ?, ?,
+      '/bin/zsh', ?, ?, ?, 0, 1, ?, ?)`,
+  )
+    .bind(connId, wid, tenantId, userId, hash, authMode, tokenVerify, now, now)
+    .run();
 
-  let lastErr = null;
-  for (const run of attempts) {
-    try {
-      await run();
-      return raw;
-    } catch (e) {
-      lastErr = e;
-    }
+  return authMode === 'token_mint' ? null : raw;
+}
+
+/**
+ * Ensure a terminal_connections row exists after auth provisioning (signup / login).
+ */
+export async function ensureUserTerminalConnection(env, authUserId) {
+  if (!env?.DB || !authUserId) return;
+  const row = await env.DB.prepare(
+    `SELECT tenant_id,
+            TRIM(COALESCE(NULLIF(active_workspace_id, ''), NULLIF(default_workspace_id, ''))) AS workspace_id
+     FROM auth_users WHERE id = ? LIMIT 1`,
+  )
+    .bind(authUserId)
+    .first()
+    .catch(() => null);
+  const tid = row?.tenant_id != null ? String(row.tenant_id).trim() : '';
+  const wid = row?.workspace_id != null ? String(row.workspace_id).trim() : '';
+  if (!tid || !wid) return;
+
+  try {
+    const exists = await env.DB.prepare(
+      `SELECT id FROM terminal_connections WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(authUserId, wid)
+      .first();
+    if (exists?.id) return;
+  } catch (_) {}
+
+  try {
+    await generateUserBridgeKey(env, authUserId, tid, wid);
+  } catch (e) {
+    console.warn('[ensureUserTerminalConnection]', e?.message ?? e);
   }
-  console.warn('[generateUserBridgeKey] all variants failed:', lastErr?.message ?? lastErr);
-  throw lastErr || new Error('terminal_connections insert failed');
 }
 
 /**

@@ -1,5 +1,5 @@
 import { provisionNewUser } from './provisionNewUser.js';
-import { provisionUserWorkspace } from '../api/provisioning.js';
+import { provisionUserWorkspace, ensureUserTerminalConnection } from '../api/provisioning.js';
 import { logAuthEvent } from './auth-events.js';
 import { ensureUserTenantWorkspace } from './workspace-provisioning.js';
 
@@ -65,6 +65,12 @@ export async function provisionAuthenticatedUser(env, request, identity) {
     }
   } catch {
     /* non-fatal */
+  }
+
+  try {
+    await ensureUserTerminalConnection(env, authUserId);
+  } catch (e) {
+    console.warn('[provisionAuthenticatedUser] ensureUserTerminalConnection', e?.message ?? e);
   }
 
   if (identity.supabaseUserId) {

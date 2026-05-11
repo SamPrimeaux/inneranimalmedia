@@ -74,7 +74,7 @@ async function handleHubStats(env) {
 
 async function handleHubTerminal(env) {
     const { results } = await env.DB.prepare(
-        `SELECT content as command, created_at FROM terminal_history ORDER BY created_at DESC LIMIT 8`
+        `SELECT content as command, recorded_at FROM terminal_history ORDER BY recorded_at DESC LIMIT 8`
     ).all();
     return jsonResponse({ rows: results || [] });
 }
