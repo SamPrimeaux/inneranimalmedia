@@ -51,6 +51,77 @@ export async function canUsePlatformAssetsR2Upload(env, workspaceId, tenantId) {
   return false;
 }
 
+/**
+ * auth_users.id (au_*) vs users.id (usr_*) — workspace_members.user_id may match either.
+ * @param {any} env
+ * @param {any} authUser
+ * @returns {Promise<string[]>}
+ */
+async function workspaceMemberUserCandidates(env, authUser) {
+  const uid = String(authUser?.id || "").trim();
+  const email = authUser?.email != null ? String(authUser.email).trim() : "";
+  /** @type {Set<string>} */
+  const ids = new Set();
+  if (uid) ids.add(uid);
+  if (!env?.DB) return [...ids];
+  try {
+    const row = await env.DB.prepare(
+      `SELECT u.id AS app_user_id
+       FROM auth_users au
+       LEFT JOIN users u ON u.auth_id = au.id OR LOWER(COALESCE(u.email,'')) = LOWER(au.email)
+       WHERE au.id = ? OR LOWER(COALESCE(au.email,'')) = LOWER(?)
+       LIMIT 1`,
+    )
+      .bind(uid, email || uid)
+      .first();
+    if (row?.app_user_id != null && String(row.app_user_id).trim()) {
+      ids.add(String(row.app_user_id).trim());
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...ids];
+}
+
+/**
+ * Tenant for cms_theme_preferences + resolveActiveCmsThemeRow: auth/session tenant first,
+ * then workspace row (owner/default) when scoping to a workspace.
+ * @param {any} env
+ * @param {any} authUser
+ * @param {string | null | undefined} workspaceId
+ */
+export async function resolveTenantIdForCmsThemeOps(env, authUser, workspaceId) {
+  let tid = null;
+  if (authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== "") {
+    tid = String(authUser.tenant_id).trim();
+  }
+  if (!tid && authUser?.id) {
+    tid = await fetchAuthUserTenantId(env, authUser.id).catch(() => null);
+  }
+  if (!tid && authUser?.email) {
+    tid = await fetchAuthUserTenantId(env, authUser.email).catch(() => null);
+  }
+  const ws = workspaceId != null ? String(workspaceId).trim() : "";
+  if (!tid && ws && env?.DB) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT tenant_id, owner_tenant_id, default_tenant_id FROM workspaces WHERE id = ? LIMIT 1`,
+      )
+        .bind(ws)
+        .first();
+      for (const col of [row?.tenant_id, row?.owner_tenant_id, row?.default_tenant_id]) {
+        if (col != null && String(col).trim() !== "") {
+          tid = String(col).trim();
+          break;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return tid || null;
+}
+
 export async function userCanAccessWorkspace(env, authUser, workspaceId) {
   if (!env?.DB || !authUser || !workspaceId) return false;
   const wid = String(workspaceId).trim();
@@ -66,16 +137,18 @@ export async function userCanAccessWorkspace(env, authUser, workspaceId) {
   if (!tenantId) tenantId = await fetchAuthUserTenantId(env, uid).catch(() => null);
 
   try {
+    const candidates = await workspaceMemberUserCandidates(env, authUser);
     const ws = await env.DB.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ? LIMIT 1`)
       .bind(wid)
       .first();
     if (!ws) return false;
-    if (String(ws.user_id || "") === uid) return true;
+    if (candidates.some((c) => String(ws.user_id || "") === c)) return true;
     if (tenantId && String(ws.tenant_id || "") === tenantId) return true;
+    const ph = candidates.map(() => "?").join(", ");
     const m = await env.DB.prepare(
-      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id IN (${ph}) AND COALESCE(is_active, 1) = 1 LIMIT 1`,
     )
-      .bind(wid, uid)
+      .bind(wid, ...candidates)
       .first();
     return !!m;
   } catch {

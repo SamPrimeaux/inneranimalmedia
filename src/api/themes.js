@@ -1,7 +1,7 @@
 /**
  * Theme gallery, active resolution (D1 `cms_theme_preferences` + fallbacks), apply + IAM_COLLAB broadcast.
  */
-import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from "../core/auth.js";
+import { getAuthUser, jsonResponse, fallbackSystemTenantId } from "../core/auth.js";
 
 /** Same mapping as settings.js resolveCanonicalUserId — kept local to avoid themes↔settings import cycles. */
 async function resolveCanonicalUserIdShort(env, sessionUserId, email) {
@@ -26,6 +26,7 @@ async function resolveCanonicalUserIdShort(env, sessionUserId, email) {
 import { buildActiveThemeApiPayload } from "../core/cms-theme-active.js";
 import {
   resolveActiveCmsThemeRow,
+  resolveTenantIdForCmsThemeOps,
   userCanAccessWorkspace,
   canUsePlatformAssetsR2Upload,
   broadcastWorkspaceThemeCollab,
@@ -209,17 +210,33 @@ async function fetchDefaultWorkspaceId(env, authUser) {
 }
 
 /**
+ * Best-effort mirror slug onto workspaces row (some DBs lack theme_set).
  * @param {any} env
- * @param {any} authUser
+ * @param {string} workspaceId
+ * @param {string} slug
  */
-async function resolveAuthTenantId(env, authUser) {
-  let tid =
-    authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ""
-      ? String(authUser.tenant_id).trim()
-      : null;
-  if (!tid && authUser?.id) tid = await fetchAuthUserTenantId(env, authUser.id).catch(() => null);
-  if (!tid && authUser?.email) tid = await fetchAuthUserTenantId(env, authUser.email).catch(() => null);
-  return tid;
+async function patchWorkspaceThemeSlug(env, workspaceId, slug) {
+  const wid = String(workspaceId || "").trim();
+  const s = String(slug || "").trim();
+  if (!wid || !s || !env?.DB) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE workspaces SET theme_id = ?, theme_set = ?, updated_at = datetime('now') WHERE id = ?`,
+    )
+      .bind(s, s, wid)
+      .run();
+  } catch (e) {
+    const msg = String(e?.message || e || "");
+    if (msg.includes("no such column") && msg.includes("theme_set")) {
+      try {
+        await env.DB.prepare(`UPDATE workspaces SET theme_id = ?, updated_at = datetime('now') WHERE id = ?`)
+          .bind(s, wid)
+          .run();
+      } catch (_) {}
+    } else {
+      console.warn("[themes] patchWorkspaceThemeSlug", msg);
+    }
+  }
 }
 
 /**
@@ -298,7 +315,7 @@ export async function handleThemesApi(request, url, env, ctx) {
         if (!ok) return jsonResponse({ error: "Forbidden" }, 403);
       }
 
-      const tenantId = await resolveAuthTenantId(env, authUser);
+      const tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId || null);
 
       const resolved = await resolveActiveCmsThemeRow(env, {
         tenantId,
@@ -346,8 +363,8 @@ export async function handleThemesApi(request, url, env, ctx) {
       const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
       if (!okWs) return jsonResponse({ error: "Forbidden" }, 403);
 
-      const tenantId = await resolveAuthTenantId(env, authUser);
-      if (!tenantId) return jsonResponse({ error: "Tenant could not be resolved" }, 403);
+      let tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
 
       const tid = String(tenantId).trim();
       const slug = normalizeThemeSlug(body.slug != null ? String(body.slug) : "");
@@ -615,7 +632,8 @@ export async function handleThemesApi(request, url, env, ctx) {
       }
       if (!fullRow?.slug) return jsonResponse({ error: "Theme not found" }, 404);
 
-      const tenantId = await resolveAuthTenantId(env, authUser);
+      let tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
       const normalizedSlug = String(fullRow.slug).trim();
       const normalized = normalizeCatalogThemeRow(/** @type {Record<string, unknown>} */ (fullRow));
 
@@ -715,11 +733,6 @@ export async function handleThemesApi(request, url, env, ctx) {
       }
       if (!themeRow?.slug) return jsonResponse({ error: "Theme not found" }, 404);
 
-      const tenantId = await resolveAuthTenantId(env, authUser);
-      if (!tenantId) return jsonResponse({ error: "Tenant could not be resolved" }, 403);
-
-      const tid = String(tenantId).trim();
-      const uid = String(authUser.id || "").trim();
       const workspaceId =
         body.workspace_id != null && String(body.workspace_id).trim() !== ""
           ? String(body.workspace_id).trim()
@@ -731,21 +744,25 @@ export async function handleThemesApi(request, url, env, ctx) {
 
       if (scope === "workspace" || scope === "project") {
         if (!workspaceId) return jsonResponse({ error: "workspace_id required for this scope" }, 400);
-        const wsId = String(workspaceId).trim();
-        const membership = await env.DB.prepare(
-          `SELECT 1 FROM workspace_members
-           WHERE workspace_id = ? AND user_id = ? AND is_active = 1`,
-        )
-          .bind(wsId, uid)
-          .first();
+        const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
         const isSuper = Number(authUser.is_superadmin) === 1;
-        if (!membership && !isSuper) {
-          return jsonResponse({ error: "Not a member of this workspace" }, 403);
+        if (!okWs && !isSuper) {
+          return jsonResponse({ error: "Not allowed for this workspace" }, 403);
         }
       }
       if (scope === "project" && !projectId) {
         return jsonResponse({ error: "project_id required for project scope" }, 400);
       }
+
+      let tenantId = await resolveTenantIdForCmsThemeOps(
+        env,
+        authUser,
+        scope === "user_global" ? null : workspaceId || null,
+      );
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const tid = String(tenantId).trim();
+      const uid = String(authUser.id || "").trim();
 
       const slug = String(themeRow.slug).trim();
       let prefId = "";
@@ -779,11 +796,7 @@ export async function handleThemesApi(request, url, env, ctx) {
           .bind(prefId, tid, scope, wsCol, projCol, userCol, slug)
           .run();
         if (scope === "workspace" && workspaceId) {
-          await env.DB.prepare(
-            `UPDATE workspaces SET theme_id = ?, theme_set = ?, updated_at = datetime('now') WHERE id = ?`,
-          )
-            .bind(slug, slug, String(workspaceId).trim())
-            .run();
+          await patchWorkspaceThemeSlug(env, String(workspaceId).trim(), slug);
         }
       } catch (e) {
         const msg = String(e?.message || e || "");
