@@ -228,7 +228,6 @@ export async function queryRoutingArmsCandidates(env, q) {
   const allowWaiSort = routingAllowsWorkersAiEarly(routeKey || undefined, tt);
   const toolsClause = toolReq ? ' AND ra.supports_tools = 1' : '';
   const ws = q.workspaceId != null ? String(q.workspaceId).trim() : '';
-  if (!ws) return [];
 
   const catalogOk =
     ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
@@ -243,9 +242,49 @@ export async function queryRoutingArmsCandidates(env, q) {
        ra.decayed_score DESC, COALESCE(ra.priority, 50) ASC`;
 
   try {
-    const sqlWs = `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
-    const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
-    return r1.results || [];
+    if (ws) {
+      const sqlWs = `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
+      const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
+      if (r1.results?.length) return r1.results;
+    }
+    const sqlGlobal =
+      `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
+    const r2 = await db.prepare(sqlGlobal).bind(tt, m).all();
+    return r2.results || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Ordered active catalog keys for chat/tool chains when routing arms return nothing (global rows only).
+ * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
+ */
+export async function loadActiveCatalogModelKeysOrdered(env) {
+  const db = env?.DB;
+  if (!db) return [];
+  const cols = await pragmaTableInfo(db, 'agentsam_model_catalog');
+  if (!cols.has('model_key') || !cols.has('is_active')) return [];
+  const hasTenant = cols.has('tenant_id') && cols.has('workspace_id');
+  const hasTier = cols.has('tier');
+  const hasDegraded = cols.has('is_degraded');
+  const scope = hasTenant ? `AND COALESCE(tenant_id,'') = '' AND COALESCE(workspace_id,'') = ''` : '';
+  const degradedClause = hasDegraded ? `AND COALESCE(is_degraded,0) = 0` : '';
+  const orderBy = hasTier
+    ? `CASE LOWER(COALESCE(tier,'')) WHEN 'micro' THEN 0 WHEN 'flash' THEN 1 WHEN 'standard' THEN 2 WHEN 'power' THEN 3 WHEN 'reasoning' THEN 4 WHEN 'frontier' THEN 5 ELSE 9 END, model_key ASC`
+    : 'model_key ASC';
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT model_key FROM agentsam_model_catalog
+         WHERE is_active = 1 ${degradedClause} ${scope}
+         ORDER BY ${orderBy}
+         LIMIT 40`,
+      )
+      .all();
+    return (results || [])
+      .map((r) => String(r?.model_key ?? '').trim())
+      .filter(Boolean);
   } catch {
     return [];
   }
@@ -507,16 +546,9 @@ export async function getDefaultModelForTask(env, ctx = {}) {
   }
 }
 
-/** OpenAI chat SKUs used only when `agentsam_routing_arms` lookup fails or returns no rows. */
-export const CHAT_ROUTING_STATIC_FALLBACK_KEYS = Object.freeze([
-  'gpt-5.4-nano',
-  'gpt-5.4-mini',
-  'gpt-5.4',
-]);
-
 /**
  * Ordered model_key list for SSE chat fallback chain from D1 routing arms (per-mode decayed scores).
- * Falls back to {@link CHAT_ROUTING_STATIC_FALLBACK_KEYS} when the query fails or is empty.
+ * When arms yield nothing, falls back to active global `agentsam_model_catalog` keys (tier-ordered).
  *
  * @param {{ DB?: import('@cloudflare/workers-types').D1Database }} env
  * @param {string} [mode] agent mode slug (must match `agentsam_routing_arms.mode`)
@@ -535,7 +567,7 @@ export async function loadChatRoutingArmsModelKeyOrder(env, mode, workspaceId, o
   });
   const keys = rows.map((r) => String(r?.model_key ?? '').trim()).filter(Boolean);
   if (keys.length) return keys;
-  return [...CHAT_ROUTING_STATIC_FALLBACK_KEYS];
+  return loadActiveCatalogModelKeysOrdered(env);
 }
 
 /**

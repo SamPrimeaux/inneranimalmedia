@@ -21,32 +21,43 @@ export function pickRoutingArmByThompson(results) {
 }
 
 /**
- * Single-draw Thompson sample for command/auto flows (workspace-scoped arms only).
- * @param {string} [workspaceId] required for live D1 (routing arms are per workspace)
+ * Single-draw Thompson sample for command/auto flows.
+ * Candidate arms match {@link queryRoutingArmsCandidates} filters (workspace-scoped first, then global empty workspace_id).
+ * Kept self-contained to avoid a circular import with `routing.js`.
  */
 export async function thompsonSample(env, taskType, mode, workspaceId = '') {
   if (!env?.DB) return null;
+  const tt = taskType != null ? String(taskType).trim() : 'chat';
+  const m = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'auto';
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
-  if (!ws) return null;
-  const { results } = await env.DB.prepare(
-    `
-    SELECT ra.id, ra.model_key, ra.provider, ra.success_alpha, ra.success_beta,
-           ra.cost_mean, ra.latency_mean
-    FROM agentsam_routing_arms ra
-    WHERE ra.task_type = ? AND ra.mode = ?
-      AND ra.workspace_id = ?
-      AND ra.is_eligible = 1 AND ra.is_paused = 0
-      AND EXISTS (
-        SELECT 1 FROM agentsam_model_catalog mc
-        WHERE mc.model_key = ra.model_key AND mc.is_active = 1
-      )
-      AND lower(trim(ra.model_key)) != 'gpt-5.5'
-    `,
-  )
-    .bind(taskType, mode || 'auto', ws)
-    .all()
-    .catch(() => ({ results: [] }));
-  return pickRoutingArmByThompson(results);
+  const catalogOk =
+    ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
+  const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
+  const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${catalogOk}${blockGpt55Base}`;
+  const orderSql = `(CASE WHEN LOWER(COALESCE(ra.provider,'')) IN ('cloudflare','workers_ai')
+             OR ra.model_key LIKE 'wai-%' OR ra.model_key LIKE '@cf/%' THEN 1 ELSE 0 END) ASC,
+       ra.decayed_score DESC, COALESCE(ra.priority, 50) ASC`;
+  const projection =
+    `SELECT ra.id, ra.model_key, ra.provider, ra.success_alpha, ra.success_beta, ra.cost_mean, ra.latency_mean`;
+
+  try {
+    let results = [];
+    if (ws) {
+      const sqlWs =
+        `${projection} FROM agentsam_routing_arms ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
+      const r1 = await env.DB.prepare(sqlWs).bind(tt, m, ws).all();
+      results = r1.results || [];
+    }
+    if (!results.length) {
+      const sqlG =
+        `${projection} FROM agentsam_routing_arms ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
+      const r2 = await env.DB.prepare(sqlG).bind(tt, m).all();
+      results = r2.results || [];
+    }
+    return pickRoutingArmByThompson(results);
+  } catch {
+    return null;
+  }
 }
 
 export async function updateArmsFromMetrics(env) {

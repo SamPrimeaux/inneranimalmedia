@@ -11,9 +11,10 @@ import { chatWithToolsGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
 import { resolveApiKey }       from './vault.js';
-import { thompsonSample }      from './thompson.js';
+import { pickRoutingArmByThompson } from './thompson.js';
 import { isFeatureEnabled }    from './features.js';
 import { pragmaTableInfo }     from './retention.js';
+import { queryRoutingArmsCandidates, filterArmsForRouteKey } from './routing.js';
 
 /** Thrown when Ollama is skipped so the agent model chain can try the next provider (no SSE error text). */
 export const OLLAMA_SKIP_MESSAGE = 'ollama_skip';
@@ -57,24 +58,34 @@ async function resolveAutoModelKey(env, params) {
   const mk = modelKey != null ? String(modelKey).trim() : '';
   if (mk && mk.toLowerCase() !== 'auto') return modelKey;
 
-  const thompsonEnabled = await isFeatureEnabled(env, 'thompson_sampling', {
-    userId: params.userId,
-    tenantId: params.tenantId,
-  });
+  const ws =
+    params.workspaceId != null && String(params.workspaceId).trim() !== ''
+      ? String(params.workspaceId).trim()
+      : '';
 
-  if (thompsonEnabled) {
-    const ws =
-      params.workspaceId != null && String(params.workspaceId).trim() !== ''
-        ? String(params.workspaceId).trim()
-        : '';
-    const arm = await thompsonSample(env, params.taskType || 'chat', params.mode || 'auto', ws).catch(
-      () => null,
-    );
-    if (arm?.model_key) {
-      params.model = arm.model_key;
-      params.provider = arm.provider;
-      params.routing_arm_id = arm.id;
-      return arm.model_key;
+  // 1) Same candidate pool as Thompson tuning: routing arms (workspace → global), then Thompson draw or best decayed_score.
+  if (env?.DB) {
+    let arms = await queryRoutingArmsCandidates(env, {
+      taskType: params.taskType || 'chat',
+      mode: params.mode || 'auto',
+      workspaceId: ws,
+      toolRequired: !!params.toolRequired,
+      routeKey: params.routeKey ?? null,
+    }).catch(() => []);
+    arms = await filterArmsForRouteKey(env, params.routeKey ?? null, arms);
+    if (arms?.length) {
+      const useThompson = await isFeatureEnabled(env, 'thompson_sampling', {
+        userId: params.userId,
+        tenantId: params.tenantId,
+      });
+      const arm = useThompson ? pickRoutingArmByThompson(arms) : arms[0];
+      const mkArm = arm?.model_key != null ? String(arm.model_key).trim() : '';
+      if (mkArm) {
+        params.model = mkArm;
+        params.provider = arm.provider;
+        params.routing_arm_id = arm.id;
+        return mkArm;
+      }
     }
   }
 
@@ -93,7 +104,7 @@ async function resolveAutoModelKey(env, params) {
     .first()
     .catch(() => null);
   if (fallback?.model_key) return String(fallback.model_key);
-  return 'gpt-4.1-mini';
+  return null;
 }
 
 /**
@@ -300,6 +311,15 @@ export async function resolveModelMeta(env, modelKey) {
 
 export async function dispatchStream(env, request, params) {
   const modelKey = await resolveAutoModelKey(env, params);
+  if (modelKey == null || String(modelKey).trim() === '') {
+    return jsonResponse(
+      {
+        error: 'No routable model for auto selection',
+        detail: 'Configure agentsam_routing_arms (and agentsam_model_catalog) or set model explicitly.',
+      },
+      503,
+    );
+  }
   const { systemPrompt, messages, tools = [], options = {}, userId, anthropicContainerId } = params;
   const meta = await resolveModelMeta(env, modelKey);
   const platform = String(meta?.api_platform || 'anthropic').toLowerCase();
@@ -353,6 +373,9 @@ export async function dispatchStream(env, request, params) {
 
 export async function dispatchComplete(env, params) {
   const modelKey = await resolveAutoModelKey(env, params);
+  if (modelKey == null || String(modelKey).trim() === '') {
+    throw new Error('No routable model for auto selection; configure agentsam_routing_arms or agentsam_model_catalog.');
+  }
   const { systemPrompt, messages, tools = [], options = {}, userId } = params;
   const meta = await resolveModelMeta(env, modelKey);
   const platform = String(meta?.api_platform || 'anthropic').toLowerCase();
@@ -387,8 +410,38 @@ export async function dispatchComplete(env, params) {
   return res;
 }
 
-/** When Workers AI fails or returns an unusable stream, continue with OpenAI (same SSE shape as upstream OpenAI). */
-const WORKERS_AI_OPENAI_FALLBACK_MODEL = 'gpt-4.1-mini';
+/** Prefer an active OpenAI catalog row for Workers AI → OpenAI failover (no hardcoded SKU). */
+async function pickOpenAiFallbackModelKeyFromCatalog(env) {
+  const db = env?.DB;
+  if (!db) return null;
+  const cols = await pragmaTableInfo(db, 'agentsam_model_catalog');
+  if (!cols.has('model_key') || !cols.has('provider')) return null;
+  const scope =
+    cols.has('tenant_id') && cols.has('workspace_id')
+      ? `AND COALESCE(tenant_id,'') = '' AND COALESCE(workspace_id,'') = ''`
+      : '';
+  const hasTier = cols.has('tier');
+  const hasDegraded = cols.has('is_degraded');
+  const degradedClause = hasDegraded ? `AND COALESCE(is_degraded,0) = 0` : '';
+  const orderBy = hasTier
+    ? `CASE LOWER(COALESCE(tier,'')) WHEN 'micro' THEN 0 WHEN 'flash' THEN 1 WHEN 'standard' THEN 2 WHEN 'power' THEN 3 WHEN 'reasoning' THEN 4 WHEN 'frontier' THEN 5 ELSE 9 END, model_key ASC`
+    : 'model_key ASC';
+  try {
+    const row = await db
+      .prepare(
+        `SELECT model_key FROM agentsam_model_catalog
+         WHERE is_active = 1 ${degradedClause}
+           AND LOWER(TRIM(provider)) = 'openai'
+           ${scope}
+         ORDER BY ${orderBy}
+         LIMIT 1`,
+      )
+      .first();
+    return row?.model_key != null ? String(row.model_key).trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 function extractWorkersAiSseToken(obj) {
   if (!obj || typeof obj !== 'object') return '';
@@ -410,7 +463,11 @@ async function dispatchWorkersAI(env, request, params) {
   ];
 
   const openAiFallback = async (reason) => {
-    console.warn('[provider] Workers AI → OpenAI fallback', WORKERS_AI_OPENAI_FALLBACK_MODEL, reason?.message || String(reason));
+    const fbKey =
+      (await pickOpenAiFallbackModelKeyFromCatalog(env)) ||
+      (await pickFallbackCatalogModelKey(env.DB, false)) ||
+      (await pickFallbackCatalogModelKey(env.DB, true));
+    console.warn('[provider] Workers AI → OpenAI fallback', fbKey || '(none)', reason?.message || String(reason));
     const openaiKey = await resolveApiKey(env, userId, 'OPENAI_API_KEY');
     if (!openaiKey) {
       return jsonResponse(
@@ -418,9 +475,23 @@ async function dispatchWorkersAI(env, request, params) {
         503,
       );
     }
+    if (!fbKey) {
+      return jsonResponse(
+        {
+          error: 'Workers AI failed and no OpenAI fallback model is configured in agentsam_model_catalog',
+          detail: String(reason?.message || reason),
+        },
+        503,
+      );
+    }
+    const fbMeta = await resolveModelMeta(env, fbKey);
     return chatWithToolsOpenAI(env, request, {
       ...params,
-      modelKey: WORKERS_AI_OPENAI_FALLBACK_MODEL,
+      modelKey: fbKey,
+      providerModelId:
+        fbMeta?.provider_model_id != null && String(fbMeta.provider_model_id).trim() !== ''
+          ? String(fbMeta.provider_model_id).trim()
+          : null,
     });
   };
 
@@ -492,10 +563,21 @@ async function dispatchWorkersAI(env, request, params) {
     } catch (e) {
       console.warn('[provider] Workers AI stream failed mid-flight', e?.message || e);
       try {
-        const fb = await chatWithToolsOpenAI(env, request, {
-          ...params,
-          modelKey: WORKERS_AI_OPENAI_FALLBACK_MODEL,
-        });
+        const fbKey =
+          (await pickOpenAiFallbackModelKeyFromCatalog(env)) ||
+          (await pickFallbackCatalogModelKey(env.DB, false)) ||
+          (await pickFallbackCatalogModelKey(env.DB, true));
+        const fbMeta = fbKey ? await resolveModelMeta(env, fbKey) : null;
+        const fb = fbKey
+          ? await chatWithToolsOpenAI(env, request, {
+              ...params,
+              modelKey: fbKey,
+              providerModelId:
+                fbMeta?.provider_model_id != null && String(fbMeta.provider_model_id).trim() !== ''
+                  ? String(fbMeta.provider_model_id).trim()
+                  : null,
+            })
+          : null;
         if (fb instanceof Response && fb.ok && fb.body) {
           const rdr = fb.body.getReader();
           while (true) {
@@ -505,6 +587,8 @@ async function dispatchWorkersAI(env, request, params) {
           }
         } else if (fb instanceof Response) {
           console.warn('[provider] Workers AI OpenAI fallback HTTP', fb.status);
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ error: 'stream_unavailable' })}\n\n`));
+        } else if (!fb) {
           await writer.write(encoder.encode(`data: ${JSON.stringify({ error: 'stream_unavailable' })}\n\n`));
         }
       } catch (e2) {

@@ -61,7 +61,6 @@ import {
   loadChatRoutingArmsModelKeyOrder,
   queryRoutingArmsCandidates,
   resolveRoutingTaskType,
-  CHAT_ROUTING_STATIC_FALLBACK_KEYS,
 } from '../core/routing.js';
 import { pickRoutingArmByThompson } from '../core/thompson.js';
 import {
@@ -1425,9 +1424,21 @@ async function resolveAgentsamAiRowByModelKey(env, tenantId, modelKey) {
   }
 }
 
+async function loadAgentsamAiActiveModelKeysOrdered(env) {
+  if (!env?.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT model_key FROM agentsam_ai WHERE mode = 'model' AND status = 'active' ORDER BY sort_order ASC, name ASC LIMIT 40`,
+    ).all();
+    return (results || []).map((r) => String(r.model_key || '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Chat SSE tail of the model chain: `agentsam_routing_arms` (chat + mode + is_eligible, decayed_score),
- * resolved to `agentsam_ai` rows; falls back to static keys if D1 yields no resolvable rows.
+ * resolved to `agentsam_ai` rows; then catalog-ordered keys and active `agentsam_ai` rows from D1 (no hardcoded SKUs).
  */
 async function loadChatRoutingFallbackRows(env, opts = {}) {
   const tenantId =
@@ -1463,7 +1474,7 @@ async function loadChatRoutingFallbackRows(env, opts = {}) {
   }
 
   if (!rows.length) {
-    for (const mk of CHAT_ROUTING_STATIC_FALLBACK_KEYS) {
+    for (const mk of await loadAgentsamAiActiveModelKeysOrdered(env)) {
       if (excludeSet.has(mk)) continue;
       const r = await resolveAgentsamAiRowByModelKey(env, tenantId, mk);
       if (r?.model_key && !seen.has(r.model_key)) {
