@@ -65,6 +65,9 @@ const columns: ColumnDef[] = [
   { id: "complete", title: "Complete", hint: "Closed this cycle" },
 ];
 
+/** UI seed only: wire to Kanban API + session workspace; never hardcode real tenant/workspace ids here. */
+const DEMO_WORKSPACE = "";
+
 const initialTasks: DashboardTask[] = [
   {
     id: "task_dashboard_projects",
@@ -73,7 +76,7 @@ const initialTasks: DashboardTask[] = [
     status: "testing",
     priority: "P0",
     project_name: "Agent Sam Dashboard",
-    workspace_id: "ws_inneranimalmedia",
+    workspace_id: DEMO_WORKSPACE,
     owner_name: "Sam",
     assignee_name: "Agent Sam",
     due_date: "Today",
@@ -92,7 +95,7 @@ const initialTasks: DashboardTask[] = [
     status: "in_progress",
     priority: "P0",
     project_name: "Agent Sam Analytics",
-    workspace_id: "ws_inneranimalmedia",
+    workspace_id: DEMO_WORKSPACE,
     owner_name: "Sam",
     assignee_name: "Cursor",
     due_date: "Today",
@@ -112,7 +115,7 @@ const initialTasks: DashboardTask[] = [
     status: "blocked",
     priority: "P0",
     project_name: "Dashboard Infrastructure",
-    workspace_id: "ws_inneranimalmedia",
+    workspace_id: DEMO_WORKSPACE,
     owner_name: "Sam",
     assignee_name: "Agent Sam",
     due_date: "Today",
@@ -131,7 +134,7 @@ const initialTasks: DashboardTask[] = [
     status: "backlog",
     priority: "P1",
     project_name: "Agent Sam Task System",
-    workspace_id: "ws_inneranimalmedia",
+    workspace_id: DEMO_WORKSPACE,
     owner_name: "Sam",
     assignee_name: "Agent Sam",
     due_date: "May 12",
@@ -150,7 +153,7 @@ const initialTasks: DashboardTask[] = [
     status: "awaiting_approval",
     priority: "P1",
     project_name: "Agent Sam Observability",
-    workspace_id: "ws_inneranimalmedia",
+    workspace_id: DEMO_WORKSPACE,
     owner_name: "Sam",
     assignee_name: "Cursor",
     due_date: "Tomorrow",
@@ -170,7 +173,7 @@ const initialTasks: DashboardTask[] = [
     status: "todo",
     priority: "P0",
     project_name: "Companions of CPAS",
-    workspace_id: "ws_inneranimalmedia",
+    workspace_id: DEMO_WORKSPACE,
     owner_name: "Sam",
     assignee_name: "Sam",
     due_date: "Tomorrow",
@@ -188,7 +191,7 @@ const initialTasks: DashboardTask[] = [
     status: "complete",
     priority: "P1",
     project_name: "Knowledge Pipeline",
-    workspace_id: "ws_inneranimalmedia",
+    workspace_id: DEMO_WORKSPACE,
     owner_name: "Sam",
     assignee_name: "Agent Sam",
     due_date: "Today",

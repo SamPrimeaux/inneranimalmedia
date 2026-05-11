@@ -66,6 +66,10 @@ export async function resolveDefaultWorkspaceIdForTenant(env, tenantId) {
 /**
  * Resolves effective workspace for authenticated requests without hardcoding tenant workspaces.
  *
+ * Do not hardcode tenant_id, workspace_id, user_id, person_uuid, or auth IDs in runtime API/tool/agent
+ * code — derive identity from session, auth_users, workspace membership, and env-backed platform scope.
+ * Use resolveCanonicalUserId (auth) + this helper, then pass the result as runtimeContext downstream.
+ *
  * @returns {Promise<{ workspaceId: string|null, error: string|null }>}
  */
 export async function resolveEffectiveWorkspaceId(env, request, authUser, cache) {

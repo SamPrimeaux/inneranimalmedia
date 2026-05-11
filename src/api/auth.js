@@ -2048,6 +2048,10 @@ export async function handleOAuthConsentPage(request, env) {
 /**
  * Resolve a stable canonical app user id (`au_*`) from session/workspace ids (`usr_*`, etc.).
  * Never throws; returns null when input is empty.
+ *
+ * Do not hardcode tenant/workspace/user/person/auth ids in routes or tools — pass resolved ids from
+ * session and membership (see resolveEffectiveWorkspaceId in bootstrap.js).
+ *
  * @param {string | null | undefined} userId
  * @param {any} env
  * @returns {Promise<string | null>}
