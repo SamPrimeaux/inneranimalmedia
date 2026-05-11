@@ -825,15 +825,18 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                 <div
                   className={`relative iam-terminal-chrome-fill ${splitEnabled ? 'md:w-1/2 md:max-w-[50%]' : 'w-full'}`}
                 >
-                  <TerminalSessionPane
-                    ref={primaryPaneRef}
-                    workspaceId={workspaceId}
-                    shell={shellPref}
-                    ptySlot=""
-                    visible={terminalAreaVisible}
-                    onConnectionChange={setPrimaryStatus}
-                    onSessionIdChange={setPrimarySessionId}
-                  />
+                  {/* Match OUTPUT/PROBLEMS geometry: explicit filled box so xterm FitAddon gets non-zero height */}
+                  <div className="absolute inset-0 flex flex-col min-h-0 min-w-0">
+                    <TerminalSessionPane
+                      ref={primaryPaneRef}
+                      workspaceId={workspaceId}
+                      shell={shellPref}
+                      ptySlot=""
+                      visible={terminalAreaVisible}
+                      onConnectionChange={setPrimaryStatus}
+                      onSessionIdChange={setPrimarySessionId}
+                    />
+                  </div>
                   {showSplash && showIamWelcomeBar && (
                     <WelcomeSplash
                       productLabel={productLabel}
@@ -856,14 +859,16 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       <div className="absolute top-1 left-2 z-[5] pointer-events-none text-[9px] font-mono uppercase tracking-wider text-[var(--text-muted)]/80">
                         Session 2
                       </div>
-                      <TerminalSessionPane
-                        ref={secondaryPaneRef}
-                        workspaceId={workspaceId}
-                        shell={shellPref}
-                        ptySlot="s2"
-                        visible={terminalAreaVisible}
-                        onConnectionChange={setSecondaryStatus}
-                      />
+                      <div className="absolute inset-0 flex flex-col min-h-0 min-w-0">
+                        <TerminalSessionPane
+                          ref={secondaryPaneRef}
+                          workspaceId={workspaceId}
+                          shell={shellPref}
+                          ptySlot="s2"
+                          visible={terminalAreaVisible}
+                          onConnectionChange={setSecondaryStatus}
+                        />
+                      </div>
                     </div>
                   </>
                 )}

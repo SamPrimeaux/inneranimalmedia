@@ -521,17 +521,20 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
             margin: 0;
             height: 100%;
           }
+          .iam-terminal-pane-root .xterm-viewport {
+            height: 100% !important;
+          }
           .iam-terminal-pane-root .xterm-viewport,
           .iam-terminal-pane-root .xterm-screen {
             width: 100% !important;
           }
           .iam-terminal-pane-root .xterm-shell-viewport .xterm-viewport { overflow-y: auto !important; }
         `}</style>
-        <div className="iam-terminal-pane-root relative flex-1 min-h-0 min-w-0 flex flex-col h-full w-full bg-[var(--terminal-surface)]">
+        <div className="iam-terminal-pane-root relative flex-1 min-h-0 min-w-0 flex h-full w-full flex-col bg-[var(--terminal-surface)] overflow-hidden">
           <div
             ref={terminalRef}
-            className="xterm-shell-viewport flex-1 min-h-0 w-full"
-            style={{ padding: 0, margin: 0 }}
+            className="xterm-shell-viewport min-h-0 min-w-0 flex-1 w-full"
+            style={{ padding: 0, margin: 0, height: '100%', minHeight: 0 }}
           />
         </div>
       </>
