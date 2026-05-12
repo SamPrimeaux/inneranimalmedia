@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CHILD="/Users/samprimeaux/Downloads/inneranimalmedia/inneranimalmedia-agentsam-dashboard"
+CHILD="/Users/samprimeaux/Downloads/inneranimalmedia/inneranimalmedia"
 PARENT="/Users/samprimeaux/Downloads/inneranimalmedia"
 SRC_DASH="$CHILD/dashboard"
 DEST_DASH="$PARENT/dashboard"

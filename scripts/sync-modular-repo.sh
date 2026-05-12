@@ -8,7 +8,7 @@
 
 set -e
 
-PROD="/Users/samprimeaux/inneranimalmedia-agentsam-dashboard"
+PROD="/Users/samprimeaux/inneranimalmedia"
 MOD="/Users/samprimeaux/inneranimalmedia"
 
 echo ""

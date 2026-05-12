@@ -51,7 +51,7 @@ cicd_git_export() {
   if [[ "$remote" =~ github\.com[:/]([^/]+/[^/.]+)(\.git)?$ ]]; then
     CICD_REPO_NAME="${BASH_REMATCH[1]}"
   else
-    CICD_REPO_NAME="${CICD_REPO_NAME:-SamPrimeaux/inneranimalmedia-agentsam-dashboard}"
+    CICD_REPO_NAME="${CICD_REPO_NAME:-SamPrimeaux/inneranimalmedia}"
   fi
   CICD_ACTOR_ESC=$(cicd_sql_escape "${GIT_ACTOR:-${TRIGGERED_BY:-sam_primeaux}}")
 }

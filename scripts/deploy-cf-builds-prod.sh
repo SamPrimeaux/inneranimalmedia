@@ -39,7 +39,7 @@ COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "unknown")
 npx wrangler d1 execute inneranimalmedia-business \
   --remote -c wrangler.jsonc \
   --command="INSERT OR REPLACE INTO iam_system_health (id, component, status, last_checked_at, last_healthy_at, error_message, metadata_json, check_source) VALUES ('health_worker_prod', 'worker:production', 'healthy', datetime('now'), datetime('now'), NULL, '{\"entry\":\"src/index.js\",\"commit\":\"${COMMIT_SHA}\",\"message\":\"${COMMIT_MSG}\"}', 'cf_builds');
-INSERT INTO iam_deploy_log (repo, branch, commit_sha, commit_message, entry_point, config_file, environment, status) VALUES ('inneranimalmedia-agentsam-dashboard', 'production', '${COMMIT_SHA}', '${COMMIT_MSG}', 'src/index.js', 'wrangler.jsonc', 'production', 'success');" 2>/dev/null || true
+INSERT INTO iam_deploy_log (repo, branch, commit_sha, commit_message, entry_point, config_file, environment, status) VALUES ('inneranimalmedia', 'production', '${COMMIT_SHA}', '${COMMIT_MSG}', 'src/index.js', 'wrangler.jsonc', 'production', 'success');" 2>/dev/null || true
 
 
 echo "=== CF Builds PROD: record deploy to D1 ==="
