@@ -147,7 +147,11 @@ export async function rollupAgentsamModelRoutingMemory(env) {
   if (!env?.DB) return;
   const mem = await pragmaTableInfo(env.DB, 'agentsam_model_routing_memory');
   const run = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+  const arms = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
   if (!mem.size || !run.size || !run.has('routing_arm_id')) return;
+
+  const sampleCol = mem.has('sample_count') ? 'sample_count' : mem.has('sample_n') ? 'sample_n' : null;
+  if (!sampleCol) return;
 
   const begun = await startCronRun(env, {
     jobName: 'agentsam_model_routing_memory_rollup',
@@ -158,50 +162,64 @@ export async function rollupAgentsamModelRoutingMemory(env) {
   const runId = begun?.runId ?? null;
   const startedAt = begun?.startedAt ?? Date.now();
   try {
-    await env.DB
-      .prepare(
-        `
-      INSERT INTO agentsam_model_routing_memory (
-        id, workspace_id, task_type, model_key,
-        success_rate, avg_latency_ms, avg_cost_usd,
-        code_pass_rate, hallucination_rate, sample_count, updated_at
-      )
-      SELECT
-        'mrm_' || lower(hex(randomblob(8))),
-        COALESCE(
-          NULLIF(trim(r.workspace_id), ''),
-          NULLIF(trim(ar.workspace_id), ''),
-          ''
-        ),
-        ar.task_type,
-        ar.model_key,
-        AVG(CASE WHEN COALESCE(r.status, '') = 'completed' THEN 1.0 ELSE 0.0 END),
-        AVG(
+    const includeProvider = mem.has('provider') && arms.has('provider');
+    const insertCols = [
+      'id',
+      'workspace_id',
+      'task_type',
+      'model_key',
+      'success_rate',
+      'avg_latency_ms',
+      'avg_cost_usd',
+      'code_pass_rate',
+      'hallucination_rate',
+    ];
+    const selectExprs = [
+      `'mrm_' || lower(hex(randomblob(8)))`,
+      `COALESCE(NULLIF(trim(r.workspace_id), ''), NULLIF(trim(ar.workspace_id), ''), '')`,
+      `ar.task_type`,
+      `ar.model_key`,
+      `AVG(CASE WHEN COALESCE(r.status, '') = 'completed' THEN 1.0 ELSE 0.0 END)`,
+      `AVG(
           CASE
             WHEN r.started_at IS NOT NULL AND r.completed_at IS NOT NULL THEN
               (julianday(r.completed_at) - julianday(r.started_at)) * 86400000.0
             ELSE NULL
           END
-        ),
-        AVG(COALESCE(r.cost_usd, 0)),
-        NULL,
-        NULL,
-        COUNT(*),
-        unixepoch()
+        )`,
+      `AVG(COALESCE(r.cost_usd, 0))`,
+      `NULL`,
+      `NULL`,
+    ];
+    if (includeProvider) {
+      insertCols.push('provider');
+      selectExprs.push(`COALESCE(NULLIF(trim(MAX(ar.provider)), ''), 'unknown')`);
+    }
+    insertCols.push(sampleCol, 'updated_at');
+    selectExprs.push('COUNT(*)', 'unixepoch()');
+
+    const conflictSets = [
+      'success_rate = excluded.success_rate',
+      'avg_latency_ms = excluded.avg_latency_ms',
+      'avg_cost_usd = excluded.avg_cost_usd',
+      `${sampleCol} = excluded.${sampleCol}`,
+    ];
+    if (includeProvider) conflictSets.push('provider = excluded.provider');
+    conflictSets.push('updated_at = unixepoch()');
+
+    const sql = `
+      INSERT INTO agentsam_model_routing_memory (${insertCols.join(', ')})
+      SELECT ${selectExprs.join(', ')}
       FROM agentsam_agent_run r
       INNER JOIN agentsam_routing_arms ar ON ar.id = r.routing_arm_id
       WHERE r.routing_arm_id IS NOT NULL
         AND datetime(COALESCE(r.created_at, '1970-01-01')) >= datetime('now', '-14 days')
       GROUP BY COALESCE(NULLIF(trim(r.workspace_id), ''), ''), ar.task_type, ar.model_key
       ON CONFLICT(workspace_id, task_type, model_key) DO UPDATE SET
-        success_rate = excluded.success_rate,
-        avg_latency_ms = excluded.avg_latency_ms,
-        avg_cost_usd = excluded.avg_cost_usd,
-        sample_count = excluded.sample_count,
-        updated_at = unixepoch()
-    `,
-      )
-      .run();
+        ${conflictSets.join(', ')}
+    `;
+
+    await env.DB.prepare(sql).run();
     if (runId) await completeCronRun(env, runId, startedAt, { rowsRead: 1, rowsWritten: 1, metadata: {} });
   } catch (e) {
     if (runId) await failCronRun(env, runId, startedAt, e);

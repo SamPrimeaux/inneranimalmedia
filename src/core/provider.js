@@ -490,7 +490,7 @@ export async function dispatchComplete(env, params) {
       : null;
   const modelForUpstream = providerModelId || modelKey;
 
-  if (platform === 'openai' || platform === 'openai_chat_completions') {
+  if (platform === 'openai' || platform === 'openai_chat_completions' || platform === 'openai_responses') {
     return completeWithOpenAI(env, {
       modelKey,
       providerModelId,
