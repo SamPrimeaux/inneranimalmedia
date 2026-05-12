@@ -117,17 +117,7 @@ const TOOL_SMOKE_DENYLIST = new Set([
   'bash',
 ]);
 
-/** Registry ids in `agentsam_prompt_versions.id` — content always loaded from D1. */
-const AP_SYS = {
-  core: 'ap_core_agent_sam_system_v1',
-  dbSafety: 'ap_core_db_safety_system_v1',
-  security: 'ap_core_security_system_v1',
-  deploy: 'ap_core_deploy_safety_system_v1',
-  billing: 'ap_core_billing_system_v1',
-  learning: 'ap_core_learning_system_v1',
-  shinshu: 'ap_core_shinshu_system_v1',
-  client: 'ap_core_client_work_system_v1',
-};
+/** Registry keys in `agentsam_prompt_versions.prompt_key` — content always loaded from D1. */
 const TENANT_KNOWLEDGE_PLATFORM = 'tenant_knowledge_platform';
 const TENANT_SHINSHU = 'tenant_jake_waalk';
 
