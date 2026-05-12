@@ -35,6 +35,18 @@ export function normalizeToolName(toolName) {
         github_repo: 'github_repos',
         github_list_repos: 'github_repos',
 
+        // Dashboard self-debug friendly aliases → existing CDT / browser MCP tools (no new D1 rows).
+        browser_open_url: 'cdt_navigate_page',
+        browser_get_dom_summary: 'cdt_take_snapshot',
+        browser_click: 'cdt_click',
+        browser_type: 'cdt_fill',
+        browser_press: 'cdt_press_key',
+        browser_get_console_errors: 'cdt_list_console_messages',
+        browser_get_network_events: 'cdt_list_network_requests',
+        browser_get_current_url: 'cdt_list_pages',
+        browser_wait_for_text: 'cdt_wait_for',
+        browser_eval_safe: 'cdt_evaluate_script',
+
         // ai-ops.js registers ai_complete / ai_compare / ai_embed (not agentsam_*).
         // Legacy or mistaken names route to the same handlers.
         agentsam_complete: 'ai_complete',

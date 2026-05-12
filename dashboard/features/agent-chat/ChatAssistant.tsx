@@ -65,6 +65,7 @@ import {
 } from './composerLayout';
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
+import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
 import {
   WorkflowPicker,
@@ -1061,6 +1062,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     };
 
     try {
+      const streamDebugId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `dbg_${Date.now()}`;
+      initIamAgentStreamDebug(streamDebugId);
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
         body: form,
@@ -1068,11 +1071,22 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         credentials: 'same-origin',
       });
 
+      patchIamAgentStreamDebug({
+        response_headers_at: Date.now(),
+        http_status: response.status,
+      });
+
       if (!response.ok) {
+        patchIamAgentStreamDebug({
+          error_at: Date.now(),
+        });
         applyAssistantError(formatHttpErrorMessage(response.status, response.statusText || ''));
         return;
       }
       if (!response.body) {
+        patchIamAgentStreamDebug({
+          error_at: Date.now(),
+        });
         applyAssistantError('Empty response body from chat endpoint');
         return;
       }
@@ -1110,6 +1124,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       });
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
+        patchIamAgentStreamDebug({ abort_at: Date.now() });
         setMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
@@ -1125,6 +1140,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         console.error('Chat request failed:', error);
         streamFinalizedRef.current = true;
         const msg = error instanceof Error ? error.message : String(error);
+        patchIamAgentStreamDebug({ error_at: Date.now() });
         setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
       }
     } finally {

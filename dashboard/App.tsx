@@ -1104,6 +1104,20 @@ const App: React.FC = () => {
     return () => window.removeEventListener('iam:agent-open-surface', h as EventListener);
   }, [openTab, revealMainWorkspaceIfNarrow, isNarrowViewport]);
 
+  /** Browser / cdt_* tool activity from Agent SSE — surface the Browser tab so the workbench matches agent actions. */
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ tool_name?: string; phase?: string }>).detail;
+      const tn = String(d?.tool_name || '');
+      if (!tn) return;
+      revealMainWorkspaceIfNarrow();
+      openTab('browser');
+      setToastMsg(`Agent Sam · browser tool: ${tn}`);
+    };
+    window.addEventListener('iam:agent-browser-tool-active', h as EventListener);
+    return () => window.removeEventListener('iam:agent-browser-tool-active', h as EventListener);
+  }, [openTab, revealMainWorkspaceIfNarrow]);
+
   const consumeGithubExpandRepo = useCallback(() => setGithubExpandRepo(null), []);
 
   useEffect(() => {

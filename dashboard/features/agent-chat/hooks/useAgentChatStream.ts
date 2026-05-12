@@ -17,6 +17,7 @@ import {
   ssePayloadLooksReasoningOnly,
   isStreamErrorPayload,
 } from '../streamParsing';
+import { markStreamParserError, patchIamAgentStreamDebug } from '../streamDebug';
 
 function extForStreamOutput(lang: string): string {
   const map: Record<string, string> = {
@@ -130,13 +131,31 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         let data: unknown;
         try {
           data = JSON.parse(dataStr);
-        } catch {
+        } catch (e) {
+          markStreamParserError(e instanceof Error ? e.message : String(e));
           continue;
         }
         if (signal.aborted) break sseLoop;
 
+        const markFirstSse = () => {
+          if (typeof window === 'undefined') return;
+          const cur = window.__IAM_AGENT_LAST_STREAM_DEBUG;
+          if (!cur || cur.first_sse_event_at != null) return;
+          patchIamAgentStreamDebug({ first_sse_event_at: Date.now() });
+        };
+        markFirstSse();
+
         const evType = (data as { type?: string }).type;
+        if (evType === 'context' && data && typeof data === 'object') {
+          const ctx = data as Record<string, unknown>;
+          patchIamAgentStreamDebug({
+            context_event_at: Date.now(),
+            context: { ...ctx },
+          });
+          continue;
+        }
         if (evType === 'done') {
+          patchIamAgentStreamDebug({ done_at: Date.now(), done_received: true });
           if (!streamFinalizedRef.current) {
             streamFinalizedRef.current = true;
             setIsLoading(false);
@@ -493,6 +512,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_start') {
           const d = data as { type: 'tool_start'; tool_name?: string; input_preview?: string | null };
+          const tn = String(d.tool_name || '');
+          patchIamAgentStreamDebug({ last_tool_name: tn || null });
+          if (
+            typeof window !== 'undefined' &&
+            (tn.startsWith('cdt_') || tn.startsWith('browser_') || tn === 'playwright_screenshot')
+          ) {
+            window.dispatchEvent(
+              new CustomEvent('iam:agent-browser-tool-active', {
+                detail: { tool_name: tn, phase: 'start' },
+              }),
+            );
+          }
           setExecPanel({
             tool_name: d.tool_name || 'tool',
             status: 'running',
@@ -502,6 +533,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               !!d.tool_name &&
               (d.tool_name.includes('d1') || d.tool_name.includes('sql') || d.tool_name.includes('query')),
           });
+          continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_error') {
           const d = data as { type?: string; tool?: string; error?: string };
@@ -585,6 +617,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           }
         } else if (delta) {
           emptyRun = 0;
+          if (typeof window !== 'undefined') {
+            const dbg = window.__IAM_AGENT_LAST_STREAM_DEBUG;
+            if (dbg && dbg.first_text_at == null) {
+              patchIamAgentStreamDebug({ first_text_at: Date.now() });
+            }
+          }
         }
         if (!fileEchoSuppress) {
           const trialBuf = assistantStreamBuf + normalizeAssistantSseText(data);
@@ -612,6 +650,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         }
       }
     }
+  }
+
+  if (typeof window !== 'undefined' && window.__IAM_AGENT_LAST_STREAM_DEBUG) {
+    patchIamAgentStreamDebug({
+      assistant_text_length: assistantContent.length,
+    });
   }
 
   const codeBlockRegex2 = /```(\w+)?\n([\s\S]*?)\n```/g;

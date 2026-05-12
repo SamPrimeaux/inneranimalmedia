@@ -53,7 +53,6 @@ COOKIE_FILE = Path(os.path.expanduser(os.getenv("IAM_COOKIE_FILE", "~/.iam-sessi
 RUN_GROUP = f"lat_{int(time.time())}_{uuid.uuid4().hex[:8]}"
 
 CASE_ORDER = (
-    "direct_provider_hello",
     "minimal_prompt_route_check",
     "chat_hello_first_byte",
     "chat_hello_repeat_10",
@@ -483,17 +482,6 @@ def case_minimal_prompt_route_check(skip: bool, skip_reason: Optional[str]) -> d
     return result
 
 
-def case_direct_provider_hello() -> dict[str, Any]:
-    return {
-        "case": "direct_provider_hello",
-        "status": "SKIPPED_PROVIDER_DIRECT",
-        "reason": "No authenticated internal /api/*/provider-hello or dispatch debug route is "
-        "registered in this Worker; add one before this case can run.",
-        "passed": True,
-        "failures": [],
-    }
-
-
 def eval_hello_first_byte(resp: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     if int(resp.get("http_status") or 0) != 200:
@@ -768,8 +756,6 @@ def main() -> int:
         "evidence_warnings": [],
     }
 
-    report["cases"]["direct_provider_hello"] = case_direct_provider_hello()
-
     skip_d1 = bool(args.dry_run or args.skip_d1)
     d1_skip_reason = "--dry-run" if args.dry_run else ("--skip-d1" if args.skip_d1 else None)
     d1_case = case_minimal_prompt_route_check(skip_d1, d1_skip_reason)
@@ -972,9 +958,7 @@ def main() -> int:
     print(f"Report: {out_path.relative_to(ROOT)}")
     for key in CASE_ORDER:
         c = report["cases"].get(key, {})
-        if key == "direct_provider_hello" and c.get("status") == "SKIPPED_PROVIDER_DIRECT":
-            ps = "SKIP"
-        elif c.get("skipped"):
+        if c.get("skipped"):
             ps = "SKIP"
         elif c.get("passed"):
             ps = "PASS"
@@ -1009,9 +993,6 @@ def main() -> int:
         fl = c.get("failures")
         if isinstance(fl, list) and fl:
             print("       failures:", "; ".join(fl))
-        if key == "direct_provider_hello" and c.get("status"):
-            print("       ", c.get("status"), "-", c.get("reason", "")[:160])
-
     if report["evidence_warnings"]:
         print("Evidence warnings:")
         for w in report["evidence_warnings"]:
