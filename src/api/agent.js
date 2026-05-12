@@ -51,7 +51,17 @@ import {
   writeAgentsamToolCacheAfterSuccess,
 } from '../core/mcp-tool-execution.js';
 import { recordSpan } from '../core/tracer.js';
-import { scheduleAgentsamChatAgentRunInsert } from '../core/agent-run-routing.js';
+import {
+  newChatAgentRunId,
+  scheduleAgentsamChatAgentRunInsert,
+  scheduleAgentsamChatAgentRunStart,
+} from '../core/agent-run-routing.js';
+import {
+  finalizeChatToolSessionParentExecution,
+  insertChatToolSessionExecutionStep,
+  insertChatToolSessionParentExecution,
+  loadAgentChatExecutionLedgerPragma,
+} from '../core/agent-chat-tool-execution-ledger.js';
 import { pragmaTableInfo } from '../core/retention.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
@@ -257,23 +267,44 @@ function inferArtifactFromAssistantText(text) {
 
 function scheduleAgentsamArtifactFromChatOutput(env, ctx, opts) {
   if (!env?.DB || !ctx?.waitUntil) return;
-  const { outputText, userId, tenantId, workspaceId } = opts;
+  const { outputText, userId, tenantId, workspaceId, sourceAgentRunId } = opts;
   const meta = inferArtifactFromAssistantText(outputText || '');
   if (!meta) return;
   const uid = userId != null ? String(userId).trim() : '';
   const tid = tenantId != null ? String(tenantId).trim() : '';
   if (!uid || !tid) return;
   const ws = workspaceId != null ? String(workspaceId).trim() : null;
+  const srcRun =
+    sourceAgentRunId != null && String(sourceAgentRunId).trim() !== ''
+      ? String(sourceAgentRunId).trim().slice(0, 120)
+      : null;
   ctx.waitUntil(
-    env.DB
-      .prepare(
-        `INSERT INTO agentsam_artifacts
-         (user_id, tenant_id, workspace_id, name, artifact_type, r2_key, source)
-         VALUES (?, ?, ?, ?, ?, '', 'agent_response')`,
-      )
-      .bind(uid, tid, ws, meta.name, meta.artifact_type)
-      .run()
-      .catch((e) => console.warn('[agentsam_artifacts]', e?.message ?? e)),
+    (async () => {
+      try {
+        const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
+        if (srcRun && cols.has('source_run_id')) {
+          await env.DB
+            .prepare(
+              `INSERT INTO agentsam_artifacts
+               (user_id, tenant_id, workspace_id, name, artifact_type, r2_key, source, source_run_id)
+               VALUES (?, ?, ?, ?, ?, '', 'agent_response', ?)`,
+            )
+            .bind(uid, tid, ws, meta.name, meta.artifact_type, srcRun)
+            .run();
+        } else {
+          await env.DB
+            .prepare(
+              `INSERT INTO agentsam_artifacts
+               (user_id, tenant_id, workspace_id, name, artifact_type, r2_key, source)
+               VALUES (?, ?, ?, ?, ?, '', 'agent_response')`,
+            )
+            .bind(uid, tid, ws, meta.name, meta.artifact_type)
+            .run();
+        }
+      } catch (e) {
+        console.warn('[agentsam_artifacts]', e?.message ?? e);
+      }
+    })(),
   );
 }
 
@@ -818,6 +849,18 @@ async function createAgentChatToolLedgerRun(env, p) {
       modelKey != null ? String(modelKey) : null,
     )
     .run();
+
+  const { execCols, stepCols } = await loadAgentChatExecutionLedgerPragma(env);
+  const executionParentId = await insertChatToolSessionParentExecution(env, execCols, {
+    tenantId: String(tenantId).trim(),
+    workspaceId: String(workspaceId).trim(),
+    userId,
+    workflowRunId: runId,
+    workflowKey: AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY,
+    modelKey: modelKey != null ? String(modelKey) : null,
+    sessionId: sessionId != null ? String(sessionId) : null,
+  });
+
   return {
     runId,
     workflowId: wfId,
@@ -828,11 +871,16 @@ async function createAgentChatToolLedgerRun(env, p) {
     hasHeartbeat: cols.has('heartbeat_at'),
     tenantId: String(tenantId).trim(),
     workspaceId: String(workspaceId).trim(),
+    modelKey: modelKey != null ? String(modelKey) : null,
+    executionParentId: executionParentId ?? null,
+    executionStepCols: stepCols,
+    executionExeCols: execCols,
   };
 }
 
+/** @returns {Promise<string | null>} execution_step id when written */
 async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
-  if (!ledger?.runId || !env?.DB) return;
+  if (!ledger?.runId || !env?.DB) return null;
   ledger.steps.push(stepEntry);
   const stepJson = JSON.stringify(ledger.steps);
   const outSummary = {
@@ -852,6 +900,20 @@ async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
   sql += ' WHERE id = ?';
   binds.push(ledger.runId);
   await env.DB.prepare(sql).bind(...binds).run();
+
+  let executionStepId = null;
+  if (ledger.executionStepCols?.size) {
+    try {
+      executionStepId = await insertChatToolSessionExecutionStep(env, ledger.executionStepCols, {
+        executionParentId: ledger.executionParentId ?? null,
+        workflowRunId: ledger.runId,
+        stepEntry,
+      });
+    } catch (e) {
+      console.warn('[agent] agent_chat_execution_step', e?.message ?? e);
+    }
+  }
+
   emit('workflow_step', {
     run_id: ledger.runId,
     node_key: stepEntry.tool_name,
@@ -860,7 +922,9 @@ async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
     steps_total: ledger.stepsTotal,
     ok: stepEntry.ok,
     output_preview: String(stepEntry.output_preview || '').slice(0, 4000),
+    ...(executionStepId ? { execution_step_id: executionStepId } : {}),
   });
+  return executionStepId;
 }
 
 async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMessage }) {
@@ -880,6 +944,23 @@ async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMe
   sql += ' WHERE id = ?';
   binds.push(ledger.runId);
   await env.DB.prepare(sql).bind(...binds).run();
+
+  if (ledger.executionExeCols?.size && ledger.executionParentId) {
+    try {
+      await finalizeChatToolSessionParentExecution(env, ledger.executionExeCols, {
+        executionParentId: ledger.executionParentId,
+        ok,
+        durationMs: duration,
+        errorMessage: err,
+        stepsCount: ledger.steps.length,
+        lastToolName: ledger.steps.length ? ledger.steps[ledger.steps.length - 1].tool_name : null,
+        modelKey: ledger.modelKey ?? null,
+      });
+    } catch (e) {
+      console.warn('[agent] agent_chat_execution_parent_finalize', e?.message ?? e);
+    }
+  }
+
   if (ok) {
     emit('workflow_complete', {
       run_id: ledger.runId,
@@ -2305,6 +2386,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   let totalUsage    = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   let turnCount     = 0;
   let agentToolLedger = null;
+  let toolChainRootId = null;
   let ledgerLoopThrew = false;
   let ledgerErrorMsg = null;
   let openaiPreviousResponseId = null;
@@ -2322,6 +2404,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         modelKey,
         turnCount,
         timedOut: true,
+        workflowRunId: agentToolLedger?.runId ?? null,
+        chainRootId: toolChainRootId,
       };
     }
     const modelT0 = Date.now();
@@ -2995,14 +3079,21 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             }
           : {}),
       });
+      let chatToolExecutionStepId = null;
       if (agentToolLedger) {
         try {
-          await appendAgentChatToolLedgerStep(env, emit, agentToolLedger, {
+          chatToolExecutionStepId = await appendAgentChatToolLedgerStep(env, emit, agentToolLedger, {
             tool_name: call.name,
             ok: !execErr,
             duration_ms: toolDurMs,
             output_preview: String(toolOutput || '').slice(0, 8000),
             error: execErr ? String(execErr.message || execErr).slice(0, 2000) : null,
+            input_json:
+              call.input && typeof call.input === 'object'
+                ? call.input
+                : call.input != null
+                  ? { value: call.input }
+                  : {},
           });
         } catch (e) {
           console.warn('[agent] agent_tool_ledger_step', e?.message ?? e);
@@ -3059,9 +3150,10 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         parentChainId: previousToolChainId,
         toolInputJson: JSON.stringify(call.input || {}),
         workflowRunId: agentToolLedger?.runId ?? null,
-        executionStepId: null,
+        executionStepId: chatToolExecutionStepId,
         ctx,
       });
+      if (previousToolChainId && !toolChainRootId) toolChainRootId = previousToolChainId;
       recordMcpToolOtlpSpan(env, ctx, {
         tenant_id: tenantId,
         workspace_id: workspaceId,
@@ -3086,6 +3178,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           modelKey,
           turnCount,
           timedOut: true,
+          workflowRunId: agentToolLedger?.runId ?? null,
+          chainRootId: toolChainRootId,
         };
       }
     }
@@ -3176,6 +3270,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     executedToolNames,
     modelKey,
     turnCount,
+    timedOut: false,
+    workflowRunId: agentToolLedger?.runId ?? null,
+    chainRootId: toolChainRootId,
   };
 }
 
@@ -4065,6 +4162,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
   }
 
+  /** Stable id for D1 `agentsam_agent_run` + SSE `context.agent_run_id` (POST /api/agent/chat). */
+  const chatAgentRunId =
+    env.DB && userId && resolvedWorkspaceId ? newChatAgentRunId() : null;
+
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer  = writable.getWriter();
@@ -4082,6 +4183,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     auto_model: isAutoModel,
     tool_count: tools.length,
     routing_arm_id: routingArmIdForRun,
+    ...(chatAgentRunId ? { agent_run_id: chatAgentRunId } : {}),
   });
 
   if (capabilityDecision) {
@@ -4117,6 +4219,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   ;(async () => {
     const chatT0 = Date.now();
+    if (chatAgentRunId && userId && resolvedWorkspaceId) {
+      scheduleAgentsamChatAgentRunStart(env, ctx, {
+        runId: chatAgentRunId,
+        userId,
+        tenantId,
+        workspaceId: resolvedWorkspaceId,
+        conversationId: sessionId ? String(sessionId) : null,
+        routingArmId: routingArmIdForRun,
+        modelKey: fallbackModelKeys[0] || null,
+        agentId: body.agentId != null ? String(body.agentId).trim() : null,
+        personUuid,
+        commandId:
+          body._resolved_command_id != null ? String(body._resolved_command_id).trim() : null,
+        workSessionId: sessionId ? String(sessionId) : null,
+      });
+    }
     const runStartedAt = chatT0;
     const maxRunMsChat =
       Number(modeConfig?.max_runtime_ms) || Number(body?.max_runtime_ms) || 90000;
@@ -4380,6 +4498,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           userId,
           tenantId,
           workspaceId,
+          sourceAgentRunId: chatAgentRunId,
         });
       }
 
@@ -4426,6 +4545,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       });
       if (userId && resolvedWorkspaceId) {
         scheduleAgentsamChatAgentRunInsert(env, ctx, {
+          runId: chatAgentRunId,
           userId,
           tenantId,
           workspaceId: resolvedWorkspaceId,
@@ -4439,6 +4559,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           costUsd: 0,
           durationMs: Date.now() - chatT0,
           errorMessage: succeeded ? null : 'all_providers_exhausted',
+          workflowRunId: lastLoopStats?.workflowRunId ?? null,
+          chainRootId: lastLoopStats?.chainRootId ?? null,
+          timedOut: lastLoopStats?.timedOut === true,
         });
       }
       scheduleAgentsamUsageEventFromChat(env, ctx, {
@@ -4452,7 +4575,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
         costUsd: 0,
         streamFailed: !succeeded,
-        refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
+        refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
         routingArmId: usageRoutingArmId,
       });
       if (tenantId) {
@@ -4536,6 +4659,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       });
       if (userId && resolvedWorkspaceId) {
         scheduleAgentsamChatAgentRunInsert(env, ctx, {
+          runId: chatAgentRunId,
           userId,
           tenantId,
           workspaceId: resolvedWorkspaceId,
@@ -4549,6 +4673,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           costUsd: 0,
           durationMs: Date.now() - chatT0,
           errorMessage: e?.message != null ? String(e.message).slice(0, 8000) : 'agent_loop_failed',
+          workflowRunId: null,
+          chainRootId: null,
+          timedOut: false,
         });
       }
       scheduleAgentsamUsageEventFromChat(env, ctx, {
@@ -4562,7 +4689,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         outputTokens: 0,
         costUsd: 0,
         streamFailed: true,
-        refId: `sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
+        refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
         routingArmId: null,
       });
       if (tenantId) {
