@@ -3386,6 +3386,193 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
   });
 }
 
+/**
+ * Smoke: explicit Monaco/code path must hit workflow graph (no LLM tool loop).
+ *   curl -N -sS https://inneranimalmedia.com/api/agent/chat \
+ *     -H "Cookie: session=$IAM_SESSION" \
+ *     -H "Accept: text/event-stream" \
+ *     -F "message=Open Monaco and generate a tiny task tracker app" \
+ *     -F "mode=agent" \
+ *     -F "agent_mode=agent" \
+ *     -F "runtime_intent_mode=agent" \
+ *     -F "model=auto" \
+ *     | tee /tmp/agent-mode-monaco-sse.txt
+ * Expect: workflow_key i-am-builder-monaco, surface_open / agent_surface_open before any model tool dispatch.
+ */
+
+/** First active workflow_key among candidates (D1 agentsam_workflows). */
+async function firstActiveWorkflowKeyAmong(env, keys) {
+  if (!env?.DB || !Array.isArray(keys)) return null;
+  for (const wfKey of keys) {
+    const k = String(wfKey || '').trim();
+    if (!k) continue;
+    try {
+      const wf = await env.DB.prepare(
+        `SELECT workflow_key FROM agentsam_workflows WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
+      )
+        .bind(k)
+        .first();
+      if (wf?.workflow_key) return String(wf.workflow_key);
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+/**
+ * Deterministic surface → workflow routing before tool catalog / model dispatch.
+ * @returns {null | { route: 'monaco' | 'browser' | 'excalidraw', reason: string }}
+ */
+function resolveSurfaceWorkflowForMessage(message, requestedMode) {
+  const mode = String(requestedMode || 'agent').trim().toLowerCase();
+  const raw = String(message || '').trim();
+  const t = raw.toLowerCase();
+  if (!t) return null;
+
+  if (mode === 'plan') return null;
+
+  const isAsk = mode === 'ask';
+  const isDebug = mode === 'debug';
+  const isAgentLike = mode === 'agent' || mode === 'multitask';
+
+  if (isAsk) {
+    if (/\bopen\s+excalidraw\b/i.test(t)) return { route: 'excalidraw', reason: 'ask_explicit_open_excalidraw' };
+    if (/\bopen\s+browser\b/i.test(t)) return { route: 'browser', reason: 'ask_explicit_open_browser' };
+    if (/\bopen\s+monaco\b/i.test(t)) return { route: 'monaco', reason: 'ask_explicit_open_monaco' };
+    if (/\bopen\s+(the\s+)?code\s+editor\b/i.test(t)) return { route: 'monaco', reason: 'ask_explicit_code_editor' };
+    if (/\bopen\s+the\s+editor\b/i.test(t) || /^\s*open\s+editor\s*$/i.test(raw))
+      return { route: 'monaco', reason: 'ask_explicit_editor' };
+    if (/\bdebug\s+this\s+site\b/i.test(t)) return { route: 'browser', reason: 'ask_debug_this_site' };
+    return null;
+  }
+
+  if (isDebug) {
+    const dbgBrowser =
+      /\bopen\s+browser\b/i.test(t) ||
+      /\bdebug\s+this\s+site\b/i.test(t) ||
+      (/\b(debug|inspect)\b/i.test(t) &&
+        /\b(url|site|page|dashboard|browser|dom|console|network)\b/i.test(t)) ||
+      /\b(screenshot|screen\s*grab)\b/i.test(t);
+    if (!dbgBrowser) return null;
+    return { route: 'browser', reason: 'debug_explicit_browser' };
+  }
+
+  if (!isAgentLike) return null;
+
+  const excal =
+    /\bopen\s+excalidraw\b/i.test(t) ||
+    /\bexcalidraw\b/i.test(t) ||
+    /\b(make|create|draw)\s+(a\s+)?diagram\b/i.test(t) ||
+    /\bflowchart\b/i.test(t) ||
+    /\bwireframe\b/i.test(t) ||
+    /\barchitecture\s+diagram\b/i.test(t) ||
+    (/\b(open|show|launch)\b/i.test(t) && /\b(canvas|whiteboard)\b/i.test(t));
+  if (excal) return { route: 'excalidraw', reason: 'agent_excalidraw_surface' };
+
+  const browser =
+    /\bopen\s+browser\b/i.test(t) ||
+    /\bdebug\s+this\s+site\b/i.test(t) ||
+    (/\b(debug|inspect)\b/i.test(t) &&
+      /\b(site|page|url|dashboard|browser|dom|console|network)\b/i.test(t)) ||
+    /\b(screenshot|screen\s*grab)\b/i.test(t) ||
+    (/\bnavigate\b/i.test(t) && /\b(to\s+)?(url|page|site)\b/i.test(t));
+  if (browser) return { route: 'browser', reason: 'agent_browser_surface' };
+
+  const monaco =
+    /\bopen\s+monaco\b/i.test(t) ||
+    /\bopen\s+(the\s+)?code\s+editor\b/i.test(t) ||
+    ((/\bopen\b/i.test(t) && /\b(the\s+)?editor\b/i.test(t)) && !/\bbrowser\b/i.test(t)) ||
+    /\bgenerate\s+(an\s+)?app\b/i.test(t) ||
+    /\bbuild\s+(an\s+)?app\b/i.test(t) ||
+    /\bscaffold\s+(an\s+)?app\b/i.test(t) ||
+    /\bcreate\s+(an\s+)?app\b/i.test(t) ||
+    /\bscaffold\s+(a\s+)?component\b/i.test(t) ||
+    /\bcreate\s+(a\s+)?component\b/i.test(t) ||
+    /\bwrite\s+(a\s+)?file\b/i.test(t) ||
+    /\bedit\s+(a\s+)?file\b/i.test(t) ||
+    /\b(task\s+tracker(\s+app)?)\b/i.test(t) ||
+    /\b(full[\s-]?stack|fullstack)\b/i.test(t) ||
+    /\b(react|frontend)\b/i.test(t);
+  if (monaco) return { route: 'monaco', reason: 'agent_monaco_code_surface' };
+
+  return null;
+}
+
+/**
+ * Map surface route to concrete workflow_key (or missing).
+ * @returns {Promise<null | { kind: 'execute', workflowKey: string, reason: string } | { kind: 'missing_workflow', surface: string, reason: string }>}
+ */
+async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode) {
+  const tagged = resolveSurfaceWorkflowForMessage(message, requestedMode);
+  if (!tagged) return null;
+  if (tagged.route === 'monaco') {
+    return { kind: 'execute', workflowKey: 'i-am-builder-monaco', reason: tagged.reason };
+  }
+  if (tagged.route === 'browser') {
+    const key = await firstActiveWorkflowKeyAmong(env, [
+      'agent_browser_inspection_to_patch',
+      'i-am-inspector-playwright',
+    ]);
+    if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
+    return { kind: 'missing_workflow', surface: 'browser', reason: tagged.reason };
+  }
+  if (tagged.route === 'excalidraw') {
+    const key = await firstActiveWorkflowKeyAmong(env, ['i-am-architect-excalidraw']);
+    if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
+    return { kind: 'missing_workflow', surface: 'excalidraw', reason: tagged.reason };
+  }
+  return null;
+}
+
+function streamPreflightSurfaceWorkflowMissing(surface, userMessage) {
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const runId = `wrun_preflight_${Date.now().toString(36)}`;
+  (async () => {
+    try {
+      const payload = {
+        surface,
+        reason: 'surface_workflow_preflight_missing',
+        node_key: 'preflight',
+        run_id: runId,
+      };
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'surface_open', ...payload })}\n\n`));
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'agent_surface_open', ...payload })}\n\n`));
+      const label =
+        surface === 'browser'
+          ? 'Browser inspection'
+          : surface === 'excalidraw'
+            ? 'Excalidraw / diagram'
+            : String(surface);
+      writer.write(
+        encoder.encode(
+          `data: ${JSON.stringify({
+            type: 'text',
+            text: `**${label} workflow is missing** — no active matching workflow_key in D1 for this deployment. Add or activate the workflow graph, then retry.\n\n_Message:_ ${String(userMessage || '').slice(0, 480)}`,
+          })}\n\n`,
+        ),
+      );
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+    } catch (_) {
+      /* ignore */
+    } finally {
+      try {
+        await writer.close();
+      } catch (_) {}
+    }
+  })();
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
 /** Wildcard glob match for MCP panel tool allowlists (e.g. `d1_*`, `*`). */
 export function mcpPanelToolMatchesGlob(toolName, pattern) {
   const n = String(toolName || '').trim();
@@ -3769,6 +3956,28 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     '';
   if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+
+  const surfacePreflight = await resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode);
+  console.log(
+    '[agent] surface_workflow_preflight',
+    JSON.stringify({
+      requestedMode,
+      workflowKey: surfacePreflight?.kind === 'execute' ? surfacePreflight.workflowKey : null,
+      missingSurface: surfacePreflight?.kind === 'missing_workflow' ? surfacePreflight.surface : null,
+      reason: surfacePreflight?.reason ?? null,
+      hit: surfacePreflight != null,
+      message: String(message || '').slice(0, 200),
+    }),
+  );
+  if (surfacePreflight?.kind === 'execute') {
+    const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
+    return executeWorkflowAndStream(env, surfacePreflight.workflowKey, message, actor, workspaceId, ctx, {
+      runtimeMode: requestedMode,
+    });
+  }
+  if (surfacePreflight?.kind === 'missing_workflow') {
+    return streamPreflightSurfaceWorkflowMissing(surfacePreflight.surface, message);
+  }
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
     loadModeConfig(env, requestedMode),
