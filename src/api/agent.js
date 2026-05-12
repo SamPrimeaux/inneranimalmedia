@@ -259,6 +259,40 @@ function inferArtifactFromAssistantText(text) {
   return { artifact_type, name };
 }
 
+async function logPromptCacheUsage(env, tenantId, layerKeys, routeKey) {
+  if (!env.DB || !layerKeys?.length) return;
+  try {
+    const layerKeysJson = JSON.stringify(layerKeys);
+    // Use the routeKey or a hash of the layer keys as the cache identifier
+    const hashInput = `${tenantId || 'global'}:${layerKeysJson}`;
+    const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashInput));
+    const hash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    // Check if we already have this combination
+    const existing = await env.DB.prepare(`
+      SELECT id FROM agentsam_prompt_cache_keys 
+      WHERE cache_key_hash = ? AND tenant_id = ? 
+      LIMIT 1
+    `).bind(hash, tenantId || '').first().catch(() => null);
+
+    if (existing) {
+      await env.DB.prepare(`
+        UPDATE agentsam_prompt_cache_keys 
+        SET read_count = read_count + 1, last_read_at = datetime('now')
+        WHERE id = ?
+      `).bind(existing.id).run();
+    } else {
+      await env.DB.prepare(`
+        INSERT INTO agentsam_prompt_cache_keys 
+        (tenant_id, provider, model_key, cache_key_hash, layer_keys_json, route_key)
+        VALUES (?, 'auto', 'auto', ?, ?, ?)
+      `).bind(tenantId || '', hash, layerKeysJson, routeKey || null).run();
+    }
+  } catch (e) {
+    console.warn('[agent] logPromptCacheUsage failed:', e.message);
+  }
+}
+
 function scheduleAgentsamArtifactFromChatOutput(env, ctx, opts) {
   if (!env?.DB || !ctx?.waitUntil) return;
   const { outputText, userId, tenantId, workspaceId, sourceAgentRunId } = opts;
@@ -538,7 +572,14 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     if (modeConfig?.system_prompt_fragment) parts.push(modeConfig.system_prompt_fragment);
     if (contextBlock) parts.push(contextBlock);
 
-    return parts.join('\n\n---\n\n');
+    const result = parts.join('\n\n---\n\n');
+
+    // Fire-and-forget prompt cache tracking
+    if (env.DB && layerKeys.length) {
+      void logPromptCacheUsage(env, tenantId, layerKeys, promptRouteRow?.route_key).catch(() => {});
+    }
+
+    return result;
   } catch (e) {
     console.warn('[agent] buildSystemPrompt failed:', e?.message);
     return FALLBACK_CORE_SYSTEM + (contextBlock ? `\n\n${contextBlock}` : '');
