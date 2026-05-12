@@ -3284,27 +3284,95 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
       ? String(actor.tenant_id).trim()
       : null;
   if (!tid && uid) tid = await fetchAuthUserTenantId(env, uid);
+
   const authLike = {
     id: uid,
     tenant_id: tid,
     email: actor?.email ?? null,
   };
-  const { executeWorkflowAndStream: workflowGraphSse } = await import('../core/workflow-executor.js');
-  return new Response(
-    new ReadableStream({
-      async start(controller) {
-        await workflowGraphSse(env, workflowKey, message, authLike, workspaceId, controller);
-      },
-    }),
-    {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-      },
+
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+
+  const send = (data) => {
+    try {
+      writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    } catch (_) {}
+  };
+
+  (async () => {
+    try {
+      const { executeWorkflowGraph } = await import('../core/workflow-executor.js');
+      const result = await executeWorkflowGraph(env, {
+        workflowKey,
+        input: { message },
+        tenantId: tid,
+        workspaceId,
+        userId: uid,
+        userEmail: authLike.email ?? null,
+        triggerType: 'agent',
+        onRunCreated: (runId, meta) =>
+          send({
+            type: 'workflow_start',
+            workflow_key: workflowKey,
+            run_id: runId,
+            steps_total: meta?.steps_total ?? null,
+          }),
+        onStep: (evt) => send({ type: 'workflow_step', ...evt }),
+      });
+      const stepTexts = (result?.step_results ?? [])
+        .map((s) => s?.output?.result ?? s?.output?.text ?? null)
+        .filter(Boolean);
+      const lastOut = result?.step_results?.length
+        ? result.step_results[result.step_results.length - 1]?.output
+        : null;
+      const finalText =
+        stepTexts.join('\n\n') ||
+        (lastOut && typeof lastOut === 'object' ? JSON.stringify(lastOut) : String(lastOut || '')) ||
+        '';
+      if (String(finalText).trim()) {
+        send({ type: 'text', text: finalText });
+      }
+      if (result?.status === 'awaiting_approval') {
+        send({
+          type: 'workflow_approval_required',
+          run_id: result.run_id,
+          approval_id: result.approval_id,
+          message:
+            'This workflow requires approval before continuing. Use /api/agent/workflow/approve to proceed.',
+        });
+      } else {
+        send({
+          type: result.ok ? 'workflow_complete' : 'workflow_error',
+          status: result.status,
+          run_id: result.run_id,
+          message: result.ok
+            ? `Workflow ${workflowKey} completed (${result.steps_completed} steps).`
+            : `Workflow failed: ${result.kill_reason || 'unknown error'}`,
+        });
+      }
+    } catch (e) {
+      send({
+        type: 'text',
+        text: `Workflow stream error: ${e?.message ?? String(e)}`,
+      });
+    } finally {
+      send({ type: 'done' });
+      try {
+        await writer.close();
+      } catch (_) {}
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
     },
-  );
+  });
 }
 
 /** Wildcard glob match for MCP panel tool allowlists (e.g. `d1_*`, `*`). */
@@ -3705,10 +3773,105 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     console.error('[agent] classifyIntent_invalid', { message: String(message || '').slice(0, 240) });
   }
 
-  const workflowMatch = await resolveWorkflowForMessage(env, intentResult.taskType, message, workspaceId);
-  if (workflowMatch) {
-    const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
-    return executeWorkflowAndStream(env, workflowMatch.workflow_key, message, actor, workspaceId, ctx);
+  const CONVERSATIONAL =
+    /^(hi|hello|hey|sup|yo|thanks|thank you|ok|okay|sure|got it|nice|cool|great|what can you do|what do you do|who are you|what are you|help me|help)\b/i;
+  const trimmedMsg = message.trim();
+  const wordParts = trimmedMsg.split(/\s+/).filter(Boolean);
+  const looksLikeExplicitCommand = /^(run|execute)\b/i.test(trimmedMsg);
+  const isConversational =
+    CONVERSATIONAL.test(trimmedMsg) || (wordParts.length < 4 && !looksLikeExplicitCommand);
+
+  if (!isConversational) {
+    const workflowMatch = await resolveWorkflowForMessage(
+      env,
+      intentResult.taskType,
+      message,
+      workspaceId,
+    );
+    if (workflowMatch) {
+      const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
+      return executeWorkflowAndStream(env, workflowMatch.workflow_key, message, actor, workspaceId, ctx);
+    }
+
+    const isWorkIntent =
+      /\b(build|create|generate|write|make|scaffold|deploy|run|fix|refactor|add|update|migrate|setup|configure|connect|implement|design|analyze|audit)\b/i.test(
+        message,
+      );
+    if (isWorkIntent && message.trim().split(/\s+/).length >= 5) {
+      const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
+      const uid2 = actor?.id ?? actor?.user_id ?? userId ?? null;
+      let tid2 = actor?.tenant_id ?? tenantId ?? null;
+      if (!tid2 && uid2) tid2 = await fetchAuthUserTenantId(env, uid2);
+
+      const encoder2 = new TextEncoder();
+      const { readable: planReadable, writable: planWritable } = new TransformStream();
+      const planWriter = planWritable.getWriter();
+      const emitPlan = (event, data) => {
+        try {
+          planWriter.write(
+            encoder2.encode(`data: ${JSON.stringify({ type: event, ...data })}\n\n`),
+          );
+        } catch (_) {}
+      };
+
+      (async () => {
+        try {
+          const { createPlan } = await import('../core/agentsam-planner.js');
+          const { executePlan } = await import('../core/agentsam-task-executor.js');
+
+          emitPlan('plan_thinking', { message: 'Breaking down your goal into tasks...' });
+
+          const plan = await createPlan(env, {
+            goal: message,
+            userId: uid2,
+            workspaceId,
+            tenantId: tid2,
+            sessionId,
+          });
+
+          emitPlan('plan_created', {
+            plan_id: plan.plan_id,
+            plan_title: plan.plan_title,
+            task_count: plan.tasks.length,
+            tasks: plan.tasks.map((t) => ({
+              id: t.id,
+              title: t.title,
+              order_index: t.order_index,
+              handler_type: t.handler_type,
+              status: 'todo',
+            })),
+          });
+
+          await executePlan(env, {
+            planId: plan.plan_id,
+            userId: uid2,
+            workspaceId,
+            tenantId: tid2,
+            emit: emitPlan,
+            ctx,
+            sessionId: sessionId || null,
+          });
+
+          emitPlan('done', {});
+        } catch (e) {
+          emitPlan('text', {
+            text: `**Plan error:** ${e?.message ?? String(e)}`,
+          });
+          emitPlan('done', {});
+        } finally {
+          planWriter.close().catch(() => {});
+        }
+      })();
+
+      return new Response(planReadable, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
   }
 
   const intentPattern = await loadIntentPattern(env, intentSlug);
@@ -6051,13 +6214,25 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const propId   = propApproveMatch[1];
-    const row      = await env.DB.prepare(`SELECT id, tool_name AS tool FROM agentsam_approval_queue WHERE id = ?`).bind(propId).first();
+    const row = await env.DB
+      .prepare(`SELECT id, tool_name AS tool, command_run_id FROM agentsam_approval_queue WHERE id = ?`)
+      .bind(propId)
+      .first();
     if (!row) return jsonResponse({ error: 'Not found' }, 404);
-    const approver = String(authUser.email || authUser.id).slice(0,200);
-    const now      = Math.floor(Date.now() / 1000);
-    await env.DB.prepare(
-      `UPDATE agentsam_approval_queue SET status='approved', approved_by=?, decided_at=? WHERE id=?`,
-    ).bind(approver, now, propId).run();
+    const approver = String(authUser.email || authUser.id).slice(0, 200);
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB
+      .prepare(`UPDATE agentsam_approval_queue SET status='approved', approved_by=?, decided_at=? WHERE id=?`)
+      .bind(approver, now, propId)
+      .run();
+    const crid = row.command_run_id != null ? String(row.command_run_id).trim() : '';
+    if (crid) {
+      await env.DB
+        .prepare(`UPDATE agentsam_command_run SET approval_status = 'approved' WHERE id = ?`)
+        .bind(crid)
+        .run()
+        .catch(() => null);
+    }
     return jsonResponse({ ok: true, proposal_id: propId });
   }
 
@@ -6149,11 +6324,154 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const { status } = await request.json().catch(() => ({}));
     if (!['approved', 'denied'].includes(status)) return jsonResponse({ error: 'invalid status' }, 400);
+    const apId = approvalMatch[1];
+    const prev = await env.DB
+      .prepare(`SELECT command_run_id FROM agentsam_approval_queue WHERE id = ?`)
+      .bind(apId)
+      .first()
+      .catch(() => null);
     await env.DB
       .prepare(`UPDATE agentsam_approval_queue SET status=?, decided_at=unixepoch(), approved_by=? WHERE id=?`)
-      .bind(status, String(authUser.email || authUser.id).slice(0, 200), approvalMatch[1])
+      .bind(status, String(authUser.email || authUser.id).slice(0, 200), apId)
       .run();
+    if (status === 'approved' && prev?.command_run_id) {
+      const cr = String(prev.command_run_id).trim();
+      if (cr) {
+        await env.DB
+          .prepare(`UPDATE agentsam_command_run SET approval_status = 'approved' WHERE id = ?`)
+          .bind(cr)
+          .run()
+          .catch(() => null);
+      }
+    }
     return jsonResponse({ ok: true });
+  }
+
+  // ── POST /api/agent/plan-task/resume — one plan terminal task after Allow (SSE) ──
+  if (path === '/api/agent/plan-task/resume' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const planId = String(body.plan_id ?? body.planId ?? '').trim();
+    const taskId = String(body.task_id ?? body.taskId ?? '').trim();
+    const commandRunIdIn = String(body.command_run_id ?? body.commandRunId ?? '').trim();
+    const approvalId = String(body.approval_id ?? body.approvalId ?? '').trim();
+    if (!planId || !taskId || !approvalId) {
+      return jsonResponse({ error: 'plan_id, task_id, and approval_id required' }, 400);
+    }
+
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
+    const workspaceId =
+      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+        ? String(authUser.active_workspace_id).trim()
+        : null) ||
+      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
+    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+
+    const uid = String(authUser.id || '').trim();
+    const canon = await resolveCanonicalUserId(uid, env).catch(() => uid);
+
+    const qRow = await env.DB
+      .prepare(
+        `SELECT q.id, q.status, q.command_run_id, q.user_id, q.expires_at
+         FROM agentsam_approval_queue q
+         WHERE q.id = ? AND lower(q.status) = 'approved'
+           AND (q.expires_at IS NULL OR q.expires_at > unixepoch())`,
+      )
+      .bind(approvalId)
+      .first()
+      .catch(() => null);
+
+    if (!qRow?.id) {
+      return jsonResponse({ error: 'approval_not_verified', message: 'Approve this task first (Allow).' }, 403);
+    }
+
+    const qCrid = qRow.command_run_id != null ? String(qRow.command_run_id).trim() : '';
+    if (commandRunIdIn && qCrid && qCrid !== commandRunIdIn) {
+      return jsonResponse({ error: 'command_run_mismatch' }, 400);
+    }
+    const effectiveCrid = commandRunIdIn || qCrid;
+    if (!effectiveCrid) {
+      return jsonResponse({ error: 'command_run_id missing' }, 400);
+    }
+
+    const tRow = await env.DB
+      .prepare(
+        `SELECT id, plan_id, workspace_id, command_run_id FROM agentsam_plan_tasks WHERE id = ? AND plan_id = ? LIMIT 1`,
+      )
+      .bind(taskId, planId)
+      .first()
+      .catch(() => null);
+
+    if (!tRow?.id) return jsonResponse({ error: 'task_not_found' }, 404);
+    const tws = String(tRow.workspace_id || '').trim();
+    if (tws && tws !== workspaceId) {
+      return jsonResponse({ error: 'workspace_mismatch' }, 403);
+    }
+    const tcr = tRow.command_run_id != null ? String(tRow.command_run_id).trim() : '';
+    if (tcr && tcr !== effectiveCrid) {
+      return jsonResponse({ error: 'task_command_run_mismatch' }, 400);
+    }
+
+    const quid = String(qRow.user_id || '').trim();
+    if (quid && quid !== canon && quid !== uid) {
+      return jsonResponse({ error: 'approval_user_mismatch' }, 403);
+    }
+
+    await env.DB
+      .prepare(
+        `UPDATE agentsam_plan_tasks SET command_run_id = ?, status = 'todo', started_at = NULL, completed_at = NULL, output_summary = NULL, error_trace = NULL WHERE id = ?`,
+      )
+      .bind(effectiveCrid, taskId)
+      .run();
+
+    const encoder = new TextEncoder();
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const emitResume = (event, data) => {
+      try {
+        writer.write(encoder.encode(`data: ${JSON.stringify({ type: event, ...data })}\n\n`));
+      } catch (_) {}
+    };
+
+    (async () => {
+      try {
+        const { executePlan } = await import('../core/agentsam-task-executor.js');
+        await executePlan(env, {
+          planId,
+          userId: uid,
+          workspaceId,
+          tenantId,
+          emit: emitResume,
+          ctx,
+          onlyTaskId: taskId,
+          sessionId: body.sessionId ?? body.session_id ?? null,
+          skipPlanAggregate: true,
+        });
+        emitResume('done', {});
+      } catch (e) {
+        emitResume('text', { text: `**Resume error:** ${e?.message ?? String(e)}` });
+        emitResume('done', {});
+      } finally {
+        writer.close().catch(() => {});
+      }
+    })();
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
   }
 
   // ── POST /api/agent/workflow/start — DAG graph executor (agentsam_workflow_*)

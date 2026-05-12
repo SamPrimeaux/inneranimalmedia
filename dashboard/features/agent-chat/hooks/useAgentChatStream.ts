@@ -50,6 +50,10 @@ export type ConsumeAgentChatSseContext = {
   onFileSelect?: (file: { name: string; content: string; originalContent?: string }) => void;
   /** Full tool-approval side effects (state + queue drain), matching prior ChatAssistant inline behavior. */
   onToolApprovalRequest: (tool: ToolApprovalPayload) => void;
+  /** When true, merge streamed text into the existing last assistant bubble (e.g. plan-task resume after Allow). */
+  mergeIntoLastAssistant?: boolean;
+  /** Required when mergeIntoLastAssistant — starting text of the last assistant message. */
+  initialAssistantBuffer?: string;
 };
 
 /**
@@ -73,22 +77,27 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     onR2FileUpdated,
     onFileSelect,
     onToolApprovalRequest,
+    mergeIntoLastAssistant = false,
+    initialAssistantBuffer = '',
   } = ctx;
 
   const decoder = new TextDecoder();
   let assistantContent = '';
-  let assistantStreamBuf = '';
+  let assistantStreamBuf = mergeIntoLastAssistant ? String(initialAssistantBuffer || '') : '';
   let sseCarry = '';
   let fileEchoSuppress = false;
 
   const streamStartedAt = Date.now();
   let readCount = 0;
   let emptyRun = 0;
-  const MAX_STREAM_MS = 60000;
+  const MAX_STREAM_MS = 900000;
   const MAX_READS = 2000;
   const MAX_EMPTY_RUN = 200;
 
-  setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+  if (!mergeIntoLastAssistant) {
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+  }
+  assistantContent = assistantStreamBuf;
 
   sseLoop: while (true) {
     if (signal.aborted) break sseLoop;
@@ -202,8 +211,159 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           }
           continue;
         }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_thinking') {
+          const d = data as { type: string; message?: string };
+          assistantStreamBuf += `\n\n_${String(d.message || 'Planning…')}_\n`;
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'approval_required') {
+          const d = data as {
+            type: string;
+            task_id?: string;
+            command_run_id?: string;
+            approval_id?: string;
+            title?: string;
+            command_preview?: string;
+            risk_level?: string;
+            action_summary?: string;
+            plan_id?: string;
+          };
+          const pid = typeof d.plan_id === 'string' ? d.plan_id.trim() : '';
+          const taskId = typeof d.task_id === 'string' ? d.task_id.trim() : '';
+          const crid = typeof d.command_run_id === 'string' ? d.command_run_id.trim() : '';
+          const aid = typeof d.approval_id === 'string' ? d.approval_id.trim() : '';
+          if (pid && taskId && aid && crid) {
+            onToolApprovalRequest({
+              name: 'terminal.plan_task',
+              description: d.action_summary || 'Run proposed terminal command for this plan task.',
+              preview: d.command_preview || '',
+              plan_terminal: {
+                plan_id: pid,
+                task_id: taskId,
+                command_run_id: crid,
+                approval_id: aid,
+              },
+            });
+          }
+          assistantStreamBuf += `\n\n**Approval required:** ${String(d.title || 'Terminal')} (${String(d.risk_level || 'medium')})\n\`\`\`bash\n${String(d.command_preview || '').slice(0, 1500)}\n\`\`\`\n`;
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_created') {
+          const d = data as {
+            type: string;
+            plan_title?: string;
+            task_count?: number;
+            tasks?: Array<{ id: string; title: string; order_index: number; handler_type?: string | null }>;
+          };
+          const lines = (d.tasks || []).map(
+            (t, i) =>
+              `${i + 1}. [ ] **${String(t.title || '').slice(0, 200)}** _(${String(t.handler_type || 'agent')})_`,
+          );
+          assistantStreamBuf += `\n\n### ${String(d.plan_title || 'Plan')}\n_${Number(d.task_count || lines.length)} tasks_\n\n${lines.join('\n')}\n`;
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'task_start') {
+          const d = data as { type: string; title?: string; order_index?: number; handler_type?: string };
+          assistantStreamBuf += `\n- **Running** (#${Number(d.order_index ?? 0) + 1}) ${String(d.title || '')} _${String(d.handler_type || '')}_\n`;
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'task_complete') {
+          const d = data as {
+            type: string;
+            title?: string;
+            status?: string;
+            output?: string;
+            error?: string;
+            order_index?: number;
+          };
+          const tag = d.status === 'done' ? 'Done' : d.status === 'skipped' ? 'Skipped' : 'Failed';
+          const detail = String(d.output || d.error || '').slice(0, 1200);
+          assistantStreamBuf += `\n  → **${tag}** (#${Number(d.order_index ?? 0) + 1}) ${String(d.title || '')}${detail ? ` — ${detail}` : ''}\n`;
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_task_resume_complete') {
+          const d = data as {
+            type: string;
+            plan_id?: string;
+            task_id?: string;
+            tasks_completed?: number;
+            tasks_failed?: number;
+            tasks_skipped?: number;
+            status?: string;
+          };
+          assistantStreamBuf += `\n\n_Resume ${String(d.status || 'finished')}: ${Number(d.tasks_completed || 0)} completed, ${Number(d.tasks_failed || 0)} failed, ${Number(d.tasks_skipped || 0)} skipped._\n`;
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_complete') {
+          const d = data as {
+            type: string;
+            plan_id?: string;
+            tasks_completed?: number;
+            tasks_failed?: number;
+            tasks_skipped?: number;
+            status?: string;
+          };
+          assistantStreamBuf += `\n\n_Plan ${String(d.status || 'finished')}: ${Number(d.tasks_completed || 0)} completed, ${Number(d.tasks_failed || 0)} failed, ${Number(d.tasks_skipped || 0)} skipped._\n`;
+          assistantContent = assistantStreamBuf;
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
+          continue;
+        }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'workflow_start') {
-          const w = data as { type: string; run_id?: string; steps_total?: number | null };
+          const w = data as {
+            type: string;
+            run_id?: string;
+            steps_total?: number | null;
+            workflow_key?: string;
+          };
+          if (typeof w.workflow_key === 'string' && w.workflow_key.trim()) {
+            assistantStreamBuf += `\n\n_Workflow:_ **${w.workflow_key.trim()}** …\n`;
+            assistantContent = assistantStreamBuf;
+            setMessages((prev) => {
+              const last = [...prev];
+              last[last.length - 1] = { role: 'assistant', content: assistantContent };
+              return last;
+            });
+          }
           setWorkflowLedger((prev) => ({
             ...prev,
             runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
@@ -223,7 +383,22 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             cost_usd?: number;
             input_tokens?: number;
             output_tokens?: number;
+            ok?: boolean;
           };
+          const nk =
+            (typeof w.current_node_key === 'string' && w.current_node_key) ||
+            (typeof w.node_key === 'string' && w.node_key) ||
+            '';
+          if (nk) {
+            const st = w.ok === false ? 'failed' : 'ok';
+            assistantStreamBuf += `\n_Step ${nk}:_ ${st}\n`;
+            assistantContent = assistantStreamBuf;
+            setMessages((prev) => {
+              const last = [...prev];
+              last[last.length - 1] = { role: 'assistant', content: assistantContent };
+              return last;
+            });
+          }
           setWorkflowLedger((prev) => ({
             ...prev,
             runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,

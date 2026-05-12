@@ -699,6 +699,75 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const { tool } = pendingToolApproval;
     setApprovalBusy(true);
     try {
+      if (tool.plan_terminal) {
+        const { plan_id, task_id, command_run_id, approval_id } = tool.plan_terminal;
+        const approveRes = await fetch(`/api/agent/proposals/${encodeURIComponent(approval_id)}/approve`, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        if (!approveRes.ok) {
+          const errText = await approveRes.text().catch(() => '');
+          throw new Error(errText || `Approve failed (${approveRes.status})`);
+        }
+        const resumeRes = await fetch('/api/agent/plan-task/resume', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            plan_id,
+            task_id,
+            command_run_id,
+            approval_id,
+            session_id: conversationId || undefined,
+            conversationId: conversationId || undefined,
+          }),
+        });
+        if (!resumeRes.ok || !resumeRes.body) {
+          const errText = await resumeRes.text().catch(() => '');
+          throw new Error(errText || `Resume failed (${resumeRes.status})`);
+        }
+        setPendingToolApproval(null);
+        setIsLoading(false);
+        abortControllerRef.current = null;
+        streamFinalizedRef.current = false;
+        const reader = resumeRes.body.getReader();
+        streamReaderRef.current = reader;
+        const resumeSignal = new AbortController().signal;
+        const tail =
+          messages.length && messages[messages.length - 1]?.role === 'assistant'
+            ? String(messages[messages.length - 1].content || '')
+            : '';
+        await consumeAgentChatSseBody({
+          signal: resumeSignal,
+          reader,
+          streamFinalizedRef,
+          streamReaderRef,
+          setMessages,
+          setIsLoading,
+          setWorkflowLedger,
+          setExecPanel,
+          setConversationId,
+          stripEmptyAssistantTail,
+          loadSessions,
+          onBrowserNavigate,
+          onR2FileUpdated,
+          onFileSelect: onFileSelect
+            ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
+            : undefined,
+          onToolApprovalRequest: () => {},
+          mergeIntoLastAssistant: true,
+          initialAssistantBuffer: tail,
+        });
+        streamReaderRef.current = null;
+        const q = messageQueueRef.current;
+        if (q.length > 0) {
+          const next = q[0];
+          setMessageQueue((prev) => prev.slice(1));
+          void handleSendRef.current(next);
+        }
+        return;
+      }
+
       const res = await fetch('/api/agent/chat/execute-approved-tool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -738,19 +807,37 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } finally {
       setApprovalBusy(false);
     }
-  }, [pendingToolApproval, conversationId, setMessages]);
+  }, [pendingToolApproval, conversationId, setMessages, messages, onBrowserNavigate, onR2FileUpdated, onFileSelect, loadSessions, stripEmptyAssistantTail, setWorkflowLedger, setExecPanel, setConversationId]);
 
-  const handleDenyPendingTool = useCallback(() => {
+  const handleDenyPendingTool = useCallback(async () => {
+    if (!pendingToolApproval) return;
+    const { tool } = pendingToolApproval;
+    if (tool.plan_terminal?.approval_id) {
+      try {
+        await fetch(`/api/agent/proposals/${encodeURIComponent(tool.plan_terminal.approval_id)}/deny`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+      } catch (e) {
+        console.warn('[ChatAssistant] plan terminal deny', e);
+      }
+    }
+    const wasPlanTerminal = !!tool.plan_terminal;
     setPendingToolApproval(null);
     setMessages((prev) => {
       const next = [...prev];
       const last = next[next.length - 1];
       if (last?.role === 'assistant') {
-        next[next.length - 1] = { ...last, content: `${last.content}\n\n[Tool execution cancelled.]` };
+        next[next.length - 1] = {
+          ...last,
+          content: `${last.content}\n\n[${wasPlanTerminal ? 'Terminal command' : 'Tool execution'} cancelled.]`,
+        };
       }
       return next;
     });
-  }, [setMessages]);
+  }, [pendingToolApproval, setMessages]);
 
   async function handleSend(overrideMessage?: string) {
     const text = overrideMessage ?? input;
@@ -1360,7 +1447,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               aria-label="Tool approval"
               className="rounded-lg border border-[var(--solar-cyan)]/35 bg-[var(--scene-bg)] p-3 space-y-2"
             >
-              <div className="text-[0.6875rem] font-semibold text-[var(--text-heading)]">Tool approval required</div>
+              <div className="text-[0.6875rem] font-semibold text-[var(--text-heading)]">
+                {pendingToolApproval.tool.plan_terminal ? 'Terminal command approval' : 'Tool approval required'}
+              </div>
               <div className="text-[0.6875rem] font-mono text-[var(--solar-cyan)]">{pendingToolApproval.tool.name}</div>
               {pendingToolApproval.tool.preview ? (
                 <div className="text-[0.6875rem] text-[var(--dashboard-text)] whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
@@ -1374,7 +1463,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   onClick={() => void handleApprovePendingTool()}
                   className="px-3 py-1.5 rounded-lg text-[0.6875rem] font-semibold bg-[var(--solar-green)]/20 border border-[var(--solar-green)]/40 text-[var(--solar-green)] hover:bg-[var(--solar-green)]/30 disabled:opacity-50"
                 >
-                  {approvalBusy ? 'Running…' : 'Confirm'}
+                  {approvalBusy ? 'Running…' : pendingToolApproval.tool.plan_terminal ? 'Allow' : 'Confirm'}
                 </button>
                 <button
                   type="button"

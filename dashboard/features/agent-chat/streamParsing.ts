@@ -36,7 +36,7 @@ export function normalizeAssistantSseText(parsed: unknown): string {
   if (!parsed || typeof parsed !== 'object') return '';
   const p = parsed as Record<string, unknown>;
   const pt = p.type;
-  if (pt === 'done' || pt === 'error' || pt === 'tool_approval_request') return '';
+  if (pt === 'done' || pt === 'error' || pt === 'tool_approval_request' || pt === 'approval_required') return '';
 
   const direct =
     (typeof p.text === 'string' ? p.text : '') ||
@@ -82,7 +82,7 @@ export function isStreamErrorPayload(
 ): parsed is { error: string; detail?: string; provider?: string; model?: string } {
   if (!parsed || typeof parsed !== 'object') return false;
   const p = parsed as { error?: unknown; type?: string };
-  if (p.type === 'tool_error') return false;
+  if (p.type === 'tool_error' || p.type === 'task_complete') return false;
   return 'error' in p && typeof p.error === 'string';
 }
 

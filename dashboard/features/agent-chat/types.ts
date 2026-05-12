@@ -67,6 +67,13 @@ export type ToolApprovalPayload = {
   description?: string;
   parameters?: Record<string, unknown>;
   preview?: string;
+  /** Plan-task terminal gate: Allow → approve queue → POST /api/agent/plan-task/resume (SSE). */
+  plan_terminal?: {
+    plan_id: string;
+    task_id: string;
+    command_run_id?: string;
+    approval_id: string;
+  };
 };
 
 export type ChatModelRow = {

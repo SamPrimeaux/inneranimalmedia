@@ -797,26 +797,92 @@ export async function executeCommand(env, ctx, o) {
       : null;
 
   if (needsApproval) {
-    const approvalId = 'appr_' + crypto.randomUUID().slice(0, 16);
+    const approvalId = 'appr_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    const commandRunId = 'run_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    const tidForRun =
+      tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : 'tenant_sam_primeaux';
+    const userInput = String(cmd.display_name || cmd.slug || 'command').slice(0, 2000);
+    const commandsExecuted = [
+      {
+        catalog_command_id: String(commandId),
+        mapped_command: cmd.mapped_command != null ? String(cmd.mapped_command) : '',
+        args,
+      },
+    ];
+    let commandRunOk = false;
+    try {
+      const insRun = await env.DB
+        .prepare(
+          `INSERT INTO agentsam_command_run
+            (id, tenant_id, workspace_id, user_id, session_id, conversation_id,
+             user_input, normalized_intent, intent_category, model_id,
+             commands_json, result_json, output_text, confidence_score,
+             success, exit_code, duration_ms, input_tokens, output_tokens, cost_usd, error_message,
+             selected_command_id, selected_command_slug, risk_level, requires_confirmation, approval_status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .bind(
+          commandRunId,
+          tidForRun,
+          resolvedWorkspace,
+          canonicalCmdUser ?? userId,
+          sessionId || null,
+          null,
+          userInput,
+          null,
+          sanitizeIntentCategoryForCommandRun(cmd.category),
+          null,
+          JSON.stringify(commandsExecuted),
+          '{}',
+          null,
+          null,
+          0,
+          null,
+          null,
+          0,
+          0,
+          0,
+          null,
+          String(commandId),
+          cmd.slug != null ? String(cmd.slug) : null,
+          cmd.risk_level != null ? String(cmd.risk_level) : 'low',
+          Number(cmd.requires_confirmation) === 1 ? 1 : 0,
+          'pending_approval',
+        )
+        .run();
+      commandRunOk = !!insRun?.success;
+    } catch (e) {
+      console.warn('[executeCommand] stub command_run insert failed', e?.message ?? e);
+    }
+
     await env.DB
       .prepare(
         `INSERT INTO agentsam_approval_queue
-        (id, tenant_id, user_id, session_id, tool_name, action_summary,
+        (id, tenant_id, workspace_id, user_id, session_id, plan_id, command_run_id, tool_name, action_summary,
          risk_level, input_json, expires_at, status)
-        VALUES (?,?,?,?,?,?,?,?, unixepoch() + 300, 'pending')`,
+        VALUES (?,?,?,?,?,?,?,?,?,?,?, unixepoch() + 300, 'pending')`,
       )
       .bind(
         approvalId,
-        tenantId,
+        tidForRun,
+        resolvedWorkspace,
         canonicalCmdUser ?? userId,
-        sessionId,
+        sessionId || null,
+        planId || null,
+        commandRunOk ? commandRunId : null,
         cmd.mapped_command,
         `${cmd.display_name}: ${JSON.stringify(args).slice(0, 300)}`,
         cmd.risk_level,
         JSON.stringify(args),
       )
       .run();
-    return { ok: true, status: 'pending_approval', approval_id: approvalId };
+    return {
+      ok: true,
+      status: 'pending_approval',
+      approval_id: approvalId,
+      command_run_id: commandRunOk ? commandRunId : null,
+      command_preview: cmd.mapped_command != null ? String(cmd.mapped_command).slice(0, 2000) : null,
+    };
   }
 
   const effectiveTaskType = taskType || (cmd.task_type != null ? String(cmd.task_type) : null) || 'tool_use';
