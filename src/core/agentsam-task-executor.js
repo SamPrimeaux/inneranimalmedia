@@ -575,6 +575,8 @@ export async function executePlan(
           });
           continue;
         }
+        emit('surface_open', { surface: 'browser', reason: 'plan_task_browser_capture' });
+        emit('agent_surface_open', { surface: 'browser', reason: 'plan_task_browser_capture' });
         const { runBrowserCapabilityAction } = await import('./workspace-capability-actions/browser.js');
         const br = await runBrowserCapabilityAction({
           env,
@@ -662,6 +664,8 @@ export async function executePlan(
           });
           continue;
         }
+        emit('surface_open', { surface: 'excalidraw', reason: 'plan_task_excalidraw_diagram' });
+        emit('agent_surface_open', { surface: 'excalidraw', reason: 'plan_task_excalidraw_diagram' });
         const { runExcalidrawCapabilityAction } = await import('./workspace-capability-actions/excalidraw.js');
         const xr = await runExcalidrawCapabilityAction({
           env,
@@ -721,6 +725,8 @@ export async function executePlan(
           !task.handler_type ||
           (task.handler_type === 'mcp_tool' && String(task.handler_key || '').startsWith('cap:')))
       ) {
+        emit('surface_open', { surface: 'code', reason: 'plan_task_monaco_edit' });
+        emit('agent_surface_open', { surface: 'code', reason: 'plan_task_monaco_edit' });
         const filesJson = String(task.files_involved || '[]');
         const monacoSys = `You are Agent Sam producing a safe Monaco / file-edit PLAN only (no writes).
 Return ONLY valid JSON:

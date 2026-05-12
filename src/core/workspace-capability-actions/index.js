@@ -24,10 +24,36 @@ export function isWorkspaceCapabilityActionIntent(message) {
   const m = String(message || '').trim();
   if (!m) return false;
 
+  if (
+    /^(what is|what are|who is)\b/i.test(m) &&
+    /\b(monaco|excalidraw|browser|code editor|whiteboard)\b/i.test(m)
+  ) {
+    return false;
+  }
+  if (/^(explain|define|describe)\b.*\b(browser|monaco|excalidraw)\s+tools?\b/i.test(m)) {
+    return false;
+  }
   if (/^(what is|what are|explain|define|describe)\s+(a |the )?(browser tool|monaco|excalidraw)\b/i.test(m)) {
     return false;
   }
   if (/\bwhat should we build\b/i.test(m)) return false;
+
+  if (/\b(open|launch|focus|use|switch to)\s+(?:the\s+)?(monaco|editor|code editor|browser|excalidraw|canvas|whiteboard)\b/i.test(m)) {
+    return true;
+  }
+  if (
+    /\b(build|generate|scaffold|create|implement)\b/i.test(m) &&
+    /\b(app|component|page|file|frontend|react|full-stack|fullstack|code)\b/i.test(m)
+  ) {
+    return true;
+  }
+  if (
+    /\b(debug|inspect|screenshot|capture|navigate)\b/i.test(m) &&
+    /\b(site|page|url|browser|dashboard|console|network|dom)\b/i.test(m)
+  ) {
+    return true;
+  }
+  if (/\b(excalidraw|diagram|flowchart|whiteboard|architecture)\b/i.test(m)) return true;
 
   if (/\buse the browser\b/i.test(m)) return true;
   if (/\b(open|inspect)\b.*\b(in the )?browser\b/i.test(m)) return true;
@@ -61,6 +87,29 @@ export function buildCapabilityPlanFromDecision(message, decision) {
   if (decision.should_use_excalidraw) scores.excalidraw += 5;
   if (decision.should_use_monaco) scores.monaco += 5;
 
+  if (
+    /\b(open|launch|focus|use|switch to)\s+(?:the\s+)?(browser|monaco|editor|code editor|excalidraw|canvas|whiteboard)\b/i.test(
+      msg,
+    )
+  ) {
+    if (/\b(browser)\b/i.test(msg)) scores.browser += 10;
+    if (/\b(monaco|editor|code editor)\b/i.test(msg)) scores.monaco += 10;
+    if (/\b(excalidraw|canvas|whiteboard)\b/i.test(msg)) scores.excalidraw += 10;
+  }
+  if (
+    /\b(build|generate|scaffold|create|implement)\b/i.test(msg) &&
+    /\b(app|component|page|file|frontend|react|full-stack|fullstack|code)\b/i.test(msg)
+  ) {
+    scores.monaco += 10;
+  }
+  if (
+    /\b(debug|inspect|screenshot|capture|navigate|open)\b/i.test(msg) &&
+    /\b(site|page|url|browser|dashboard|console|network|dom)\b/i.test(msg)
+  ) {
+    scores.browser += 10;
+  }
+  if (/\b(excalidraw|diagram|flowchart|whiteboard|architecture)\b/i.test(msg)) scores.excalidraw += 10;
+
   if (/https?:\/\//.test(msg) && /\b(browser|inspect|open|check|screenshot|summarize|page|visually)\b/.test(msg)) {
     scores.browser += 8;
   }
@@ -83,9 +132,6 @@ export function buildCapabilityPlanFromDecision(message, decision) {
   }
 
   if (!best || bestScore < 5) return null;
-  if (best === 'browser' && !decision.should_use_browser) return null;
-  if (best === 'excalidraw' && !decision.should_use_excalidraw) return null;
-  if (best === 'monaco' && !decision.should_use_monaco) return null;
 
   return { family: best, workflowKey: WORKFLOW_KEYS[best] };
 }
@@ -102,6 +148,126 @@ async function pragmaColumns(db, table) {
     return new Set((results || []).map((r) => String(r.name || '').toLowerCase()));
   } catch {
     return new Set();
+  }
+}
+
+/**
+ * Best-effort ledger row for workspace capability runs (execution_id = workflow run id).
+ * @param {any} env
+ * @param {Set<string>} stepCols
+ * @param {{
+ *   runId: string,
+ *   family: CapabilityFamily,
+ *   capabilityPlan: { family: CapabilityFamily, workflowKey: string },
+ *   message: string,
+ *   adapterResult: Record<string, unknown>,
+ *   stepList: unknown[],
+ *   ok: boolean,
+ *   errMsg: string | null,
+ *   duration: number,
+ *   startedSec: number,
+ * }} p
+ */
+async function insertWorkspaceCapabilityProofStep(env, stepCols, p) {
+  if (!env?.DB || !stepCols?.size || !p.runId) return;
+  const hasExec = stepCols.has('execution_id');
+  const hasWrun = stepCols.has('workflow_run_id');
+  if (!hasExec && !hasWrun) return;
+
+  const stepId = `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const nodeKey = `${p.family}_exec`;
+  const st = p.ok ? 'success' : 'failed';
+  const completedSec = Math.floor(Date.now() / 1000);
+  let inputJson = '{}';
+  let outputJson = '{}';
+  let errJson = '{}';
+  try {
+    inputJson = JSON.stringify({
+      capabilityPlan: p.capabilityPlan,
+      message_preview: String(p.message || '').slice(0, 2000),
+      family: p.family,
+    }).slice(0, 24000);
+  } catch {
+    inputJson = '{}';
+  }
+  try {
+    outputJson = JSON.stringify({
+      ok: p.ok,
+      adapter: p.adapterResult?.output ?? null,
+      step_results: p.stepList,
+    }).slice(0, 24000);
+  } catch {
+    outputJson = '{}';
+  }
+  try {
+    errJson = p.ok ? '{}' : JSON.stringify({ error: p.errMsg || String(p.adapterResult?.error || '') }).slice(0, 8000);
+  } catch {
+    errJson = '{}';
+  }
+
+  const colNames = ['id'];
+  const placeholders = ['?'];
+  const binds = [stepId];
+
+  if (hasExec) {
+    colNames.push('execution_id');
+    placeholders.push('?');
+    binds.push(String(p.runId));
+  }
+  if (hasWrun) {
+    colNames.push('workflow_run_id');
+    placeholders.push('?');
+    binds.push(String(p.runId));
+  }
+  colNames.push('node_key', 'node_type', 'status', 'input_json');
+  placeholders.push('?', '?', '?', '?');
+  binds.push(nodeKey, 'mcp_tool', st, inputJson);
+
+  if (stepCols.has('output_json')) {
+    colNames.push('output_json');
+    placeholders.push('?');
+    binds.push(outputJson);
+  }
+  if (stepCols.has('error_json')) {
+    colNames.push('error_json');
+    placeholders.push('?');
+    binds.push(errJson);
+  }
+  if (stepCols.has('started_at')) {
+    colNames.push('started_at');
+    placeholders.push('?');
+    binds.push(p.startedSec);
+  }
+  if (stepCols.has('completed_at')) {
+    colNames.push('completed_at');
+    placeholders.push('?');
+    binds.push(completedSec);
+  }
+  if (stepCols.has('latency_ms')) {
+    colNames.push('latency_ms');
+    placeholders.push('?');
+    binds.push(Math.max(0, Math.floor(Number(p.duration) || 0)));
+  }
+  if (stepCols.has('cost_usd')) {
+    colNames.push('cost_usd');
+    placeholders.push('?');
+    binds.push(0);
+  }
+  if (stepCols.has('gate_results_json')) {
+    colNames.push('gate_results_json');
+    placeholders.push('?');
+    binds.push('{}');
+  }
+  if (stepCols.has('created_at')) {
+    colNames.push('created_at');
+    placeholders.push(`datetime('now')`);
+  }
+
+  const sql = `INSERT INTO agentsam_execution_steps (${colNames.join(', ')}) VALUES (${placeholders.join(', ')})`;
+  try {
+    await env.DB.prepare(sql).bind(...binds).run();
+  } catch (e) {
+    console.warn('[workspace-capability-actions] agentsam_execution_steps proof', e?.message ?? e);
   }
 }
 
@@ -296,6 +462,24 @@ export async function runWorkspaceCapabilityAction(opts) {
       runId,
     )
     .run();
+
+  try {
+    const stepCols = await pragmaColumns(env.DB, 'agentsam_execution_steps');
+    await insertWorkspaceCapabilityProofStep(env, stepCols, {
+      runId,
+      family: capabilityPlan.family,
+      capabilityPlan,
+      message,
+      adapterResult: adapterResult && typeof adapterResult === 'object' ? adapterResult : {},
+      stepList,
+      ok,
+      errMsg,
+      duration,
+      startedSec,
+    });
+  } catch (e) {
+    console.warn('[workspace-capability-actions] execution_steps proof', e?.message ?? e);
+  }
 
   if (ok) {
     emit('workflow_complete', {

@@ -126,6 +126,8 @@ export async function runBrowserCapabilityAction(p) {
     };
   }
 
+  emit('surface_open', { surface: 'browser', reason: 'workspace_capability_browser', url });
+  emit('agent_surface_open', { surface: 'browser', reason: 'workspace_capability_browser', url });
   emit('browser_navigate', { url });
   const navRes = await runBuiltinTool(env, navigateName, baseParams);
   pushStep('navigate', {

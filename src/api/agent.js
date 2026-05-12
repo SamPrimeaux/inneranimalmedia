@@ -14,7 +14,10 @@
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
 import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/provider.js';
 import { loadAvailableToolsForCapability } from '../core/tool-registry.js';
-import { resolveWorkspaceCapabilityShellWorkflowId } from '../core/workspace-capability-actions/index.js';
+import {
+  resolveWorkspaceCapabilityShellWorkflowId,
+  isWorkspaceCapabilityActionIntent,
+} from '../core/workspace-capability-actions/index.js';
 import { syncWorkflowRunToSupabase } from '../core/agentsam-supabase-sync.js';
 import {
   unifiedRagSearch,
@@ -3797,7 +3800,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       /\b(build|create|generate|write|make|scaffold|deploy|run|fix|refactor|add|update|migrate|setup|configure|connect|implement|design|analyze|audit)\b/i.test(
         message,
       );
-    if (isWorkIntent && message.trim().split(/\s+/).length >= 5) {
+    const capabilityLedIntent =
+      isWorkspaceCapabilityActionIntent(message) ||
+      /\b(open|launch|focus|use|switch to)\s+(?:the\s+)?(monaco|editor|code editor|browser|excalidraw|canvas|whiteboard)\b/i.test(
+        message,
+      ) ||
+      (/\b(build|generate|scaffold|create|implement)\b/i.test(message) &&
+        /\b(app|component|page|file|frontend|react|full-stack|fullstack|code)\b/i.test(message)) ||
+      (/\b(debug|inspect|screenshot|capture|navigate|open)\b/i.test(message) &&
+        /\b(site|page|url|browser|dashboard|console|network|dom)\b/i.test(message)) ||
+      /\b(excalidraw|diagram|flowchart|whiteboard|architecture|canvas)\b/i.test(message);
+    if (!capabilityLedIntent && isWorkIntent && message.trim().split(/\s+/).length >= 5) {
       const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
       const uid2 = actor?.id ?? actor?.user_id ?? userId ?? null;
       let tid2 = actor?.tenant_id ?? tenantId ?? null;
