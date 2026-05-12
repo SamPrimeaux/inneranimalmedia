@@ -1,0 +1,148 @@
+---
+description: Agent Sam — D1 canonical state, Supabase observability mirror, workflow_run lifecycle, todo/plan alignment, end-of-change reporting.
+alwaysApply: true
+---
+
+# Agent Sam — D1 ↔ Supabase alignment (permanent)
+
+## Source of truth
+
+- **D1** is canonical for **operational state** (plans, todos, plan tasks, workflows, runs, executions). **`agentsam_plans` and `agentsam_plan_tasks` lifecycle lives in D1 only** until Worker code performs real PostgREST upserts for matching `public.*` tables.
+- **Supabase** is the **required mirror** for **workflow/run/step/event/debug observability** (see live mirror list below) and other shared telemetry tables that are actually written today.
+- Workflow-run changes follow the **D1 → Supabase** lifecycle in the workflow section below.
+
+Supabase does **not** have `agentsam_todo`; mirror only what exists there.
+
+**Do not** describe `public.agentsam_plans` or `public.agentsam_plan_tasks` as live Supabase mirrors until the codebase upserts them (today they are **not** populated by `agentsam-plan-supabase-public-sync.js`; plan/task proof is **D1 + API responses** such as `POST /api/agentsam/plans` returning `tasks_total` / `task_ids`).
+
+## Canonical D1 tables (operational)
+
+- `agentsam_todo`
+- `agentsam_plans`
+- `agentsam_plan_tasks`
+- `agentsam_workflows` (+ `agentsam_mcp_workflows` where FKs require it)
+- `agentsam_workflow_nodes`
+- `agentsam_workflow_edges`
+- `agentsam_workflow_runs`
+- `agentsam_agent_run`
+- `agentsam_command_run`
+- `agentsam_executions`
+- `agentsam_execution_steps`
+
+## Supabase — live mirrors (observability spine)
+
+These are written by Agent Sam paths such as **`mirrorAgentChatPlanD1RunToSupabasePublic`** (`agentsam_workflows`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `agentsam_workflow_events`, `agentsam_debug_snapshots`) and related telemetry:
+
+- `public.agentsam_workflows` (registry snapshot for agent_chat_plan mirror)
+- `public.agentsam_workflow_runs`
+- `public.agentsam_workflow_steps`
+- `public.agentsam_workflow_events`
+- `public.agentsam_debug_snapshots`
+- `public.agentsam_stream_events`
+- `public.agentsam_routing_decisions`
+- `public.agentsam_eval_runs`
+- `public.agentsam_prompt_runs`
+- `public.agentsam_error_events`
+
+Mirror payloads must use **only columns that exist** in Supabase (often smaller than D1).
+
+## Supabase — plan rows (not a live mirror yet)
+
+- `public.agentsam_plans` / `public.agentsam_plan_tasks` — **future / optional** parity targets only. **Canonical plan + plan_task state is D1.** Do not claim these Supabase tables are synchronized until upsert code ships and is verified.
+
+## Workflow run lifecycle (required order)
+
+1. **Insert D1** `agentsam_workflow_runs` with:
+   - `status = 'running'`
+   - `supabase_sync_status = 'pending'`
+   - `supabase_sync_attempts = 0`
+   - `tenant_id`, `workspace_id`, `workflow_key`, `run_group_id`, `trigger_type`, `environment`
+   - `input_tokens`, `output_tokens`, `cost_usd` **= 0**, never null
+
+2. **Complete or fail** in D1:
+   - `status = 'completed'` OR `'failed'`
+   - `completed_at` set
+   - `duration_ms` set
+   - `step_results_json` populated
+   - `current_node_key` populated where applicable
+   - `error_message` populated if failed
+   - **Never delete** failed runs — failed runs are observability data.
+
+3. **Mirror** to `public.agentsam_workflow_runs`.
+
+4. **On Supabase success**, patch D1:
+   - `supabase_run_id` = Supabase row `id`
+   - `supabase_sync_status = 'synced'`
+   - `supabase_synced_at` = timestamp
+   - `supabase_sync_attempts` = previous + 1
+
+5. **On Supabase failure**, patch D1:
+   - `supabase_sync_status = 'failed'`
+   - `supabase_sync_error` = actual error string
+   - `supabase_sync_attempts` = previous + 1
+   - Keep the D1 workflow run row **visible** (do not delete).
+
+## Todo / plan task lifecycle
+
+**D1 is authoritative** for todos and plan tasks.
+
+**Before** substantive edits:
+
+- Pick **one** `todo_id` from D1 `agentsam_todo`.
+- Resolve its `agentsam_plan_tasks` row (`plan_id` / `todo_id`).
+- D1: `execution_status = 'in_progress'` on the todo; `status = 'in_progress'` on the plan task.
+- Supabase plan-task row: update **only if** a real `public.agentsam_plan_tasks` mirror row exists and is maintained by shipped upsert logic (otherwise skip Supabase for plan tasks).
+
+**After** edits (when validated):
+
+- D1 todo: `execution_status` and `status` per enum convention (`done` / `open` as appropriate).
+- D1 plan task: `status = 'done'`.
+- Supabase plan task: `status = 'done'` **only when** that mirror table is actually in use for the row.
+- Fill `output_summary`, files touched, validation outcome; token/cost fields if model work ran.
+
+**If blocked:**
+
+- Set todo / plan task to blocked states and `blocked_reason` / `error_trace` as appropriate; Supabase plan-task mirror only when the mirror exists.
+
+## Active buildout pointers (update when plan rotates)
+
+- Plan: `agentsam_plans.id = plan_visualizer_20260510`
+- Todos: `project_key = agent_sam_visualizer`
+- Plan tasks: `plan_id = plan_visualizer_20260510`
+- Workflow registry: `agentsam_workflows.workflow_key = wf_agent_sam_visualizer_buildout`
+- Supabase mirror ids may include e.g. `plan_visualizer_20260510`, `sb_wrun_plan_visualizer_20260510_alignment` — confirm live ids before SQL.
+
+**Six tracked todo ids:**
+
+1. `todo_analytics-highlight-run-fix`
+2. `todo_system-pulse-remaster`
+3. `todo_workflow-visualizer-readonly`
+4. `todo_workflow-run-trace-overlay`
+5. `todo_agent-todo-dashboard-panel`
+6. `todo_failed-workflow-visibility`
+
+## Hard rule for Cursor changes
+
+**No change is complete** unless it:
+
+1. **Maps to** a D1 `agentsam_todo.id` (one of the six above or a successor registered in D1).
+2. Ends with an **alignment report** (see below).
+
+## Required final report (every task)
+
+Include:
+
+- `todo_id`
+- `plan_task_id` (D1 `agentsam_plan_tasks.id`)
+- `workflow_run_id` if a run was created
+- `supabase_run_id` if mirrored
+- D1 sync fields status (`supabase_sync_status`, etc.) when applicable
+- Supabase mirror outcome
+- Files changed
+- Validation command and result
+- Exact SQL or API updates **performed or proposed** for D1 and Supabase
+
+## Failed workflows
+
+- **Never delete** rows in `agentsam_workflow_runs` for failure cleanup.
+- Failed runs stay queryable; analytics must be able to surface them (`status = failed`, `error_message`, `completed_at`, node context where columns exist).
