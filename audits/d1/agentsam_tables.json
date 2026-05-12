@@ -1,0 +1,368 @@
+[
+  {
+    "results": [
+      {
+        "type": "table",
+        "name": "agentsam_agent_run"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_ai"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_analytics"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_approval_queue"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_artifact_skills"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_artifacts"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_bootstrap"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_browser_trusted_origin"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_cad_jobs"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_code_index_job"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_command_allowlist"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_command_pattern"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_command_run"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_commands"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_compaction_events"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_context_digest"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_cron_runs"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_deployment_health"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_error_log"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_escalation"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_eval_cases"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_eval_runs"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_eval_suites"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_execution_context"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_execution_dependency_graph"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_execution_performance_metrics"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_execution_steps"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_executions"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_executions_backup_20260509_014549"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_feature_flag"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_fetch_domain_allowlist"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_guardrail_events"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_guardrail_rulesets"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_guardrails"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_health_daily"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_hook"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_hook_execution"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_ignore_pattern"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_mcp_allowlist"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_mcp_servers"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_mcp_tool_execution"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_mcp_tools"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_mcp_workflows"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_memory"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_model_catalog"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_model_drift_signals"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_model_routing_memory"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_model_tier"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_plan_tasks"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_plan_tasks_backup_20260510_004427"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_plans"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_project_context"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_prompt_cache_keys"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_prompt_routes"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_prompt_versions"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_route_requirements"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_routing_arms"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_rules_document"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_script_runs"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_scripts"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_skill"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_skill_invocation"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_skill_revision"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_slash_commands"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_subagent_profile"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_subscription_registry"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_task_slos"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_todo"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_tool_cache"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_tool_call_log"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_tool_chain"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_tool_stats_compacted"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_tools"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_tools_input_schema_backup"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_usage_events"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_usage_rollups_daily"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_user_feature_override"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_user_policy"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_webhook_events"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_webhook_weekly"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_workflow_edges"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_workflow_nodes"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_workflow_runs"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_workflows"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_workspace"
+      },
+      {
+        "type": "table",
+        "name": "agentsam_workspace_state"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "EWR",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.5732
+      },
+      "duration": 0.5732,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 39874560,
+      "rows_read": 2596,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]
