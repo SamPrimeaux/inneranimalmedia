@@ -417,6 +417,11 @@ export async function createPlan(
 
   tasks = tasks.map((t) => normalizePlannerTask(t, goal));
 
+  const validWrun = wrun
+    ? await env.DB.prepare('SELECT id FROM agentsam_workflow_runs WHERE id = ? LIMIT 1')
+        .bind(wrun).first().catch(() => null).then(r => r?.id ?? null)
+    : null;
+
   await env.DB
     .prepare(
       `UPDATE agentsam_workflow_runs SET steps_total = ?, updated_at = datetime('now') WHERE id = ?`,
@@ -448,7 +453,7 @@ export async function createPlan(
       today,
       'gpt-5.4-mini',
       tasks.length,
-      wrun,
+      validWrun,
     )
     .run();
 
@@ -481,7 +486,7 @@ export async function createPlan(
       inputObj: {
         plan_id: pid,
         task_id: tid,
-        workflow_run_id: wrun,
+        workflow_run_id: validWrun,
         plan_task_order: i,
         capability_type: cap,
         handler_type: t.handler_type || 'agent',
@@ -691,7 +696,7 @@ export async function createPlan(
       ...t,
       order_index: i,
       execution_step_id: estepId,
-      workflow_run_id: wrun,
+      workflow_run_id: validWrun,
       command_run_id: commandRunPk,
       approval_id: approvalPk,
       handler_key: hk,
@@ -705,6 +710,6 @@ export async function createPlan(
     plan_id: pid,
     plan_title: parsed.plan_title || String(goal).slice(0, 80),
     tasks: insertedTasks,
-    workflow_run_id: wrun,
+    workflow_run_id: validWrun,
   };
 }

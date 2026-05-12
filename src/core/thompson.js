@@ -11,11 +11,24 @@ import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 export function pickRoutingArmByThompson(results) {
   if (!results?.length) return null;
   let best = null;
-  let bestDraw = -1;
+  let bestUtility = -1;
+
   for (const arm of results) {
-    const draw = betaSample(arm.success_alpha, arm.success_beta);
-    if (draw > bestDraw) {
-      bestDraw = draw;
+    // 1. Probabilistic success draw
+    const successProb = betaSample(arm.success_alpha, arm.success_beta);
+
+    // 2. Normalized Latency Penalty (lower is better)
+    const latMean = Number(arm.latency_mean) || 1000;
+    const latPenalty = 1 / (1 + Math.log10(1 + latMean / 100));
+
+    // 3. Normalized Cost Penalty
+    const costMean = Number(arm.cost_mean) || 0.01;
+    const costPenalty = 1 / (1 + (costMean * 100));
+
+    const utility = successProb * latPenalty * costPenalty;
+
+    if (utility > bestUtility) {
+      bestUtility = utility;
       best = arm;
     }
   }

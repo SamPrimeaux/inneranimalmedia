@@ -139,7 +139,7 @@ function deriveApiPlatformFromProvider(provider, rawPlatform) {
   if (p === 'workers_ai' || p === 'cloudflare') return 'workers_ai';
   if (p === 'vertex') return 'vertex';
   if (p === 'ollama') return 'ollama';
-  return 'anthropic';
+  return 'unknown';
 }
 
 /**
@@ -428,7 +428,9 @@ export async function dispatchStream(env, request, params) {
   const { systemPrompt, messages, tools = [], options = {}, userId, anthropicContainerId } = params;
   const meta = await resolveModelMeta(env, modelKey);
   maybeLogAgentChatPromptAudit(env, params, modelKey, meta);
-  const platform = String(meta?.api_platform || 'anthropic').toLowerCase();
+  const platform = String(
+    meta?.api_platform ? meta.api_platform : deriveApiPlatformFromProvider(meta?.provider || '', '')
+  ).toLowerCase();
   const providerModelId =
     meta?.provider_model_id != null && String(meta.provider_model_id).trim() !== ''
       ? String(meta.provider_model_id).trim()
@@ -461,7 +463,6 @@ export async function dispatchStream(env, request, params) {
     case 'ollama':
       return dispatchOllama(env, request, dp);
     case 'anthropic':
-    default:
       return chatWithAnthropic({
         messages, tools, env, userId,
         options: {
@@ -474,6 +475,11 @@ export async function dispatchStream(env, request, params) {
             : {}),
         },
       });
+    default:
+      throw new Error(
+        `[dispatchProviderChat] unsupported api_platform: "${platform}" for model "${modelKey}". ` +
+        `Check agentsam_model_catalog.api_platform — expected one of: openai, openai_chat_completions, openai_responses, anthropic, gemini_api, vertex, workers_ai, ollama.`
+      );
   }
 }
 

@@ -214,6 +214,49 @@ function routingAllowsWorkersAiEarly(routeKey, taskType) {
   return false;
 }
 
+const SIMPLE_TOOL_TASKS = new Set([
+  'status_lookup',
+  'project_info',
+  'approval_poll',
+  'single_read_query',
+  'simple_rag_lookup',
+  'model_catalog_lookup',
+  'chat',
+]);
+
+/**
+ * Nano complexity gate: Nano can use tools, but we escalate for complex/risky tasks.
+ */
+function shouldEscalateFromNano(q) {
+  if (String(q.modelKey || '').trim() !== 'gpt-5.4-nano') return false;
+  const tt = String(q.taskType || '').toLowerCase();
+  const mutates = !!q.mutates;
+  const steps = Number(q.estimatedSteps) || 0;
+
+  // Nano is OK for simple read-only tool calls.
+  if (q.toolRequired && SIMPLE_TOOL_TASKS.has(tt) && !mutates && steps <= 1) {
+    return false;
+  }
+
+  // Escalate when reliability or mutation safety is required.
+  return (
+    steps > 1 ||
+    mutates ||
+    [
+      'code_debug',
+      'code/debug',
+      'cloudflare_worker',
+      'wrangler_d1',
+      'github_patch',
+      'browser_test',
+      'workflow_repair',
+      'plan',
+      'deploy',
+      'sql_d1_generation',
+    ].includes(tt)
+  );
+}
+
 /**
  * Live D1: arms reference canonical catalog keys. Block the **base** SKU `gpt-5.5` only (not API-accessible).
  * `gpt-5.5-pro` may exist in catalog; eligibility is governed by `agentsam_model_catalog.is_active` (keep off until smoke-tested).
@@ -248,12 +291,37 @@ export async function queryRoutingArmsCandidates(env, q) {
     if (ws) {
       const sqlWs = `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
       const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
-      if (r1.results?.length) return r1.results;
+      let results = r1.results || [];
+      if (results.length) {
+        // Apply Nano complexity gate
+        const first = results[0];
+        if (
+          first.model_key === 'gpt-5.4-nano' &&
+          shouldEscalateFromNano({ modelKey: first.model_key, toolRequired: toolReq, taskType: tt, mutates: q.mutates, estimatedSteps: q.estimatedSteps })
+        ) {
+          console.log('[routing] escalating from nano due to task complexity', { taskType: tt });
+          results = results.filter((r) => r.model_key !== 'gpt-5.4-nano');
+        }
+        if (results.length) return results;
+      }
     }
     const sqlGlobal =
       `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
     const r2 = await db.prepare(sqlGlobal).bind(tt, m).all();
-    return r2.results || [];
+    let globalResults = r2.results || [];
+
+    if (globalResults.length) {
+      const first = globalResults[0];
+      if (
+        first.model_key === 'gpt-5.4-nano' &&
+        shouldEscalateFromNano({ modelKey: first.model_key, toolRequired: toolReq, taskType: tt, mutates: q.mutates, estimatedSteps: q.estimatedSteps })
+      ) {
+        console.log('[routing] escalating from nano (global) due to task complexity', { taskType: tt });
+        globalResults = globalResults.filter((r) => r.model_key !== 'gpt-5.4-nano');
+      }
+    }
+
+    return globalResults;
   } catch {
     return [];
   }

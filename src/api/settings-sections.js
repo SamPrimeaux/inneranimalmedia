@@ -349,7 +349,7 @@ async function getNotifications(env, authUser) {
   const escalations = await safeQueryAll(
     db,
     'agentsam_escalation',
-    `SELECT id, level, status, reason, created_at FROM agentsam_escalation ORDER BY created_at DESC LIMIT 25`,
+    `SELECT id, model_attempted, chain_index, succeeded, error_message, created_at FROM agentsam_escalation ORDER BY created_at DESC LIMIT 25`,
     [],
     warnings,
     cache,

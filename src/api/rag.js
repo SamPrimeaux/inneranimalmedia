@@ -561,7 +561,16 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
     }
   };
 
-  const [ctxRows, sessRows] = await Promise.all([loadCtxRows(), loadSessRows()]);
+  // Timeout guard — Hyperdrive hangs kill the entire chat pipeline without this
+  const _ragMs = 3000;
+  const _raceRag = (fn) => Promise.race([
+    fn(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('rag_timeout')), _ragMs)),
+  ]);
+  const [ctxRows, sessRows] = await Promise.all([
+    _raceRag(loadCtxRows).catch(() => []),
+    _raceRag(loadSessRows).catch(() => []),
+  ]);
   const merged = [
     ...(ctxRows || []).map((r) => normalizeSearchRow(r, 'context')),
     ...(sessRows || []).map((r) => normalizeSearchRow(r, 'session')),

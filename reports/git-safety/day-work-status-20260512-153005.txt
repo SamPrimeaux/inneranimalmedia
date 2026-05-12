@@ -1,0 +1,35 @@
+ M analytics/codebase-index/ws_inneranimalmedia/index-priority-files.json
+ M dashboard/features/agent-chat/ChatAssistant.tsx
+ M package-lock.json
+ M package.json
+ M scripts/sql/seed-browser-trusted-origins-inneranimal.sql
+ M src/api/rag.js
+ M src/api/settings-sections.js
+ M src/core/agentsam-planner.js
+ M src/core/production-dispatch.js
+ M src/core/provider.js
+ M src/core/routing.js
+ M src/core/thompson.js
+ M src/core/workflow-executor.js
+ M src/tools/ai-dispatch.js
+?? reports/
+?? scripts/add_cache_indexes.sql
+?? scripts/agentsam_audit.py
+?? scripts/e2e_agentsam_eval_runner.py
+?? scripts/find_agent_prompt_minimal_assets.py
+?? scripts/run-eval-cases.mjs
+?? scripts/seed_comprehensive.js
+?? scripts/seed_comprehensive.sql
+?? scripts/seed_prompt_cache.js
+?? scripts/seed_prompt_cache.sql
+?? scripts/seed_prompt_layers.py
+?? scripts/verify_buildsystemprompt.py
+?? src/api/agent.js.bak_usage_passthrough
+?? src/api/agent.js.bak_zerotokens
+?? src/api/rag.js.bak_ragtimeout
+?? src/core/provider.js.bak_resolvemodel
+?? src/core/resolveModel.js
+?? src/core/workflow-executor.js.bak_3b
+?? src/core/workflow-executor.js.bak_webhook_tier
+?? src/core/workflow-executor.js.bak_workflowmeta
+?? src/tools/memory.js

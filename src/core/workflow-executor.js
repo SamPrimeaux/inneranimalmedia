@@ -98,10 +98,44 @@ async function dispatchNode(env, node, input, runContext) {
       try {
         const { dispatchComplete } = await import('./provider.js');
 
-        // Derive task_type from handler_key: 'agentsam.code.map_file' -> 'code'
+        // Derive task_type: prefer agentsam_workflows.default_task_type, then handler_key, then fallback
         const hkParts = String(handlerKey || '').split('.');
-        const taskType = hkParts[1] || hkParts[0] || 'code';
-        const mode = String(runContext?.workflowKey || '').includes('build') ? 'build' : 'agent';
+        const taskType =
+          runContext?.workflowMeta?.default_task_type
+          || hkParts[1]
+          || hkParts[0]
+          || 'code';
+        const mode =
+          runContext?.workflowMeta?.default_mode
+          || (String(runContext?.workflowKey || '').includes('build') ? 'build' : 'agent');
+
+        // TIER_ORDER-based model selection: nano baseline, escalate by task complexity
+        // gpt-5.4-nano: default workhorse (SQL, structured output, extraction, classification)
+        // gpt-5.4-mini: code, multi-tool, CMS, terminal planning
+        // gpt-5.4:      orchestration, final judge, approval summaries
+        // Ollama:        local pin tests only (smoke=true paths)
+        const TASK_TIER_MAP = {
+          intent_classification: 'micro', rag_query: 'micro', summary: 'micro',
+          skill_invocation: 'micro',      cms_theme_generation: 'micro',
+          chat: 'standard',   code: 'standard',     cms_edit: 'standard',
+          sql_d1_generation: 'standard',  terminal_execution: 'standard',
+          plan: 'power', subagent_dispatch: 'power',
+          workflow_orchestration: 'power', debug: 'power',
+        };
+        const desiredTierIdx = TIER_ORDER.indexOf(TASK_TIER_MAP[taskType] ?? 'standard');
+        const resolvedCatalogKey = await (async () => {
+          // Walk up tiers starting from desired until we find an active model
+          for (const tier of TIER_ORDER.slice(desiredTierIdx >= 0 ? desiredTierIdx : 2)) {
+            const row = await env.DB?.prepare(
+              `SELECT model_key FROM agentsam_model_catalog
+               WHERE tier = ? AND is_active = 1 AND supports_tools = 1
+                 AND provider IN ('openai','anthropic','google')
+               ORDER BY cost_per_1k_in ASC LIMIT 1`
+            ).bind(tier).first().catch(() => null);
+            if (row?.model_key) return row.model_key;
+          }
+          return 'gpt-5.4-nano'; // hard baseline — always available
+        })();
 
         const userMsg = typeof input === 'string'
           ? input
@@ -109,7 +143,7 @@ async function dispatchNode(env, node, input, runContext) {
           || JSON.stringify(input);
 
         const result = await dispatchComplete(env, {
-          modelKey: 'auto',
+          modelKey: resolvedCatalogKey,   // TIER_ORDER resolved: nano→mini→5.4 by task complexity
           taskType,
           mode,
           systemPrompt: 'You are Agent Sam, an autonomous AI developer for Inner Animal Media. Complete the task and return concise structured output.',
@@ -295,6 +329,39 @@ async function dispatchNode(env, node, input, runContext) {
         return { ok: false, error: e?.message || 'approval_insert_failed' };
       }
       return { ok: true, output: { status: 'pending', approval_id: approvalId } };
+    }
+
+    case 'webhook': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true, note: 'webhook smoke short-circuit' } };
+      const config = (() => {
+        try { return JSON.parse(node.handler_config || node.config_json || '{}'); } catch { return {}; }
+      })();
+      const url = config.url || config.endpoint;
+      if (!url) return { ok: false, error: `webhook node "${node.node_key}" missing url in handler_config` };
+      const timeout = node.timeout_ms ?? 15_000;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const resp = await fetch(url, {
+          method: config.method ?? 'POST',
+          headers: { 'Content-Type': 'application/json', ...(config.headers ?? {}) },
+          body: JSON.stringify({
+            node_key: node.node_key,
+            workflow_run_id: runContext?.runId,
+            workflow_id: runContext?.workflowKey,
+            ...input,
+          }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (!resp.ok) return { ok: false, error: `webhook HTTP ${resp.status} from ${url}` };
+        const text = await resp.text();
+        const output = (() => { try { return JSON.parse(text); } catch { return { raw: text }; } })();
+        return { ok: true, output };
+      } catch (e) {
+        clearTimeout(timer);
+        return { ok: false, error: `webhook fetch failed: ${e?.message ?? e}` };
+      }
     }
 
     default:
@@ -740,6 +807,22 @@ export async function executeWorkflowGraph(env, opts) {
   }
 
   const runMeta = { tenantId, workspaceId, userId: canonicalUserId };
+
+  // Fetch workflow row once so every dispatchNode call can read default_task_type / default_mode
+  // This is what makes agentsam_workflows drive TIER_ORDER model selection correctly
+  const workflowMeta = env.DB
+    ? await env.DB
+        .prepare(
+          `SELECT default_task_type, default_mode, workflow_type, risk_level, requires_approval
+           FROM agentsam_workflows
+           WHERE (id = ? OR workflow_key = ?) AND COALESCE(is_active, 1) = 1
+           LIMIT 1`
+        )
+        .bind(workflowKey, workflowKey)
+        .first()
+        .catch(() => null)
+    : null;
+
   const runContext = {
     runId,
     runMeta,
@@ -748,6 +831,7 @@ export async function executeWorkflowGraph(env, opts) {
     workflowExecId,
     toolBridge,
     workflowKey,
+    workflowMeta: workflowMeta ?? null,
   };
   const streamSse =
     typeof onStream === 'function'

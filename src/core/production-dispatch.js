@@ -8,6 +8,7 @@
 
 import { handleAgentRequest } from '../api/agent.js';
 import { handleCmsApi } from '../api/cms.js';
+import { handleBrowserTrust } from '../api/browser-trust.js';
 import { handleAgentSamRegistryRequest } from '../api/agentsam.js';
 import { handleTimeDispatch } from '../tools/time.js';
 import { handleR2Api } from '../api/r2-api.js';
@@ -77,6 +78,10 @@ export async function dispatchProductionDomainRoutes(rc) {
     methodUpper,
     pathLower,
   } = rc;
+
+  if (pathLower.startsWith('/api/agentsam/browser/trust')) {
+    return handleBrowserTrust(request, env);
+  }
 
   if (pathLower.startsWith('/api/agentsam/time')) {
     return handleTimeDispatch(request, env, ctx, authUser);

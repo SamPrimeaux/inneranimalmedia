@@ -20,6 +20,7 @@ import { getComputerUseTools, specializedSchemas } from './builtin/computer-use.
 import { python_execute } from './builtin/python.js';
 import { handlers as aiOpsHandlers } from './builtin/ai-ops.js';
 import { handlers as githubWorkerHandlers } from './builtin/github-worker.js';
+import { handlers as memoryHandlers, MEMORY_TOOL_SCHEMAS } from './memory.js';
 
 
 export function normalizeToolName(toolName) {
@@ -47,7 +48,7 @@ export function normalizeToolName(toolName) {
  * Universal Tool Dispatcher (Omni-Sam v2.0).
  * Routes 100+ model-requested tools to their modular production handlers.
  */
-export async function runBuiltinTool(env, toolName, params) {
+export async function runBuiltinTool(env, toolName, params, runContext = {}) {
     toolName = normalizeToolName(toolName);
     console.log(`[AI Dispatcher] Executing: ${toolName}`);
 
@@ -89,6 +90,10 @@ export async function runBuiltinTool(env, toolName, params) {
         // ── CATEGORY: db (3 Tools) ───────────────────────────────────────
         case toolName.startsWith('d1_'):
             return await dbHandlers[toolName]?.(params, env);
+
+        // ── CATEGORY: memory (4 Tools) ─────────────────────────────────────────
+        case toolName.startsWith('memory_'):
+            return await memoryHandlers[toolName]?.(params, env, runContext);
 
         // ── CATEGORY: deploy (5 Tools) ───────────────────────────────────────────────
         case toolName.startsWith('worker_'):
