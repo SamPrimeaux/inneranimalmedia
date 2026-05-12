@@ -454,63 +454,55 @@ async function resolveAgentsamPromptRoute(env, tenantId, modeSlug, intentSlug) {
   }
 }
 
-async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, _promptRouteRow = null) {
-  void _promptRouteRow;
-  const rows = await env.DB.prepare(`
-    SELECT id, prompt_kind, body AS content
-    FROM agentsam_prompt_versions
-    WHERE status = 'active'
-      AND prompt_kind = 'system'
-      AND (tenant_id IS NULL OR tenant_id = ?)
-    ORDER BY
-      CASE WHEN tenant_id IS NULL THEN 1 ELSE 0 END DESC,
-      id ASC
-  `).bind(tenantId || '').all();
+async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null) {
+  try {
+    // Determine which prompt layers to load from the matched route
+    const layerKeys = (() => {
+      if (promptRouteRow?.prompt_layer_keys) {
+        try { return JSON.parse(promptRouteRow.prompt_layer_keys); } catch { /* fall through */ }
+      }
+      // Default layers for mode
+      const base = ['core_identity', 'db_safety', 'security', 'tool_loop'];
+      if (['build', 'deploy', 'agent'].includes(mode)) base.push('deploy_safety');
+      if (mode === 'billing') base.push('billing');
+      return base;
+    })();
 
-  const prompts = rows?.results || [];
+    // Add tenant-specific layers
+    if (tenantId === TENANT_KNOWLEDGE_PLATFORM) layerKeys.push('learning');
+    if (tenantId === TENANT_SHINSHU) layerKeys.push('shinshu');
+    const platformTid = platformTenantIdFromEnv(env);
+    if (platformTid && tenantId && tenantId !== platformTid) layerKeys.push('client_work');
 
-  const core = prompts.find((p) => p.id === AP_SYS.core)?.content || FALLBACK_CORE_SYSTEM;
-  const dbSafety = prompts.find((p) => p.id === AP_SYS.dbSafety)?.content || '';
-  const security = prompts.find((p) => p.id === AP_SYS.security)?.content || '';
+    // Load all needed prompt versions in one query
+    const placeholders = layerKeys.map(() => '?').join(', ');
+    const rows = await env.DB.prepare(`
+      SELECT prompt_key, body
+      FROM agentsam_prompt_versions
+      WHERE is_active = 1
+        AND prompt_key IN (${placeholders})
+        AND (tenant_id IS NULL OR tenant_id = ?)
+      ORDER BY CASE WHEN tenant_id IS NULL THEN 1 ELSE 0 END DESC
+    `).bind(...layerKeys, tenantId || '').all().catch(() => ({ results: [] }));
 
-  const deployPrompt = ['build', 'deploy', 'agent'].includes(mode)
-    ? prompts.find((p) => p.id === AP_SYS.deploy)?.content || ''
-    : '';
+    const byKey = Object.fromEntries((rows.results || []).map(r => [r.prompt_key, r.body]));
 
-  const billingPrompt = mode === 'billing'
-    ? prompts.find((p) => p.id === AP_SYS.billing)?.content || ''
-    : '';
+    // Assemble in layer order
+    const parts = layerKeys
+      .map(k => byKey[k])
+      .filter(Boolean);
 
-  const learningPrompt = tenantId === TENANT_KNOWLEDGE_PLATFORM
-    ? prompts.find((p) => p.id === AP_SYS.learning)?.content || ''
-    : '';
+    if (!parts.length) parts.push(FALLBACK_CORE_SYSTEM);
 
-  const shinshuPrompt = tenantId === TENANT_SHINSHU
-    ? prompts.find((p) => p.id === AP_SYS.shinshu)?.content || ''
-    : '';
+    parts.push(AGENT_SAM_PYTHON_PARALLEL_BLOCK);
+    if (modeConfig?.system_prompt_fragment) parts.push(modeConfig.system_prompt_fragment);
+    if (contextBlock) parts.push(contextBlock);
 
-  const platformTid = platformTenantIdFromEnv(env);
-  const clientPrompt = platformTid && tenantId && tenantId !== platformTid
-    ? prompts.find((p) => p.id === AP_SYS.client)?.content || ''
-    : '';
-
-  const modeFragment = modeConfig?.system_prompt_fragment
-    ? `\n\n${modeConfig.system_prompt_fragment}`
-    : '';
-
-  return [
-    core,
-    dbSafety,
-    security,
-    deployPrompt,
-    billingPrompt,
-    learningPrompt,
-    shinshuPrompt,
-    clientPrompt,
-    AGENT_SAM_PYTHON_PARALLEL_BLOCK,
-    modeFragment,
-    contextBlock,
-  ].filter(Boolean).join('\n\n---\n\n');
+    return parts.join('\n\n---\n\n');
+  } catch (e) {
+    console.warn('[agent] buildSystemPrompt failed:', e?.message);
+    return FALLBACK_CORE_SYSTEM + (contextBlock ? `\n\n${contextBlock}` : '');
+  }
 }
 
 function projectIdFromEnv(env) {
@@ -931,7 +923,7 @@ async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
   return executionStepId;
 }
 
-async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMessage }) {
+async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMessage, usage = {} }) {
   if (!ledger?.runId || !env?.DB) return;
   const duration = Math.max(0, Date.now() - ledger.startedAt);
   const err = ok ? null : String(errorMessage || 'agent_tool_session_failed').slice(0, 4000);
@@ -988,9 +980,9 @@ async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMe
     started_at: ledger.startedSec,
     completed_at: Math.floor(Date.now() / 1000),
     duration_ms: duration,
-    cost_usd: 0,
-    input_tokens: 0,
-    output_tokens: 0,
+    cost_usd: usage?.cost_usd ?? 0,
+    input_tokens: usage?.input_tokens ?? 0,
+    output_tokens: usage?.output_tokens ?? 0,
     error_message: err,
     step_results_json: JSON.stringify(ledger.steps),
   };
@@ -1213,7 +1205,7 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
     person_uuid: context.personUuid ?? input?.person_uuid ?? null,
     request: context.request || null,
   };
-  const out = await runBuiltinTool(env, toolName, params);
+  const out = await runBuiltinTool(env, toolName, params, context);
   if (out && typeof out === 'object' && out.error) {
     throw new Error(typeof out.error === 'string' ? out.error : JSON.stringify(out.error));
   }
@@ -3228,6 +3220,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         await finalizeAgentChatToolLedger(env, ctx, emit, agentToolLedger, {
           ok: !ledgerLoopThrew,
           errorMessage: ledgerErrorMsg,
+          usage: totalUsage,
         });
       } catch (fe) {
         console.warn('[agent] agent_tool_ledger_finalize', fe?.message ?? fe);
@@ -5704,7 +5697,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     };
 
     try {
-      const raw = await runBuiltinTool(env, toolName, params);
+      const raw = await runBuiltinTool(env, toolName, params, { tenantId: sess.tenant_id, userId: sess.user_id, workspaceId: sess.workspace_id, sessionId: sess.session_id });
       if (raw && typeof raw === 'object' && raw.error) {
         const errMsg = typeof raw.error === 'string' ? raw.error : JSON.stringify(raw.error);
         return jsonResponse({
