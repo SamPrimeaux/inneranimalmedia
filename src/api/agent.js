@@ -521,12 +521,20 @@ async function fetchActivePlanContextFragment(env, tenantId, options = {}) {
   return fragment;
 }
 
+function isSimpleAskMessage(message = "") {
+  const s = String(message || "").trim().toLowerCase();
+  if (!s || s.length > 80) return false;
+  return ["hi","hello","hey","yo","sup","thanks","thank you","ok","okay","test","ping"].includes(s);
+}
+
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null, options = {}) {
   try {
-    // Determine which prompt layers to load from the matched route
     const layerKeys = (() => {
       if (promptRouteRow?.prompt_layer_keys) {
-        try { return JSON.parse(promptRouteRow.prompt_layer_keys); } catch { /* fall through */ }
+        try {
+          const parsed = JSON.parse(promptRouteRow.prompt_layer_keys);
+          if (Array.isArray(parsed)) return parsed;
+        } catch { /* fall through */ }
       }
       // Default layers for mode
       const base = ['core_identity', 'db_safety', 'security', 'tool_loop'];
@@ -540,6 +548,12 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     if (tenantId === TENANT_SHINSHU) layerKeys.push('shinshu');
     const platformTid = platformTenantIdFromEnv(env);
     if (platformTid && tenantId && tenantId !== platformTid) layerKeys.push('client_work');
+
+    // Pipeline flags from promptRouteRow
+    const includeRag         = Number(promptRouteRow?.include_rag          ?? 1) === 1;
+    const includeActivePlan  = Number(promptRouteRow?.include_active_plan  ?? 1) === 1;
+    const includeMemory      = Number(promptRouteRow?.include_recent_memory ?? 1) === 1;
+    const includeWorkspace   = Number(promptRouteRow?.include_workspace_ctx ?? 1) === 1;
 
     // Load all needed prompt versions in one query
     const placeholders = layerKeys.map(() => '?').join(', ');
@@ -562,15 +576,17 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     if (!parts.length) parts.push(FALLBACK_CORE_SYSTEM);
 
     // Inject Plan & Task Context if enabled by route or requested by options
-    const shouldIncludePlan = Number(promptRouteRow?.include_active_plan ?? 1) === 1;
-    if (shouldIncludePlan && env.DB) {
+    if (includeActivePlan && env.DB) {
       const planContext = await fetchActivePlanContextFragment(env, tenantId, options);
       if (planContext) parts.push(planContext);
     }
 
-    parts.push(AGENT_SAM_PYTHON_PARALLEL_BLOCK);
+    if (includeActivePlan || (Number(promptRouteRow?.max_tools ?? 8) > 0)) {
+       parts.push(AGENT_SAM_PYTHON_PARALLEL_BLOCK);
+    }
+    
     if (modeConfig?.system_prompt_fragment) parts.push(modeConfig.system_prompt_fragment);
-    if (contextBlock) parts.push(contextBlock);
+    if (includeWorkspace && contextBlock) parts.push(contextBlock);
 
     const result = parts.join('\n\n---\n\n');
 
@@ -2410,6 +2426,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     thompsonModelKey: thompsonModelKeyParam,
     runStartedAt: runStartedAtParam,
     maxRuntimeMs: maxRuntimeMsParam,
+    chatAgentRunId,
     /** @type {Record<string, unknown>|null|undefined} */
     promptAuditContext: promptAuditContextParam,
   } = params;
@@ -2530,6 +2547,18 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       routeArmOutcome(false);
       const detail = e?.message != null ? String(e.message).slice(0, 8000) : String(e).slice(0, 8000);
       emit('error', { message: detail || 'Model call failed', detail });
+      
+      // Log failed step
+      ctx.waitUntil?.(env.DB.prepare(`
+        INSERT INTO agentsam_execution_steps (execution_id, step_type, model_key, status, tool_output, duration_ms)
+        VALUES (?, 'model_turn', ?, 'failed', ?, ?)
+      `).bind(
+        params.chatAgentRunId || sessionId || 'unknown',
+        modelKey,
+        detail.slice(0, 500),
+        Date.now() - modelT0
+      ).run().catch(() => {}));
+
       const fail = new Error('MODEL_DISPATCH_FAILED');
       fail.code = 'MODEL_DISPATCH_FAILED';
       throw fail;
@@ -4352,14 +4381,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     enterLongWorkPlanPipeline = !capabilityLedIntent && isWorkIntent && planWordCount >= 5;
   }
 
-  const CONVERSATIONAL =
-    /^(hi|hello|hey|sup|yo|thanks|thank you|ok|okay|sure|got it|nice|cool|great|what can you do|what do you do|who are you|what are you|help me|help)\b/i;
   const askConversationalCurve =
     requestedMode === 'ask' &&
     !explicitSurfaceOrWorkflowIntent &&
     /^(what|who|where|when|why|how|explain|describe|define)\b/i.test(trimmedMsg);
   const isConversational =
-    CONVERSATIONAL.test(trimmedMsg) ||
     (wordParts.length < 4 && !looksLikeExplicitCommand) ||
     askConversationalCurve;
 
@@ -4491,7 +4517,19 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
-  const promptRouteRow = await resolveAgentsamPromptRoute(env, tenantId, requestedMode, intentSlug);
+  let promptRouteRow = await resolveAgentsamPromptRoute(env, tenantId, requestedMode, intentSlug);
+
+  if (promptRouteRow === null && requestedMode === "ask" && isSimpleAskMessage(message)) {
+    const greetingRoute = await env.DB.prepare(`
+      SELECT * FROM agentsam_prompt_routes
+      WHERE route_key = 'simple_ask_greeting'
+      AND (tenant_id = ? OR tenant_id IS NULL)
+      AND is_active = 1
+      ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END ASC
+      LIMIT 1
+    `).bind(tenantId, tenantId).first();
+    if (greetingRoute) promptRouteRow = greetingRoute;
+  }
   let effectiveMaxTools = Math.max(1, Math.min(200, Number(modeConfig.max_tool_calls || 20) || 20));
   if (promptRouteRow?.max_tools != null && Number(promptRouteRow.max_tools) > 0) {
     effectiveMaxTools = Math.min(effectiveMaxTools, Number(promptRouteRow.max_tools));
@@ -4739,6 +4777,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       mode: requestedMode,
       workspaceId,
       toolRequired: requireTools,
+      mutates: !!(capabilityDecision?.approval_required || capabilityDecision?.risk_level === 'high' || capabilityDecision?.risk_level === 'critical'),
+      estimatedSteps: (capabilityDecision?.needs_capabilities?.length || 0) > 1 ? 2 : 1,
       routeKey:
         body.route_key != null && String(body.route_key).trim() !== ''
           ? String(body.route_key).trim()
@@ -4885,19 +4925,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const routingArmIdForRun =
     routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
 
-  // Retrieval should be available by default in live agent mode.
-  // Only an explicit route include_rag = 0 should disable it.
-  // Previous behavior required shouldIncludeRag(...) === true, which meant missing/misaligned
-  // agentsam_prompt_routes rows silently disabled RAG even when Hyperdrive/OpenAI/Supabase worked.
-  const routeWantsRag = await shouldIncludeRag(env, intentResult.taskType, tenantId).catch(() => false);
-  const needsRag =
-    !skipRagFromRoute &&
-    (
-      requestedMode === 'agent' ||
-      requestedMode === 'ask' ||
-      routeWantsRag === true ||
-      Number(promptRouteRow?.include_rag) === 1
-    );
+  const includeRag         = Number(promptRouteRow?.include_rag          ?? 1) === 1;
+  const includeActivePlan  = Number(promptRouteRow?.include_active_plan  ?? 1) === 1;
+  const includeMemory      = Number(promptRouteRow?.include_recent_memory ?? 1) === 1;
+  const includeWorkspace   = Number(promptRouteRow?.include_workspace_ctx ?? 1) === 1;
+  const maxTools           = Number(promptRouteRow?.max_tools             ?? 8);
+
+  const needsRag = includeRag && (requestedMode === 'agent' || requestedMode === 'ask');
 
   const ragResult = needsRag
     ? await unifiedRagSearch(env, message, {
@@ -4932,17 +4966,19 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       },
     );
   }
-  try {
-    const mem = await loadAgentMemoryForPrompt(env, tenantId, {
-      userMessage: message,
-      sessionId,
-      agentId: body.agentId || null,
-      workspaceId: workspaceId || null,
-    });
-    if (mem && String(mem).trim()) {
-      systemPrompt = `${systemPrompt}\n\n${String(mem).trim()}`;
-    }
-  } catch (_) { /* memory must not break sessions */ }
+  if (includeMemory) {
+    try {
+      const mem = await loadAgentMemoryForPrompt(env, tenantId, {
+        userMessage: message,
+        sessionId,
+        agentId: body.agentId || null,
+        workspaceId: workspaceId || null,
+      });
+      if (mem && String(mem).trim()) {
+        systemPrompt = `${systemPrompt}\n\n${String(mem).trim()}`;
+      }
+    } catch (_) { /* memory must not break sessions */ }
+  }
 
   try {
     const skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
@@ -4983,6 +5019,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   emit('context', {
     intent: intentSlug,
     mode: requestedMode,
+    prompt_lane: maxTools === 0 && !includeRag && !includeActivePlan ? "minimal_ask" : "standard",
+    layer_keys: (() => {
+      try {
+        const keys = JSON.parse(promptRouteRow?.prompt_layer_keys || "[]");
+        return Array.isArray(keys) ? keys : ["core_identity", "db_safety", "security", "tool_loop"];
+      } catch {
+        return ["core_identity", "db_safety", "security", "tool_loop"];
+      }
+    })(),
+    system_prompt_chars: systemPrompt.length,
+    estimated_system_tokens: Math.round(systemPrompt.length / 4),
     runtime_mode: requestedMode,
     model: fallbackModelKeys[0] || null,
     requested_model: rawRequestedKey || rawRequestedId || null,
@@ -5041,6 +5088,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           body._resolved_command_id != null ? String(body._resolved_command_id).trim() : null,
         workSessionId: sessionId ? String(sessionId) : null,
       });
+
+      // Wire agentsam_executions start
+      ctx.waitUntil?.(env.DB.prepare(`
+        INSERT INTO agentsam_executions (id, workspace_id, tenant_id, user_id, status)
+        VALUES (?, ?, ?, ?, 'running')
+      `).bind(chatAgentRunId, resolvedWorkspaceId, tenantId, userId).run().catch(() => {}));
     }
     const runStartedAt = chatT0;
     const maxRunMsChat =
@@ -5141,6 +5194,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         if (!modelKey) continue;
         providerAttempts += 1;
         tried.push(modelKey);
+        const attemptStart = Date.now();
         try {
           let textEmitted = 0;
           let streamAccum = '';
@@ -5171,12 +5225,30 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               runStartedAt,
               maxRuntimeMs: maxRunMsChat,
               promptAuditContext,
+              chatAgentRunId,
             }),
             maxRunMsChat + 5000
           );
           if (textEmitted <= 0) throw new Error('empty_stream');
           succeeded = true;
           lastAssistantStreamText = streamAccum;
+          
+          // Log success to escalation table
+          ctx.waitUntil?.(env.DB.prepare(`
+            INSERT INTO agentsam_escalation 
+            (run_group_id, error_event_id, chain_index, model_attempted, succeeded, latency_ms, input_tokens, output_tokens, workspace_id, tenant_id)
+            VALUES (?, 'none', ?, ?, 1, ?, ?, ?, ?, ?)
+          `).bind(
+            chatAgentRunId,
+            i,
+            modelKey,
+            Date.now() - attemptStart,
+            lastLoopStats?.totalUsage?.input_tokens ?? 0,
+            lastLoopStats?.totalUsage?.output_tokens ?? 0,
+            workspaceId,
+            tenantId
+          ).run().catch(e => console.warn('[agent] escalation log success failed:', e.message)));
+
           console.log(
             '[agent] routing_model',
             JSON.stringify({
@@ -5187,6 +5259,21 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           );
           break;
         } catch (e) {
+          // Log failure to escalation table
+          ctx.waitUntil?.(env.DB.prepare(`
+            INSERT INTO agentsam_escalation 
+            (run_group_id, error_event_id, chain_index, model_attempted, succeeded, latency_ms, error_message, workspace_id, tenant_id)
+            VALUES (?, 'none', ?, ?, 0, ?, ?, ?, ?)
+          `).bind(
+            chatAgentRunId,
+            i,
+            modelKey,
+            Date.now() - attemptStart,
+            String(e?.message || '').slice(0, 500),
+            workspaceId,
+            tenantId
+          ).run().catch(e2 => console.warn('[agent] escalation log fail failed:', e2.message)));
+
           if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) {
             console.warn('[agent] ollama skipped; trying next model');
           } else if (e?.code === 'IAM_PROVIDER_HTTP' && explicitModelFromRequest) {
@@ -5266,6 +5353,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 runStartedAt,
                 maxRuntimeMs: maxRunMsChat,
                 promptAuditContext,
+                chatAgentRunId,
               }),
               maxRunMsChat + 5000
             );
@@ -5362,7 +5450,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           taskType: resolvedRoutingTaskType,
           success: succeeded,
           inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-          outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+          output_tokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
           costUsd: 0,
           durationMs: Date.now() - chatT0,
           errorMessage: succeeded ? null : 'all_providers_exhausted',
@@ -5370,6 +5458,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           chainRootId: lastLoopStats?.chainRootId ?? null,
           timedOut: lastLoopStats?.timedOut === true,
         });
+
+        // Wire agentsam_executions finalization
+        ctx.waitUntil?.(env.DB.prepare(`
+          UPDATE agentsam_executions SET
+            status = ?,
+            input_tokens = ?,
+            output_tokens = ?,
+            duration_ms = ?,
+            error_message = ?
+          WHERE id = ?
+        `).bind(
+          succeeded ? 'completed' : 'failed',
+          lastLoopStats?.totalUsage?.input_tokens ?? 0,
+          lastLoopStats?.totalUsage?.output_tokens ?? 0,
+          Date.now() - chatT0,
+          succeeded ? null : 'all_providers_exhausted',
+          chatAgentRunId
+        ).run().catch(() => {}));
       }
       scheduleAgentsamUsageEventFromChat(env, ctx, {
         tenantId,
