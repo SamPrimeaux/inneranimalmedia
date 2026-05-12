@@ -121,7 +121,12 @@ export async function insertChatToolSessionExecutionStep(env, stepCols, p) {
     p.stepEntry?.input_json && typeof p.stepEntry.input_json === 'object'
       ? p.stepEntry.input_json
       : { tool: nk };
-  const inputJson = JSON.stringify(inputObj).slice(0, 8000);
+  let inputJson;
+  try {
+    inputJson = JSON.stringify(inputObj).slice(0, 8000);
+  } catch {
+    inputJson = JSON.stringify({ tool: nk, note: 'input_not_serializable' }).slice(0, 8000);
+  }
   const outJson = JSON.stringify({
     ok,
     output_preview: String(p.stepEntry?.output_preview || '').slice(0, 12000),
