@@ -316,17 +316,42 @@ export async function fireHooks(trigger, payload, env, isExplicitId = false) {
       error = e.message;
     }
 
-    const executionId = `hke-${hook.id}-${Date.now()}`;
+    const executionId = `hexec_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
     const runUserId =
       (typeof payload?.user_id === 'string' && payload.user_id.trim()) ||
       (typeof hook.user_id === 'string' && hook.user_id.trim()) ||
       (typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()) ||
       'system_post_deploy';
+
     await env.DB.prepare(`
-      INSERT INTO agentsam_hook_execution
-        (id, hook_id, user_id, status, duration_ms, output, error, ran_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `).bind(executionId, hook.id, runUserId, status, Date.now() - start, output, error).run();
+      INSERT INTO agentsam_hook_execution (
+        id, tenant_id, workspace_id, hook_id, user_id, 
+        agent_id, session_id, plan_id, todo_id, command_run_id, 
+        source, event_type, action, actor, 
+        payload_json, status, duration_ms, output, error, 
+        ran_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), unixepoch())
+    `).bind(
+      executionId,
+      payload?.tenant_id || payload?.tenantId || null,
+      payload?.workspace_id || payload?.workspaceId || null,
+      hook.id,
+      runUserId,
+      payload?.agent_id || payload?.agentId || null,
+      payload?.session_id || payload?.sessionId || null,
+      payload?.plan_id || payload?.planId || null,
+      payload?.todo_id || payload?.todoId || null,
+      payload?.command_run_id || payload?.commandRunId || null,
+      'cicd_event',
+      trigger,
+      hook.command,
+      runUserId,
+      JSON.stringify(payload || {}),
+      status,
+      Date.now() - start,
+      output,
+      error
+    ).run();
 
     await env.DB.prepare(`
       UPDATE agentsam_hook
