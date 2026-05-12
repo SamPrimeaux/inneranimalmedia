@@ -1,0 +1,19 @@
+{
+  "type": "agentsam_latency_smoke_contract_snapshot",
+  "created_at": "2026-05-12T21-04-41Z",
+  "source_script": "scripts/smoke_agentsam_latency.py",
+  "canonical_doc": "docs/agentsam/smoke-tests/smoke_agentsam_latency_report_contract.md",
+  "primary_product_test": "https://inneranimalmedia.com/dashboard/agent",
+  "required_cases": [
+    "direct_provider_hello",
+    "minimal_prompt_route_check",
+    "chat_hello_first_byte",
+    "chat_hello_repeat_10",
+    "standard_ask_no_tools"
+  ],
+  "root_aliases": {
+    "hello_first_byte": "cases.chat_hello_first_byte.summary",
+    "repeat_10": "cases.chat_hello_repeat_10.summary",
+    "standard_ask_no_tools": "cases.standard_ask_no_tools.summary"
+  }
+}
