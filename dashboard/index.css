@@ -17,6 +17,19 @@ body {
   line-height: 1.5;
 }
 
+/* Horizontal split-pane drag (Agent Sam + activity sidebar) — set on body from App.tsx */
+body.is-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  touch-action: none;
+}
+body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 code, kbd, pre, samp {
   font-family: var(--font-mono) !important;
   letter-spacing: -0.02em;

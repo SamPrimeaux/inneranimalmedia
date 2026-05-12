@@ -177,6 +177,55 @@ const SETTINGS_SLUG_MAP: Record<string, string> = {
   integrations: 'Integrations',
 };
 
+/** Agent Sam chat column width bounds (px). */
+const AGENT_PANEL_MIN_W = 320;
+const AGENT_PANEL_MAX_W = 640;
+/** Minimum width kept for the main editor/workspace while dragging the agent column. */
+const MAIN_MIN_W_FOR_AGENT_RESIZE = 380;
+/** Wider pointer target than the visible 1px stroke for the agent column resizer (matches JSX). */
+const AGENT_RESIZER_HIT_PX = 10;
+/** Wider hit target for the activity-sidebar grab (matches JSX). */
+const ACTIVITY_SIDEBAR_GRAB_PX = 10;
+
+/**
+ * Next width after a horizontal drag. Sidebar: grow when dragging handle right.
+ * Agent: sign depends on which edge of the chat column owns the handle.
+ */
+function getNextPanelWidth(args: {
+  panel: 'sidebar' | 'agent';
+  startWidth: number;
+  deltaX: number;
+  agentPosition: 'left' | 'right' | 'off';
+  min: number;
+  max: number;
+}): number {
+  let raw: number;
+  if (args.panel === 'sidebar') {
+    raw = args.startWidth + args.deltaX;
+  } else {
+    raw = args.agentPosition === 'right' ? args.startWidth - args.deltaX : args.startWidth + args.deltaX;
+  }
+  return Math.max(args.min, Math.min(args.max, Math.round(raw)));
+}
+
+function activityRailWidthPx(expanded: boolean): number {
+  return expanded ? 180 : 48;
+}
+
+/** Max agent column width so main workspace stays usable (also capped by AGENT_PANEL_MAX_W). */
+function getAgentPanelViewportMaxPx(opts: {
+  viewportInnerWidth: number;
+  activityRailWidth: number;
+  activityPanelOpen: boolean;
+  activityPanelWidth: number;
+  mainMinWidth: number;
+}): number {
+  const activityStrip = opts.activityPanelOpen ? opts.activityPanelWidth + ACTIVITY_SIDEBAR_GRAB_PX : 0;
+  const reserved =
+    opts.activityRailWidth + activityStrip + AGENT_RESIZER_HIT_PX + opts.mainMinWidth;
+  return opts.viewportInnerWidth - reserved;
+}
+
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
   const location = useLocation();
@@ -766,27 +815,126 @@ const App: React.FC = () => {
   const [sidebarW, setSidebarW] = useState(260);
   const [agentW, setAgentW] = useState(360);
 
-  const startResize = (panel: 'sidebar' | 'agent', e: React.PointerEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = panel === 'sidebar' ? sidebarW : agentW;
-    
-    const onMove = (pe: PointerEvent) => {
-      const delta = pe.clientX - startX;
-      if (panel === 'sidebar') 
-        setSidebarW(Math.max(180, Math.min(480, startW + delta)));
-      if (panel === 'agent') 
-        setAgentW(Math.max(280, Math.min(600, startW - delta)));
+  const shellLayoutRef = useRef({
+    sidebarW: 260,
+    sidebarRailExpanded: true,
+    activityOpen: true,
+  });
+  useEffect(() => {
+    shellLayoutRef.current = {
+      sidebarW,
+      sidebarRailExpanded,
+      activityOpen: !!activeActivity,
     };
-    
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-    
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  };
+  }, [sidebarW, sidebarRailExpanded, activeActivity]);
+
+  const clampAgentWidthToViewport = useCallback((w: number) => {
+    const vw =
+      typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 1440;
+    const ctx = shellLayoutRef.current;
+    const maxV = getAgentPanelViewportMaxPx({
+      viewportInnerWidth: vw,
+      activityRailWidth: activityRailWidthPx(ctx.sidebarRailExpanded),
+      activityPanelOpen: ctx.activityOpen,
+      activityPanelWidth: ctx.sidebarW,
+      mainMinWidth: MAIN_MIN_W_FOR_AGENT_RESIZE,
+    });
+    const maxClamp = Math.min(AGENT_PANEL_MAX_W, maxV);
+    const hi = Math.max(AGENT_PANEL_MIN_W, maxClamp);
+    return Math.max(AGENT_PANEL_MIN_W, Math.min(hi, Math.round(w)));
+  }, []);
+
+  useEffect(() => {
+    const clamp = () => setAgentW((prev) => clampAgentWidthToViewport(prev));
+    clamp();
+    window.addEventListener('resize', clamp);
+    return () => window.removeEventListener('resize', clamp);
+  }, [activeActivity, sidebarW, sidebarRailExpanded, agentPosition, clampAgentWidthToViewport]);
+
+  const beginPanelResize = useCallback(
+    (panel: 'sidebar' | 'agent', e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const el = e.currentTarget;
+      const pointerId = e.pointerId;
+      try {
+        el.setPointerCapture(pointerId);
+      } catch {
+        /* already captured or unsupported */
+      }
+      document.body.classList.add('is-resizing');
+
+      const startX = e.clientX;
+      const startW = panel === 'sidebar' ? sidebarW : agentW;
+      const agentSideAtStart = agentPosition;
+
+      let finished = false;
+      const endDrag = () => {
+        if (finished) return;
+        finished = true;
+        document.body.classList.remove('is-resizing');
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onEnd);
+        window.removeEventListener('pointercancel', onEnd);
+        try {
+          el.releasePointerCapture(pointerId);
+        } catch {
+          /* already released */
+        }
+      };
+
+      const onMove = (pe: PointerEvent) => {
+        if (pe.pointerId !== pointerId) return;
+        const delta = pe.clientX - startX;
+        const ctx = shellLayoutRef.current;
+
+        if (panel === 'sidebar') {
+          const next = getNextPanelWidth({
+            panel: 'sidebar',
+            startWidth: startW,
+            deltaX: delta,
+            agentPosition: 'left',
+            min: 180,
+            max: 480,
+          });
+          setSidebarW(next);
+          return;
+        }
+
+        if (agentSideAtStart === 'off') return;
+
+        const vw =
+          typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 1440;
+        const maxV = getAgentPanelViewportMaxPx({
+          viewportInnerWidth: vw,
+          activityRailWidth: activityRailWidthPx(ctx.sidebarRailExpanded),
+          activityPanelOpen: ctx.activityOpen,
+          activityPanelWidth: ctx.sidebarW,
+          mainMinWidth: MAIN_MIN_W_FOR_AGENT_RESIZE,
+        });
+        const maxClamp = Math.min(AGENT_PANEL_MAX_W, maxV);
+        const hi = Math.max(AGENT_PANEL_MIN_W, maxClamp);
+        const next = getNextPanelWidth({
+          panel: 'agent',
+          startWidth: startW,
+          deltaX: delta,
+          agentPosition: agentSideAtStart,
+          min: AGENT_PANEL_MIN_W,
+          max: hi,
+        });
+        setAgentW(next);
+      };
+
+      const onEnd = (pe: PointerEvent) => {
+        if (pe.pointerId !== pointerId) return;
+        endDrag();
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onEnd);
+      window.addEventListener('pointercancel', onEnd);
+    },
+    [sidebarW, agentW, agentPosition],
+  );
 
   const terminalResizeRef = useRef<{ startY: number; startH: number } | null>(null);
   const clampTerminalH = useCallback((h: number) => {
@@ -2079,11 +2227,21 @@ const App: React.FC = () => {
                     />
                     </div>
                 </div>
-                {/* Grab Bar */}
-                <div 
-                  className="max-md:hidden w-1 cursor-col-resize hover:bg-[var(--solar-cyan)] active:bg-[var(--solar-cyan)] transition-colors shrink-0 z-50"
-                  onPointerDown={(e) => startResize('agent', e)}
-                />
+                {/* Grab Bar — wide hit target; stroke is 1px inside */}
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  title="Drag to resize Agent Sam panel"
+                  aria-label="Resize Agent Sam panel"
+                  className="max-md:hidden shrink-0 z-50 flex justify-center cursor-col-resize touch-none select-none group relative"
+                  style={{ width: AGENT_RESIZER_HIT_PX }}
+                  onPointerDown={(e) => beginPanelResize('agent', e)}
+                >
+                  <span
+                    className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--dashboard-border)] group-hover:bg-[var(--solar-cyan)] group-active:bg-[var(--solar-cyan)] transition-colors"
+                    aria-hidden
+                  />
+                </div>
               </>
           )}
 
@@ -2177,10 +2335,19 @@ const App: React.FC = () => {
 
           {/* Sidebar Grab Bar */}
           {activeActivity && (
-            <div 
-              className="w-1 cursor-col-resize hover:bg-[var(--solar-cyan)] active:bg-[var(--solar-cyan)] transition-colors shrink-0 z-50 hidden md:block"
-              onPointerDown={(e) => startResize('sidebar', e)}
-            />
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              title="Drag to resize sidebar"
+              className="hidden md:flex shrink-0 z-50 group relative cursor-col-resize touch-none select-none justify-center"
+              style={{ width: ACTIVITY_SIDEBAR_GRAB_PX }}
+              onPointerDown={(e) => beginPanelResize('sidebar', e)}
+            >
+              <span
+                className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--dashboard-border)] group-hover:bg-[var(--solar-cyan)] group-active:bg-[var(--solar-cyan)]"
+                aria-hidden
+              />
+            </div>
           )}
 
           {/* 4. MAIN EDITOR AREA */}
@@ -2482,10 +2649,19 @@ const App: React.FC = () => {
           {agentPosition === 'right' && (
               <>
                 {/* Agent Grab Bar */}
-                <div 
-                  className="max-md:hidden w-1 cursor-col-resize hover:bg-[var(--solar-cyan)] active:bg-[var(--solar-cyan)] transition-colors shrink-0 z-50"
-                  onPointerDown={(e) => startResize('agent', e)}
-                />
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  title="Drag to resize Agent Sam panel"
+                  className="max-md:hidden shrink-0 z-50 group relative flex justify-center cursor-col-resize touch-none select-none"
+                  style={{ width: AGENT_RESIZER_HIT_PX }}
+                  onPointerDown={(e) => beginPanelResize('agent', e)}
+                >
+                  <span
+                    className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--dashboard-border)] group-hover:bg-[var(--solar-cyan)] group-active:bg-[var(--solar-cyan)]"
+                    aria-hidden
+                  />
+                </div>
                 <div 
                     className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity z-30 relative group opacity-100 max-md:fixed max-md:inset-0 max-md:z-[45] max-md:w-full max-md:max-w-none max-md:shrink ${
                       isNarrowViewport && activeActivity ? 'max-md:hidden' : ''
