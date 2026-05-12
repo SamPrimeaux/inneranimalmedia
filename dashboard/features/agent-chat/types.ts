@@ -109,6 +109,16 @@ export const COMPOSER_TEXTAREA_MAX_PX_WIDE = 200;
 
 export const LS_GH_REPO = 'iam-chat-github-repo-context';
 
+export type AgentMode = 'ask' | 'plan' | 'agent' | 'debug' | 'multitask';
+
+export const AGENT_MODES = [
+  { id: 'agent', label: 'Agent', description: 'Execute and open surfaces' },
+  { id: 'plan', label: 'Plan', description: 'Design technical plans' },
+  { id: 'debug', label: 'Debug', description: 'Inspect, prove, and fix' },
+  { id: 'multitask', label: 'Multitask', description: 'Coordinate workflows' },
+  { id: 'ask', label: 'Ask', description: 'Talk and answer questions' },
+] as const satisfies ReadonlyArray<{ id: AgentMode; label: string; description: string }>;
+
 export type WorkflowLedgerState = {
   runId: string | null;
   stepsTotal: number | null;

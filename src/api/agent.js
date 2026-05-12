@@ -3279,8 +3279,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   };
 }
 
-async function executeWorkflowAndStream(env, workflowKey, message, actor, workspaceId, ctx) {
+async function executeWorkflowAndStream(env, workflowKey, message, actor, workspaceId, ctx, extras = {}) {
   void ctx;
+  const runtimeModeTag =
+    extras && typeof extras === 'object' && extras.runtimeMode != null
+      ? String(extras.runtimeMode).trim().toLowerCase()
+      : undefined;
   const uid = actor?.id ?? actor?.user_id ?? null;
   let tid =
     actor?.tenant_id != null && String(actor.tenant_id).trim() !== ''
@@ -3309,7 +3313,10 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
       const { executeWorkflowGraph } = await import('../core/workflow-executor.js');
       const result = await executeWorkflowGraph(env, {
         workflowKey,
-        input: { message },
+        input: {
+          message,
+          ...(runtimeModeTag ? { runtime_mode: runtimeModeTag } : {}),
+        },
         tenantId: tid,
         workspaceId,
         userId: uid,
@@ -3630,6 +3637,14 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
 
 // ─── SSE Chat Handler ─────────────────────────────────────────────────────────
 
+/** Composer runtime contract (lowercase): ask | plan | agent | debug | multitask */
+function normalizeAgentRuntimeMode(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  if (['agent', 'plan', 'debug', 'multitask', 'ask'].includes(v)) return v;
+  if (v === 'auto') return 'agent';
+  return 'agent';
+}
+
 export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const { ingestBypass, identity } = opts;
   const contentType = request.headers.get('content-type') || '';
@@ -3675,6 +3690,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   let message = (body.message || '').trim();
   if (!message) return jsonResponse({ error: 'message required' }, 400);
 
+  const runtimeMode = normalizeAgentRuntimeMode(
+    body.mode ?? body.agent_mode ?? body.runtime_intent_mode ?? body.execution_mode,
+  );
+
   const resolvedWorkspaceId =
     session?.workspace_id != null && String(session.workspace_id).trim() !== ''
       ? String(session.workspace_id).trim()
@@ -3687,7 +3706,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     userId: session?.user_id,
     workspaceId: resolvedWorkspaceId,
     tenantId: session?.tenant_id ?? null,
-    mode: body.mode || 'agent',
+    mode: runtimeMode,
   });
 
   if (cmdResult.resolved) {
@@ -3718,8 +3737,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   message = (body.message || '').trim();
 
-  const sessionId     = body.conversationId || body.session_id || body.sessionId || null;
-  const requestedMode = String(body.mode || 'auto').toLowerCase().trim() || 'auto';
+  const sessionId = body.conversationId || body.session_id || body.sessionId || null;
+  const requestedMode = runtimeMode;
 
   const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
   const authUser = ingestBypass ? null : await getAuthUser(request, env).catch(() => null);
@@ -3773,19 +3792,75 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentResult = await classifyIntent(env, message);
-  if (requestedMode === 'agent' && (!intentResult || typeof intentResult !== 'object')) {
+  if (
+    ['agent', 'debug', 'multitask'].includes(requestedMode) &&
+    (!intentResult || typeof intentResult !== 'object')
+  ) {
     console.error('[agent] classifyIntent_invalid', { message: String(message || '').slice(0, 240) });
+  }
+
+  const trimmedMsg = message.trim();
+  const wordParts = trimmedMsg.split(/\s+/).filter(Boolean);
+  const planWordCount = wordParts.length;
+  const looksLikeExplicitCommand = /^(run|execute)\b/i.test(trimmedMsg);
+
+  const isWorkIntent =
+    /\b(build|create|generate|write|make|scaffold|deploy|run|fix|refactor|add|update|migrate|setup|configure|connect|implement|design|analyze|audit)\b/i.test(
+      message,
+    );
+  const capabilityLedIntent =
+    isWorkspaceCapabilityActionIntent(message) ||
+    /\b(open|launch|focus|use|switch to)\s+(?:the\s+)?(monaco|editor|code editor|browser|excalidraw|canvas|whiteboard)\b/i.test(
+      message,
+    ) ||
+    (/\b(build|generate|scaffold|create|implement)\b/i.test(message) &&
+      /\b(app|component|page|file|frontend|react|full-stack|fullstack|code)\b/i.test(message)) ||
+    (/\b(debug|inspect|screenshot|capture|navigate|open)\b/i.test(message) &&
+      /\b(site|page|url|browser|dashboard|console|network|dom)\b/i.test(message)) ||
+    /\b(excalidraw|diagram|flowchart|whiteboard|architecture|canvas)\b/i.test(message);
+
+  const explicitSurfaceOrWorkflowIntent =
+    /\b(open|use|launch|focus|debug|inspect|screenshot|capture|diagram|flowchart|browser|monaco|excalidraw|workflow)\b/i.test(
+      message,
+    );
+
+  const allowImmediateWorkflowMatch =
+    requestedMode === 'agent' ||
+    requestedMode === 'multitask' ||
+    (requestedMode === 'debug' && explicitSurfaceOrWorkflowIntent) ||
+    (requestedMode === 'ask' && explicitSurfaceOrWorkflowIntent);
+
+  const agentLikeTooling =
+    requestedMode === 'agent' ||
+    requestedMode === 'debug' ||
+    requestedMode === 'multitask' ||
+    (requestedMode === 'ask' && explicitSurfaceOrWorkflowIntent);
+
+  const explicitPlanPhrase = /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(
+    message,
+  );
+
+  let enterLongWorkPlanPipeline = false;
+  if (requestedMode === 'plan') {
+    enterLongWorkPlanPipeline = (isWorkIntent || explicitPlanPhrase) && planWordCount >= 3;
+  } else if (requestedMode === 'ask') {
+    enterLongWorkPlanPipeline = explicitPlanPhrase && isWorkIntent && planWordCount >= 5;
+  } else {
+    enterLongWorkPlanPipeline = !capabilityLedIntent && isWorkIntent && planWordCount >= 5;
   }
 
   const CONVERSATIONAL =
     /^(hi|hello|hey|sup|yo|thanks|thank you|ok|okay|sure|got it|nice|cool|great|what can you do|what do you do|who are you|what are you|help me|help)\b/i;
-  const trimmedMsg = message.trim();
-  const wordParts = trimmedMsg.split(/\s+/).filter(Boolean);
-  const looksLikeExplicitCommand = /^(run|execute)\b/i.test(trimmedMsg);
+  const askConversationalCurve =
+    requestedMode === 'ask' &&
+    !explicitSurfaceOrWorkflowIntent &&
+    /^(what|who|where|when|why|how|explain|describe|define)\b/i.test(trimmedMsg);
   const isConversational =
-    CONVERSATIONAL.test(trimmedMsg) || (wordParts.length < 4 && !looksLikeExplicitCommand);
+    CONVERSATIONAL.test(trimmedMsg) ||
+    (wordParts.length < 4 && !looksLikeExplicitCommand) ||
+    askConversationalCurve;
 
-  if (!isConversational) {
+  if (!isConversational && allowImmediateWorkflowMatch) {
     const workflowMatch = await resolveWorkflowForMessage(
       env,
       intentResult.taskType,
@@ -3794,98 +3869,86 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     );
     if (workflowMatch) {
       const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
-      return executeWorkflowAndStream(env, workflowMatch.workflow_key, message, actor, workspaceId, ctx);
+      return executeWorkflowAndStream(env, workflowMatch.workflow_key, message, actor, workspaceId, ctx, {
+        runtimeMode: requestedMode,
+      });
     }
+  }
 
-    const isWorkIntent =
-      /\b(build|create|generate|write|make|scaffold|deploy|run|fix|refactor|add|update|migrate|setup|configure|connect|implement|design|analyze|audit)\b/i.test(
-        message,
-      );
-    const capabilityLedIntent =
-      isWorkspaceCapabilityActionIntent(message) ||
-      /\b(open|launch|focus|use|switch to)\s+(?:the\s+)?(monaco|editor|code editor|browser|excalidraw|canvas|whiteboard)\b/i.test(
-        message,
-      ) ||
-      (/\b(build|generate|scaffold|create|implement)\b/i.test(message) &&
-        /\b(app|component|page|file|frontend|react|full-stack|fullstack|code)\b/i.test(message)) ||
-      (/\b(debug|inspect|screenshot|capture|navigate|open)\b/i.test(message) &&
-        /\b(site|page|url|browser|dashboard|console|network|dom)\b/i.test(message)) ||
-      /\b(excalidraw|diagram|flowchart|whiteboard|architecture|canvas)\b/i.test(message);
-    if (!capabilityLedIntent && isWorkIntent && message.trim().split(/\s+/).length >= 5) {
-      const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
-      const uid2 = actor?.id ?? actor?.user_id ?? userId ?? null;
-      let tid2 = actor?.tenant_id ?? tenantId ?? null;
-      if (!tid2 && uid2) tid2 = await fetchAuthUserTenantId(env, uid2);
+  if (enterLongWorkPlanPipeline) {
+    const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
+    const uid2 = actor?.id ?? actor?.user_id ?? userId ?? null;
+    let tid2 = actor?.tenant_id ?? tenantId ?? null;
+    if (!tid2 && uid2) tid2 = await fetchAuthUserTenantId(env, uid2);
 
-      const encoder2 = new TextEncoder();
-      const { readable: planReadable, writable: planWritable } = new TransformStream();
-      const planWriter = planWritable.getWriter();
-      const emitPlan = (event, data) => {
-        try {
-          planWriter.write(
-            encoder2.encode(`data: ${JSON.stringify({ type: event, ...data })}\n\n`),
-          );
-        } catch (_) {}
-      };
+    const encoder2 = new TextEncoder();
+    const { readable: planReadable, writable: planWritable } = new TransformStream();
+    const planWriter = planWritable.getWriter();
+    const emitPlan = (event, data) => {
+      try {
+        planWriter.write(encoder2.encode(`data: ${JSON.stringify({ type: event, ...data })}\n\n`));
+      } catch (_) {}
+    };
 
-      (async () => {
-        try {
-          const { createPlan, startAgentChatPlanWorkflowRun } = await import('../core/agentsam-planner.js');
-          const { executePlan } = await import('../core/agentsam-task-executor.js');
+    (async () => {
+      try {
+        const { createPlan, startAgentChatPlanWorkflowRun } = await import('../core/agentsam-planner.js');
 
-          emitPlan('plan_thinking', { message: 'Breaking down your goal into tasks...' });
+        emitPlan('plan_thinking', { message: 'Breaking down your goal into tasks...' });
 
-          const wfBoot = await startAgentChatPlanWorkflowRun(env, {
-            tenantId: tid2,
-            workspaceId,
-            userId: uid2,
-            sessionId,
-            goal: message,
-          });
+        const wfBoot = await startAgentChatPlanWorkflowRun(env, {
+          tenantId: tid2,
+          workspaceId,
+          userId: uid2,
+          sessionId,
+          goal: message,
+        });
 
-          const plan = await createPlan(env, {
-            goal: message,
-            userId: uid2,
-            workspaceId,
-            tenantId: tid2,
-            sessionId,
-            workflowRunId: wfBoot.workflowRunId,
-            ctx,
-          });
+        const plan = await createPlan(env, {
+          goal: message,
+          userId: uid2,
+          workspaceId,
+          tenantId: tid2,
+          sessionId,
+          workflowRunId: wfBoot.workflowRunId,
+          ctx,
+        });
 
-          emitPlan('plan_created', {
-            plan_id: plan.plan_id,
-            plan_title: plan.plan_title,
-            workflow_run_id: plan.workflow_run_id,
-            task_count: plan.tasks.length,
-            tasks: plan.tasks.map((t) => ({
-              id: t.id,
-              title: t.title,
-              order_index: t.order_index,
-              handler_type: t.handler_type,
-              handler_key: t.handler_key ?? null,
-              capability_type: t.capability_type ?? null,
-              status: 'todo',
-              workflow_run_id: t.workflow_run_id ?? plan.workflow_run_id,
-              execution_step_id: t.execution_step_id,
-              command_run_id: t.command_run_id,
-              approval_id: t.approval_id ?? null,
-              files_involved: (() => {
-                const f = t.files_involved;
-                if (Array.isArray(f)) return f;
-                if (typeof f === 'string') {
-                  try {
-                    const p = JSON.parse(f);
-                    return Array.isArray(p) ? p : [];
-                  } catch {
-                    return [];
-                  }
+        emitPlan('plan_created', {
+          plan_id: plan.plan_id,
+          plan_title: plan.plan_title,
+          workflow_run_id: plan.workflow_run_id,
+          task_count: plan.tasks.length,
+          tasks: plan.tasks.map((t) => ({
+            id: t.id,
+            title: t.title,
+            order_index: t.order_index,
+            handler_type: t.handler_type,
+            handler_key: t.handler_key ?? null,
+            capability_type: t.capability_type ?? null,
+            status: 'todo',
+            workflow_run_id: t.workflow_run_id ?? plan.workflow_run_id,
+            execution_step_id: t.execution_step_id,
+            command_run_id: t.command_run_id,
+            approval_id: t.approval_id ?? null,
+            files_involved: (() => {
+              const f = t.files_involved;
+              if (Array.isArray(f)) return f;
+              if (typeof f === 'string') {
+                try {
+                  const p = JSON.parse(f);
+                  return Array.isArray(p) ? p : [];
+                } catch {
+                  return [];
                 }
-                return [];
-              })(),
-            })),
-          });
+              }
+              return [];
+            })(),
+          })),
+        });
 
+        if (requestedMode !== 'plan') {
+          const { executePlan } = await import('../core/agentsam-task-executor.js');
           await executePlan(env, {
             planId: plan.plan_id,
             userId: uid2,
@@ -3896,27 +3959,31 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             sessionId: sessionId || null,
             workflowRunId: wfBoot.workflowRunId,
           });
-
-          emitPlan('done', {});
-        } catch (e) {
+        } else {
           emitPlan('text', {
-            text: `**Plan error:** ${e?.message ?? String(e)}`,
+            text: '_Plan mode: tasks stay as **todo**. Switch to **Agent** or **Multitask** to execute._',
           });
-          emitPlan('done', {});
-        } finally {
-          planWriter.close().catch(() => {});
         }
-      })();
 
-      return new Response(planReadable, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-          'Access-Control-Allow-Origin': '*',
-        },
-      });
-    }
+        emitPlan('done', {});
+      } catch (e) {
+        emitPlan('text', {
+          text: `**Plan error:** ${e?.message ?? String(e)}`,
+        });
+        emitPlan('done', {});
+      } finally {
+        planWriter.close().catch(() => {});
+      }
+    })();
+
+    return new Response(planReadable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
   }
 
   const intentPattern = await loadIntentPattern(env, intentSlug);
@@ -3979,7 +4046,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     tools = tools.filter((t) => allow.has(t.name));
   }
 
-  if (requestedMode === 'agent' && env.DB && userId && tenantId && workspaceId) {
+  if (agentLikeTooling && env.DB && userId && tenantId && workspaceId) {
     const fams = capabilityFamiliesFromUserMessage(message, intentResult);
     const seen = new Set(tools.map((t) => t.name));
     for (const fam of fams) {
@@ -4010,7 +4077,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
   }
 
-  if (requestedMode === 'agent' && env.DB) {
+  if (agentLikeTooling && env.DB) {
     tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools);
 
     tools = filterAgentToolsForRequest(env, tools, message, intentResult).slice(0, effectiveMaxTools);
@@ -4018,7 +4085,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   /** @type {Record<string, unknown>|null} */
   let capabilityDecision = null;
-  if (requestedMode === 'agent' && !ingestBypass) {
+  if (agentLikeTooling && !ingestBypass) {
     try {
       capabilityDecision = await classifyWorkspaceCapabilities(env, {
         message: gate.rewritten_query || message,
@@ -4032,6 +4099,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (e) {
       console.warn('[agent] capability_tool_filter', e?.message ?? e);
     }
+  }
+
+  if (!agentLikeTooling) {
+    tools = [];
+    capabilityDecision = null;
   }
 
   const confidence = Number(gate.confidence || 0);
@@ -4053,12 +4125,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const agentWantsToolExecution = TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL.has(taskTypeKey);
   const toolsBuiltCount = tools.length;
 
-  if (requestedMode === 'agent' && !agentWantsToolExecution) {
+  if (agentLikeTooling && !agentWantsToolExecution) {
     tools = [];
   }
 
-  const requireTools = requestedMode === 'agent' && tools.length > 0 && agentWantsToolExecution;
-  if (requestedMode === 'agent' && agentWantsToolExecution && toolsBuiltCount === 0) {
+  const requireTools = agentLikeTooling && tools.length > 0 && agentWantsToolExecution;
+  if (agentLikeTooling && agentWantsToolExecution && toolsBuiltCount === 0) {
     console.error(
       '[agent] agent_mode_zero_tools',
       JSON.stringify({
@@ -4302,6 +4374,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     !skipRagFromRoute &&
     (
       requestedMode === 'agent' ||
+      requestedMode === 'ask' ||
       routeWantsRag === true ||
       Number(promptRouteRow?.include_rag) === 1
     );
@@ -4385,6 +4458,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   emit('context', {
     intent: intentSlug,
     mode: requestedMode,
+    runtime_mode: requestedMode,
     model: fallbackModelKeys[0] || null,
     requested_model: rawRequestedKey || rawRequestedId || null,
     resolved_requested_model: explicitRow?.model_key ?? null,
@@ -4461,7 +4535,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     };
     try {
       let capabilityArtifactForModel = null;
-      if (requestedMode === 'agent' && capabilityDecision && userId && tenantId && workspaceId && env.DB) {
+      if (agentLikeTooling && capabilityDecision && userId && tenantId && workspaceId && env.DB) {
         try {
           const { runWorkspaceCapabilityAction, buildCapabilityPlanFromDecision } = await import(
             '../core/workspace-capability-actions/index.js'

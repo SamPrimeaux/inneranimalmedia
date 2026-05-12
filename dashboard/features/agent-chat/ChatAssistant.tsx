@@ -50,10 +50,10 @@ import {
   LS_GH_REPO,
   MENTION_CONTEXT_HEADER,
   CHAT_ATTACH_MAX_TOTAL_BYTES,
-  CHAT_REQUEST_MAX_BYTES,
-  MOBILE_CHAT_COMPOSER_BOTTOM_PAD,
   COMPOSER_TEXTAREA_MAX_PX_NARROW,
   COMPOSER_TEXTAREA_MAX_PX_WIDE,
+  AgentMode,
+  AGENT_MODES,
 } from './types';
 import { buildMentionContext, isChatTextCodeFile, readFileAsText, getEditorDisplayPath } from './mentionContext';
 import {
@@ -125,8 +125,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [modeMenuStyle, setModeMenuStyle] = useState<React.CSSProperties | null>(null);
   const [modelPickerStyle, setModelPickerStyle] = useState<React.CSSProperties | null>(null);
 
-  const [modes, setModes] = useState<{ slug: string; label: string }[]>([]);
-  const [mode, setMode] = useState<string>('agent');
+  const [modes] = useState(AGENT_MODES);
+  const [mode, setMode] = useState<AgentMode>('agent');
   const [isModeOpen, setIsModeOpen] = useState(false);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
@@ -530,17 +530,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     };
   }, [mentionOpen, slashOpen, input]);
 
+  // Fixed AGENT_MODES used instead of fetching.
   useEffect(() => {
-    fetch('/api/agent/modes')
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setModes(data.map((row: { slug: string; label: string }) => ({ slug: row.slug, label: row.label })));
-          const preferred = data.find((row: { slug: string }) => row.slug === 'agent' || row.slug === 'auto');
-          setMode(preferred ? preferred.slug : data[0].slug);
-        }
-      })
-      .catch(() => {});
+    const preferred = AGENT_MODES.find((row) => row.id === 'agent');
+    if (preferred) setMode(preferred.id);
   }, []);
 
   useEffect(() => {
@@ -580,7 +573,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       .catch(() => setDefaultModelKey(null));
   }, []);
 
-  const modeLabel = modes.find((m) => m.slug === mode)?.label ?? mode;
+  const modeLabel = modes.find((m) => m.id === mode)?.label ?? mode;
 
   const selectedModelDisplayName = useMemo(() => {
     const row = chatModels.find((m) => m.model_key === selectedModelKey);
@@ -589,7 +582,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent('iam-chat-mode', { detail: { label: modeLabel, slug: mode } }));
+    window.dispatchEvent(new CustomEvent('iam-chat-mode', { detail: { label: modeLabel, slug: mode.toLowerCase() } }));
   }, [modeLabel, mode]);
 
   async function loadCatalog(): Promise<PickerItem[]> {
@@ -1029,6 +1022,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const form = new FormData();
     form.append('message', messageForApi);
     form.append('mode', mode);
+    form.append('agent_mode', mode);
+    form.append('runtime_intent_mode', mode);
     form.append('model', selectedModelKey);
     const selectedModelProvider = chatModels.find((m) => m.model_key === selectedModelKey)?.provider || 'anthropic';
     form.append('provider', selectedModelProvider);
@@ -1793,13 +1788,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 type="button"
                 ref={modeButtonRef}
                 onClick={() => {
-                  if (mode === 'auto') {
-                    setIsModelPickerOpen((o) => !o);
-                    setIsModeOpen(false);
-                  } else {
-                    setIsModeOpen((o) => !o);
-                    setIsModelPickerOpen(false);
-                  }
+                  setIsModeOpen((o) => !o);
+                  setIsModelPickerOpen(false);
                   setAttachMenuOpen(false);
                 }}
                 className="flex-shrink-0 flex flex-col items-end justify-center gap-0 px-2 py-1 min-w-[4.5rem] text-[0.6875rem] font-sans font-bold tracking-tight text-[var(--solar-cyan)] hover:brightness-110 transition-all uppercase border border-[var(--dashboard-border)] rounded-lg leading-tight"
@@ -1807,7 +1797,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 <span className="flex items-center gap-0.5">
                   {modeLabel} <ChevronDown size={8} />
                 </span>
-                {mode === 'auto' ? (
+                {mode === 'agent' ? (
                   <span className="text-[0.5625rem] font-medium normal-case text-[var(--dashboard-muted)] truncate max-w-[7rem]">
                     {selectedModelDisplayName}
                   </span>
@@ -2108,17 +2098,22 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           >
             {modes.map((m) => (
               <button
-                key={m.slug}
+                key={m.id}
                 type="button"
-                className={`px-3 py-1.5 text-left hover:bg-[var(--dashboard-panel)] cursor-pointer rounded-lg transition-colors ${
-                  mode === m.slug ? 'text-[var(--solar-cyan)] bg-[var(--dashboard-panel)]' : 'text-[var(--dashboard-muted)]'
+                className={`px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] cursor-pointer rounded-lg transition-colors flex flex-col gap-0.5 ${
+                  mode === m.id ? 'bg-[var(--dashboard-panel)]' : ''
                 }`}
                 onClick={() => {
-                  setMode(m.slug);
+                  setMode(m.id);
                   setIsModeOpen(false);
                 }}
               >
-                {m.label}
+                <div className={`text-[11px] font-bold ${mode === m.id ? 'text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)]'}`}>
+                  {m.label}
+                </div>
+                <div className="text-[9px] text-[var(--dashboard-muted)] leading-tight">
+                  {m.description}
+                </div>
               </button>
             ))}
           </div>,
