@@ -528,6 +528,13 @@ function isSimpleAskMessage(message = "") {
 }
 
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null, options = {}) {
+  const minimalAsk =
+    Number(promptRouteRow?.max_tools ?? 8) === 0 &&
+    Number(promptRouteRow?.include_rag ?? 1) === 0 &&
+    Number(promptRouteRow?.include_active_plan ?? 1) === 0 &&
+    Number(promptRouteRow?.include_recent_memory ?? 1) === 0 &&
+    Number(promptRouteRow?.include_workspace_ctx ?? 1) === 0;
+
   try {
     const layerKeys = (() => {
       if (promptRouteRow?.prompt_layer_keys) {
@@ -543,16 +550,16 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
       return base;
     })();
 
-    // Add tenant-specific layers
-    if (tenantId === TENANT_KNOWLEDGE_PLATFORM) layerKeys.push('learning');
-    if (tenantId === TENANT_SHINSHU) layerKeys.push('shinshu');
-    const platformTid = platformTenantIdFromEnv(env);
-    if (platformTid && tenantId && tenantId !== platformTid) layerKeys.push('client_work');
+    // Add tenant-specific layers (skip for minimal_ask: use route layer_keys only)
+    if (!minimalAsk) {
+      if (tenantId === TENANT_KNOWLEDGE_PLATFORM) layerKeys.push('learning');
+      if (tenantId === TENANT_SHINSHU) layerKeys.push('shinshu');
+      const platformTid = platformTenantIdFromEnv(env);
+      if (platformTid && tenantId && tenantId !== platformTid) layerKeys.push('client_work');
+    }
 
     // Pipeline flags from promptRouteRow
-    const includeRag         = Number(promptRouteRow?.include_rag          ?? 1) === 1;
     const includeActivePlan  = Number(promptRouteRow?.include_active_plan  ?? 1) === 1;
-    const includeMemory      = Number(promptRouteRow?.include_recent_memory ?? 1) === 1;
     const includeWorkspace   = Number(promptRouteRow?.include_workspace_ctx ?? 1) === 1;
 
     // Load all needed prompt versions in one query
@@ -576,17 +583,17 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     if (!parts.length) parts.push(FALLBACK_CORE_SYSTEM);
 
     // Inject Plan & Task Context if enabled by route or requested by options
-    if (includeActivePlan && env.DB) {
+    if (!minimalAsk && includeActivePlan && env.DB) {
       const planContext = await fetchActivePlanContextFragment(env, tenantId, options);
       if (planContext) parts.push(planContext);
     }
 
-    if (includeActivePlan || (Number(promptRouteRow?.max_tools ?? 8) > 0)) {
-       parts.push(AGENT_SAM_PYTHON_PARALLEL_BLOCK);
+    if (!minimalAsk && (includeActivePlan || (Number(promptRouteRow?.max_tools ?? 8) > 0))) {
+      parts.push(AGENT_SAM_PYTHON_PARALLEL_BLOCK);
     }
-    
-    if (modeConfig?.system_prompt_fragment) parts.push(modeConfig.system_prompt_fragment);
-    if (includeWorkspace && contextBlock) parts.push(contextBlock);
+
+    if (!minimalAsk && modeConfig?.system_prompt_fragment) parts.push(modeConfig.system_prompt_fragment);
+    if (!minimalAsk && includeWorkspace && contextBlock) parts.push(contextBlock);
 
     const result = parts.join('\n\n---\n\n');
 
@@ -598,7 +605,7 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     return result;
   } catch (e) {
     console.warn('[agent] buildSystemPrompt failed:', e?.message);
-    return FALLBACK_CORE_SYSTEM + (contextBlock ? `\n\n${contextBlock}` : '');
+    return FALLBACK_CORE_SYSTEM + (!minimalAsk && contextBlock ? `\n\n${contextBlock}` : '');
   }
 }
 
@@ -4947,6 +4954,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const includeWorkspace   = Number(promptRouteRow?.include_workspace_ctx ?? 1) === 1;
   const maxTools           = Number(promptRouteRow?.max_tools             ?? 8);
 
+  /** Same fingerprint as `buildSystemPrompt` minimalAsk — skip downstream prompt bloat. */
+  const minimalAskChat =
+    maxTools === 0 &&
+    !includeRag &&
+    !includeActivePlan &&
+    !includeMemory &&
+    !includeWorkspace;
+
   const needsRag = includeRag && (requestedMode === 'agent' || requestedMode === 'ask');
 
   const ragResult = needsRag
@@ -4960,29 +4975,49 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const ragContext   = (ragResult.matches || []).join('\n\n');
   const contextBlock = ragContext ? `\n\nRelevant context:\n${ragContext}` : '';
 
-  const basePrompt = agentMeta?.system_prompt || FALLBACK_CORE_SYSTEM;
-  const legacySystemPrompt = () =>
-    basePrompt
-    + (modeConfig.system_prompt_fragment ? `\n\n${modeConfig.system_prompt_fragment}` : '')
-    + contextBlock;
+  const promptBuildOptions = {
+    sessionId,
+    planId: body.planId ?? body.plan_id ?? null,
+    taskId: body.taskId ?? body.task_id ?? null,
+  };
 
-  let systemPrompt = legacySystemPrompt();
-  if (env.DB) {
-    systemPrompt = await buildSystemPrompt(
-      env,
-      tenantId,
-      requestedMode,
-      contextBlock,
-      modeConfig,
-      promptRouteRow,
-      {
-        sessionId,
-        planId: body.planId ?? body.plan_id ?? null,
-        taskId: body.taskId ?? body.task_id ?? null,
-      },
-    );
+  /** Minimal lane: never seed from `agentMeta.system_prompt` (often huge); D1 layers only. */
+  let systemPrompt;
+  if (minimalAskChat) {
+    if (env.DB) {
+      systemPrompt = await buildSystemPrompt(
+        env,
+        tenantId,
+        requestedMode,
+        '',
+        null,
+        promptRouteRow,
+        promptBuildOptions,
+      );
+    } else {
+      systemPrompt =
+        'You are Agent Sam. Reply briefly and helpfully. For greetings, respond in one short sentence.';
+    }
+  } else {
+    const basePrompt = agentMeta?.system_prompt || FALLBACK_CORE_SYSTEM;
+    const legacySystemPrompt = () =>
+      basePrompt
+      + (modeConfig.system_prompt_fragment ? `\n\n${modeConfig.system_prompt_fragment}` : '')
+      + contextBlock;
+    systemPrompt = legacySystemPrompt();
+    if (env.DB) {
+      systemPrompt = await buildSystemPrompt(
+        env,
+        tenantId,
+        requestedMode,
+        contextBlock,
+        modeConfig,
+        promptRouteRow,
+        promptBuildOptions,
+      );
+    }
   }
-  if (includeMemory) {
+  if (!minimalAskChat && includeMemory) {
     try {
       const mem = await loadAgentMemoryForPrompt(env, tenantId, {
         userMessage: message,
@@ -4996,27 +5031,29 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (_) { /* memory must not break sessions */ }
   }
 
-  try {
-    const skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
-    const skillContext = skillRows
-      .map((s) => `## Skill: ${s.name}\n${s.content_markdown}`)
-      .join('\n\n---\n\n');
-    if (skillContext) {
-      systemPrompt = `${skillContext}\n\n---\n\n${systemPrompt}`;
-    }
-  } catch (_) { /* skills-by-task must not break chat */ }
+  if (!minimalAskChat) {
+    try {
+      const skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
+      const skillContext = skillRows
+        .map((s) => `## Skill: ${s.name}\n${s.content_markdown}`)
+        .join('\n\n---\n\n');
+      if (skillContext) {
+        systemPrompt = `${skillContext}\n\n---\n\n${systemPrompt}`;
+      }
+    } catch (_) { /* skills-by-task must not break chat */ }
 
-  try {
-    systemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, {
-      userId,
-      workspaceId,
-      conversationId: sessionId,
-    });
-  } catch (e) {
-    console.warn('[agent] skills/rules prompt enrich', e?.message ?? e);
+    try {
+      systemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, {
+        userId,
+        workspaceId,
+        conversationId: sessionId,
+      });
+    } catch (e) {
+      console.warn('[agent] skills/rules prompt enrich', e?.message ?? e);
+    }
   }
 
-  if (capabilityDecision) {
+  if (!minimalAskChat && capabilityDecision) {
     systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
   }
 
@@ -5032,10 +5069,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     try { writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`)); } catch (_) {}
   };
 
+  if (minimalAskChat && systemPrompt.length > 1000) {
+    console.warn('[agent] minimal_ask_prompt_too_large', {
+      chars: systemPrompt.length,
+      route_key: promptRouteRow?.route_key,
+      layer_keys: promptRouteRow?.prompt_layer_keys,
+    });
+    systemPrompt =
+      'You are Agent Sam. Reply briefly and helpfully. For greetings, respond in one short sentence.';
+  }
+
   emit('context', {
     intent: intentSlug,
     mode: requestedMode,
-    prompt_lane: maxTools === 0 && !includeRag && !includeActivePlan ? "minimal_ask" : "standard",
+    prompt_lane: minimalAskChat ? "minimal_ask" : "standard",
+    /** When true, `systemPrompt` was built only from D1 route layers (no legacy agentMeta/mode/RAG concat). */
+    minimal_prompt_d1_only: minimalAskChat ? 1 : 0,
     layer_keys: (() => {
       try {
         const keys = JSON.parse(promptRouteRow?.prompt_layer_keys || "[]");
