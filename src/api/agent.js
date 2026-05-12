@@ -4519,16 +4519,32 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   let promptRouteRow = await resolveAgentsamPromptRoute(env, tenantId, requestedMode, intentSlug);
 
-  if (promptRouteRow === null && requestedMode === "ask" && isSimpleAskMessage(message)) {
+  const skipSimpleAskGreetingRoute =
+    body?.tool_required === true ||
+    body?.toolRequired === true ||
+    agentLikeTooling;
+  if (
+    requestedMode === 'ask' &&
+    isSimpleAskMessage(message) &&
+    !skipSimpleAskGreetingRoute
+  ) {
     const greetingRoute = await env.DB.prepare(`
       SELECT * FROM agentsam_prompt_routes
       WHERE route_key = 'simple_ask_greeting'
-      AND (tenant_id = ? OR tenant_id IS NULL)
-      AND is_active = 1
-      ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END ASC
+        AND is_active = 1
+        AND (tenant_id = ? OR tenant_id IS NULL)
+      ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END
       LIMIT 1
     `).bind(tenantId, tenantId).first();
-    if (greetingRoute) promptRouteRow = greetingRoute;
+    if (greetingRoute) {
+      const oldPromptRouteRow = promptRouteRow;
+      console.log('[agent] prompt_route_override', {
+        from: oldPromptRouteRow?.route_key,
+        to: 'simple_ask_greeting',
+        reason: 'simple_ask_message',
+      });
+      promptRouteRow = greetingRoute;
+    }
   }
   let effectiveMaxTools = Math.max(1, Math.min(200, Number(modeConfig.max_tool_calls || 20) || 20));
   if (promptRouteRow?.max_tools != null && Number(promptRouteRow.max_tools) > 0) {
