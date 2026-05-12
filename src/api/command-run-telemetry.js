@@ -821,7 +821,7 @@ export async function executeCommand(env, ctx, o) {
 
   const effectiveTaskType = taskType || (cmd.task_type != null ? String(cmd.task_type) : null) || 'tool_use';
   const arm = await thompsonSample(env, effectiveTaskType, 'agent', resolvedWorkspace).catch(() => null);
-  const modelKey = arm?.model_key || 'gpt-4.1-mini';
+  const modelKey = arm?.model_key || 'gpt-5.4-mini';
   const provider = arm?.provider || 'openai';
 
   const chainId = 'atc_' + crypto.randomUUID().slice(0, 16);

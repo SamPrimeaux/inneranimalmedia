@@ -310,6 +310,87 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
 }
 
 /**
+ * Non-streaming POST /v1/responses. Use when catalog `api_platform` is `openai_responses` or `responses`
+ * (same surface as {@link chatWithToolsOpenAIResponses}, not Chat Completions).
+ * Returns a normalized object with `text`, `output_text`, and a `choices[0].message.content` shim for callers
+ * that expect chat-completions-shaped JSON.
+ */
+export async function completeWithOpenAIResponsesNonStream(env, params) {
+  const {
+    modelKey,
+    providerModelId,
+    systemPrompt,
+    messages = [],
+    tools = [],
+    userId,
+    openaiPreviousResponseId,
+    reasoningEffort,
+    verbosity,
+  } = params;
+  const modelForApi =
+    providerModelId != null && String(providerModelId).trim() !== ''
+      ? String(providerModelId).trim()
+      : String(modelKey || '').trim();
+
+  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
+  if (!apiKey) throw new Error('OpenAI API key not configured');
+  if (!modelForApi) throw new Error('modelKey required');
+
+  const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
+  const input = buildOpenAIResponsesInput(messages, prev || null);
+  const oaiTools = toOpenAIResponsesTools(tools);
+
+  const body = {
+    model: modelForApi,
+    input,
+    stream: false,
+    ...(prev ? { previous_response_id: prev } : {}),
+    ...(!prev && systemPrompt ? { instructions: String(systemPrompt) } : {}),
+    ...(oaiTools?.length ? { tools: oaiTools, tool_choice: 'auto' } : {}),
+    ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+    ...(verbosity ? { text: { verbosity } } : {}),
+  };
+
+  let res;
+  try {
+    res = await fetch(`${OPENAI_BASE}/responses`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error(`OpenAI Responses request failed: ${e.message}`);
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const safe = sanitizeOpenAiErrorBodyForLog(JSON.stringify(data));
+    throw new Error(`OpenAI Responses error ${res.status}: ${safe}`);
+  }
+
+  let text = '';
+  if (typeof data.output_text === 'string' && data.output_text) text = data.output_text;
+  else if (Array.isArray(data.output)) {
+    for (const item of data.output) {
+      for (const c of item?.content || []) {
+        if (typeof c?.text === 'string') text += c.text;
+      }
+    }
+  }
+
+  const mergedText = text || (typeof data.output_text === 'string' ? data.output_text : '') || '';
+  return {
+    ...data,
+    text: mergedText,
+    output_text: data.output_text ?? mergedText,
+    choices: [{ message: { content: mergedText } }],
+  };
+}
+
+/**
  * Non-streaming OpenAI completion. Returns parsed response object.
  * Use for batch / background tasks where streaming is not needed.
  */

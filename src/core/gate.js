@@ -9,6 +9,7 @@ export async function runModeGate(env, userMessage, modeSlug) {
 
   let gateResult = null;
   try {
+    // P3: direct /v1/responses; future: resolve gate model via catalog + dispatchComplete / Responses adapter.
     const gateResp = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },

@@ -164,7 +164,7 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
       } catch (e) { console.warn('[daily-plan] Gemini Flash failed:', e?.message); }
     }
 
-    // Priority 2: OpenAI gpt-5.4-nano via Responses API
+    // Priority 2: OpenAI gpt-5.4-nano via Responses API (P3: catalog/cron-config + dispatch when refactoring)
     if (!emailBody && env.OPENAI_API_KEY) {
       try {
         const oRes = await fetch('https://api.openai.com/v1/responses', {

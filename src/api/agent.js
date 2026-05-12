@@ -2060,7 +2060,7 @@ function safeJsonParse(value) {
 }
 
 /**
- * OpenAI /v1/chat/completions stream (`delta.tool_calls`). Merges tool call fragments by `index`
+ * OpenAI Chat Completions SSE stream (`delta.tool_calls`). Merges tool call fragments by `index`
  * (id may be omitted on later chunks). Not for Responses API — use a separate adapter there.
  * Without reconstructing tool_calls here, pendingToolCalls stay empty and no tools run.
  */

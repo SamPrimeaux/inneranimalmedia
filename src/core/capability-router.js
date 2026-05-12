@@ -4,6 +4,7 @@
  */
 import { resolveModelApiKey } from '../integrations/tokens.js';
 
+/** P3: nano id + direct /v1/responses; align with agentsam_model_catalog + dispatch when refactoring. */
 const NANO_MODEL = 'gpt-5.4-nano';
 
 const DEFAULT_DECISION = {

@@ -2,6 +2,7 @@
  * Daily rollup — model resolved from DB, never hardcoded.
  */
 import { fallbackSystemTenantId } from '../../core/auth.js';
+import { dispatchComplete } from '../../core/provider.js';
 
 export async function generateDailySummaryEmail(env) {
   const startMs = Date.now();
@@ -98,13 +99,27 @@ Deploys: ${deploys?.total||0} (${deploys?.ok||0} ok / ${deploys?.fail||0} failed
       const d = await r.json().catch(() => ({}));
       summaryText = d.content?.find(b => b.type==='text')?.text || '';
     } else if (env.OPENAI_API_KEY || env.OPENAI_API_BASE_URL) {
-      const r = await fetch(`${env.OPENAI_API_BASE_URL||'https://api.openai.com/v1'}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json','Authorization':`Bearer ${env.OPENAI_API_KEY}` },
-        body: JSON.stringify({ model: modelId, max_tokens: maxTokens, messages:[{role:'system',content:'You are Agent Sam.'},{role:'user',content:prompt}] }),
-      });
-      const d = await r.json().catch(() => ({}));
-      summaryText = d.choices?.[0]?.message?.content || '';
+      try {
+        const result = await dispatchComplete(env, {
+          modelKey: modelId,
+          systemPrompt: 'You are Agent Sam.',
+          messages: [{ role: 'user', content: prompt }],
+          tools: [],
+          userId:
+            typeof env?.SYSTEM_ACTOR_ID === 'string' && env.SYSTEM_ACTOR_ID.trim()
+              ? env.SYSTEM_ACTOR_ID.trim()
+              : null,
+          options: { reasoningEffort: 'none', verbosity: 'low' },
+        });
+        summaryText =
+          (typeof result?.text === 'string' && result.text) ||
+          result?.choices?.[0]?.message?.content ||
+          result?.output_text ||
+          '';
+      } catch (e) {
+        console.warn('[daily-summary] dispatchComplete', e?.message ?? e);
+        summaryText = '';
+      }
     }
 
     if (!summaryText) summaryText = 'AI unavailable — raw stats above.';

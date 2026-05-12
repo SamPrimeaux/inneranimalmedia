@@ -2,7 +2,6 @@
  * ai_complete / ai_compare / ai_embed — Workers AI + shared embeddings.
  */
 import { generateWorkersAiEmbedding } from '../../core/embed-workers-ai.js';
-import { resolveModelApiKey } from '../../integrations/tokens.js';
 
 const WAI_COMPACT = '@cf/meta/llama-3.1-8b-instruct';
 
@@ -51,28 +50,24 @@ export const handlers = {
     const user = `TEXT_A:\n${a.slice(0, 6000)}\n\nTEXT_B:\n${b.slice(0, 6000)}`;
     const w = await runWorkersAiText(env, sys, user);
     if (w.error) {
-      // Optional OpenAI fallback when Workers AI missing
-      const key = await resolveModelApiKey(env, 'openai', 'gpt-4.1-nano', params.user_id || null);
-      if (!key) return w;
+      if (!env?.DB) return w;
       try {
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'gpt-4.1-nano',
-            messages: [
-              { role: 'system', content: sys },
-              { role: 'user', content: user },
-            ],
-            max_tokens: 800,
-          }),
+        const { dispatchComplete } = await import('../../core/provider.js');
+        const data = await dispatchComplete(env, {
+          modelKey: 'gpt-5.4-nano',
+          systemPrompt: sys,
+          messages: [{ role: 'user', content: user }],
+          tools: [],
+          userId: params.user_id || null,
+          options: { reasoningEffort: 'none', verbosity: 'low' },
         });
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          return { error: data?.error?.message || `openai ${res.status}` };
-        }
-        const text = data?.choices?.[0]?.message?.content || '';
-        return { success: true, text: String(text).trim(), via: 'openai' };
+        const text =
+          (typeof data?.text === 'string' && data.text) ||
+          data?.choices?.[0]?.message?.content ||
+          data?.output_text ||
+          '';
+        if (!String(text).trim()) return { error: 'empty_completion', via: 'openai_catalog' };
+        return { success: true, text: String(text).trim(), via: 'openai_catalog' };
       } catch (e) {
         return { error: e instanceof Error ? e.message : String(e) };
       }

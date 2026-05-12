@@ -226,7 +226,7 @@ Complete this task or provide a specific actionable response.`,
 
     const userPrompt = prompts[mode] || prompts.ask;
 
-    // Resolve gate model from mode config or use nano as default
+    // P3: default nano matches catalog; prefer agent_mode_configs / catalog-only resolution long-term.
     let modelKey = 'gpt-5.4-nano';
     try {
       const modeSlug = mode === 'agent' ? 'agent' : 'ask';

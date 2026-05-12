@@ -6,7 +6,8 @@
 import { chatWithAnthropic }   from '../integrations/anthropic.js';
 import { chatWithToolsOpenAI,
          chatWithToolsOpenAIResponses,
-         completeWithOpenAI }  from '../integrations/openai.js';
+         completeWithOpenAI,
+         completeWithOpenAIResponsesNonStream }  from '../integrations/openai.js';
 import { chatWithToolsGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
@@ -490,7 +491,7 @@ export async function dispatchComplete(env, params) {
       : null;
   const modelForUpstream = providerModelId || modelKey;
 
-  if (platform === 'openai' || platform === 'openai_chat_completions' || platform === 'openai_responses') {
+  if (platform === 'openai' || platform === 'openai_chat_completions') {
     return completeWithOpenAI(env, {
       modelKey,
       providerModelId,
@@ -498,6 +499,20 @@ export async function dispatchComplete(env, params) {
       messages,
       tools,
       userId,
+      reasoningEffort: options.reasoningEffort || 'none',
+      verbosity: options.verbosity || 'low',
+    });
+  }
+
+  if (platform === 'openai_responses' || platform === 'responses') {
+    return completeWithOpenAIResponsesNonStream(env, {
+      modelKey,
+      providerModelId,
+      systemPrompt,
+      messages,
+      tools,
+      userId,
+      openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
       reasoningEffort: options.reasoningEffort || 'none',
       verbosity: options.verbosity || 'low',
     });
