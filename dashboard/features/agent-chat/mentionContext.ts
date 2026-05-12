@@ -1,0 +1,255 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import type { ActiveFile } from '../../types';
+import {
+  MENTION_CONTEXT_HEADER,
+  MENTION_FILE_MAX_CHARS,
+  MENTION_R2_LIST_MAX_ROWS,
+} from './types';
+
+function hasWordMention(text: string, tag: string): boolean {
+  return new RegExp(`@${tag}\\b`).test(text);
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Mention picker inserts `@${label}` (e.g. `@cms.html`), not literal `@file` — match those too. */
+function fileNameMentionedInMessage(userMessage: string, activeFileName?: string): boolean {
+  if (!activeFileName?.trim()) return false;
+  const t = activeFileName.trim();
+  const variants = new Set<string>([t]);
+  const base = t.includes('/') ? t.split('/').pop() || t : t;
+  if (base && base !== t) variants.add(base);
+  for (const v of variants) {
+    const re = new RegExp(`@${escapeRegExp(v)}(?:\\s|$|[,;:!?])`);
+    if (re.test(userMessage)) return true;
+  }
+  return false;
+}
+
+/** Path-like id for lightweight injection (no buffer), similar to Cursor open-file metadata. */
+export function getEditorLightweightPath(af: ActiveFile | null | undefined): string | null {
+  if (!af) return null;
+  if (af.workspacePath?.trim()) return af.workspacePath.trim();
+  if (af.r2Key?.trim()) return `r2:${af.r2Bucket || 'DASHBOARD'}/${af.r2Key}`;
+  if (af.githubRepo && af.githubPath) return `${af.githubRepo}/${af.githubPath}`;
+  if (af.driveFileId?.trim()) return `drive:${af.driveFileId}`;
+  return null;
+}
+
+/** Display path for always-on editor line (lightweight path, else filename). */
+export function getEditorDisplayPath(af: ActiveFile, activeFileName?: string): string {
+  const light = getEditorLightweightPath(af);
+  if (light) return light;
+  if (af.name?.trim()) return af.name.trim();
+  if (activeFileName?.trim()) return activeFileName.trim();
+  return '(unnamed)';
+}
+
+function languageFromFileName(fileName: string): string {
+  const base = fileName.split(/[/\\]/).pop() || fileName;
+  const ext = (base.includes('.') ? base.split('.').pop() : '')?.toLowerCase() || '';
+  const map: Record<string, string> = {
+    ts: 'typescript',
+    tsx: 'tsx',
+    mts: 'typescript',
+    cts: 'typescript',
+    js: 'javascript',
+    jsx: 'jsx',
+    mjs: 'javascript',
+    cjs: 'javascript',
+    json: 'json',
+    md: 'markdown',
+    mdx: 'mdx',
+    html: 'html',
+    htm: 'html',
+    css: 'css',
+    scss: 'scss',
+    sass: 'sass',
+    less: 'less',
+    svg: 'svg',
+    py: 'python',
+    rs: 'rust',
+    go: 'go',
+    sql: 'sql',
+    yaml: 'yaml',
+    yml: 'yaml',
+    toml: 'toml',
+    xml: 'xml',
+  };
+  return map[ext] || (ext || 'text');
+}
+
+const CHAT_TEXT_CODE_EXT = new Set(['js', 'ts', 'tsx', 'jsx', 'css', 'html', 'htm', 'sql', 'md', 'json', 'py', 'sh']);
+
+export function isChatTextCodeFile(file: File): boolean {
+  if (file.type.startsWith('text/')) return true;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return CHAT_TEXT_CODE_EXT.has(ext);
+}
+
+export function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(typeof fr.result === 'string' ? fr.result : '');
+    fr.onerror = () => reject(fr.error);
+    fr.readAsText(file);
+  });
+}
+
+/** Tells the model exactly which tools and parameters map to the open editor buffer (must match worker tool loop). */
+function formatAgentToolRouting(activeFile: ActiveFile | null | undefined): string {
+  const lines: string[] = [
+    '### Agent tool targets (read/write this buffer)',
+    'If the user asks to change, save, or sync this file, call the matching tool with the exact ids below — do not only paste code in chat when persistence is requested.',
+  ];
+  if (!activeFile) {
+    lines.push(
+      '- No file is open in the editor. Open a file from R2, GitHub, Drive, or the local folder, then use @file, @monaco, or @YourFileName (mention picker uses the file label).',
+    );
+    return lines.join('\n');
+  }
+  if (activeFile.r2Key) {
+    const b = activeFile.r2Bucket || 'DASHBOARD';
+    lines.push(
+      `- R2: r2_read({ bucket: "${b}", key: "${activeFile.r2Key}" }) before large edits; r2_write({ bucket: "${b}", key: "${activeFile.r2Key}", body: <full file text>, content_type: as appropriate e.g. application/javascript, text/html }). To delete this object: r2_delete({ bucket: "${b}", key: "${activeFile.r2Key}" }) — destructive; ask mode may require user approval before execution. Bucket may be DASHBOARD (agent-sam) or logical names like agent-sam — both resolve. After r2_write the dashboard reloads this key.`,
+    );
+  }
+  if (activeFile.githubRepo && activeFile.githubPath) {
+    lines.push(
+      `- GitHub: github_file with repo="${activeFile.githubRepo}" path="${activeFile.githubPath}" for read. Commits may require a separate flow or user action if write is not available.`,
+    );
+  }
+  if (activeFile.driveFileId) {
+    lines.push(
+      `- Google Drive: use gdrive_fetch / gdrive_list with this file id where applicable: ${activeFile.driveFileId}`,
+    );
+  }
+  if (activeFile.handle) {
+    lines.push(
+      '- Local file (File System Access in the browser): the worker cannot write to this path directly. Use terminal_execute if the repo exists in the user PTY, or ask the user to save in the editor.',
+    );
+  }
+  if (!activeFile.r2Key && !activeFile.githubPath && !activeFile.driveFileId && !activeFile.handle) {
+    lines.push(
+      '- New buffer with no storage binding. To persist, use r2_write with an explicit bucket and key the user names, or ask where to save.',
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Append @-mention snippets, always-on open-file buffer + tool routing when a file is open,
+ * and optional R2/D1 context. @ tokens still gate @monaco list and @r2 bucket lists.
+ */
+export async function buildMentionContext(
+  userMessage: string,
+  opts: {
+    activeFileName?: string;
+    activeFileContent?: string | null;
+    activeFile?: ActiveFile | null;
+    editorCursorLine?: number;
+    editorCursorColumn?: number;
+    /** Text/code attachments: same injection shape as @file for the active buffer. */
+    attachContextFiles?: Array<{ name: string; content: string }>;
+  },
+): Promise<string> {
+  const { activeFileName, activeFileContent, activeFile, editorCursorLine, editorCursorColumn, attachContextFiles } =
+    opts;
+  const parts: string[] = [];
+  const injectFileSnippet =
+    (hasWordMention(userMessage, 'file') || fileNameMentionedInMessage(userMessage, activeFileName)) &&
+    activeFileContent != null &&
+    activeFileContent !== '';
+
+  if (injectFileSnippet) {
+    parts.push(`### @file\n${activeFileName || 'untitled'}\n\n${activeFileContent.slice(0, MENTION_FILE_MAX_CHARS)}`);
+  }
+
+  if (attachContextFiles?.length) {
+    for (const f of attachContextFiles) {
+      parts.push(`### @${f.name}\n\n${f.content.slice(0, MENTION_FILE_MAX_CHARS)}`);
+    }
+  }
+
+  if (hasWordMention(userMessage, 'monaco')) {
+    const totalLines =
+      activeFileContent != null && activeFileContent !== '' ? activeFileContent.split('\n').length : 0;
+    const cl = editorCursorLine ?? 1;
+    const cc = editorCursorColumn ?? 1;
+    parts.push(
+      `### @monaco\nFile: ${activeFileName || '(none)'}\nTotal lines: ${totalLines}\nCursor: line ${cl}, column ${cc}`,
+    );
+  }
+
+  if (activeFile) {
+    parts.push(formatAgentToolRouting(activeFile));
+  }
+
+  const r2Re = /@r2:([^\s]+)/g;
+  const seenBuckets = new Set<string>();
+  const r2Buckets: string[] = [];
+  let rm: RegExpExecArray | null;
+  while ((rm = r2Re.exec(userMessage)) !== null) {
+    const b = rm[1];
+    if (b && !seenBuckets.has(b)) {
+      seenBuckets.add(b);
+      r2Buckets.push(b);
+    }
+  }
+  for (const bucket of r2Buckets) {
+    try {
+      const res = await fetch(`/api/r2/list?${new URLSearchParams({ bucket, prefix: '' })}`, {
+        credentials: 'same-origin',
+      });
+      const data = (await res.json()) as { objects?: Array<{ key?: string; size?: number }> };
+      if (!res.ok) {
+        parts.push(`### @r2:${bucket}\n(list failed: HTTP ${res.status})`);
+        continue;
+      }
+      const objects = Array.isArray(data.objects) ? data.objects : [];
+      const body = objects
+        .slice(0, MENTION_R2_LIST_MAX_ROWS)
+        .map((o) => `${o.key ?? ''}\t${String(o.size ?? '')}`)
+        .join('\n');
+      parts.push(`### @r2:${bucket}\n${body || '(empty)'}`);
+    } catch (e) {
+      parts.push(`### @r2:${bucket}\n(${String(e instanceof Error ? e.message : e)})`);
+    }
+  }
+
+  if (hasWordMention(userMessage, 'd1')) {
+    let d1 = '';
+    try {
+      d1 = sessionStorage.getItem('iam_d1_last_result') || '';
+    } catch {
+      /* sessionStorage unavailable */
+    }
+    parts.push(
+      `### @d1\n${
+        d1 ||
+        '(No stored D1 result in this session. SQL explorer can set sessionStorage key iam_d1_last_result.)'
+      }`,
+    );
+  }
+
+  if (activeFile && activeFileContent != null && activeFileContent !== '' && !injectFileSnippet) {
+    parts.push(
+      `### Open file (editor)\n${activeFileName || activeFile.name || 'untitled'}\n\n${activeFileContent.slice(0, MENTION_FILE_MAX_CHARS)}`,
+    );
+  } else if (activeFile && !injectFileSnippet) {
+    const path = getEditorDisplayPath(activeFile, activeFileName);
+    const n =
+      activeFileContent != null && activeFileContent !== '' ? activeFileContent.split('\n').length : 0;
+    const lang = languageFromFileName(activeFile.name || activeFileName || '');
+    parts.push(`### Editor context\nCurrently open: ${path} (${n} lines) [${lang}]`);
+  }
+
+  if (parts.length === 0) return userMessage;
+  return `${userMessage}${MENTION_CONTEXT_HEADER}${parts.join('\n\n')}`;
+}

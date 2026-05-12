@@ -1,0 +1,124 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import type React from 'react';
+import type { ActiveFile, ProjectType } from '../../types';
+
+export type MessageAttachmentPreview = {
+  previewUrl: string | null;
+  type: 'image' | 'file';
+  name: string;
+};
+
+export interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  /** Blob URLs kept after send so image previews stay visible in history (not revoked with composer clear). */
+  attachmentPreviews?: MessageAttachmentPreview[];
+}
+
+export interface ChatAssistantProps {
+  activeProject: ProjectType;
+  activeFileContent?: string;
+  messages: Message[];
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  onFileSelect?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
+  onRunInTerminal?: (cmd: string) => void;
+  activeFileName?: string;
+  /** Full open-file metadata so @file / @monaco can include tool routing (r2_read, r2_write, github_file). */
+  activeFile?: ActiveFile | null;
+  /** Current editor cursor (for @monaco injection only). */
+  editorCursorLine?: number;
+  editorCursorColumn?: number;
+  /** SSE: agent tool `r2_write` emits `r2_file_updated` for Monaco sync */
+  onR2FileUpdated?: (event: { type: 'r2_file_updated'; bucket: string; key: string }) => void;
+  /** SSE: `browser_navigate` opens the Browser tab (e.g. after HTML write or preview_in_browser) */
+  onBrowserNavigate?: (event: { type: 'browser_navigate'; url: string }) => void;
+  /** Dropped or attached .glb: parent uses a blob URL and should open the Voxel (engine) tab. */
+  onGlbFileSelect?: (file: File) => void;
+  /** Mobile: open GitHub repos panel (`actions` activity); optional repo to expand. */
+  onOpenGitHubIntegration?: (opts?: { expandRepoFullName?: string }) => void;
+  /** Mobile: leave full-screen chat and show the main editor / welcome workspace. */
+  onMobileOpenDashboard?: () => void;
+  /** Open the code editor tab from chat (e.g. mobile Context tab). */
+  onOpenCodeTab?: () => void;
+  /** Open the Search sidebar (knowledge + chat history). */
+  onOpenChatHistory?: () => void;
+  /** `agentsam_user_policy` row fields for the active workspace (from App bootstrap). */
+  agentsamPolicy?: Record<string, unknown> | null;
+  /** IAM workspace id (`auth_users.active_workspace_id` / settings) — scopes approval polling and APIs. */
+  workspaceId?: string | null;
+}
+
+export type StagedAttachment = {
+  id: string;
+  file: File;
+  type: 'image' | 'file';
+  previewUrl: string | null;
+};
+
+export type PickerItem = { id: string; label: string; kind: string };
+export type SlashCmd = { slug: string; description: string | null };
+
+export type ToolApprovalPayload = {
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+  preview?: string;
+};
+
+export type ChatModelRow = {
+  id: string;
+  name: string;
+  provider: string;
+  model_key: string;
+  api_platform: string;
+  /** D1 `ai_models.picker_group` — section title in model picker; falls back to `provider`. */
+  picker_group?: string;
+  size_class?: string;
+  input_rate_per_mtok?: number | null;
+  output_rate_per_mtok?: number | null;
+};
+
+export const MENTION_CONTEXT_HEADER = '\n\n--- On-demand context (this message only) ---\n';
+export const MENTION_FILE_MAX_CHARS = 8000;
+export const MENTION_R2_LIST_MAX_ROWS = 250;
+/** Worker request body cap (inform UI); combined files rejected above CHAT_ATTACH_MAX_TOTAL_BYTES in worker.js */
+export const CHAT_REQUEST_MAX_BYTES = 100 * 1024 * 1024;
+export const CHAT_ATTACH_MAX_TOTAL_BYTES = 90 * 1024 * 1024;
+
+/**
+ * App.tsx mobile shell: fixed tab bar z-[90] with `bottom: 1.5rem + safe-area` (~52px row) + status strip.
+ * Chat panel is max-md:fixed z-[45], so the composer must pad above that stack or it sits underneath.
+ */
+export const MOBILE_CHAT_COMPOSER_BOTTOM_PAD =
+  'calc(56px + 1.5rem + env(safe-area-inset-bottom, 0px) + 24px)';
+
+/** Mobile: keep composer short so flex-1 message list does not jump on every keystroke; scroll inside textarea instead. */
+export const COMPOSER_TEXTAREA_MAX_PX_NARROW = 104;
+export const COMPOSER_TEXTAREA_MAX_PX_WIDE = 200;
+
+export const LS_GH_REPO = 'iam-chat-github-repo-context';
+
+export type WorkflowLedgerState = {
+  runId: string | null;
+  stepsTotal: number | null;
+  stepsCompleted: number;
+  currentNodeKey: string | null;
+  runCost: number | null;
+  runTokensIn: number | null;
+  runTokensOut: number | null;
+  lastError: string | null;
+};
+
+export type ExecPanelState = {
+  tool_name: string;
+  status: 'running' | 'done' | 'error';
+  lines: string[];
+  duration_ms?: number;
+  started: string;
+  is_sql: boolean;
+  sql_rows?: Record<string, unknown>[];
+} | null;

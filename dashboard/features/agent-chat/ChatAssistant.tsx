@@ -1,0 +1,1966 @@
+
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  Send,
+  Loader2,
+  ChevronRight,
+  Paperclip,
+  Image as ImageIconLucide,
+  AtSign,
+  Slash,
+  FileText,
+  FileCode,
+  X,
+  ChevronDown,
+  ChevronLeft,
+  MoreHorizontal,
+  GitBranch,
+  LayoutDashboard,
+  Zap,
+  ExternalLink,
+  FolderGit2,
+  Bug,
+  Target,
+  Sparkles,
+  Layers,
+} from 'lucide-react';
+import { ProjectType } from '../../types';
+import type { ActiveFile } from '../../types';
+import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from '../../agentChatConstants';
+import type { AgentSessionRow } from '../../agentSessionsCatalog';
+import type {
+  ChatAssistantProps,
+  ChatModelRow,
+  Message,
+  MessageAttachmentPreview,
+  PickerItem,
+  SlashCmd,
+  StagedAttachment,
+  ToolApprovalPayload,
+  ExecPanelState,
+  WorkflowLedgerState,
+} from './types';
+import {
+  LS_GH_REPO,
+  MENTION_CONTEXT_HEADER,
+  CHAT_ATTACH_MAX_TOTAL_BYTES,
+  CHAT_REQUEST_MAX_BYTES,
+  MOBILE_CHAT_COMPOSER_BOTTOM_PAD,
+  COMPOSER_TEXTAREA_MAX_PX_NARROW,
+  COMPOSER_TEXTAREA_MAX_PX_WIDE,
+} from './types';
+import { buildMentionContext, isChatTextCodeFile, readFileAsText, getEditorDisplayPath } from './mentionContext';
+import {
+  measureAboveAnchor,
+  syncComposerTextareaHeight,
+  formatFileSize,
+  isAgentSamEmptyThreadGreeting,
+} from './composerLayout';
+import { formatHttpErrorMessage } from './streamParsing';
+import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
+import { AgentMessageList } from './components/AgentMessageList';
+
+export { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
+
+export const ChatAssistant: React.FC<ChatAssistantProps> = ({
+  activeProject,
+  activeFileContent,
+  activeFileName,
+  activeFile,
+  editorCursorLine,
+  editorCursorColumn,
+  messages,
+  setMessages,
+  onFileSelect,
+  onRunInTerminal,
+  onR2FileUpdated,
+  onBrowserNavigate,
+  onGlbFileSelect,
+  onOpenGitHubIntegration,
+  onMobileOpenDashboard,
+  onOpenCodeTab,
+  onOpenChatHistory,
+  agentsamPolicy = null,
+  workspaceId = null,
+}) => {
+  const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    agentsamPolicyRef.current = agentsamPolicy;
+  }, [agentsamPolicy]);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [input, setInput] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
+  /** After SSE `done`, ignore duplicate terminal events for this request. */
+  const streamFinalizedRef = useRef(false);
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const [messageQueue, setMessageQueue] = useState<string[]>([]);
+  const messageQueueRef = useRef<string[]>([]);
+  useEffect(() => {
+    messageQueueRef.current = messageQueue;
+  }, [messageQueue]);
+  const handleSendRef = useRef<(override?: string) => Promise<void>>(async () => {});
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachButtonRef = useRef<HTMLButtonElement>(null);
+  const modeButtonRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [attachMenuStyle, setAttachMenuStyle] = useState<React.CSSProperties | null>(null);
+  const [modeMenuStyle, setModeMenuStyle] = useState<React.CSSProperties | null>(null);
+  const [modelPickerStyle, setModelPickerStyle] = useState<React.CSSProperties | null>(null);
+
+  const [modes, setModes] = useState<{ slug: string; label: string }[]>([]);
+  const [mode, setMode] = useState<string>('agent');
+  const [isModeOpen, setIsModeOpen] = useState(false);
+  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
+  const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
+
+  const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
+  /** Structured BrowserView selection — appended to next Agent Sam message as JSON context. */
+  const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);
+  /** Latest `iam-browser-surface-context` from BrowserView (URL, route, viewport). */
+  const browserSurfaceRef = useRef<Record<string, unknown> | null>(null);
+  /** Optional workflow run stream (`agent_universal_autonomous_run` / graph SSE). */
+  const [workflowLedger, setWorkflowLedger] = useState<{
+    runId: string | null;
+    stepsTotal: number | null;
+    stepsCompleted: number;
+    currentNodeKey: string | null;
+    runCost: number | null;
+    runTokensIn: number | null;
+    runTokensOut: number | null;
+    lastError: string | null;
+  }>({
+    runId: null,
+    stepsTotal: null,
+    stepsCompleted: 0,
+    currentNodeKey: null,
+    runCost: null,
+    runTokensIn: null,
+    runTokensOut: null,
+    lastError: null,
+  });
+  const totalStagedBytes = useMemo(
+    () => attachments.reduce((sum, a) => sum + (a.file.size || 0), 0),
+    [attachments]
+  );
+  const [composerDragging, setComposerDragging] = useState(false);
+  const composerDragDepthRef = useRef(0);
+  const [conversationId, setConversationId] = useState<string>(() =>
+    typeof localStorage !== 'undefined' ? localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID) || '' : ''
+  );
+  const [threadTitle, setThreadTitle] = useState<string>('');
+
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  );
+  const [mobileHubTab, setMobileHubTab] = useState<'agents' | 'automations' | 'dashboard'>('agents');
+  const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
+  const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
+  const [ghRepos, setGhRepos] = useState<Array<{ id: string | number; full_name: string; name: string; default_branch?: string }>>(
+    []
+  );
+  const [ghReposLoading, setGhReposLoading] = useState(false);
+  const [ghReposAuthed, setGhReposAuthed] = useState(true);
+  const [githubRepoContext, setGithubRepoContext] = useState<string | null>(() => {
+    try {
+      return typeof localStorage !== 'undefined' ? localStorage.getItem(LS_GH_REPO) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [repoSearch, setRepoSearch] = useState('');
+
+  useEffect(() => {
+    const onBrowserSel = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object' && d.type === 'browser_element_selected') {
+        setBrowserElementContext(d);
+      }
+    };
+    window.addEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
+    return () => window.removeEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const onSurface = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object') browserSurfaceRef.current = d;
+    };
+    window.addEventListener('iam-browser-surface-context', onSurface as EventListener);
+    return () => window.removeEventListener('iam-browser-surface-context', onSurface as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (!agentsamPolicy) return;
+    const ar = String(agentsamPolicy.auto_run_mode || '').toLowerCase();
+    if (ar === 'disabled' || ar === 'manual') setMode('ask');
+    else if (ar === 'allowlist' || ar === 'auto') setMode('agent');
+  }, [agentsamPolicy]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const u = () => setIsNarrow(mq.matches);
+    mq.addEventListener('change', u);
+    return () => mq.removeEventListener('change', u);
+  }, []);
+
+  useEffect(() => {
+    console.log('[ChatAssistant] canonical mounted agent-app-sse-v1');
+  }, []);
+
+  useEffect(() => {
+    syncComposerTextareaHeight(
+      textareaRef.current,
+      isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+    );
+  }, [isNarrow]);
+
+  const loadGhRepos = useCallback(async () => {
+    setGhReposLoading(true);
+    try {
+      const res = await fetch('/api/integrations/github/repos', { credentials: 'same-origin' });
+      if (!res.ok) {
+        setGhReposAuthed(false);
+        setGhRepos([]);
+        return;
+      }
+      setGhReposAuthed(true);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data.repos || [];
+      setGhRepos(Array.isArray(list) ? list : []);
+    } catch {
+      setGhReposAuthed(false);
+      setGhRepos([]);
+    } finally {
+      setGhReposLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (repoDrawerOpen) void loadGhRepos();
+  }, [repoDrawerOpen, loadGhRepos]);
+
+  const [sessions, setSessions] = useState<AgentSessionRow[]>([]);
+  const hydratedFromLsRef = useRef(false);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const r = await fetch('/api/agent/sessions', { credentials: 'same-origin' });
+      const data = r.ok ? await r.json() : [];
+      setSessions(Array.isArray(data) ? (data as AgentSessionRow[]) : []);
+    } catch {
+      setSessions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSessions();
+  }, [loadSessions, conversationId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || hydratedFromLsRef.current) return;
+    hydratedFromLsRef.current = true;
+    const id = localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID)?.trim();
+    if (id) {
+      queueMicrotask(() => {
+        window.dispatchEvent(
+          new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id } })
+        );
+      });
+    }
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    setMobileThreadTab('chat');
+    setThreadTitle('New Chat');
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+    setConversationId('');
+    window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id: null } }));
+  }, []);
+
+  useEffect(() => {
+    const onExternal = (e: Event) => {
+      const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
+      if (raw === null || raw === undefined) {
+        setMobileThreadTab('chat');
+        setThreadTitle('New Chat');
+        if (typeof localStorage !== 'undefined') localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+        setConversationId('');
+        return;
+      }
+      if (typeof raw === 'string' && raw.trim()) {
+        const id = raw.trim();
+        setMobileThreadTab('chat');
+        try {
+          localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
+        } catch {
+          /* ignore */
+        }
+        setConversationId(id);
+      }
+    };
+    window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
+    
+    const onExternalSend = (e: Event) => {
+      const msg = (e as CustomEvent<{ message?: string }>).detail?.message;
+      if (msg) handleSend(msg);
+    };
+    window.addEventListener('iam-agent-external-send', onExternalSend);
+
+    return () => {
+      window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
+      window.removeEventListener('iam-agent-external-send', onExternalSend);
+    };
+  }, [handleSend]);
+
+  const [pendingToolApproval, setPendingToolApproval] = useState<{
+    tool: ToolApprovalPayload;
+  } | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+
+  const [execPanel, setExecPanel] = useState<{
+    tool_name: string;
+    status: 'running' | 'done' | 'error';
+    lines: string[];
+    duration_ms?: number;
+    started: string;
+    is_sql: boolean;
+    sql_rows?: Record<string, unknown>[];
+  } | null>(null);
+
+  const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
+  const [selectedModelKey, setSelectedModelKey] = useState<string>('');
+
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionItems, setMentionItems] = useState<PickerItem[]>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStyle, setMentionStyle] = useState<React.CSSProperties | null>(null);
+  const mentionQueryRef = useRef<{ start: number; end: number } | null>(null);
+
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashItems, setSlashItems] = useState<SlashCmd[]>([]);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashStyle, setSlashStyle] = useState<React.CSSProperties | null>(null);
+  const slashQueryRef = useRef<{ start: number; end: number } | null>(null);
+
+  const catalogCacheRef = useRef<{ at: number; items: PickerItem[] } | null>(null);
+  const commandsCacheRef = useRef<{ at: number; items: SlashCmd[] } | null>(null);
+
+  const measureAttachMenu = useCallback(() => {
+    setAttachMenuStyle(measureAboveAnchor(attachButtonRef.current, 240, 420));
+  }, []);
+
+  const measureModeMenu = useCallback(() => {
+    setModeMenuStyle(measureAboveAnchor(modeButtonRef.current, 120));
+  }, []);
+
+  const measureModelPickerMenu = useCallback(() => {
+    setModelPickerStyle(measureAboveAnchor(modeButtonRef.current, 280, 360, 320));
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!attachMenuOpen) {
+      setAttachMenuStyle(null);
+      return;
+    }
+    measureAttachMenu();
+    const h = () => measureAttachMenu();
+    window.addEventListener('resize', h);
+    window.addEventListener('scroll', h, true);
+    return () => {
+      window.removeEventListener('resize', h);
+      window.removeEventListener('scroll', h, true);
+    };
+  }, [attachMenuOpen, measureAttachMenu]);
+
+  useLayoutEffect(() => {
+    if (!isModeOpen) {
+      setModeMenuStyle(null);
+      return;
+    }
+    measureModeMenu();
+    const h = () => measureModeMenu();
+    window.addEventListener('resize', h);
+    window.addEventListener('scroll', h, true);
+    return () => {
+      window.removeEventListener('resize', h);
+      window.removeEventListener('scroll', h, true);
+    };
+  }, [isModeOpen, measureModeMenu]);
+
+  useLayoutEffect(() => {
+    if (!isModelPickerOpen) {
+      setModelPickerStyle(null);
+      return;
+    }
+    measureModelPickerMenu();
+    const h = () => measureModelPickerMenu();
+    window.addEventListener('resize', h);
+    window.addEventListener('scroll', h, true);
+    return () => {
+      window.removeEventListener('resize', h);
+      window.removeEventListener('scroll', h, true);
+    };
+  }, [isModelPickerOpen, measureModelPickerMenu]);
+
+  useLayoutEffect(() => {
+    if (!mentionOpen && !slashOpen) return;
+    const clampW = slashOpen ? 320 : 280;
+    const st = measureAboveAnchor(textareaRef.current, 220, 280, clampW);
+    if (mentionOpen) setMentionStyle(st);
+    if (slashOpen) setSlashStyle(st);
+    const h = () => {
+      const s = measureAboveAnchor(textareaRef.current, 220, 280, clampW);
+      if (mentionOpen) setMentionStyle(s);
+      if (slashOpen) setSlashStyle(s);
+    };
+    window.addEventListener('resize', h);
+    window.addEventListener('scroll', h, true);
+    return () => {
+      window.removeEventListener('resize', h);
+      window.removeEventListener('scroll', h, true);
+    };
+  }, [mentionOpen, slashOpen, input]);
+
+  useEffect(() => {
+    fetch('/api/agent/modes')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setModes(data.map((row: { slug: string; label: string }) => ({ slug: row.slug, label: row.label })));
+          const preferred = data.find((row: { slug: string }) => row.slug === 'agent' || row.slug === 'auto');
+          setMode(preferred ? preferred.slug : data[0].slug);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/agent/models?show_in_picker=1', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        const rows: ChatModelRow[] = (data as Record<string, unknown>[]).map((raw) => ({
+          id: String(raw.id ?? raw.model_key ?? ''),
+          name: String(raw.name ?? raw.display_name ?? raw.model_key ?? ''),
+          provider: String(raw.provider ?? ''),
+          model_key: String(raw.model_key ?? ''),
+          api_platform: String(raw.api_platform ?? ''),
+          picker_group:
+            raw.picker_group != null && String(raw.picker_group).trim()
+              ? String(raw.picker_group).trim()
+              : '',
+          size_class: raw.size_class != null ? String(raw.size_class) : '',
+          input_rate_per_mtok: raw.input_rate_per_mtok != null ? Number(raw.input_rate_per_mtok) : null,
+          output_rate_per_mtok: raw.output_rate_per_mtok != null ? Number(raw.output_rate_per_mtok) : null,
+        }));
+        setChatModels(rows);
+        setSelectedModelKey((prev) => {
+          if (prev && rows.some((m) => m.model_key === prev)) return prev;
+          return rows[0]?.model_key || '';
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/settings/default-model', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((d: { default_model?: string | null }) => {
+        setDefaultModelKey(typeof d.default_model === 'string' && d.default_model.trim() ? d.default_model.trim() : null);
+      })
+      .catch(() => setDefaultModelKey(null));
+  }, []);
+
+  const modeLabel = modes.find((m) => m.slug === mode)?.label ?? mode;
+
+  const selectedModelDisplayName = useMemo(() => {
+    const row = chatModels.find((m) => m.model_key === selectedModelKey);
+    return row?.name || selectedModelKey || 'No model';
+  }, [chatModels, selectedModelKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('iam-chat-mode', { detail: { label: modeLabel, slug: mode } }));
+  }, [modeLabel, mode]);
+
+  async function loadCatalog(): Promise<PickerItem[]> {
+    const now = Date.now();
+    if (catalogCacheRef.current && now - catalogCacheRef.current.at < 60000) {
+      return catalogCacheRef.current.items;
+    }
+    const res = await fetch('/api/agent/context-picker/catalog');
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items: PickerItem[] = [];
+    (data.tables || []).forEach((t: string) => {
+      items.push({ id: `table:${t}`, label: t, kind: 'table' });
+    });
+    (data.workflows || []).forEach((w: { id?: string; name?: string }) => {
+      items.push({ id: `wf:${w.id}`, label: w.name || w.id || '', kind: 'workflow' });
+    });
+    (data.commands || []).forEach((c: { slug?: string; name?: string }) => {
+      items.push({ id: `cmd:${c.slug}`, label: c.name || c.slug || '', kind: 'command' });
+    });
+    (data.memory_keys || []).forEach((k: string) => {
+      items.push({ id: `mem:${k}`, label: k, kind: 'memory' });
+    });
+    (data.workspaces || []).forEach((w: { id?: string; name?: string }) => {
+      items.push({ id: `ws:${w.id}`, label: w.name || w.id || '', kind: 'workspace' });
+    });
+    catalogCacheRef.current = { at: now, items };
+    return items;
+  }
+
+  async function loadCommands(): Promise<SlashCmd[]> {
+    const now = Date.now();
+    if (commandsCacheRef.current && now - commandsCacheRef.current.at < 60000) {
+      return commandsCacheRef.current.items;
+    }
+    const res = await fetch('/api/agent/commands');
+    if (!res.ok) return [];
+    const data = await res.json();
+    const arr = Array.isArray(data) ? data : [];
+    const items = arr.map((r: { slug: string; description?: string }) => ({
+      slug: r.slug,
+      description: r.description ?? null,
+    }));
+    commandsCacheRef.current = { at: now, items };
+    return items;
+  }
+
+  const syncPickers = useCallback(
+    async (value: string, cursor: number) => {
+      const before = value.slice(0, cursor);
+      const atMatch = before.match(/@([^\s@]*)$/);
+      if (atMatch) {
+        if (Number(agentsamPolicyRef.current?.agent_autocomplete) === 0) {
+          setMentionOpen(false);
+          mentionQueryRef.current = null;
+          return;
+        }
+        const q = atMatch[1];
+        const start = cursor - atMatch[0].length;
+        mentionQueryRef.current = { start, end: cursor };
+        const all = await loadCatalog();
+        const f = all.filter((it) => it.label.toLowerCase().includes(q.toLowerCase())).slice(0, 40);
+        setMentionItems(f);
+        setMentionIndex(0);
+        setMentionOpen(f.length > 0);
+        setSlashOpen(false);
+        return;
+      }
+      setMentionOpen(false);
+      mentionQueryRef.current = null;
+
+      const slashMatch = before.match(/(?:^|\s)(\/[\w-]*)$/);
+      if (slashMatch) {
+        const full = slashMatch[1];
+        const q = full.slice(1);
+        const start = cursor - full.length;
+        slashQueryRef.current = { start, end: cursor };
+        const all = await loadCommands();
+        const f = all
+          .filter((c) => c.slug.toLowerCase().includes(q.toLowerCase()))
+          .slice(0, 40);
+        setSlashItems(f);
+        setSlashIndex(0);
+        setSlashOpen(f.length > 0);
+        return;
+      }
+      setSlashOpen(false);
+      slashQueryRef.current = null;
+    },
+    []
+  );
+
+  const displayMessages = useMemo(() => messages, [messages]);
+
+  const showEmptyThreadPlaceholder = useMemo(() => {
+    if (displayMessages.length === 0) return true;
+    return displayMessages.every(
+      (m) => m.role === 'assistant' && isAgentSamEmptyThreadGreeting(m.content)
+    );
+  }, [displayMessages]);
+
+  useEffect(() => {
+    if (!conversationId.trim()) return;
+    const row = sessions.find((s) => s.id === conversationId);
+    const n = row?.name && String(row.name).replace(/\s+/g, ' ').trim();
+    if (n) setThreadTitle(n);
+  }, [conversationId, sessions]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [displayMessages]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const v = e.target.value;
+    setInput(v);
+    const el = e.target;
+    const maxPx = isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE;
+    syncComposerTextareaHeight(el, maxPx);
+    syncPickers(v, el.selectionStart);
+  };
+
+  const addFilesFromList = (list: FileList | null, asImage: boolean) => {
+    if (!list?.length) return;
+    Array.from(list).forEach((file) => {
+      const id = crypto.randomUUID();
+      const isImg = asImage || file.type.startsWith('image/');
+      const previewUrl = isImg ? URL.createObjectURL(file) : null;
+      setAttachments((prev) => [
+        ...prev,
+        { id, file, type: isImg ? 'image' : 'file', previewUrl },
+      ]);
+    });
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => {
+      const a = prev.find((x) => x.id === id);
+      if (a?.previewUrl) URL.revokeObjectURL(a.previewUrl);
+      return prev.filter((x) => x.id !== id);
+    });
+  };
+
+  /** Clears the composer only. Do not revoke blob URLs here — after send they are kept on the user message (`attachmentPreviews`) for history thumbnails. */
+  const clearAttachments = () => {
+    setAttachments([]);
+  };
+
+  const insertAtCursor = (newValue: string, selStart: number, selEnd: number) => {
+    setInput(newValue);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(selStart, selEnd);
+        syncComposerTextareaHeight(
+          el,
+          isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+        );
+      }
+    });
+  };
+
+  const applyMention = (item: PickerItem) => {
+    const el = textareaRef.current;
+    const q = mentionQueryRef.current;
+    if (!el || !q) return;
+    const v = input;
+    const before = v.slice(0, q.start);
+    const after = v.slice(q.end);
+    const insert = `@${item.label} `;
+    const next = before + insert + after;
+    const pos = before.length + insert.length;
+    setMentionOpen(false);
+    mentionQueryRef.current = null;
+    insertAtCursor(next, pos, pos);
+  };
+
+  const applySlash = (cmd: SlashCmd) => {
+    const el = textareaRef.current;
+    const q = slashQueryRef.current;
+    if (!el || !q) return;
+    const v = input;
+    const before = v.slice(0, q.start);
+    const after = v.slice(q.end);
+    const insert = `/${cmd.slug} `;
+    const next = before + insert + after;
+    const pos = before.length + insert.length;
+    setSlashOpen(false);
+    slashQueryRef.current = null;
+    insertAtCursor(next, pos, pos);
+  };
+
+  const stripEmptyAssistantTail = useCallback((prev: Message[]) => {
+    const next = [...prev];
+    const last = next[next.length - 1];
+    if (last?.role === 'assistant' && last.content === '') next.pop();
+    return next;
+  }, []);
+
+  const handleApprovePendingTool = useCallback(async () => {
+    if (!pendingToolApproval) return;
+    const { tool } = pendingToolApproval;
+    setApprovalBusy(true);
+    try {
+      const res = await fetch('/api/agent/chat/execute-approved-tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tool_name: tool.name,
+          tool_input: tool.parameters ?? {},
+          conversation_id: conversationId || undefined,
+        }),
+      });
+      const j = (await res.json()) as { success?: boolean; error?: string; result?: unknown };
+      setPendingToolApproval(null);
+      const resultStr =
+        typeof j.result === 'string' ? j.result : JSON.stringify(j.result ?? null, null, 2);
+      const suffix = j.success
+        ? `\n\n---\nTool **${tool.name}** completed.\n\`\`\`\n${resultStr.slice(0, 12000)}\n\`\`\``
+        : `\n\n---\nTool **${tool.name}** failed: ${j.error ?? 'unknown error'}`;
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant') {
+          next[next.length - 1] = { ...last, content: last.content + suffix };
+        }
+        return next;
+      });
+    } catch (e) {
+      console.error('[ChatAssistant] execute-approved-tool', e);
+      setPendingToolApproval(null);
+      const msg = e instanceof Error ? e.message : String(e);
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant') {
+          next[next.length - 1] = { ...last, content: `${last.content}\n\n[Approve request failed: ${msg}]` };
+        }
+        return next;
+      });
+    } finally {
+      setApprovalBusy(false);
+    }
+  }, [pendingToolApproval, conversationId, setMessages]);
+
+  const handleDenyPendingTool = useCallback(() => {
+    setPendingToolApproval(null);
+    setMessages((prev) => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      if (last?.role === 'assistant') {
+        next[next.length - 1] = { ...last, content: `${last.content}\n\n[Tool execution cancelled.]` };
+      }
+      return next;
+    });
+  }, [setMessages]);
+
+  async function handleSend(overrideMessage?: string) {
+    const text = overrideMessage ?? input;
+    if ((!text && attachments.length === 0) || (isLoading && !overrideMessage) || !selectedModelKey) return;
+    
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+    streamFinalizedRef.current = false;
+    const signal = abortControllerRef.current.signal;
+
+    if (totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES) return;
+
+    const userMessage = text || '(attachment)';
+    setPendingToolApproval(null);
+    setWorkflowLedger({
+      runId: null,
+      stepsTotal: null,
+      stepsCompleted: 0,
+      currentNodeKey: null,
+      runCost: null,
+      runTokensIn: null,
+      runTokensOut: null,
+      lastError: null,
+    });
+    setInput('');
+    requestAnimationFrame(() => {
+      syncComposerTextareaHeight(
+        textareaRef.current,
+        isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+      );
+    });
+    const attachmentPreviews: MessageAttachmentPreview[] = attachments.map((a) => ({
+      previewUrl: a.previewUrl,
+      type: a.type,
+      name: a.file.name,
+    }));
+    const newMessages: Message[] = [
+      ...messages,
+      {
+        role: 'user',
+        content: userMessage,
+        ...(attachmentPreviews.length ? { attachmentPreviews } : {}),
+      },
+    ];
+    setMessages(newMessages);
+    setIsLoading(true);
+    setMentionOpen(false);
+    setSlashOpen(false);
+
+    const attachContextFiles: Array<{ name: string; content: string }> = [];
+    for (const a of attachments) {
+      if (a.type !== 'file') continue;
+      const lower = a.file.name.toLowerCase();
+      if (lower.endsWith('.glb')) {
+        onGlbFileSelect?.(a.file);
+        continue;
+      }
+      if (isChatTextCodeFile(a.file)) {
+        try {
+          const text = await readFileAsText(a.file);
+          onFileSelect?.({ name: a.file.name, content: text, originalContent: text });
+          attachContextFiles.push({ name: a.file.name, content: text });
+        } catch {
+          /* skip unreadable */
+        }
+      }
+    }
+
+    const skipMentionContext =
+      userMessage.startsWith('/run ') || userMessage.startsWith('/claude ');
+    let messageForApi = skipMentionContext
+      ? userMessage
+      : await buildMentionContext(userMessage, {
+          activeFileName,
+          activeFileContent: activeFileContent ?? null,
+          activeFile: activeFile ?? null,
+          editorCursorLine,
+          editorCursorColumn,
+          attachContextFiles: attachContextFiles.length ? attachContextFiles : undefined,
+        });
+    const ghCtx = githubRepoContext?.trim();
+    if (ghCtx) {
+      messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as the active repo in the dashboard. Prefer \`github_file\` with repo="${ghCtx}" when reading files, and direct them to the Deploy/GitHub panel to browse or open files.`;
+    }
+
+    if (browserElementContext) {
+      messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(browserElementContext, null, 2)}\n\`\`\`\n`;
+      setBrowserElementContext(null);
+    }
+
+    const effectiveConvId = conversationId || (() => { const id = crypto.randomUUID(); setConversationId(id); try { localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id); } catch (_) {} return id; })();
+    const form = new FormData();
+    form.append('message', messageForApi);
+    form.append('mode', mode);
+    form.append('model', selectedModelKey);
+    const selectedModelProvider = chatModels.find((m) => m.model_key === selectedModelKey)?.provider || 'anthropic';
+    form.append('provider', selectedModelProvider);
+    form.append('conversationId', effectiveConvId);
+    form.append('contextMode', String(activeProject));
+    try {
+      const browserCtxPayload: Record<string, unknown> = {
+        ...(browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object' ? browserSurfaceRef.current : {}),
+        dashboard_route: typeof window !== 'undefined' ? window.location.pathname : '',
+      };
+      if (browserElementContext && typeof browserElementContext === 'object') {
+        browserCtxPayload.selected_element = browserElementContext;
+      }
+      form.append('browserContext', JSON.stringify(browserCtxPayload));
+    } catch {
+      /* ignore */
+    }
+    attachments.forEach((a) => form.append('files', a.file));
+
+    const applyAssistantError = (msg: string) => {
+      setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
+    };
+
+    try {
+      const response = await fetch('/api/agent/chat', {
+        method: 'POST',
+        body: form,
+        signal,
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        applyAssistantError(formatHttpErrorMessage(response.status, response.statusText || ''));
+        return;
+      }
+      if (!response.body) {
+        applyAssistantError('Empty response body from chat endpoint');
+        return;
+      }
+
+      const reader = response.body.getReader();
+      streamReaderRef.current = reader;
+      await consumeAgentChatSseBody({
+        signal,
+        reader,
+        streamFinalizedRef,
+        streamReaderRef,
+        setMessages,
+        setIsLoading,
+        setWorkflowLedger,
+        setExecPanel,
+        setConversationId,
+        stripEmptyAssistantTail,
+        loadSessions,
+        onBrowserNavigate,
+        onR2FileUpdated,
+        onFileSelect: onFileSelect
+          ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
+          : undefined,
+        onToolApprovalRequest: (tool) => {
+          setPendingToolApproval({ tool });
+          setIsLoading(false);
+          abortControllerRef.current = null;
+          const q = messageQueueRef.current;
+          if (q.length > 0) {
+            const next = q[0];
+            setMessageQueue((prev) => prev.slice(1));
+            void handleSendRef.current(next);
+          }
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = {
+              ...last,
+              content: `${last.content}${last.content.trim() ? '\n\n' : ''}Stopped.`,
+            };
+          }
+          return next;
+        });
+      } else {
+        console.error('Chat request failed:', error);
+        streamFinalizedRef.current = true;
+        const msg = error instanceof Error ? error.message : String(error);
+        setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);
+      }
+    } finally {
+      streamReaderRef.current?.cancel().catch(() => {});
+      streamReaderRef.current = null;
+      setIsLoading(false);
+      clearAttachments();
+      abortControllerRef.current = null;
+      if (messageQueue.length > 0) {
+        const next = messageQueue[0];
+        setMessageQueue((prev) => prev.slice(1));
+        void handleSendRef.current(next);
+      }
+    }
+  }
+
+  handleSendRef.current = handleSend;
+
+  const canSend =
+    !!selectedModelKey &&
+    (input.trim().length > 0 || attachments.length > 0) &&
+    !isLoading &&
+    totalStagedBytes <= CHAT_ATTACH_MAX_TOTAL_BYTES;
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionOpen && mentionItems.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => Math.min(i + 1, mentionItems.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyMention(mentionItems[mentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
+    if (slashOpen && slashItems.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex((i) => Math.min(i + 1, slashItems.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applySlash(slashItems[slashIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashOpen(false);
+        return;
+      }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const modEnter = Number(agentsamPolicyRef.current?.submit_with_mod_enter) === 1;
+      if (modEnter && !(e.ctrlKey || e.metaKey)) {
+        return;
+      }
+      e.preventDefault();
+      if (isLoading) {
+        setMessageQueue((prev) => [...prev, input]);
+        setInput('');
+      } else {
+        handleSend();
+      }
+    }
+  };
+
+  const mobileAgentsThread = isNarrow && mobileHubTab === 'agents';
+  const hubBodyVisible = isNarrow && mobileHubTab !== 'agents';
+  const messagesVisible =
+    !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
+  const contextTabVisible =
+    isNarrow && mobileHubTab === 'agents' && mobileThreadTab === 'context';
+  const composerVisible =
+    !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
+  const composerFlexOrder = 'order-5';
+
+  const filteredGhRepos = useMemo(() => {
+    const q = repoSearch.trim().toLowerCase();
+    if (!q) return ghRepos;
+    return ghRepos.filter((r) => (r.full_name || '').toLowerCase().includes(q) || (r.name || '').toLowerCase().includes(q));
+  }, [ghRepos, repoSearch]);
+
+  const modelPickerGroups = useMemo(() => {
+    const order: string[] = [];
+    const byGroup = new Map<string, ChatModelRow[]>();
+    for (const m of chatModels) {
+      const g = (m.picker_group || m.provider || 'Other').trim() || 'Other';
+      if (!byGroup.has(g)) {
+        byGroup.set(g, []);
+        order.push(g);
+      }
+      byGroup.get(g)!.push(m);
+    }
+    return order.map((g) => ({ group: g, models: byGroup.get(g)! }));
+  }, [chatModels]);
+
+  const renderModelPickerList = useCallback(
+    (onPick: (modelKey: string) => void) =>
+      modelPickerGroups.map(({ group, models }) => (
+        <div key={group} className="pb-1">
+          <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[var(--dashboard-muted)] opacity-60">
+            {group}
+          </div>
+          {models.map((m) => {
+            const isSession = selectedModelKey === m.model_key;
+            const isDefault = defaultModelKey != null && defaultModelKey === m.model_key;
+            const rateIn = m.input_rate_per_mtok;
+            const rateOut = m.output_rate_per_mtok;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                className={`mx-1 flex w-[min(100%,calc(100vw-3rem))] min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--dashboard-panel)] ${
+                  isSession ? 'bg-[var(--dashboard-panel)]/80 text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)]'
+                }`}
+                onClick={() => onPick(m.model_key)}
+              >
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="truncate text-[11px] font-bold tracking-tight">{m.name}</span>
+                    {m.size_class ? (
+                      <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1 py-0 text-[8px] font-bold uppercase tracking-wide text-[var(--dashboard-muted)]">
+                        {m.size_class}
+                      </span>
+                    ) : null}
+                    {isDefault ? (
+                      <span className="shrink-0 rounded bg-[var(--solar-cyan)]/15 px-1 py-0 text-[8px] font-bold uppercase tracking-wide text-[var(--solar-cyan)]">
+                        Default
+                      </span>
+                    ) : null}
+                  </div>
+                  {rateIn != null && rateOut != null ? (
+                    <span className="text-[9px] text-[var(--dashboard-muted)]">
+                      ${rateIn.toFixed(2)} in · ${rateOut.toFixed(2)} out / MTok
+                    </span>
+                  ) : null}
+                </div>
+                {isSession ? <Sparkles size={10} className="shrink-0 animate-pulse" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      )),
+    [modelPickerGroups, defaultModelKey, selectedModelKey],
+  );
+
+  return (
+    <>
+      <div
+        data-chat-assistant-contract="agent-app-sse-v1"
+        className="flex flex-col h-full min-h-0 max-w-full overflow-x-hidden overflow-y-hidden bg-[var(--dashboard-panel)] w-full min-w-0"
+      >
+        <style>{`
+        .agent-content strong { color: var(--solar-cyan); font-weight: 700; }
+        .agent-content h1, .agent-content h2, .agent-content h3 { color: var(--text-heading); font-weight: 700; margin-bottom: 0.75rem; }
+        .agent-content ul, .agent-content ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+        .agent-content li { margin-bottom: 0.4rem; }
+        .agent-content p + p { margin-top: 0.75rem; }
+        .agent-content pre, .agent-content code { max-width: 100%; }
+        .chat-hide-scroll::-webkit-scrollbar { display: none; }
+      `}</style>
+
+        {isNarrow && (
+          <header className="grid grid-cols-[auto_1fr_auto] items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)] shrink-0 bg-[var(--dashboard-panel)] z-10">
+            <img
+              src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
+              alt=""
+              className="w-6 h-6 rounded object-cover shrink-0"
+            />
+            <nav className="flex items-center justify-center gap-2 sm:gap-3 min-w-0 max-w-full overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
+              {(['agents', 'automations', 'dashboard'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setMobileHubTab(tab)}
+                  className={`shrink-0 text-[13px] font-medium transition-colors whitespace-nowrap ${
+                    mobileHubTab === tab ? 'text-[var(--dashboard-text)]' : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]'
+                  }`}
+                >
+                  {tab === 'agents' ? 'Agents' : tab === 'automations' ? 'Automations' : 'Dashboard'}
+                </button>
+              ))}
+            </nav>
+            <div
+              className="w-7 h-7 rounded-full bg-[var(--bg-hover)] border border-[var(--dashboard-border)] flex items-center justify-center text-[9px] text-[var(--dashboard-muted)] shrink-0"
+              aria-hidden
+            >
+              ·
+            </div>
+          </header>
+        )}
+
+        {isNarrow && mobileAgentsThread && (
+          <div className="shrink-0 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] z-10">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenChatHistory?.();
+                  setMobileThreadTab('chat');
+                }}
+                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
+                aria-label="Open chat history"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <span className="flex-1 text-[14px] font-semibold text-[var(--dashboard-text)] truncate">{threadTitle}</span>
+              <button
+                type="button"
+                onClick={handleNewChat}
+                className="shrink-0 text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--solar-cyan)] px-2 py-1 rounded-md hover:bg-[var(--bg-hover)]"
+              >
+                New
+              </button>
+              <button
+                type="button"
+                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--dashboard-muted)]"
+                aria-label="More options"
+              >
+                <MoreHorizontal size={18} />
+              </button>
+            </div>
+            <div className="flex gap-2 px-3 pb-2">
+              <button
+                type="button"
+                onClick={() => setMobileThreadTab('chat')}
+                className={`px-3 py-1 rounded-md text-[12px] font-medium transition-colors ${
+                  mobileThreadTab === 'chat'
+                    ? 'bg-[var(--scene-bg)] text-[var(--dashboard-text)] border border-[var(--dashboard-border)]'
+                    : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]'
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileThreadTab('context')}
+                className={`px-3 py-1 rounded-md text-[12px] font-medium transition-colors ${
+                  mobileThreadTab === 'context'
+                    ? 'bg-[var(--scene-bg)] text-[var(--dashboard-text)] border border-[var(--dashboard-border)]'
+                    : 'text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]'
+                }`}
+              >
+                Context
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isNarrow && (
+          <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b border-[var(--dashboard-border)]">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--dashboard-muted)] shrink-0">
+              Agent Sam
+            </span>
+            <span className="flex-1 text-[13px] font-semibold text-[var(--dashboard-text)] truncate min-w-0">
+              {threadTitle || 'Chat'}
+            </span>
+            {onOpenChatHistory && (
+              <button
+                type="button"
+                onClick={() => onOpenChatHistory()}
+                className="shrink-0 text-[0.6875rem] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] px-2 py-1.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+              >
+                Chats
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleNewChat}
+              className="shrink-0 text-[0.6875rem] font-semibold uppercase tracking-wide text-[var(--solar-cyan)] hover:brightness-110 px-2 py-1.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              New chat
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenCodeTab?.()}
+              title="Code editor"
+              aria-label="Open code editor"
+              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
+            >
+              <FileCode size={16} />
+            </button>
+            <button
+              type="button"
+              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
+              aria-label="More options"
+            >
+              <MoreHorizontal size={15} />
+            </button>
+          </div>
+        )}
+
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        {hubBodyVisible && (
+          <div className="order-1 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4">
+            {mobileHubTab === 'automations' ? (
+              <>
+                <h2 className="text-[16px] font-semibold text-[var(--text-heading)]">Automations and GitHub</h2>
+                <p className="text-[12px] text-[var(--dashboard-muted)] leading-relaxed">
+                  Open the full GitHub repository browser (same as the Deploy tab) to work in any connected repo, browse
+                  files, and open them in the editor.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onOpenGitHubIntegration?.()}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
+                >
+                  <FolderGit2 size={18} className="text-[var(--solar-cyan)]" />
+                  Open GitHub repos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.open('https://github.com/new', '_blank', 'noopener,noreferrer')}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
+                >
+                  <Zap size={18} className="text-[var(--solar-yellow)]" />
+                  Create new repository on GitHub
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="text-[16px] font-semibold text-[var(--text-heading)]">Workspace</h2>
+                <p className="text-[12px] text-[var(--dashboard-muted)] leading-relaxed">
+                  Return to the main editor, welcome screen, and tabs. Inner Animal Media themes from Settings still apply
+                  everywhere via your workspace <code className="text-[var(--solar-cyan)]">cms_themes</code> row.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onMobileOpenDashboard?.()}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
+                >
+                  <LayoutDashboard size={18} className="text-[var(--solar-cyan)]" />
+                  Open dashboard / editor
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {messagesVisible && (
+          <AgentMessageList
+            scrollRef={scrollRef}
+            showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
+            displayMessages={displayMessages}
+            isLoading={isLoading}
+            execPanel={execPanel}
+            setExecPanel={setExecPanel}
+            workspaceId={workspaceId ?? null}
+            workflowLedger={workflowLedger}
+            onFileSelect={onFileSelect}
+            onRunInTerminal={onRunInTerminal}
+          />
+        )}
+
+        {contextTabVisible && (
+          <div className="order-4 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4 border-t border-[var(--dashboard-border)]">
+            <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-4 space-y-3">
+              <h3 className="text-[12px] font-semibold text-[var(--text-heading)] uppercase tracking-wide">Editor</h3>
+              <p className="text-[12px] text-[var(--dashboard-muted)] font-mono break-all">
+                {activeFile ? getEditorDisplayPath(activeFile, activeFileName) : 'No file open'}
+              </p>
+              <button
+                type="button"
+                onClick={() => onOpenCodeTab?.()}
+                className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)]"
+              >
+                Open code editor
+              </button>
+            </div>
+            <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] p-4 space-y-3">
+              <h3 className="text-[12px] font-semibold text-[var(--text-heading)] uppercase tracking-wide">GitHub</h3>
+              <p className="text-[12px] text-[var(--dashboard-muted)]">
+                {githubRepoContext?.trim()
+                  ? `Selected repo: ${githubRepoContext}`
+                  : 'Pick a repository from the Agents home screen (repo button below the composer).'}
+              </p>
+              <button
+                type="button"
+                onClick={() => onOpenGitHubIntegration?.(githubRepoContext?.trim() ? { expandRepoFullName: githubRepoContext.trim() } : undefined)}
+                className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[13px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] flex items-center justify-center gap-2"
+              >
+                <GitBranch size={16} className="text-[var(--solar-cyan)]" />
+                Open GitHub browser
+              </button>
+              <button
+                type="button"
+                onClick={() => window.open('https://github.com/new', '_blank', 'noopener,noreferrer')}
+                className="w-full py-2.5 rounded-lg border border-[var(--dashboard-border)] text-[13px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] flex items-center justify-center gap-2"
+              >
+                <ExternalLink size={16} />
+                Create new repo on GitHub
+              </button>
+            </div>
+          </div>
+        )}
+
+        {composerVisible && (
+        <div
+          className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 bg-[var(--dashboard-panel)] border-t border-[var(--dashboard-border)] space-y-2`}
+          style={{
+            paddingBottom: isNarrow ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+          }}
+        >
+          {pendingToolApproval && (
+            <div
+              role="region"
+              aria-label="Tool approval"
+              className="rounded-lg border border-[var(--solar-cyan)]/35 bg-[var(--scene-bg)] p-3 space-y-2"
+            >
+              <div className="text-[0.6875rem] font-semibold text-[var(--text-heading)]">Tool approval required</div>
+              <div className="text-[0.6875rem] font-mono text-[var(--solar-cyan)]">{pendingToolApproval.tool.name}</div>
+              {pendingToolApproval.tool.preview ? (
+                <div className="text-[0.6875rem] text-[var(--dashboard-text)] whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+                  {pendingToolApproval.tool.preview}
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={approvalBusy}
+                  onClick={() => void handleApprovePendingTool()}
+                  className="px-3 py-1.5 rounded-lg text-[0.6875rem] font-semibold bg-[var(--solar-green)]/20 border border-[var(--solar-green)]/40 text-[var(--solar-green)] hover:bg-[var(--solar-green)]/30 disabled:opacity-50"
+                >
+                  {approvalBusy ? 'Running…' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  disabled={approvalBusy}
+                  onClick={handleDenyPendingTool}
+                  className="px-3 py-1.5 rounded-lg text-[0.6875rem] font-semibold bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] text-[var(--dashboard-muted)] hover:border-[var(--solar-red)]/50 hover:text-[var(--solar-red)] disabled:opacity-50"
+                >
+                  Deny
+                </button>
+              </div>
+            </div>
+          )}
+          {workflowLedger.runId ? (
+            <div className="px-3 py-1.5 text-[0.625rem] font-mono text-[var(--dashboard-muted)] border-b border-[var(--dashboard-border)]/60 bg-[var(--scene-bg)]/80">
+              Workflow{' '}
+              <span className="text-[var(--solar-cyan)]">{workflowLedger.runId.slice(0, 18)}</span>
+              {workflowLedger.stepsTotal != null
+                ? ` · steps ${workflowLedger.stepsCompleted}/${workflowLedger.stepsTotal}`
+                : ` · steps ${workflowLedger.stepsCompleted}`}
+              {workflowLedger.currentNodeKey ? ` · ${workflowLedger.currentNodeKey}` : ''}
+              {workflowLedger.runCost != null ? ` · $${workflowLedger.runCost.toFixed(4)}` : ''}
+              {workflowLedger.lastError ? ` · err: ${workflowLedger.lastError.slice(0, 120)}` : ''}
+            </div>
+          ) : null}
+          {browserElementContext ? (
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--solar-cyan)]/25 bg-[var(--scene-bg)] px-3 py-2 text-[0.6875rem]">
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-[var(--text-heading)]">BrowserView · selected element</div>
+                <div className="text-[var(--dashboard-muted)] truncate font-mono mt-0.5">
+                  &lt;{String(browserElementContext.tag || '?')}
+                  {String(browserElementContext.selector || '').slice(0, 120)}
+                  &gt;
+                </div>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
+                onClick={() => setBrowserElementContext(null)}
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
+          {attachments.length > 0 && (
+            <>
+              <div className="flex gap-2 overflow-x-auto pb-1 chat-hide-scroll">
+                {attachments.map((a) => (
+                  <div
+                    key={a.id}
+                    className="relative flex-shrink-0 flex items-center gap-2 bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-lg pl-1 pr-7 py-1"
+                  >
+                    {a.type === 'image' && a.previewUrl ? (
+                      <img
+                        src={a.previewUrl}
+                        alt=""
+                        className="w-12 h-12 rounded-md object-cover"
+                        style={{ width: 48, height: 48, borderRadius: 6 }}
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-md bg-[var(--dashboard-panel)] flex items-center justify-center border border-[var(--dashboard-border)]">
+                        <FileText size={18} className="text-[var(--dashboard-muted)]" />
+                      </div>
+                    )}
+                    {a.type === 'file' && (
+                      <div className="min-w-0 max-w-[140px]">
+                        <div className="text-[0.625rem] font-mono text-[var(--dashboard-text)] truncate">
+                          {a.file.name.length > 24 ? `${a.file.name.slice(0, 21)}...` : a.file.name}
+                        </div>
+                        <div className="text-[0.6875rem] text-[var(--dashboard-muted)]">{formatFileSize(a.file.size)}</div>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      aria-label="Remove attachment"
+                      className="absolute top-0.5 right-0.5 p-0.5 rounded text-[var(--dashboard-muted)] hover:text-[var(--solar-red)] hover:bg-[var(--bg-hover)]"
+                      onClick={() => removeAttachment(a.id)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.625rem] font-mono px-0.5 -mt-0.5 pb-0.5">
+                <span
+                  className={
+                    totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES ? 'text-[var(--solar-red)]' : 'text-[var(--dashboard-muted)]'
+                  }
+                >
+                  Total: {(totalStagedBytes / (1024 * 1024)).toFixed(2)} MB / {(CHAT_REQUEST_MAX_BYTES / (1024 * 1024)).toFixed(0)} MB
+                </span>
+                {totalStagedBytes > CHAT_ATTACH_MAX_TOTAL_BYTES ? (
+                  <span className="text-[var(--solar-red)]">
+                    Over {(CHAT_ATTACH_MAX_TOTAL_BYTES / (1024 * 1024)).toFixed(0)} MB combined — remove files before send
+                  </span>
+                ) : null}
+              </div>
+            </>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="*/*"
+            className="hidden"
+            onChange={(e) => {
+              addFilesFromList(e.target.files, false);
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={imageInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              addFilesFromList(e.target.files, true);
+              e.target.value = '';
+            }}
+          />
+
+          <div
+            className={`flex flex-col bg-[var(--scene-bg)] border rounded-xl transition-all shadow-inner overflow-visible ${
+              composerDragging
+                ? 'border-[var(--solar-cyan)]/70 ring-1 ring-[var(--solar-cyan)]/35'
+                : 'border-[var(--dashboard-border)] focus-within:border-[var(--solar-cyan)]/60'
+            }`}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              composerDragDepthRef.current += 1;
+              setComposerDragging(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              composerDragDepthRef.current = Math.max(0, composerDragDepthRef.current - 1);
+              if (composerDragDepthRef.current === 0) setComposerDragging(false);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'copy';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              composerDragDepthRef.current = 0;
+              setComposerDragging(false);
+              addFilesFromList(e.dataTransfer.files, false);
+            }}
+          >
+            <div className="flex items-end gap-1.5 px-2 pt-2 pb-2">
+              <button
+                type="button"
+                ref={attachButtonRef}
+                className="flex-shrink-0 p-2 text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] rounded-lg transition-all"
+                title={`Attach — model: ${selectedModelDisplayName}`}
+                onClick={() => {
+                  setAttachMenuOpen((o) => !o);
+                  setIsModeOpen(false);
+                  setIsModelPickerOpen(false);
+                }}
+              >
+                <Paperclip size={16} strokeWidth={2} />
+              </button>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={onKeyDown}
+                onSelect={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
+                onClick={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
+                placeholder="Message Agent Sam..."
+                rows={1}
+                className={`flex-1 min-w-0 bg-transparent px-1 py-2 focus:outline-none text-[var(--dashboard-text)] placeholder:text-[var(--text-placeholder-strong)] resize-none font-sans leading-relaxed rounded-lg ${
+                  isNarrow ? 'text-base' : 'text-[0.8125rem]'
+                }`}
+                style={{
+                  minHeight: '44px',
+                  maxHeight: isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+                }}
+              />
+              <button
+                type="button"
+                ref={modeButtonRef}
+                onClick={() => {
+                  if (mode === 'auto') {
+                    setIsModelPickerOpen((o) => !o);
+                    setIsModeOpen(false);
+                  } else {
+                    setIsModeOpen((o) => !o);
+                    setIsModelPickerOpen(false);
+                  }
+                  setAttachMenuOpen(false);
+                }}
+                className="flex-shrink-0 flex flex-col items-end justify-center gap-0 px-2 py-1 min-w-[4.5rem] text-[0.6875rem] font-sans font-bold tracking-tight text-[var(--solar-cyan)] hover:brightness-110 transition-all uppercase border border-[var(--dashboard-border)] rounded-lg leading-tight"
+              >
+                <span className="flex items-center gap-0.5">
+                  {modeLabel} <ChevronDown size={8} />
+                </span>
+                {mode === 'auto' ? (
+                  <span className="text-[0.5625rem] font-medium normal-case text-[var(--dashboard-muted)] truncate max-w-[7rem]">
+                    {selectedModelDisplayName}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isLoading) {
+                    abortControllerRef.current?.abort();
+                    streamReaderRef.current?.cancel().catch(() => {});
+                    setIsLoading(false);
+                  } else {
+                    handleSend();
+                  }
+                }}
+                disabled={!isLoading && !canSend}
+                className={`flex-shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-[0.6875rem] font-bold transition-all relative ${
+                  canSend || isLoading
+                    ? 'bg-[var(--solar-cyan)] text-[var(--solar-base03)] shadow-[0_0_16px_color-mix(in_srgb,var(--solar-cyan)_25%,transparent)] hover:brightness-110'
+                    : 'text-[var(--text-chrome-muted)] bg-[var(--bg-disabled)] cursor-not-allowed'
+                }`}
+                title={isLoading ? 'Stop' : 'Send'}
+              >
+                {isLoading ? (
+                  <>
+                    <X size={12} className="text-red-600" />
+                    {messageQueue.length > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold border border-[var(--dashboard-panel)]">
+                        {messageQueue.length}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <Send size={12} />
+                )}
+              </button>
+            </div>
+          </div>
+          {mobileAgentsThread && mobileThreadTab === 'chat' && (
+            <button
+              type="button"
+              onClick={() => setRepoDrawerOpen(true)}
+              className="flex w-full items-center gap-1.5 text-left text-[11px] text-[var(--dashboard-muted)] transition-colors hover:text-[var(--dashboard-text)] py-2 px-1 rounded-lg hover:bg-[var(--bg-hover)]"
+            >
+              <FolderGit2 size={14} className="shrink-0 text-[var(--solar-cyan)]" />
+              <span className="min-w-0 flex-1 truncate">
+                {githubRepoContext?.trim() || 'Select GitHub repository'}
+              </span>
+              <ChevronDown size={14} className="shrink-0 opacity-60" />
+            </button>
+          )}
+        </div>
+        )}
+
+        </div>
+
+      </div>
+
+      {repoDrawerOpen && (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[70] bg-[var(--text-main)]/50"
+            aria-label="Close repository picker"
+            onClick={() => setRepoDrawerOpen(false)}
+          />
+          <div className="fixed bottom-0 left-0 right-0 z-[80] flex max-h-[min(72dvh,520px)] flex-col rounded-t-2xl border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-[0_-8px_32px_color-mix(in_srgb,var(--text-main)_12%,transparent)]">
+            <div className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-[var(--dashboard-border)]" aria-hidden />
+            <div className="shrink-0 border-b border-[var(--dashboard-border)] px-4 py-3">
+              <h3 className="text-[14px] font-semibold text-[var(--dashboard-text)]">Repositories</h3>
+              <input
+                type="search"
+                value={repoSearch}
+                onChange={(e) => setRepoSearch(e.target.value)}
+                placeholder="Search repos"
+                className="mt-2 w-full rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] py-2 px-3 text-[13px] text-[var(--dashboard-text)] placeholder:text-[var(--text-placeholder-strong)] outline-none focus:border-[var(--solar-cyan)]"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto chat-hide-scroll p-2">
+              {!ghReposAuthed && !ghReposLoading ? (
+                <div className="space-y-3 px-2 py-6 text-center">
+                  <p className="text-[12px] text-[var(--dashboard-muted)]">Connect GitHub to list repositories.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = '/api/oauth/github/start?return_to=/dashboard/agent';
+                    }}
+                    className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-4 py-2 text-[12px] font-medium text-[var(--dashboard-text)]"
+                  >
+                    Connect GitHub
+                  </button>
+                </div>
+              ) : ghReposLoading ? (
+                <div className="flex justify-center py-8 text-[var(--dashboard-muted)]">
+                  <Loader2 className="animate-spin" size={24} />
+                </div>
+              ) : filteredGhRepos.length === 0 ? (
+                <p className="px-3 py-6 text-center text-[12px] text-[var(--dashboard-muted)]">No repositories match.</p>
+              ) : (
+                filteredGhRepos.map((repo) => {
+                  const full = String(repo.full_name || '');
+                  const selected = githubRepoContext === full;
+                  return (
+                    <div key={String(repo.id)} className="mb-1 flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            localStorage.setItem(LS_GH_REPO, full);
+                          } catch {
+                            /* ignore */
+                          }
+                          setGithubRepoContext(full);
+                          setRepoDrawerOpen(false);
+                        }}
+                        className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[var(--bg-hover)] ${
+                          selected ? 'bg-[var(--scene-bg)] ring-1 ring-[var(--solar-cyan)]/40' : ''
+                        }`}
+                      >
+                        <span className="truncate font-medium text-[var(--dashboard-text)]">{full}</span>
+                        {repo.default_branch ? (
+                          <span className="shrink-0 text-[10px] text-[var(--dashboard-muted)]">{repo.default_branch}</span>
+                        ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        title="Browse files in Deploy tab"
+                        onClick={() => {
+                          try {
+                            localStorage.setItem(LS_GH_REPO, full);
+                          } catch {
+                            /* ignore */
+                          }
+                          setGithubRepoContext(full);
+                          setRepoDrawerOpen(false);
+                          onOpenGitHubIntegration?.({ expandRepoFullName: full });
+                        }}
+                        className="shrink-0 rounded-lg border border-[var(--dashboard-border)] px-2 py-2 text-[11px] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
+                      >
+                        Files
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+              <button
+                type="button"
+                onClick={() => window.open('https://github.com/new', '_blank', 'noopener,noreferrer')}
+                className="mt-2 w-full rounded-lg border border-dashed border-[var(--dashboard-border)] py-3 text-[12px] font-medium text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--dashboard-text)]"
+              >
+                Create new repository on GitHub
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {typeof document !== 'undefined' &&
+        attachMenuOpen &&
+        attachMenuStyle &&
+        createPortal(
+          <div
+            className="bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl flex flex-col text-[0.6875rem] overflow-y-auto overflow-x-hidden py-1 min-w-0"
+            style={attachMenuStyle}
+            role="menu"
+          >
+            {[
+              { icon: FileText, label: 'Plan', slug: 'plan' },
+              { icon: Bug, label: 'Debug', slug: 'debug' },
+              { icon: Target, label: 'Ask', slug: 'ask' },
+              { icon: ImageIconLucide, label: 'Image', action: () => imageInputRef.current?.click() },
+              { icon: Zap, label: 'Skills', action: () => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } })) },
+              { icon: Layers, label: 'MCP Servers', action: () => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } })) },
+            ].map((item, i) => {
+              const Icon = item.icon || Paperclip;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  className="flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] transition-colors"
+                  onClick={() => {
+                    setAttachMenuOpen(false);
+                    if ('action' in item) item.action?.();
+                  }}
+                >
+                  <Icon size={14} className="text-[var(--dashboard-muted)] shrink-0" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+            <div className="border-t border-[var(--dashboard-border)] my-1 mx-2" role="separator" />
+            <button
+              type="button"
+              className="flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] transition-colors"
+              onClick={() => {
+                setAttachMenuOpen(false);
+                fileInputRef.current?.click();
+              }}
+            >
+              <Paperclip size={14} className="text-[var(--dashboard-muted)] shrink-0" />
+              <span>Upload File</span>
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)]"
+              onClick={() => {
+                setAttachMenuOpen(false);
+                const el = textareaRef.current;
+                if (!el) return;
+                const start = el.selectionStart;
+                const v = input.slice(0, start) + '@' + input.slice(start);
+                const pos = start + 1;
+                setInput(v);
+                requestAnimationFrame(() => {
+                  el.focus();
+                  el.setSelectionRange(pos, pos);
+                  syncPickers(v, pos);
+                });
+              }}
+            >
+              <AtSign size={14} className="text-[var(--dashboard-muted)] shrink-0" />
+              <span>Mention</span>
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)]"
+              onClick={() => {
+                setAttachMenuOpen(false);
+                const el = textareaRef.current;
+                if (!el) return;
+                const start = el.selectionStart;
+                const v = input.slice(0, start) + '/' + input.slice(start);
+                const pos = start + 1;
+                setInput(v);
+                requestAnimationFrame(() => {
+                  el.focus();
+                  el.setSelectionRange(pos, pos);
+                  syncPickers(v, pos);
+                });
+              }}
+            >
+              <Slash size={14} className="text-[var(--dashboard-muted)] shrink-0" />
+              <span>Command</span>
+            </button>
+            <div className="border-t border-[var(--dashboard-border)] my-1 mx-2" role="separator" />
+            <div className="px-3 py-1 text-[0.6875rem] uppercase tracking-wider text-[var(--dashboard-muted)]">
+              Models
+            </div>
+            {renderModelPickerList((mk) => {
+              setSelectedModelKey(mk);
+              setAttachMenuOpen(false);
+            })}
+          </div>,
+          document.body
+        )}
+
+      {typeof document !== 'undefined' &&
+        isModelPickerOpen &&
+        modelPickerStyle &&
+        createPortal(
+          <div
+            className="flex max-h-[min(360px,calc(100dvh-6rem))] min-w-0 flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] py-1 text-[0.6875rem] shadow-2xl"
+            style={modelPickerStyle}
+            role="listbox"
+            aria-label="Model picker"
+          >
+            <div className="border-b border-[var(--dashboard-border)]/70 px-3 py-2 text-[9px] font-black uppercase tracking-[0.15em] text-[var(--dashboard-muted)]">
+              Models — this chat only
+            </div>
+            {renderModelPickerList((mk) => {
+              setSelectedModelKey(mk);
+              setIsModelPickerOpen(false);
+            })}
+            <div className="mt-1 border-t border-[var(--dashboard-border)] px-2 py-1.5">
+              <button
+                type="button"
+                className="w-full rounded-lg px-2 py-1.5 text-left text-[10px] text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)] hover:text-[var(--dashboard-text)]"
+                onClick={() => {
+                  setIsModelPickerOpen(false);
+                  setIsModeOpen(true);
+                }}
+              >
+                Change conversation mode…
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {typeof document !== 'undefined' &&
+        isModeOpen &&
+        modeMenuStyle &&
+        createPortal(
+          <div
+            className="bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl p-1 flex flex-col text-[0.6875rem] overflow-y-auto overflow-x-hidden min-w-0"
+            style={modeMenuStyle}
+          >
+            {modes.map((m) => (
+              <button
+                key={m.slug}
+                type="button"
+                className={`px-3 py-1.5 text-left hover:bg-[var(--dashboard-panel)] cursor-pointer rounded-lg transition-colors ${
+                  mode === m.slug ? 'text-[var(--solar-cyan)] bg-[var(--dashboard-panel)]' : 'text-[var(--dashboard-muted)]'
+                }`}
+                onClick={() => {
+                  setMode(m.slug);
+                  setIsModeOpen(false);
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+
+      {typeof document !== 'undefined' &&
+        mentionOpen &&
+        mentionStyle &&
+        mentionItems.length > 0 &&
+        createPortal(
+          <div
+            className="bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl flex flex-col text-[0.6875rem] overflow-y-auto overflow-x-hidden p-1 min-w-0"
+            style={mentionStyle}
+          >
+            {mentionItems.map((it, i) => (
+              <button
+                key={it.id}
+                type="button"
+                className={`px-3 py-1.5 text-left rounded-lg truncate ${
+                  i === mentionIndex ? 'bg-[var(--dashboard-panel)] text-[var(--solar-cyan)]' : 'text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)]'
+                }`}
+                onMouseEnter={() => setMentionIndex(i)}
+                onClick={() => applyMention(it)}
+              >
+                <span className="text-[0.6875rem] uppercase text-[var(--dashboard-muted)] mr-2">{it.kind}</span>
+                {it.label}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+
+      {typeof document !== 'undefined' &&
+        slashOpen &&
+        slashStyle &&
+        slashItems.length > 0 &&
+        createPortal(
+          <div
+            className="bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl flex flex-col text-[0.6875rem] overflow-y-auto overflow-x-hidden p-1 max-w-[min(320px,calc(100vw-2rem))] min-w-0"
+            style={slashStyle}
+          >
+            {slashItems.map((c, i) => (
+              <button
+                key={c.slug}
+                type="button"
+                className={`px-3 py-1.5 text-left rounded-lg ${
+                  i === slashIndex ? 'bg-[var(--dashboard-panel)] text-[var(--solar-cyan)]' : 'text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)]'
+                }`}
+                onMouseEnter={() => setSlashIndex(i)}
+                onClick={() => applySlash(c)}
+              >
+                <div className="font-mono font-bold">/{c.slug}</div>
+                {c.description && (
+                  <div className="text-[0.625rem] text-[var(--dashboard-muted)] truncate">{c.description}</div>
+                )}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
+  );
+};
+
+export {
+  normalizeAssistantSseText,
+  looksLikeRawProviderLeak,
+  ssePayloadLooksReasoningOnly,
+  isStreamErrorPayload,
+  extractMonacoInvokesFromBuffer,
+  hideIncompleteMonacoInvokeTail,
+  looksLikeEmbeddedFileDumpStart,
+  formatHttpErrorMessage,
+} from './streamParsing';
