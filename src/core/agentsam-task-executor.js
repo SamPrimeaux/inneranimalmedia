@@ -8,11 +8,22 @@ import { dispatchComplete } from './provider.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { executeCommand, completeCommand } from '../api/command-run-telemetry.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
+import { pragmaTableInfo } from './retention.js';
+import { insertPlanExecutionStep, resolvePlanTaskCapabilityType } from './agentsam-planner.js';
+import { scheduleMirrorAgentChatPlanToSupabase } from './agentsam-plan-supabase-public-sync.js';
 
 const TASK_AGENT_SYSTEM = `You are Agent Sam executing a specific task. Complete it thoroughly and concisely. Return your result as plain text.`;
 
-/** Shell text to run after authorization (handler_key may hold agentsam_commands id). */
+/** Shell text to run after authorization (quality_gate.proposed_shell, cmd:, agentsam_commands id, or description). */
 function shellCommandForTerminalTask(task) {
+  try {
+    const qg = JSON.parse(String(task.quality_gate_json || '{}'));
+    if (qg.proposed_shell && String(qg.proposed_shell).trim()) {
+      return String(qg.proposed_shell).trim().slice(0, 4000);
+    }
+  } catch {
+    /* ignore */
+  }
   const hk = task.handler_key != null ? String(task.handler_key).trim() : '';
   const desc = String(task.description || '').trim();
   if (hk.startsWith('cmd:')) return desc.slice(0, 4000);
@@ -36,13 +47,15 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
   if (!ws) return { ok: false };
 
   let tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
-  if (!tid) {
-    const prow = await env.DB
-      .prepare(`SELECT tenant_id FROM agentsam_plans WHERE id = ? LIMIT 1`)
-      .bind(planId)
-      .first()
-      .catch(() => null);
-    tid = prow?.tenant_id != null ? String(prow.tenant_id).trim() : null;
+  let workflowRunId = null;
+  const prow = await env.DB
+    .prepare(`SELECT tenant_id, workflow_run_id FROM agentsam_plans WHERE id = ? LIMIT 1`)
+    .bind(planId)
+    .first()
+    .catch(() => null);
+  if (!tid && prow?.tenant_id != null) tid = String(prow.tenant_id).trim();
+  if (prow?.workflow_run_id != null && String(prow.workflow_run_id).trim() !== '') {
+    workflowRunId = String(prow.workflow_run_id).trim();
   }
   if (!tid) tid = 'tenant_sam_primeaux';
 
@@ -65,11 +78,6 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
       .first()
       .catch(() => null);
     if (run && String(run.approval_status || '').toLowerCase() === 'pending_approval' && q?.id) {
-      const input = JSON.stringify({
-        command_text: cmd.slice(0, 4000),
-        plan_task_id: task.id,
-        plan_id: planId,
-      });
       emit('approval_required', {
         task_id: task.id,
         command_run_id: existingCrid,
@@ -79,6 +87,8 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
         risk_level: 'high',
         action_summary: `Plan terminal task needs explicit approval before execution.`,
         plan_id: planId,
+        workflow_run_id: workflowRunId,
+        execution_step_id: task.execution_step_id != null ? String(task.execution_step_id) : undefined,
       });
       return { ok: true, reused: true, command_run_id: existingCrid, approval_id: String(q.id) };
     }
@@ -88,13 +98,36 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
   const approvalId = 'appr_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const commandsJson = JSON.stringify([{ proposed_shell: cmd.slice(0, 4000), source: 'plan_terminal', plan_task_id: task.id }]);
   const userInput = String(task.title || 'Plan terminal').slice(0, 2000);
-  const inputJson = JSON.stringify({
-    command_text: cmd.slice(0, 4000),
-    plan_task_id: task.id,
-    plan_id: planId,
-  });
+
+  let estepId = task.execution_step_id != null ? String(task.execution_step_id).trim() : '';
+  const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
+  const apprCols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+  const planTaskCols = await pragmaTableInfo(env.DB, 'agentsam_plan_tasks');
 
   try {
+    if (!estepId && workflowRunId) {
+      estepId =
+        (await insertPlanExecutionStep(env, stepCols, {
+          workflowRunId,
+          nodeKey: `plan_terminal_dynamic_${String(task.id || 'task').slice(0, 40)}`,
+          nodeType: 'terminal',
+          inputObj: { plan_task_id: task.id, plan_id: planId, source: 'plan_terminal_dynamic' },
+        })) || '';
+      if (estepId && planTaskCols.has('execution_step_id')) {
+        await env.DB
+          .prepare(`UPDATE agentsam_plan_tasks SET execution_step_id = ? WHERE id = ?`)
+          .bind(estepId, task.id)
+          .run();
+      }
+    }
+
+    const inputJson = JSON.stringify({
+      command_text: cmd.slice(0, 4000),
+      plan_task_id: task.id,
+      plan_id: planId,
+      execution_step_id: estepId || null,
+    });
+
     await env.DB
       .prepare(
         `INSERT INTO agentsam_command_run
@@ -135,37 +168,54 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
       )
       .run();
 
+    const ac = [
+      'id',
+      'tenant_id',
+      'workspace_id',
+      'user_id',
+      'session_id',
+      'plan_id',
+    ];
+    const ab = [approvalId, tid, ws, canonicalUser, sessionId || null, planId];
+    if (apprCols.has('workflow_run_id') && workflowRunId) {
+      ac.push('workflow_run_id');
+      ab.push(workflowRunId);
+    }
+    ac.push('command_run_id');
+    ab.push(runId);
+    if (apprCols.has('execution_step_id') && estepId) {
+      ac.push('execution_step_id');
+      ab.push(estepId);
+    }
+    ac.push('tool_name', 'action_summary', 'input_json', 'risk_level', 'status', 'expires_at');
+    ab.push(
+      'terminal.plan_task',
+      `Approve shell for plan task: ${String(task.title || '').slice(0, 200)}`,
+      inputJson,
+      'high',
+      'pending',
+      null,
+    );
+    const apprPh = ac.map(() => '?').join(', ');
     await env.DB
-      .prepare(
-        `INSERT INTO agentsam_approval_queue
-          (id, tenant_id, workspace_id, user_id, session_id, plan_id, command_run_id,
-           tool_name, action_summary, input_json, risk_level, status, expires_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?, 'pending', unixepoch() + 3600)`,
-      )
-      .bind(
-        approvalId,
-        tid,
-        ws,
-        canonicalUser,
-        sessionId || null,
-        planId,
-        runId,
-        'terminal.plan_task',
-        `Approve shell for plan task: ${String(task.title || '').slice(0, 200)}`,
-        inputJson,
-        'high',
-      )
+      .prepare(`INSERT INTO agentsam_approval_queue (${ac.join(', ')}) VALUES (${apprPh})`)
+      .bind(...ab)
       .run();
+
+    if (estepId) {
+      await env.DB
+        .prepare(
+          `UPDATE agentsam_execution_steps SET approval_id = ?, status = 'approval_pending' WHERE id = ?`,
+        )
+        .bind(approvalId, estepId)
+        .run();
+    }
 
     await env.DB
       .prepare(
-        `UPDATE agentsam_plan_tasks SET command_run_id = ?, output_summary = ?, status = 'skipped', completed_at = unixepoch() WHERE id = ?`,
+        `UPDATE agentsam_plan_tasks SET command_run_id = ?, output_summary = ?, status = 'todo' WHERE id = ?`,
       )
-      .bind(
-        runId,
-        '[terminal] Awaiting explicit approval (Allow) before execution.',
-        task.id,
-      )
+      .bind(runId, '[terminal] Awaiting explicit approval (Allow) before execution.', task.id)
       .run();
 
     emit('approval_required', {
@@ -177,6 +227,8 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
       risk_level: 'high',
       action_summary: `Plan terminal task needs explicit approval before execution.`,
       plan_id: planId,
+      workflow_run_id: workflowRunId,
+      execution_step_id: estepId || (task.execution_step_id != null ? String(task.execution_step_id) : undefined),
     });
 
     return { ok: true, created: true, command_run_id: runId, approval_id: approvalId };
@@ -187,11 +239,52 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
 }
 
 /**
+ * Approval queue is the source of truth when execution_step_id is present on the plan task.
  * @param {any} env
  * @param {string} commandRunId
- * @returns {Promise<boolean>}
+ * @param {string} executionStepId
  */
-async function isCommandRunApprovedForTerminal(env, commandRunId) {
+async function approvalQueueApprovedForCommandRun(env, commandRunId, executionStepId) {
+  const cr = String(commandRunId || '').trim();
+  const es = executionStepId != null ? String(executionStepId).trim() : '';
+  if (!cr || !env.DB) return false;
+  const qcols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+  try {
+    if (es && qcols.has('execution_step_id')) {
+      const row = await env.DB
+        .prepare(
+          `SELECT id FROM agentsam_approval_queue
+           WHERE command_run_id = ? AND execution_step_id = ?
+             AND lower(status) = 'approved'
+             AND (expires_at IS NULL OR expires_at > unixepoch())
+           LIMIT 1`,
+        )
+        .bind(cr, es)
+        .first();
+      return !!row?.id;
+    }
+    const row = await env.DB
+      .prepare(
+        `SELECT id FROM agentsam_approval_queue
+         WHERE command_run_id = ?
+           AND lower(status) = 'approved'
+           AND (expires_at IS NULL OR expires_at > unixepoch())
+         LIMIT 1`,
+      )
+      .bind(cr)
+      .first();
+    return !!row?.id;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} commandRunId
+ * @param {Record<string, unknown>|null} task
+ */
+async function isCommandRunApprovedForTerminal(env, commandRunId, task = null) {
   const id = String(commandRunId || '').trim();
   if (!id || !env.DB) return false;
   const run = await env.DB
@@ -202,21 +295,14 @@ async function isCommandRunApprovedForTerminal(env, commandRunId) {
   if (!run) return false;
 
   const st = run.approval_status != null ? String(run.approval_status).toLowerCase().trim() : '';
-  // Direct approval on the run row (e.g. post-approve sync). Never treat not_required as user consent for planner shell.
+  const esid = task?.execution_step_id != null ? String(task.execution_step_id).trim() : '';
+  if (esid) {
+    return approvalQueueApprovedForCommandRun(env, id, esid);
+  }
   if (st === 'approved') return true;
 
   try {
-    const q = await env.DB
-      .prepare(
-        `SELECT id FROM agentsam_approval_queue
-         WHERE command_run_id = ?
-           AND lower(status) = 'approved'
-           AND (expires_at IS NULL OR expires_at > unixepoch())
-         LIMIT 1`,
-      )
-      .bind(id)
-      .first();
-    return !!q?.id;
+    return await approvalQueueApprovedForCommandRun(env, id, '');
   } catch {
     return false;
   }
@@ -238,8 +324,14 @@ async function authorizePlanTerminalExecution(env, ctx, p) {
       : { waitUntil: (fn) => void Promise.resolve(typeof fn === 'function' ? fn() : fn).catch(() => {}) };
 
   const crid = task.command_run_id != null ? String(task.command_run_id).trim() : '';
-  if (crid && (await isCommandRunApprovedForTerminal(env, crid))) {
-    return { allowed: true, via: 'approved_command_run', command_run_id: crid, chain_id: null, commandId: null };
+  if (crid && (await isCommandRunApprovedForTerminal(env, crid, task))) {
+    return {
+      allowed: true,
+      via: task.execution_step_id ? 'approval_queue' : 'approved_command_run',
+      command_run_id: crid,
+      chain_id: null,
+      commandId: null,
+    };
   }
 
   let commandId = '';
@@ -309,6 +401,14 @@ async function authorizePlanTerminalExecution(env, ctx, p) {
         '[terminal] NOT EXECUTED: command requires human approval (executeCommand returned pending_approval). Click Allow on the approval card, then run resume for this task.',
     };
   }
+  if (execOut.status === 'running' && task.execution_step_id) {
+    return {
+      allowed: false,
+      reason: 'planner_requires_explicit_queue',
+      userMessage:
+        '[terminal] NOT EXECUTED: planner-linked tasks require an approved agentsam_approval_queue row (not catalog auto-run).',
+    };
+  }
 
   return {
     allowed: true,
@@ -321,13 +421,71 @@ async function authorizePlanTerminalExecution(env, ctx, p) {
   };
 }
 
+async function patchPlanExecutionStep(env, task, status, extra = {}) {
+  const eid = task?.execution_step_id != null ? String(task.execution_step_id).trim() : '';
+  if (!eid || !env?.DB) return;
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
+  const sets = [];
+  const binds = [];
+  if (cols.has('status')) {
+    sets.push('status = ?');
+    binds.push(status);
+  }
+  if (extra.outputJson != null && cols.has('output_json')) {
+    sets.push('output_json = ?');
+    binds.push(String(extra.outputJson).slice(0, 16000));
+  }
+  if (extra.errorJson != null && cols.has('error_json')) {
+    sets.push('error_json = ?');
+    binds.push(String(extra.errorJson).slice(0, 16000));
+  }
+  if (extra.latencyMs != null && cols.has('latency_ms')) {
+    sets.push('latency_ms = ?');
+    binds.push(extra.latencyMs);
+  }
+  if (!extra.skipCompleted && cols.has('completed_at')) {
+    sets.push('completed_at = unixepoch()');
+  }
+  if (!sets.length) return;
+  binds.push(eid);
+  await env.DB
+    .prepare(`UPDATE agentsam_execution_steps SET ${sets.join(', ')} WHERE id = ?`)
+    .bind(...binds)
+    .run()
+    .catch(() => {});
+}
+
 export async function executePlan(
   env,
-  { planId, userId, workspaceId, tenantId, emit, ctx = null, onlyTaskId = null, sessionId = null, skipPlanAggregate = false },
+  {
+    planId,
+    userId,
+    workspaceId,
+    tenantId,
+    emit,
+    ctx = null,
+    onlyTaskId = null,
+    sessionId = null,
+    skipPlanAggregate = false,
+    workflowRunId = null,
+  },
 ) {
   if (!env.DB) {
     emit('text', { text: '[Agent Sam] Database is not available; plan tasks were not executed.' });
     return;
+  }
+
+  const wfStarted = Date.now();
+  let wfRun = workflowRunId != null && String(workflowRunId).trim() !== '' ? String(workflowRunId).trim() : null;
+  if (!wfRun) {
+    const pr = await env.DB
+      .prepare(`SELECT workflow_run_id FROM agentsam_plans WHERE id = ? LIMIT 1`)
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    if (pr?.workflow_run_id != null && String(pr.workflow_run_id).trim() !== '') {
+      wfRun = String(pr.workflow_run_id).trim();
+    }
   }
 
   let taskSql = `SELECT * FROM agentsam_plan_tasks
@@ -353,12 +511,16 @@ export async function executePlan(
   let skipped = 0;
 
   for (const task of tasks || []) {
+    const capForStart = resolvePlanTaskCapabilityType(task);
     emit('task_start', {
       task_id: task.id,
       title: task.title,
       description: task.description,
       order_index: task.order_index,
       handler_type: task.handler_type,
+      capability_type: capForStart,
+      execution_step_id: task.execution_step_id,
+      command_run_id: task.command_run_id,
       total_tasks: tasks.length,
     });
 
@@ -367,10 +529,271 @@ export async function executePlan(
       .bind(task.id)
       .run();
 
+    await patchPlanExecutionStep(env, task, 'running', { skipCompleted: true });
+
     let output = null;
     let ok = true;
 
+    const cap = resolvePlanTaskCapabilityType(task);
+    const isPlaywrightScript = task.handler_type === 'script' && cap === 'playwright_validation';
+    const terminalLike = task.handler_type === 'terminal' || isPlaywrightScript;
+
     try {
+      if (cap === 'browser_capture') {
+        const base = String(env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
+        let routes = [];
+        try {
+          routes = JSON.parse(String(task.routes_involved || '[]'));
+        } catch {
+          routes = [];
+        }
+        const r0 = Array.isArray(routes) && routes[0] ? String(routes[0]).trim() : '';
+        const urlMatch = String(task.description || '').match(/https?:\/\/[^\s"'<>)]+/i);
+        const explicit = urlMatch ? urlMatch[0].replace(/[.,;]+$/, '') : '';
+        const url =
+          explicit || (r0.startsWith('http') ? r0 : r0 ? `${base}${r0.startsWith('/') ? '' : '/'}${r0}` : '');
+        if (!url || !wfRun) {
+          const msg =
+            '[browser_capture] Missing target URL or workflow run id. Add routes_involved (e.g. ["/dashboard/agent"]) or an https URL in the task description.';
+          await env.DB
+            .prepare(
+              `UPDATE agentsam_plan_tasks SET status='blocked', error_trace=?, completed_at=unixepoch() WHERE id=?`,
+            )
+            .bind(msg.slice(0, 2000), task.id)
+            .run();
+          failed++;
+          emit('task_complete', {
+            task_id: task.id,
+            title: task.title,
+            status: 'failed',
+            error: msg,
+            order_index: task.order_index,
+          });
+          await patchPlanExecutionStep(env, task, 'failed', {
+            outputJson: JSON.stringify({ capability_type: cap, error: msg }),
+            errorJson: JSON.stringify({ error: msg }),
+          });
+          continue;
+        }
+        const { runBrowserCapabilityAction } = await import('./workspace-capability-actions/browser.js');
+        const br = await runBrowserCapabilityAction({
+          env,
+          runId: wfRun,
+          tenantId: tenantId || 'tenant_sam_primeaux',
+          workspaceId: workspaceId || '',
+          userId: userId || '',
+          message: `${task.title}\n${task.description || ''}`,
+          browserContext: { url },
+          emit,
+        });
+        const bout = br?.output && typeof br.output === 'object' ? br.output : {};
+        const screenshotUrl =
+          bout.screenshot_url != null
+            ? String(bout.screenshot_url)
+            : bout.screenshot?.screenshot_url != null
+              ? String(bout.screenshot.screenshot_url)
+              : null;
+        const domSummary =
+          typeof bout.content_excerpt === 'string'
+            ? bout.content_excerpt.slice(0, 12000)
+            : typeof bout.title === 'string'
+              ? bout.title.slice(0, 2000)
+              : null;
+        const consoleErrors = Array.isArray(bout.console_errors)
+          ? bout.console_errors
+          : Array.isArray(bout.console)
+            ? bout.console
+            : [];
+        const summaryText = br?.ok
+          ? `[browser_capture] ${url}\nScreenshot: ${screenshotUrl || 'n/a'}\nDOM excerpt length: ${domSummary ? domSummary.length : 0}`
+          : `[browser_capture] failed: ${String(br?.error || 'unknown')}`;
+        await env.DB
+          .prepare(
+            `UPDATE agentsam_plan_tasks SET status=?, completed_at=unixepoch(), output_summary=? WHERE id=?`,
+          )
+          .bind(br?.ok ? 'done' : 'blocked', String(summaryText).slice(0, 4000), task.id)
+          .run();
+        if (br?.ok) {
+          completed++;
+          emit('task_complete', {
+            task_id: task.id,
+            title: task.title,
+            status: 'done',
+            output: String(summaryText).slice(0, 2000),
+            order_index: task.order_index,
+          });
+          await patchPlanExecutionStep(env, task, 'success', {
+            outputJson: JSON.stringify({
+              capability_type: cap,
+              screenshot_url: screenshotUrl,
+              dom_summary: domSummary,
+              console_errors: consoleErrors,
+              artifact_pointer: screenshotUrl,
+              url,
+            }),
+            latencyMs: null,
+          });
+        } else {
+          failed++;
+          emit('task_complete', {
+            task_id: task.id,
+            title: task.title,
+            status: 'failed',
+            error: String(br?.error || 'browser_capture_failed').slice(0, 2000),
+            order_index: task.order_index,
+          });
+          await patchPlanExecutionStep(env, task, 'failed', {
+            outputJson: JSON.stringify({ capability_type: cap, error: String(br?.error || '') }),
+            errorJson: JSON.stringify({ error: String(br?.error || '') }),
+          });
+        }
+        continue;
+      }
+
+      if (cap === 'excalidraw_diagram') {
+        if (!wfRun) {
+          skipped++;
+          emit('task_complete', {
+            task_id: task.id,
+            title: task.title,
+            status: 'skipped',
+            output: '[excalidraw_diagram] workflow_run_id missing',
+            order_index: task.order_index,
+          });
+          continue;
+        }
+        const { runExcalidrawCapabilityAction } = await import('./workspace-capability-actions/excalidraw.js');
+        const xr = await runExcalidrawCapabilityAction({
+          env,
+          runId: wfRun,
+          tenantId: tenantId || 'tenant_sam_primeaux',
+          workspaceId: workspaceId || '',
+          userId: userId || '',
+          message: `${task.title}\n${task.description || ''}`,
+          emit,
+        });
+        const scene = xr?.output?.scene ?? null;
+        const summaryText = xr?.ok
+          ? `[excalidraw_diagram] scene elements: ${scene?.elements?.length ?? 0}`
+          : `[excalidraw_diagram] failed: ${String(xr?.error || 'unknown')}`;
+        await env.DB
+          .prepare(
+            `UPDATE agentsam_plan_tasks SET status=?, completed_at=unixepoch(), output_summary=? WHERE id=?`,
+          )
+          .bind(xr?.ok ? 'done' : 'blocked', String(summaryText).slice(0, 4000), task.id)
+          .run();
+        if (xr?.ok) {
+          completed++;
+          emit('task_complete', {
+            task_id: task.id,
+            title: task.title,
+            status: 'done',
+            output: String(summaryText).slice(0, 2000),
+            order_index: task.order_index,
+          });
+          await patchPlanExecutionStep(env, task, 'success', {
+            outputJson: JSON.stringify({
+              capability_type: cap,
+              diagram_json: scene,
+              artifact_pointer: scene ? 'inline:excalidraw_scene' : null,
+            }),
+          });
+        } else {
+          failed++;
+          emit('task_complete', {
+            task_id: task.id,
+            title: task.title,
+            status: 'failed',
+            error: String(xr?.error || '').slice(0, 2000),
+            order_index: task.order_index,
+          });
+          await patchPlanExecutionStep(env, task, 'failed', {
+            outputJson: JSON.stringify({ capability_type: cap, error: String(xr?.error || '') }),
+            errorJson: JSON.stringify({ error: String(xr?.error || '') }),
+          });
+        }
+        continue;
+      }
+
+      if (
+        cap === 'monaco_edit' &&
+        (task.handler_type === 'agent' ||
+          !task.handler_type ||
+          (task.handler_type === 'mcp_tool' && String(task.handler_key || '').startsWith('cap:')))
+      ) {
+        const filesJson = String(task.files_involved || '[]');
+        const monacoSys = `You are Agent Sam producing a safe Monaco / file-edit PLAN only (no writes).
+Return ONLY valid JSON:
+{"patch_summary":"one paragraph","unified_diff_preview":"optional short unified diff or empty","files_touched":["path"],"notes":"preview-only; apply requires approval-backed path"}`;
+        const result = await dispatchComplete(env, {
+          modelKey: 'gpt-5.4-mini',
+          taskType: 'code',
+          mode: 'agent',
+          systemPrompt: monacoSys,
+          messages: [
+            {
+              role: 'user',
+              content: `Task: ${task.title}\nFiles context (JSON): ${filesJson.slice(0, 6000)}\n\n${task.description || ''}`,
+            },
+          ],
+          options: { reasoningEffort: 'medium', verbosity: 'low' },
+        });
+        const raw = result?.text || result?.output_text || '';
+        let parsedMonaco = null;
+        try {
+          const clean = raw.replace(/```json|```/g, '').trim();
+          parsedMonaco = JSON.parse(clean);
+        } catch {
+          parsedMonaco = { patch_summary: raw.slice(0, 4000), unified_diff_preview: '', files_touched: [] };
+        }
+        const filesTouched = Array.isArray(parsedMonaco?.files_touched)
+          ? parsedMonaco.files_touched.map((x) => String(x)).filter(Boolean)
+          : [];
+        const mergedFiles = filesTouched.length ? filesTouched : [];
+        try {
+          const existing = JSON.parse(String(task.files_involved || '[]'));
+          if (Array.isArray(existing) && existing.length) {
+            for (const f of existing) {
+              const s = String(f).trim();
+              if (s && !mergedFiles.includes(s)) mergedFiles.push(s);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+        if (mergedFiles.length) {
+          await env.DB
+            .prepare(`UPDATE agentsam_plan_tasks SET files_involved = ? WHERE id = ?`)
+            .bind(JSON.stringify(mergedFiles), task.id)
+            .run()
+            .catch(() => {});
+        }
+        output = raw;
+        await env.DB
+          .prepare(
+            `UPDATE agentsam_plan_tasks SET status='done', completed_at=unixepoch(), output_summary=? WHERE id=?`,
+          )
+          .bind(String(parsedMonaco?.patch_summary || raw).slice(0, 4000), task.id)
+          .run();
+        completed++;
+        emit('task_complete', {
+          task_id: task.id,
+          title: task.title,
+          status: 'done',
+          output: String(parsedMonaco?.patch_summary || raw).slice(0, 2000),
+          order_index: task.order_index,
+        });
+        await patchPlanExecutionStep(env, task, 'success', {
+          outputJson: JSON.stringify({
+            capability_type: cap,
+            patch_intent: parsedMonaco,
+            files_involved: mergedFiles,
+            apply_policy: 'preview_only',
+          }),
+        });
+        continue;
+      }
+
       if (task.handler_type === 'agent' || !task.handler_type) {
         const result = await dispatchComplete(env, {
           modelKey: 'auto',
@@ -386,7 +809,7 @@ export async function executePlan(
           options: { reasoningEffort: 'medium', verbosity: 'low' },
         });
         output = result?.text || result?.output_text || '';
-      } else if (task.handler_type === 'terminal') {
+      } else if (terminalLike) {
         const cmd = shellCommandForTerminalTask(task).trim();
 
         const stubCtx =
@@ -439,6 +862,15 @@ export async function executePlan(
             });
             if (prop?.ok) {
               skipped++;
+              await env.DB
+                .prepare(
+                  `UPDATE agentsam_plan_tasks SET status='todo', started_at=NULL, completed_at=NULL,
+                   output_summary = CASE WHEN trim(coalesce(output_summary,'')) = '' THEN ? ELSE output_summary END WHERE id=?`,
+                )
+                .bind('[terminal] Awaiting explicit approval — use Allow, then resume this task.', task.id)
+                .run()
+                .catch(() => {});
+              await patchPlanExecutionStep(env, task, 'approval_pending', { skipCompleted: true });
               emit('task_complete', {
                 task_id: task.id,
                 title: task.title,
@@ -483,6 +915,8 @@ export async function executePlan(
               risk_level: 'medium',
               action_summary: 'Approve catalog-linked terminal command before execution.',
               plan_id: planId,
+              workflow_run_id: wfRun || undefined,
+              execution_step_id: task.execution_step_id != null ? String(task.execution_step_id) : undefined,
             });
             emit('task_complete', {
               task_id: task.id,
@@ -574,6 +1008,9 @@ export async function executePlan(
             error: String(output || '').slice(0, 2000),
             order_index: task.order_index,
           });
+          await patchPlanExecutionStep(env, task, 'failed', {
+            outputJson: JSON.stringify({ error: String(output || '').slice(0, 2000) }),
+          });
           continue;
         }
 
@@ -594,8 +1031,57 @@ export async function executePlan(
           output: String(output || '').slice(0, 2000),
           order_index: task.order_index,
         });
+        await patchPlanExecutionStep(env, task, 'success', {
+          outputJson: JSON.stringify({
+            terminal: true,
+            preview: String(http.text || '').slice(0, 4000),
+          }),
+          latencyMs: durationMs,
+        });
         continue;
       } else if (task.handler_type === 'db_query') {
+        const crDb = task.command_run_id != null ? String(task.command_run_id).trim() : '';
+        const esDb = task.execution_step_id != null ? String(task.execution_step_id).trim() : '';
+        if (crDb && esDb) {
+          const okApr = await isCommandRunApprovedForTerminal(env, crDb, task);
+          if (!okApr) {
+            skipped++;
+            const qDb = await env.DB
+              .prepare(
+                `SELECT id FROM agentsam_approval_queue WHERE command_run_id = ? AND lower(status) = 'pending' LIMIT 1`,
+              )
+              .bind(crDb)
+              .first()
+              .catch(() => null);
+            await env.DB
+              .prepare(
+                `UPDATE agentsam_plan_tasks SET status='todo', output_summary = ? WHERE id = ?`,
+              )
+              .bind('[db_query] Awaiting approval for linked command_run before execution.', task.id)
+              .run();
+            emit('approval_required', {
+              task_id: task.id,
+              command_run_id: crDb,
+              approval_id: qDb?.id != null ? String(qDb.id) : undefined,
+              title: String(task.title || 'Database'),
+              command_preview: String(task.description || '').slice(0, 2000),
+              risk_level: 'high',
+              action_summary: 'Approve risky db_query plan task before execution.',
+              plan_id: planId,
+              workflow_run_id: wfRun || undefined,
+              execution_step_id: task.execution_step_id != null ? String(task.execution_step_id) : undefined,
+            });
+            emit('task_complete', {
+              task_id: task.id,
+              title: task.title,
+              status: 'skipped',
+              output: '[db_query] Awaiting approval — click **Allow**, then resume this task.',
+              order_index: task.order_index,
+            });
+            await patchPlanExecutionStep(env, task, 'approval_pending', { skipCompleted: true });
+            continue;
+          }
+        }
         const result = await dispatchComplete(env, {
           modelKey: 'gpt-5.4-nano',
           systemPrompt:
@@ -661,6 +1147,9 @@ export async function executePlan(
           output: String(output || '').slice(0, 2000),
           order_index: task.order_index,
         });
+        await patchPlanExecutionStep(env, task, 'success', {
+          outputJson: JSON.stringify({ summary: String(output || '').slice(0, 4000) }),
+        });
       } else {
         failed++;
         const errMsg = String(output || 'workflow failed').slice(0, 2000);
@@ -679,6 +1168,9 @@ export async function executePlan(
           status: 'failed',
           error: errMsg,
           order_index: task.order_index,
+        });
+        await patchPlanExecutionStep(env, task, 'failed', {
+          outputJson: JSON.stringify({ error: errMsg }),
         });
       }
     } catch (e) {
@@ -700,6 +1192,9 @@ export async function executePlan(
         error: errMsg,
         order_index: task.order_index,
       });
+      await patchPlanExecutionStep(env, task, 'failed', {
+        outputJson: JSON.stringify({ error: errMsg }),
+      });
     }
   }
 
@@ -715,6 +1210,35 @@ export async function executePlan(
       )
       .bind(completed, skipped, failed, planId)
       .run();
+
+    if (wfRun) {
+      const dur = Math.max(0, Date.now() - wfStarted);
+      const summary = JSON.stringify({ completed, failed, skipped, plan_id: planId });
+      const outJ = JSON.stringify({
+        plan_id: planId,
+        tasks_completed: completed,
+        tasks_failed: failed,
+        tasks_skipped: skipped,
+      });
+      await env.DB
+        .prepare(
+          `UPDATE agentsam_workflow_runs SET status = ?, duration_ms = ?, steps_completed = ?,
+           step_results_json = ?, output_json = ?, completed_at = unixepoch(), updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .bind('completed', dur, completed, summary, outJ, wfRun)
+        .run()
+        .catch(() => {});
+      emit('workflow_complete', {
+        workflow_run_id: wfRun,
+        plan_id: planId,
+        tasks_completed: completed,
+        tasks_failed: failed,
+        tasks_skipped: skipped,
+        status: failed === 0 ? 'completed' : 'partial',
+      });
+      scheduleMirrorAgentChatPlanToSupabase(env, ctx, wfRun);
+    }
 
     emit('plan_complete', {
       plan_id: planId,

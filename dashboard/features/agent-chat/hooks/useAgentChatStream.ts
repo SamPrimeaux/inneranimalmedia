@@ -264,14 +264,35 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const d = data as {
             type: string;
             plan_title?: string;
+            plan_id?: string;
+            workflow_run_id?: string;
             task_count?: number;
-            tasks?: Array<{ id: string; title: string; order_index: number; handler_type?: string | null }>;
+            tasks?: Array<{
+              id: string;
+              title: string;
+              order_index: number;
+              handler_type?: string | null;
+              handler_key?: string | null;
+              capability_type?: string | null;
+              execution_step_id?: string | null;
+              command_run_id?: string | null;
+              approval_id?: string | null;
+              workflow_run_id?: string | null;
+              files_involved?: string[];
+            }>;
           };
-          const lines = (d.tasks || []).map(
-            (t, i) =>
-              `${i + 1}. [ ] **${String(t.title || '').slice(0, 200)}** _(${String(t.handler_type || 'agent')})_`,
-          );
-          assistantStreamBuf += `\n\n### ${String(d.plan_title || 'Plan')}\n_${Number(d.task_count || lines.length)} tasks_\n\n${lines.join('\n')}\n`;
+          const wr = d.workflow_run_id ? `\n_workflow run:_ \`${d.workflow_run_id}\`\n` : '';
+          const lines = (d.tasks || []).map((t, i) => {
+            const cap = t.capability_type ? ` · **${t.capability_type}**` : '';
+            const step = t.execution_step_id ? ` · step \`${String(t.execution_step_id).slice(0, 18)}…\`` : '';
+            const cr = t.command_run_id ? ` · cmd \`${String(t.command_run_id).slice(0, 14)}…\`` : '';
+            const files =
+              Array.isArray(t.files_involved) && t.files_involved.length
+                ? ` · files: ${t.files_involved.slice(0, 4).join(', ')}${t.files_involved.length > 4 ? '…' : ''}`
+                : '';
+            return `${i + 1}. [ ] **${String(t.title || '').slice(0, 200)}** _(${String(t.handler_type || 'agent')})_${cap}${step}${cr}${files}`;
+          });
+          assistantStreamBuf += `\n\n### ${String(d.plan_title || 'Plan')}\n_plan ${String(d.plan_id || '').slice(0, 14)}…_${wr}_${Number(d.task_count || lines.length)} tasks_\n\n${lines.join('\n')}\n`;
           assistantContent = assistantStreamBuf;
           setMessages((prev) => {
             const last = [...prev];

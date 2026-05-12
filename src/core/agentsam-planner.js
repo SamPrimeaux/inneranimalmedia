@@ -2,9 +2,20 @@
  * Agent Sam Planner
  * Decomposes a user goal into agentsam_plans + agentsam_plan_tasks rows.
  * Uses gpt-5.4-mini via dispatchComplete (openai_responses platform).
+ *
+ * Work-intent chat wires the proven D1 spine:
+ *   agentsam_workflow_runs → agentsam_plans → agentsam_execution_steps (execution_id = run id)
+ *   → agentsam_command_run (risky tasks) → agentsam_plan_tasks → agentsam_approval_queue
+ *   → execution_steps.approval_id (only after approval row exists).
  */
 
 import { dispatchComplete } from './provider.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
+import { pragmaTableInfo } from './retention.js';
+import { scheduleMirrorAgentChatPlanToSupabase } from './agentsam-plan-supabase-public-sync.js';
+
+export const AGENT_CHAT_PLAN_WORKFLOW_KEY = 'agent_chat_plan';
+export const AGENT_CHAT_PLAN_WORKFLOW_D1_ID = 'wf_agent_chat_plan';
 
 function planId() {
   const b = crypto.getRandomValues(new Uint8Array(8));
@@ -14,38 +25,341 @@ function taskId() {
   const b = crypto.getRandomValues(new Uint8Array(8));
   return 'task_' + Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 }
+function stepId() {
+  return `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
+function runId() {
+  return `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
+function commandRunId() {
+  return `run_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
+function approvalId() {
+  return `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
 
 const PLANNER_SYSTEM = `You are Agent Sam's planning engine.
-The user has given you a goal. Decompose it into 2-8 concrete, executable tasks.
+The user has given you a goal. Decompose it into 2-8 concrete, executable tasks for the live Agent Sam execution spine.
 Return ONLY valid JSON, no markdown, no explanation:
 {
   "plan_title": "short title for the plan",
   "tasks": [
     {
       "title": "short task title",
-      "description": "what to do and why",
+      "description": "what to do and why (include concrete paths, routes, or shell when relevant)",
       "category": "backend|frontend|db|infra|ux|research|other",
       "priority": "P0|P1|P2|P3",
-      "handler_type": "agent|terminal|db_query|mcp_tool",
+      "handler_type": "agent|terminal|db_query|mcp_tool|script",
       "workflow_key": null,
+      "capability_type": "monaco_edit|excalidraw_diagram|browser_capture|playwright_validation|general_agent",
+      "files_involved": ["optional/repo/relative/paths.ts"],
+      "routes_involved": ["/dashboard/agent"],
+      "proposed_shell": "only for playwright_validation or terminal — exact command to run AFTER human approval (e.g. npx playwright test …). Empty for preview-only work.",
+      "requires_approval": true,
       "estimated_minutes": 5
     }
   ]
 }
 Rules:
-- handler_type = "agent" for LLM generation tasks
-- handler_type = "terminal" for shell/wrangler commands
-- handler_type = "db_query" for D1 reads/writes
-- workflow_key: only set if an existing agentsam_workflows.workflow_key matches exactly
+- capability_type:
+  - monaco_edit: code/file edits, refactors, patch plans (Monaco surface). handler_type agent or mcp_tool. Populate files_involved when paths are known. Do NOT claim files were written unless describing a future apply step; prefer preview/plan language.
+  - excalidraw_diagram: diagrams, flowcharts, whiteboards. handler_type agent or mcp_tool. No terminal, no proposed_shell.
+  - browser_capture: screenshots, live DOM, console inspection. handler_type mcp_tool or agent. Include routes_involved or a URL in description. No proposed_shell unless you truly need an approved shell (normally leave empty).
+  - playwright_validation: Playwright/e2e/smoke tests. handler_type MUST be terminal (or script only when the command is the Playwright runner). proposed_shell MUST contain the playwright command. requires_approval true.
+  - general_agent: default when none of the above fit.
+- handler_type = "agent" for LLM-only generation
+- handler_type = "terminal" for shell (including Playwright test runs after approval)
+- handler_type = "db_query" for D1 reads/writes (approval-gated at runtime)
+- handler_type = "mcp_tool" when a concrete MCP workflow_key exists; workflow_key must match agentsam_workflows.workflow_key exactly when set
+- workflow_key: only set if an existing agentsam_workflows.workflow_key matches exactly (otherwise null)
 - 2 tasks minimum, 8 maximum
 - P0 = critical, P1 = high, P2 = medium, P3 = low`;
 
+/**
+ * @param {Record<string, unknown>} t
+ * @param {string} goal
+ */
+export function inferPlannerCapabilityType(t, goal) {
+  const blob = `${t?.title || ''} ${t?.description || ''} ${goal || ''}`.toLowerCase();
+  if (/\b(playwright|@playwright\/test|npx playwright|e2e test|smoke test|browser test)\b/.test(blob)) {
+    return 'playwright_validation';
+  }
+  if (/\b(screenshot|browser capture|dom summary|console errors|page.goto|open in browser|render the page)\b/.test(blob)) {
+    return 'browser_capture';
+  }
+  if (/\b(excalidraw|diagram|flowchart|wireframe|whiteboard|canvas sketch)\b/.test(blob)) {
+    return 'excalidraw_diagram';
+  }
+  if (/\b(monaco|patch|refactor|edit file|typescript|react component|implement in)\b/.test(blob)) {
+    return 'monaco_edit';
+  }
+  return 'general_agent';
+}
+
+/**
+ * Normalize LLM task row for DB + executor (capability spine).
+ * @param {Record<string, unknown>} t
+ * @param {string} goal
+ */
+export function normalizePlannerTask(t, goal) {
+  const out = { ...t };
+  let cap = String(out.capability_type || '').trim().toLowerCase();
+  if (!cap || cap === 'null') cap = inferPlannerCapabilityType(out, goal);
+  out.capability_type = cap;
+
+  const files = Array.isArray(out.files_involved) ? out.files_involved.map((x) => String(x).trim()).filter(Boolean) : [];
+  out.files_involved = files;
+
+  const routes = Array.isArray(out.routes_involved) ? out.routes_involved.map((x) => String(x).trim()).filter(Boolean) : [];
+  out.routes_involved = routes;
+
+  let ht = String(out.handler_type || 'agent').toLowerCase();
+  if (cap === 'playwright_validation') {
+    ht = 'terminal';
+    out.handler_type = 'terminal';
+    const ps = String(out.proposed_shell || '').trim();
+    if (!ps) {
+      out.proposed_shell = String(out.description || 'npx playwright test').slice(0, 4000);
+    } else {
+      out.proposed_shell = ps.slice(0, 4000);
+    }
+    out.requires_approval = true;
+  } else if (cap === 'excalidraw_diagram') {
+    if (ht === 'terminal' || ht === 'script') out.handler_type = 'agent';
+    ht = String(out.handler_type || 'agent').toLowerCase();
+  } else if (cap === 'browser_capture' || cap === 'monaco_edit') {
+    if (ht === 'terminal') out.handler_type = 'agent';
+  }
+
+  const qg = {
+    capability_type: cap,
+    requires_approval: !!out.requires_approval,
+    proposed_shell: out.proposed_shell != null ? String(out.proposed_shell).slice(0, 4000) : null,
+  };
+  out.quality_gate_json = JSON.stringify(qg);
+
+  return out;
+}
+
+/**
+ * @param {Record<string, unknown>} task
+ * @returns {string}
+ */
+export function resolvePlanTaskCapabilityType(task) {
+  try {
+    const qg = JSON.parse(String(task.quality_gate_json || '{}'));
+    if (qg.capability_type) return String(qg.capability_type).toLowerCase().trim();
+  } catch {
+    /* ignore */
+  }
+  const hk = String(task.handler_key || '');
+  const m = hk.match(/^cap:([a-z0-9_]+)/i);
+  if (m) return m[1].toLowerCase();
+  return inferPlannerCapabilityType(task, '');
+}
+
+/**
+ * @param {any} env
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+export async function resolveAgentChatPlanWorkflowTemplate(env) {
+  if (!env?.DB) return null;
+  const row = await env.DB
+    .prepare(
+      `SELECT * FROM agentsam_workflows
+       WHERE (id = ? OR workflow_key = ?) AND COALESCE(is_active, 1) = 1
+       ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END
+       LIMIT 1`,
+    )
+    .bind(AGENT_CHAT_PLAN_WORKFLOW_D1_ID, AGENT_CHAT_PLAN_WORKFLOW_KEY, AGENT_CHAT_PLAN_WORKFLOW_D1_ID)
+    .first()
+    .catch(() => null);
+  return row || null;
+}
+
+/**
+ * @param {any} env
+ * @param {{
+ *   tenantId: string,
+ *   workspaceId: string,
+ *   userId: string | null,
+ *   sessionId: string | null,
+ *   goal: string,
+ *   userEmail?: string | null,
+ * }} p
+ */
+export async function startAgentChatPlanWorkflowRun(env, p) {
+  if (!env.DB) throw new Error('DB not available');
+  const wf = await resolveAgentChatPlanWorkflowTemplate(env);
+  if (!wf?.id) {
+    throw new Error(
+      `Missing agentsam_workflows template for ${AGENT_CHAT_PLAN_WORKFLOW_D1_ID} / ${AGENT_CHAT_PLAN_WORKFLOW_KEY}`,
+    );
+  }
+
+  const wid = runId();
+  const tid = p.tenantId != null && String(p.tenantId).trim() !== '' ? String(p.tenantId).trim() : 'tenant_sam_primeaux';
+  const ws = String(p.workspaceId || '').trim();
+  if (!ws) throw new Error('workspaceId required for workflow run');
+
+  const uid = p.userId != null && String(p.userId).trim() !== '' ? await resolveCanonicalUserId(String(p.userId).trim(), env) : null;
+
+  const runCols = await pragmaTableInfo(env.DB, 'agentsam_workflow_runs');
+  const cols = [];
+  const placeholders = [];
+  const binds = [];
+
+  const push = (name, val) => {
+    if (!runCols.has(name)) return;
+    cols.push(name);
+    placeholders.push('?');
+    binds.push(val);
+  };
+
+  push('id', wid);
+  push('workflow_id', String(wf.id));
+  push('workflow_key', AGENT_CHAT_PLAN_WORKFLOW_KEY);
+  push('display_name', 'Agent chat · planner');
+  push('tenant_id', tid);
+  push('workspace_id', ws);
+  push('user_id', uid);
+  push('user_email', p.userEmail != null && String(p.userEmail).trim() !== '' ? String(p.userEmail).trim() : null);
+  push('session_id', p.sessionId || null);
+  push('trigger_type', 'agent');
+  push('status', 'running');
+  push('input_json', JSON.stringify({ goal: String(p.goal || '').slice(0, 8000) }));
+  if (runCols.has('output_json')) {
+    push('output_json', '{}');
+  }
+  if (runCols.has('step_results_json')) {
+    push('step_results_json', '[]');
+  }
+  if (runCols.has('metadata_json')) {
+    push('metadata_json', '{}');
+  }
+  push('steps_total', 0);
+  push('steps_completed', 0);
+  push('environment', 'production');
+  if (runCols.has('graph_mode')) {
+    push('graph_mode', 0);
+  }
+  if (runCols.has('current_node_key')) {
+    push('current_node_key', 'plan_bootstrap');
+  }
+  if (runCols.has('started_at')) {
+    push('started_at', Math.floor(Date.now() / 1000));
+  }
+  if (runCols.has('created_at')) {
+    cols.push('created_at');
+    placeholders.push(`datetime('now')`);
+  }
+  if (runCols.has('updated_at')) {
+    cols.push('updated_at');
+    placeholders.push(`datetime('now')`);
+  }
+  if (runCols.has('supabase_sync_status')) {
+    push('supabase_sync_status', 'pending');
+  }
+
+  if (cols.length < 3) {
+    throw new Error('agentsam_workflow_runs schema mismatch (missing required columns)');
+  }
+
+  await env.DB
+    .prepare(`INSERT INTO agentsam_workflow_runs (${cols.join(', ')}) VALUES (${placeholders.join(', ')})`)
+    .bind(...binds)
+    .run();
+
+  return { workflowRunId: wid, workflowTemplateId: String(wf.id) };
+}
+
+function planTaskNeedsRiskyApprovalFabric(t) {
+  const ht = String(t.handler_type || 'agent').toLowerCase();
+  const cat = String(t.category || '').toLowerCase();
+  const cap = String(t.capability_type || '').toLowerCase();
+  const blob = `${t.title || ''} ${t.description || ''}`.toLowerCase();
+  if (cap === 'playwright_validation') return true;
+  if (ht === 'script' && (cap === 'playwright_validation' || /\bplaywright\b/.test(blob))) return true;
+  return ht === 'terminal' || ht === 'db_query' || cat === 'db' || cat === 'infra';
+}
+
+function shellPreviewForRiskyTask(t) {
+  const ps = t.proposed_shell != null ? String(t.proposed_shell).trim() : '';
+  if (ps) return ps.slice(0, 4000);
+  const hk = t.handler_key != null ? String(t.handler_key).trim() : '';
+  const desc = String(t.description || '').trim();
+  if (hk.startsWith('cmd:')) return desc.slice(0, 4000);
+  if (hk && /^[a-zA-Z0-9_.-]{4,80}$/.test(hk) && !/[;&|`$]/.test(hk)) {
+    return desc.slice(0, 4000);
+  }
+  return (hk || desc).slice(0, 4000) || `[${String(t.handler_type || 'task')}] ${String(t.title || '').slice(0, 500)}`;
+}
+
+/**
+ * @param {any} env
+ * @param {Set<string>} stepCols
+ * @param {{ workflowRunId: string, nodeKey: string, nodeType: string, inputObj: Record<string, unknown> }} p
+ */
+export async function insertPlanExecutionStep(env, stepCols, p) {
+  if (!stepCols?.size) return null;
+  const sid = stepId();
+  const hasExec = stepCols.has('execution_id');
+  const hasWrun = stepCols.has('workflow_run_id');
+  if (!hasExec && !hasWrun) return null;
+
+  const colNames = ['id'];
+  const placeholders = ['?'];
+  const binds = [sid];
+
+  if (hasExec) {
+    colNames.push('execution_id');
+    placeholders.push('?');
+    binds.push(p.workflowRunId);
+  }
+  if (hasWrun) {
+    colNames.push('workflow_run_id');
+    placeholders.push('?');
+    binds.push(p.workflowRunId);
+  }
+  colNames.push('node_key', 'node_type', 'status', 'input_json');
+  placeholders.push('?', '?', '?', '?');
+  binds.push(
+    String(p.nodeKey || 'plan_task').slice(0, 500),
+    String(p.nodeType || 'agent').slice(0, 120),
+    'pending',
+    JSON.stringify(p.inputObj || {}).slice(0, 24000),
+  );
+  if (stepCols.has('attempt')) {
+    colNames.push('attempt');
+    placeholders.push('?');
+    binds.push(1);
+  }
+  if (stepCols.has('started_at')) {
+    colNames.push('started_at');
+    placeholders.push('?');
+    binds.push(Math.floor(Date.now() / 1000));
+  }
+  if (stepCols.has('created_at')) {
+    colNames.push('created_at');
+    placeholders.push(`datetime('now')`);
+  }
+
+  await env.DB
+    .prepare(`INSERT INTO agentsam_execution_steps (${colNames.join(', ')}) VALUES (${placeholders.join(', ')})`)
+    .bind(...binds)
+    .run();
+  return sid;
+}
+
 export async function createPlan(
   env,
-  { goal, userId, workspaceId, tenantId, sessionId = null, workflowRunId = null },
+  { goal, userId, workspaceId, tenantId, sessionId = null, workflowRunId = null, ctx = null },
 ) {
-  void userId;
   if (!env.DB) throw new Error('DB not available');
+  if (!workflowRunId || String(workflowRunId).trim() === '') {
+    throw new Error('createPlan requires workflowRunId (agent_chat_plan spine)');
+  }
+  const wrun = String(workflowRunId).trim();
 
   let parsed;
   try {
@@ -75,8 +389,6 @@ export async function createPlan(
     };
   }
 
-  const pid = planId();
-  const today = new Date().toISOString().slice(0, 10);
   let tasks = Array.isArray(parsed.tasks) ? parsed.tasks.slice(0, 8) : [];
   if (!tasks.length) {
     tasks = [
@@ -91,6 +403,33 @@ export async function createPlan(
       },
     ];
   }
+  if (tasks.length < 2) {
+    tasks.push({
+      title: 'Verify and document results',
+      description: `Review outcomes for: ${String(goal).slice(0, 400)}`,
+      category: 'other',
+      priority: 'P2',
+      handler_type: 'agent',
+      workflow_key: null,
+      estimated_minutes: 5,
+    });
+  }
+
+  tasks = tasks.map((t) => normalizePlannerTask(t, goal));
+
+  await env.DB
+    .prepare(
+      `UPDATE agentsam_workflow_runs SET steps_total = ?, updated_at = datetime('now') WHERE id = ?`,
+    )
+    .bind(tasks.length, wrun)
+    .run();
+
+  const pid = planId();
+  const today = new Date().toISOString().slice(0, 10);
+  const tid0 = tenantId || 'tenant_sam_primeaux';
+  const ws0 = workspaceId || '';
+  const uidRaw = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
+  const canonicalUser = uidRaw ? await resolveCanonicalUserId(uidRaw, env).catch(() => uidRaw) : null;
 
   await env.DB
     .prepare(
@@ -102,46 +441,270 @@ export async function createPlan(
     )
     .bind(
       pid,
-      tenantId || 'tenant_sam_primeaux',
-      workspaceId || '',
+      tid0,
+      ws0,
       sessionId,
       parsed.plan_title || String(goal).slice(0, 80),
       today,
       'gpt-5.4-mini',
       tasks.length,
-      workflowRunId,
+      wrun,
     )
     .run();
 
+  const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
+  const planTaskCols = await pragmaTableInfo(env.DB, 'agentsam_plan_tasks');
+  const apprCols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+
   const insertedTasks = [];
+
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     const tid = taskId();
+    const nodeKey = `plan_task_${i}_${String(t.title || 'task')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .slice(0, 60)}`;
+
+    const wfKey =
+      t.workflow_key != null && String(t.workflow_key).trim() !== '' ? String(t.workflow_key).trim() : null;
+    const cap = String(t.capability_type || 'general_agent').slice(0, 64);
+    const hk = wfKey || `cap:${cap}`;
+    const riskLevel =
+      cap === 'playwright_validation' ? 'critical' : planTaskNeedsRiskyApprovalFabric(t) ? 'high' : 'low';
+    const requiresApr = planTaskNeedsRiskyApprovalFabric(t) ? 1 : 0;
+
+    const estepId = await insertPlanExecutionStep(env, stepCols, {
+      workflowRunId: wrun,
+      nodeKey,
+      nodeType: String(t.handler_type || 'agent').slice(0, 120),
+      inputObj: {
+        plan_id: pid,
+        task_id: tid,
+        workflow_run_id: wrun,
+        plan_task_order: i,
+        capability_type: cap,
+        handler_type: t.handler_type || 'agent',
+        handler_key: hk,
+        title: String(t.title || '').slice(0, 200),
+        description: String(t.description || '').slice(0, 4000),
+        risk_level: riskLevel,
+        requires_approval: requiresApr === 1,
+        files_involved: Array.isArray(t.files_involved) ? t.files_involved : [],
+        routes_involved: Array.isArray(t.routes_involved) ? t.routes_involved : [],
+      },
+    });
+
+    let commandRunPk = null;
+    let approvalPk = null;
+
+    if (planTaskNeedsRiskyApprovalFabric(t) && canonicalUser && String(ws0).trim()) {
+      const cmdPreview = shellPreviewForRiskyTask(t).trim() || '[risky_task]';
+      commandRunPk = commandRunId();
+      const intentCat =
+        cap === 'playwright_validation'
+          ? 'debug'
+          : String(t.handler_type || '').toLowerCase() === 'terminal'
+            ? 'misc'
+            : String(t.handler_type || '').toLowerCase() === 'db_query' || String(t.category || '').toLowerCase() === 'db'
+              ? 'db'
+              : 'misc';
+      const commandsJson = JSON.stringify([
+        { proposed_shell: cmdPreview.slice(0, 4000), source: 'plan_bootstrap', plan_task_id: tid },
+      ]);
+      const cmdRisk = cap === 'playwright_validation' ? 'critical' : 'high';
+      await env.DB
+        .prepare(
+          `INSERT INTO agentsam_command_run
+          (id, tenant_id, workspace_id, user_id, session_id, conversation_id,
+           user_input, normalized_intent, intent_category, model_id,
+           commands_json, result_json, output_text, confidence_score,
+           success, exit_code, duration_ms, input_tokens, output_tokens, cost_usd, error_message,
+           selected_command_id, selected_command_slug, risk_level, requires_confirmation, approval_status)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .bind(
+          commandRunPk,
+          tid0,
+          String(ws0).trim(),
+          canonicalUser,
+          sessionId || null,
+          null,
+          String(t.title || 'Plan task').slice(0, 2000),
+          'plan_bootstrap_risky',
+          intentCat,
+          null,
+          commandsJson,
+          '{}',
+          null,
+          null,
+          0,
+          null,
+          null,
+          0,
+          0,
+          0,
+          null,
+          null,
+          null,
+          cmdRisk,
+          1,
+          'pending_approval',
+        )
+        .run();
+
+      approvalPk = approvalId();
+      const inputJson = JSON.stringify({
+        command_text: cmdPreview.slice(0, 4000),
+        plan_task_id: tid,
+        plan_id: pid,
+        execution_step_id: estepId,
+      });
+
+      const ac = [
+        'id',
+        'tenant_id',
+        'workspace_id',
+        'user_id',
+        'session_id',
+        'plan_id',
+      ];
+      const ab = [approvalPk, tid0, String(ws0).trim(), canonicalUser, sessionId || null, pid];
+      if (apprCols.has('workflow_run_id')) {
+        ac.push('workflow_run_id');
+        ab.push(wrun);
+      }
+      ac.push('command_run_id');
+      ab.push(commandRunPk);
+      if (apprCols.has('execution_step_id') && estepId) {
+        ac.push('execution_step_id');
+        ab.push(estepId);
+      }
+      const toolNm = cap === 'playwright_validation' ? 'terminal.playwright_plan' : 'terminal.plan_bootstrap';
+      ac.push('tool_name', 'action_summary', 'input_json', 'risk_level', 'status', 'expires_at');
+      ab.push(
+        toolNm,
+        `Approve risky plan task: ${String(t.title || '').slice(0, 200)}`,
+        inputJson,
+        cmdRisk,
+        'pending',
+        null,
+      );
+      const apprPh = ac.map(() => '?').join(', ');
+      await env.DB
+        .prepare(`INSERT INTO agentsam_approval_queue (${ac.join(', ')}) VALUES (${apprPh})`)
+        .bind(...ab)
+        .run();
+
+      if (estepId && approvalPk) {
+        await env.DB
+          .prepare(
+            `UPDATE agentsam_execution_steps SET approval_id = ?, status = 'approval_pending', output_json = ? WHERE id = ?`,
+          )
+          .bind(
+            approvalPk,
+            JSON.stringify({
+              gate_results_json: { approval_required: true, capability_type: cap },
+              approval_required: true,
+            }).slice(0, 16000),
+            estepId,
+          )
+          .run();
+      }
+    }
+
+    const insTaskCols = [
+      'id',
+      'plan_id',
+      'tenant_id',
+      'workspace_id',
+      'order_index',
+      'title',
+      'description',
+      'priority',
+      'category',
+      'status',
+      'handler_type',
+      'handler_key',
+      'estimated_minutes',
+    ];
+    const insTaskBinds = [
+      tid,
+      pid,
+      tid0,
+      ws0,
+      i,
+      String(t.title || '').slice(0, 200),
+      String(t.description || '').slice(0, 2000),
+      t.priority || 'P1',
+      t.category || 'other',
+      'todo',
+      t.handler_type || 'agent',
+      hk,
+      t.estimated_minutes || null,
+    ];
+    if (planTaskCols.has('files_involved')) {
+      insTaskCols.push('files_involved');
+      insTaskBinds.push(JSON.stringify(Array.isArray(t.files_involved) ? t.files_involved : []));
+    }
+    if (planTaskCols.has('routes_involved')) {
+      insTaskCols.push('routes_involved');
+      insTaskBinds.push(JSON.stringify(Array.isArray(t.routes_involved) ? t.routes_involved : []));
+    }
+    if (planTaskCols.has('quality_gate_json') && t.quality_gate_json) {
+      insTaskCols.push('quality_gate_json');
+      insTaskBinds.push(String(t.quality_gate_json).slice(0, 8000));
+    }
+    if (planTaskCols.has('risk_level')) {
+      insTaskCols.push('risk_level');
+      insTaskBinds.push(riskLevel);
+    }
+    if (planTaskCols.has('requires_approval')) {
+      insTaskCols.push('requires_approval');
+      insTaskBinds.push(requiresApr);
+    }
+    if (planTaskCols.has('workflow_run_id')) {
+      insTaskCols.push('workflow_run_id');
+      insTaskBinds.push(wrun);
+    }
+    if (planTaskCols.has('execution_step_id') && estepId) {
+      insTaskCols.push('execution_step_id');
+      insTaskBinds.push(estepId);
+    }
+    if (planTaskCols.has('command_run_id') && commandRunPk) {
+      insTaskCols.push('command_run_id');
+      insTaskBinds.push(commandRunPk);
+    }
+    if (planTaskCols.has('created_at')) {
+      insTaskCols.push('created_at');
+    }
+    const phParts = insTaskCols.map((c) => (c === 'created_at' ? 'unixepoch()' : '?'));
     await env.DB
       .prepare(
-        `INSERT INTO agentsam_plan_tasks
-        (id, plan_id, tenant_id, workspace_id, order_index, title, description,
-         priority, category, status, handler_type, handler_key,
-         estimated_minutes, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,'todo',?,?,?,unixepoch())`,
+        `INSERT INTO agentsam_plan_tasks (${insTaskCols.join(', ')}) VALUES (${phParts.join(', ')})`,
       )
-      .bind(
-        tid,
-        pid,
-        tenantId || 'tenant_sam_primeaux',
-        workspaceId || '',
-        i,
-        String(t.title || '').slice(0, 200),
-        String(t.description || '').slice(0, 2000),
-        t.priority || 'P1',
-        t.category || 'other',
-        t.handler_type || 'agent',
-        t.workflow_key != null && String(t.workflow_key).trim() !== '' ? String(t.workflow_key).trim() : null,
-        t.estimated_minutes || null,
-      )
+      .bind(...insTaskBinds)
       .run();
-    insertedTasks.push({ id: tid, ...t, order_index: i });
+
+    insertedTasks.push({
+      id: tid,
+      ...t,
+      order_index: i,
+      execution_step_id: estepId,
+      workflow_run_id: wrun,
+      command_run_id: commandRunPk,
+      approval_id: approvalPk,
+      handler_key: hk,
+      capability_type: cap,
+    });
   }
 
-  return { plan_id: pid, plan_title: parsed.plan_title || String(goal).slice(0, 80), tasks: insertedTasks };
+  scheduleMirrorAgentChatPlanToSupabase(env, ctx, wrun);
+
+  return {
+    plan_id: pid,
+    plan_title: parsed.plan_title || String(goal).slice(0, 80),
+    tasks: insertedTasks,
+    workflow_run_id: wrun,
+  };
 }

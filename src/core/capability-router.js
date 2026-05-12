@@ -28,12 +28,16 @@ function heuristicDecision(message, browserContext) {
   const m = String(message || '').toLowerCase();
   const urlInMessage = /https?:\/\/[^\s]+/i.test(m);
   const ctxUrl = browserContext && typeof browserContext === 'object' && browserContext.url;
+  const playwrightCue = /\b(playwright|@playwright\/test|npx playwright|e2e test|smoke test|browser test)\b/i.test(
+    m,
+  );
   const browserCue =
-    /\b(inspect|verify|screenshot|debug|live page|looks broken|visual|render|dom|e2e|playwright|open this url|check the page|why does)\b/i.test(
+    !playwrightCue &&
+    (/\b(inspect|verify|screenshot|debug|live page|looks broken|visual|render|dom|open this url|check the page|why does)\b/i.test(
       m,
     ) ||
-    !!ctxUrl ||
-    urlInMessage;
+      !!ctxUrl ||
+      urlInMessage);
   const excalCue = /\b(diagram|wireframe|draw|excalidraw|flowchart|map architecture|system map|sketch)\b/i.test(m);
   const monacoCue =
     /\b(edit|refactor|patch|implement|fix the code|component|monaco|this file|landing page file|create a file)\b/i.test(
@@ -55,6 +59,7 @@ function heuristicDecision(message, browserContext) {
   if (d1Cue) required.push('d1');
   if (githubCue) required.push('github');
   if (terminalCue) optional.push('terminal');
+  if (playwrightCue) optional.push('terminal');
 
   let default_surface = 'chat';
   if (browserCue && !excalCue && !monacoCue) default_surface = 'browser';
@@ -62,7 +67,15 @@ function heuristicDecision(message, browserContext) {
   else if (monacoCue && !browserCue) default_surface = 'monaco';
 
   return {
-    intent: browserCue ? 'debug_live_page' : excalCue ? 'diagram' : monacoCue ? 'code_edit' : 'general_chat',
+    intent: playwrightCue
+      ? 'playwright_validation'
+      : browserCue
+        ? 'debug_live_page'
+        : excalCue
+          ? 'diagram'
+          : monacoCue
+            ? 'code_edit'
+            : 'general_chat',
     needs_capabilities: required.length ? [...new Set(required)] : [],
     optional_capabilities: optional.length ? [...new Set(optional)] : [],
     default_surface,
@@ -72,9 +85,9 @@ function heuristicDecision(message, browserContext) {
     should_use_artifact_r2: artifactCue,
     should_use_d1: d1Cue,
     should_use_github: githubCue,
-    should_use_terminal: terminalCue,
-    risk_level: terminalCue || artifactCue ? 'medium' : 'low',
-    approval_required: terminalCue || artifactCue,
+    should_use_terminal: terminalCue || playwrightCue,
+    risk_level: playwrightCue || terminalCue || artifactCue ? 'high' : browserCue ? 'medium' : 'low',
+    approval_required: !!(playwrightCue || terminalCue || artifactCue),
     reason: 'heuristic_keyword_fallback',
   };
 }
@@ -216,7 +229,7 @@ export function capabilityRouterPromptBlock(decision) {
     '- Artifacts/R2: when should_use_artifact_r2 is true, use existing r2/artifact tools and register rows when appropriate.',
     '- D1: when should_use_d1 is true, prefer read-only D1/query tools unless user explicitly requests writes (approval).',
     '- GitHub: when should_use_github is true, use github_* tools (OAuth-linked account required).',
-    '- Terminal/scripts: when should_use_terminal is true, use terminal/script tools and honor approval gates.',
+    '- Terminal/scripts: when should_use_terminal is true, use terminal/script tools and honor approval gates (Playwright/e2e runs are terminal-backed and must not auto-run).',
     '',
     JSON.stringify(d, null, 2),
   ].join('\n');

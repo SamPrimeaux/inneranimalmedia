@@ -1,9 +1,13 @@
 import React from 'react';
 import { EmptyTelemetryCard } from '../cards/EmptyTelemetryCard';
+import { AgentChatPlanTracePanel } from '../panels/AgentChatPlanTracePanel';
 
 export default function AgentTab() {
   return (
     <div className="grid gap-3 lg:grid-cols-2">
+      <div className="lg:col-span-2">
+        <AgentChatPlanTracePanel />
+      </div>
       <EmptyTelemetryCard
         title="Workflow Graph"
         dataSourceKey="workflowGraph"

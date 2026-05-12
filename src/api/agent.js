@@ -3816,10 +3816,18 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
       (async () => {
         try {
-          const { createPlan } = await import('../core/agentsam-planner.js');
+          const { createPlan, startAgentChatPlanWorkflowRun } = await import('../core/agentsam-planner.js');
           const { executePlan } = await import('../core/agentsam-task-executor.js');
 
           emitPlan('plan_thinking', { message: 'Breaking down your goal into tasks...' });
+
+          const wfBoot = await startAgentChatPlanWorkflowRun(env, {
+            tenantId: tid2,
+            workspaceId,
+            userId: uid2,
+            sessionId,
+            goal: message,
+          });
 
           const plan = await createPlan(env, {
             goal: message,
@@ -3827,18 +3835,40 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             workspaceId,
             tenantId: tid2,
             sessionId,
+            workflowRunId: wfBoot.workflowRunId,
+            ctx,
           });
 
           emitPlan('plan_created', {
             plan_id: plan.plan_id,
             plan_title: plan.plan_title,
+            workflow_run_id: plan.workflow_run_id,
             task_count: plan.tasks.length,
             tasks: plan.tasks.map((t) => ({
               id: t.id,
               title: t.title,
               order_index: t.order_index,
               handler_type: t.handler_type,
+              handler_key: t.handler_key ?? null,
+              capability_type: t.capability_type ?? null,
               status: 'todo',
+              workflow_run_id: t.workflow_run_id ?? plan.workflow_run_id,
+              execution_step_id: t.execution_step_id,
+              command_run_id: t.command_run_id,
+              approval_id: t.approval_id ?? null,
+              files_involved: (() => {
+                const f = t.files_involved;
+                if (Array.isArray(f)) return f;
+                if (typeof f === 'string') {
+                  try {
+                    const p = JSON.parse(f);
+                    return Array.isArray(p) ? p : [];
+                  } catch {
+                    return [];
+                  }
+                }
+                return [];
+              })(),
             })),
           });
 
@@ -3850,6 +3880,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             emit: emitPlan,
             ctx,
             sessionId: sessionId || null,
+            workflowRunId: wfBoot.workflowRunId,
           });
 
           emitPlan('done', {});
@@ -6242,14 +6273,57 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const propId   = propDenyMatch[1];
-    const body     = await request.json().catch(() => ({}));
-    const row      = await env.DB.prepare(`SELECT id FROM agentsam_approval_queue WHERE id = ?`).bind(propId).first();
+    await request.json().catch(() => ({}));
+    const row      = await env.DB
+      .prepare(`SELECT id, command_run_id, input_json, execution_step_id FROM agentsam_approval_queue WHERE id = ?`)
+      .bind(propId)
+      .first();
     if (!row) return jsonResponse({ error: 'Not found' }, 404);
     const denier   = String(authUser.email || authUser.id).slice(0,200);
     const now      = Math.floor(Date.now() / 1000);
     await env.DB.prepare(
       `UPDATE agentsam_approval_queue SET status='denied', approved_by=?, decided_at=? WHERE id=?`,
     ).bind(denier, now, propId).run();
+    const crid = row.command_run_id != null ? String(row.command_run_id).trim() : '';
+    if (crid) {
+      await env.DB
+        .prepare(`UPDATE agentsam_command_run SET approval_status = 'denied' WHERE id = ?`)
+        .bind(crid)
+        .run()
+        .catch(() => null);
+    }
+    let inj = {};
+    try {
+      inj = JSON.parse(String(row.input_json || '{}'));
+    } catch {
+      inj = {};
+    }
+    const ptid = inj.plan_task_id != null ? String(inj.plan_task_id).trim() : '';
+    const esid = inj.execution_step_id != null ? String(inj.execution_step_id).trim() : '';
+    const denyNote = '[terminal] Denied — no command execution.';
+    if (ptid) {
+      await env.DB
+        .prepare(
+          `UPDATE agentsam_plan_tasks SET status='skipped', completed_at=unixepoch(), output_summary=? WHERE id=?`,
+        )
+        .bind(denyNote, ptid)
+        .run()
+        .catch(() => null);
+    }
+    const esTarget = esid || (row.execution_step_id != null ? String(row.execution_step_id).trim() : '');
+    if (esTarget) {
+      await env.DB
+        .prepare(
+          `UPDATE agentsam_execution_steps SET status='failed', output_json=?, error_json=? WHERE id=?`,
+        )
+        .bind(
+          JSON.stringify({ denied: true, approval_id: propId }),
+          JSON.stringify({ error: denyNote }),
+          esTarget,
+        )
+        .run()
+        .catch(() => null);
+    }
     return jsonResponse({ ok: true, proposal_id: propId, status: 'denied' });
   }
 
@@ -6380,7 +6454,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
     const qRow = await env.DB
       .prepare(
-        `SELECT q.id, q.status, q.command_run_id, q.user_id, q.expires_at
+        `SELECT q.id, q.status, q.command_run_id, q.user_id, q.expires_at, q.execution_step_id
          FROM agentsam_approval_queue q
          WHERE q.id = ? AND lower(q.status) = 'approved'
            AND (q.expires_at IS NULL OR q.expires_at > unixepoch())`,
@@ -6404,7 +6478,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
     const tRow = await env.DB
       .prepare(
-        `SELECT id, plan_id, workspace_id, command_run_id FROM agentsam_plan_tasks WHERE id = ? AND plan_id = ? LIMIT 1`,
+        `SELECT id, plan_id, workspace_id, command_run_id, execution_step_id FROM agentsam_plan_tasks WHERE id = ? AND plan_id = ? LIMIT 1`,
       )
       .bind(taskId, planId)
       .first()
@@ -6420,19 +6494,28 @@ export async function handleAgentApi(request, url, env, ctx) {
       return jsonResponse({ error: 'task_command_run_mismatch' }, 400);
     }
 
+    const qEs = qRow.execution_step_id != null ? String(qRow.execution_step_id).trim() : '';
+    const tEs = tRow.execution_step_id != null ? String(tRow.execution_step_id).trim() : '';
+    if (qEs && tEs && qEs !== tEs) {
+      return jsonResponse({ error: 'execution_step_mismatch' }, 400);
+    }
+
     const quid = String(qRow.user_id || '').trim();
     if (quid && quid !== canon && quid !== uid) {
       return jsonResponse({ error: 'approval_user_mismatch' }, 403);
     }
 
-    await env.DB
-      .prepare(
-        `UPDATE agentsam_plan_tasks SET command_run_id = ?, status = 'todo', started_at = NULL, completed_at = NULL, output_summary = NULL, error_trace = NULL WHERE id = ?`,
-      )
-      .bind(effectiveCrid, taskId)
-      .run();
+    const planRow = await env.DB
+      .prepare(`SELECT workflow_run_id FROM agentsam_plans WHERE id = ? LIMIT 1`)
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    const wfResume =
+      planRow?.workflow_run_id != null && String(planRow.workflow_run_id).trim() !== ''
+        ? String(planRow.workflow_run_id).trim()
+        : null;
 
-    const encoder = new TextEncoder();
+    await env.DB
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const emitResume = (event, data) => {
@@ -6454,6 +6537,7 @@ export async function handleAgentApi(request, url, env, ctx) {
           onlyTaskId: taskId,
           sessionId: body.sessionId ?? body.session_id ?? null,
           skipPlanAggregate: true,
+          workflowRunId: wfResume,
         });
         emitResume('done', {});
       } catch (e) {

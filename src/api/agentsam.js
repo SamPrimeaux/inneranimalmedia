@@ -78,6 +78,119 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         return jsonResponse(invocations);
     }
 
+    // D1 agent_chat_plan trace (latest or ?run_id=)
+    if (path === '/api/agentsam/agent-chat-plan-trace' && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      if (wsRes.error === WORKSPACE_CONTEXT_MISSING || !wsRes.workspaceId) {
+        return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+      }
+      const wsId = String(wsRes.workspaceId).trim();
+      const runIdParam = url.searchParams.get('run_id')?.trim();
+      let run = null;
+      if (runIdParam) {
+        run = await env.DB
+          .prepare(
+            `SELECT * FROM agentsam_workflow_runs WHERE id = ? AND workspace_id = ? LIMIT 1`,
+          )
+          .bind(runIdParam, wsId)
+          .first()
+          .catch(() => null);
+      } else {
+        run = await env.DB
+          .prepare(
+            `SELECT * FROM agentsam_workflow_runs
+             WHERE workspace_id = ?
+               AND (workflow_key = 'agent_chat_plan' OR workflow_id = 'wf_agent_chat_plan')
+             ORDER BY created_at DESC
+             LIMIT 1`,
+          )
+          .bind(wsId)
+          .first()
+          .catch(() => null);
+      }
+      if (!run?.id) return jsonResponse({ error: 'no_run' }, 404);
+      const rid = String(run.id);
+      const plan = await env.DB
+        .prepare(`SELECT * FROM agentsam_plans WHERE workflow_run_id = ? ORDER BY created_at DESC LIMIT 1`)
+        .bind(rid)
+        .first()
+        .catch(() => null);
+      const tasks = plan?.id
+        ? (
+            await env.DB
+              .prepare(`SELECT * FROM agentsam_plan_tasks WHERE plan_id = ? ORDER BY order_index`)
+              .bind(plan.id)
+              .all()
+          ).results || []
+        : [];
+      const steps =
+        (
+          await env.DB
+            .prepare(`SELECT * FROM agentsam_execution_steps WHERE execution_id = ? ORDER BY created_at, node_key`)
+            .bind(rid)
+            .all()
+        ).results || [];
+      const approvals =
+        (
+          await env.DB
+            .prepare(
+              `SELECT * FROM agentsam_approval_queue
+               WHERE workflow_run_id = ?
+                  OR execution_step_id IN (SELECT id FROM agentsam_execution_steps WHERE execution_id = ?)
+               ORDER BY created_at DESC`,
+            )
+            .bind(rid, rid)
+            .all()
+        ).results || [];
+
+      const crIds = new Set();
+      for (const a of approvals) {
+        if (a.command_run_id) crIds.add(String(a.command_run_id));
+      }
+      for (const t of tasks) {
+        if (t.command_run_id) crIds.add(String(t.command_run_id));
+      }
+      let command_runs = [];
+      if (crIds.size) {
+        const placeholders = [...crIds].map(() => '?').join(',');
+        command_runs =
+          (
+            await env.DB
+              .prepare(`SELECT * FROM agentsam_command_run WHERE id IN (${placeholders})`)
+              .bind(...[...crIds])
+              .all()
+          ).results || [];
+      }
+
+      const tasksWithSteps = tasks.filter((t) => t.execution_step_id).length;
+      const tasksWithWrun = tasks.filter((t) => t.workflow_run_id).length;
+      const wrunMatch = tasks.filter((t) => String(t.workflow_run_id || '') === rid).length;
+      const stepExecMatch = tasks.filter((t) => {
+        const sid = t.execution_step_id;
+        if (!sid) return false;
+        const s = steps.find((x) => x.id === sid);
+        return s && String(s.execution_id || '') === rid;
+      }).length;
+
+      return jsonResponse({
+        workflow_run: run,
+        plan,
+        tasks,
+        steps,
+        approvals,
+        command_runs,
+        checks: {
+          plan_has_workflow_run_id: !!plan?.workflow_run_id,
+          tasks_total: tasks.length,
+          tasks_with_steps: tasksWithSteps,
+          tasks_with_wrun: tasksWithWrun,
+          tasks_wrun_equals_run: wrunMatch,
+          tasks_execution_step_matches_run: stepExecMatch,
+        },
+      });
+    }
+
     // 4. Prompt Registry: GET /api/agentsam/prompts/:group
     if (path.startsWith('/api/agentsam/prompts') && method === 'GET') {
         const parts = path.split('/');
