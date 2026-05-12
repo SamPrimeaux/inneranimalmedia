@@ -13,6 +13,7 @@ import { dispatchComplete } from './provider.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pragmaTableInfo } from './retention.js';
 import { scheduleMirrorAgentChatPlanToSupabase } from './agentsam-plan-supabase-public-sync.js';
+import { insertAgentsamPlanRow } from './agentsam-plan-insert.js';
 
 export const AGENT_CHAT_PLAN_WORKFLOW_KEY = 'agent_chat_plan';
 export const AGENT_CHAT_PLAN_WORKFLOW_D1_ID = 'wf_agent_chat_plan';
@@ -436,26 +437,20 @@ export async function createPlan(
   const uidRaw = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
   const canonicalUser = uidRaw ? await resolveCanonicalUserId(uidRaw, env).catch(() => uidRaw) : null;
 
-  await env.DB
-    .prepare(
-      `INSERT INTO agentsam_plans
-      (id, tenant_id, workspace_id, session_id, title, status, plan_type,
-       plan_date, default_model, tasks_total, tasks_done, workflow_run_id,
-       created_at, updated_at)
-    VALUES (?,?,?,?,?,'active','feature',?,?,?,0,?,unixepoch(),unixepoch())`,
-    )
-    .bind(
-      pid,
-      tid0,
-      ws0,
-      sessionId,
-      parsed.plan_title || String(goal).slice(0, 80),
-      today,
-      'gpt-5.4-mini',
-      tasks.length,
-      validWrun,
-    )
-    .run();
+  await insertAgentsamPlanRow(env, {
+    id: pid,
+    tenant_id: tid0,
+    workspace_id: ws0,
+    session_id: sessionId,
+    title: parsed.plan_title || String(goal).slice(0, 80),
+    status: 'active',
+    plan_type: 'feature',
+    plan_date: today,
+    default_model: 'gpt-5.4-mini',
+    tasks_total: tasks.length,
+    tasks_done: 0,
+    workflow_run_id: validWrun,
+  });
 
   const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
   const planTaskCols = await pragmaTableInfo(env.DB, 'agentsam_plan_tasks');

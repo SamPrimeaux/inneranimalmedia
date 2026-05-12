@@ -4,7 +4,7 @@
  * Interfaces with agentsam_ai, agentsam_skill, and agentsam_skill_invocation.
  */
 import { handlers as db } from '../tools/db.js';
-import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { getAuthUser, jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
 import { resolveIamActorContext } from '../core/identity.js';
 import {
   resolveEffectiveWorkspaceId,
@@ -12,6 +12,7 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from '../core/bootstrap.js';
 import { executeWorkflowAndStream } from '../core/workflow-executor.js';
+import { insertAgentsamPlanRow, insertAgentsamPlanTaskRows } from '../core/agentsam-plan-insert.js';
 
 /**
  * HTTP entry for /api/agentsam/* (registry, prompts, etc.).
@@ -31,6 +32,99 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
     const url = new URL(request.url);
     const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
+
+    // POST /api/agentsam/plans — create plan + optional plan_tasks (D1; pragma-safe columns)
+    if (path === '/api/agentsam/plans' && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const body = await request.json().catch(() => ({}));
+      const title = String(body.title ?? '').trim();
+      if (!title) return jsonResponse({ error: 'title required' }, 400);
+
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      const workspaceId =
+        body.workspace_id != null && String(body.workspace_id).trim() !== ''
+          ? String(body.workspace_id).trim()
+          : wsRes?.workspaceId ?? null;
+      if (!workspaceId) {
+        return jsonResponse(
+          { error: wsRes?.error || 'workspace_id required', code: wsRes?.error || null },
+          400,
+        );
+      }
+
+      let tenantId =
+        body.tenant_id != null && String(body.tenant_id).trim() !== ''
+          ? String(body.tenant_id).trim()
+          : authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+            ? String(authUser.tenant_id).trim()
+            : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const planIdIn = body.id != null && String(body.id).trim() !== '' ? String(body.id).trim() : undefined;
+      const { id: planId } = await insertAgentsamPlanRow(env, {
+        id: planIdIn,
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        session_id: body.session_id != null ? String(body.session_id) : null,
+        agent_id: body.agent_id != null ? String(body.agent_id) : null,
+        title,
+        plan_type: body.plan_type,
+        plan_date: body.plan_date != null ? String(body.plan_date) : undefined,
+        status: body.status,
+        morning_brief:
+          body.morning_brief != null
+            ? typeof body.morning_brief === 'string'
+              ? body.morning_brief
+              : JSON.stringify(body.morning_brief)
+            : undefined,
+        session_notes:
+          body.session_notes != null
+            ? typeof body.session_notes === 'string'
+              ? body.session_notes
+              : JSON.stringify(body.session_notes)
+            : undefined,
+        default_model: body.default_model != null ? String(body.default_model) : null,
+        workflow_id: body.workflow_id != null ? String(body.workflow_id) : null,
+        workflow_run_id: body.workflow_run_id != null ? String(body.workflow_run_id) : null,
+        tasks_total: Array.isArray(body.tasks) ? body.tasks.length : body.tasks_total,
+        linked_todo_ids:
+          body.linked_todo_ids != null
+            ? typeof body.linked_todo_ids === 'string'
+              ? body.linked_todo_ids
+              : JSON.stringify(body.linked_todo_ids)
+            : undefined,
+        linked_project_keys:
+          body.linked_project_keys != null
+            ? typeof body.linked_project_keys === 'string'
+              ? body.linked_project_keys
+              : JSON.stringify(body.linked_project_keys)
+            : undefined,
+      });
+
+      let taskIds = [];
+      if (Array.isArray(body.tasks) && body.tasks.length) {
+        const { ids } = await insertAgentsamPlanTaskRows(env, {
+          planId,
+          tenantId,
+          workspaceId,
+          tasks: body.tasks,
+        });
+        taskIds = ids;
+      }
+
+      return jsonResponse(
+        {
+          ok: true,
+          plan_id: planId,
+          task_ids: taskIds,
+          tasks_total: taskIds.length,
+          tasks_done: 0,
+          tasks_blocked: 0,
+        },
+        201,
+      );
+    }
 
     // Bootstrap config for authenticated user (Agent Sam UI)
     if (path === '/api/agentsam/config' && method === 'GET') {

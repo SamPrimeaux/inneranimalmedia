@@ -2,6 +2,7 @@
  * Agent Sam studio intake: structured questions + plan steps (Anthropic).
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
+import { insertAgentsamPlanRow } from '../core/agentsam-plan-insert.js';
 
 function resolveWorkspaceIdForPlan(env, authUser, body) {
   return (body?.workspace_id || body?.workspaceId || authUser?.workspace_id || env?.WORKSPACE_ID || '').toString().trim();
@@ -110,18 +111,30 @@ Rules:
         return jsonResponse({ error: 'Database not configured' }, 503);
       }
 
-      await env.DB.prepare(`
-        INSERT INTO agentsam_plans
-          (id, plan_date, title, plan_type, status, morning_brief,
-           workspace_id, default_model, created_at, updated_at)
-        VALUES (?, date('now'), ?, 'studio_session', 'active', ?, ?,
-                'claude-haiku-4-5-20251001', unixepoch(), unixepoch())
-      `).bind(
-        planId,
-        goal.slice(0, 120),
-        JSON.stringify({ questions: parsed.questions, goal_type: parsed.goal_type, risk_flags: parsed.risk_flags }),
-        wsId,
-      ).run();
+      let tenantId =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      await insertAgentsamPlanRow(env, {
+        id: planId,
+        tenant_id: tenantId,
+        workspace_id: wsId,
+        title: goal.slice(0, 120),
+        plan_type: 'feature',
+        status: 'active',
+        plan_date: new Date().toISOString().slice(0, 10),
+        morning_brief: JSON.stringify({
+          questions: parsed.questions,
+          goal_type: parsed.goal_type,
+          risk_flags: parsed.risk_flags,
+        }),
+        default_model: 'claude-haiku-4-5-20251001',
+        tasks_total: 0,
+        tasks_done: 0,
+      });
 
       return jsonResponse({
         plan_id: planId,
