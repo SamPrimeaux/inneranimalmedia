@@ -362,6 +362,16 @@ const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\])}]+/i;
 
 function firstUrlFromWorkflowNodeInput(nodeInput) {
   if (!nodeInput || typeof nodeInput !== 'object') return undefined;
+  const bc = nodeInput.browser_context ?? nodeInput.browserContext;
+  if (bc && typeof bc === 'object') {
+    const top = bc.url;
+    if (typeof top === 'string' && /^https?:\/\//i.test(top.trim())) return top.trim().slice(0, 2000);
+    const sel = bc.selected_element;
+    if (sel && typeof sel === 'object') {
+      const su = sel.url;
+      if (typeof su === 'string' && /^https?:\/\//i.test(su.trim())) return su.trim().slice(0, 2000);
+    }
+  }
   for (const k of ['url', 'target_url', 'href', 'page_url', 'navigate_url']) {
     const u = nodeInput[k];
     if (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) return u.trim().slice(0, 2000);

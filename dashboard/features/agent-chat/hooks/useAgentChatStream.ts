@@ -489,6 +489,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           typeof (data as { url?: string }).url === 'string'
         ) {
           onBrowserNavigate?.(data as { type: 'browser_navigate'; url: string });
+          continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_start') {
           const d = data as { type: 'tool_start'; tool_name?: string; input_preview?: string | null };

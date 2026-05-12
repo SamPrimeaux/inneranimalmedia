@@ -188,14 +188,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [repoSearch, setRepoSearch] = useState('');
 
   useEffect(() => {
-    const onBrowserSel = (ev: Event) => {
+    const onLegacy = (ev: Event) => {
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object' && d.type === 'browser_element_selected') {
         setBrowserElementContext(d);
       }
     };
-    window.addEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
-    return () => window.removeEventListener('iam:browser-element-selected', onBrowserSel as EventListener);
+    const onSelectedBridge = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object') {
+        setBrowserElementContext({ ...d, type: 'browser_element_selected' });
+      }
+    };
+    window.addEventListener('iam:browser-element-selected', onLegacy as EventListener);
+    window.addEventListener('iam:browser-selected-element', onSelectedBridge as EventListener);
+    return () => {
+      window.removeEventListener('iam:browser-element-selected', onLegacy as EventListener);
+      window.removeEventListener('iam:browser-selected-element', onSelectedBridge as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -1013,8 +1023,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as the active repo in the dashboard. Prefer \`github_file\` with repo="${ghCtx}" when reading files, and direct them to the Deploy/GitHub panel to browse or open files.`;
     }
 
-    if (browserElementContext) {
-      messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(browserElementContext, null, 2)}\n\`\`\`\n`;
+    const snap =
+      browserElementContext && typeof browserElementContext === 'object' ? browserElementContext : null;
+    if (snap) {
+      messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(snap, null, 2)}\n\`\`\`\n`;
       setBrowserElementContext(null);
     }
 
@@ -1034,8 +1046,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         ...(browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object' ? browserSurfaceRef.current : {}),
         dashboard_route: typeof window !== 'undefined' ? window.location.pathname : '',
       };
-      if (browserElementContext && typeof browserElementContext === 'object') {
-        browserCtxPayload.selected_element = browserElementContext;
+      if (snap && typeof snap === 'object') {
+        browserCtxPayload.selected_element = snap;
       }
       form.append('browserContext', JSON.stringify(browserCtxPayload));
     } catch {

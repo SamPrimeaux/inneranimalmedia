@@ -397,6 +397,7 @@ export async function runWorkspaceCapabilityAction(opts) {
         userId: String(userId).trim(),
         message,
         browserContext,
+        workflowKey,
         emit,
       });
     } else if (capabilityPlan.family === 'monaco') {

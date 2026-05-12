@@ -3308,6 +3308,11 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
     } catch (_) {}
   };
 
+  const browserCtx =
+    extras && typeof extras === 'object' && extras.browserContext != null && typeof extras.browserContext === 'object'
+      ? extras.browserContext
+      : null;
+
   (async () => {
     try {
       const { executeWorkflowGraph } = await import('../core/workflow-executor.js');
@@ -3316,6 +3321,7 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
         input: {
           message,
           ...(runtimeModeTag ? { runtime_mode: runtimeModeTag } : {}),
+          ...(browserCtx ? { browser_context: browserCtx } : {}),
         },
         tenantId: tid,
         workspaceId,
@@ -3398,6 +3404,15 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
  *     -F "model=auto" \
  *     | tee /tmp/agent-mode-monaco-sse.txt
  * Expect: workflow_key i-am-builder-monaco, surface_open / agent_surface_open before any model tool dispatch.
+ *
+ * Browser surface smoke (no a11y tool roulette):
+ *   curl -N -sS https://inneranimalmedia.com/api/agent/chat \
+ *     -H "Cookie: session=$IAM_SESSION" \
+ *     -H "Accept: text/event-stream" \
+ *     -F "message=Open the browser and inspect https://inneranimalmedia.com" \
+ *     -F "mode=agent" -F "agent_mode=agent" -F "runtime_intent_mode=agent" -F "model=auto" \
+ *     | tee /tmp/agent-browser-sse.txt
+ * Expect: surface_open + agent_surface_open (browser), browser_navigate with URL; no a11y_get_summary.
  */
 
 /** First active workflow_key among candidates (D1 agentsam_workflows). */
@@ -3436,24 +3451,38 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   const isDebug = mode === 'debug';
   const isAgentLike = mode === 'agent' || mode === 'multitask';
 
+  const askBrowser =
+    /\bopen\s+(the\s+)?browser\b/i.test(t) ||
+    /\bopen\s+browser\b/i.test(t) ||
+    /\binspect\s+(the\s+)?(site|page)\b/i.test(t) ||
+    /\bdebug\s+(the\s+)?(site|page)\b/i.test(t) ||
+    /\bdebug\s+this\s+site\b/i.test(t) ||
+    /\bscreenshot\b/i.test(t) ||
+    /\bcapture\s+(the\s+)?page\b/i.test(t) ||
+    /\bnavigate\s+to\b/i.test(t) ||
+    /\b(check|inspect)\s+(the\s+)?(console|network)\b/i.test(t) ||
+    /\binspect\s+(the\s+)?dom\b/i.test(t) ||
+    /\binspect\s+https?:\/\//i.test(t);
+
   if (isAsk) {
     if (/\bopen\s+excalidraw\b/i.test(t)) return { route: 'excalidraw', reason: 'ask_explicit_open_excalidraw' };
-    if (/\bopen\s+browser\b/i.test(t)) return { route: 'browser', reason: 'ask_explicit_open_browser' };
+    if (askBrowser) return { route: 'browser', reason: 'ask_explicit_browser_surface' };
     if (/\bopen\s+monaco\b/i.test(t)) return { route: 'monaco', reason: 'ask_explicit_open_monaco' };
     if (/\bopen\s+(the\s+)?code\s+editor\b/i.test(t)) return { route: 'monaco', reason: 'ask_explicit_code_editor' };
     if (/\bopen\s+the\s+editor\b/i.test(t) || /^\s*open\s+editor\s*$/i.test(raw))
       return { route: 'monaco', reason: 'ask_explicit_editor' };
-    if (/\bdebug\s+this\s+site\b/i.test(t)) return { route: 'browser', reason: 'ask_debug_this_site' };
     return null;
   }
 
   if (isDebug) {
     const dbgBrowser =
-      /\bopen\s+browser\b/i.test(t) ||
+      /\bopen\s+(the\s+)?browser\b/i.test(t) ||
       /\bdebug\s+this\s+site\b/i.test(t) ||
       (/\b(debug|inspect)\b/i.test(t) &&
         /\b(url|site|page|dashboard|browser|dom|console|network)\b/i.test(t)) ||
-      /\b(screenshot|screen\s*grab)\b/i.test(t);
+      /\b(screenshot|screen\s*grab)\b/i.test(t) ||
+      /\binspect\s+https?:\/\//i.test(t) ||
+      (/\bhttps?:\/\/\S+/i.test(t) && /\b(inspect|debug|browser)\b/i.test(t));
     if (!dbgBrowser) return null;
     return { route: 'browser', reason: 'debug_explicit_browser' };
   }
@@ -3471,12 +3500,20 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   if (excal) return { route: 'excalidraw', reason: 'agent_excalidraw_surface' };
 
   const browser =
-    /\bopen\s+browser\b/i.test(t) ||
+    /\bopen\s+(the\s+)?browser\b/i.test(t) ||
     /\bdebug\s+this\s+site\b/i.test(t) ||
+    /\binspect\s+(the\s+)?(site|page)\b/i.test(t) ||
+    /\bdebug\s+(the\s+)?(site|page)\b/i.test(t) ||
     (/\b(debug|inspect)\b/i.test(t) &&
       /\b(site|page|url|dashboard|browser|dom|console|network)\b/i.test(t)) ||
     /\b(screenshot|screen\s*grab)\b/i.test(t) ||
-    (/\bnavigate\b/i.test(t) && /\b(to\s+)?(url|page|site)\b/i.test(t));
+    /\bcapture\s+(the\s+)?page\b/i.test(t) ||
+    (/\bnavigate\b/i.test(t) && /\b(to\s+)?(url|page|site|https?:)/i.test(t)) ||
+    /\bnavigate\s+to\b/i.test(t) ||
+    /\b(check|inspect)\s+(the\s+)?(console|network)\b/i.test(t) ||
+    /\binspect\s+(the\s+)?dom\b/i.test(t) ||
+    /\binspect\s+https?:\/\//i.test(t) ||
+    (/\bhttps?:\/\/\S+/i.test(t) && /\b(inspect|debug|open\s+the\s+browser|open\s+browser|screenshot|navigate)\b/i.test(t));
   if (browser) return { route: 'browser', reason: 'agent_browser_surface' };
 
   const monaco =
@@ -3499,21 +3536,108 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   return null;
 }
 
+/** URL from message text or structured browser_context (dashboard BrowserView). */
+function extractPrimaryUrlForBrowserPreflight(message, browserContext) {
+  const m = String(message || '');
+  const fromMsg = m.match(/https?:\/\/[^\s)>'"<]+/i);
+  if (fromMsg) return fromMsg[0].replace(/[.,;)\]]+$/, '');
+  const bc = browserContext && typeof browserContext === 'object' ? browserContext : null;
+  if (bc) {
+    const u = bc.url;
+    if (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) return u.trim().slice(0, 2000);
+    const sel = bc.selected_element;
+    if (sel && typeof sel === 'object') {
+      const su = sel.url;
+      if (typeof su === 'string' && /^https?:\/\//i.test(su.trim())) return su.trim().slice(0, 2000);
+    }
+  }
+  return '';
+}
+
+/** Prefer seeded keys, then registry / node graph heuristics. */
+async function resolveBrowserWorkflowKeyFromDb(env) {
+  const seeded = await firstActiveWorkflowKeyAmong(env, [
+    'agent_browser_inspection_to_patch',
+    'i-am-inspector-playwright',
+  ]);
+  if (seeded) return seeded;
+  if (!env?.DB) return null;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT workflow_key FROM agentsam_workflows
+       WHERE COALESCE(is_active, 1) = 1
+         AND (
+           LOWER(workflow_key) LIKE '%browser%'
+           OR LOWER(workflow_key) LIKE '%playwright%'
+           OR LOWER(workflow_key) LIKE '%inspector%'
+         )
+       ORDER BY CASE WHEN LOWER(workflow_key) LIKE '%browser%' THEN 0 ELSE 1 END,
+                workflow_key ASC
+       LIMIT 1`,
+    ).first();
+    if (row?.workflow_key) return String(row.workflow_key);
+  } catch (e) {
+    console.warn('[agent] resolveBrowserWorkflowKeyFromDb registry', e?.message ?? e);
+  }
+  try {
+    const row2 = await env.DB.prepare(
+      `SELECT w.workflow_key FROM agentsam_workflows w
+       INNER JOIN agentsam_workflow_nodes n ON n.workflow_id = w.id
+       WHERE COALESCE(w.is_active, 1) = 1
+         AND (
+           LOWER(COALESCE(n.node_key, '')) LIKE '%browser%'
+           OR LOWER(COALESCE(n.handler_key, '')) LIKE '%browser%'
+           OR LOWER(COALESCE(n.handler_key, '')) LIKE '%playwright%'
+           OR LOWER(COALESCE(n.node_key, '')) LIKE '%screenshot%'
+           OR LOWER(COALESCE(n.node_key, '')) LIKE '%inspect%'
+         )
+       GROUP BY w.workflow_key
+       ORDER BY w.workflow_key ASC
+       LIMIT 1`,
+    ).first();
+    if (row2?.workflow_key) return String(row2.workflow_key);
+  } catch (e2) {
+    console.warn('[agent] resolveBrowserWorkflowKeyFromDb nodes', e2?.message ?? e2);
+  }
+  return null;
+}
+
+function userRequestedAccessibilityTools(message) {
+  return /\b(a11y|accessibility|wcag|aria|screen\s*reader|axe)\b/i.test(String(message || ''));
+}
+
+function shouldStripA11yForPlainSurfaceMessage(message, requestedMode) {
+  if (userRequestedAccessibilityTools(message)) return false;
+  const mode = String(requestedMode || '').toLowerCase();
+  if (mode === 'plan') return false;
+  const tagged = resolveSurfaceWorkflowForMessage(message, requestedMode);
+  if (!tagged) return false;
+  if (tagged.route === 'excalidraw') return false;
+  return true;
+}
+
+function stripSurfaceA11yTools(tools) {
+  if (!Array.isArray(tools)) return tools;
+  return tools.filter((t) => {
+    const n = String(t?.name || '');
+    if (n.startsWith('a11y_')) return false;
+    if (n === 'accessibilityExpert') return false;
+    return true;
+  });
+}
+
 /**
  * Map surface route to concrete workflow_key (or missing).
  * @returns {Promise<null | { kind: 'execute', workflowKey: string, reason: string } | { kind: 'missing_workflow', surface: string, reason: string }>}
  */
-async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode) {
+async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode, _browserContext) {
   const tagged = resolveSurfaceWorkflowForMessage(message, requestedMode);
   if (!tagged) return null;
   if (tagged.route === 'monaco') {
     return { kind: 'execute', workflowKey: 'i-am-builder-monaco', reason: tagged.reason };
   }
   if (tagged.route === 'browser') {
-    const key = await firstActiveWorkflowKeyAmong(env, [
-      'agent_browser_inspection_to_patch',
-      'i-am-inspector-playwright',
-    ]);
+    const key = await resolveBrowserWorkflowKeyFromDb(env);
     if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
     return { kind: 'missing_workflow', surface: 'browser', reason: tagged.reason };
   }
@@ -3523,6 +3647,77 @@ async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedM
     return { kind: 'missing_workflow', surface: 'excalidraw', reason: tagged.reason };
   }
   return null;
+}
+
+/** When no browser workflow is registered: open Browser tab + navigate without entering LLM tool loop. */
+function streamBrowserPreflightNoWorkflow(message, browserContext) {
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const runId = `wrun_browser_preflight_${Date.now().toString(36)}`;
+  const url = extractPrimaryUrlForBrowserPreflight(message, browserContext);
+  (async () => {
+    try {
+      const ctxPayload =
+        browserContext && typeof browserContext === 'object'
+          ? {
+              url: browserContext.url ?? null,
+              route_path: browserContext.route_path ?? null,
+              selected_element: browserContext.selected_element ?? null,
+              dashboard_route: browserContext.dashboard_route ?? null,
+            }
+          : {};
+      writer.write(
+        encoder.encode(
+          `data: ${JSON.stringify({
+            type: 'context',
+            scope: 'browser_preflight',
+            browser_context: ctxPayload,
+          })}\n\n`,
+        ),
+      );
+      const surf = {
+        surface: 'browser',
+        reason: 'browser_preflight',
+        node_key: 'preflight',
+        run_id: runId,
+        workflow_key: null,
+      };
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'surface_open', ...surf })}\n\n`));
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'agent_surface_open', ...surf })}\n\n`));
+      if (url) {
+        writer.write(
+          encoder.encode(`data: ${JSON.stringify({ type: 'browser_navigate', url, run_id: runId })}\n\n`),
+        );
+      }
+      writer.write(
+        encoder.encode(
+          `data: ${JSON.stringify({
+            type: 'text',
+            text:
+              '**Browser workflow graph is not active in D1** — deterministic automation steps are unavailable until a browser/playwright workflow is seeded and `is_active=1`. The dashboard should still open the Browser tab above.\n\n' +
+              (url ? `_Target URL:_ ${url}\n\n` : '_No URL parsed from message or browser context._\n\n') +
+              `_Message:_ ${String(message || '').slice(0, 400)}`,
+          })}\n\n`,
+        ),
+      );
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+    } catch (_) {
+      /* ignore */
+    } finally {
+      try {
+        await writer.close();
+      } catch (_) {}
+    }
+  })();
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
 }
 
 function streamPreflightSurfaceWorkflowMissing(surface, userMessage) {
@@ -3957,7 +4152,34 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
-  const surfacePreflight = await resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode);
+  /** @type {Record<string, unknown>|null} */
+  let browserContextPayload = null;
+  try {
+    const bc = body.browserContext ?? body.browser_context;
+    if (typeof bc === 'string' && bc.trim()) browserContextPayload = parseJsonSafe(bc.trim(), null);
+    else if (bc && typeof bc === 'object') browserContextPayload = bc;
+  } catch (_) {
+    browserContextPayload = null;
+  }
+
+  const surfacePreflight = await resolveSurfaceWorkflowPreflightExecution(
+    env,
+    message,
+    requestedMode,
+    browserContextPayload,
+  );
+  const surfaceTagForLog = resolveSurfaceWorkflowForMessage(message, requestedMode);
+  if (surfaceTagForLog?.route === 'browser') {
+    console.log(
+      '[agent] browser_surface_preflight',
+      JSON.stringify({
+        requestedMode,
+        workflowKey: surfacePreflight?.kind === 'execute' ? surfacePreflight.workflowKey : null,
+        url: extractPrimaryUrlForBrowserPreflight(message, browserContextPayload) || null,
+        reason: surfaceTagForLog.reason,
+      }),
+    );
+  }
   console.log(
     '[agent] surface_workflow_preflight',
     JSON.stringify({
@@ -3973,9 +4195,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
     return executeWorkflowAndStream(env, surfacePreflight.workflowKey, message, actor, workspaceId, ctx, {
       runtimeMode: requestedMode,
+      browserContext: browserContextPayload,
     });
   }
   if (surfacePreflight?.kind === 'missing_workflow') {
+    if (surfacePreflight.surface === 'browser') {
+      return streamBrowserPreflightNoWorkflow(message, browserContextPayload);
+    }
     return streamPreflightSurfaceWorkflowMissing(surfacePreflight.surface, message);
   }
 
@@ -3988,16 +4214,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   kickoffModelTierMigration(env, ctx);
 
   const gate = await gateRewriteAndClassify(env, modeConfig, message, tenantId);
-
-  /** @type {Record<string, unknown>|null} */
-  let browserContextPayload = null;
-  try {
-    const bc = body.browserContext ?? body.browser_context;
-    if (typeof bc === 'string' && bc.trim()) browserContextPayload = parseJsonSafe(bc.trim(), null);
-    else if (bc && typeof bc === 'object') browserContextPayload = bc;
-  } catch (_) {
-    browserContextPayload = null;
-  }
 
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentResult = await classifyIntent(env, message);
@@ -4296,8 +4512,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   let capabilityDecision = null;
   if (agentLikeTooling && !ingestBypass) {
     try {
+      const classifyMessage = (() => {
+        const base = gate.rewritten_query || message;
+        const sel = browserContextPayload?.selected_element;
+        if (sel && typeof sel === 'object') {
+          const tag = sel.tagName ?? sel.tag;
+          const path = sel.selector ?? sel.path;
+          const bits = [`<${String(tag || '?')}>`];
+          if (path) bits.push(`selector=${String(path).slice(0, 400)}`);
+          return `${base}\n\n[BrowserView selected element: ${bits.join(' ')}]`;
+        }
+        return base;
+      })();
       capabilityDecision = await classifyWorkspaceCapabilities(env, {
-        message: gate.rewritten_query || message,
+        message: classifyMessage,
         browserContext: browserContextPayload,
         userId,
         tenantId,
@@ -4305,6 +4533,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       tools = await filterToolsForCapabilityDecision(env, tools, capabilityDecision, gate.rewritten_query || message, {
         requestedMode,
       });
+      if (shouldStripA11yForPlainSurfaceMessage(message, requestedMode)) {
+        tools = stripSurfaceA11yTools(tools);
+      }
     } catch (e) {
       console.warn('[agent] capability_tool_filter', e?.message ?? e);
     }

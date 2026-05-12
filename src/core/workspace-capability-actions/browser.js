@@ -42,10 +42,12 @@ function toolResultOk(res) {
  * @param {string} p.userId
  * @param {string} p.message
  * @param {Record<string, unknown>|null} p.browserContext
+ * @param {string} [p.workflowKey]
  * @param {(type: string, payload: Record<string, unknown>) => void} p.emit
  */
 export async function runBrowserCapabilityAction(p) {
   const { env, runId, tenantId, workspaceId, userId, message, browserContext, emit } = p;
+  const workflowKey = p.workflowKey != null ? String(p.workflowKey).trim() : null;
   const stepResults = [];
   let stepsDone = 0;
   const stepsTotal = 6;
@@ -126,9 +128,17 @@ export async function runBrowserCapabilityAction(p) {
     };
   }
 
-  emit('surface_open', { surface: 'browser', reason: 'workspace_capability_browser', url });
-  emit('agent_surface_open', { surface: 'browser', reason: 'workspace_capability_browser', url });
-  emit('browser_navigate', { url });
+  const surfacePayload = {
+    surface: 'browser',
+    reason: 'workspace_capability_browser',
+    url,
+    run_id: runId,
+    workflow_key: workflowKey,
+  };
+  console.log('[browser-capability] surface_open', JSON.stringify({ url, runId }));
+  emit('surface_open', surfacePayload);
+  emit('agent_surface_open', { ...surfacePayload });
+  emit('browser_navigate', { url, run_id: runId, workflow_key: workflowKey });
   const navRes = await runBuiltinTool(env, navigateName, baseParams);
   pushStep('navigate', {
     ok: toolResultOk(navRes),

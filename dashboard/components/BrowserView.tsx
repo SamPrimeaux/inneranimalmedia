@@ -952,6 +952,22 @@ const BrowserPane: React.FC<PaneProps> = ({
           },
         };
         window.dispatchEvent(new CustomEvent('iam:browser-element-selected', { detail: payload }));
+        window.dispatchEvent(
+          new CustomEvent('iam:browser-selected-element', {
+            detail: {
+              url: urlNow,
+              selector: el.path || '',
+              path: el.path || '',
+              tagName: el.tag,
+              tag: el.tag,
+              id: el.id ?? null,
+              className: el.className ?? null,
+              text_preview: htmlText.slice(0, 500),
+              computed_styles: payload.computed_styles,
+              bounding_box: el.boundingBox ?? null,
+            },
+          }),
+        );
         window.dispatchEvent(new CustomEvent('iam:agent-context-attach', { detail: { browser_element: payload } }));
         window.dispatchEvent(new CustomEvent('iam-agent-external-send', {
           detail: {
