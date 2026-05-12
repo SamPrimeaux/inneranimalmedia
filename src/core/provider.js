@@ -13,7 +13,7 @@ import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
 import { resolveApiKey }       from './vault.js';
 import { pickRoutingArmByThompson } from './thompson.js';
-import { isFeatureEnabled }    from './features.js';
+import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 import { pragmaTableInfo }     from './retention.js';
 import { queryRoutingArmsCandidates, filterArmsForRouteKey } from './routing.js';
 
@@ -75,7 +75,7 @@ async function resolveAutoModelKey(env, params) {
     }).catch(() => []);
     arms = await filterArmsForRouteKey(env, params.routeKey ?? null, arms);
     if (arms?.length) {
-      const useThompson = await isFeatureEnabled(env, 'thompson_sampling', {
+      const useThompson = await isThompsonRoutingSamplingEnabled(env, {
         userId: params.userId,
         tenantId: params.tenantId,
       });

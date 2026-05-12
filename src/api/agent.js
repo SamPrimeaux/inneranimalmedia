@@ -81,6 +81,7 @@ import {
   resolveRoutingTaskType,
 } from '../core/routing.js';
 import { pickRoutingArmByThompson } from '../core/thompson.js';
+import { isThompsonRoutingSamplingEnabled } from '../core/routing-thompson-flag.js';
 import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
@@ -1490,17 +1491,21 @@ async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
   }
 }
 
-async function selectThompsonArm(env, taskType, mode, workspaceId, routeKey) {
+async function selectThompsonArm(env, taskType, mode, workspaceId, routeKey, opts = {}) {
   if (!env.DB || !taskType || !workspaceId) return null;
   try {
     const arms = await queryRoutingArmsCandidates(env, {
       taskType,
       mode,
       workspaceId,
-      toolRequired: false,
+      toolRequired: !!opts.toolRequired,
       routeKey: routeKey ?? null,
     });
-    const arm = pickRoutingArmByThompson(arms);
+    const useThompson = await isThompsonRoutingSamplingEnabled(env, {
+      userId: opts.userId,
+      tenantId: opts.tenantId,
+    });
+    const arm = useThompson ? pickRoutingArmByThompson(arms) : arms[0] ?? null;
     if (!arm?.model_key) return null;
     const aiRow = await env.DB.prepare(
       `SELECT ai.id AS ai_model_id, ai.api_platform
@@ -4022,8 +4027,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
 /** Composer runtime contract (lowercase): ask | plan | agent | debug | multitask */
 function normalizeAgentRuntimeMode(raw) {
   const v = String(raw || '').trim().toLowerCase();
-  if (['agent', 'plan', 'debug', 'multitask', 'ask'].includes(v)) return v;
-  if (v === 'auto') return 'agent';
+  if (['agent', 'plan', 'debug', 'multitask', 'ask', 'auto'].includes(v)) return v;
   return 'agent';
 }
 
@@ -4657,6 +4661,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     routingPick = await getDefaultModelForTask(env, {
       taskKey: resolvedRoutingTaskType,
       tenantId,
+      userId,
       mode: requestedMode,
       workspaceId,
       toolRequired: requireTools,
@@ -4674,6 +4679,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     intentResult.mode || requestedMode,
     workspaceId,
     promptRouteRow?.route_key ?? null,
+    { toolRequired: requireTools, userId, tenantId },
   );
   if (thompsonPick && (!routingPick || routingPick.source !== 'thompson')) {
     routingPick = thompsonPick;

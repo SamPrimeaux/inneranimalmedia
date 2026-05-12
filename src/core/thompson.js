@@ -2,6 +2,8 @@
  * Thompson/Beta bandit over agentsam_routing_arms + nightly updates from agentsam_execution_performance_metrics.
  */
 
+import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
+
 /**
  * Thompson-style pick from pre-fetched routing arm rows (cost/latency penalties).
  * @param {Array<Record<string, unknown>> | null | undefined} results
@@ -25,7 +27,7 @@ export function pickRoutingArmByThompson(results) {
  * Candidate arms match {@link queryRoutingArmsCandidates} filters (workspace-scoped first, then global empty workspace_id).
  * Kept self-contained to avoid a circular import with `routing.js`.
  */
-export async function thompsonSample(env, taskType, mode, workspaceId = '') {
+export async function thompsonSample(env, taskType, mode, workspaceId = '', opts = {}) {
   if (!env?.DB) return null;
   const tt = taskType != null ? String(taskType).trim() : 'chat';
   const m = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'auto';
@@ -36,7 +38,7 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '') {
   const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${catalogOk}${blockGpt55Base}`;
   const orderSql = `(CASE WHEN LOWER(COALESCE(ra.provider,'')) IN ('cloudflare','workers_ai')
              OR ra.model_key LIKE 'wai-%' OR ra.model_key LIKE '@cf/%' THEN 1 ELSE 0 END) ASC,
-       ra.decayed_score DESC, COALESCE(ra.priority, 50) ASC`;
+       ra.decayed_score DESC, COALESCE(ra.priority, 0) DESC, ra.rowid ASC`;
   const projection =
     `SELECT ra.id, ra.model_key, ra.provider, ra.success_alpha, ra.success_beta, ra.cost_mean, ra.latency_mean`;
 
@@ -54,7 +56,11 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '') {
       const r2 = await env.DB.prepare(sqlG).bind(tt, m).all();
       results = r2.results || [];
     }
-    return pickRoutingArmByThompson(results);
+    const useThompson = await isThompsonRoutingSamplingEnabled(env, {
+      userId: opts.userId,
+      tenantId: opts.tenantId,
+    });
+    return useThompson ? pickRoutingArmByThompson(results) : results[0] ?? null;
   } catch {
     return null;
   }

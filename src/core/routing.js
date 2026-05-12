@@ -15,6 +15,7 @@
 
 import { pickRoutingArmByThompson } from './thompson.js';
 import { pragmaTableInfo } from './retention.js';
+import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 
 const TABLE = 'agentsam_routing_arms';
 
@@ -235,11 +236,13 @@ export async function queryRoutingArmsCandidates(env, q) {
   const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
   const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${toolsClause}${catalogOk}${blockGpt55Base}`;
 
+  /** Higher `priority` wins; higher `decayed_score` wins; Workers AI last unless route allows early. */
+  const orderCore = `ra.decayed_score DESC, COALESCE(ra.priority, 0) DESC, ra.rowid ASC`;
   const orderSql = allowWaiSort
-    ? `ra.decayed_score DESC, COALESCE(ra.priority, 50) ASC`
+    ? orderCore
     : `(CASE WHEN LOWER(COALESCE(ra.provider,'')) IN ('cloudflare','workers_ai')
              OR ra.model_key LIKE 'wai-%' OR ra.model_key LIKE '@cf/%' THEN 1 ELSE 0 END) ASC,
-       ra.decayed_score DESC, COALESCE(ra.priority, 50) ASC`;
+       ${orderCore}`;
 
   try {
     if (ws) {
@@ -460,6 +463,8 @@ const INTENT_SLUG_TO_ROUTING_TASK = {
  *   mode?: string,
  *   toolRequired?: boolean,
  *   routeKey?: string | null,
+ *   userId?: string | null,
+ *   tenantId?: string | null,
  * }} ctx
  * @returns {Promise<{ modelId: string | null, armId: string | null, source: 'thompson' | 'fallback', fallbackReason?: string, fallbackModelKey?: string | null }>}
  */
@@ -487,7 +492,11 @@ export async function getDefaultModelForTask(env, ctx = {}) {
     });
     arms = await filterArmsForRouteKey(env, ctx.routeKey ?? null, arms);
     arms = await mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms);
-    const arm = pickRoutingArmByThompson(arms);
+    const useThompson = await isThompsonRoutingSamplingEnabled(env, {
+      userId: ctx.userId,
+      tenantId: ctx.tenantId,
+    });
+    const arm = useThompson ? pickRoutingArmByThompson(arms) : arms[0] ?? null;
     if (!arm?.model_key) {
       return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_eligible_arms' };
     }
@@ -517,7 +526,7 @@ export async function getDefaultModelForTask(env, ctx = {}) {
         armId: armId || null,
         source: 'fallback',
         fallbackReason: 'catalog_without_agentsam_ai_row',
-        fallbackModelKey,
+        fallbackModelKey: fallbackModelKey || mk,
       };
     }
     const modelId = row?.id != null ? String(row.id).trim() : '';
@@ -527,7 +536,7 @@ export async function getDefaultModelForTask(env, ctx = {}) {
         armId: armId || null,
         source: 'fallback',
         fallbackReason: 'unknown_model_key',
-        fallbackModelKey,
+        fallbackModelKey: fallbackModelKey || mk,
       };
     }
     return {

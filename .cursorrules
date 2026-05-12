@@ -24,9 +24,10 @@ Every git command runs from /Users/samprimeaux/inneranimalmedia/
 - Agent Sam: D1 is canonical operational state; Supabase is the required observability mirror. Full lifecycle, tables, and required end-of-change alignment report: `.cursor/rules/agentsam-d1-supabase-alignment.mdc` (always applied).
 
 ## Deploy — never guess (wrong command = wasted work)
-- `npm run deploy:full` — DEFAULT. Route map + D1 schema doc + Vite build + docs ingest + D1 memory ingest (incl. post-deploy memory row) + `deploy-frontend.sh` (R2 upload + Worker deploy + Supabase deploy log / hooks).
-- `npm run deploy` — Worker/API only (src/). No R2 upload.
+- `npm run deploy:full` — DEFAULT. Route map + D1 schema doc + docs ingest + D1 memory ingest (when hashes change) + `deploy-frontend.sh` (clean `npm run build:vite-only`, `bump-cache.js`, R2 sync, Worker) + codebase index + eval + hooks.
+- `npm run deploy` — Worker/API only (src/). No R2 upload; does not refresh dashboard assets.
 - `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` — Worker-only one-liner.
+- `deploy:frontend`, `deploy:full`, and `deploy:full:safe` always run a clean `dashboard/dist` via `npm run build:vite-only`, then `node scripts/bump-cache.js`, then R2 sync. Never set `SKIP_VITE_BUILD` for production paths; the deploy scripts reject it.
 
 ## Sandbox is DISCONTINUED
 - Never suggest deploy-sandbox.sh or promote-to-prod.sh — both are marked dangerous/discontinued.
@@ -34,7 +35,7 @@ Every git command runs from /Users/samprimeaux/inneranimalmedia/
 
 ## Dashboard build rules
 - NEVER run cd dashboard
-- Always usix dashboard run build OR npm run build:vite-only from repo root
+- Always use `npm run build:vite-only` from repo root (never `cd dashboard`).
 
 CF Builds auto-deploys Worker on push to main. Does NOT upload R2 frontend bundle.
 Run deploy:full locally when dashboard changes need to be live immediately.

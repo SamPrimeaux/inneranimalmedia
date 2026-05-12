@@ -4,6 +4,7 @@ import { handleAnalyticsSourceHealth } from './source-health.js';
 import { handleAnalyticsOverview } from './overview.js';
 import { handleAnalyticsRag } from './rag.js';
 import { handleAnalyticsCodebase } from './codebase.js';
+import { handleAgentAnalyticsGraph, handleAgentAnalyticsDependencies } from './agent.js';
 
 /**
  * /api/analytics/* router.
@@ -46,6 +47,14 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/codebase' && request.method === 'GET') {
     return handleAnalyticsCodebase(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/agent/graph' && request.method === 'GET') {
+    return handleAgentAnalyticsGraph(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/agent/dependencies' && request.method === 'GET') {
+    return handleAgentAnalyticsDependencies(request, url, env, { tenantId, workspaceId });
   }
 
   // Stub endpoints for now — return standard AnalyticsResponse shape.

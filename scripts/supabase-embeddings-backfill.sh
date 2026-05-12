@@ -23,7 +23,11 @@ fi
 
 SECRET="${SUPABASE_WEBHOOK_SECRET:-}"
 if [ -z "$SECRET" ]; then
+  if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
   echo "[supabase-embeddings-backfill] SUPABASE_WEBHOOK_SECRET unset — skipping." >&2
+  else
+    echo "[deploy] Supabase embeddings backfill skipped. Set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run."
+  fi
   exit 0
 fi
 
@@ -32,7 +36,11 @@ DEFAULT_FUNCTIONS_BASE='https://dpmuvynqixblxsilnlut.supabase.co/functions/v1'
 for stale in 'tcczxkatmodtxfuulvsr' 'sexdnwlyuhkyvseunqlx'; do
   case "${SUPABASE_FUNCTIONS_URL:-}" in
     *"${stale}"*)
+      if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
       echo "[supabase-embeddings-backfill] Clearing stale SUPABASE_FUNCTIONS_URL (contains ${stale}); using ${DEFAULT_FUNCTIONS_BASE}" >&2
+      else
+        echo "[deploy] Supabase embeddings backfill skipped. Set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run."
+      fi
       SUPABASE_FUNCTIONS_URL=''
       break
       ;;
@@ -45,11 +53,19 @@ BATCH="${SUPABASE_EMBEDDINGS_BATCH_SIZE:-25}"
 TABLES_DEFAULT="agent_context_snapshots agent_decisions agent_memory documents session_summaries"
 TABLES="${SUPABASE_EMBEDDINGS_BACKFILL_TABLES:-$TABLES_DEFAULT}"
 
+if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
 echo "[supabase-embeddings-backfill] POST ${BASE}/backfill-embeddings (batch_size=${BATCH})"
+else
+  echo "[deploy] Supabase embeddings backfill skipped. Set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run."
+fi
 
 for t in $TABLES; do
   echo "  → table=${t}"
+  if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
   RESP="$(curl -sS --max-time 300 -X POST "${BASE}/backfill-embeddings" \
+  else
+    echo "[deploy] Supabase embeddings backfill skipped. Set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run."
+  fi
     -H "Content-Type: application/json" \
     -d "{\"secret\":\"${SECRET}\",\"table\":\"${t}\",\"batch_size\":${BATCH}}" || printf '{"curl_error":true}')"
   if command -v jq >/dev/null 2>&1; then

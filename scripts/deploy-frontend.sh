@@ -48,11 +48,27 @@ run_with_timeout_secs() {
   fi
 }
 
-if [[ -z "${SKIP_VITE_BUILD:-}" ]]; then
-  echo "→ Building frontend..."
-  npm run build:vite-only
-else
-  echo "→ Skipping Vite build (SKIP_VITE_BUILD=1)"
+# Production path: never upload a stale dashboard/dist. Vite must succeed before any R2 sync.
+if [[ -n "${SKIP_VITE_BUILD:-}" ]]; then
+  echo "✗ SKIP_VITE_BUILD is set. This deploy script does not skip Vite. Unset SKIP_VITE_BUILD and re-run." >&2
+  exit 1
+fi
+
+echo "→ Clean dashboard/dist, then Vite build + cache bump (required before R2 sync)…"
+rm -rf "$REPO_ROOT/$DIST"
+BUILD_START_EPOCH=$(date +%s)
+(cd "$REPO_ROOT" && npm run build:vite-only)
+(cd "$REPO_ROOT" && node scripts/bump-cache.js)
+BUILD_END_EPOCH=$(date +%s)
+BUILD_MS=$(( (BUILD_END_EPOCH - BUILD_START_EPOCH) * 1000 ))
+if command -v node >/dev/null 2>&1; then
+  node -e "const fs=require('fs');const p=process.argv[1];let o={};try{if(fs.existsSync(p))o=JSON.parse(fs.readFileSync(p,'utf8'));}catch(e){}o.build_ms=Number(process.argv[2]);fs.writeFileSync(p,JSON.stringify(o));" \
+    "${REPO_ROOT}/.deploy-pipeline-stats.json" "${BUILD_MS}" || true
+fi
+
+if [[ ! -f "$REPO_ROOT/$DIST/index.html" ]]; then
+  echo "✗ Missing $REPO_ROOT/$DIST/index.html after Vite — aborting (will not R2 sync)." >&2
+  exit 1
 fi
 
 # R2: keys must be in .env.cloudflare (sourced above). Same vars as former prune script.
@@ -65,7 +81,8 @@ if ! command -v rclone >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ Syncing $DIST to R2 static/dashboard/agent/ ..."
+echo "→ Syncing $DIST to R2 static/dashboard/agent/ …"
+echo "   (rclone sync: remote files under static/dashboard/agent/ not present in local dist are deleted — stale hashed JS/CSS pruned)"
 find "$REPO_ROOT/$DIST" -name "*.map" -delete
 R2_SYNC_STATUS=passed
 R2_SYNC_START=$(date +%s)
@@ -198,6 +215,35 @@ else
   echo "✓ Worker deployed (could not parse Current Version ID from wrangler output)"
 fi
 
+CACHE_SNIP="$(grep -oE '(agent-dashboard|agent-core)\.(js|css)\?v=[0-9]+' "$REPO_ROOT/$DIST/index.html" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+R2_LOCAL_OBJECTS="$(find "$REPO_ROOT/$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')"
+GIT_STATUS_URL="https://inneranimalmedia.com/api/agent/git/status"
+GIT_STATUS_TMP="$(mktemp "${TMPDIR:-/tmp}/iam-git-status.XXXXXX")"
+HTTP_CODE="$(curl -sS -o "$GIT_STATUS_TMP" -w '%{http_code}' --max-time 25 "$GIT_STATUS_URL" 2>/dev/null || echo "000")"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[deploy-proof] git_sha_full=${GIT_FULL_SHA:-unknown}"
+echo "[deploy-proof] worker_version_id=${WORKER_VERSION_ID:-unknown}"
+echo "[deploy-proof] dashboard/dist/index.html cache params: ${CACHE_SNIP:-<none matched>}"
+echo "[deploy-proof] local_dashboard_dist_files=${R2_LOCAL_OBJECTS} (rclone sync source object count)"
+if [[ -n "${R2_OBJECT_COUNT:-}" ]]; then
+  echo "[deploy-proof] r2_deploy_manifest_object_count=${R2_OBJECT_COUNT}"
+else
+  echo "[deploy-proof] r2_deploy_manifest_object_count=(not built — SKIP_R2_DEPLOY_RECONCILE=1 or manifest unavailable)"
+fi
+echo "[deploy-proof] live GET ${GIT_STATUS_URL} → HTTP ${HTTP_CODE}"
+if command -v jq >/dev/null 2>&1 && [[ -s "$GIT_STATUS_TMP" ]]; then
+  jq -c . <"$GIT_STATUS_TMP" 2>/dev/null || head -c 500 "$GIT_STATUS_TMP"
+else
+  head -c 500 "$GIT_STATUS_TMP" 2>/dev/null || true
+fi
+echo ""
+if [[ "$HTTP_CODE" == "401" ]]; then
+  echo "[deploy-proof] note: 401 without session cookie is expected; dashboard uses this endpoint when signed in."
+fi
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+rm -f "$GIT_STATUS_TMP"
+
 # KV deploy markers + agentsam_hook trigger=post_deploy (writes agentsam_hook_execution)
 GIT_SHORT_HASH="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo "→ Worker post-deploy (KV + agentsam_hook post_deploy)..."
@@ -244,7 +290,7 @@ fi
 # Build manifest → R2 (dashboard build history under analytics/app-builds/)
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-FILE_COUNT=$(find "$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')
+FILE_COUNT=$(find "$REPO_ROOT/$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')
 BRANCH=$(git branch --show-current 2>/dev/null || echo main)
 printf '{"git_hash":"%s","timestamp":"%s","file_count":%s,"branch":"%s","environment":"production"}' \
   "$GIT_HASH" "$TS" "$FILE_COUNT" "$BRANCH" | \
@@ -277,10 +323,18 @@ fi
 
 # Post-deploy: Supabase pgvector backfill for rows with NULL embedding (Edge Function).
 # Set SUPABASE_WEBHOOK_SECRET in .env.cloudflare (same value as the function's WEBHOOK_SECRET).
-"$REPO_ROOT/scripts/supabase-embeddings-backfill.sh"
+DEPLOY_EMBEDDINGS_RAN=0
+if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
+  echo "→ Supabase embeddings backfill (opt-in RUN_SUPABASE_EMBEDDINGS_BACKFILL=1)…"
+  if bash "$REPO_ROOT/scripts/supabase-embeddings-backfill.sh"; then
+    DEPLOY_EMBEDDINGS_RAN=1
+  else
+    echo "[deploy-frontend] warning: embeddings backfill exited non-zero (non-fatal)"
+  fi
+fi
 
 # Post-deploy: Resend notification (branded HTML; mirrors build_deploy_events fields)
-TOTAL_KB=$(du -sk "$DIST" | cut -f1)
+TOTAL_KB=$(du -sk "$REPO_ROOT/$DIST" | cut -f1)
 : "${DEPLOY_NOTIFY_AI_MODEL:=}"
 : "${DEPLOY_NOTIFY_AI_TOKENS_IN:=}"
 : "${DEPLOY_NOTIFY_AI_TOKENS_OUT:=}"
@@ -409,4 +463,8 @@ if command -v jq >/dev/null 2>&1; then
     }' > "$REPO_ROOT/.deploy-worker-stats.json"
 fi
 
-echo "✓ Done (manifest + embeddings backfill + notification)"
+if [[ "${DEPLOY_EMBEDDINGS_RAN:-0}" == "1" ]]; then
+  echo "✓ Done (worker + R2 + notification; Supabase embeddings backfill ran)"
+else
+  echo "✓ Done (worker + R2 + notification; Supabase embeddings backfill skipped — set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run)"
+fi

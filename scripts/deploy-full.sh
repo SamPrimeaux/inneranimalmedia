@@ -2,10 +2,10 @@
 # Full production deploy: ledger (Supabase), R2, Worker, optional reingest, codebase index, smoke eval.
 # Optional/required deploy env → DB tables: docs/DEPLOY_ENV_SUPABASE_MAPPING.md
 #
-# ── Fast paths (use most of the time; full pipeline only for releases) ─────────
+# ── Paths ──────────────────────────────────────────────────────────────────────
 #   Worker only (~1 min):     npm run deploy
-#   Frontend + R2 + Worker:   npm run deploy:frontend   (runs Vite unless SKIP_VITE_BUILD=1)
-#   Everything below + ledger/eval/prune/smoke (~several min):  npm run deploy:full:safe
+#   Frontend + R2 + Worker:   npm run deploy:frontend   (always: clean Vite → bump-cache → R2 → Worker)
+#   Full pipeline (~several min):  npm run deploy:full:safe
 #
 # ── Skips (content-hash vs last run, stored in .deploy-*-hash files; gitignored) ─
 #   Override reingest:        FORCE_SUPABASE_REINGEST=1 npm run deploy:full
@@ -67,13 +67,6 @@ npm run generate:route-map
 export DEPLOY_PHASE=build_codebase_priority
 node "$REPO_ROOT/scripts/build-index-priority-files.mjs" || true
 
-export DEPLOY_PHASE=vite_build
-BUILD_START_EPOCH=$(date +%s)
-npm run build:vite-only
-BUILD_END_EPOCH=$(date +%s)
-BUILD_MS=$(( (BUILD_END_EPOCH - BUILD_START_EPOCH) * 1000 ))
-node -e "const fs=require('fs');const p='${REPO_ROOT}/.deploy-pipeline-stats.json';let o={};try{if(fs.existsSync(p))o=JSON.parse(fs.readFileSync(p,'utf8'));}catch(e){}o.build_ms=${BUILD_MS};fs.writeFileSync(p,JSON.stringify(o));"
-
 # Docs/context → Supabase documents (hash of docs/ + manifest — not git diff HEAD~1, which misfires when
 # docs ship in the same commit as unrelated code)
 DOCS_HASH_FILE="$REPO_ROOT/.deploy-supabase-docs-hash"
@@ -83,10 +76,18 @@ LAST_DOCS_HASH=""
 if [[ "${FORCE_SUPABASE_REINGEST:-0}" == "1" ]] || [[ -z "$LAST_DOCS_HASH" ]] || [[ "$DOCS_HASH" != "$LAST_DOCS_HASH" ]]; then
   echo "[deploy-full] Supabase document inputs changed (sha256) — reingest (was: git-diff HEAD~1; now content-hash)"
   export DEPLOY_PHASE=reingest_supabase_documents
-  npm run reingest:supabase-documents:apply
+  if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
+    npm run reingest:supabase-documents:apply
+  else
+    echo "[deploy] Supabase embeddings backfill skipped. Set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run."
+  fi
   echo "$DOCS_HASH" >"$DOCS_HASH_FILE"
 else
-  echo "[deploy-full] Supabase document inputs unchanged — skipping reingest:supabase-documents"
+  if [[ "${RUN_SUPABASE_EMBEDDINGS_BACKFILL:-0}" == "1" ]]; then
+    echo "[deploy-full] Supabase document inputs unchanged — skipping reingest:supabase-documents"
+  else
+    echo "[deploy] Supabase embeddings backfill skipped. Set RUN_SUPABASE_EMBEDDINGS_BACKFILL=1 to run."
+  fi
 fi
 
 MIG_HASH_FILE="$REPO_ROOT/.deploy-migrations-hash"
@@ -103,7 +104,7 @@ else
 fi
 
 export DEPLOY_PHASE=deploy_frontend
-SKIP_VITE_BUILD=1 "$REPO_ROOT/scripts/deploy-frontend.sh"
+"$REPO_ROOT/scripts/deploy-frontend.sh"
 
 export DEPLOY_PHASE=index_codebase
 node "$REPO_ROOT/scripts/index-codebase-snapshot.mjs" --apply
