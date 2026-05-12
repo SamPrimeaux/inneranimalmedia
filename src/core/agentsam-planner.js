@@ -12,6 +12,7 @@
 import { dispatchComplete } from './provider.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pragmaTableInfo } from './retention.js';
+import { createPlanExcalidrawArtifact, createPlanMarkdownArtifact } from './agentsam-plan-excalidraw-artifact.js';
 import { scheduleMirrorAgentChatPlanToSupabase } from './agentsam-plan-supabase-public-sync.js';
 import { insertAgentsamPlanRow } from './agentsam-plan-insert.js';
 
@@ -701,10 +702,55 @@ export async function createPlan(
 
   scheduleMirrorAgentChatPlanToSupabase(env, ctx, wrun);
 
+  let visual_map = null;
+  let visual_map_error = null;
+  const uidForArt = canonicalUser || uidRaw;
+  if (env.DASHBOARD && uidForArt && String(ws0).trim() && tasks.length >= 2) {
+    try {
+      const vm = await createPlanExcalidrawArtifact(env, {
+        tenantId: tid0,
+        workspaceId: String(ws0).trim(),
+        userId: String(uidForArt),
+        planId: pid,
+      });
+      visual_map = {
+        artifact_id: vm.artifact_id,
+        r2_key: vm.r2_key,
+        public_url: vm.public_url,
+      };
+    } catch (e) {
+      visual_map_error = e?.message != null ? String(e.message) : String(e);
+    }
+  }
+
+  let plan_markdown = null;
+  let plan_markdown_error = null;
+  if (env.DASHBOARD && uidForArt && String(ws0).trim()) {
+    try {
+      const pm = await createPlanMarkdownArtifact(env, {
+        tenantId: tid0,
+        workspaceId: String(ws0).trim(),
+        userId: String(uidForArt),
+        planId: pid,
+      });
+      plan_markdown = {
+        artifact_id: pm.artifact_id,
+        r2_key: pm.r2_key,
+        public_url: pm.public_url,
+      };
+    } catch (e) {
+      plan_markdown_error = e?.message != null ? String(e.message) : String(e);
+    }
+  }
+
   return {
     plan_id: pid,
     plan_title: parsed.plan_title || String(goal).slice(0, 80),
     tasks: insertedTasks,
     workflow_run_id: validWrun,
+    visual_map,
+    ...(visual_map_error ? { visual_map_error } : {}),
+    plan_markdown,
+    ...(plan_markdown_error ? { plan_markdown_error } : {}),
   };
 }

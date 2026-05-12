@@ -13,7 +13,10 @@ import {
 } from '../core/bootstrap.js';
 import { executeWorkflowAndStream } from '../core/workflow-executor.js';
 import { insertAgentsamPlanRow, insertAgentsamPlanTaskRows } from '../core/agentsam-plan-insert.js';
-import { createPlanExcalidrawArtifact } from '../core/agentsam-plan-excalidraw-artifact.js';
+import {
+  createPlanExcalidrawArtifact,
+  createPlanMarkdownArtifact,
+} from '../core/agentsam-plan-excalidraw-artifact.js';
 
 /**
  * HTTP entry for /api/agentsam/* (registry, prompts, etc.).
@@ -138,6 +141,29 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         visual_map_error = 'user_id missing for artifact';
       }
 
+      let plan_markdown = null;
+      let plan_markdown_error = null;
+      let wantMd = false;
+      if (body.create_plan_markdown === true) wantMd = true;
+      else if (body.create_plan_markdown === false) wantMd = false;
+      else wantMd = true;
+      if (wantMd && env.DASHBOARD && authUser?.id) {
+        try {
+          plan_markdown = await createPlanMarkdownArtifact(env, {
+            tenantId,
+            workspaceId,
+            userId: String(authUser.id),
+            planId,
+          });
+        } catch (e) {
+          plan_markdown_error = e?.message != null ? String(e.message) : String(e);
+        }
+      } else if (wantMd && !env.DASHBOARD) {
+        plan_markdown_error = 'DASHBOARD bucket not configured';
+      } else if (wantMd && !authUser?.id) {
+        plan_markdown_error = 'user_id missing for artifact';
+      }
+
       return jsonResponse(
         {
           ok: true,
@@ -154,6 +180,14 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
               }
             : null,
           ...(visual_map_error ? { visual_map_error } : {}),
+          plan_markdown: plan_markdown
+            ? {
+                artifact_id: plan_markdown.artifact_id,
+                r2_key: plan_markdown.r2_key,
+                public_url: plan_markdown.public_url,
+              }
+            : null,
+          ...(plan_markdown_error ? { plan_markdown_error } : {}),
         },
         201,
       );

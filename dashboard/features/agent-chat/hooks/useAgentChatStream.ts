@@ -301,6 +301,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             workflow_run_id?: string;
             task_count?: number;
             visual_map?: { artifact_id: string; r2_key?: string; public_url: string } | null;
+            plan_markdown?: { artifact_id: string; r2_key?: string; public_url: string } | null;
             tasks?: Array<{
               id: string;
               title: string;
@@ -330,28 +331,56 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           assistantContent = assistantStreamBuf;
           const pid = typeof d.plan_id === 'string' ? d.plan_id.trim() : '';
           const vm = d.visual_map;
-          const hasMap =
+          const pm = d.plan_markdown;
+          const vmOk =
+            pid &&
             vm &&
             typeof vm === 'object' &&
             typeof vm.artifact_id === 'string' &&
             vm.artifact_id.trim() &&
             typeof vm.public_url === 'string' &&
             vm.public_url.trim();
+          const pmOk =
+            pid &&
+            pm &&
+            typeof pm === 'object' &&
+            typeof pm.artifact_id === 'string' &&
+            pm.artifact_id.trim() &&
+            typeof pm.public_url === 'string' &&
+            pm.public_url.trim();
+          let chip:
+            | {
+                plan_id: string;
+                plan_title?: string;
+                visual_map?: { artifact_id: string; r2_key?: string; public_url: string };
+                plan_markdown?: { artifact_id: string; r2_key?: string; public_url: string };
+              }
+            | undefined;
+          if (vmOk || pmOk) {
+            const visual_map = vmOk
+              ? {
+                  artifact_id: String(vm.artifact_id).trim(),
+                  r2_key: typeof vm.r2_key === 'string' ? vm.r2_key : undefined,
+                  public_url: String(vm.public_url).trim(),
+                }
+              : undefined;
+            const plan_markdown = pmOk
+              ? {
+                  artifact_id: String(pm.artifact_id).trim(),
+                  r2_key: typeof pm.r2_key === 'string' ? pm.r2_key : undefined,
+                  public_url: String(pm.public_url).trim(),
+                }
+              : undefined;
+            chip = {
+              plan_id: pid,
+              plan_title: d.plan_title,
+              ...(visual_map ? { visual_map } : {}),
+              ...(plan_markdown ? { plan_markdown } : {}),
+            };
+          }
           setMessages((prev) => {
             const last = [...prev];
             const idx = last.length - 1;
-            const chip =
-              pid && hasMap
-                ? {
-                    plan_id: pid,
-                    plan_title: d.plan_title,
-                    visual_map: {
-                      artifact_id: String(vm!.artifact_id).trim(),
-                      r2_key: typeof vm!.r2_key === 'string' ? vm!.r2_key : undefined,
-                      public_url: String(vm!.public_url).trim(),
-                    },
-                  }
-                : undefined;
             if (idx >= 0 && last[idx].role === 'assistant') {
               last[idx] = {
                 ...last[idx],

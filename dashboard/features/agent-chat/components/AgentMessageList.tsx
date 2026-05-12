@@ -6,8 +6,8 @@
 import React from 'react';
 import { User, Bot, Loader2, ChevronRight, FileText, FileCode } from 'lucide-react';
 import type { ActiveFile } from '../../../types';
-import type { Message } from '../types';
-import { ToolApprovalModal } from '../../../src/components/ToolApprovalModal';
+import type { Message, ImplementationPlanVisualMap, ImplementationPlanMarkdown } from '../types';
+import { AgentChatMarkdown } from './AgentChatMarkdown';
 import type { ExecPanelState, WorkflowLedgerState } from '../types';
 
 const getLangMeta = (lang: string) => {
@@ -43,6 +43,8 @@ function renderMessageContent(
   msgIndex: number,
   onFileSelect?: AgentMessageListProps['onFileSelect'],
   onRunInTerminal?: AgentMessageListProps['onRunInTerminal'],
+  /** Assistant replies often use headings/lists; user paste may need literal newlines. */
+  renderTextAsMarkdown = false,
 ): React.ReactNode {
   let display = content
     .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
@@ -62,12 +64,16 @@ function renderMessageContent(
     if (match.index > lastIndex) {
       const text = display.substring(lastIndex, match.index);
       parts.push(
-        <span
-          key={`text-${lastIndex}`}
-          className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full"
-        >
-          {text}
-        </span>,
+        renderTextAsMarkdown ? (
+          <AgentChatMarkdown key={`text-${lastIndex}`} source={text} />
+        ) : (
+          <span
+            key={`text-${lastIndex}`}
+            className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full"
+          >
+            {text}
+          </span>
+        ),
       );
     }
 
@@ -161,17 +167,92 @@ function renderMessageContent(
   }
 
   if (lastIndex < display.length) {
+    const tail = display.substring(lastIndex);
     parts.push(
-      <span key="text-end" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">
-        {display.substring(lastIndex)}
-      </span>,
+      renderTextAsMarkdown ? (
+        <AgentChatMarkdown key="text-end" source={tail} />
+      ) : (
+        <span key="text-end" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">
+          {tail}
+        </span>
+      ),
     );
   }
 
   return parts.length > 0 ? (
     <>{parts}</>
+  ) : renderTextAsMarkdown ? (
+    <AgentChatMarkdown source={display} />
   ) : (
     <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">{display}</span>
+  );
+}
+
+function PlanMapGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 18 18"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M4.75 3.25h5.35L13.75 6.9v7.85H4.75z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path d="M10.1 3.25V7h3.65" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M6.5 10.25h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.45" />
+      <path d="M6.5 12.35h3.25" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.35" />
+    </svg>
+  );
+}
+
+function openImplementationPlanMarkdown(
+  planMarkdown: ImplementationPlanMarkdown,
+  planId: string,
+  onFileSelect?: AgentMessageListProps['onFileSelect'],
+) {
+  const pub = typeof planMarkdown.public_url === 'string' ? planMarkdown.public_url.trim() : '';
+  const aid = typeof planMarkdown.artifact_id === 'string' ? planMarkdown.artifact_id.trim() : '';
+  const url =
+    pub ||
+    (aid ? `/api/artifacts/${encodeURIComponent(aid)}/content` : '');
+  if (!url || !onFileSelect) return;
+  void (async () => {
+    try {
+      const r = await fetch(url, { credentials: 'include' });
+      if (!r.ok) return;
+      const text = await r.text();
+      const safeId = planId.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 48);
+      onFileSelect({ name: `plan-${safeId || 'export'}.md`, content: text });
+    } catch {
+      /* ignore */
+    }
+  })();
+}
+
+function openImplementationPlanMap(visualMap: ImplementationPlanVisualMap) {
+  const pub = typeof visualMap.public_url === 'string' ? visualMap.public_url.trim() : '';
+  const aid = typeof visualMap.artifact_id === 'string' ? visualMap.artifact_id.trim() : '';
+  const loadUrl =
+    pub ||
+    (aid ? `/api/artifacts/${encodeURIComponent(aid)}/content` : '');
+  if (!loadUrl) return;
+  window.dispatchEvent(
+    new CustomEvent('iam:agent-open-surface', {
+      detail: {
+        surface: 'excalidraw',
+        reason: 'implementation_plan_view',
+        load_url: loadUrl,
+        artifact_id: aid || null,
+        artifact_type: 'excalidraw',
+      },
+    }),
   );
 }
 
@@ -223,36 +304,76 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                   <Bot size={11} className="text-[var(--solar-cyan)]" />
                 )}
               </div>
-              <div
-                className={`agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] ${
-                  msg.role === 'user'
-                    ? 'bg-[var(--scene-bg)] border border-[var(--dashboard-border)] px-4 py-3 rounded-2xl rounded-tr-sm text-[var(--dashboard-text)]'
-                    : 'text-[var(--dashboard-text)] w-full'
-                }`}
-              >
-                {msg.role === 'user' && msg.attachmentPreviews && msg.attachmentPreviews.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {msg.attachmentPreviews.map((ap, j) =>
-                      ap.type === 'image' && ap.previewUrl ? (
-                        <img
-                          key={j}
-                          src={ap.previewUrl}
-                          alt=""
-                          className="max-h-40 max-w-full rounded-lg border border-[var(--dashboard-border)] object-contain"
-                        />
-                      ) : (
-                        <span
-                          key={j}
-                          className="text-[0.6875rem] text-[var(--dashboard-muted)] px-2 py-1 rounded border border-[var(--dashboard-border)]/60"
-                        >
-                          {ap.name}
-                        </span>
-                      ),
-                    )}
+              {msg.role === 'assistant' ? (
+                <div className="flex flex-col min-w-0 flex-1 gap-0">
+                  <div
+                    className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full"
+                  >
+                    {renderMessageContent(msg.content, i, onFileSelect, onRunInTerminal, true)}
                   </div>
-                ) : null}
-                {renderMessageContent(msg.content, i, onFileSelect, onRunInTerminal)}
-              </div>
+                  {msg.implementationPlan &&
+                  (msg.implementationPlan.visual_map || msg.implementationPlan.plan_markdown) ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {msg.implementationPlan.visual_map ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const p = msg.implementationPlan;
+                            if (p?.visual_map) openImplementationPlanMap(p.visual_map);
+                          }}
+                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
+                          title="Open plan map in Draw"
+                        >
+                          <PlanMapGlyph className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
+                          <span>View implementation plan</span>
+                        </button>
+                      ) : null}
+                      {msg.implementationPlan.plan_markdown ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const p = msg.implementationPlan;
+                            if (p?.plan_markdown)
+                              openImplementationPlanMarkdown(p.plan_markdown, p.plan_id, onFileSelect);
+                          }}
+                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
+                          title="Fetch canonical plan.md and open in Monaco"
+                        >
+                          <FileText size={15} className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
+                          <span>Open plan (.md)</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  className={`agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] bg-[var(--scene-bg)] border border-[var(--dashboard-border)] px-4 py-3 rounded-2xl rounded-tr-sm text-[var(--dashboard-text)]`}
+                >
+                  {msg.role === 'user' && msg.attachmentPreviews && msg.attachmentPreviews.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {msg.attachmentPreviews.map((ap, j) =>
+                        ap.type === 'image' && ap.previewUrl ? (
+                          <img
+                            key={j}
+                            src={ap.previewUrl}
+                            alt=""
+                            className="max-h-40 max-w-full rounded-lg border border-[var(--dashboard-border)] object-contain"
+                          />
+                        ) : (
+                          <span
+                            key={j}
+                            className="text-[0.6875rem] text-[var(--dashboard-muted)] px-2 py-1 rounded border border-[var(--dashboard-border)]/60"
+                          >
+                            {ap.name}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  ) : null}
+                  {renderMessageContent(msg.content, i, onFileSelect, onRunInTerminal)}
+                </div>
+              )}
             </div>
           </div>
         ))

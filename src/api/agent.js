@@ -4514,6 +4514,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           task_count: plan.tasks.length,
           visual_map: plan.visual_map ?? null,
           ...(plan.visual_map_error ? { visual_map_error: plan.visual_map_error } : {}),
+          plan_markdown: plan.plan_markdown ?? null,
+          ...(plan.plan_markdown_error ? { plan_markdown_error: plan.plan_markdown_error } : {}),
           tasks: plan.tasks.map((t) => ({
             id: t.id,
             title: t.title,

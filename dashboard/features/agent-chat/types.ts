@@ -12,11 +12,34 @@ export type MessageAttachmentPreview = {
   name: string;
 };
 
+/** Excalidraw plan map artifact from planner or POST /api/agentsam/plans. */
+export type ImplementationPlanVisualMap = {
+  artifact_id: string;
+  r2_key?: string;
+  public_url: string;
+};
+
+/** Canonical Markdown plan export (R2 + agentsam_artifacts). */
+export type ImplementationPlanMarkdown = {
+  artifact_id: string;
+  r2_key?: string;
+  public_url: string;
+};
+
+export type ImplementationPlanChip = {
+  plan_id: string;
+  plan_title?: string;
+  visual_map?: ImplementationPlanVisualMap | null;
+  plan_markdown?: ImplementationPlanMarkdown | null;
+};
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
   /** Blob URLs kept after send so image previews stay visible in history (not revoked with composer clear). */
   attachmentPreviews?: MessageAttachmentPreview[];
+  /** When Agent Sam emits `plan_created` with a saved plan map artifact. */
+  implementationPlan?: ImplementationPlanChip | null;
 }
 
 export interface ChatAssistantProps {
