@@ -558,11 +558,13 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
       if (platformTid && tenantId && tenantId !== platformTid) layerKeys.push('client_work');
     }
 
+    if (!layerKeys.includes('company_no_emojis')) layerKeys.push('company_no_emojis');
+
     // Pipeline flags from promptRouteRow
     const includeActivePlan  = Number(promptRouteRow?.include_active_plan  ?? 1) === 1;
     const includeWorkspace   = Number(promptRouteRow?.include_workspace_ctx ?? 1) === 1;
 
-    // Load all needed prompt versions in one query
+    // Load all needed prompt versions in one query (tenant_id NULL = global rows; tenant match may override per key in map below)
     const placeholders = layerKeys.map(() => '?').join(', ');
     const rows = await env.DB.prepare(`
       SELECT prompt_key, body
