@@ -444,7 +444,50 @@ async function resolveAgentsamPromptRoute(env, tenantId, modeSlug, intentSlug) {
   }
 }
 
-async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null) {
+async function fetchActivePlanContextFragment(env, tenantId, options = {}) {
+  const { sessionId, planId, taskId } = options;
+  if (!env.DB) return '';
+
+  let activePlan = null;
+  if (planId) {
+    activePlan = await env.DB.prepare('SELECT * FROM agentsam_plans WHERE id = ? LIMIT 1').bind(planId).first().catch(() => null);
+  } else if (sessionId) {
+    activePlan = await env.DB.prepare(`
+      SELECT * FROM agentsam_plans 
+      WHERE session_id = ? AND status = 'active'
+      ORDER BY created_at DESC LIMIT 1
+    `).bind(sessionId).first().catch(() => null);
+  }
+
+  if (!activePlan) return '';
+
+  let activeTask = null;
+  if (taskId) {
+    activeTask = await env.DB.prepare('SELECT * FROM agentsam_plan_tasks WHERE id = ? LIMIT 1').bind(taskId).first().catch(() => null);
+  } else {
+    activeTask = await env.DB.prepare(`
+      SELECT * FROM agentsam_plan_tasks 
+      WHERE plan_id = ? AND status IN ('todo', 'in_progress')
+      ORDER BY order_index ASC LIMIT 1
+    `).bind(activePlan.id).first().catch(() => null);
+  }
+
+  let fragment = `\n\n## Active Plan: ${activePlan.title || 'Untitled Plan'}\n`;
+  if (activePlan.session_notes) fragment += `Plan Notes: ${activePlan.session_notes}\n`;
+  
+  if (activeTask) {
+    fragment += `\n### Current Task: ${activeTask.title}\n`;
+    if (activeTask.description) fragment += `Task Description: ${activeTask.description}\n`;
+    const files = parseJsonSafe(activeTask.files_involved, []);
+    if (files.length) fragment += `Files involved: ${files.join(', ')}\n`;
+    const tables = parseJsonSafe(activeTask.tables_involved, []);
+    if (tables.length) fragment += `Tables involved: ${tables.join(', ')}\n`;
+  }
+  
+  return fragment;
+}
+
+async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null, options = {}) {
   try {
     // Determine which prompt layers to load from the matched route
     const layerKeys = (() => {
@@ -483,6 +526,13 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
       .filter(Boolean);
 
     if (!parts.length) parts.push(FALLBACK_CORE_SYSTEM);
+
+    // Inject Plan & Task Context if enabled by route or requested by options
+    const shouldIncludePlan = Number(promptRouteRow?.include_active_plan ?? 1) === 1;
+    if (shouldIncludePlan && env.DB) {
+      const planContext = await fetchActivePlanContextFragment(env, tenantId, options);
+      if (planContext) parts.push(planContext);
+    }
 
     parts.push(AGENT_SAM_PYTHON_PARALLEL_BLOCK);
     if (modeConfig?.system_prompt_fragment) parts.push(modeConfig.system_prompt_fragment);
@@ -4834,6 +4884,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       contextBlock,
       modeConfig,
       promptRouteRow,
+      {
+        sessionId,
+        planId: body.planId ?? body.plan_id ?? null,
+        taskId: body.taskId ?? body.task_id ?? null,
+      },
     );
   }
   try {
