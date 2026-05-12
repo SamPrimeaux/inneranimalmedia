@@ -1,0 +1,562 @@
+/**
+ * WorkflowRunBoard — D1-driven workflow execution UI
+ *
+ * Components:
+ *   WorkflowPicker        — shows agentsam_workflows rows; triggers POST .../run SSE
+ *   WorkflowRunCard       — live run card driven by workflow_start/step/complete SSE events
+ *   WorkflowApprovalGate  — inline Allow/Deny for approval_gate nodes
+ */
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Zap,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ShieldAlert,
+  ChevronRight,
+  RefreshCw,
+} from 'lucide-react';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type WorkflowRow = {
+  id: string;
+  workflow_key: string;
+  display_name: string;
+  description?: string | null;
+  risk_level?: string | null;
+  requires_approval?: number | boolean;
+  node_count?: number;
+  edge_count?: number;
+};
+
+export type WorkflowStepState = {
+  node_key: string;
+  node_type?: string;
+  status: 'pending' | 'running' | 'success' | 'failed' | 'approval_pending';
+  ok?: boolean;
+};
+
+export type WorkflowRunState = {
+  runId: string | null;
+  workflowKey: string | null;
+  status: 'idle' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'error';
+  stepsTotal: number;
+  stepsCompleted: number;
+  currentNodeKey: string | null;
+  steps: WorkflowStepState[];
+  approvalId: string | null;
+  errorMessage: string | null;
+};
+
+// ─── WorkflowPicker ──────────────────────────────────────────────────────────
+
+interface WorkflowPickerProps {
+  onStartWorkflow: (workflow: WorkflowRow) => void;
+  isRunning: boolean;
+}
+
+export const WorkflowPicker: React.FC<WorkflowPickerProps> = ({ onStartWorkflow, isRunning }) => {
+  const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/agentsam/workflows', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setWorkflows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-4 px-3 text-[var(--dashboard-muted)] text-[12px]">
+        <Loader2 size={14} className="animate-spin shrink-0" />
+        Loading workflows…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="px-3 py-3 space-y-2">
+        <p className="text-[11px] text-red-400">{error}</p>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="flex items-center gap-1 text-[11px] text-[var(--solar-cyan)] hover:brightness-110"
+        >
+          <RefreshCw size={12} /> Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!workflows.length) {
+    return (
+      <div className="px-3 py-4 text-[12px] text-[var(--dashboard-muted)]">
+        No active workflows found in <code className="text-[var(--solar-cyan)]">agentsam_workflows</code>.
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 py-2 space-y-1.5">
+      <div className="text-[9px] font-black uppercase tracking-[0.18em] text-[var(--dashboard-muted)] opacity-70 pb-1">
+        D1 Workflows — select to run
+      </div>
+      {workflows.map((wf) => {
+        const isRisky = String(wf.risk_level || '').toLowerCase() === 'high';
+        const needsApproval = !!wf.requires_approval;
+        return (
+          <button
+            key={wf.id}
+            id={`workflow-card-${wf.id}`}
+            type="button"
+            disabled={isRunning}
+            onClick={() => onStartWorkflow(wf)}
+            className={`group w-full flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${
+              isRunning
+                ? 'opacity-50 cursor-not-allowed border-[var(--dashboard-border)] bg-[var(--scene-bg)]'
+                : 'border-[var(--dashboard-border)] bg-[var(--scene-bg)] hover:border-[var(--solar-cyan)]/50 hover:bg-[var(--dashboard-panel)] cursor-pointer'
+            }`}
+          >
+            <div className="mt-0.5 shrink-0">
+              <Zap
+                size={16}
+                className={`transition-colors ${
+                  isRisky
+                    ? 'text-orange-400'
+                    : 'text-[var(--solar-cyan)] group-hover:brightness-125'
+                }`}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[12px] font-semibold text-[var(--dashboard-text)] truncate">
+                  {wf.display_name || wf.workflow_key}
+                </span>
+                {isRisky && (
+                  <span className="shrink-0 px-1.5 py-0 rounded text-[8px] font-bold uppercase tracking-wide bg-orange-500/15 text-orange-400 border border-orange-500/25">
+                    high risk
+                  </span>
+                )}
+                {needsApproval && (
+                  <span className="shrink-0 px-1.5 py-0 rounded text-[8px] font-bold uppercase tracking-wide bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                    approval
+                  </span>
+                )}
+              </div>
+              {wf.description && (
+                <p className="text-[11px] text-[var(--dashboard-muted)] leading-snug line-clamp-2 mt-0.5">
+                  {wf.description}
+                </p>
+              )}
+              <div className="flex items-center gap-2 mt-1">
+                {wf.node_count != null && (
+                  <span className="text-[9px] text-[var(--dashboard-muted)]">
+                    {wf.node_count} nodes · {wf.edge_count ?? 0} edges
+                  </span>
+                )}
+              </div>
+            </div>
+            <ChevronRight
+              size={14}
+              className="shrink-0 mt-1 text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors"
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+// ─── WorkflowRunCard ─────────────────────────────────────────────────────────
+
+interface WorkflowRunCardProps {
+  runState: WorkflowRunState;
+  onApprove: (decision: 'approved' | 'denied') => Promise<void>;
+  approvalBusy: boolean;
+}
+
+function stepStatusIcon(status: WorkflowStepState['status']) {
+  switch (status) {
+    case 'running':
+      return <Loader2 size={12} className="animate-spin text-[var(--solar-cyan)]" />;
+    case 'success':
+      return <CheckCircle2 size={12} className="text-emerald-400" />;
+    case 'failed':
+      return <XCircle size={12} className="text-red-400" />;
+    case 'approval_pending':
+      return <ShieldAlert size={12} className="text-yellow-400 animate-pulse" />;
+    default:
+      return <Clock size={12} className="text-[var(--dashboard-muted)]" />;
+  }
+}
+
+export const WorkflowRunCard: React.FC<WorkflowRunCardProps> = ({
+  runState,
+  onApprove,
+  approvalBusy,
+}) => {
+  const { runId, workflowKey, status, stepsTotal, stepsCompleted, steps, approvalId, errorMessage } = runState;
+
+  const pct = stepsTotal > 0 ? Math.min(100, Math.round((stepsCompleted / stepsTotal) * 100)) : 0;
+
+  const statusColor: Record<WorkflowRunState['status'], string> = {
+    idle: 'text-[var(--dashboard-muted)]',
+    running: 'text-[var(--solar-cyan)]',
+    awaiting_approval: 'text-yellow-400',
+    completed: 'text-emerald-400',
+    failed: 'text-red-400',
+    error: 'text-red-400',
+  };
+
+  const statusLabel: Record<WorkflowRunState['status'], string> = {
+    idle: 'Idle',
+    running: 'Running',
+    awaiting_approval: 'Awaiting Approval',
+    completed: 'Completed',
+    failed: 'Failed',
+    error: 'Error',
+  };
+
+  if (status === 'idle' || !runId) return null;
+
+  return (
+    <div
+      id={`workflow-run-card-${runId ?? 'pending'}`}
+      className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] overflow-hidden"
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)]">
+        {status === 'running' ? (
+          <Loader2 size={13} className="animate-spin shrink-0 text-[var(--solar-cyan)]" />
+        ) : status === 'completed' ? (
+          <CheckCircle2 size={13} className="shrink-0 text-emerald-400" />
+        ) : status === 'awaiting_approval' ? (
+          <ShieldAlert size={13} className="shrink-0 text-yellow-400 animate-pulse" />
+        ) : (
+          <XCircle size={13} className="shrink-0 text-red-400" />
+        )}
+        <span className="flex-1 text-[11px] font-semibold text-[var(--dashboard-text)] truncate">
+          {workflowKey}
+        </span>
+        <span className={`text-[9px] font-bold uppercase tracking-wide ${statusColor[status]}`}>
+          {statusLabel[status]}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      {stepsTotal > 0 && (
+        <div className="px-3 pt-2 pb-1">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] text-[var(--dashboard-muted)]">
+              {stepsCompleted} / {stepsTotal} steps
+            </span>
+            <span className="text-[9px] text-[var(--dashboard-muted)]">{pct}%</span>
+          </div>
+          <div className="h-1 w-full rounded-full bg-[var(--dashboard-border)] overflow-hidden">
+            <div
+              className="h-full rounded-full bg-[var(--solar-cyan)] transition-all duration-500"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Step list */}
+      {steps.length > 0 && (
+        <div className="px-3 py-2 space-y-0.5 max-h-40 overflow-y-auto">
+          {steps.map((step) => (
+            <div key={step.node_key} className="flex items-center gap-2">
+              {stepStatusIcon(step.status)}
+              <span
+                className={`text-[10px] font-mono truncate ${
+                  step.status === 'running'
+                    ? 'text-[var(--solar-cyan)]'
+                    : step.status === 'success'
+                    ? 'text-emerald-400'
+                    : step.status === 'failed'
+                    ? 'text-red-400'
+                    : 'text-[var(--dashboard-muted)]'
+                }`}
+              >
+                {step.node_key}
+              </span>
+              {step.node_type && (
+                <span className="shrink-0 text-[8px] text-[var(--dashboard-muted)] opacity-60">
+                  {step.node_type}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Error */}
+      {errorMessage && (
+        <div className="px-3 pb-2">
+          <p className="text-[10px] text-red-400 leading-snug">{errorMessage}</p>
+        </div>
+      )}
+
+      {/* Approval gate */}
+      {status === 'awaiting_approval' && (
+        <WorkflowApprovalGate
+          runId={runId}
+          approvalId={approvalId}
+          onApprove={onApprove}
+          busy={approvalBusy}
+        />
+      )}
+
+      {/* Run ID footer */}
+      {runId && (
+        <div className="px-3 py-1.5 border-t border-[var(--dashboard-border)]">
+          <span className="text-[8px] font-mono text-[var(--dashboard-muted)] opacity-50">
+            run: {runId}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── WorkflowApprovalGate ────────────────────────────────────────────────────
+
+interface WorkflowApprovalGateProps {
+  runId: string | null;
+  approvalId: string | null;
+  onApprove: (decision: 'approved' | 'denied') => Promise<void>;
+  busy: boolean;
+}
+
+export const WorkflowApprovalGate: React.FC<WorkflowApprovalGateProps> = ({
+  onApprove,
+  busy,
+}) => {
+  return (
+    <div className="px-3 py-3 border-t border-yellow-500/20 bg-yellow-500/5 space-y-2">
+      <div className="flex items-center gap-2">
+        <ShieldAlert size={14} className="shrink-0 text-yellow-400" />
+        <span className="text-[11px] font-semibold text-yellow-300">
+          Approval gate — this node requires your approval to continue
+        </span>
+      </div>
+      <div className="flex gap-2">
+        <button
+          id="workflow-approval-allow"
+          type="button"
+          disabled={busy}
+          onClick={() => void onApprove('approved')}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+        >
+          {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+          Allow
+        </button>
+        <button
+          id="workflow-approval-deny"
+          type="button"
+          disabled={busy}
+          onClick={() => void onApprove('denied')}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-[11px] font-semibold text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+        >
+          <XCircle size={11} />
+          Deny
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── useWorkflowRunner hook ──────────────────────────────────────────────────
+
+const INITIAL_RUN_STATE: WorkflowRunState = {
+  runId: null,
+  workflowKey: null,
+  status: 'idle',
+  stepsTotal: 0,
+  stepsCompleted: 0,
+  currentNodeKey: null,
+  steps: [],
+  approvalId: null,
+  errorMessage: null,
+};
+
+export function useWorkflowRunner(opts: {
+  onSseChunk?: (data: Record<string, unknown>) => void;
+}) {
+  const [runState, setRunState] = useState<WorkflowRunState>(INITIAL_RUN_STATE);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const resetRun = useCallback(() => {
+    abortRef.current?.abort();
+    setRunState(INITIAL_RUN_STATE);
+    setApprovalBusy(false);
+  }, []);
+
+  const startWorkflow = useCallback(async (workflow: WorkflowRow, input: Record<string, unknown> = {}) => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
+
+    setRunState({
+      ...INITIAL_RUN_STATE,
+      workflowKey: workflow.workflow_key,
+      status: 'running',
+    });
+
+    try {
+      const res = await fetch(`/api/agentsam/workflows/${encodeURIComponent(workflow.id)}/run`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input }),
+        signal,
+      });
+
+      if (!res.ok || !res.body) {
+        const errText = await res.text().catch(() => '');
+        setRunState((p) => ({ ...p, status: 'error', errorMessage: errText || `HTTP ${res.status}` }));
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let carry = '';
+
+      sseLoop: while (true) {
+        if (signal.aborted) break;
+        const { done, value } = await reader.read();
+        if (done) break;
+        carry += decoder.decode(value, { stream: true });
+        const parts = carry.split('\n\n');
+        carry = parts.pop() ?? '';
+        for (const block of parts) {
+          for (const line of block.split('\n')) {
+            const l = line.trim();
+            if (!l.startsWith('data:')) continue;
+            const raw = l.replace(/^data:\s*/i, '').trim();
+            if (raw === '[DONE]') break sseLoop;
+            let d: Record<string, unknown>;
+            try { d = JSON.parse(raw); } catch { continue; }
+
+            opts.onSseChunk?.(d);
+            const t = String(d.type ?? '');
+
+            if (t === 'done') break sseLoop;
+
+            if (t === 'workflow_start') {
+              setRunState((p) => ({
+                ...p,
+                runId: String(d.run_id ?? p.runId ?? ''),
+                stepsTotal: Number(d.steps_total ?? p.stepsTotal),
+                status: 'running',
+              }));
+            } else if (t === 'workflow_step') {
+              const nodeKey = String(d.current_node_key ?? d.node_key ?? '');
+              const ok = d.ok !== false;
+              setRunState((p) => {
+                const steps = [...p.steps];
+                const existing = steps.findIndex((s) => s.node_key === nodeKey);
+                const stepState: WorkflowStepState = {
+                  node_key: nodeKey,
+                  status: ok ? 'success' : 'failed',
+                  ok,
+                };
+                if (existing >= 0) steps[existing] = stepState;
+                else steps.push(stepState);
+                return {
+                  ...p,
+                  runId: String(d.run_id ?? p.runId ?? ''),
+                  stepsCompleted: Number(d.steps_completed ?? p.stepsCompleted),
+                  stepsTotal: Number(d.steps_total ?? p.stepsTotal),
+                  currentNodeKey: nodeKey,
+                  steps,
+                  status: 'running',
+                };
+              });
+            } else if (t === 'workflow_complete') {
+              setRunState((p) => ({
+                ...p,
+                runId: String(d.run_id ?? p.runId ?? ''),
+                status: 'completed',
+              }));
+              break sseLoop;
+            } else if (t === 'workflow_approval_required') {
+              setRunState((p) => ({
+                ...p,
+                runId: String(d.run_id ?? p.runId ?? ''),
+                approvalId: String(d.approval_id ?? ''),
+                status: 'awaiting_approval',
+              }));
+              // don't break — wait for more events after approval
+            } else if (t === 'workflow_error') {
+              setRunState((p) => ({
+                ...p,
+                runId: String(d.run_id ?? p.runId ?? ''),
+                status: 'error',
+                errorMessage: String(d.message ?? 'workflow error'),
+              }));
+              break sseLoop;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return;
+      setRunState((p) => ({
+        ...p,
+        status: 'error',
+        errorMessage: e instanceof Error ? e.message : String(e),
+      }));
+    }
+  }, [opts]);
+
+  const handleApproval = useCallback(async (decision: 'approved' | 'denied') => {
+    const { runId, approvalId } = runState;
+    if (!runId) return;
+    setApprovalBusy(true);
+    try {
+      const res = await fetch(`/api/agentsam/workflow-runs/${encodeURIComponent(runId)}/approve`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, approval_id: approvalId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRunState((p) => ({
+          ...p,
+          status: 'error',
+          errorMessage: (json as { error?: string }).error ?? `Approve failed (${res.status})`,
+        }));
+        return;
+      }
+      if (decision === 'denied') {
+        setRunState((p) => ({ ...p, status: 'failed', errorMessage: 'Approval denied by user.' }));
+      } else {
+        setRunState((p) => ({ ...p, status: 'running', approvalId: null }));
+      }
+    } catch (e) {
+      setRunState((p) => ({ ...p, status: 'error', errorMessage: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setApprovalBusy(false);
+    }
+  }, [runState]);
+
+  return { runState, approvalBusy, startWorkflow, resetRun, handleApproval };
+}

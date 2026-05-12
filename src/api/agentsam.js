@@ -11,6 +11,7 @@ import {
   resolveActiveBootstrap,
   WORKSPACE_CONTEXT_MISSING,
 } from '../core/bootstrap.js';
+import { executeWorkflowAndStream } from '../core/workflow-executor.js';
 
 /**
  * HTTP entry for /api/agentsam/* (registry, prompts, etc.).
@@ -207,6 +208,190 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         // Specific weighted selection test
         const prompt = await getActivePromptByWeight(env, group);
         return jsonResponse(prompt);
+    }
+
+    // ── Workflow APIs ────────────────────────────────────────────────────────
+
+    // GET /api/agentsam/workflows — list active workflows with node/edge counts
+    if (path === '/api/agentsam/workflows' && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      try {
+        const { results } = await env.DB.prepare(`
+          SELECT
+            w.id, w.workflow_key, w.display_name, w.description,
+            w.risk_level, w.requires_approval, w.is_active,
+            COUNT(DISTINCT n.id) AS node_count,
+            COUNT(DISTINCT e.id) AS edge_count
+          FROM agentsam_workflows w
+          LEFT JOIN agentsam_workflow_nodes n
+            ON n.workflow_id = w.id AND COALESCE(n.is_active, 1) = 1
+          LEFT JOIN agentsam_workflow_edges e
+            ON e.workflow_id = w.id
+          WHERE w.is_active = 1
+          GROUP BY w.id
+          ORDER BY w.display_name ASC
+        `).all();
+        return jsonResponse(results || []);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // GET /api/agentsam/workflows/:id — single workflow with nodes + edges
+    const wfSingleMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)$/);
+    if (wfSingleMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const wfId = wfSingleMatch[1];
+      try {
+        const workflow = await env.DB.prepare(
+          `SELECT * FROM agentsam_workflows WHERE id = ? AND is_active = 1 LIMIT 1`
+        ).bind(wfId).first();
+        if (!workflow) return jsonResponse({ error: 'workflow not found' }, 404);
+        const nodes = (await env.DB.prepare(
+          `SELECT * FROM agentsam_workflow_nodes WHERE workflow_id = ? AND COALESCE(is_active,1)=1 ORDER BY sort_order ASC`
+        ).bind(wfId).all()).results || [];
+        const edges = (await env.DB.prepare(
+          `SELECT * FROM agentsam_workflow_edges WHERE workflow_id = ? ORDER BY priority ASC`
+        ).bind(wfId).all()).results || [];
+        return jsonResponse({ workflow, nodes, edges });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // POST /api/agentsam/workflows/:id/run — start a workflow run, stream SSE
+    const wfRunMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/run$/);
+    if (wfRunMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const wfId = wfRunMatch[1];
+      try {
+        const workflow = await env.DB.prepare(
+          `SELECT * FROM agentsam_workflows WHERE id = ? AND is_active = 1 LIMIT 1`
+        ).bind(wfId).first();
+        if (!workflow) return jsonResponse({ error: 'workflow not found' }, 404);
+
+        const body = await request.json().catch(() => ({}));
+        const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+        const workspaceId = wsRes?.workspaceId ?? body.workspace_id ?? null;
+
+        const { readable, writable } = new TransformStream();
+        const controller = {
+          _enc: new TextEncoder(),
+          _writer: writable.getWriter(),
+          enqueue(chunk) { void this._writer.write(chunk); },
+          close() { void this._writer.close().catch(() => {}); },
+        };
+
+        // Fire the graph executor asynchronously so we can return the stream immediately
+        void (async () => {
+          try {
+            await executeWorkflowAndStream(
+              env,
+              workflow.workflow_key,
+              body.input ?? body.message ?? {},
+              authUser,
+              workspaceId,
+              controller,
+            );
+          } catch (e) {
+            try {
+              const enc = new TextEncoder();
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'workflow_error', message: e?.message ?? String(e) })}\n\n`));
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+              controller.close();
+            } catch (_) {}
+          }
+        })();
+
+        return new Response(readable, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          },
+        });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // GET /api/agentsam/workflow-runs/:id — run status + steps + approvals
+    const wfRunStatusMatch = path.match(/^\/api\/agentsam\/workflow-runs\/([^/]+)$/);
+    if (wfRunStatusMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const runId = wfRunStatusMatch[1];
+      try {
+        const run = await env.DB.prepare(
+          `SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`
+        ).bind(runId).first();
+        if (!run) return jsonResponse({ error: 'run not found' }, 404);
+
+        const steps = (await env.DB.prepare(
+          `SELECT id, execution_id, node_key, node_type, status, edge_taken, approval_id, input_json, output_json, error_json, latency_ms, created_at
+           FROM agentsam_execution_steps WHERE execution_id = ? ORDER BY created_at ASC`
+        ).bind(runId).all()).results || [];
+
+        const approvals = (await env.DB.prepare(
+          `SELECT id, status, workflow_run_id, execution_step_id, risk_level, tool_name, action_summary, created_at
+           FROM agentsam_approval_queue WHERE workflow_run_id = ? ORDER BY created_at DESC`
+        ).bind(runId).all()).results || [];
+
+        const plan = await env.DB.prepare(
+          `SELECT * FROM agentsam_plans WHERE workflow_run_id = ? ORDER BY created_at DESC LIMIT 1`
+        ).bind(runId).first().catch(() => null);
+
+        return jsonResponse({ run, steps, approvals, plan: plan || null });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // POST /api/agentsam/workflow-runs/:id/approve — approve/deny a pending approval gate
+    const wfApproveMatch = path.match(/^\/api\/agentsam\/workflow-runs\/([^/]+)\/approve$/);
+    if (wfApproveMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const runId = wfApproveMatch[1];
+      try {
+        const body = await request.json().catch(() => ({}));
+        const decision = String(body.decision || 'approved').toLowerCase();
+        const approvalId = body.approval_id ? String(body.approval_id) : null;
+
+        if (!['approved', 'denied', 'rejected'].includes(decision)) {
+          return jsonResponse({ error: 'decision must be approved or denied' }, 400);
+        }
+        const dbStatus = decision === 'approved' ? 'approved' : 'denied';
+
+        let updated;
+        if (approvalId) {
+          updated = await env.DB.prepare(
+            `UPDATE agentsam_approval_queue SET status = ?, approved_by = ?, decided_at = unixepoch()
+             WHERE id = ? AND status = 'pending'`
+          ).bind(dbStatus, authUser?.id ?? null, approvalId).run();
+        } else {
+          updated = await env.DB.prepare(
+            `UPDATE agentsam_approval_queue SET status = ?, approved_by = ?, decided_at = unixepoch()
+             WHERE workflow_run_id = ? AND status = 'pending'`
+          ).bind(dbStatus, authUser?.id ?? null, runId).run();
+        }
+
+        const changes = updated?.meta?.changes ?? updated?.changes ?? 0;
+
+        if (decision === 'approved') {
+          await env.DB.prepare(
+            `UPDATE agentsam_workflow_runs SET status = 'running', updated_at = datetime('now')
+             WHERE id = ? AND status = 'awaiting_approval'`
+          ).bind(runId).run().catch(() => null);
+        } else {
+          await env.DB.prepare(
+            `UPDATE agentsam_workflow_runs SET status = 'failed', kill_reason = 'approval_rejected', updated_at = datetime('now')
+             WHERE id = ?`
+          ).bind(runId).run().catch(() => null);
+        }
+
+        return jsonResponse({ ok: true, decision, run_id: runId, rows_updated: changes });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
     }
 
     return null;

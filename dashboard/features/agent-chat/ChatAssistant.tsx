@@ -65,6 +65,13 @@ import {
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { AgentMessageList } from './components/AgentMessageList';
+import {
+  WorkflowPicker,
+  WorkflowRunCard,
+  useWorkflowRunner,
+} from './components/WorkflowRunBoard';
+import type { WorkflowRow } from './components/WorkflowRunBoard';
+
 
 export { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
 
@@ -356,6 +363,96 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const catalogCacheRef = useRef<{ at: number; items: PickerItem[] } | null>(null);
   const commandsCacheRef = useRef<{ at: number; items: SlashCmd[] } | null>(null);
+
+  // ── Workflow runner ────────────────────────────────────────────────────────
+  const [showWorkflowPicker, setShowWorkflowPicker] = useState(false);
+
+  const handleWorkflowSseChunk = useCallback((data: Record<string, unknown>) => {
+    const t = String(data.type ?? '');
+    // Bridge workflow SSE events into the chat bubble
+    if (t === 'workflow_start') {
+      const wk = String(data.workflow_key ?? '');
+      setMessages((prev) => {
+        const last = [...prev];
+        const hasAssistant = last.length > 0 && last[last.length - 1].role === 'assistant';
+        if (hasAssistant) {
+          last[last.length - 1] = {
+            ...last[last.length - 1],
+            content: `${last[last.length - 1].content}\n\n_Workflow started:_ **${wk}**\n`,
+          };
+          return last;
+        }
+        return [...last, { role: 'assistant' as const, content: `_Workflow started:_ **${wk}**\n` }];
+      });
+      setWorkflowLedger((p) => ({
+        ...p,
+        runId: String(data.run_id ?? p.runId ?? ''),
+        stepsTotal: data.steps_total != null ? Number(data.steps_total) : p.stepsTotal,
+        lastError: null,
+      }));
+    } else if (t === 'workflow_step') {
+      const nk = String(data.current_node_key ?? data.node_key ?? '');
+      const ok = data.ok !== false;
+      setWorkflowLedger((p) => ({
+        ...p,
+        currentNodeKey: nk || p.currentNodeKey,
+        stepsCompleted: data.steps_completed != null ? Number(data.steps_completed) : p.stepsCompleted,
+        stepsTotal: data.steps_total != null ? Number(data.steps_total) : p.stepsTotal,
+        runCost: data.cost_usd != null ? Number(data.cost_usd) : p.runCost,
+        runTokensIn: data.input_tokens != null ? Number(data.input_tokens) : p.runTokensIn,
+        runTokensOut: data.output_tokens != null ? Number(data.output_tokens) : p.runTokensOut,
+      }));
+      if (nk) {
+        setMessages((prev) => {
+          const last = [...prev];
+          if (last.length > 0 && last[last.length - 1].role === 'assistant') {
+            last[last.length - 1] = {
+              ...last[last.length - 1],
+              content: `${last[last.length - 1].content}\n_Step ${nk}:_ ${ok ? 'ok' : 'failed'}\n`,
+            };
+          }
+          return last;
+        });
+      }
+    } else if (t === 'workflow_complete') {
+      setWorkflowLedger((p) => ({ ...p, runId: String(data.run_id ?? p.runId ?? ''), lastError: null }));
+      setMessages((prev) => {
+        const last = [...prev];
+        if (last.length > 0 && last[last.length - 1].role === 'assistant') {
+          last[last.length - 1] = {
+            ...last[last.length - 1],
+            content: `${last[last.length - 1].content}\n\n_Workflow complete_ ✓\n`,
+          };
+        }
+        return last;
+      });
+    } else if (t === 'workflow_error') {
+      const msg = String(data.message ?? 'workflow error');
+      setWorkflowLedger((p) => ({ ...p, lastError: msg }));
+      setMessages((prev) => {
+        const last = [...prev];
+        if (last.length > 0 && last[last.length - 1].role === 'assistant') {
+          last[last.length - 1] = {
+            ...last[last.length - 1],
+            content: `${last[last.length - 1].content}\n\n_Workflow error:_ ${msg}\n`,
+          };
+        }
+        return last;
+      });
+    }
+  }, [setMessages, setWorkflowLedger]);
+
+  const { runState, approvalBusy: wfApprovalBusy, startWorkflow, handleApproval } = useWorkflowRunner({
+    onSseChunk: handleWorkflowSseChunk,
+  });
+
+  const handleStartWorkflow = useCallback((workflow: WorkflowRow) => {
+    setShowWorkflowPicker(false);
+    // Add an assistant bubble as the live run target
+    setMessages((prev) => [...prev, { role: 'assistant' as const, content: '' }]);
+    void startWorkflow(workflow);
+  }, [startWorkflow, setMessages]);
+  // ──────────────────────────────────────────────────────────────────────────
 
   const measureAttachMenu = useCallback(() => {
     setAttachMenuStyle(measureAboveAnchor(attachButtonRef.current, 240, 420));
@@ -1312,6 +1409,22 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               New chat
             </button>
             <button
+              id="workflow-picker-toggle"
+              type="button"
+              onClick={() => setShowWorkflowPicker((v) => !v)}
+              className={`shrink-0 flex items-center gap-1 text-[0.6875rem] font-semibold uppercase tracking-wide px-2 py-1.5 rounded-md transition-colors ${
+                showWorkflowPicker
+                  ? 'bg-[var(--solar-cyan)]/15 text-[var(--solar-cyan)]'
+                  : 'text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]'
+              }`}
+              aria-label="Show workflow picker"
+              title="D1 Workflow Runner"
+            >
+              <Zap size={12} />
+              Workflows
+            </button>
+
+            <button
               type="button"
               onClick={() => onOpenCodeTab?.()}
               title="Code editor"
@@ -1377,7 +1490,35 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         )}
 
+        {/* ── Workflow Picker panel ──────────────────────────────────────────── */}
+        {showWorkflowPicker && (
+          <div
+            id="workflow-picker-panel"
+            className="shrink-0 border-b border-[var(--dashboard-border)] overflow-y-auto max-h-[min(60vh,380px)] bg-[var(--scene-bg)]"
+          >
+            <WorkflowPicker
+              onStartWorkflow={handleStartWorkflow}
+              isRunning={runState.status === 'running' || runState.status === 'awaiting_approval'}
+            />
+          </div>
+        )}
+
+        {/* ── Workflow Run Card ──────────────────────────────────────────────── */}
+        {runState.status !== 'idle' && (
+          <div
+            id="workflow-run-board"
+            className="shrink-0 border-b border-[var(--dashboard-border)] px-3 py-2.5 bg-[var(--scene-bg)]"
+          >
+            <WorkflowRunCard
+              runState={runState}
+              onApprove={handleApproval}
+              approvalBusy={wfApprovalBusy}
+            />
+          </div>
+        )}
+
         {messagesVisible && (
+
           <AgentMessageList
             scrollRef={scrollRef}
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
