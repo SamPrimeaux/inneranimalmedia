@@ -3323,6 +3323,7 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
             steps_total: meta?.steps_total ?? null,
           }),
         onStep: (evt) => send({ type: 'workflow_step', ...evt }),
+        onStream: send,
       });
       const stepTexts = (result?.step_results ?? [])
         .map((s) => s?.output?.result ?? s?.output?.text ?? null)

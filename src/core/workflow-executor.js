@@ -358,6 +358,95 @@ function pickModelFromNodeOutput(nodeOutput) {
   return String(m).slice(0, 500);
 }
 
+const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\])}]+/i;
+
+function firstUrlFromWorkflowNodeInput(nodeInput) {
+  if (!nodeInput || typeof nodeInput !== 'object') return undefined;
+  for (const k of ['url', 'target_url', 'href', 'page_url', 'navigate_url']) {
+    const u = nodeInput[k];
+    if (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) return u.trim().slice(0, 2000);
+  }
+  for (const k of ['message', 'prompt', 'instruction', 'result']) {
+    const msg = nodeInput[k];
+    if (typeof msg !== 'string') continue;
+    const m = msg.match(URL_IN_TEXT_RE);
+    if (m) return m[0].replace(/[.,;)\]]+$/, '').slice(0, 2000);
+  }
+  return undefined;
+}
+
+/** Map graph node → dashboard surface (SSE surface_open / App.tsx iam:agent-open-surface). */
+function classifyWorkflowSurface(node) {
+  if (!node || typeof node !== 'object') return null;
+  const nk = String(node.node_key || '').toLowerCase();
+  const hk = String(node.handler_key || '').toLowerCase();
+  const nt = String(node.node_type || '').toLowerCase();
+
+  if (hk.includes('monaco.') || hk.includes('.monaco.') || (hk.includes('monaco') && hk.includes('edit'))) {
+    return { surface: 'code', reason: 'workflow_graph_monaco' };
+  }
+  if (nk.includes('monaco') || nk.includes('code_editor') || nk === 'editor' || nk.includes('app_builder')) {
+    return { surface: 'code', reason: 'workflow_graph_code_surface' };
+  }
+  if (nk.includes('excalidraw') || hk.includes('excalidraw') || (nk.includes('diagram') && nk.includes('canvas'))) {
+    return { surface: 'excalidraw', reason: 'workflow_graph_excalidraw' };
+  }
+  if (
+    nk.includes('browser') ||
+    nk.includes('playwright') ||
+    nk.includes('screenshot') ||
+    hk.includes('browser.') ||
+    hk.includes('playwright') ||
+    (nk.includes('navigate') && (nk.includes('url') || nk.includes('page')))
+  ) {
+    return { surface: 'browser', reason: 'workflow_graph_browser' };
+  }
+  if (nt === 'mcp_tool' && hk.startsWith('agentsam.code.') && (nk.includes('write') || nk.includes('apply') || nk.includes('patch'))) {
+    return { surface: 'code', reason: 'workflow_graph_code_tool' };
+  }
+  return null;
+}
+
+/** Emit surface_open + agent_surface_open; returns proof for D1 output_json / workflow_step. */
+function emitWorkflowGraphSurfaceEvents(onStream, { node, runId, workflowKey, nodeInput }) {
+  if (typeof onStream !== 'function') return null;
+  const spec = classifyWorkflowSurface(node);
+  if (!spec) return null;
+  const nodeKey = String(node?.node_key || '');
+  const payload = {
+    surface: spec.surface,
+    reason: spec.reason,
+    node_key: nodeKey,
+    run_id: runId,
+    workflow_key: workflowKey != null ? String(workflowKey) : undefined,
+  };
+  if (spec.surface === 'browser') {
+    const url = firstUrlFromWorkflowNodeInput(nodeInput);
+    if (url) payload.url = url;
+  }
+  try {
+    onStream({ type: 'surface_open', ...payload });
+    onStream({ type: 'agent_surface_open', ...payload });
+  } catch (_) {
+    /* stream closed */
+  }
+  return { ...payload, source: 'workflow_graph_node_start' };
+}
+
+function attachSurfaceProofToNodeOutput(nodeOutput, proof) {
+  if (!proof) return nodeOutput;
+  const base = nodeOutput && typeof nodeOutput === 'object' ? { ...nodeOutput } : { ok: !!nodeOutput?.ok };
+  let out = base.output;
+  if (out != null && typeof out === 'object' && !Array.isArray(out)) {
+    out = { ...out, surface_open_proof: proof };
+  } else if (out == null) {
+    out = { surface_open_proof: proof };
+  } else {
+    out = { result: out, surface_open_proof: proof };
+  }
+  return { ...base, output: out };
+}
+
 /**
  * Canonical execution ledger row — agentsam_execution_steps.execution_id FK targets this id (not wrun_*).
  * Mirrors src/core/workflows.js flat runner.
@@ -529,6 +618,7 @@ export async function executeWorkflowGraph(env, opts) {
     triggerType: triggerTypeRaw,
     toolBridge = null,
     onStep = null,
+    onStream = null,
     onRunCreated = null,
   } = opts;
 
@@ -649,6 +739,12 @@ export async function executeWorkflowGraph(env, opts) {
     toolBridge,
     workflowKey,
   };
+  const streamSse =
+    typeof onStream === 'function'
+      ? onStream
+      : toolBridge && typeof toolBridge.emitSse === 'function'
+        ? toolBridge.emitSse
+        : null;
   const stepResults = [];
   let currentNodeKey = firstKey;
   let stepsCompleted = 0;
@@ -708,7 +804,14 @@ export async function executeWorkflowGraph(env, opts) {
       );
     }
 
-    const nodeOutput = await dispatchNode(env, node, nodeInput, {
+    const surfaceProof = emitWorkflowGraphSurfaceEvents(streamSse, {
+      node,
+      runId,
+      workflowKey,
+      nodeInput,
+    });
+
+    let nodeOutput = await dispatchNode(env, node, nodeInput, {
       ...runContext,
       node,
       executionStepId: stepId,
@@ -716,6 +819,8 @@ export async function executeWorkflowGraph(env, opts) {
       ok: false,
       error: e?.message || String(e),
     }));
+
+    nodeOutput = attachSurfaceProofToNodeOutput(nodeOutput, surfaceProof);
 
     ffCompleteExecutionStep(env.DB, stepCols, stepId, nodeStartTime, nodeOutput);
 
@@ -762,6 +867,7 @@ export async function executeWorkflowGraph(env, opts) {
         output_tokens: totalOutputTokens,
         cost_usd: totalCostUsd,
         ok: nodeOutput.ok,
+        surface_open_proof: surfaceProof || undefined,
       });
     } catch (_) {
       /* ignore stream errors */
