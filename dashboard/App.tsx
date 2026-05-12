@@ -1080,7 +1080,7 @@ const App: React.FC = () => {
   /** Agent Sam SSE `surface_open` / orchestration — open the right workspace tab without new buttons. */
   useEffect(() => {
     const h = (e: Event) => {
-      const d = (e as CustomEvent<{ surface?: string; url?: string }>).detail;
+      const d = (e as CustomEvent<{ surface?: string; url?: string; load_url?: string; artifact_id?: string }>).detail;
       const s = String(d?.surface || '').toLowerCase();
       if (!s) return;
       revealMainWorkspaceIfNarrow();
@@ -1092,8 +1092,17 @@ const App: React.FC = () => {
         }
         openTab('browser');
         if (isNarrowViewport) setToastMsg('Browser tab opened. Tap Chat to return to Agent Sam.');
-      } else if (s === 'excalidraw') {
+      } else if (s === 'excalidraw' || s === 'draw') {
         openTab('excalidraw');
+        const load = typeof d?.load_url === 'string' ? d.load_url.trim() : '';
+        const aid = typeof d?.artifact_id === 'string' ? d.artifact_id.trim() : '';
+        if (load || aid) {
+          window.dispatchEvent(
+            new CustomEvent('iam:excalidraw_load_document', {
+              detail: { load_url: load || null, artifact_id: aid || null },
+            }),
+          );
+        }
         if (isNarrowViewport) setToastMsg('Canvas opened. Tap Chat to return to Agent Sam.');
       } else if (s === 'monaco' || s === 'code') {
         openTab('code');

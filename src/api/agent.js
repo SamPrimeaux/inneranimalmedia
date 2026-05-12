@@ -1360,6 +1360,7 @@ function resolveToolExecutionBudgetMs(toolName, input) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
     return 30000;
   }
+  if (n === 'excalidraw_plan_map_create') return 15000;
   if (n.startsWith('github_')) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
     return 30000;
@@ -3159,6 +3160,44 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           else if (Array.isArray(execResult.results)) toolRows = execResult.results;
         }
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
+        if (call.name === 'excalidraw_plan_map_create') {
+          try {
+            const parsed =
+              execResult && typeof execResult === 'object'
+                ? execResult
+                : JSON.parse(String(toolOutput || '{}'));
+            if (
+              parsed &&
+              !parsed.error &&
+              parsed.open_draw &&
+              (parsed.artifact_id || parsed.public_url)
+            ) {
+              const origin = (env.IAM_ORIGIN || '').replace(/\/$/, '') || '';
+              const loadUrl =
+                typeof parsed.public_url === 'string' && parsed.public_url.trim()
+                  ? parsed.public_url.trim()
+                  : origin && parsed.artifact_id
+                    ? `${origin}/api/artifacts/${encodeURIComponent(String(parsed.artifact_id))}/content`
+                    : '';
+              emit('surface_open', {
+                surface: 'excalidraw',
+                reason: 'excalidraw_plan_map_create',
+                artifact_id: parsed.artifact_id ?? null,
+                load_url: loadUrl,
+                artifact_type: 'excalidraw',
+              });
+              emit('agent_surface_open', {
+                surface: 'excalidraw',
+                reason: 'excalidraw_plan_map_create',
+                artifact_id: parsed.artifact_id ?? null,
+                load_url: loadUrl,
+                artifact_type: 'excalidraw',
+              });
+            }
+          } catch (_) {
+            /* ignore malformed tool JSON */
+          }
+        }
       } catch (e) {
         execErr = e;
         const isTimeout =
@@ -3180,6 +3219,21 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         });
       }
       const toolDurMs = Date.now() - toolT0;
+      let toolDoneExtra = {};
+      if (!execErr && call.name === 'excalidraw_plan_map_create') {
+        try {
+          const parsed = JSON.parse(String(toolOutput || '{}'));
+          if (parsed && parsed.artifact_id && !parsed.error) {
+            toolDoneExtra = {
+              artifact_type: 'excalidraw',
+              artifact_id: String(parsed.artifact_id),
+              public_url: parsed.public_url != null ? String(parsed.public_url) : null,
+            };
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
       emit('tool_output', {
         tool_name: call.name,
         chunk: String(toolOutput || '').slice(0, TOOL_OUTPUT_SSE_MAX),
@@ -3189,6 +3243,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         status: execErr ? 'error' : 'ok',
         duration_ms: toolDurMs,
         rows: toolRows ?? null,
+        ...toolDoneExtra,
         ...(execErr
           ? {
               error:
@@ -4457,6 +4512,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           plan_title: plan.plan_title,
           workflow_run_id: plan.workflow_run_id,
           task_count: plan.tasks.length,
+          visual_map: plan.visual_map ?? null,
+          ...(plan.visual_map_error ? { visual_map_error: plan.visual_map_error } : {}),
           tasks: plan.tasks.map((t) => ({
             id: t.id,
             title: t.title,

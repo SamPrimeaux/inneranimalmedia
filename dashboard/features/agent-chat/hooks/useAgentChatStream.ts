@@ -219,10 +219,24 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           ((data as { type?: string }).type === 'surface_open' ||
             (data as { type?: string }).type === 'agent_surface_open')
         ) {
-          const d = data as { surface?: string; url?: string; reason?: string };
+          const d = data as {
+            surface?: string;
+            url?: string;
+            reason?: string;
+            load_url?: string;
+            artifact_id?: string;
+            artifact_type?: string;
+          };
           window.dispatchEvent(
             new CustomEvent('iam:agent-open-surface', {
-              detail: { surface: d.surface, url: d.url, reason: d.reason },
+              detail: {
+                surface: d.surface,
+                url: d.url,
+                reason: d.reason,
+                load_url: d.load_url,
+                artifact_id: d.artifact_id,
+                artifact_type: d.artifact_type,
+              },
             }),
           );
           if (d.surface === 'browser' && typeof d.url === 'string' && d.url.trim()) {
@@ -286,6 +300,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             plan_id?: string;
             workflow_run_id?: string;
             task_count?: number;
+            visual_map?: { artifact_id: string; r2_key?: string; public_url: string } | null;
             tasks?: Array<{
               id: string;
               title: string;
@@ -313,9 +328,43 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           });
           assistantStreamBuf += `\n\n### ${String(d.plan_title || 'Plan')}\n_plan ${String(d.plan_id || '').slice(0, 14)}…_${wr}_${Number(d.task_count || lines.length)} tasks_\n\n${lines.join('\n')}\n`;
           assistantContent = assistantStreamBuf;
+          const pid = typeof d.plan_id === 'string' ? d.plan_id.trim() : '';
+          const vm = d.visual_map;
+          const hasMap =
+            vm &&
+            typeof vm === 'object' &&
+            typeof vm.artifact_id === 'string' &&
+            vm.artifact_id.trim() &&
+            typeof vm.public_url === 'string' &&
+            vm.public_url.trim();
           setMessages((prev) => {
             const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            const idx = last.length - 1;
+            const chip =
+              pid && hasMap
+                ? {
+                    plan_id: pid,
+                    plan_title: d.plan_title,
+                    visual_map: {
+                      artifact_id: String(vm!.artifact_id).trim(),
+                      r2_key: typeof vm!.r2_key === 'string' ? vm!.r2_key : undefined,
+                      public_url: String(vm!.public_url).trim(),
+                    },
+                  }
+                : undefined;
+            if (idx >= 0 && last[idx].role === 'assistant') {
+              last[idx] = {
+                ...last[idx],
+                content: assistantContent,
+                implementationPlan: chip ?? null,
+              };
+            } else {
+              last.push({
+                role: 'assistant',
+                content: assistantContent,
+                ...(chip ? { implementationPlan: chip } : {}),
+              });
+            }
             return last;
           });
           continue;
@@ -574,11 +623,38 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_done') {
           const d = data as {
             type: 'tool_done';
+            tool_name?: string;
             status?: string;
             duration_ms?: number;
             rows?: Record<string, unknown>[] | null;
             error?: string;
+            artifact_type?: string;
+            artifact_id?: string;
+            public_url?: string | null;
           };
+          if (
+            d.status !== 'error' &&
+            d.tool_name === 'excalidraw_plan_map_create' &&
+            d.artifact_type === 'excalidraw' &&
+            typeof d.artifact_id === 'string' &&
+            d.artifact_id.trim()
+          ) {
+            const loadUrl =
+              typeof d.public_url === 'string' && d.public_url.trim()
+                ? d.public_url.trim()
+                : `/api/artifacts/${encodeURIComponent(d.artifact_id.trim())}/content`;
+            window.dispatchEvent(
+              new CustomEvent('iam:agent-open-surface', {
+                detail: {
+                  surface: 'excalidraw',
+                  reason: 'excalidraw_plan_map_tool_done',
+                  load_url: loadUrl,
+                  artifact_id: d.artifact_id.trim(),
+                  artifact_type: 'excalidraw',
+                },
+              }),
+            );
+          }
           setExecPanel((p) =>
             p
               ? {

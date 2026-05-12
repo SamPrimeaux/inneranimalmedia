@@ -42,6 +42,39 @@ export const ExcalidrawView: React.FC = () => {
         return () => window.removeEventListener('iam_workspace_id', load);
     }, []);
 
+    // Listen for server-pushed plan maps / artifacts (fetch JSON → updateScene)
+    useEffect(() => {
+        const onLoad = (e: Event) => {
+            const det = (e as CustomEvent<{ load_url?: string | null; artifact_id?: string | null }>).detail || {};
+            let url = typeof det.load_url === 'string' ? det.load_url.trim() : '';
+            if (!url && typeof det.artifact_id === 'string' && det.artifact_id.trim()) {
+                url = `/api/artifacts/${encodeURIComponent(det.artifact_id.trim())}/content`;
+            }
+            if (!url) return;
+
+            const tryApply = () => {
+                const api = excalidrawApiRef.current;
+                if (!api) {
+                    window.setTimeout(tryApply, 100);
+                    return;
+                }
+                void fetch(url, { credentials: 'same-origin' })
+                    .then((r) => (r.ok ? r.json() : null))
+                    .then((scene) => {
+                        if (!scene || !Array.isArray(scene.elements)) return;
+                        api.updateScene({
+                            elements: scene.elements,
+                            ...(scene.appState && typeof scene.appState === 'object' ? { appState: scene.appState } : {}),
+                        });
+                    })
+                    .catch(() => {});
+            };
+            tryApply();
+        };
+        window.addEventListener('iam:excalidraw_load_document', onLoad as EventListener);
+        return () => window.removeEventListener('iam:excalidraw_load_document', onLoad as EventListener);
+    }, []);
+
     // Listen for agent-driven tool calls (excalidraw_open, excalidraw_add_elements, excalidraw_clear, excalidraw_export)
     useEffect(() => {
         const handler = (e: Event) => {

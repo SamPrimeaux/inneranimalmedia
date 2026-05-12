@@ -187,6 +187,7 @@ export async function handleStudioSessionApi(request, url, env, ctx) {
         css: 'text/css;charset=UTF-8',
         js: 'text/javascript;charset=UTF-8',
         json: 'application/json',
+        excalidraw: 'application/json',
         glb: 'model/gltf-binary',
         svg: 'image/svg+xml',
         png: 'image/png',

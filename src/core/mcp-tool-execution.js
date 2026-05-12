@@ -21,7 +21,7 @@ export async function hashToolInputJson(obj) {
   }
 }
 
-const NON_CACHEABLE_TOOLS = new Set(['terminal_execute', 'deploy', 'r2_delete', 'd1_write']);
+const NON_CACHEABLE_TOOLS = new Set(['terminal_execute', 'deploy', 'r2_delete', 'd1_write', 'excalidraw_plan_map_create']);
 
 function toolExecutionIsCacheable(toolName) {
   const n = String(toolName || '').trim();

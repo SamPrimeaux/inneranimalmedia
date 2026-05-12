@@ -13,6 +13,7 @@ import {
 } from '../core/bootstrap.js';
 import { executeWorkflowAndStream } from '../core/workflow-executor.js';
 import { insertAgentsamPlanRow, insertAgentsamPlanTaskRows } from '../core/agentsam-plan-insert.js';
+import { createPlanExcalidrawArtifact } from '../core/agentsam-plan-excalidraw-artifact.js';
 
 /**
  * HTTP entry for /api/agentsam/* (registry, prompts, etc.).
@@ -113,6 +114,30 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         taskIds = ids;
       }
 
+      let visual_map = null;
+      let visual_map_error = null;
+      const taskCount = taskIds.length;
+      let wantVisual = false;
+      if (body.create_visual_map === true) wantVisual = true;
+      else if (body.create_visual_map === false) wantVisual = false;
+      else wantVisual = taskCount >= 2;
+      if (wantVisual && env.DASHBOARD && authUser?.id) {
+        try {
+          visual_map = await createPlanExcalidrawArtifact(env, {
+            tenantId,
+            workspaceId,
+            userId: String(authUser.id),
+            planId,
+          });
+        } catch (e) {
+          visual_map_error = e?.message != null ? String(e.message) : String(e);
+        }
+      } else if (wantVisual && !env.DASHBOARD) {
+        visual_map_error = 'DASHBOARD bucket not configured';
+      } else if (wantVisual && !authUser?.id) {
+        visual_map_error = 'user_id missing for artifact';
+      }
+
       return jsonResponse(
         {
           ok: true,
@@ -121,6 +146,14 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
           tasks_total: taskIds.length,
           tasks_done: 0,
           tasks_blocked: 0,
+          visual_map: visual_map
+            ? {
+                artifact_id: visual_map.artifact_id,
+                r2_key: visual_map.r2_key,
+                public_url: visual_map.public_url,
+              }
+            : null,
+          ...(visual_map_error ? { visual_map_error } : {}),
         },
         201,
       );

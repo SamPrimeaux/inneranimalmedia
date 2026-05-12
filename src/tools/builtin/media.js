@@ -3,6 +3,8 @@
  * Implements 13 tools for creative production and 3D modeling.
  */
 
+import { createPlanExcalidrawArtifact } from '../../core/agentsam-plan-excalidraw-artifact.js';
+
 async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
     try {
@@ -26,6 +28,35 @@ export const handlers = {
     async excalidraw_add_elements(params, env) { return await invokeMediaOp(env, '/api/draw/elements', 'POST', params); },
     async excalidraw_export(params, env) { return await invokeMediaOp(env, '/api/draw/export', 'POST', params); },
     async excalidraw_load_library(params, env) { return await invokeMediaOp(env, '/api/draw/library', 'POST', params); },
+
+    /** Server-side plan → Excalidraw artifact (R2 + agentsam_artifacts). Params: plan_id, open_after_create? */
+    async excalidraw_plan_map_create(params, env) {
+        const planId = String(params.plan_id || params.planId || '').trim();
+        if (!planId) return { error: 'plan_id required' };
+        const tenantId = String(params.tenant_id || params.session?.tenant_id || '').trim();
+        const workspaceId = String(params.workspace_id || params.session?.workspace_id || '').trim();
+        const userId = String(params.user_id || params.session?.user_id || '').trim();
+        if (!tenantId) return { error: 'tenant_id required' };
+        if (!workspaceId) return { error: 'workspace_id required' };
+        if (!userId) return { error: 'user_id required' };
+        let openAfter = true;
+        if (params.open_after_create === false || params.open_after_create === 0) openAfter = false;
+        try {
+            const out = await createPlanExcalidrawArtifact(env, { tenantId, workspaceId, userId, planId });
+            return {
+                ok: true,
+                artifact_type: 'excalidraw',
+                artifact_id: out.artifact_id,
+                r2_key: out.r2_key,
+                public_url: out.public_url,
+                open_url: out.open_url,
+                plan_id: out.plan_id,
+                open_draw: openAfter,
+            };
+        } catch (e) {
+            return { error: e?.message != null ? String(e.message) : String(e) };
+        }
+    },
 
     // ── Voxel (3D Engine) ─────────────────────────────────────────────────
     async voxel_generate_scene(params, env) { return await invokeMediaOp(env, '/api/voxel/generate', 'POST', params); },
