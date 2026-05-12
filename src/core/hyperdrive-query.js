@@ -65,3 +65,59 @@ export async function runHyperdriveQuery(env, sql, params = []) {
   }
   return { ok: false, rows: [], error: 'hyperdrive_no_query_path' };
 }
+
+/**
+ * Run multiple Hyperdrive/Postgres queries in one connection + transaction.
+ * Pass a callback that receives a { query(sql, params) } client.
+ * Returns { ok, rows, result, error, meta } — same shape as runHyperdriveQuery.
+ *
+ * @param {any} env
+ * @param {(client: { query: (sql: string, params?: unknown[]) => Promise<any> }) => Promise<any>} callback
+ */
+export async function runHyperdriveTransaction(env, callback) {
+  if (!isHyperdriveBindingPresent(env)) {
+    return { ok: false, rows: [], error: 'hyperdrive_binding_absent' };
+  }
+
+  if (hyperdriveConnectionStringAvailable(env)) {
+    let client;
+    try {
+      const { Client } = await import('pg');
+      client = new Client({ connectionString: env.HYPERDRIVE.connectionString });
+      await client.connect();
+      await client.query('BEGIN');
+      const result = await callback(client);
+      await client.query('COMMIT');
+      return {
+        ok: true,
+        rows: Array.isArray(result?.rows) ? result.rows : [],
+        result,
+        meta: {},
+      };
+    } catch (e) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      return { ok: false, rows: [], error: e?.message ? String(e.message) : String(e) };
+    } finally {
+      if (client) await client.end().catch(() => {});
+    }
+  }
+
+  if (hyperdriveNativeQueryAvailable(env)) {
+    try {
+      const adapter = {
+        query: async (sql, params = []) => env.HYPERDRIVE.query(sql, params),
+      };
+      const result = await callback(adapter);
+      return {
+        ok: true,
+        rows: Array.isArray(result?.rows) ? result.rows : [],
+        result,
+        meta: result?.meta ?? {},
+      };
+    } catch (e) {
+      return { ok: false, rows: [], error: e?.message ? String(e.message) : String(e) };
+    }
+  }
+
+  return { ok: false, rows: [], error: 'hyperdrive_no_query_path' };
+}

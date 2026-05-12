@@ -94,8 +94,39 @@ async function dispatchNode(env, node, input, runContext) {
 
   switch (nodeType) {
     case 'agent': {
-      const prompt = JSON.stringify(input);
-      return { ok: true, output: { result: prompt, note: 'agent_stub' } };
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true, note: 'agent smoke short-circuit' } };
+      try {
+        const { dispatchComplete } = await import('./provider.js');
+
+        // Derive task_type from handler_key: 'agentsam.code.map_file' -> 'code'
+        const hkParts = String(handlerKey || '').split('.');
+        const taskType = hkParts[1] || hkParts[0] || 'code';
+        const mode = String(runContext?.workflowKey || '').includes('build') ? 'build' : 'agent';
+
+        const userMsg = typeof input === 'string'
+          ? input
+          : input?.prompt || input?.message || input?.instruction || input?.result
+          || JSON.stringify(input);
+
+        const result = await dispatchComplete(env, {
+          modelKey: 'auto',
+          taskType,
+          mode,
+          systemPrompt: 'You are Agent Sam, an autonomous AI developer for Inner Animal Media. Complete the task and return concise structured output.',
+          messages: [{ role: 'user', content: String(userMsg).slice(0, 12000) }],
+          userId: runContext?.canonicalUserId,
+          options: { reasoningEffort: 'medium', verbosity: 'low' },
+        });
+
+        const text = result?.text
+          || result?.content?.[0]?.text
+          || result?.output
+          || JSON.stringify(result);
+
+        return { ok: true, output: { result: text, model: result?.model, tokens: result?.usage } };
+      } catch (e) {
+        return { ok: false, error: `agent node failed: ${e?.message ?? e}` };
+      }
     }
 
     case 'mcp_tool': {
@@ -173,12 +204,22 @@ async function dispatchNode(env, node, input, runContext) {
         ? env.TERMINAL_WS_URL.replace('wss://', 'https://').replace('ws://', 'http://')
         : null;
       if (!termUrl) return { ok: false, error: 'terminal not configured' };
-      const cmd = input?.command || input?.cmd || '';
+      let nodeSchema = {};
+      try { nodeSchema = JSON.parse(node?.input_schema_json || '{}'); } catch (_) {}
+      // Also check if previous agent node embedded a command in its JSON result
+      let _agentCmd = '';
+      if (input?.result) {
+        try {
+          const _r = JSON.parse(input.result);
+          _agentCmd = _r?.command || _r?.cmd || _r?.wrangler_command || '';
+        } catch (_) {}
+      }
+      const cmd = input?.command || input?.cmd || _agentCmd || nodeSchema?.default_command || '';
       if (!cmd) return { ok: false, error: 'no command in terminal node input' };
       if (/[;&|`$><\\]/.test(cmd)) {
         return { ok: false, error: 'command contains unsafe characters' };
       }
-      const tRes = await fetch(`${termUrl.replace(/\/$/, '')}/run`, {
+      const tRes = await fetch(`${termUrl.replace(/\/$/, '')}/exec`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -366,7 +407,7 @@ async function insertAgentsamExecutionForGraph(env, execCols, { tenantId, worksp
   }
 }
 
-/** Pending step row — execution_id must be agentsam_executions.id when that FK exists. */
+/** Pending step row — execution_id references agentsam_workflow_runs.id (runId). */
 function ffPendingExecutionStep(db, cols, stepId, executionParentId, workflowRunId, node, inputPayload) {
   if (!db || !cols?.size) return;
   const hasExecCol = cols.has('execution_id');
@@ -658,9 +699,10 @@ export async function executeWorkflowGraph(env, opts) {
 
     const stepId = `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
     const nodeStartTime = Date.now();
-    ffPendingExecutionStep(env.DB, stepCols, stepId, workflowExecId, runId, node, nodeInput);
+    ffPendingExecutionStep(env.DB, stepCols, stepId, runId, runId, node, nodeInput);
 
-    if (tenantId && previousStepId && workspaceId) {
+    if (false && tenantId && previousStepId && workspaceId) {
+      // dep_graph FKs to agentsam_tool_chain — not estep IDs. Disabled.
       void insertExecutionDependencyGraphEdge(env, tenantId, stepId, previousStepId, workspaceId).catch(
         () => {},
       );
