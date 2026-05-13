@@ -7,7 +7,8 @@ Prerequisites (same family as scripts/e2e_agentsam_eval_runner.py):
   - `npx wrangler` configured (IAM_D1_DB, IAM_WRANGLER_CONFIG, IAM_D1_REMOTE)
   - Auth to chat: `IAM_SESSION` / `~/.iam-session-cookie` and/or `INGEST_SECRET` as `X-Ingest-Secret`
   - Optional: Ollama at OLLAMA_URL (default http://127.0.0.1:11434) with OLLAMA_JUDGE_MODEL
-  - IAM_CHAT_TIMEOUT_SEC (default 180) for each chat request
+  - IAM_CHAT_TIMEOUT_SEC (default 300) wall clock per chat request (--max-time for curl)
+  - IAM_CHAT_HTTP_IMPL=curl (default) or urllib — curl matches e2e_agentsam_eval_runner and avoids urllib read quirks
 
 Run from repo root after deploy + migration 337:
   python3 scripts/eval_routing_matrix.py
@@ -104,11 +105,143 @@ def load_cookie() -> str:
     return raw if raw.startswith("session=") else f"session={raw}"
 
 
+def _consume_sse_line_payloads(raw_sse: str) -> tuple[list[str], bool, bool]:
+    """Parse data: lines; return (text_parts, saw_done, got_stream_error)."""
+    text_parts: list[str] = []
+    saw_done = False
+    got_stream_error = False
+    for line in raw_sse.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        chunk = line[len("data:") :].strip()
+        if not chunk or chunk == "[DONE]":
+            continue
+        try:
+            evt = json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(evt, dict):
+            continue
+        t = evt.get("type")
+        if t == "text":
+            text_parts.append(str(evt.get("text") or ""))
+        elif t == "thinking":
+            piece = str(evt.get("text") or "")
+            if piece:
+                text_parts.append(piece)
+        elif t in ("error", "fatal"):
+            got_stream_error = True
+            text_parts.append(str(evt.get("error") or evt.get("message") or json.dumps(evt)[:500]))
+        elif t in ("tool_output", "tool_result"):
+            text_parts.append(str(evt.get("output") or evt.get("text") or "")[:4000])
+        elif t == "done":
+            saw_done = True
+            if evt.get("stream_failed") or evt.get("fatal"):
+                got_stream_error = True
+    return text_parts, saw_done, got_stream_error
+
+
 def post_chat(prompt: str, mode: str, timeout: int | None = None) -> dict[str, Any]:
+    """POST /api/agent/chat (SSE). Default: curl full-buffer (reliable); set IAM_CHAT_HTTP_IMPL=urllib to opt out."""
+    if timeout is None:
+        timeout = int(os.getenv("IAM_CHAT_TIMEOUT_SEC", "300"))
+    impl = os.getenv("IAM_CHAT_HTTP_IMPL", "curl").strip().lower()
+    if impl == "urllib":
+        return _post_chat_urllib(prompt, mode, timeout)
+    return _post_chat_curl(prompt, mode, timeout)
+
+
+def _post_chat_curl(prompt: str, mode: str, timeout: int) -> dict[str, Any]:
     cookie = load_cookie()
     ingest = os.getenv("INGEST_SECRET", "").strip()
-    if timeout is None:
-        timeout = int(os.getenv("IAM_CHAT_TIMEOUT_SEC", "180"))
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "message": prompt,
+        "mode": mode,
+        "requestedMode": mode,
+        "workspace_id": WORKSPACE_ID,
+        "tenant_id": TENANT_ID,
+        "user_id": USER_ID,
+        "stream": True,
+    }
+    cmd: list[str] = [
+        "curl",
+        "-i",
+        "-sS",
+        "--max-time",
+        str(timeout),
+        "-X",
+        "POST",
+        CHAT_URL,
+        "-H",
+        "Content-Type: application/json",
+        "-H",
+        "Accept: text/event-stream",
+        "-H",
+        f"x-iam-workspace-id: {WORKSPACE_ID}",
+        "-H",
+        f"Origin: {BASE_URL}",
+        "-H",
+        f"Referer: {BASE_URL}/dashboard/agent",
+        "-H",
+        "User-Agent: inneranimalmedia-eval_routing_matrix/curl",
+        "-d",
+        json.dumps(payload),
+    ]
+    if cookie:
+        cmd.extend(["-H", f"Cookie: {cookie}"])
+    if ingest:
+        cmd.extend(["-H", f"X-Ingest-Secret: {ingest}"])
+
+    t0 = time.time()
+    proc = subprocess.run(cmd, text=True, capture_output=True, cwd=str(REPO))
+    latency_ms = int((time.time() - t0) * 1000)
+    raw_all = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+
+    statuses = re.findall(r"HTTP/\S+\s+(\d+)", raw_all)
+    status = int(statuses[-1]) if statuses else 0
+
+    body_start = raw_all.find("\n\ndata:")
+    if body_start == -1:
+        body_start = raw_all.find("\r\n\r\ndata:")
+    raw_sse = raw_all[body_start:].strip() if body_start != -1 else raw_all
+
+    text_parts, saw_done, got_stream_error = _consume_sse_line_payloads(raw_sse)
+    body = "".join(text_parts).strip()
+
+    curl_err = ""
+    if proc.returncode == 28:
+        curl_err = "curl_exit_28_timeout"
+    elif proc.returncode != 0:
+        curl_err = f"curl_exit_{proc.returncode}"
+
+    ok = (
+        200 <= status < 300
+        and saw_done
+        and not got_stream_error
+        and bool(body)
+        and proc.returncode == 0
+    )
+    err = None
+    if not ok:
+        err = body[:800] if body else (
+            f"{curl_err or 'no_body'} http={status} saw_done={saw_done} stream_err={got_stream_error}"
+        )
+    return {
+        "ok": ok,
+        "status": status,
+        "latency_ms": latency_ms,
+        "body": body,
+        "error": err,
+        "saw_done": saw_done,
+        "curl_rc": proc.returncode,
+    }
+
+
+def _post_chat_urllib(prompt: str, mode: str, timeout: int) -> dict[str, Any]:
+    cookie = load_cookie()
+    ingest = os.getenv("INGEST_SECRET", "").strip()
     payload = {
         "messages": [{"role": "user", "content": prompt}],
         "message": prompt,
@@ -231,6 +364,7 @@ def post_chat(prompt: str, mode: str, timeout: int | None = None) -> dict[str, A
         "body": body,
         "error": err,
         "saw_done": saw_done,
+        "curl_rc": None,
     }
 
 
@@ -327,6 +461,9 @@ def main() -> None:
     now = datetime.now(timezone.utc)
     print(f"Routing eval matrix — {now.isoformat()}\n")
     print(f"CHAT_URL={CHAT_URL} D1={DB} remote={REMOTE}")
+    _to = int(os.getenv("IAM_CHAT_TIMEOUT_SEC", "300"))
+    _impl = os.getenv("IAM_CHAT_HTTP_IMPL", "curl").strip().lower()
+    print(f"SSE client={_impl}  IAM_CHAT_TIMEOUT_SEC={_to}")
 
     if not args.dry_run:
         if not load_cookie() and not os.getenv("INGEST_SECRET", "").strip():
