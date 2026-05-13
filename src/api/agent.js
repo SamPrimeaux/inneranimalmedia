@@ -720,6 +720,9 @@ function inferIntentHeuristically(text) {
   const hasCms = is(/\b(cms|theme|page|component|liquid|shopify|content edit)\b/);
   const hasTool = is(/\b(use tool|invoke|mcp tool|call tool|run tool)\b/);
   const hasWorkflow = is(/\b(run workflow|start workflow|trigger|execute workflow|pipeline)\b/);
+  const hasMultitask = is(
+    /\b(orchestrate|multi[- ]?step|multi[- ]?agent|automate|end[- ]?to[- ]?end|full[- ]?stack|build[- ]?and[- ]?deploy|create[- ]?and[- ]?launch|chain|sequence of tasks?|series of tasks?|autonomous|run everything|parallel tasks?)\b/,
+  );
 
   if (hasWorkflow) return { taskType: 'workflow_orchestration', mode: 'agent' };
   if (hasDeploy) return { taskType: 'deploy', mode: 'agent' };
@@ -727,6 +730,7 @@ function inferIntentHeuristically(text) {
   if (hasShell && !hasCode) return { taskType: 'terminal_execution', mode: 'agent' };
   if (hasDebug) return { taskType: 'debug', mode: 'agent' };
   if (hasPlan) return { taskType: 'plan', mode: 'agent' };
+  if (hasMultitask) return { taskType: 'multitask', mode: 'agent' };
   if (hasRecall) return { taskType: 'summary', mode: 'auto' };
   if (hasCms) return { taskType: 'cms_edit', mode: 'agent' };
   if (hasTool) return { taskType: 'tool_use', mode: 'agent' };
@@ -5941,6 +5945,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
         routingArmId: usageRoutingArmId,
       });
+
+      // Cost/latency Thompson feedback (applyRoutingArmUsageFeedback). Anthropic tool-loop applies
+      // its own feedback on success; this path covers OpenAI, Google, Workers AI, Ollama, etc.
+      if (usageRoutingArmId) {
+        const _armProvider = providerForModelKey(lastLoopStats?.modelKey);
+        if (_armProvider !== 'anthropic') {
+          ctx.waitUntil?.(
+            applyRoutingArmUsageFeedback(env, {
+              armId: usageRoutingArmId,
+              success: succeeded,
+              costUsd: 0,
+              durationMs: Date.now() - chatT0,
+            }).catch(() => {}),
+          );
+        }
+      }
       if (tenantId) {
         scheduleInsertAgentCost(env, ctx, {
           workspaceId,
