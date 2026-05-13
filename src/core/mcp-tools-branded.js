@@ -5,6 +5,10 @@
  * Deterministic agent-chat path: route lanes + capability policy + mcp_workspace_tokens entitlements.
  */
 
+import {
+  brandedRowMatchesRouteCapability,
+  expandWorkspaceTokenCapabilityAllowlist,
+} from './agentsam-capability-aliases.js';
 import { selectAgentsamMcpToolsList } from './agentsam-mcp-tools.js';
 import { pragmaTableInfo } from './retention.js';
 
@@ -303,21 +307,12 @@ export async function queryBrandedMcpCatalog(db, opts = {}) {
 }
 
 function toolRowMatchesCapability(row, capKey) {
-  const k = String(capKey || '').trim().toLowerCase();
-  if (!k) return false;
-  const ids = [
-    row.capability_key,
-    row.tool_key,
-    row.tool_name,
-  ]
-    .filter((x) => x != null && String(x).trim() !== '')
-    .map((x) => String(x).trim().toLowerCase());
-  return ids.some((id) => id === k);
+  return brandedRowMatchesRouteCapability(row, capKey);
 }
 
 function toolRowBlocked(row, blockedList) {
   for (const b of blockedList || []) {
-    if (toolRowMatchesCapability(row, b)) return true;
+    if (brandedRowMatchesRouteCapability(row, b)) return true;
   }
   return false;
 }
@@ -380,6 +375,10 @@ export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, op
   const tn = runtimeCtx?.tenantId != null ? String(runtimeCtx.tenantId).trim() : '';
   const tokenNames = await loadWorkspaceTokenAllowedToolNames(db, ws, tn);
   const ent = await loadWorkspaceTokenEntitlements(db, ws, tn);
+  const allowedCapExpanded =
+    ent.allowedCapabilityKeys && ent.allowedCapabilityKeys.size
+      ? expandWorkspaceTokenCapabilityAllowlist(ent.allowedCapabilityKeys)
+      : null;
 
   const routeLaneSet = new Set(effectiveLanes.map((x) => String(x).toLowerCase()));
   let laneFilter = routeLaneSet;
@@ -417,11 +416,11 @@ export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, op
       if (ent.allowedToolNames.size === 0) continue;
       if (!ent.allowedToolNames.has(name.toLowerCase())) continue;
     }
-    if (ent.allowedCapabilityKeys) {
+    if (allowedCapExpanded) {
       const keys = [r.capability_key, r.tool_key, r.tool_name]
         .filter((x) => x != null && String(x).trim() !== '')
         .map((x) => String(x).trim().toLowerCase());
-      if (!keys.some((k) => ent.allowedCapabilityKeys.has(k))) continue;
+      if (!keys.some((k) => allowedCapExpanded.has(k))) continue;
     }
     if (ent.allowedRiskLevels) {
       const rl = String(r.risk_level || 'low').trim().toLowerCase();

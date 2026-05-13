@@ -1,0 +1,699 @@
+
+============================================================
+REPO WIREFRAME
+============================================================
+
+inneranimalmedia/                             (root)
+  ├── README.md                               14KB
+  ├── agentsam_route_requirements_tool_routing_setup.py 15KB
+  ├── autorag-r2-asset-urls.txt               5KB
+  ├── captures/                               214 files  48.7MB
+  ├── cms/                                    15 files  10KB
+  ├── cms_schema.json                         73KB
+  ├── dashboard/                              234 files  4.8MB
+  ├── db/                                     5 files  7KB
+  ├── iam-test-reports/                       23 files  2.5MB
+  ├── iam_remediation.py                      9KB
+  ├── iam_remediation_output.txt              13KB
+  ├── inneranimalmedia-r2-asset-urls.txt      106KB
+  ├── leadership-legacy-r2-asset-urls.txt     1KB
+  ├── learn/                                  31 files  80KB
+  ├── package-lock.json                       112KB
+  ├── package.json                            8KB
+  ├── playwright.agent.config.cjs             466B
+  ├── playwright.config.ts                    860B
+  ├── prototypes/                             14 files  386KB
+  ├── r2/                                     8 files  45KB
+  ├── reports/                                3 files  1.5MB
+  ├── scripts/                                308 files  3.3MB
+  ├── snapshot-after.json                     49KB
+  ├── snapshot-before.json                    54KB
+  ├── sql/                                    12 files  139KB
+  ├── src/                                    270 files  3.0MB
+  ├── supabase/                               3 files  588B
+  ├── tests/                                  3 files  13KB
+  ├── wrangler.jsonc                          3KB
+  ├── wrangler.production.toml                4KB
+
+────────────────────────────────────────────────────────────
+File types (runtime source):
+  .js       286 files   3.7MB
+  .tsx      139 files   1.9MB
+  .py        74 files   1.3MB
+  .ts        38 files   233KB
+
+  Total tracked: 1190 files  66.4MB
+
+────────────────────────────────────────────────────────────
+Largest files (>50KB):
+     2.4MB  iam-test-reports/deploy-checks/settings-api-vault-20260508T082927Z-a8702eb/dashboard-bundle-check.txt
+     1.6MB  dashboard/embed/analytics-dashboard-standalone.html
+     1.6MB  dashboard/design-refs/analytics-dashboard-ref.html
+     1.5MB  reports/git-safety/day-work-20260512-153005.patch
+     1.4MB  captures/inneranimalmedia/screenshots/games.png
+     1.2MB  captures/inneranimalmedia/screenshots/work.png
+     1.2MB  captures/inneranimalmedia/screenshots/about.png
+     1.2MB  captures/inneranimalmedia/screenshots/services.png
+     1.0MB  captures/inneranimalmedia/raw-quality-report/data/1107410a4d6b48d061f53e8086e6b4069ce7cd86.zip
+     1.0MB  captures/inneranimalmedia/raw-quality-report/data/bdfa3945318618329972d09b0b0d1389d687187f.zip
+    1006KB  captures/inneranimalmedia/raw-quality-report/data/86f770955e8217fbd531e68b4d75d3ac3de28395.zip
+     984KB  captures/inneranimalmedia/raw-quality-report/data/ed031fcb75da694dbc8931ed8b6e6c780e23c28f.zip
+     964KB  captures/inneranimalmedia/raw-quality-report/data/6b4af9ccbe90cff404cada77f94ef1208c7c3085.zip
+     937KB  captures/inneranimalmedia/raw-quality-report/data/d4290b5cab359ef1884a456726f0a876fa9b9a93.zip
+     879KB  captures/inneranimalmedia/raw-quality-report/data/c0a6ee5928c2306cdeb9b1e0a3504a5f8a823c26.zip
+     863KB  captures/inneranimalmedia/raw-quality-report/data/4b8b40bad28d38fbf814374fee05a788e6163a3e.zip
+     826KB  captures/inneranimalmedia/raw-quality-report/data/8042127f16a23de1ae9d52b5068388a9ba9f6975.zip
+     751KB  captures/inneranimalmedia/screenshots/terms.png
+     747KB  captures/inneranimalmedia/results/inneranimalmedia-public-In-f05ae-ass-Home-page-quality-check/trace.zip
+     747KB  captures/inneranimalmedia/raw-playwright-report/data/fdc616ad70313c4d3aa512df0447682952687716.zip
+
+────────────────────────────────────────────────────────────
+API routes found in runtime source:
+  /api/admin/run-retention
+  /api/agent
+  /api/agent/*
+  /api/agent/approval/pending
+  /api/agent/approve
+  /api/agent/boot
+  /api/agent/chat
+  /api/agent/chat/execute-approved-tool
+  /api/agent/cicd
+  /api/agent/context-picker/catalog
+  /api/agent/execute
+  /api/agent/github
+  /api/agent/github/file
+  /api/agent/health
+  /api/agent/intake
+  /api/agent/mcp
+  /api/agent/rag/query
+  /api/agent/telemetry
+  /api/agent/terminal/complete
+  /api/agent/terminal/exec
+  /api/agent/terminal/run
+  /api/agent/today-todo
+  /api/agent/todo
+  /api/agent/workflow/approve
+  /api/ai
+  /api/auth
+  /api/auth/backup-code
+  /api/auth/login
+  /api/auth/logout
+  /api/auth/me
+  /api/auth/verify-email
+  /api/billing
+  /api/billing/checkout
+  /api/billing/portal
+  /api/cad
+  /api/cad/
+  /api/calendar
+  /api/calendar/view/
+  /api/chat
+  /api/cicd
+  /api/cicd/current
+  /api/cicd/run
+  /api/context/attached-content
+  /api/context/chunk
+  /api/context/extract
+  /api/context/memory/add
+  /api/context/optimize
+  /api/convert/create
+  /api/d1
+  /api/d1/query
+  /api/d1/table
+  /api/draw
+  /api/draw/
+  /api/draw/clear
+  /api/draw/download/
+  /api/draw/export
+  /api/draw/library
+  /api/draw/load
+  /api/drive/delete
+  /api/drive/file
+  ... and 65 more
+
+============================================================
+LEGACY TABLE AUDIT — runtime refs only
+============================================================
+
+Fetching tables from D1...
+Found 162 legacy tables
+
+  [1/162] agent_ai_executable_limits  [2/162] agent_capabilities  [3/162] agent_command_audit_log  [4/162] agent_command_conversations  [5/162] agent_command_executions  [6/162] agent_command_integrations  [7/162] agent_command_proposals  [8/162] agent_commands  [9/162] agent_configs  [10/162] agent_cost_ledger  [11/162] agent_costs  [12/162] agent_db_query_history  [13/162] agent_db_snippets  [14/162] agent_execution_plans  [15/162] agent_intent_execution_log  [16/162] agent_intent_patterns  [17/162] agent_memory_index  [18/162] agent_messages  [19/162] agent_mode_configs  [20/162] agent_model_registry  [21/162] agent_platform_context  [22/162] agent_policy_templates  [23/162] agent_prompt_provider_profiles  [24/162] agent_prompts  [25/162] agent_question_templates  [26/162] agent_recipe_prompts  [27/162] agent_request_queue  [28/162] agent_roles  [29/162] agent_rules  [30/162] agent_runtime_configs  [31/162] agent_scopes  [32/162] agent_sessions  [33/162] agent_tool_chain  [34/162] agent_tools  [35/162] agentsam_agent_run  [36/162] agentsam_ai  [37/162] agentsam_analytics  [38/162] agentsam_approval_queue  [39/162] agentsam_artifact_skills  [40/162] agentsam_artifacts  [41/162] agentsam_bootstrap  [42/162] agentsam_browser_trusted_origin  [43/162] agentsam_cad_jobs  [44/162] agentsam_capability_aliases  [45/162] agentsam_code_index_job  [46/162] agentsam_command_allowlist  [47/162] agentsam_command_pattern  [48/162] agentsam_command_run  [49/162] agentsam_commands  [50/162] agentsam_compaction_events  [51/162] agentsam_context_digest  [52/162] agentsam_cron_runs  [53/162] agentsam_deployment_health  [54/162] agentsam_error_log  [55/162] agentsam_escalation  [56/162] agentsam_eval_cases  [57/162] agentsam_eval_runs  [58/162] agentsam_eval_suites  [59/162] agentsam_execution_context  [60/162] agentsam_execution_dependency_graph  [61/162] agentsam_execution_performance_metrics  [62/162] agentsam_execution_steps  [63/162] agentsam_executions  [64/162] agentsam_executions_backup_20260509_014549  [65/162] agentsam_feature_flag  [66/162] agentsam_fetch_domain_allowlist  [67/162] agentsam_guardrail_events  [68/162] agentsam_guardrail_rulesets  [69/162] agentsam_guardrails  [70/162] agentsam_health_daily  [71/162] agentsam_hook  [72/162] agentsam_hook_execution  [73/162] agentsam_ignore_pattern  [74/162] agentsam_mcp_allowlist  [75/162] agentsam_mcp_servers  [76/162] agentsam_mcp_tool_execution  [77/162] agentsam_mcp_tools  [78/162] agentsam_mcp_workflows  [79/162] agentsam_memory  [80/162] agentsam_model_catalog  [81/162] agentsam_model_drift_signals  [82/162] agentsam_model_routing_memory  [83/162] agentsam_model_tier  [84/162] agentsam_plan_tasks  [85/162] agentsam_plans  [86/162] agentsam_project_context  [87/162] agentsam_prompt_cache_keys  [88/162] agentsam_prompt_routes  [89/162] agentsam_prompt_versions  [90/162] agentsam_route_requirements  [91/162] agentsam_routing_arms  [92/162] agentsam_rules_document  [93/162] agentsam_script_runs  [94/162] agentsam_scripts  [95/162] agentsam_skill  [96/162] agentsam_skill_invocation  [97/162] agentsam_skill_revision  [98/162] agentsam_slash_commands  [99/162] agentsam_subagent_profile  [100/162] agentsam_subscription_registry  [101/162] agentsam_task_slos  [102/162] agentsam_todo  [103/162] agentsam_tool_cache  [104/162] agentsam_tool_call_log  [105/162] agentsam_tool_chain  [106/162] agentsam_tool_stats_compacted  [107/162] agentsam_tools  [108/162] agentsam_tools_input_schema_backup  [109/162] agentsam_usage_events  [110/162] agentsam_usage_rollups_daily  [111/162] agentsam_user_feature_override  [112/162] agentsam_user_policy  [113/162] agentsam_webhook_events  [114/162] agentsam_webhook_weekly  [115/162] agentsam_workflow_edges  [116/162] agentsam_workflow_nodes  [117/162] agentsam_workflow_runs  [118/162] agentsam_workflows  [119/162] agentsam_workspace  [120/162] agentsam_workspace_state  [121/162] ai_api_test_runs  [122/162] ai_approvals  [123/162] ai_compiled_context_cache  [124/162] ai_context_store  [125/162] ai_context_versions  [126/162] ai_costs_daily  [127/162] ai_generation_log  [128/162] ai_generation_logs  [129/162] ai_integrations  [130/162] ai_interactions  [131/162] ai_knowledge_base  [132/162] ai_knowledge_chunks  [133/162] ai_model_policies  [134/162] ai_models  [135/162] ai_project_context_config  [136/162] ai_projects  [137/162] ai_prompts_library  [138/162] ai_provider_usage  [139/162] ai_rag_search_history  [140/162] ai_routing_rules  [141/162] ai_search_analytics  [142/162] ai_services  [143/162] ai_tool_roles  [144/162] ai_usage_log  [145/162] ai_workflow_executions  [146/162] ai_workflow_pipelines  [147/162] mcp_agent_sessions  [148/162] mcp_audit_log  [149/162] mcp_command_suggestions  [150/162] mcp_entitlements  [151/162] mcp_prompt_registry  [152/162] mcp_prompts  [153/162] mcp_registered_tools  [154/162] mcp_server_allowlist  [155/162] mcp_service_credentials  [156/162] mcp_services  [157/162] mcp_tool_call_stats  [158/162] mcp_tool_calls  [159/162] mcp_usage_log  [160/162] mcp_workflow_runs  [161/162] mcp_workflows  [162/162] mcp_workspace_tokens                                                            
+
+============================================================
+EXTINCT — 0 rows, no runtime refs — DROP THESE (2)
+============================================================
+  ai_usage_log                                       (0 rows)
+  mcp_prompt_registry                                (0 rows)
+
+============================================================
+INSPECT — has data, no runtime refs (47)
+============================================================
+  agent_ai_executable_limits                         (8 rows)
+  agent_capabilities                                 (51 rows)
+  agent_command_audit_log                            (159 rows)
+  agent_command_conversations                        (10 rows)
+  agent_command_executions                           (119 rows)
+  agent_command_integrations                         (20 rows)
+  agent_command_proposals                            (4 rows)
+  agent_commands                                     (124 rows)
+  agent_configs                                      (9 rows)
+  agent_cost_ledger                                  (4 rows)
+  agent_execution_plans                              (3 rows)
+  agent_intent_execution_log                         (480 rows)
+  agent_memory_index                                 (38 rows)
+  agent_policy_templates                             (10 rows)
+  agent_prompt_provider_profiles                     (7 rows)
+  agent_prompts                                      (37 rows)
+  agent_question_templates                           (8 rows)
+  agent_recipe_prompts                               (53 rows)
+  agent_roles                                        (31 rows)
+  agent_runtime_configs                              (9 rows)
+  agent_scopes                                       (3 rows)
+  agent_tool_chain                                   (251 rows)
+  agent_tools                                        (37 rows)
+  agentsam_artifact_skills                           (1 rows)
+  agentsam_capability_aliases                        (73 rows)
+  agentsam_executions_backup_20260509_014549         (16 rows)
+  agentsam_tools_input_schema_backup                 (43 rows)
+  ai_api_test_runs                                   (19 rows)
+  ai_approvals                                       (4 rows)
+  ai_context_store                                   (28 rows)
+  ai_costs_daily                                     (25 rows)
+  ai_generation_log                                  (16 rows)
+  ai_generation_logs                                 (46 rows)
+  ai_integrations                                    (20 rows)
+  ai_interactions                                    (1 rows)
+  ai_knowledge_base                                  (121 rows)
+  ai_knowledge_chunks                                (236 rows)
+  ai_project_context_config                          (13 rows)
+  ai_projects                                        (8 rows)
+  ai_routing_rules                                   (10 rows)
+  ai_services                                        (31 rows)
+  ai_tool_roles                                      (23 rows)
+  ai_workflow_pipelines                              (44 rows)
+  mcp_prompts                                        (9 rows)
+  mcp_registered_tools                               (180 rows)
+  mcp_server_allowlist                               (1 rows)
+  mcp_tool_calls                                     (40 rows)
+
+============================================================
+ACTIVE — still referenced in runtime source (113)
+============================================================
+  agent_costs                                        (1237 rows)
+    ↳ src/core/agent-costs.js
+    ↳ src/cron/jobs/weekly-rollup.js
+  agent_db_query_history                             (0 rows)
+    ↳ src/api/agent.js
+    ↳ scripts/write_learn_course_readmes.py
+  agent_db_snippets                                  (0 rows)
+    ↳ src/api/agent.js
+    ↳ scripts/write_learn_course_readmes.py
+  agent_intent_patterns                              (61 rows)
+    ↳ src/api/mcp.js
+  agent_messages                                     (9 rows)
+    ↳ src/core/security-scan.js
+    ↳ src/api/integrations.js
+    ↳ src/api/agent.js
+    ↳ ... +6 more
+  agent_mode_configs                                 (5 rows)
+    ↳ src/core/gate.js
+    ↳ src/api/terminal.js
+    ↳ src/api/agent.js
+    ↳ ... +1 more
+  agent_model_registry                               (62 rows)
+    ↳ src/api/agent.js
+  agent_platform_context                             (63 rows)
+    ↳ src/cron/jobs/daily-digest.js
+  agent_request_queue                                (28 rows)
+    ↳ src/cron/jobs/thirty-minute-cron.js
+  agent_rules                                        (14 rows)
+    ↳ src/core/unified-source-filters.js
+    ↳ src/api/unified-search.js
+    ↳ scripts/ingest-d1-memory.js
+  agent_sessions                                     (1495 rows)
+    ↳ src/api/mcp.js
+    ↳ src/api/dashboard.js
+    ↳ src/api/command-run-telemetry.js
+    ↳ ... +2 more
+  agentsam_agent_run                                 (412 rows)
+    ↳ src/core/routing-cron.js
+    ↳ src/core/agent-run-routing.js
+    ↳ src/core/routing-decisions-writer.js
+    ↳ ... +14 more
+  agentsam_ai                                        (101 rows)
+    ↳ src/core/provider.js
+    ↳ src/core/routing.js
+    ↳ src/integrations/tokens.js
+    ↳ ... +15 more
+  agentsam_analytics                                 (25 rows)
+    ↳ src/core/retention.js
+    ↳ src/api/health/d1Telemetry.js
+    ↳ src/api/oauth-login-callbacks.js
+    ↳ ... +11 more
+  agentsam_approval_queue                            (0 rows)
+    ↳ src/core/agentsam-planner.js
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agentsam-task-executor.js
+    ↳ ... +24 more
+  agentsam_artifacts                                 (124 rows)
+    ↳ src/tools/builtin/media.js
+    ↳ src/core/agentsam-plan-excalidraw-artifact.js
+    ↳ src/core/dashboard-mirror-sync.js
+    ↳ ... +9 more
+  agentsam_bootstrap                                 (12 rows)
+    ↳ src/core/bootstrap.js
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ src/do/AgentChat.js
+    ↳ ... +5 more
+  agentsam_browser_trusted_origin                    (18 rows)
+    ↳ src/core/capability-router.js
+    ↳ src/core/auth.js
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ ... +4 more
+  agentsam_cad_jobs                                  (2 rows)
+    ↳ src/api/studio-session.js
+    ↳ src/api/cad.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ ... +1 more
+  agentsam_code_index_job                            (8 rows)
+    ↳ src/api/settings-sections.js
+    ↳ src/api/settings.js
+    ↳ src/cron/jobs/webhook-events-maintenance.js
+    ↳ ... +2 more
+  agentsam_command_allowlist                         (155 rows)
+    ↳ src/api/settings-sections.js
+    ↳ src/api/command-run-telemetry.js
+    ↳ src/api/settings.js
+    ↳ ... +3 more
+  agentsam_command_pattern                           (10 rows)
+    ↳ src/api/mcp.js
+    ↳ src/api/command-run-telemetry.js
+    ↳ scripts/agentsam-execution-fabric-designer.py
+    ↳ ... +6 more
+  agentsam_command_run                               (181 rows)
+    ↳ src/tools/terminal-dispatch.js
+    ↳ src/core/agentsam-planner.js
+    ↳ src/core/memory.js
+    ↳ ... +32 more
+  agentsam_commands                                  (511 rows)
+    ↳ src/core/agentsam-task-executor.js
+    ↳ src/core/workflows.js
+    ↳ src/api/health/d1Telemetry.js
+    ↳ ... +17 more
+  agentsam_compaction_events                         (0 rows)
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ src/api/settings-sections.js
+    ↳ scripts/smoke/audit_and_todo.py
+    ↳ ... +2 more
+  agentsam_context_digest                            (3 rows)
+    ↳ scripts/smoke/audit_and_todo.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_cron_runs                                 (3098 rows)
+    ↳ src/core/cron-run-ledger.js
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ src/api/settings-sections.js
+    ↳ ... +8 more
+  agentsam_deployment_health                         (98 rows)
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ src/api/settings-sections.js
+    ↳ src/api/overview-bundle.js
+    ↳ ... +4 more
+  agentsam_error_log                                 (49 rows)
+    ↳ src/core/tracer.js
+    ↳ src/core/agentsam-error-log.js
+    ↳ src/api/settings-sections.js
+    ↳ ... +9 more
+  agentsam_escalation                                (22 rows)
+    ↳ src/api/settings-sections.js
+    ↳ src/api/agent.js
+    ↳ scripts/smoke/smoke_todo_fix.py
+    ↳ ... +4 more
+  agentsam_eval_cases                                (34 rows)
+    ↳ scripts/smoke/smoke_todo_fix.py
+    ↳ scripts/smoke/smoke_register_workflow.py
+    ↳ scripts/e2e_agentsam_eval_runner.py
+    ↳ ... +3 more
+  agentsam_eval_runs                                 (91 rows)
+    ↳ src/api/overview-bundle.js
+    ↳ scripts/smoke/smoke_todo_fix.py
+    ↳ scripts/smoke/smoke_register_workflow.py
+    ↳ ... +7 more
+  agentsam_eval_suites                               (20 rows)
+    ↳ scripts/smoke/smoke_todo_fix.py
+    ↳ scripts/smoke/smoke_register_workflow.py
+    ↳ scripts/smoke/agentsam_full_mirrored_eval_series.py
+    ↳ ... +5 more
+  agentsam_execution_context                         (79 rows)
+    ↳ src/api/command-run-telemetry.js
+    ↳ scripts/smoke/audit_and_todo.py
+    ↳ scripts/agentsam-execution-fabric-designer.py
+    ↳ ... +3 more
+  agentsam_execution_dependency_graph                (7 rows)
+    ↳ src/core/thompson.js
+    ↳ src/api/command-run-telemetry.js
+    ↳ scripts/smoke/audit_and_todo.py
+    ↳ ... +4 more
+  agentsam_execution_performance_metrics             (305 rows)
+    ↳ src/core/memory.js
+    ↳ src/core/thompson.js
+    ↳ src/api/health/d1Telemetry.js
+    ↳ ... +13 more
+  agentsam_execution_steps                           (625 rows)
+    ↳ src/core/agentsam-planner.js
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agent-chat-tool-execution-ledger.js
+    ↳ ... +23 more
+  agentsam_executions                                (146 rows)
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agent-chat-tool-execution-ledger.js
+    ↳ src/core/resolveModel.js
+    ↳ ... +13 more
+  agentsam_feature_flag                              (19 rows)
+    ↳ src/core/features.js
+    ↳ src/core/auth.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ ... +1 more
+  agentsam_fetch_domain_allowlist                    (18 rows)
+    ↳ src/core/auth.js
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ src/api/settings-sections.js
+    ↳ ... +3 more
+  agentsam_guardrail_events                          (0 rows)
+    ↳ src/core/guardrails.js
+    ↳ scripts/smoke/audit_and_todo.py
+    ↳ scripts/d1_schema_audit.py
+    ↳ ... +4 more
+  agentsam_guardrail_rulesets                        (2 rows)
+    ↳ scripts/d1_schema_audit.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_guardrails                                (13 rows)
+    ↳ src/core/guardrails.js
+    ↳ src/cron/jobs/financial-command-cron.js
+    ↳ scripts/smoke/audit_and_todo.py
+    ↳ ... +5 more
+  agentsam_health_daily                              (3 rows)
+    ↳ src/core/retention.js
+    ↳ src/api/health/d1Telemetry.js
+    ↳ src/cron/jobs/write-daily-snapshot.js
+    ↳ ... +4 more
+  agentsam_hook                                      (21 rows)
+    ↳ src/tools/builtin/imessage.js
+    ↳ src/tools/builtin/integrations.js
+    ↳ src/core/agentsam-script-runs.js
+    ↳ ... +14 more
+  agentsam_hook_execution                            (36 rows)
+    ↳ src/core/agentsam-script-runs.js
+    ↳ src/core/agentsam-hook-script-bridge.js
+    ↳ src/api/settings-sections.js
+    ↳ ... +11 more
+  agentsam_ignore_pattern                            (10 rows)
+    ↳ src/core/auth.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_mcp_allowlist                             (412 rows)
+    ↳ src/core/agent-policy.js
+    ↳ src/api/settings-sections.js
+    ↳ src/api/integrations.js
+    ↳ ... +5 more
+  agentsam_mcp_servers                               (3 rows)
+    ↳ src/core/mcp-servers.js
+    ↳ src/api/settings-sections.js
+    ↳ src/api/settings.js
+    ↳ ... +4 more
+  agentsam_mcp_tool_execution                        (36 rows)
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ src/core/mcp-tool-execution.js
+    ↳ src/core/security-scan.js
+    ↳ ... +21 more
+  agentsam_mcp_tools                                 (393 rows)
+    ↳ src/core/mcp-servers.js
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agent-policy.js
+    ↳ ... +28 more
+  agentsam_mcp_workflows                             (55 rows)
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agentsam-workflows.js
+    ↳ src/core/workspace-capability-actions/index.js
+    ↳ ... +13 more
+  agentsam_memory                                    (119 rows)
+    ↳ src/tools/memory.js
+    ↳ src/core/memory.js
+    ↳ src/core/security-scan.js
+    ↳ ... +17 more
+  agentsam_model_catalog                             (27 rows)
+    ↳ src/core/capability-router.js
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/provider.js
+    ↳ ... +15 more
+  agentsam_model_drift_signals                       (3 rows)
+    ↳ src/core/routing-cron.js
+    ↳ src/core/retention.js
+    ↳ src/api/health/d1Telemetry.js
+    ↳ ... +2 more
+  agentsam_model_routing_memory                      (15 rows)
+    ↳ src/core/routing-cron.js
+    ↳ src/core/routing.js
+    ↳ scripts/audit_agentsam_schema.py
+    ↳ ... +1 more
+  agentsam_model_tier                                (5 rows)
+    ↳ src/api/settings.js
+    ↳ src/api/agent.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ ... +1 more
+  agentsam_plan_tasks                                (156 rows)
+    ↳ src/core/agentsam-plan-insert.js
+    ↳ src/core/agentsam-planner.js
+    ↳ src/core/agentsam-plan-excalidraw-artifact.js
+    ↳ ... +28 more
+  agentsam_plans                                     (28 rows)
+    ↳ src/core/agentsam-plan-insert.js
+    ↳ src/core/agentsam-planner.js
+    ↳ src/core/agentsam-plan-excalidraw-artifact.js
+    ↳ ... +34 more
+  agentsam_project_context                           (75 rows)
+    ↳ src/core/dashboard-mirror-sync.js
+    ↳ src/api/onboarding.js
+    ↳ src/api/settings-sections.js
+    ↳ ... +5 more
+  agentsam_prompt_cache_keys                         (6 rows)
+    ↳ src/api/agent.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_prompt_routes                             (40 rows)
+    ↳ src/core/agentsam-route-tool-resolver.js
+    ↳ src/api/agent.js
+    ↳ scripts/agentsam-execution-fabric-designer.py
+    ↳ ... +11 more
+  agentsam_prompt_versions                           (42 rows)
+    ↳ src/api/agentsam.js
+    ↳ src/api/agent.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ ... +7 more
+  agentsam_route_requirements                        (40 rows)
+    ↳ src/core/agentsam-route-tool-resolver.js
+    ↳ src/core/agentsam-capability-aliases.js
+    ↳ src/core/routing.js
+    ↳ ... +8 more
+  agentsam_routing_arms                              (134 rows)
+    ↳ src/core/routing-cron.js
+    ↳ src/core/provider.js
+    ↳ src/core/thompson.js
+    ↳ ... +24 more
+  agentsam_rules_document                            (4 rows)
+    ↳ src/api/settings-sections.js
+    ↳ src/api/settings.js
+    ↳ src/api/agent.js
+    ↳ ... +2 more
+  agentsam_script_runs                               (28 rows)
+    ↳ src/tools/terminal-dispatch.js
+    ↳ src/core/agentsam-script-runs.js
+    ↳ src/core/agentsam-hook-script-bridge.js
+    ↳ ... +4 more
+  agentsam_scripts                                   (129 rows)
+    ↳ src/core/agentsam-script-runs.js
+    ↳ src/core/agentsam-hook-script-bridge.js
+    ↳ src/api/settings-sections.js
+    ↳ ... +9 more
+  agentsam_skill                                     (50 rows)
+    ↳ src/api/agentsam.js
+    ↳ src/api/settings.js
+    ↳ src/api/agent.js
+    ↳ ... +6 more
+  agentsam_skill_invocation                          (0 rows)
+    ↳ src/api/agentsam.js
+    ↳ src/api/settings.js
+    ↳ src/api/agent.js
+    ↳ ... +3 more
+  agentsam_skill_revision                            (0 rows)
+    ↳ src/api/settings.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_slash_commands                            (42 rows)
+    ↳ src/api/mcp.js
+    ↳ src/api/settings.js
+    ↳ src/api/agent.js
+    ↳ ... +4 more
+  agentsam_subagent_profile                          (41 rows)
+    ↳ src/api/onboarding.js
+    ↳ src/api/oauth-login-callbacks.js
+    ↳ src/api/mcp.js
+    ↳ ... +4 more
+  agentsam_subscription_registry                     (16 rows)
+    ↳ src/api/settings-sections.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_task_slos                                 (3 rows)
+    ↳ src/core/routing-cron.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_todo                                      (160 rows)
+    ↳ src/core/tool-capability-filter.js
+    ↳ src/api/unified-search.js
+    ↳ src/api/hub.js
+    ↳ ... +14 more
+  agentsam_tool_cache                                (1 rows)
+    ↳ src/core/mcp-tool-execution.js
+    ↳ scripts/smoke/audit_and_todo.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_tool_call_log                             (35 rows)
+    ↳ src/tools/db.js
+    ↳ src/core/memory.js
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ ... +22 more
+  agentsam_tool_chain                                (44 rows)
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/thompson.js
+    ↳ src/api/test/code-execution-e2e.js
+    ↳ ... +9 more
+  agentsam_tool_stats_compacted                      (84 rows)
+    ↳ src/core/memory.js
+    ↳ src/core/tool-stats-rollup.js
+    ↳ src/core/retention.js
+    ↳ ... +9 more
+  agentsam_tools                                     (43 rows)
+    ↳ src/core/tool-capability-filter.js
+    ↳ src/core/agentsam-ops-ledger.js
+    ↳ src/core/mcp-tool-execution.js
+    ↳ ... +9 more
+  agentsam_usage_events                              (448 rows)
+    ↳ src/core/memory.js
+    ↳ src/core/routing-decisions-writer.js
+    ↳ src/core/retention.js
+    ↳ ... +25 more
+  agentsam_usage_rollups_daily                       (34 rows)
+    ↳ src/core/memory.js
+    ↳ src/core/retention.js
+    ↳ src/api/settings-sections.js
+    ↳ ... +4 more
+  agentsam_user_feature_override                     (0 rows)
+    ↳ src/core/features.js
+    ↳ src/core/auth.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ ... +1 more
+  agentsam_user_policy                               (4 rows)
+    ↳ src/core/agent-policy.js
+    ↳ src/api/onboarding.js
+    ↳ src/api/settings.js
+    ↳ ... +2 more
+  agentsam_webhook_events                            (1219 rows)
+    ↳ src/core/retention.js
+    ↳ src/index.js
+    ↳ src/queue/dispatcher.js
+    ↳ ... +14 more
+  agentsam_webhook_weekly                            (1 rows)
+    ↳ src/api/settings-sections.js
+    ↳ scripts/d1_schema_audit.py
+    ↳ scripts/audit_agentsam_schema.py
+  agentsam_workflow_edges                            (672 rows)
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agentsam-plan-supabase-public-sync.js
+    ↳ src/api/agentsam.js
+    ↳ ... +14 more
+  agentsam_workflow_nodes                            (750 rows)
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agentsam-plan-supabase-public-sync.js
+    ↳ src/core/resolveModel.js
+    ↳ ... +18 more
+  agentsam_workflow_runs                             (154 rows)
+    ↳ src/tools/builtin/agent.js
+    ↳ src/core/agentsam-planner.js
+    ↳ src/core/agentsam-workflow-debug-store.js
+    ↳ ... +39 more
+  agentsam_workflows                                 (124 rows)
+    ↳ src/tools/builtin/agent.js
+    ↳ src/core/agentsam-planner.js
+    ↳ src/core/workflow-executor.js
+    ↳ ... +25 more
+  agentsam_workspace                                 (24 rows)
+    ↳ src/core/workspace-provisioning.js
+    ↳ src/core/memory.js
+    ↳ src/core/identity.js
+    ↳ ... +15 more
+  agentsam_workspace_state                           (6 rows)
+    ↳ src/do/AgentChat.js
+    ↳ src/api/workspace.js
+    ↳ src/api/agent.js
+    ↳ ... +5 more
+  ai_compiled_context_cache                          (0 rows)
+    ↳ src/api/agent.js
+    ↳ src/cron/jobs/daily-digest.js
+    ↳ scripts/seed_prompt_layers.py
+  ai_context_versions                                (0 rows)
+    ↳ src/api/telemetry.js
+  ai_model_policies                                  (3 rows)
+    ↳ scripts/smoke-test-full.py
+  ai_models                                          (57 rows)
+    ↳ scripts/smoke-test-full.py
+    ↳ scripts/benchmark-ai-full.py
+  ai_prompts_library                                 (76 rows)
+    ↳ src/api/agentsam.js
+  ai_provider_usage                                  (6 rows)
+    ↳ src/api/telemetry.js
+    ↳ src/cron/jobs/daily-plan-email.js
+    ↳ src/cron/jobs/daily-digest.js
+  ai_rag_search_history                              (123 rows)
+    ↳ scripts/generate-route-map.js
+    ↳ scripts/smoke-test-full.py
+  ai_search_analytics                                (8 rows)
+    ↳ src/api/unified-search.js
+  ai_workflow_executions                             (46 rows)
+    ↳ src/api/cicd-event.js
+  mcp_agent_sessions                                 (1106 rows)
+    ↳ src/api/mcp.js
+    ↳ src/api/agent.js
+    ↳ src/cron/retention-purge.js
+  mcp_audit_log                                      (566 rows)
+    ↳ src/core/agentsam-ops-ledger.js
+  mcp_command_suggestions                            (24 rows)
+    ↳ src/api/mcp.js
+    ↳ src/cron/retention-purge.js
+  mcp_entitlements                                   (13 rows)
+    ↳ src/api/access.js
+  mcp_service_credentials                            (10 rows)
+    ↳ src/api/mcp.js
+  mcp_services                                       (33 rows)
+    ↳ src/core/dashboard-mirror-sync.js
+    ↳ src/api/mcp.js
+    ↳ src/api/settings-integrations.js
+    ↳ ... +3 more
+  mcp_tool_call_stats                                (21 rows)
+    ↳ scripts/smoke-test-full.py
+  mcp_usage_log                                      (16 rows)
+    ↳ src/cron/retention-purge.js
+  mcp_workflow_runs                                  (4 rows)
+    ↳ scripts/smoke-test-full.py
+  mcp_workflows                                      (35 rows)
+    ↳ src/core/workflow-executor.js
+    ↳ src/core/agentsam-workflows.js
+    ↳ src/core/workspace-capability-actions/index.js
+    ↳ ... +14 more
+  mcp_workspace_tokens                               (11 rows)
+    ↳ src/core/workspace-tokens.js
+    ↳ src/core/mcp-auth.js
+    ↳ src/core/mcp-tools-branded.js
+    ↳ ... +6 more
+
+  DROP script written to: scripts/sql/drop_extinct_tables.sql
+
+Summary: 2 droppable  |  47 inspect  |  113 active

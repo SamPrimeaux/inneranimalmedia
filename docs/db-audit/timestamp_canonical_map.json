@@ -1,0 +1,482 @@
+{
+  "agentsam_agent_run": {
+    "col": "created_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_ai": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_analytics": {
+    "col": "computed_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "computed_at"
+  },
+  "agentsam_artifact_skills": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_artifacts": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_bootstrap": {
+    "col": "created_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_browser_trusted_origin": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_cad_jobs": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_capability_aliases": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_code_index_job": {
+    "col": "updated_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', updated_at)"
+  },
+  "agentsam_command_allowlist": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_command_pattern": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_command_run": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_commands": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_context_digest": {
+    "col": "created_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_cron_runs": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_deployment_health": {
+    "col": "checked_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', checked_at)"
+  },
+  "agentsam_error_log": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_escalation": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_eval_cases": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_eval_runs": {
+    "col": "run_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', run_at)"
+  },
+  "agentsam_eval_suites": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_execution_context": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_execution_dependency_graph": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_execution_performance_metrics": {
+    "col": "last_seen_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "last_seen_at"
+  },
+  "agentsam_execution_steps": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_executions": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_executions_backup_20260509_014549": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_feature_flag": {
+    "col": "updated_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', updated_at)"
+  },
+  "agentsam_fetch_domain_allowlist": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_guardrail_rulesets": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_guardrails": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_health_daily": {
+    "col": "rolled_up_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', rolled_up_at)"
+  },
+  "agentsam_hook": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_hook_execution": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_ignore_pattern": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_mcp_allowlist": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_mcp_servers": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_mcp_tool_execution": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_mcp_tools": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_mcp_workflows": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_memory": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_model_catalog": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_model_drift_signals": {
+    "col": "detected_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "detected_at"
+  },
+  "agentsam_model_routing_memory": {
+    "col": "created_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_model_tier": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_plan_tasks": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_plans": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_project_context": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_prompt_cache_keys": {
+    "col": "first_written_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', first_written_at)"
+  },
+  "agentsam_prompt_routes": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_prompt_versions": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_routing_arms": {
+    "col": "updated_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "updated_at"
+  },
+  "agentsam_rules_document": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_script_runs": {
+    "col": "created_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_scripts": {
+    "col": "created_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_skill": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_slash_commands": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_subagent_profile": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_subscription_registry": {
+    "col": "created_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_task_slos": {
+    "col": "updated_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "updated_at"
+  },
+  "agentsam_todo": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_tool_cache": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_tool_call_log": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_tool_chain": {
+    "col": "started_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "started_at"
+  },
+  "agentsam_tool_stats_compacted": {
+    "col": "last_seen_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "last_seen_at"
+  },
+  "agentsam_tools": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_tools_input_schema_backup": {
+    "col": "backed_up_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "backed_up_at"
+  },
+  "agentsam_usage_events": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_usage_rollups_daily": {
+    "col": "rolled_up_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "rolled_up_at"
+  },
+  "agentsam_user_policy": {
+    "col": "updated_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', updated_at)"
+  },
+  "agentsam_webhook_events": {
+    "col": "processed_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', processed_at)"
+  },
+  "agentsam_webhook_weekly": {
+    "col": "rolled_up_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', rolled_up_at)"
+  },
+  "agentsam_workflow_edges": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_workflow_nodes": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_workflow_runs": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_workflows": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "agentsam_workspace": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "agentsam_workspace_state": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "cms_3d_assets": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "cms_activity_log": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "cms_assets": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_collections": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "cms_component_templates": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_content": {
+    "col": "updated_at",
+    "fmt": "TEXT_ISO8601",
+    "safe_expr": "strftime('%s', updated_at)"
+  },
+  "cms_folders": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "cms_global_settings": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_navigation_menus": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_page_sections": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_pages": {
+    "col": "created_at",
+    "fmt": "INTEGER_UNIX_10",
+    "safe_expr": "created_at"
+  },
+  "cms_section_components": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_site_pages": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_tenants": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_theme_preferences": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_themes": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  },
+  "cms_video_projects": {
+    "col": "created_at",
+    "fmt": "TEXT_SQLITE",
+    "safe_expr": "strftime('%s', created_at)"
+  }
+}
