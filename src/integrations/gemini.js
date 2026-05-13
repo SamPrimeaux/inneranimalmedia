@@ -1,125 +1,307 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
-import { runBuiltinTool } from '../tools/ai-dispatch.js';
 import { resolveApiKey } from '../core/vault.js';
 
 /**
- * Google Gemini Service Integration (Modular Port).
- * Handles Gemini 1.5 Pro/Flash streaming and native function-calling.
+ * Google Gemini Service Integration.
+ *
+ * Translates between OpenAI-shaped params (from dispatchStream / dispatchProviderChat)
+ * and Gemini's native REST + SSE format, then re-emits as OpenAI-compatible SSE so
+ * the agent loop in agent.js parses it without any changes.
+ *
+ * Key contracts:
+ *  - Input:  OpenAI messages array (role: user/assistant/tool/system), OpenAI tool defs
+ *  - Output: `text/event-stream` with `data: <OpenAI-shaped JSON>` chunks + `data: [DONE]`
  */
+
+// ─── Tool schema normalisation ────────────────────────────────────────────────
 
 /**
- * Normalizes tool definitions for the Gemini function-calling schema.
+ * Recursively uppercase JSON-Schema `type` fields — Gemini requires "STRING" not "string".
  */
-export function normalizeGeminiTools(tools) {
-    if (!Array.isArray(tools) || tools.length === 0) return undefined;
-    
-    return [{
-        function_declarations: tools.map(t => {
-            let parameters = { type: 'OBJECT', properties: {} };
-            try {
-                const raw = typeof t.input_schema === 'string' ? JSON.parse(t.input_schema) : (t.input_schema || {});
-                // Gemini expects capitalized types
-                if (raw && raw.type) {
-                    parameters = { ...raw, type: String(raw.type).toUpperCase() };
-                }
-            } catch (_) {}
-
-            return {
-                name: t.tool_name || t.name,
-                description: (t.description || t.tool_name || '').slice(0, 500),
-                parameters
-            };
-        })
-    }];
+function uppercaseTypes(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  const out = { ...schema };
+  if (out.type) out.type = String(out.type).toUpperCase();
+  if (out.properties) {
+    const props = {};
+    for (const [k, v] of Object.entries(out.properties)) props[k] = uppercaseTypes(v);
+    out.properties = props;
+  }
+  if (out.items) out.items = uppercaseTypes(out.items);
+  return out;
 }
 
 /**
- * The Core Gemini Engine (Public API).
+ * Convert OpenAI-shaped tool definitions → Gemini `function_declarations`.
+ * Returns undefined (omit tools field) when the list is empty.
  */
-export async function chatWithToolsGemini(env, request, params) {
-    const {
-        modelKey,
-        providerModelId,
-        messages,
-        tools: toolDefinitions,
-        systemPrompt,
-    } = params;
+export function normalizeGeminiTools(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return undefined;
+  return [{
+    function_declarations: tools.map(t => {
+      let parameters = { type: 'OBJECT', properties: {} };
+      try {
+        const raw = typeof t.input_schema === 'string'
+          ? JSON.parse(t.input_schema)
+          : (t.input_schema || {});
+        if (raw?.type) parameters = uppercaseTypes(raw);
+      } catch (_) {}
+      return {
+        name: t.tool_name || t.name,
+        description: (t.description || t.tool_name || '').slice(0, 500),
+        parameters,
+      };
+    }),
+  }];
+}
 
-    const authUser = await getAuthUser(request, env);
-    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+// ─── Message format conversion ────────────────────────────────────────────────
 
-    const userId = params.userId != null ? String(params.userId) : String(authUser.id);
-    const apiKey = (await resolveApiKey(env, userId, 'GOOGLE_AI_API_KEY')) || '';
-    if (!apiKey.trim()) return jsonResponse({ error: 'Google AI API key not configured' }, 503);
+/**
+ * Convert OpenAI-shaped messages → Gemini `contents` array.
+ *
+ * OpenAI roles → Gemini roles:
+ *   system    → skipped here (goes to system_instruction at top level)
+ *   user      → user
+ *   assistant → model  (may contain tool_calls)
+ *   tool      → user   (functionResponse part)
+ */
+function toGeminiContents(messages) {
+  const out = [];
+  for (const m of messages) {
+    if (!m || m.role === 'system') continue;
 
-    const geminiTools = normalizeGeminiTools(toolDefinitions);
-    const resolvedModel =
-      (providerModelId != null && String(providerModelId).trim() !== ''
-        ? String(providerModelId).trim()
-        : null) ||
-      modelKey ||
-      'gemini-1.5-pro-latest';
-
-    // Initial SSE Setup
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
-    const encoder = new TextEncoder();
-
-    (async () => {
-        try {
-            const body = {
-                contents: messages.map(m => ({
-                    role: m.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: m.content }]
-                })),
-                system_instruction: {
-                    parts: [{ text: systemPrompt }]
-                },
-                tools: geminiTools,
-                generationConfig: {
-                    temperature: 0.7,
-                    maxOutputTokens: 8192
-                }
-            };
-
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-
-            if (!response.ok) {
-                const err = await response.text();
-                await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: err })}\n\n`));
-                return;
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value);
-                await writer.write(encoder.encode(chunk));
-            }
-
-        } catch (e) {
-            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`));
-        } finally {
-            await writer.close();
+    // ── assistant turn (text and/or tool calls) ──────────────────────────────
+    if (m.role === 'assistant') {
+      const parts = [];
+      if (m.content) parts.push({ text: String(m.content) });
+      if (Array.isArray(m.tool_calls)) {
+        for (const tc of m.tool_calls) {
+          let args = {};
+          try {
+            args = typeof tc.function?.arguments === 'string'
+              ? JSON.parse(tc.function.arguments)
+              : (tc.function?.arguments ?? {});
+          } catch (_) {}
+          parts.push({ functionCall: { name: tc.function?.name ?? 'unknown', args } });
         }
-    })();
+      }
+      if (parts.length > 0) out.push({ role: 'model', parts });
+      continue;
+    }
 
-    return new Response(readable, {
-        headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive'
+    // ── tool result turn ─────────────────────────────────────────────────────
+    if (m.role === 'tool') {
+      let response = {};
+      try {
+        response = typeof m.content === 'string'
+          ? JSON.parse(m.content)
+          : (m.content ?? {});
+        if (typeof response !== 'object' || response === null) {
+          response = { result: String(m.content ?? '') };
         }
+      } catch (_) {
+        response = { result: String(m.content ?? '') };
+      }
+      out.push({
+        role: 'user',
+        parts: [{ functionResponse: { name: m.name || m.tool_call_id || 'tool', response } }],
+      });
+      continue;
+    }
+
+    // ── user turn (string or multi-part array) ───────────────────────────────
+    const textContent = typeof m.content === 'string'
+      ? m.content
+      : Array.isArray(m.content)
+        ? m.content.filter(p => p.type === 'text').map(p => p.text).join('\n')
+        : String(m.content ?? '');
+    if (textContent) out.push({ role: 'user', parts: [{ text: textContent }] });
+  }
+  return out;
+}
+
+// ─── SSE chunk translation ────────────────────────────────────────────────────
+
+/**
+ * Translate a single Gemini SSE JSON payload → zero or more OpenAI-shaped delta objects.
+ *
+ * Gemini:  {"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}
+ * OpenAI:  {"choices":[{"delta":{"content":"hi"},"finish_reason":null,"index":0}]}
+ *          {"choices":[{"delta":{},"finish_reason":"stop","index":0}]}
+ */
+function geminiChunkToOpenAI(jsonStr) {
+  let parsed;
+  try { parsed = JSON.parse(jsonStr); } catch (_) { return []; }
+
+  const candidate = parsed?.candidates?.[0];
+  if (!candidate) return [];
+
+  const parts = candidate?.content?.parts ?? [];
+  const finishReason = candidate?.finishReason ?? null;
+  const out = [];
+
+  // Text parts → content delta
+  const textParts = parts.filter(p => p.text != null);
+  if (textParts.length > 0) {
+    out.push({
+      choices: [{
+        delta: { content: textParts.map(p => p.text).join('') },
+        finish_reason: null,
+        index: 0,
+      }],
     });
+  }
+
+  // functionCall parts → tool_calls delta (OpenAI streaming format)
+  const fcParts = parts.filter(p => p.functionCall != null);
+  for (let i = 0; i < fcParts.length; i++) {
+    const fc = fcParts[i].functionCall;
+    out.push({
+      choices: [{
+        delta: {
+          tool_calls: [{
+            index: i,
+            id: `call_g_${Date.now()}_${i}`,
+            type: 'function',
+            function: {
+              name: fc.name ?? 'unknown',
+              arguments: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args ?? {}),
+            },
+          }],
+        },
+        finish_reason: null,
+        index: 0,
+      }],
+    });
+  }
+
+  // Finish reason chunk
+  if (finishReason && finishReason !== 'FINISH_REASON_UNSPECIFIED') {
+    const oaiFinish =
+      finishReason === 'STOP'       ? 'stop'
+      : finishReason === 'MAX_TOKENS' ? 'length'
+      : finishReason === 'SAFETY'     ? 'content_filter'
+      : finishReason === 'TOOL_CODE_EXECUTION' ? 'tool_calls'
+      : finishReason.toLowerCase();
+    out.push({
+      choices: [{ delta: {}, finish_reason: oaiFinish, index: 0 }],
+    });
+  }
+
+  return out;
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
+
+export async function chatWithToolsGemini(env, request, params) {
+  const {
+    modelKey,
+    providerModelId,
+    messages,
+    tools: toolDefinitions,
+    systemPrompt,
+    userId: paramUserId,
+  } = params;
+
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const userId = paramUserId != null ? String(paramUserId) : String(authUser.id);
+  const apiKey = (await resolveApiKey(env, userId, 'GOOGLE_AI_API_KEY')) || '';
+  if (!apiKey.trim()) return jsonResponse({ error: 'Google AI API key not configured' }, 503);
+
+  const geminiTools = normalizeGeminiTools(toolDefinitions);
+  const resolvedModel =
+    (providerModelId != null && String(providerModelId).trim() !== ''
+      ? String(providerModelId).trim()
+      : null)
+    || modelKey
+    
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const emitJson = async (obj) =>
+    writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+
+  (async () => {
+    try {
+      const contents = toGeminiContents(messages);
+
+      const body = {
+        contents,
+        ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
+        ...(geminiTools   ? { tools: geminiTools }                                    : {}),
+        generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+      };
+
+      const url =
+        `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}` +
+        `:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        await emitJson({ type: 'error', message: `Gemini ${response.status}: ${errText}` });
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? ''; // hold incomplete line
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const jsonStr = trimmed.slice(5).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+
+          for (const chunk of geminiChunkToOpenAI(jsonStr)) {
+            await emitJson(chunk);
+          }
+        }
+      }
+
+      // Flush any remainder in the buffer
+      const tail = buf.trim();
+      if (tail.startsWith('data:')) {
+        const jsonStr = tail.slice(5).trim();
+        if (jsonStr && jsonStr !== '[DONE]') {
+          for (const chunk of geminiChunkToOpenAI(jsonStr)) await emitJson(chunk);
+        }
+      }
+
+      // Agent loop requires [DONE] to close — Gemini never sends it, so we do.
+      await writer.write(encoder.encode('data: [DONE]\n\n'));
+
+    } catch (e) {
+      await emitJson({ type: 'error', message: e.message });
+    } finally {
+      await writer.close();
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
 }
