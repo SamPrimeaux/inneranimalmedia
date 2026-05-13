@@ -38,7 +38,13 @@ const mdWrapClass =
   '[&_th]:border [&_th]:border-[var(--dashboard-border)] [&_th]:px-2 [&_th]:py-1 [&_th]:bg-[var(--dashboard-panel)] [&_th]:text-left [&_th]:whitespace-nowrap ' +
   '[&_td]:border [&_td]:border-[var(--dashboard-border)] [&_td]:px-2 [&_td]:py-1 ';
 
-export function AgentChatMarkdown({ source }: { source: string }) {
+export type AgentChatMarkdownProps = {
+  source: string;
+  /** Assistant images: click opens full size (new tab by default). */
+  onImageClick?: (src: string) => void;
+};
+
+export function AgentChatMarkdown({ source, onImageClick }: AgentChatMarkdownProps) {
   const s = String(source ?? '');
   if (!s.trim()) return null;
   return (
@@ -57,6 +63,28 @@ export function AgentChatMarkdown({ source }: { source: string }) {
               >
                 {children}
               </a>
+            );
+          },
+          img({ src, alt, title }) {
+            const u = typeof src === 'string' ? src : '';
+            return (
+              <button
+                type="button"
+                className="my-2 block max-w-full rounded-lg border border-[var(--dashboard-border)] overflow-hidden bg-[var(--scene-bg)] p-0 cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-[var(--solar-cyan)]/40"
+                title={(typeof alt === 'string' && alt.trim() ? alt : title) || 'Open image'}
+                onClick={() => {
+                  if (!u) return;
+                  if (onImageClick) onImageClick(u);
+                  else window.open(u, '_blank', 'noopener,noreferrer');
+                }}
+              >
+                <img
+                  src={u || undefined}
+                  alt={typeof alt === 'string' ? alt : ''}
+                  className="max-h-48 w-auto max-w-full object-contain block mx-auto"
+                  loading="lazy"
+                />
+              </button>
             );
           },
         }}

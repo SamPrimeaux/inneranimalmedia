@@ -5,6 +5,7 @@
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
 import { resolveIamActorContext, resolveIdentity } from '../core/identity.js';
 import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
+import { queryBrandedMcpCatalog, inferMcpCapabilityLane } from '../core/mcp-tools-branded.js';
 import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
@@ -802,6 +803,34 @@ export async function handleMcpApi(request, url, env, ctx) {
         agents.push({ ...p, session: session || null });
       }
       return jsonResponse({ agents });
+    }
+
+    if (pathLower === '/api/mcp/tools/catalog' && method === 'GET') {
+      const laneParam = url.searchParams.get('lane');
+      const mode = url.searchParams.get('mode') || '';
+      const message = url.searchParams.get('q') || '';
+      const rawLimit = Number(url.searchParams.get('limit') || '24');
+      const limit = Math.min(120, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 24));
+      const includeSchema = url.searchParams.get('include_schema') === 'true';
+      const lane =
+        laneParam != null && String(laneParam).trim() !== ''
+          ? String(laneParam).trim()
+          : inferMcpCapabilityLane(message, '', '', mode || 'agent');
+      let tools = [];
+      try {
+        tools = await queryBrandedMcpCatalog(env.DB, { lane, limit, includeSchema });
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e), tools: [] }, 500);
+      }
+      return jsonResponse({
+        ok: true,
+        lane,
+        mode,
+        limit,
+        include_schema: includeSchema,
+        source: tools.length ? 'v_agentsam_mcp_tools_branded' : 'empty',
+        tools,
+      });
     }
 
     if (pathLower === '/api/mcp/tools' && method === 'GET') {

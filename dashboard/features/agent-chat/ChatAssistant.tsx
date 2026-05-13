@@ -796,6 +796,23 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     return next;
   }, []);
 
+  /** Markdown images in assistant replies: open Monaco with embed (falls back to new tab). */
+  const handleChatImagePreview = useCallback(
+    (src: string) => {
+      if (onFileSelect) {
+        onOpenCodeTab?.();
+        onFileSelect({
+          name: 'chat-image-preview.md',
+          content: `# Chat image\n\n![preview](${src})\n`,
+          originalContent: '',
+        });
+        return;
+      }
+      window.open(src, '_blank', 'noopener,noreferrer');
+    },
+    [onFileSelect, onOpenCodeTab],
+  );
+
   const handleApprovePendingTool = useCallback(async () => {
     if (!pendingToolApproval) return;
     const { tool } = pendingToolApproval;
@@ -1554,6 +1571,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             workflowLedger={workflowLedger}
             onFileSelect={onFileSelect}
             onRunInTerminal={onRunInTerminal}
+            onImagePreview={handleChatImagePreview}
           />
         )}
 

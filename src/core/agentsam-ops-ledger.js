@@ -115,6 +115,26 @@ function reportHelperFailure(env, ctx, source, err, scope = {}) {
  *   traceId?: string|null,
  *   spanId?: string|null,
  *   batchId?: string|null,
+ *   toolKey?: string|null,
+ *   tool_key?: string|null,
+ *   capabilityKey?: string|null,
+ *   capability_key?: string|null,
+ *   handlerKey?: string|null,
+ *   handler_key?: string|null,
+ *   routeKey?: string|null,
+ *   route_key?: string|null,
+ *   agentsamToolsId?: string|null,
+ *   agentsam_tools_id?: string|null,
+ *   agentsamMcpToolsId?: string|null,
+ *   agentsam_mcp_tools_id?: string|null,
+ *   mcpServerId?: string|null,
+ *   mcp_server_id?: string|null,
+ *   serverKey?: string|null,
+ *   server_key?: string|null,
+ *   approvalId?: string|null,
+ *   approval_id?: string|null,
+ *   policyDecisionJson?: string|Record<string, unknown>|null,
+ *   policy_decision_json?: string|Record<string, unknown>|null,
  * }} fields
  */
 export function scheduleToolCallLog(env, ctx, fields) {
@@ -144,6 +164,17 @@ export function scheduleToolCallLog(env, ctx, fields) {
     fields.errorMessage != null ? String(fields.errorMessage).slice(0, 8000) : null;
   const inputSummary = String(fields.inputSummary ?? '').slice(0, 2000);
 
+  const pick = (a, b) => (fields[a] !== undefined && fields[a] !== null ? fields[a] : fields[b]);
+  let policyJson = pick('policyDecisionJson', 'policy_decision_json');
+  if (policyJson != null && typeof policyJson === 'object') {
+    try {
+      policyJson = JSON.stringify(policyJson);
+    } catch {
+      policyJson = null;
+    }
+  }
+  if (policyJson != null) policyJson = String(policyJson).slice(0, 12000);
+
   const p = (async () => {
     const meta = await pragmaTableColumnMeta(env.DB, 'agentsam_tool_call_log');
     if (!meta.length) return;
@@ -170,6 +201,16 @@ export function scheduleToolCallLog(env, ctx, fields) {
       trace_id: fields.traceId ?? null,
       span_id: fields.spanId ?? null,
       batch_id: fields.batchId ?? null,
+      tool_key: pick('toolKey', 'tool_key') ?? undefined,
+      capability_key: pick('capabilityKey', 'capability_key') ?? undefined,
+      handler_key: pick('handlerKey', 'handler_key') ?? undefined,
+      route_key: pick('routeKey', 'route_key') ?? undefined,
+      agentsam_tools_id: pick('agentsamToolsId', 'agentsam_tools_id') ?? undefined,
+      agentsam_mcp_tools_id: pick('agentsamMcpToolsId', 'agentsam_mcp_tools_id') ?? undefined,
+      mcp_server_id: pick('mcpServerId', 'mcp_server_id') ?? undefined,
+      server_key: pick('serverKey', 'server_key') ?? undefined,
+      approval_id: pick('approvalId', 'approval_id') ?? undefined,
+      policy_decision_json: policyJson ?? undefined,
     };
 
     const { parts, binds } = buildInsertParts(meta, v);

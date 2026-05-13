@@ -7,7 +7,14 @@
 
 import type React from 'react';
 import { LS_AGENT_CHAT_CONVERSATION_ID } from '../../../agentChatConstants';
-import type { ExecPanelState, Message, ToolApprovalPayload, WorkflowLedgerState } from '../types';
+import type {
+  ExecPanelState,
+  Message,
+  ToolApprovalPayload,
+  WorkflowLedgerState,
+  AgentPreviewArtifact,
+  AgentPreviewArtifactKind,
+} from '../types';
 import {
   extractMonacoInvokesFromBuffer,
   hideIncompleteMonacoInvokeTail,
@@ -241,6 +248,43 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           );
           if (d.surface === 'browser' && typeof d.url === 'string' && d.url.trim()) {
             onBrowserNavigate?.({ type: 'browser_navigate', url: d.url.trim() });
+          }
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'preview_artifact') {
+          const d = data as {
+            type: string;
+            artifact?: {
+              id?: string;
+              kind?: string;
+              title?: string;
+              content?: string;
+              language?: string;
+              imageUrl?: string;
+            };
+          };
+          const raw = d.artifact;
+          if (raw && typeof raw.id === 'string' && raw.id.trim()) {
+            const k = String(raw.kind || 'code');
+            const kind: AgentPreviewArtifactKind =
+              k === 'sql' || k === 'diff' || k === 'code' || k === 'image' || k === 'table' ? k : 'code';
+            const art: AgentPreviewArtifact = {
+              id: raw.id.trim(),
+              kind,
+              title: typeof raw.title === 'string' ? raw.title : undefined,
+              content: typeof raw.content === 'string' ? raw.content : undefined,
+              language: typeof raw.language === 'string' ? raw.language : undefined,
+              imageUrl: typeof raw.imageUrl === 'string' ? raw.imageUrl : undefined,
+            };
+            setMessages((prev) => {
+              const next = [...prev];
+              const idx = next.length - 1;
+              if (idx < 0 || next[idx].role !== 'assistant') return prev;
+              const prevArts = next[idx].previewArtifacts || [];
+              if (prevArts.some((x) => x.id === art.id)) return prev;
+              next[idx] = { ...next[idx], previewArtifacts: [...prevArts, art] };
+              return next;
+            });
           }
           continue;
         }

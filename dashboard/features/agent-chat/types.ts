@@ -33,6 +33,20 @@ export type ImplementationPlanChip = {
   plan_markdown?: ImplementationPlanMarkdown | null;
 };
 
+/** Future: Worker SSE `artifact_preview` payloads merged into the assistant bubble (images, query results). */
+export type AgentPreviewArtifactKind = 'sql' | 'diff' | 'code' | 'image' | 'table';
+
+export type AgentPreviewArtifact = {
+  id: string;
+  kind: AgentPreviewArtifactKind;
+  title?: string;
+  /** Code / SQL / diff text */
+  content?: string;
+  language?: string;
+  /** Image URL (https or data:) */
+  imageUrl?: string;
+};
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -40,6 +54,8 @@ export interface Message {
   attachmentPreviews?: MessageAttachmentPreview[];
   /** When Agent Sam emits `plan_created` with a saved plan map artifact. */
   implementationPlan?: ImplementationPlanChip | null;
+  /** Reserved for structured previews from the Worker (optional; fences use `AgentCodeFencePreview` today). */
+  previewArtifacts?: AgentPreviewArtifact[];
 }
 
 export interface ChatAssistantProps {
