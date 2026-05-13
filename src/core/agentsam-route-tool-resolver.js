@@ -1,7 +1,9 @@
 /**
  * Task / route → tool-surface policy for Agent Sam chat runtime.
- * Merges `agentsam_route_requirements` (when JSON policy columns exist) with safe defaults.
- * Does not hardcode model names.
+ * Merges `agentsam_route_requirements` (when present) with **server defaults** only when D1 has no row
+ * or no value in a column — never as a substitute for `agentsam_prompt_routes` (priority / max_tools live in D1).
+ *
+ * `agentsam_prompt_routes.priority`: lower number wins (see `resolveAgentsamPromptRoute` in agent.js).
  */
 
 import { pragmaTableInfo } from './retention.js';
@@ -15,7 +17,7 @@ import { pragmaTableInfo } from './retention.js';
  *   blocked_capabilities: string[],
  *   max_tools: number | null,
  *   approval_policy: Record<string, unknown> | null,
- *   source: 'd1' | 'default',
+ *   source: 'd1' | 'd1_cms_default' | 'default',
  * }} RouteToolRequirements */
 
 function parseJsonArray(raw) {
@@ -52,7 +54,7 @@ function uniqLanes(arr) {
   return out.length ? out : ['general'];
 }
 
-/** Defaults keyed by `agentsam_prompt_routes.route_key` / routing task_type. */
+/** Defaults keyed by routing `task_type` / generic route_key — not a substitute for DB `agentsam_prompt_routes`. */
 const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements, 'route_key'|'task_type'|'source'>>} */ ({
   chat: {
     allowed_lanes: ['think', 'research', 'general'],
@@ -66,22 +68,28 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
     allowed_lanes: ['think', 'general'],
     required_capabilities: [],
     optional_capabilities: [],
-    blocked_capabilities: ['terminal_execute', 'terminal_run', 'd1_query'],
-    max_tools: 2,
+    blocked_capabilities: [
+      'terminal_execute',
+      'terminal_run',
+      'd1_query',
+      'worker_deploy',
+      'python_execute',
+    ],
+    max_tools: 0,
     approval_policy: { high_risk_requires_approval: true },
   },
   code: {
     allowed_lanes: ['develop', 'inspect', 'research'],
-    required_capabilities: ['workspace_read_file'],
-    optional_capabilities: ['workspace_search', 'terminal_execute', 'd1_query', 'github_file'],
+    required_capabilities: [],
+    optional_capabilities: ['workspace_read_file', 'workspace_search', 'terminal_execute', 'd1_query', 'github_file'],
     blocked_capabilities: [],
     max_tools: 12,
     approval_policy: { high_risk_requires_approval: true },
   },
   debug: {
     allowed_lanes: ['develop', 'inspect', 'observe'],
-    required_capabilities: ['workspace_read_file'],
-    optional_capabilities: ['context_search', 'd1_query', 'platform_info'],
+    required_capabilities: [],
+    optional_capabilities: ['workspace_read_file', 'context_search', 'd1_query', 'platform_info'],
     blocked_capabilities: [],
     max_tools: 10,
     approval_policy: { high_risk_requires_approval: true },
@@ -104,10 +112,26 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
   },
   terminal_execution: {
     allowed_lanes: ['develop', 'operate'],
-    required_capabilities: ['terminal_execute'],
-    optional_capabilities: ['platform_info', 'workspace_read_file'],
+    required_capabilities: [],
+    optional_capabilities: ['terminal_execute', 'platform_info', 'workspace_read_file'],
     blocked_capabilities: [],
     max_tools: 8,
+    approval_policy: { high_risk_requires_approval: true },
+  },
+  sql_d1_generation: {
+    allowed_lanes: ['develop', 'inspect', 'observe'],
+    required_capabilities: [],
+    optional_capabilities: ['d1_query', 'context_search', 'schema_inspect'],
+    blocked_capabilities: ['terminal_execute'],
+    max_tools: 8,
+    approval_policy: { high_risk_requires_approval: true },
+  },
+  deploy: {
+    allowed_lanes: ['develop', 'operate', 'observe'],
+    required_capabilities: [],
+    optional_capabilities: ['platform_info', 'worker_deploy', 'github_file', 'd1_query'],
+    blocked_capabilities: [],
+    max_tools: 10,
     approval_policy: { high_risk_requires_approval: true },
   },
   tool_use: {
@@ -134,11 +158,56 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
     max_tools: 24,
     approval_policy: { high_risk_requires_approval: true },
   },
+  cms_edit: {
+    allowed_lanes: ['design', 'develop', 'inspect', 'research'],
+    required_capabilities: [],
+    optional_capabilities: ['context_search', 'd1_query', 'workspace_read_file', 'knowledge_search'],
+    blocked_capabilities: ['terminal_execute', 'email_broadcast'],
+    max_tools: 14,
+    approval_policy: { high_risk_requires_approval: true },
+  },
 });
+
+const CMS_LIVE_EDITOR_DEFAULT_KEY = 'cms_live_editor._default_protocol';
+
+/** Fallback when no `agentsam_route_requirements` row exists for a `cms_live_editor.*` prompt route. */
+DEFAULT_ROUTE_TOOL[CMS_LIVE_EDITOR_DEFAULT_KEY] = {
+  allowed_lanes: ['design', 'develop', 'inspect'],
+  required_capabilities: [],
+  optional_capabilities: [
+    'context_search',
+    'd1_query',
+    'workspace_read_file',
+    'knowledge_search',
+    'mcp_catalog_read',
+  ],
+  blocked_capabilities: ['email_broadcast', 'secret_write'],
+  max_tools: 14,
+  approval_policy: { high_risk_requires_approval: true },
+};
 
 function defaultForKey(key) {
   const k = String(key || '').trim().toLowerCase();
   if (DEFAULT_ROUTE_TOOL[k]) return DEFAULT_ROUTE_TOOL[k];
+  if (k.startsWith('cms_live_editor.')) return DEFAULT_ROUTE_TOOL[CMS_LIVE_EDITOR_DEFAULT_KEY];
+  if (k === 'agent_cloudflare') return DEFAULT_ROUTE_TOOL.deploy;
+  if (k === 'agent_terminal') return DEFAULT_ROUTE_TOOL.terminal_execution;
+  if (k === 'agent_database') return DEFAULT_ROUTE_TOOL.sql_d1_generation;
+  if (k === 'agent_code' || k === 'agent_frontend') return DEFAULT_ROUTE_TOOL.code;
+  if (k === 'agent_debug' || k === 'agent_cost_audit') return DEFAULT_ROUTE_TOOL.debug;
+  if (k === 'agent_planning') return DEFAULT_ROUTE_TOOL.plan;
+  if (k === 'agent_research') {
+    return {
+      allowed_lanes: ['research', 'think', 'inspect'],
+      required_capabilities: [],
+      optional_capabilities: ['knowledge_search', 'context_search', 'd1_query', 'browser.inspect'],
+      blocked_capabilities: ['terminal_execute', 'terminal_run'],
+      max_tools: 8,
+      approval_policy: { high_risk_requires_approval: true },
+    };
+  }
+  if (k === 'agent_tool_orchestration' || k === 'agent_smoke_test') return DEFAULT_ROUTE_TOOL.workflow_orchestration;
+  if (k === 'agent_general' || k === 'ollama-local-workflow-pinstest') return DEFAULT_ROUTE_TOOL.chat;
   if (k === 'question' || k === 'general' || k === 'other' || k === 'mixed') return DEFAULT_ROUTE_TOOL.chat;
   if (k === 'implementation' || k === 'feature' || k === 'refactor') return DEFAULT_ROUTE_TOOL.code;
   return DEFAULT_ROUTE_TOOL.chat;
@@ -152,6 +221,29 @@ function parsePolicyJson(raw) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Effective tool count for agent chat: min of non-null positive caps; explicit 0 on prompt route or route_requirements wins.
+ * @param {{ promptRouteMax?: number|null, routeReqMax?: number|null, modelCap?: number|null, requestLimit?: number|null }} p
+ * @returns {number}
+ */
+export function effectiveAgentChatToolCap(p) {
+  const n = (x) => {
+    if (x == null || x === '') return null;
+    const v = Number(x);
+    return Number.isFinite(v) ? v : null;
+  };
+  const pr = n(p.promptRouteMax);
+  const rr = n(p.routeReqMax);
+  const mc = n(p.modelCap) ?? 8;
+  const rl = n(p.requestLimit) ?? 20;
+  if (pr === 0 || rr === 0) return 0;
+  const caps = [];
+  if (pr != null && pr > 0) caps.push(Math.floor(pr));
+  if (rr != null && rr > 0) caps.push(Math.floor(rr));
+  caps.push(Math.floor(mc), Math.floor(rl));
+  return Math.max(0, Math.min(...caps));
 }
 
 /**
@@ -179,6 +271,18 @@ export async function resolveAgentChatRouteToolRequirements(env, q) {
           .first()
           .catch(() => null);
         if (d1Row) source = 'd1';
+        if (
+          !d1Row &&
+          bindKey.startsWith('cms_live_editor.') &&
+          bindKey !== CMS_LIVE_EDITOR_DEFAULT_KEY
+        ) {
+          d1Row = await env.DB
+            .prepare(`SELECT * FROM agentsam_route_requirements WHERE route_key = ? LIMIT 1`)
+            .bind(CMS_LIVE_EDITOR_DEFAULT_KEY)
+            .first()
+            .catch(() => null);
+          if (d1Row) source = 'd1_cms_default';
+        }
       }
     }
   }
@@ -187,7 +291,7 @@ export async function resolveAgentChatRouteToolRequirements(env, q) {
   let required_capabilities = [...base.required_capabilities];
   let optional_capabilities = [...base.optional_capabilities];
   let blocked_capabilities = [...base.blocked_capabilities];
-  let max_tools = base.max_tools;
+  let max_tools = /** @type {number|null} */ (base.max_tools);
   let approval_policy = base.approval_policy ? { ...base.approval_policy } : null;
 
   if (d1Row && typeof d1Row === 'object') {
@@ -212,15 +316,27 @@ export async function resolveAgentChatRouteToolRequirements(env, q) {
       const p = parseJsonArray(blk);
       if (p.length) blocked_capabilities = p;
     }
-    if (r.max_tools != null && Number(r.max_tools) > 0) {
-      max_tools = Math.floor(Number(r.max_tools));
+    if (r.max_tools != null && String(r.max_tools).trim() !== '') {
+      const mt = Number(r.max_tools);
+      if (!Number.isNaN(mt)) {
+        if (mt === 0) {
+          max_tools = 0;
+          optional_capabilities = [];
+          required_capabilities = [];
+          allowed_lanes = uniqLanes(['think', 'general']);
+        } else {
+          max_tools = Math.floor(mt);
+        }
+      }
+    } else {
+      max_tools = null;
     }
     const pol = parsePolicyJson(r.approval_policy_json);
     if (pol) approval_policy = pol;
   }
 
-  if (modeSlug === 'ask') {
-    max_tools = max_tools != null ? Math.min(max_tools, 8) : 6;
+  if (modeSlug === 'ask' && max_tools != null && max_tools > 0) {
+    max_tools = Math.min(max_tools, 8);
     allowed_lanes = uniqLanes([...allowed_lanes, 'think', 'general']);
   }
 

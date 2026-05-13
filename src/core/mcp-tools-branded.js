@@ -340,11 +340,22 @@ function toolRowBlocked(row, blockedList) {
  */
 export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, opts) {
   const req = opts.routeToolRequirements;
-  const outputLimit = Math.max(1, Math.min(200, Number(opts.outputLimit) || 20));
-  const catalogLimit = Math.max(outputLimit, Math.min(200, Number(opts.catalogLimit) || 96));
+  const outputLimit = Math.max(0, Math.min(200, Number(opts.outputLimit) || 20));
+  const catalogLimit = Math.max(
+    1,
+    Math.max(outputLimit, Math.min(200, Number(opts.catalogLimit) || 96)),
+  );
   const modeSlug = String(opts.modeSlug || '').toLowerCase();
   const taskType = String(opts.taskType || '').toLowerCase();
-  const allowLegacy = opts.allowLegacyFallback !== false;
+  /** Legacy flat MCP list — opt-in only (smoke / emergency); not default agent-chat policy. */
+  const allowLegacy = opts.allowLegacyFallback === true;
+
+  if (!req || (req.max_tools != null && Number(req.max_tools) === 0)) {
+    return { rows: [], missingRequiredCapabilities: [], usedLegacyFallback: false };
+  }
+  if (outputLimit === 0) {
+    return { rows: [], missingRequiredCapabilities: [], usedLegacyFallback: false };
+  }
 
   const lanes = (req?.allowed_lanes || []).filter((l) => LANES.has(String(l).toLowerCase()));
   const effectiveLanes = lanes.length ? lanes : ['general'];
@@ -354,7 +365,7 @@ export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, op
     limit: catalogLimit * 2,
     includeSchema: true,
   });
-  if (!branded.length && effectiveLanes.length > 1) {
+  if (!branded.length && allowLegacy) {
     const fallbackLane = inferMcpCapabilityLane(opts.message, opts.intentSlug, opts.taskType, opts.modeSlug);
     branded = await queryBrandedMcpCatalog(db, {
       lane: fallbackLane,
@@ -434,8 +445,12 @@ export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, op
   }
 
   const maxModel = maxModelToolsForAgentTask(taskType, modeSlug);
-  const routeMax = req.max_tools != null && Number(req.max_tools) > 0 ? Math.floor(Number(req.max_tools)) : outputLimit;
-  const maxOut = Math.min(outputLimit, maxModel, routeMax);
+  const routeMax =
+    req.max_tools != null && Number(req.max_tools) > 0 ? Math.floor(Number(req.max_tools)) : outputLimit;
+  const maxOut = Math.max(0, Math.min(outputLimit, maxModel, routeMax));
+  if (maxOut <= 0) {
+    return { rows: [], missingRequiredCapabilities: [], usedLegacyFallback: false };
+  }
 
   const score = ({ raw }) => {
     let s = 0;

@@ -7,7 +7,8 @@
  *  - agent_model_registry is legacy/staging/enrichment — never used for chat routing or billing math here.
  *  - No hardcoded model strings — always resolved from DB
  *  - Tool definitions: agent chat → resolveAgentChatRouteToolRequirements + selectMcpToolsForDeterministicAgentChat
- *    (lanes, required capabilities, mcp_workspace_tokens entitlements, branded view) with legacy list fallback + warn.
+ *    (lanes, required capabilities, mcp_workspace_tokens entitlements, branded view). Legacy MCP list fallback is
+ *    opt-in (`allowLegacyMcpToolFallback`); caps = min(prompt_routes.max_tools, route_requirements.max_tools, model cap).
  *    Other paths: selectMcpToolsForChatRuntime / selectAgentsamMcpToolsList. Cap: maxModelToolsForAgentTask.
  *  - MCP catalog (management JSON): GET /api/mcp/tools/catalog (lane, limit, include_schema).
  *  - Approval gate wired for high-risk tool calls
@@ -45,7 +46,10 @@ import {
   selectMcpToolsForDeterministicAgentChat,
   maxModelToolsForAgentTask,
 } from '../core/mcp-tools-branded.js';
-import { resolveAgentChatRouteToolRequirements } from '../core/agentsam-route-tool-resolver.js';
+import {
+  resolveAgentChatRouteToolRequirements,
+  effectiveAgentChatToolCap,
+} from '../core/agentsam-route-tool-resolver.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import {
   loadAgentSamUserPolicy,
@@ -477,7 +481,8 @@ const AGENT_SAM_PYTHON_PARALLEL_BLOCK = `You are a Python professional. When a t
 For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. When reading multiple files, checking multiple endpoints, or running independent lookups, call all tools in parallel. Err on the side of more parallel tool calls rather than fewer sequential ones.`;
 
 /**
- * Match `agentsam_prompt_routes` to mode / intent (intent_labels JSON array + tenant priority).
+ * Match `agentsam_prompt_routes` to mode / intent (intent_labels JSON array + tenant tie-break).
+ * `priority`: lower numeric value wins among otherwise-equally-specific matches (see ORDER BY).
  * @param {any} env
  * @param {string|null|undefined} tenantId
  * @param {string} modeSlug
@@ -509,7 +514,7 @@ async function resolveAgentsamPromptRoute(env, tenantId, modeSlug, intentSlug) {
           WHERE je2.value IN (?, ?)
         ) THEN 0 ELSE 1 END,
         CASE WHEN r.tenant_id IS NOT NULL THEN 0 ELSE 1 END,
-        COALESCE(r.priority, 0) DESC
+        COALESCE(r.priority, 0) ASC
       LIMIT 1
     `,
     )
@@ -1144,7 +1149,7 @@ async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMe
 }
 
 async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
-  const lim = Math.max(1, Math.min(200, Number(opts.limit || 20) || 20));
+  const lim = Math.max(0, Math.min(200, Number(opts.limit ?? 20) || 20));
   if (!env.DB) return { tools: [], toolRoutingError: null, routeToolRequirements: null };
   const policy = await loadModeToolPolicy(env, modeSlug);
   const mcpScope = {
@@ -1167,6 +1172,24 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       taskType: opts.taskType,
       modeSlug,
     });
+    const modelCap = maxModelToolsForAgentTask(opts.taskType, modeSlug);
+    const prMax =
+      opts.promptRouteMaxTools != null && Number.isFinite(Number(opts.promptRouteMaxTools))
+        ? Number(opts.promptRouteMaxTools)
+        : null;
+    const mergedMax = effectiveAgentChatToolCap({
+      promptRouteMax: prMax,
+      routeReqMax: routeToolRequirements?.max_tools,
+      modelCap,
+      requestLimit: lim,
+    });
+    routeToolRequirements = {
+      ...routeToolRequirements,
+      max_tools: mergedMax,
+    };
+    if (mergedMax === 0) {
+      return { tools: [], toolRoutingError: null, routeToolRequirements };
+    }
     const det = await selectMcpToolsForDeterministicAgentChat(env.DB, mcpScope, {
       routeToolRequirements,
       message: opts.message,
@@ -1174,8 +1197,8 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       taskType: opts.taskType,
       modeSlug,
       catalogLimit,
-      outputLimit: lim,
-      allowLegacyFallback: opts.allowLegacyMcpToolFallback !== false,
+      outputLimit: mergedMax,
+      allowLegacyFallback: opts.allowLegacyMcpToolFallback === true,
     });
     if (det.missingRequiredCapabilities?.length) {
       const miss = det.missingRequiredCapabilities;
@@ -1215,12 +1238,13 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     rows = await selectAgentsamMcpToolsList(env.DB, mcpScope, lim);
   }
 
-  if (!toolRoutingError && opts.agentChat && opts.taskType) {
-    const cap = maxModelToolsForAgentTask(opts.taskType, modeSlug);
-    const routeCap = routeToolRequirements?.max_tools;
-    const effCap =
-      routeCap != null && Number(routeCap) > 0 ? Math.min(cap, Math.floor(Number(routeCap))) : cap;
-    if (rows.length > effCap) rows = rows.slice(0, effCap);
+  if (!toolRoutingError && opts.agentChat && opts.taskType && routeToolRequirements?.max_tools != null) {
+    const effCap = Math.max(0, Math.floor(Number(routeToolRequirements.max_tools)));
+    if (effCap === 0) {
+      rows = [];
+    } else if (rows.length > effCap) {
+      rows = rows.slice(0, effCap);
+    }
   }
   const uid = opts.userId != null ? String(opts.userId).trim() : '';
   const wsId = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
@@ -4875,9 +4899,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       promptRouteRow = greetingRoute;
     }
   }
-  let effectiveMaxTools = Math.max(1, Math.min(200, Number(modeConfig.max_tool_calls || 20) || 20));
-  if (promptRouteRow?.max_tools != null && Number(promptRouteRow.max_tools) > 0) {
-    effectiveMaxTools = Math.min(effectiveMaxTools, Number(promptRouteRow.max_tools));
+  const modeCfgMax = Math.max(1, Math.min(200, Number(modeConfig.max_tool_calls || 20) || 20));
+  let effectiveMaxTools = modeCfgMax;
+  if (promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== '') {
+    const prMax = Number(promptRouteRow.max_tools);
+    if (prMax === 0) {
+      effectiveMaxTools = 0;
+    } else if (prMax > 0) {
+      effectiveMaxTools = Math.min(effectiveMaxTools, prMax);
+    }
   }
   const skipRagFromRoute = Number(promptRouteRow?.include_rag) === 0;
 
@@ -4916,6 +4946,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     taskType: String(intentResult?.taskType || ''),
     agentChat: agentLikeTooling,
     routeKey: promptRouteRow?.route_key != null ? String(promptRouteRow.route_key) : null,
+    promptRouteMaxTools:
+      promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
+        ? Number(promptRouteRow.max_tools)
+        : null,
   });
   const tcList = parseJsonSafe(promptRouteRow?.tool_categories, null);
   let dbTools = dbToolsRaw;
