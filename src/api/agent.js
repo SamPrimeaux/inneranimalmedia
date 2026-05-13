@@ -4730,6 +4730,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       message,
     );
 
+  /** Ask mode still needs tools when the user is asking for D1/schema truth, not chat guesses. */
+  const askDataPlaneIntent =
+    requestedMode === 'ask' &&
+    /\bd1\b|agentsam_|agentsam\b|hyperdrive|\bsql\b|query the (?:d1 )?database|from agentsam_|pragma|table_info|\bdb tables?\b/i.test(
+      message,
+    );
+
   const allowImmediateWorkflowMatch =
     requestedMode === 'agent' ||
     requestedMode === 'multitask' ||
@@ -4740,7 +4747,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     requestedMode === 'agent' ||
     requestedMode === 'debug' ||
     requestedMode === 'multitask' ||
-    (requestedMode === 'ask' && explicitSurfaceOrWorkflowIntent);
+    (requestedMode === 'ask' && (explicitSurfaceOrWorkflowIntent || askDataPlaneIntent));
 
   const explicitPlanPhrase = /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(
     message,
@@ -4758,6 +4765,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const askConversationalCurve =
     requestedMode === 'ask' &&
     !explicitSurfaceOrWorkflowIntent &&
+    !askDataPlaneIntent &&
     /^(what|who|where|when|why|how|explain|describe|define)\b/i.test(trimmedMsg);
   const isConversational =
     (wordParts.length < 4 && !looksLikeExplicitCommand) ||

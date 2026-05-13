@@ -7,6 +7,7 @@ Prerequisites (same family as scripts/e2e_agentsam_eval_runner.py):
   - `npx wrangler` configured (IAM_D1_DB, IAM_WRANGLER_CONFIG, IAM_D1_REMOTE)
   - Auth to chat: `IAM_SESSION` / `~/.iam-session-cookie` and/or `INGEST_SECRET` as `X-Ingest-Secret`
   - Optional: Ollama at OLLAMA_URL (default http://127.0.0.1:11434) with OLLAMA_JUDGE_MODEL
+  - IAM_CHAT_TIMEOUT_SEC (default 180) for each chat request
 
 Run from repo root after deploy + migration 337:
   python3 scripts/eval_routing_matrix.py
@@ -103,9 +104,11 @@ def load_cookie() -> str:
     return raw if raw.startswith("session=") else f"session={raw}"
 
 
-def post_chat(prompt: str, mode: str, timeout: int = 120) -> dict[str, Any]:
+def post_chat(prompt: str, mode: str, timeout: int | None = None) -> dict[str, Any]:
     cookie = load_cookie()
     ingest = os.getenv("INGEST_SECRET", "").strip()
+    if timeout is None:
+        timeout = int(os.getenv("IAM_CHAT_TIMEOUT_SEC", "180"))
     payload = {
         "messages": [{"role": "user", "content": prompt}],
         "message": prompt,
@@ -129,39 +132,106 @@ def post_chat(prompt: str, mode: str, timeout: int = 120) -> dict[str, Any]:
     if ingest:
         headers.append(("X-Ingest-Secret", ingest))
 
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(CHAT_URL, data=body, headers=dict(headers), method="POST")
+    body_json = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(CHAT_URL, data=body_json, headers=dict(headers), method="POST")
     t0 = time.time()
     text_parts: list[str] = []
     status = 0
+    saw_done = False
+    got_stream_error = False
+
+    def consume_event(evt: dict[str, Any]) -> None:
+        nonlocal saw_done, got_stream_error
+        t = evt.get("type")
+        if t == "text":
+            text_parts.append(str(evt.get("text") or ""))
+        elif t == "thinking":
+            piece = str(evt.get("text") or "")
+            if piece:
+                text_parts.append(piece)
+        elif t in ("error", "fatal"):
+            got_stream_error = True
+            text_parts.append(str(evt.get("error") or evt.get("message") or json.dumps(evt)[:500]))
+        elif t in ("tool_output", "tool_result"):
+            text_parts.append(str(evt.get("output") or evt.get("text") or "")[:4000])
+        elif t == "done":
+            saw_done = True
+            if evt.get("stream_failed") or evt.get("fatal"):
+                got_stream_error = True
+
+    def drain_buffer(buf: bytes) -> bytes:
+        """Split on SSE blank line; return unfinished tail."""
+        while True:
+            sep, width = -1, 2
+            i = buf.find(b"\n\n")
+            if i != -1:
+                sep, width = i, 2
+            else:
+                j = buf.find(b"\r\n\r\n")
+                if j != -1:
+                    sep, width = j, 4
+            if sep == -1:
+                return buf
+            frame = buf[:sep].decode("utf-8", errors="ignore")
+            buf = buf[sep + width :]
+            data_lines: list[str] = []
+            for raw in frame.splitlines():
+                line = raw.strip()
+                if line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+            if not data_lines:
+                continue
+            raw_payload = "\n".join(data_lines).strip()
+            if not raw_payload or raw_payload == "[DONE]":
+                continue
+            try:
+                evt = json.loads(raw_payload)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(evt, dict):
+                consume_event(evt)
+
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             status = getattr(r, "status", 200) or 200
-            for raw_line in r:
-                line = raw_line.decode("utf-8", errors="ignore").strip()
-                if not line.startswith("data:"):
-                    continue
-                chunk = line[5:].strip()
-                if not chunk or chunk == "[DONE]":
-                    continue
-                try:
-                    evt = json.loads(chunk)
-                except json.JSONDecodeError:
-                    continue
-                if evt.get("type") == "text":
-                    text_parts.append(str(evt.get("text") or ""))
-                elif evt.get("type") in ("error", "fatal"):
-                    text_parts.append(str(evt.get("error") or evt.get("message") or ""))
+            buf = b""
+            while True:
+                chunk = r.read(8192)
+                if not chunk:
+                    break
+                buf += chunk
+                buf = drain_buffer(buf)
     except urllib.error.HTTPError as e:
         status = e.code
         text_parts.append(e.read().decode("utf-8", errors="ignore")[:2000])
+        got_stream_error = True
     except Exception as e:
-        return {"ok": False, "status": 0, "latency_ms": int((time.time() - t0) * 1000), "body": "", "error": str(e)}
+        return {
+            "ok": False,
+            "status": 0,
+            "latency_ms": int((time.time() - t0) * 1000),
+            "body": "",
+            "error": str(e),
+            "saw_done": saw_done,
+        }
 
     latency_ms = int((time.time() - t0) * 1000)
     body = "".join(text_parts).strip()
-    ok = 200 <= status < 300 and bool(body)
-    return {"ok": ok, "status": status, "latency_ms": latency_ms, "body": body, "error": None if ok else body[:800]}
+    ok = (
+        200 <= status < 300
+        and saw_done
+        and not got_stream_error
+        and bool(body)
+    )
+    err = None if ok else (body[:800] if body else f"incomplete_sse saw_done={saw_done} err={got_stream_error}")
+    return {
+        "ok": ok,
+        "status": status,
+        "latency_ms": latency_ms,
+        "body": body,
+        "error": err,
+        "saw_done": saw_done,
+    }
 
 
 def ollama_score(prompt: str, response: str) -> tuple[int, str]:
@@ -308,8 +378,11 @@ def main() -> None:
                     qv, grader = ollama_score(prompt, chat.get("body") or "")
                 scores.append(qv)
                 flag = "ok" if chat.get("ok") else "fail"
+                fail_hint = ""
+                if not chat.get("ok"):
+                    fail_hint = f" | done={chat.get('saw_done')} {(chat.get('error') or '')[:100]!r}"
                 print(
-                    f"  {mk[:28]:<28} | {mode:<10} | {lat:>5}ms | {flag} | q={qv} | "
+                    f"  {mk[:28]:<28} | {mode:<10} | {lat:>5}ms | {flag}{fail_hint} | q={qv} | "
                     f"{len(chat.get('body') or ''):>4} chars"
                 )
 
