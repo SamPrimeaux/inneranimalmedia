@@ -4,6 +4,14 @@
  * or no value in a column — never as a substitute for `agentsam_prompt_routes` (priority / max_tools live in D1).
  *
  * `agentsam_prompt_routes.priority`: lower number wins (see `resolveAgentsamPromptRoute` in agent.js).
+ *
+ * **When `agentsam_route_requirements` has no row** (or no `cms_live_editor._default_protocol` for `cms_live_editor.*`),
+ * server defaults apply — keyed in code by `route_key` / prefix only as a safety net:
+ *   `agent_cloudflare`→deploy-like, `agent_terminal`→terminal-like, `agent_database`→db-like,
+ *   `agent_code`/`agent_frontend`→code-like, `agent_debug`/`agent_cost_audit`→debug-like,
+ *   `agent_planning`→plan-like, `agent_research`→research-like,
+ *   `agent_tool_orchestration`/`agent_smoke_test`→workflow-like, `agent_general`/`ollama-local-workflow-pinstest`→chat-like,
+ *   `cms_live_editor.*`→`cms_live_editor._default_protocol` profile. Prefer real D1 rows from migration 333.
  */
 
 import { pragmaTableInfo } from './retention.js';

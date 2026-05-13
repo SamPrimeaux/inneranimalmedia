@@ -87,8 +87,11 @@ SELECT
   m.failure_rate,
   COALESCE(NULLIF(trim(m.tool_key), ''), NULLIF(trim(m.tool_name), '')) AS tool_key,
   COALESCE(
-    NULLIF(trim(m.tool_key), ''),
-    NULLIF(trim(m.tool_name), '')
+    NULLIF(lower(trim(m.tool_key)), ''),
+    NULLIF(lower(trim(m.tool_name)), ''),
+    lower(replace(trim(COALESCE(m.tool_category, 'mcp')), ' ', '_'))
+      || ':'
+      || lower(replace(trim(COALESCE(m.tool_name, '')), ' ', '_'))
   ) AS capability_key,
   m.server_key,
   m.agentsam_tools_id,
