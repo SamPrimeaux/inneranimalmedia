@@ -6,9 +6,9 @@
  *  - Provider dispatch metadata: D1 agentsam_model_catalog (canonical); agentsam_ai is legacy/persona/BYOK overlay.
  *  - agent_model_registry is legacy/staging/enrichment — never used for chat routing or billing math here.
  *  - No hardcoded model strings — always resolved from DB
- *  - Tool definitions: classifyIntent + loadToolsForRequest → src/core/mcp-tools-branded.js (v_agentsam_mcp_tools_branded
- *    + scoped agentsam_mcp_tools intersection + mcp_workspace_tokens.allowed_tools when set) with fallback to
- *    selectAgentsamMcpToolsList. Per-turn model tool cap: maxModelToolsForAgentTask (see mcp-tools-branded.js).
+ *  - Tool definitions: agent chat → resolveAgentChatRouteToolRequirements + selectMcpToolsForDeterministicAgentChat
+ *    (lanes, required capabilities, mcp_workspace_tokens entitlements, branded view) with legacy list fallback + warn.
+ *    Other paths: selectMcpToolsForChatRuntime / selectAgentsamMcpToolsList. Cap: maxModelToolsForAgentTask.
  *  - MCP catalog (management JSON): GET /api/mcp/tools/catalog (lane, limit, include_schema).
  *  - Approval gate wired for high-risk tool calls
  *  - Telemetry written per request via writeTelemetry
@@ -18,7 +18,6 @@
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
 import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/provider.js';
-import { loadAvailableToolsForCapability } from '../core/tool-registry.js';
 import {
   resolveWorkspaceCapabilityShellWorkflowId,
   isWorkspaceCapabilityActionIntent,
@@ -43,8 +42,10 @@ import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
 import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import {
   selectMcpToolsForChatRuntime,
+  selectMcpToolsForDeterministicAgentChat,
   maxModelToolsForAgentTask,
 } from '../core/mcp-tools-branded.js';
+import { resolveAgentChatRouteToolRequirements } from '../core/agentsam-route-tool-resolver.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import {
   loadAgentSamUserPolicy,
@@ -108,8 +109,17 @@ import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
 
-/** Builtin tools blocked from POST /api/agent/tool-smoke (mutations / prod blast radius). */
-const TOOL_SMOKE_DENYLIST = new Set([
+/**
+ * POST /api/agent/tool-smoke ONLY — default-safe denylist for blind / unaudited smoke runs.
+ *
+ * Do NOT import or reuse this set for: /api/agent/chat, MCP dispatch, branded catalog routing,
+ * workflow execution, approvals, or any runtime tool selection. Agent runtime safety is
+ * route requirements + branded MCP catalog + approval + entitlements (see mcp-tools-branded,
+ * resolveAgentChatRouteToolRequirements, validateToolCall).
+ *
+ * Smoke safety is a test-harness concern; collapsing it into global Agent Sam policy is wrong.
+ */
+const TOOL_SMOKE_DEFAULT_SAFE_DENYLIST = new Set([
   'cdt_evaluate_script',
   'cdt_upload_file',
   'd1_write',
@@ -1135,7 +1145,7 @@ async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMe
 
 async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   const lim = Math.max(1, Math.min(200, Number(opts.limit || 20) || 20));
-  if (!env.DB) return { tools: [] };
+  if (!env.DB) return { tools: [], toolRoutingError: null, routeToolRequirements: null };
   const policy = await loadModeToolPolicy(env, modeSlug);
   const mcpScope = {
     userId: opts.userId,
@@ -1145,20 +1155,72 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   };
   const catalogLimit = Math.min(200, Math.max(lim, Number(opts.catalogLimit) || Math.min(96, lim * 4)));
   const useBranded = opts.useBrandedCatalog !== false;
-  let rows = useBranded
-    ? await selectMcpToolsForChatRuntime(env.DB, mcpScope, {
-        outputLimit: lim,
-        catalogLimit,
-        message: opts.message,
-        intentSlug: _intent,
-        taskType: opts.taskType,
-        modeSlug,
-      })
-    : await selectAgentsamMcpToolsList(env.DB, mcpScope, lim);
+  /** @type {any} */
+  let routeToolRequirements = null;
+  /** @type {{ code: string, message: string, missing: string[] }|null} */
+  let toolRoutingError = null;
+  let rows = [];
 
-  if (opts.agentChat && opts.taskType) {
+  if (opts.agentChat && useBranded) {
+    routeToolRequirements = await resolveAgentChatRouteToolRequirements(env, {
+      routeKey: opts.routeKey,
+      taskType: opts.taskType,
+      modeSlug,
+    });
+    const det = await selectMcpToolsForDeterministicAgentChat(env.DB, mcpScope, {
+      routeToolRequirements,
+      message: opts.message,
+      intentSlug: _intent,
+      taskType: opts.taskType,
+      modeSlug,
+      catalogLimit,
+      outputLimit: lim,
+      allowLegacyFallback: opts.allowLegacyMcpToolFallback !== false,
+    });
+    if (det.missingRequiredCapabilities?.length) {
+      const miss = det.missingRequiredCapabilities;
+      console.error(
+        '[agent] tool_routing_missing_required',
+        JSON.stringify({
+          missing: miss,
+          route_key: routeToolRequirements.route_key,
+          task_type: routeToolRequirements.task_type,
+        }),
+      );
+      toolRoutingError = {
+        code: 'MISSING_REQUIRED_CAPABILITY',
+        message: `Missing required tool capabilities for this route: ${miss.join(', ')}`,
+        missing: miss,
+      };
+      rows = [];
+    } else {
+      rows = det.rows;
+      if (det.usedLegacyFallback) {
+        console.warn('[agent] tool_routing_legacy_mcp_list_fallback', {
+          route_key: routeToolRequirements.route_key,
+          task_type: routeToolRequirements.task_type,
+        });
+      }
+    }
+  } else if (useBranded) {
+    rows = await selectMcpToolsForChatRuntime(env.DB, mcpScope, {
+      outputLimit: lim,
+      catalogLimit,
+      message: opts.message,
+      intentSlug: _intent,
+      taskType: opts.taskType,
+      modeSlug,
+    });
+  } else {
+    rows = await selectAgentsamMcpToolsList(env.DB, mcpScope, lim);
+  }
+
+  if (!toolRoutingError && opts.agentChat && opts.taskType) {
     const cap = maxModelToolsForAgentTask(opts.taskType, modeSlug);
-    if (rows.length > cap) rows = rows.slice(0, cap);
+    const routeCap = routeToolRequirements?.max_tools;
+    const effCap =
+      routeCap != null && Number(routeCap) > 0 ? Math.min(cap, Math.floor(Number(routeCap))) : cap;
+    if (rows.length > effCap) rows = rows.slice(0, effCap);
   }
   const uid = opts.userId != null ? String(opts.userId).trim() : '';
   const wsId = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
@@ -1194,7 +1256,7 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     tool_category: String(r.tool_category || 'builtin'),
     requires_approval: Number(r.requires_approval || 0) === 1,
   }));
-  return { tools };
+  return { tools, toolRoutingError, routeToolRequirements };
 }
 
 function inferRiskLevel(toolName, category = '', rowRiskLevel = '') {
@@ -1210,6 +1272,12 @@ function inferRiskLevel(toolName, category = '', rowRiskLevel = '') {
 }
 
 async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {}, userPolicy = null) {
+  const ctxRouteKey =
+    mcpRuntimeContext.routeKey != null && String(mcpRuntimeContext.routeKey).trim() !== ''
+      ? String(mcpRuntimeContext.routeKey).trim()
+      : '';
+  const routeKeyOut = (rk) =>
+    (rk != null && String(rk).trim() !== '' ? String(rk).trim() : null) || ctxRouteKey || null;
   const name = String(toolName || '').trim();
   if (!name) {
     return {
@@ -1221,7 +1289,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       toolKey: null,
       capabilityKey: null,
       handlerKey: null,
-      routeKey: null,
+      routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
       agentsamMcpToolsId: null,
@@ -1243,7 +1311,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       toolKey: name,
       capabilityKey: null,
       handlerKey: null,
-      routeKey: null,
+      routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
       agentsamMcpToolsId: null,
@@ -1262,7 +1330,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       toolKey: name,
       capabilityKey: null,
       handlerKey: null,
-      routeKey: null,
+      routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
       agentsamMcpToolsId: null,
@@ -1279,7 +1347,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       toolKey: name,
       capabilityKey: null,
       handlerKey: null,
-      routeKey: null,
+      routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
       agentsamMcpToolsId: null,
@@ -1306,7 +1374,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
         toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
         capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
         handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
-        routeKey: rk.route_key != null ? String(rk.route_key) : null,
+        routeKey: routeKeyOut(rk.route_key),
         serverKey: rk.server_key != null ? String(rk.server_key) : null,
         mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
         agentsamMcpToolsId: rk.id ?? null,
@@ -1340,7 +1408,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
       capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
       handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
-      routeKey: rk.route_key != null ? String(rk.route_key) : null,
+      routeKey: routeKeyOut(rk.route_key),
       serverKey: rk.server_key != null ? String(rk.server_key) : null,
       mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
       agentsamMcpToolsId: rk.id ?? null,
@@ -1360,7 +1428,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
       capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
       handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
-      routeKey: rk.route_key != null ? String(rk.route_key) : null,
+      routeKey: routeKeyOut(rk.route_key),
       serverKey: rk.server_key != null ? String(rk.server_key) : null,
       mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
       agentsamMcpToolsId: rk.id ?? null,
@@ -1392,7 +1460,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
     capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
     handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
-    routeKey: rk.route_key != null ? String(rk.route_key) : null,
+    routeKey: routeKeyOut(rk.route_key),
     serverKey: rk.server_key != null ? String(rk.server_key) : null,
     mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
     agentsamMcpToolsId: rk.id != null ? rk.id : null,
@@ -2032,7 +2100,19 @@ function needsApproval(validationResult, modeConfig, userPolicy) {
 }
 
 async function createApprovalRequest(env, ctx, opts) {
-  const { tenantId, sessionId, userId, workspaceId, personUuid, toolName, toolArgs, toolCallId, riskLevel, rationale } = opts;
+  const {
+    tenantId,
+    sessionId,
+    userId,
+    workspaceId,
+    personUuid,
+    toolName,
+    toolArgs,
+    toolCallId,
+    riskLevel,
+    rationale,
+    ledgerExtras,
+  } = opts;
   const proposalId  = 'prop_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now         = Math.floor(Date.now() / 1000);
   const expiresAt   = now + 3600;
@@ -2101,6 +2181,7 @@ async function createApprovalRequest(env, ctx, opts) {
       workspaceId,
       errorMessage: null,
       inputSummary: argsStr.slice(0, 200),
+      ...(ledgerExtras && typeof ledgerExtras === 'object' ? ledgerExtras : {}),
     });
   } catch (e) { console.warn('[agent] createApprovalRequest:', e?.message); }
   return proposalId;
@@ -2606,6 +2687,13 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   const effectiveMaxToolCalls =
     Number.isFinite(polMax) && polMax > 0 ? Math.min(modeMax, polMax) : modeMax;
 
+  const mcpBase =
+    mcpRuntimeContext && typeof mcpRuntimeContext === 'object' ? { ...mcpRuntimeContext } : {};
+  if (params.chatRouteKey != null && String(params.chatRouteKey).trim() !== '') {
+    mcpBase.routeKey = String(params.chatRouteKey).trim();
+  }
+  const mcpCtx = mcpBase;
+
   const conversationMessages = [...messages];
   let toolCallsUsed = 0;
   const executedToolNames = [];
@@ -3055,7 +3143,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         });
         continue;
       }
-      const validation = await validateToolCall(env, mode, call.name, mcpRuntimeContext, userPolicy);
+      const validation = await validateToolCall(env, mode, call.name, mcpCtx, userPolicy);
       if (!validation.allowed) {
         scheduleRecordMcpToolExecution(env, ctx, {
           tenant_id: tenantId,
@@ -3205,12 +3293,13 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           sessionId,
           userId,
           workspaceId,
-          personUuid: mcpRuntimeContext.personUuid,
+          personUuid: mcpCtx.personUuid,
           toolName: call.name,
           toolArgs: call.input,
           toolCallId: call.id,
           riskLevel: validation.riskLevel,
           rationale: `Agent requested ${call.name} (${validation.riskLevel} risk)`,
+          ledgerExtras: toolLogFieldsFromValidation(validation),
         });
         notifySam(env, { subject: `Approval required: ${call.name}`, body: `Tool: ${call.name}\nRisk: ${validation.riskLevel}\nArgs: ${JSON.stringify(call.input||{}).slice(0,500)}\n\nApprove: ${(env.IAM_ORIGIN||'').replace(/\/$/,'')}/dashboard/overview?proposal=${proposalId}`, category: 'approval' }).catch(() => {});
         emit('approval_required', { proposal_id: proposalId, tool_name: call.name, tool_args: call.input, risk_level: validation.riskLevel, message: 'This action requires your approval.' });
@@ -3270,8 +3359,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             tenantId,
             userId,
             workspaceId,
-            personUuid: mcpRuntimeContext.personUuid,
-            isSuperadmin: mcpRuntimeContext.isSuperadmin,
+            personUuid: mcpCtx.personUuid,
+            isSuperadmin: mcpCtx.isSuperadmin,
             request,
           },
           toolBudgetMs,
@@ -4165,7 +4254,10 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     messages.length && String(messages[messages.length - 1]?.role || '') === 'user'
       ? String(messages[messages.length - 1]?.content || '')
       : '';
-  const { tools: dbToolsRaw } = await loadToolsForRequest(env, requestedMode, 'question', {
+  const {
+    tools: dbToolsRaw,
+    toolRoutingError: panelToolRoutingError,
+  } = await loadToolsForRequest(env, requestedMode, 'question', {
     limit: effectiveMaxTools,
     includeSchemas: true,
     userId,
@@ -4175,7 +4267,18 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     message: lastUserMsg,
     taskType: 'mcp_panel',
     agentChat: true,
+    routeKey: 'mcp_panel',
   });
+  if (panelToolRoutingError) {
+    return jsonResponse(
+      {
+        error: panelToolRoutingError.message,
+        code: panelToolRoutingError.code,
+        missing_capabilities: panelToolRoutingError.missing,
+      },
+      422,
+    );
+  }
   let tools = dbToolsRaw.map((t) => {
     const raw = t.input_schema && typeof t.input_schema === 'object' ? t.input_schema : {};
     return {
@@ -4201,6 +4304,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     personUuid,
     sessionId: sessionPkId,
     isSuperadmin: false,
+    routeKey: 'mcp_panel',
   };
 
   const encoder = new TextEncoder();
@@ -4256,6 +4360,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
           mcpRuntimeContext,
           routingArmId: null,
           thompsonModelKey: null,
+          chatRouteKey: 'mcp_panel',
           promptAuditContext: {
             route: 'mcp_panel_chat',
             mcp_slug: slug,
@@ -4791,9 +4896,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     personUuid,
     sessionId,
     isSuperadmin: !ingestBypass && authUserIsSuperadmin(authUser),
+    routeKey:
+      promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
+        ? String(promptRouteRow.route_key).trim()
+        : null,
   };
 
-  const { tools: dbToolsRaw } = await loadToolsForRequest(env, requestedMode, intentSlug, {
+  const {
+    tools: dbToolsRaw,
+    toolRoutingError: toolRoutingErrorFromLoad,
+  } = await loadToolsForRequest(env, requestedMode, intentSlug, {
     limit: effectiveMaxTools,
     includeSchemas: true,
     userId,
@@ -4803,6 +4915,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     message,
     taskType: String(intentResult?.taskType || ''),
     agentChat: agentLikeTooling,
+    routeKey: promptRouteRow?.route_key != null ? String(promptRouteRow.route_key) : null,
   });
   const tcList = parseJsonSafe(promptRouteRow?.tool_categories, null);
   let dbTools = dbToolsRaw;
@@ -4828,37 +4941,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (Array.isArray(toolsFromPattern) && toolsFromPattern.length) {
     const allow = new Set(toolsFromPattern.map((x) => String(x || '').trim()).filter(Boolean));
     tools = tools.filter((t) => allow.has(t.name));
-  }
-
-  if (agentLikeTooling && env.DB && userId && tenantId && workspaceId) {
-    const fams = capabilityFamiliesFromUserMessage(message, intentResult);
-    const seen = new Set(tools.map((t) => t.name));
-    for (const fam of fams) {
-      try {
-        const capRows = await loadAvailableToolsForCapability(
-          env,
-          tenantId,
-          workspaceId,
-          userId,
-          fam,
-        );
-        for (const row of capRows) {
-          const nm = String(row.tool_name || '').trim();
-          if (!nm || seen.has(nm)) continue;
-          if (tools.length >= effectiveMaxTools) break;
-          seen.add(nm);
-          const raw =
-            row.input_schema && typeof row.input_schema === 'object' ? row.input_schema : {};
-          tools.push({
-            name: nm,
-            description: String(row.schema_hint || row.tool_category || nm).slice(0, 800),
-            input_schema: Object.assign({ type: 'object', properties: {} }, raw, { type: 'object' }),
-          });
-        }
-      } catch (e) {
-        console.warn('[agent] capability_tool_merge', fam, e?.message ?? e);
-      }
-    }
   }
 
   if (agentLikeTooling && env.DB) {
@@ -4921,7 +5003,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     'code',
   ]);
   const taskTypeKey = String(intentResult?.taskType || '').toLowerCase();
-  const agentWantsToolExecution = TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL.has(taskTypeKey);
+  const agentWantsToolExecution =
+    TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL.has(taskTypeKey) ||
+    (requestedMode === 'ask' && explicitSurfaceOrWorkflowIntent);
   const toolsBuiltCount = tools.length;
 
   if (agentLikeTooling && !agentWantsToolExecution) {
@@ -5325,6 +5409,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     ...(chatAgentRunId ? { agent_run_id: chatAgentRunId } : {}),
   });
 
+  if (toolRoutingErrorFromLoad) {
+    emit('error', {
+      message: toolRoutingErrorFromLoad.message,
+      code: toolRoutingErrorFromLoad.code,
+      missing_capabilities: toolRoutingErrorFromLoad.missing,
+    });
+    emit('done', {});
+    writer.close().catch(() => {});
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
+
   if (capabilityDecision) {
       const capFamilies = requestedFamiliesForAgentTools(message, intentResult, capabilityDecision);
       const beforeCapTools = tools.length;
@@ -5511,6 +5613,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               maxRuntimeMs: maxRunMsChat,
               promptAuditContext,
               chatAgentRunId,
+              chatRouteKey:
+                promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
+                  ? String(promptRouteRow.route_key).trim()
+                  : null,
             }),
             maxRunMsChat + 5000
           );
@@ -5639,6 +5745,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 maxRuntimeMs: maxRunMsChat,
                 promptAuditContext,
                 chatAgentRunId,
+                chatRouteKey:
+                  promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
+                    ? String(promptRouteRow.route_key).trim()
+                    : null,
               }),
               maxRunMsChat + 5000
             );
@@ -5933,6 +6043,242 @@ function isAgentApiPublic(path, method) {
   return false;
 }
 
+/** Valid `profile` values for POST /api/agent/tool-smoke (query or JSON body). Endpoint-local only. */
+const TOOL_SMOKE_VALID_PROFILES = new Set([
+  'default_safe',
+  'read_only',
+  'approved_mutation',
+  'local_dev_dangerous',
+]);
+
+/** Explicit read/catalog/inspect tool names allowed under `read_only` smoke profile (conservative). */
+const READ_ONLY_SMOKE_TOOL_NAMES = new Set([
+  'd1_query',
+  'workspace_read_file',
+  'workspace_search',
+  'context_search',
+  'knowledge_search',
+  'platform_info',
+  'r2_read',
+  'github_file',
+  'health_check',
+]);
+
+function isProductionLikeEnvironment(env) {
+  return String(env?.ENVIRONMENT || '').toLowerCase() === 'production';
+}
+
+function toolSmokeDefaultSafeGate(toolName) {
+  const t = String(toolName || '').trim().toLowerCase();
+  if (TOOL_SMOKE_DEFAULT_SAFE_DENYLIST.has(t)) {
+    return { blocked: true, reason: 'blocked_by_default_safe_smoke_profile' };
+  }
+  return { blocked: false };
+}
+
+function toolSmokeReadOnlyGate(toolName) {
+  const t = String(toolName || '').trim().toLowerCase();
+  if (READ_ONLY_SMOKE_TOOL_NAMES.has(t)) return { blocked: false };
+  if (TERM_WRITE_TOOLS.has(t)) return { blocked: true, reason: 'blocked_by_read_only_smoke_profile' };
+  if (TOOL_SMOKE_DEFAULT_SAFE_DENYLIST.has(t)) {
+    return { blocked: true, reason: 'blocked_by_read_only_smoke_profile' };
+  }
+  if (WRITE_LIKE_PREFIXES.some((p) => t.startsWith(p))) {
+    if (t.endsWith('_query') || t.includes('read')) return { blocked: false };
+    return { blocked: true, reason: 'blocked_by_read_only_smoke_profile' };
+  }
+  if (/(write|delete|deploy|broadcast|send|spawn)/i.test(t) && !t.endsWith('_query')) {
+    return { blocked: true, reason: 'blocked_by_read_only_smoke_profile' };
+  }
+  return { blocked: true, reason: 'blocked_by_read_only_smoke_profile' };
+}
+
+/**
+ * @returns {Promise<
+ *   | { kind: 'execute'; approvalId?: string | null }
+ *   | { kind: 'skip'; reason: string }
+ *   | { kind: 'error'; status: number; payload: Record<string, unknown> }
+ * >}
+ */
+async function evaluateToolSmokeAccess(env, profileRaw, toolName, body, identity) {
+  const p = String(profileRaw || 'default_safe').trim().toLowerCase() || 'default_safe';
+  if (!TOOL_SMOKE_VALID_PROFILES.has(p)) {
+    return {
+      kind: 'error',
+      status: 400,
+      payload: {
+        error: 'invalid_smoke_profile',
+        profile: p,
+        allowed_profiles: [...TOOL_SMOKE_VALID_PROFILES],
+      },
+    };
+  }
+
+  if (p === 'local_dev_dangerous') {
+    if (isProductionLikeEnvironment(env)) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: { error: 'dangerous_smoke_profile_disabled_in_production', profile: p },
+      };
+    }
+    if (String(env?.IAM_ENABLE_DANGEROUS_TOOL_SMOKE || '').toLowerCase() !== 'true') {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: {
+          error: 'dangerous_smoke_profile_not_enabled',
+          profile: p,
+          hint: 'Set IAM_ENABLE_DANGEROUS_TOOL_SMOKE=true on non-production workers only',
+        },
+      };
+    }
+    return { kind: 'execute' };
+  }
+
+  if (p === 'default_safe') {
+    const g = toolSmokeDefaultSafeGate(toolName);
+    if (g.blocked) return { kind: 'skip', reason: g.reason };
+    return { kind: 'execute' };
+  }
+
+  if (p === 'read_only') {
+    const g = toolSmokeReadOnlyGate(toolName);
+    if (g.blocked) return { kind: 'skip', reason: g.reason };
+    return { kind: 'execute' };
+  }
+
+  if (p === 'approved_mutation') {
+    const approvalRaw = body?.approval_id ?? body?.approvalId ?? null;
+    const approvalId = approvalRaw != null ? String(approvalRaw).trim() : '';
+    if (!approvalId) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: {
+          error: 'pending_approval',
+          reason: 'approval_id_required_for_approved_mutation_profile',
+          profile: p,
+        },
+      };
+    }
+    if (!env?.DB || !identity?.userId || !identity?.workspaceId || !identity?.tenantId) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: { error: 'blocked_by_policy', reason: 'auth_or_workspace_required', profile: p },
+      };
+    }
+    const uid = String(identity.userId).trim();
+    const ws = String(identity.workspaceId).trim();
+    const tid = String(identity.tenantId).trim();
+    let row = null;
+    try {
+      row = await env.DB.prepare(
+        `SELECT id, status, tool_name, expires_at FROM agentsam_approval_queue
+         WHERE id = ? AND user_id = ? AND workspace_id = ? AND tenant_id = ?
+         LIMIT 1`,
+      )
+        .bind(approvalId, uid, ws, tid)
+        .first();
+    } catch {
+      row = null;
+    }
+    if (!row?.id) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: { error: 'blocked_by_policy', reason: 'approval_not_found', profile: p },
+      };
+    }
+    const exp = Number(row.expires_at) || 0;
+    if (exp > 0 && exp < Math.floor(Date.now() / 1000)) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: { error: 'blocked_by_policy', reason: 'approval_expired', profile: p },
+      };
+    }
+    const st = String(row.status || '').toLowerCase();
+    if (st !== 'approved') {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: { error: 'pending_approval', reason: `approval_status_${st}`, profile: p },
+      };
+    }
+    const approvedTool = String(row.tool_name || '').trim().toLowerCase();
+    if (approvedTool !== toolName) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: {
+          error: 'blocked_by_policy',
+          reason: 'approval_tool_mismatch',
+          profile: p,
+          approval_tool: approvedTool,
+          requested_tool: toolName,
+        },
+      };
+    }
+    const mcpRow = await selectAgentsamMcpToolRow(
+      env.DB,
+      {
+        userId: identity.userId,
+        tenantId: identity.tenantId,
+        workspaceId: identity.workspaceId,
+        personUuid: identity.personUuid ?? null,
+      },
+      toolName,
+    );
+    let requiresApproval = mcpRow != null ? Number(mcpRow.requires_approval || 0) === 1 : false;
+    if (!mcpRow?.id) {
+      try {
+        const tRow = await env.DB
+          .prepare(
+            `SELECT id, requires_approval FROM agentsam_tools
+             WHERE lower(trim(tool_name)) = ? AND COALESCE(is_active, 1) = 1
+             LIMIT 1`,
+          )
+          .bind(toolName.toLowerCase())
+          .first();
+        if (tRow?.id) requiresApproval = Number(tRow.requires_approval || 0) === 1;
+        if (!tRow?.id) {
+          return {
+            kind: 'error',
+            status: 403,
+            payload: { error: 'blocked_by_policy', reason: 'tool_not_in_registry', profile: p },
+          };
+        }
+      } catch {
+        return {
+          kind: 'error',
+          status: 403,
+          payload: { error: 'blocked_by_policy', reason: 'tool_registry_lookup_failed', profile: p },
+        };
+      }
+    }
+    if (!requiresApproval) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: {
+          error: 'blocked_by_policy',
+          reason: 'tool_not_approval_gated_in_registry',
+          profile: p,
+        },
+      };
+    }
+    return { kind: 'execute', approvalId };
+  }
+
+  return {
+    kind: 'error',
+    status: 500,
+    payload: { error: 'smoke_profile_internal', profile: p },
+  };
+}
+
 // ─── Main Dispatcher ──────────────────────────────────────────────────────────
 
 export async function handleAgentApi(request, url, env, ctx) {
@@ -6096,7 +6442,8 @@ export async function handleAgentApi(request, url, env, ctx) {
     return jsonResponse({ tools: deduped, total: deduped.length });
   }
 
-  // POST /api/agent/tool-smoke — run builtin dispatcher without LLM (cheap wiring check)
+  // POST /api/agent/tool-smoke — builtin dispatcher without LLM (harness only; profiles in evaluateToolSmokeAccess).
+  // Runtime Agent Sam must NOT use TOOL_SMOKE_DEFAULT_SAFE_DENYLIST — chat uses route + catalog + approval policy.
   if (path === '/api/agent/tool-smoke') {
     if (method === 'OPTIONS') {
       return new Response(null, {
@@ -6115,7 +6462,7 @@ export async function handleAgentApi(request, url, env, ctx) {
           error: 'method_not_allowed',
           path,
           allowed: 'POST',
-          hint: 'Send POST with JSON: { "tool": "d1_query", "args": { "sql": "SELECT 1" } }',
+          hint: 'POST JSON { "tool": "d1_query", "args": {...}, "profile": "default_safe" } or ?profile=read_only',
         },
         405,
       );
@@ -6128,22 +6475,38 @@ export async function handleAgentApi(request, url, env, ctx) {
     }
 
     const body = await request.json().catch(() => ({}));
+    const profileRaw = url.searchParams.get('profile') ?? body.profile ?? 'default_safe';
+    const profileNorm = String(profileRaw || 'default_safe').trim().toLowerCase() || 'default_safe';
+
     const rawTool = body.tool ?? body.tool_name ?? body.name;
     const toolRaw = String(rawTool || '').trim();
     if (!toolRaw) return jsonResponse({ error: 'tool required' }, 400);
 
     const toolName = normalizeToolName(toolRaw);
-    if (TOOL_SMOKE_DENYLIST.has(toolName)) {
-      return jsonResponse(
-        { ok: false, tool: toolName, error: 'tool_blocked_for_smoke_endpoint', results: [] },
-        403,
-      );
+
+    const gate = await evaluateToolSmokeAccess(env, profileNorm, toolName, body, identity);
+    if (gate.kind === 'error') {
+      return jsonResponse({ ...gate.payload, tool: toolName, profile: profileNorm }, gate.status);
+    }
+    if (gate.kind === 'skip') {
+      const skipPayload = {
+        ok: true,
+        skipped: true,
+        tool: toolName,
+        profile: profileNorm,
+        reason: gate.reason,
+        results: [],
+      };
+      if (body.dry_run === true) skipPayload.dry_run = true;
+      if (toolRaw !== toolName) skipPayload.normalized_from = toolRaw;
+      return jsonResponse(skipPayload);
     }
 
     if (body.dry_run === true) {
       const payload = {
         ok: true,
         tool: toolName,
+        profile: profileNorm,
         dry_run: true,
         results: [],
       };
@@ -6173,13 +6536,21 @@ export async function handleAgentApi(request, url, env, ctx) {
       request,
     };
 
+    const execT0 = Date.now();
     try {
-      const raw = await runBuiltinTool(env, toolName, params, { tenantId: sess.tenant_id, userId: sess.user_id, workspaceId: sess.workspace_id, sessionId: sess.session_id });
+      const raw = await runBuiltinTool(env, toolName, params, {
+        tenantId: sess.tenant_id,
+        userId: sess.user_id,
+        workspaceId: sess.workspace_id,
+        sessionId: sess.session_id,
+      });
+      const execMs = Math.max(0, Date.now() - execT0);
       if (raw && typeof raw === 'object' && raw.error) {
         const errMsg = typeof raw.error === 'string' ? raw.error : JSON.stringify(raw.error);
         return jsonResponse({
           ok: false,
           tool: toolName,
+          profile: profileNorm,
           error: errMsg,
           results: [],
         });
@@ -6192,10 +6563,28 @@ export async function handleAgentApi(request, url, env, ctx) {
       } else if (raw != null) {
         results = [raw];
       }
-      return jsonResponse({ ok: true, tool: toolName, results });
+      if (profileNorm === 'approved_mutation' && gate.approvalId && identity?.tenantId && identity?.workspaceId) {
+        scheduleAgentsamToolCallLog(env, ctx, {
+          tenantId: String(identity.tenantId).trim(),
+          workspaceId: String(identity.workspaceId).trim(),
+          sessionId: sess.session_id ?? null,
+          toolName,
+          status: 'success',
+          durationMs: execMs,
+          userId: identity.userId,
+          approval_id: gate.approvalId,
+          route_key: 'tool_smoke_approved_mutation',
+          policy_decision_json: JSON.stringify({
+            profile: 'approved_mutation',
+            smoke_harness: true,
+            tool: toolName,
+          }),
+        });
+      }
+      return jsonResponse({ ok: true, tool: toolName, profile: profileNorm, results });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      return jsonResponse({ ok: false, tool: toolName, error: msg, results: [] }, 500);
+      return jsonResponse({ ok: false, tool: toolName, profile: profileNorm, error: msg, results: [] }, 500);
     }
   }
 

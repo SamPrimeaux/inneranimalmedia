@@ -2,12 +2,27 @@
  * Branded MCP catalog + lane inference for Agent Sam chat and GET /api/mcp/tools/catalog.
  *
  * Reads v_agentsam_mcp_tools_branded when present; falls back to agentsam_mcp_tools list queries.
- * See agentsam-mcp-tools.js for scoped workspace matching on the base table.
+ * Deterministic agent-chat path: route lanes + capability policy + mcp_workspace_tokens entitlements.
  */
 
 import { selectAgentsamMcpToolsList } from './agentsam-mcp-tools.js';
+import { pragmaTableInfo } from './retention.js';
 
 /** @typedef {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null, personUuid?: string|null }} McpRuntimeScope */
+
+/**
+ * @typedef {{
+ *   route_key: string,
+ *   task_type: string,
+ *   allowed_lanes: string[],
+ *   required_capabilities: string[],
+ *   optional_capabilities: string[],
+ *   blocked_capabilities: string[],
+ *   max_tools: number | null,
+ *   approval_policy: Record<string, unknown> | null,
+ *   source: string,
+ * }} RouteToolRequirements
+ */
 
 const LANES = new Set([
   'design',
@@ -21,6 +36,122 @@ const LANES = new Set([
   'observe',
   'general',
 ]);
+
+function parseJsonStringArray(raw) {
+  if (raw == null || raw === '') return [];
+  try {
+    const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(j) ? j.map((x) => String(x || '').trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * @param {Set<string>[]} sets
+ * @returns {Set<string>|null}
+ */
+function intersectSets(sets) {
+  if (!sets.length) return null;
+  let acc = new Set(sets[0]);
+  for (let i = 1; i < sets.length; i++) {
+    const next = new Set();
+    for (const x of acc) {
+      if (sets[i].has(x)) next.add(x);
+    }
+    acc = next;
+  }
+  return acc;
+}
+
+/**
+ * Active workspace token rows → intersected entitlement sets (null = no restriction on that axis).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} workspaceId
+ * @param {string} tenantId
+ */
+export async function loadWorkspaceTokenEntitlements(db, workspaceId, tenantId) {
+  const ws = String(workspaceId || '').trim();
+  const tn = String(tenantId || '').trim();
+  if (!db || !ws || !tn) {
+    return {
+      allowedToolNames: null,
+      allowedCapabilityKeys: null,
+      allowedLanes: null,
+      allowedRiskLevels: null,
+    };
+  }
+  const cols = await pragmaTableInfo(db, 'mcp_workspace_tokens');
+  const selectParts = ['allowed_tools'];
+  if (cols.has('allowed_capability_keys_json')) selectParts.push('allowed_capability_keys_json');
+  if (cols.has('allowed_lanes_json')) selectParts.push('allowed_lanes_json');
+  if (cols.has('allowed_risk_levels_json')) selectParts.push('allowed_risk_levels_json');
+  const revokedClause = cols.has('revoked_at') ? 'AND revoked_at IS NULL' : '';
+  const sql = `SELECT ${selectParts.join(', ')} FROM mcp_workspace_tokens
+     WHERE workspace_id = ? AND tenant_id = ? AND COALESCE(is_active, 0) = 1
+       ${revokedClause}
+     LIMIT 40`;
+  let results = [];
+  try {
+    const r = await db.prepare(sql).bind(ws, tn).all();
+    results = r.results || [];
+  } catch (e) {
+    console.warn('[mcp-tools-branded] loadWorkspaceTokenEntitlements', e?.message ?? e);
+    return {
+      allowedToolNames: null,
+      allowedCapabilityKeys: null,
+      allowedLanes: null,
+      allowedRiskLevels: null,
+    };
+  }
+
+  const toolSets = [];
+  const capSets = [];
+  const laneSets = [];
+  const riskSets = [];
+
+  for (const row of results || []) {
+    const rawTools = row?.allowed_tools;
+    if (rawTools != null && String(rawTools).trim() !== '') {
+      const arr = parseJsonStringArray(rawTools);
+      if (arr.length) toolSets.push(new Set(arr.map((x) => x.toLowerCase())));
+    }
+    if (cols.has('allowed_capability_keys_json')) {
+      const raw = row?.allowed_capability_keys_json;
+      if (raw != null && String(raw).trim() !== '') {
+        const arr = parseJsonStringArray(raw);
+        if (arr.length) capSets.push(new Set(arr.map((x) => x.toLowerCase())));
+      }
+    }
+    if (cols.has('allowed_lanes_json')) {
+      const raw = row?.allowed_lanes_json;
+      if (raw != null && String(raw).trim() !== '') {
+        const arr = parseJsonStringArray(raw);
+        const norm = arr.map((x) => x.toLowerCase()).filter((x) => LANES.has(x));
+        if (norm.length) laneSets.push(new Set(norm));
+      }
+    }
+    if (cols.has('allowed_risk_levels_json')) {
+      const raw = row?.allowed_risk_levels_json;
+      if (raw != null && String(raw).trim() !== '') {
+        const arr = parseJsonStringArray(raw);
+        if (arr.length) riskSets.push(new Set(arr.map((x) => x.toLowerCase())));
+      }
+    }
+  }
+
+  const allowedToolNames = toolSets.length ? intersectSets(toolSets) : null;
+  const allowedCapabilityKeys = capSets.length ? intersectSets(capSets) : null;
+  const allowedLanes = laneSets.length ? intersectSets(laneSets) : null;
+  const allowedRiskLevels = riskSets.length ? intersectSets(riskSets) : null;
+
+  return {
+    allowedToolNames: allowedToolNames && allowedToolNames.size ? allowedToolNames : null,
+    allowedCapabilityKeys: allowedCapabilityKeys && allowedCapabilityKeys.size ? allowedCapabilityKeys : null,
+    allowedLanes: allowedLanes && allowedLanes.size ? allowedLanes : null,
+    allowedRiskLevels: allowedRiskLevels && allowedRiskLevels.size ? allowedRiskLevels : null,
+  };
+}
 
 /**
  * Map user message + routing hints to a single capability_lane for catalog filtering.
@@ -74,20 +205,35 @@ export function maxModelToolsForAgentTask(taskType, modeSlug) {
   return 8;
 }
 
-/**
- * @param {import('@cloudflare/workers-types').D1Database} db
- * @param {{ lane?: string|null, limit?: number, includeSchema?: boolean }} opts
- * @returns {Promise<Record<string, unknown>[]>}
- */
-export async function queryBrandedMcpCatalog(db, opts = {}) {
-  if (!db) return [];
-  const laneRaw = opts.lane != null ? String(opts.lane).trim().toLowerCase() : '';
-  const lane = LANES.has(laneRaw) ? laneRaw : '';
-  const lim = Math.max(1, Math.min(200, Number(opts.limit) || 48));
-  const includeSchema = opts.includeSchema !== false;
+const BRANDED_SELECT_FULL = `
+SELECT
+  id,
+  tool_name,
+  tool_key,
+  capability_key,
+  tool_category,
+  handler_type,
+  handler_brand,
+  capability_lane,
+  safety_badge,
+  description,
+  __SCHEMA_COL__
+  risk_level,
+  requires_approval,
+  enabled,
+  sort_priority,
+  schema_hint,
+  avg_latency_ms,
+  failure_rate,
+  server_key,
+  mcp_service_url
+FROM v_agentsam_mcp_tools_branded
+WHERE enabled = 1
+  __LANE_PRED__
+ORDER BY capability_lane, handler_brand, requires_approval ASC, sort_priority ASC, tool_name ASC
+LIMIT ?`;
 
-  const schemaCol = includeSchema ? 'input_schema,' : '';
-  const sql = `
+const BRANDED_SELECT_MIN = `
 SELECT
   id,
   tool_name,
@@ -97,7 +243,7 @@ SELECT
   capability_lane,
   safety_badge,
   description,
-  ${schemaCol}
+  __SCHEMA_COL__
   risk_level,
   requires_approval,
   enabled,
@@ -107,17 +253,215 @@ SELECT
   failure_rate
 FROM v_agentsam_mcp_tools_branded
 WHERE enabled = 1
-  AND (? = '' OR capability_lane = ?)
+  __LANE_PRED__
 ORDER BY capability_lane, handler_brand, requires_approval ASC, sort_priority ASC, tool_name ASC
 LIMIT ?`;
 
-  try {
-    const { results } = await db.prepare(sql).bind(lane, lane, lim).all();
-    return Array.isArray(results) ? results : [];
-  } catch (e) {
-    console.warn('[mcp-tools-branded] v_agentsam_mcp_tools_branded', e?.message ?? e);
-    return [];
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ lane?: string|null, lanes?: string[]|null, limit?: number, includeSchema?: boolean }} opts
+ * @returns {Promise<Record<string, unknown>[]>}
+ */
+export async function queryBrandedMcpCatalog(db, opts = {}) {
+  if (!db) return [];
+  const lim = Math.max(1, Math.min(200, Number(opts.limit) || 48));
+  const includeSchema = opts.includeSchema !== false;
+  const schemaCol = includeSchema ? 'input_schema,' : '';
+
+  const lanesArr = Array.isArray(opts.lanes)
+    ? opts.lanes.map((l) => String(l || '').trim().toLowerCase()).filter((l) => LANES.has(l))
+    : [];
+  const laneRaw = opts.lane != null ? String(opts.lane).trim().toLowerCase() : '';
+  const laneSingle = LANES.has(laneRaw) ? laneRaw : '';
+
+  let lanePred = '';
+  let bind = [];
+  if (lanesArr.length) {
+    lanePred = 'AND EXISTS (SELECT 1 FROM json_each(?) je WHERE je.value = capability_lane)';
+    bind = [JSON.stringify(lanesArr), lim];
+  } else {
+    lanePred = "AND (? = '' OR capability_lane = ?)";
+    bind = [laneSingle, laneSingle, lim];
   }
+
+  async function run(selectTpl) {
+    const sql = selectTpl.replace('__SCHEMA_COL__', schemaCol).replace('__LANE_PRED__', lanePred);
+    return db.prepare(sql).bind(...bind).all();
+  }
+
+  for (const tpl of [BRANDED_SELECT_FULL, BRANDED_SELECT_MIN]) {
+    try {
+      const { results } = await run(tpl);
+      return Array.isArray(results) ? results : [];
+    } catch (e) {
+      if (tpl === BRANDED_SELECT_MIN) {
+        console.warn('[mcp-tools-branded] v_agentsam_mcp_tools_branded', e?.message ?? e);
+      }
+    }
+  }
+  return [];
+}
+
+function toolRowMatchesCapability(row, capKey) {
+  const k = String(capKey || '').trim().toLowerCase();
+  if (!k) return false;
+  const ids = [
+    row.capability_key,
+    row.tool_key,
+    row.tool_name,
+  ]
+    .filter((x) => x != null && String(x).trim() !== '')
+    .map((x) => String(x).trim().toLowerCase());
+  return ids.some((id) => id === k);
+}
+
+function toolRowBlocked(row, blockedList) {
+  for (const b of blockedList || []) {
+    if (toolRowMatchesCapability(row, b)) return true;
+  }
+  return false;
+}
+
+/**
+ * Deterministic tool rows for agent chat (route + token + scoped ∩ branded view).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {McpRuntimeScope} runtimeCtx
+ * @param {{
+ *   routeToolRequirements: RouteToolRequirements,
+ *   message?: string,
+ *   intentSlug?: string,
+ *   taskType?: string,
+ *   modeSlug?: string,
+ *   catalogLimit?: number,
+ *   outputLimit?: number,
+ *   allowLegacyFallback?: boolean,
+ * }} opts
+ * @returns {Promise<{ rows: Record<string, unknown>[], missingRequiredCapabilities: string[], usedLegacyFallback: boolean }>}
+ */
+export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, opts) {
+  const req = opts.routeToolRequirements;
+  const outputLimit = Math.max(1, Math.min(200, Number(opts.outputLimit) || 20));
+  const catalogLimit = Math.max(outputLimit, Math.min(200, Number(opts.catalogLimit) || 96));
+  const modeSlug = String(opts.modeSlug || '').toLowerCase();
+  const taskType = String(opts.taskType || '').toLowerCase();
+  const allowLegacy = opts.allowLegacyFallback !== false;
+
+  const lanes = (req?.allowed_lanes || []).filter((l) => LANES.has(String(l).toLowerCase()));
+  const effectiveLanes = lanes.length ? lanes : ['general'];
+
+  let branded = await queryBrandedMcpCatalog(db, {
+    lanes: effectiveLanes,
+    limit: catalogLimit * 2,
+    includeSchema: true,
+  });
+  if (!branded.length && effectiveLanes.length > 1) {
+    const fallbackLane = inferMcpCapabilityLane(opts.message, opts.intentSlug, opts.taskType, opts.modeSlug);
+    branded = await queryBrandedMcpCatalog(db, {
+      lane: fallbackLane,
+      limit: catalogLimit * 2,
+      includeSchema: true,
+    });
+  }
+
+  const scopedNames = await selectScopedMcpToolNames(db, runtimeCtx, 800);
+  const scoped = new Set(scopedNames);
+  const ws = runtimeCtx?.workspaceId != null ? String(runtimeCtx.workspaceId).trim() : '';
+  const tn = runtimeCtx?.tenantId != null ? String(runtimeCtx.tenantId).trim() : '';
+  const tokenNames = await loadWorkspaceTokenAllowedToolNames(db, ws, tn);
+  const ent = await loadWorkspaceTokenEntitlements(db, ws, tn);
+
+  const routeLaneSet = new Set(effectiveLanes.map((x) => String(x).toLowerCase()));
+  let laneFilter = routeLaneSet;
+  if (ent.allowedLanes && ent.allowedLanes.size) {
+    laneFilter = new Set([...routeLaneSet].filter((l) => ent.allowedLanes.has(l)));
+    if (!laneFilter.size && routeLaneSet.size) {
+      console.warn('[mcp-tools-branded] token_lane_route_intersection_empty', {
+        route_lanes: [...routeLaneSet],
+        token_lanes: [...ent.allowedLanes],
+      });
+      laneFilter = routeLaneSet;
+    }
+  }
+
+  const toRow = (r) => ({
+    tool_name: String(r.tool_name || '').trim(),
+    description: String(r.description || ''),
+    input_schema: r.input_schema,
+    tool_category: String(r.tool_category || 'mcp'),
+    requires_approval: Number(r.requires_approval || 0) === 1 ? 1 : 0,
+  });
+
+  let candidates = [];
+  for (const r of branded) {
+    const name = String(r.tool_name || '').trim();
+    if (!name) continue;
+    const lane = String(r.capability_lane || '').trim().toLowerCase();
+    if (laneFilter.size && !laneFilter.has(lane)) continue;
+    if (scoped.size && !scoped.has(name)) continue;
+    if (tokenNames) {
+      if (tokenNames.size === 0) continue;
+      if (!tokenNames.has(name.toLowerCase())) continue;
+    }
+    if (ent.allowedToolNames) {
+      if (ent.allowedToolNames.size === 0) continue;
+      if (!ent.allowedToolNames.has(name.toLowerCase())) continue;
+    }
+    if (ent.allowedCapabilityKeys) {
+      const keys = [r.capability_key, r.tool_key, r.tool_name]
+        .filter((x) => x != null && String(x).trim() !== '')
+        .map((x) => String(x).trim().toLowerCase());
+      if (!keys.some((k) => ent.allowedCapabilityKeys.has(k))) continue;
+    }
+    if (ent.allowedRiskLevels) {
+      const rl = String(r.risk_level || 'low').trim().toLowerCase();
+      if (!ent.allowedRiskLevels.has(rl)) continue;
+    }
+    if (toolRowBlocked(r, req.blocked_capabilities)) continue;
+    candidates.push({ raw: r, row: toRow(r) });
+  }
+
+  const opt = req.optional_capabilities || [];
+  const reqCaps = req.required_capabilities || [];
+
+  const missing = [];
+  for (const cap of reqCaps) {
+    if (!candidates.some(({ raw }) => toolRowMatchesCapability(raw, cap))) {
+      missing.push(String(cap));
+    }
+  }
+  if (missing.length) {
+    return { rows: [], missingRequiredCapabilities: missing, usedLegacyFallback: false };
+  }
+
+  const maxModel = maxModelToolsForAgentTask(taskType, modeSlug);
+  const routeMax = req.max_tools != null && Number(req.max_tools) > 0 ? Math.floor(Number(req.max_tools)) : outputLimit;
+  const maxOut = Math.min(outputLimit, maxModel, routeMax);
+
+  const score = ({ raw }) => {
+    let s = 0;
+    for (const c of reqCaps) {
+      if (toolRowMatchesCapability(raw, c)) s += 100;
+    }
+    for (const c of opt) {
+      if (toolRowMatchesCapability(raw, c)) s += 10;
+    }
+    return s;
+  };
+  candidates.sort((a, b) => score(b) - score(a) || String(a.raw.tool_name).localeCompare(String(b.raw.tool_name)));
+
+  let rows = candidates.slice(0, maxOut).map((c) => c.row);
+  let usedLegacyFallback = false;
+
+  if (!rows.length && allowLegacy) {
+    console.warn('[mcp-tools-branded] deterministic_empty_legacy_fallback', {
+      route_key: req.route_key,
+      task_type: req.task_type,
+    });
+    rows = await selectAgentsamMcpToolsList(db, runtimeCtx, Math.min(maxOut, 12));
+    usedLegacyFallback = true;
+  }
+
+  return { rows, missingRequiredCapabilities: [], usedLegacyFallback };
 }
 
 /**
@@ -180,33 +524,29 @@ export async function loadWorkspaceTokenAllowedToolNames(db, workspaceId, tenant
   const ws = String(workspaceId || '').trim();
   const tn = String(tenantId || '').trim();
   if (!db || !ws || !tn) return null;
+  const cols = await pragmaTableInfo(db, 'mcp_workspace_tokens');
+  const revokedClause = cols.has('revoked_at') ? 'AND revoked_at IS NULL' : '';
   try {
     const { results } = await db
       .prepare(
         `SELECT allowed_tools FROM mcp_workspace_tokens
          WHERE workspace_id = ? AND tenant_id = ? AND COALESCE(is_active, 0) = 1
+           ${revokedClause}
            AND allowed_tools IS NOT NULL AND trim(allowed_tools) != ''
-         LIMIT 20`,
+         LIMIT 40`,
       )
       .bind(ws, tn)
       .all();
-    const out = new Set();
+    const sets = [];
     for (const r of results || []) {
       const raw = r?.allowed_tools;
       if (raw == null || raw === '') continue;
-      let arr = [];
-      try {
-        const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        arr = Array.isArray(j) ? j : [];
-      } catch {
-        continue;
-      }
-      for (const x of arr) {
-        const n = String(x || '').trim();
-        if (n) out.add(n);
-      }
+      const arr = parseJsonStringArray(raw);
+      if (arr.length) sets.push(new Set(arr.map((x) => x.toLowerCase())));
     }
-    return out.size ? out : null;
+    if (!sets.length) return null;
+    const merged = intersectSets(sets);
+    return merged;
   } catch (e) {
     console.warn('[mcp-tools-branded] workspace token allowed_tools', e?.message ?? e);
     return null;
@@ -215,7 +555,7 @@ export async function loadWorkspaceTokenAllowedToolNames(db, workspaceId, tenant
 
 /**
  * Merge branded view rows + workspace scope + token policy into chat tool rows
- * (same shape as selectAgentsamMcpToolsList).
+ * (same shape as selectAgentsamMcpToolsList). Non–agent-chat paths.
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {McpRuntimeScope} runtimeCtx
  * @param {{ lane?: string, catalogLimit?: number, outputLimit?: number, message?: string, intentSlug?: string, taskType?: string, modeSlug?: string }} opts
@@ -253,7 +593,10 @@ export async function selectMcpToolsForChatRuntime(db, runtimeCtx, opts = {}) {
       const name = String(r.tool_name || '').trim();
       if (!name) continue;
       if (scoped.size && !scoped.has(name)) continue;
-      if (tokenAllow && !tokenAllow.has(name)) continue;
+      if (tokenAllow) {
+        if (tokenAllow.size === 0) continue;
+        if (!tokenAllow.has(name.toLowerCase())) continue;
+      }
       candidates.push(toRow(r));
     }
   }
