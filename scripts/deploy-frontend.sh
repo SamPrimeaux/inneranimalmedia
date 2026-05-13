@@ -100,6 +100,26 @@ R2_SYNC_END=$(date +%s)
 R2_SYNC_MS=$(( (R2_SYNC_END - R2_SYNC_START) * 1000 ))
 echo "→ R2 sync complete"
 
+# Canonical URL `/static/dashboard/shell.css` (HTML + shells) must hit this exact key; Vite only copies
+# the file into dist as `static/dashboard/shell.css`, which rclone maps to
+# `static/dashboard/agent/static/dashboard/shell.css` — without this put, ASSETS.get(short key) misses.
+SHELL_CANON="$REPO_ROOT/dashboard/public/static/dashboard/shell.css"
+if [[ -f "$SHELL_CANON" ]]; then
+  echo "→ Publishing canonical R2 key static/dashboard/shell.css"
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "${BUCKET}/static/dashboard/shell.css" \
+    --file "$SHELL_CANON" --content-type "text/css;charset=UTF-8" \
+    -c "$TOML" --remote
+else
+  echo "⚠️  Missing $SHELL_CANON — /static/dashboard/shell.css may 404 until restored" >&2
+fi
+WS_SHELL="$REPO_ROOT/dashboard/iam-workspace-shell.html"
+if [[ -f "$WS_SHELL" ]]; then
+  echo "→ Publishing static/dashboard/iam-workspace-shell.html"
+  ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "${BUCKET}/static/dashboard/iam-workspace-shell.html" \
+    --file "$WS_SHELL" --content-type "text/html;charset=UTF-8" \
+    -c "$TOML" --remote
+fi
+
 # R2 inventory: manifest + D1 upsert + stale marking (no object deletes — use npm run r2:prune:dry-run separately)
 DEPLOY_ID="${DEPLOY_ID:-deploy_$(date +%s)_$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo local)}"
 export DEPLOY_ID

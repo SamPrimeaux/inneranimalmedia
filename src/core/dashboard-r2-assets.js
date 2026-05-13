@@ -21,6 +21,11 @@ export async function getDashboardR2Object(bucket, assetKey) {
   };
 
   add(assetKey);
+  // Vite `public/static/dashboard/shell.css` → dist ends up under agent prefix after rclone; HTML still
+  // links `/static/dashboard/shell.css`. Try the nested key early (also covered by legacy add below).
+  if (assetKey === 'static/dashboard/shell.css') {
+    add(`${DASHBOARD_STATIC_AGENT_PREFIX}static/dashboard/shell.css`);
+  }
 
   if (assetKey.startsWith(DASHBOARD_STATIC_AGENT_PREFIX)) {
     const rest = assetKey.slice(DASHBOARD_STATIC_AGENT_PREFIX.length);
