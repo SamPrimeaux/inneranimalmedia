@@ -8,6 +8,7 @@ import { User, Bot, Loader2, ChevronRight, FileText, FileCode } from 'lucide-rea
 import type { ActiveFile } from '../../../types';
 import type { Message, ImplementationPlanVisualMap, ImplementationPlanMarkdown } from '../types';
 import { AgentChatMarkdown } from './AgentChatMarkdown';
+import { ToolApprovalModal } from '../../../src/components/ToolApprovalModal';
 import type { ExecPanelState, WorkflowLedgerState } from '../types';
 
 const getLangMeta = (lang: string) => {
