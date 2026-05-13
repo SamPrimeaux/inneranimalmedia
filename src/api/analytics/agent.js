@@ -31,6 +31,311 @@ function depRangeClause(range, col = 'created_at') {
   return `${col} >= unixepoch('now', '-7 days')`;
 }
 
+function wfRangeClause(range) {
+  if (range === '24h') return `started_at >= unixepoch('now', '-24 hours')`;
+  if (range === '30d') return `started_at >= unixepoch('now', '-30 days')`;
+  if (range === 'all') return `started_at >= unixepoch('now', '-3650 days')`;
+  return `started_at >= unixepoch('now', '-7 days')`;
+}
+
+/** Aligns with workflow-executor step_results_json entries. */
+function usageFromGraphStepResult(s) {
+  const o = s?.output;
+  if (!o || typeof o !== 'object') return { tin: 0, tout: 0, cost: 0 };
+  const u = o.usage && typeof o.usage === 'object' ? o.usage : o;
+  const tin = Number(u.input_tokens ?? u.prompt_tokens ?? o.tokens_in ?? 0) || 0;
+  const tout = Number(u.output_tokens ?? u.completion_tokens ?? o.tokens_out ?? 0) || 0;
+  const cost = Number(o.cost_usd ?? u.cost_usd ?? 0) || 0;
+  return { tin, tout, cost };
+}
+
+function waterfallFromStepResultsJson(stepResultsJson) {
+  let arr = [];
+  const raw =
+    stepResultsJson != null && typeof stepResultsJson !== 'string'
+      ? JSON.stringify(stepResultsJson)
+      : stepResultsJson;
+  try {
+    arr = JSON.parse(raw || '[]');
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const rows = arr.map((s) => {
+    const u = usageFromGraphStepResult(s);
+    const ok = s?.ok !== false && s?.error == null;
+    return {
+      node_key: s.node_key ?? s.nodeKey ?? null,
+      status: ok ? 'completed' : 'failed',
+      latency_ms: Number(s.latency_ms ?? 0) || 0,
+      tokens_in: u.tin,
+      tokens_out: u.tout,
+      cost_usd: u.cost,
+    };
+  });
+  const maxLat = Math.max(1, ...rows.map((r) => Number(r.latency_ms) || 0));
+  return rows.map((r) => ({
+    ...r,
+    bar: maxLat ? (Number(r.latency_ms) || 0) / maxLat : 0,
+  }));
+}
+
+function truncateJsonField(v, max = 1200) {
+  if (v == null) return null;
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}…`;
+}
+
+function stepRowIsFailed(st) {
+  const s = String(st?.status || '').toLowerCase();
+  return s === 'failed' || s === 'timeout' || s === 'timed_out';
+}
+
+/**
+ * GET /api/analytics/agent/runs
+ * Query: range, limit (default 40, max 200), run_id (detail for one run).
+ */
+export async function handleAgentAnalyticsRuns(request, url, env, { tenantId, workspaceId }) {
+  void request;
+  const range = parseRange(url);
+  const warnings = [];
+  const db = env?.DB || null;
+  const tid = tenantId && String(tenantId).trim() ? String(tenantId).trim() : null;
+  const wid = workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null;
+  const runId = (url.searchParams.get('run_id') || '').trim() || null;
+  let limit = Number(url.searchParams.get('limit') || 40) || 40;
+  if (limit < 1) limit = 1;
+  if (limit > 200) limit = 200;
+
+  if (!db) {
+    return analyticsResponse({
+      ok: true,
+      backend: 'd1',
+      range,
+      summary: { state: 'EMPTY', detail: false },
+      rows: [],
+      warnings: [
+        {
+          code: 'D1_BINDING_MISSING',
+          message: 'env.DB missing; workflow runs unavailable.',
+          severity: 'warn',
+        },
+      ],
+    });
+  }
+
+  if (!(await tableExists(db, 'agentsam_workflow_runs'))) {
+    return analyticsResponse({
+      ok: true,
+      backend: 'd1',
+      range,
+      summary: { state: 'EMPTY', detail: false, reason: 'no_agentsam_workflow_runs_table' },
+      rows: [],
+      warnings,
+    });
+  }
+
+  const wfWhere = [wfRangeClause(range)];
+  const wfBinds = [];
+  if (tid) {
+    wfWhere.push('tenant_id = ?');
+    wfBinds.push(tid);
+  }
+  if (wid) {
+    wfWhere.push('workspace_id = ?');
+    wfBinds.push(wid);
+  }
+  const wfWhereSql = wfWhere.join(' AND ');
+
+  if (!runId) {
+    const statusAgg = await d1All(
+      db,
+      'runs_status',
+      `SELECT status, COUNT(*) AS c FROM agentsam_workflow_runs WHERE ${wfWhereSql} GROUP BY status`,
+      wfBinds,
+      warnings,
+    );
+    const rows = await d1All(
+      db,
+      'runs_list',
+      `SELECT id, workflow_id, workflow_key, display_name, tenant_id, workspace_id, status,
+              trigger_type, environment, model_used, started_at, completed_at, duration_ms,
+              input_tokens, output_tokens, cost_usd, error_message, current_node_key,
+              steps_completed, steps_total, supabase_sync_status
+       FROM agentsam_workflow_runs
+       WHERE ${wfWhereSql}
+       ORDER BY started_at DESC
+       LIMIT ${limit}`,
+      wfBinds,
+      warnings,
+    );
+    const total = statusAgg.reduce((a, r) => a + (Number(r.c) || 0), 0);
+    return analyticsResponse({
+      ok: true,
+      backend: 'd1',
+      range,
+      summary: {
+        state: total ? 'LIVE' : 'EMPTY',
+        detail: false,
+        run_count: total,
+        by_status: Object.fromEntries(statusAgg.map((r) => [String(r.status || 'unknown'), Number(r.c) || 0])),
+      },
+      rows,
+      warnings,
+    });
+  }
+
+  const run = await d1First(
+    db,
+    'run_one',
+    `SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`,
+    [runId],
+    warnings,
+  );
+  if (!run) {
+    return analyticsResponse({
+      ok: true,
+      backend: 'd1',
+      range,
+      summary: { state: 'NOT_FOUND', detail: true, run_id: runId },
+      rows: [],
+      warnings: [
+        {
+          code: 'RUN_NOT_FOUND',
+          message: `No workflow run ${runId}`,
+          severity: 'info',
+        },
+      ],
+    });
+  }
+  if (tid && run.tenant_id && String(run.tenant_id) !== tid) {
+    warnings.push({
+      code: 'RUN_TENANT_MISMATCH',
+      message: `Run tenant ${run.tenant_id} does not match request tenant ${tid}.`,
+      severity: 'warn',
+    });
+  }
+
+  let steps = [];
+  if (await tableExists(db, 'agentsam_execution_steps')) {
+    steps = await d1All(
+      db,
+      'run_steps',
+      `SELECT id, execution_id, node_key, node_type, status, latency_ms, tokens_in, tokens_out, cost_usd,
+              started_at, completed_at, created_at, attempt, edge_taken,
+              substr(COALESCE(error_json,''),1,800) AS error_json_preview,
+              substr(COALESCE(output_json,''),1,400) AS output_json_preview
+       FROM agentsam_execution_steps
+       WHERE execution_id = ?
+       ORDER BY datetime(created_at) ASC, id ASC`,
+      [runId],
+      warnings,
+    );
+  }
+
+  const wfJson = waterfallFromStepResultsJson(run.step_results_json);
+  let waterfall = wfJson;
+  if (!waterfall?.length && steps.length) {
+    const lat = steps.map((s) => Number(s.latency_ms) || 0);
+    const maxLat = Math.max(1, ...lat);
+    waterfall = steps.map((s) => ({
+      node_key: s.node_key,
+      status: s.status,
+      latency_ms: Number(s.latency_ms) || 0,
+      tokens_in: Number(s.tokens_in) || 0,
+      tokens_out: Number(s.tokens_out) || 0,
+      cost_usd: Number(s.cost_usd) || 0,
+      bar: maxLat ? (Number(s.latency_ms) || 0) / maxLat : 0,
+    }));
+  }
+
+  const failurePath = [];
+  for (const s of steps) {
+    if (stepRowIsFailed(s)) {
+      failurePath.push({
+        id: s.id,
+        node_key: s.node_key,
+        status: s.status,
+        error_json_preview: s.error_json_preview,
+      });
+    }
+  }
+  if (!failurePath.length && String(run.status || '').toLowerCase() === 'failed') {
+    failurePath.push({
+      id: run.id,
+      node_key: run.current_node_key || null,
+      status: run.status,
+      error_json_preview: truncateJsonField(run.error_message, 800),
+    });
+  }
+
+  let commandRuns = [];
+  const crCols = await pragmaTableInfo(db, 'agentsam_command_run');
+  if (crCols.size && (await tableExists(db, 'agentsam_executions'))) {
+    const exCols = await pragmaTableInfo(db, 'agentsam_executions');
+    if (exCols.has('workflow_run_id') && exCols.has('command_run_id')) {
+      commandRuns = await d1All(
+        db,
+        'cmd_via_exec',
+        `SELECT cr.id, cr.success, cr.duration_ms, cr.created_at, cr.selected_command_slug, cr.error_message
+         FROM agentsam_command_run cr
+         INNER JOIN agentsam_executions ex ON ex.command_run_id = cr.id
+         WHERE ex.workflow_run_id = ?
+         ORDER BY cr.created_at DESC
+         LIMIT 50`,
+        [runId],
+        warnings,
+      );
+    }
+  }
+
+  const toolLedger = steps.map((s) => ({
+    step_id: s.id,
+    node_key: s.node_key,
+    node_type: s.node_type,
+    status: s.status,
+    latency_ms: s.latency_ms,
+    preview: s.output_json_preview,
+  }));
+
+  const safeRun = { ...run };
+  if (safeRun.step_results_json != null) {
+    safeRun.step_results_json = truncateJsonField(safeRun.step_results_json, 4000);
+  }
+  if (safeRun.input_json != null) safeRun.input_json = truncateJsonField(safeRun.input_json, 2000);
+  if (safeRun.output_json != null) safeRun.output_json = truncateJsonField(safeRun.output_json, 2000);
+  if (safeRun.metadata_json != null) safeRun.metadata_json = truncateJsonField(safeRun.metadata_json, 2000);
+
+  const hasExecSteps = await tableExists(db, 'agentsam_execution_steps');
+  const hasExecutions = await tableExists(db, 'agentsam_executions');
+  const hasCommandRun = crCols.size > 0;
+
+  return analyticsResponse({
+    ok: true,
+    backend: 'd1',
+    range,
+    summary: {
+      state: 'LIVE',
+      detail: true,
+      run: safeRun,
+      step_count: steps.length,
+      failure_step_count: failurePath.length,
+    },
+    rows: steps,
+    waterfall: waterfall || [],
+    failurePath,
+    commandRuns,
+    toolLedger,
+    verifiedTrace: {
+      agentsam_execution_steps: hasExecSteps,
+      agentsam_executions: hasExecutions,
+      agentsam_command_run: hasCommandRun,
+    },
+    warnings,
+  });
+}
+
 /**
  * GET /api/analytics/agent/graph — workflow nodes + edges (D1).
  * Optional: ?workflow_id= — otherwise picks the active workflow with the most nodes in tenant scope.

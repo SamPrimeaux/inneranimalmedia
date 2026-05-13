@@ -4,7 +4,25 @@ import { handleAnalyticsSourceHealth } from './source-health.js';
 import { handleAnalyticsOverview } from './overview.js';
 import { handleAnalyticsRag } from './rag.js';
 import { handleAnalyticsCodebase } from './codebase.js';
-import { handleAgentAnalyticsGraph, handleAgentAnalyticsDependencies } from './agent.js';
+import {
+  handleAgentAnalyticsGraph,
+  handleAgentAnalyticsDependencies,
+  handleAgentAnalyticsRuns,
+} from './agent.js';
+import {
+  handleAnalyticsAdvisors,
+  handleAnalyticsAdvisorsGuardrails,
+  handleAnalyticsMcpTools,
+  handleAnalyticsModelsDrift,
+  handleAnalyticsModelsEvals,
+  handleAnalyticsModelsLeaderboard,
+  handleAnalyticsModelsPromptCache,
+  handleAnalyticsModelsRoutingArms,
+  handleAnalyticsModelsRoutingDecisions,
+  handleAnalyticsWorkersDashboardVersions,
+  handleAnalyticsWorkersR2,
+  handleAnalyticsWorkersSummary,
+} from './boards.js';
 
 /**
  * /api/analytics/* router.
@@ -55,6 +73,58 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/agent/dependencies' && request.method === 'GET') {
     return handleAgentAnalyticsDependencies(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/agent/runs' && request.method === 'GET') {
+    return handleAgentAnalyticsRuns(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/models/leaderboard' && request.method === 'GET') {
+    return handleAnalyticsModelsLeaderboard(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/models/routing-arms' && request.method === 'GET') {
+    return handleAnalyticsModelsRoutingArms(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/models/routing-decisions' && request.method === 'GET') {
+    return handleAnalyticsModelsRoutingDecisions(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/models/evals' && request.method === 'GET') {
+    return handleAnalyticsModelsEvals(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/models/drift' && request.method === 'GET') {
+    return handleAnalyticsModelsDrift(request, url, env);
+  }
+
+  if (pathLower === '/api/analytics/models/prompt-cache' && request.method === 'GET') {
+    return handleAnalyticsModelsPromptCache(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/workers/r2' && request.method === 'GET') {
+    return handleAnalyticsWorkersR2(request, url, env);
+  }
+
+  if (pathLower === '/api/analytics/workers/dashboard-versions' && request.method === 'GET') {
+    return handleAnalyticsWorkersDashboardVersions(request, url, env);
+  }
+
+  if (pathLower === '/api/analytics/workers/summary' && request.method === 'GET') {
+    return handleAnalyticsWorkersSummary(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/mcp/tools' && request.method === 'GET') {
+    return handleAnalyticsMcpTools(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/advisors' && request.method === 'GET') {
+    return handleAnalyticsAdvisors(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/advisors/guardrails' && request.method === 'GET') {
+    return handleAnalyticsAdvisorsGuardrails(request, url, env, { tenantId, workspaceId });
   }
 
   // Stub endpoints for now — return standard AnalyticsResponse shape.

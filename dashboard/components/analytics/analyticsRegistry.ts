@@ -39,22 +39,29 @@ export const ANALYTICS_TABS: Array<AnalyticsTab & { id: AnalyticsTabId }> = [
   {
     id: 'workers',
     label: 'Workers',
-    status: 'beta',
-    dataSources: ['dataHealth', 'r2Inventory', 'dashboardVersions', 'webhooks'],
+    status: 'live',
+    dataSources: ['workersSummary', 'r2Inventory', 'dashboardVersions', 'dataHealth'],
     component: lazy(() => import('./tabs/WorkersTab')),
   },
   {
     id: 'mcp',
     label: 'MCP',
     status: 'live',
-    dataSources: ['toolCalls', 'toolCache'],
+    dataSources: ['toolCalls'],
     component: lazy(() => import('./tabs/McpTab')),
   },
   {
     id: 'models',
     label: 'Models',
     status: 'live',
-    dataSources: ['modelLeaderboard', 'modelDrift', 'routingArms', 'evalRuns'],
+    dataSources: [
+      'modelLeaderboard',
+      'modelsDrift',
+      'modelsPromptCache',
+      'routingArms',
+      'supabaseRoutingDecisions',
+      'supabaseEvalRuns',
+    ],
     component: lazy(() => import('./tabs/ModelsTab')),
   },
   {
@@ -67,8 +74,8 @@ export const ANALYTICS_TABS: Array<AnalyticsTab & { id: AnalyticsTabId }> = [
   {
     id: 'advisors',
     label: 'Advisors',
-    status: 'beta',
-    dataSources: ['dataHealth', 'errorInbox', 'guardrails'],
+    status: 'live',
+    dataSources: ['advisorsFindings', 'advisorsGuardrails', 'dataHealth', 'supabaseErrorEvents'],
     component: lazy(() => import('./tabs/AdvisorsTab')),
   },
   {
