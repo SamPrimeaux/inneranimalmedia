@@ -230,15 +230,15 @@ Complete this task or provide a specific actionable response.`,
     let modelKey = 'gpt-5.4-nano';
     try {
       const modeSlug = mode === 'agent' ? 'agent' : 'ask';
-      const modeRow  = await env.DB?.prepare(
-        `SELECT gate_model, model_preference FROM agent_mode_configs
+      const modeRow = await env.DB?.prepare(
+        `SELECT gate_model, escalation_model FROM agent_mode_configs
          WHERE slug = ? AND is_active = 1 LIMIT 1`
       ).bind(modeSlug).first();
 
-      if (mode === 'agent' && modeRow?.model_preference) {
-        modelKey = modeRow.model_preference; // gpt-5.4 for agent mode
+      if (mode === 'agent' && modeRow?.escalation_model) {
+        modelKey = modeRow.escalation_model;
       } else if (modeRow?.gate_model) {
-        modelKey = modeRow.gate_model;       // gpt-5.4-nano for quick assist
+        modelKey = modeRow.gate_model;
       }
     } catch (_) {}
 

@@ -1619,7 +1619,6 @@ async function loadModeConfig(env, modeSlug) {
     tool_policy_json: null,
     gate_model: null,
     gate_reasoning_effort: null,
-    model_preference: null,
     escalation_model: null,
     escalation_threshold: 0,
   };
@@ -1627,7 +1626,7 @@ async function loadModeConfig(env, modeSlug) {
 
   try {
     const row = await env.DB.prepare(
-      `SELECT gate_model, gate_reasoning_effort, model_preference,
+      `SELECT gate_model, gate_reasoning_effort,
               escalation_model, escalation_threshold, tool_policy_json, system_prompt_fragment
        FROM agent_mode_configs WHERE slug = ? AND is_active = 1 LIMIT 1`
     ).bind(slug).first();
@@ -5197,11 +5196,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       ? await resolveAiModelRowById(env, routingPick.modelId, tenantId)
       : null;
 
-  const primaryRow = await resolveAiModelRowById(env, modeConfig?.model_preference ?? null, tenantId);
   const escalationRow = await resolveAiModelRowById(env, modeConfig?.escalation_model ?? null, tenantId);
   const reservedForFallback = [
     thompsonRow?.model_key,
-    primaryRow?.model_key,
     escalationRow?.model_key,
     routingPick?.fallbackModelKey,
   ].filter(Boolean);
@@ -5225,7 +5222,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   let poolRows = dedupeModelsByKey(
     [
       ...(thompsonRow ? [thompsonRow] : []),
-      primaryRow,
       escalationRow,
       ...(explicitArmFallbackRow ? [explicitArmFallbackRow] : []),
       ...(lastResort || []),
@@ -5771,8 +5767,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
       if (!succeeded) {
         let finalKey = '';
-        const prefStr = String(modeConfig?.model_preference_key || '').trim();
-        if (prefStr) finalKey = prefStr;
+        if (modeConfig?.escalation_model) {
+          const escRow = await resolveAiModelRowById(env, modeConfig.escalation_model, tenantId);
+          if (escRow?.model_key) finalKey = escRow.model_key;
+        }
         if (!finalKey && modeConfig?.gate_model) {
           const gateRow = await resolveAiModelRowById(env, modeConfig.gate_model, tenantId);
           if (gateRow?.model_key) finalKey = gateRow.model_key;

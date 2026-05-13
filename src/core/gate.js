@@ -33,8 +33,8 @@ export async function runModeGate(env, userMessage, modeSlug) {
   const complexity = gateResult?.complexity ?? 0.5;
   const shouldEscalate = gateResult?.escalate === true || complexity >= (mode.escalation_threshold ?? 0.8);
   const resolvedModel = shouldEscalate
-    ? (mode.escalation_model ?? mode.model_preference ?? 'gpt-5.4')
-    : (mode.model_preference ?? 'gpt-5.4');
+    ? (mode.escalation_model ?? 'gpt-5.4')
+    : (mode.gate_model ?? 'gpt-5.4');
 
   const taskType = gateResult?.task_type ?? 'agent_chat';
   const routingRule = await env.DB.prepare(
