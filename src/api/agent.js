@@ -2372,7 +2372,9 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
             refId ?? 'na',
           ).run();
         }
-      } catch (_) {}
+      } catch (e) {
+        console.warn('[scheduleAgentsamUsageEventFromChat] insert failed:', e?.message, { tenantId, workspaceId, mk, tin, tout });
+      }
     })(),
   );
 }
@@ -2585,6 +2587,13 @@ async function consumeOpenAIResponsesSse(readable, emit) {
       }
       const st = resp?.status != null ? String(resp.status) : '';
       if (st) streamFinish = st;
+      if (resp?.usage) {
+        streamFinish = {
+          status: st,
+          input_tokens:  Number(resp.usage.input_tokens)  || 0,
+          output_tokens: Number(resp.usage.output_tokens) || 0,
+        };
+      }
     }
   };
 
@@ -2639,7 +2648,15 @@ async function consumeOpenAIResponsesSse(readable, emit) {
   if (pendingToolCalls.length) finishReason = 'tool_use';
   else if (streamFinish === 'completed') finishReason = 'end_turn';
 
-  return { text: textBuf, finishReason, pendingToolCalls, responseId };
+  const _sfObj = typeof streamFinish === 'object' && streamFinish !== null ? streamFinish : {};
+  return {
+    text: textBuf,
+    finishReason,
+    pendingToolCalls,
+    responseId,
+    input_tokens:  _sfObj.input_tokens  ?? 0,
+    output_tokens: _sfObj.output_tokens ?? 0,
+  };
 }
 
 // ─── SSE Tool Loop ────────────────────────────────────────────────────────────
@@ -2947,6 +2964,10 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       if (stream.body && useOpenAIResponses) {
         assistantContent.push({ type: 'text', text: '' });
         const parsed = await consumeOpenAIResponsesSse(stream.body, emit);
+        if (parsed.input_tokens || parsed.output_tokens) {
+          totalUsage.input_tokens  += parsed.input_tokens;
+          totalUsage.output_tokens += parsed.output_tokens;
+        }
         applyNormalizedOpenAI(parsed);
         if (parsed.responseId) openaiPreviousResponseId = parsed.responseId;
       } else if (stream.body && useOpenAIChatCompletions && tools.length > 0) {
