@@ -165,6 +165,16 @@ export const ANALYTICS_DATA_SOURCES: Record<string, DataSourceConfig> = {
     primaryTable: 'agentsam_prompt_cache_keys',
     status: 'active',
   },
+  d1ErrorLog: {
+    key: 'd1ErrorLog',
+    backend: 'd1',
+    endpoint: '/api/analytics/errors/d1-log',
+    refreshSeconds: 60,
+    defaultRange: '7d',
+    supportedChartTypes: ['table', 'warning_strip', 'drawer'],
+    primaryTable: 'agentsam_error_log',
+    status: 'active',
+  },
   advisorsFindings: {
     key: 'advisorsFindings',
     backend: 'mixed',

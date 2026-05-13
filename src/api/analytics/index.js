@@ -12,6 +12,7 @@ import {
 import {
   handleAnalyticsAdvisors,
   handleAnalyticsAdvisorsGuardrails,
+  handleAnalyticsErrorLogD1,
   handleAnalyticsMcpTools,
   handleAnalyticsModelsDrift,
   handleAnalyticsModelsEvals,
@@ -121,6 +122,10 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/advisors' && request.method === 'GET') {
     return handleAnalyticsAdvisors(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/errors/d1-log' && request.method === 'GET') {
+    return handleAnalyticsErrorLogD1(request, url, env, { tenantId, workspaceId });
   }
 
   if (pathLower === '/api/analytics/advisors/guardrails' && request.method === 'GET') {

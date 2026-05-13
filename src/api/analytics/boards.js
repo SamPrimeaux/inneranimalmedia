@@ -33,6 +33,59 @@ function metricDateClause(range) {
   return `metric_date >= date('now', '-7 days')`;
 }
 
+/** agentsam_error_log.created_at is unix epoch seconds */
+function errorLogCreatedClause(range) {
+  if (range === '24h') return `created_at >= unixepoch('now', '-24 hours')`;
+  if (range === '30d') return `created_at >= unixepoch('now', '-30 days')`;
+  if (range === 'all') return `created_at >= unixepoch('now', '-3650 days')`;
+  return `created_at >= unixepoch('now', '-7 days')`;
+}
+
+function truncateStr(v, max = 1800) {
+  if (v == null) return null;
+  const s = typeof v === 'string' ? v : String(v);
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}…`;
+}
+
+/**
+ * Heuristic next steps for operators (not persisted).
+ * @param {Record<string, unknown>} row
+ */
+function suggestedActionForErrorLogRow(row) {
+  const msg = `${row.error_message || ''} ${row.error_type || ''} ${row.source || ''} ${row.error_code || ''}`.toLowerCase();
+  const et = String(row.error_type || '').toLowerCase();
+  const src = String(row.source || '').toLowerCase();
+  if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')) {
+    return 'Reduce concurrency or backoff; confirm provider quota and retry-after headers.';
+  }
+  if (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('forbidden')) {
+    return 'Rotate or verify API keys, session cookies, and tenant-scoped secrets for the failing route.';
+  }
+  if (msg.includes('timeout') || et.includes('timeout')) {
+    return 'Shrink payload or split work; check Worker wall time, upstream latency, and MCP tool timeouts.';
+  }
+  if (src.includes('mcp') || msg.includes('tool') || msg.includes('mcp_')) {
+    return 'Open Analytics → MCP; validate tool definition, inputs, and approval gates; retry with minimal repro input.';
+  }
+  if (msg.includes('d1') || msg.includes('sqlite') || msg.includes('sql')) {
+    return 'Inspect D1 binding and query; use logs + Database browser; confirm migrations applied for referenced tables.';
+  }
+  if (msg.includes('webhook') || src.includes('webhook')) {
+    return 'Check Analytics → Workers webhook panel and agentsam_webhook_events; verify signature secret and endpoint URL.';
+  }
+  if (msg.includes('deploy') || msg.includes('wrangler')) {
+    return 'Compare dashboard_versions vs deployments; run npm run deploy:full if R2 dashboard bundle drift is suspected.';
+  }
+  if (msg.includes('r2') || msg.includes('bucket')) {
+    return 'Verify R2 binding names, bucket policy, and object keys; confirm Worker has read/write on the intended bucket.';
+  }
+  if (et.includes('fatal') || et.includes('critical')) {
+    return 'Treat as incident: capture id + session_id; check correlated workflow_run in Analytics → Agent; page on-call if production.';
+  }
+  return 'Triage with source_id and session_id in logs; after fix, mark resolved in D1 (UPDATE agentsam_error_log SET resolved = 1 WHERE id = ?).';
+}
+
 function pgInterval(range) {
   if (range === '24h') return "interval '24 hours'";
   if (range === '30d') return "interval '30 days'";
@@ -714,6 +767,143 @@ export async function handleAnalyticsMcpTools(request, url, env, { tenantId, wor
   });
 }
 
+/**
+ * GET /api/analytics/errors/d1-log
+ * Query: range, resolved=open|resolved|all, limit (max 200), source=substring
+ * Full readout of agentsam_error_log for analytics triage + suggested_action heuristics.
+ */
+export async function handleAnalyticsErrorLogD1(request, url, env, { tenantId, workspaceId }) {
+  void request;
+  const range = parseRange(url);
+  const warnings = [];
+  const db = env?.DB || null;
+  const tid = tenantId && String(tenantId).trim() ? String(tenantId).trim() : null;
+  const wid = workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null;
+  const resolvedRaw = (url.searchParams.get('resolved') || 'open').toLowerCase();
+  let limit = Number(url.searchParams.get('limit') || 80) || 80;
+  if (limit < 1) limit = 1;
+  if (limit > 200) limit = 200;
+  const sourceNeedle = (url.searchParams.get('source') || '').trim();
+
+  if (!db || !(await tableExists(db, 'agentsam_error_log'))) {
+    return analyticsResponse({
+      ok: true,
+      backend: 'd1',
+      range,
+      summary: { state: 'EMPTY', reason: 'no_table' },
+      rows: [],
+      warnings,
+    });
+  }
+
+  const timeSql = errorLogCreatedClause(range);
+  const baseWhere = [timeSql];
+  const baseBinds = [];
+  if (tid) {
+    baseWhere.push('tenant_id = ?');
+    baseBinds.push(tid);
+  }
+  if (wid) {
+    baseWhere.push('workspace_id = ?');
+    baseBinds.push(wid);
+  }
+  if (sourceNeedle) {
+    baseWhere.push('LOWER(source) LIKE ?');
+    baseBinds.push(`%${sourceNeedle.toLowerCase()}%`);
+  }
+
+  const listWhere = [...baseWhere];
+  const listBinds = [...baseBinds];
+  if (resolvedRaw === 'open' || resolvedRaw === '0' || resolvedRaw === 'false') {
+    listWhere.push('COALESCE(resolved, 0) = 0');
+  } else if (resolvedRaw === 'resolved' || resolvedRaw === '1' || resolvedRaw === 'true') {
+    listWhere.push('COALESCE(resolved, 0) = 1');
+  }
+
+  const listWhereSql = listWhere.join(' AND ');
+  const baseWhereSql = baseWhere.join(' AND ');
+
+  const byType = await d1All(
+    db,
+    'err_by_type',
+    `SELECT error_type, COUNT(*) AS c
+     FROM agentsam_error_log
+     WHERE ${listWhereSql}
+     GROUP BY error_type
+     ORDER BY c DESC
+     LIMIT 30`,
+    listBinds,
+    warnings,
+  );
+  const bySource = await d1All(
+    db,
+    'err_by_source',
+    `SELECT source, COUNT(*) AS c
+     FROM agentsam_error_log
+     WHERE ${listWhereSql}
+     GROUP BY source
+     ORDER BY c DESC
+     LIMIT 30`,
+    listBinds,
+    warnings,
+  );
+  const openWhere = [...baseWhere, 'COALESCE(resolved, 0) = 0'];
+  const openBinds = [...baseBinds];
+  const openCountRow = await d1First(
+    db,
+    'err_open',
+    `SELECT COUNT(*) AS c FROM agentsam_error_log WHERE ${openWhere.join(' AND ')}`,
+    openBinds,
+    warnings,
+  );
+
+  const rawRows = await d1All(
+    db,
+    'err_list',
+    `SELECT id, workspace_id, tenant_id, session_id, error_code, error_type, error_message,
+            source, source_id, context_json, stack_trace, resolved, created_at
+     FROM agentsam_error_log
+     WHERE ${listWhereSql}
+     ORDER BY created_at DESC
+     LIMIT ${limit}`,
+    listBinds,
+    warnings,
+  );
+
+  const rows = rawRows.map((r) => ({
+    id: r.id,
+    workspace_id: r.workspace_id,
+    tenant_id: r.tenant_id,
+    session_id: r.session_id,
+    error_code: r.error_code,
+    error_type: r.error_type,
+    error_message: r.error_message,
+    source: r.source,
+    source_id: r.source_id,
+    context_json: truncateStr(r.context_json, 1600),
+    stack_trace: truncateStr(r.stack_trace, 2400),
+    resolved: r.resolved,
+    created_at: r.created_at,
+    suggested_action: suggestedActionForErrorLogRow(r),
+  }));
+
+  return analyticsResponse({
+    ok: true,
+    backend: 'd1',
+    range,
+    summary: {
+      state: rows.length ? 'LIVE' : 'EMPTY',
+      resolved_filter: resolvedRaw,
+      open_in_window: Number(openCountRow?.c ?? 0) || 0,
+      row_count: rows.length,
+      by_error_type: byType,
+      by_source: bySource,
+    },
+    rows,
+    warnings,
+  });
+}
+
 export async function handleAnalyticsAdvisorsGuardrails(request, url, env, { tenantId }) {
   void request;
   const range = parseRange(url);
@@ -788,7 +978,7 @@ export async function handleAnalyticsAdvisors(request, url, env, { tenantId, wor
   }
 
   if (db && (await tableExists(db, 'agentsam_error_log'))) {
-    const elWhere = [`created_at >= unixepoch('now', '-7 days')`, `COALESCE(resolved, 0) = 0`];
+    const elWhere = [errorLogCreatedClause(range), `COALESCE(resolved, 0) = 0`];
     const elBinds = [];
     if (tid) {
       elWhere.push('tenant_id = ?');

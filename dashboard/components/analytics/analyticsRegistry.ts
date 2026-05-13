@@ -75,7 +75,7 @@ export const ANALYTICS_TABS: Array<AnalyticsTab & { id: AnalyticsTabId }> = [
     id: 'advisors',
     label: 'Advisors',
     status: 'live',
-    dataSources: ['advisorsFindings', 'advisorsGuardrails', 'dataHealth', 'supabaseErrorEvents'],
+    dataSources: ['d1ErrorLog', 'advisorsFindings', 'advisorsGuardrails', 'dataHealth', 'supabaseErrorEvents'],
     component: lazy(() => import('./tabs/AdvisorsTab')),
   },
   {
