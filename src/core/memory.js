@@ -358,11 +358,6 @@ export async function compactAgentsamToolCallLogToStats(env) {
   await compactToolStatsCompacted(env, {});
 }
 
-export { rollupExecutionPerformanceMetrics }  from './rollup-execution.js';
-export { rollupUsageEventsDaily }             from './rollup-usage.js';
-export { rollupOtlpTracesDaily }              from './rollup-traces.js';
-export { runAgentsamMemoryDecay }             from './memory-decay.js';
-export { upsertAgentsamMemory }               from './memory-upsert.js';
 export async function rollupExecutionPerformanceMetrics(env) {
   if (!env?.DB) return;
   await env.DB.prepare(
