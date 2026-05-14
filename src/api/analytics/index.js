@@ -1,4 +1,4 @@
-import { jsonResponse } from '../../core/auth.js';
+import { jsonResponse, fetchAuthUserTenantId } from '../../core/auth.js';
 import { handleAnalyticsLayout } from './layout.js';
 import { handleAnalyticsSourceHealth } from './source-health.js';
 import { handleAnalyticsOverview } from './overview.js';
@@ -25,6 +25,12 @@ import {
   handleAnalyticsWorkersSummary,
 } from './boards.js';
 
+function trimId(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
 /**
  * /api/analytics/* router.
  *
@@ -36,17 +42,31 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
   void ctx;
   const pathLower = String(url?.pathname || '').toLowerCase();
 
-  // Keep tenant lookup consistent with other APIs.
-  const tenantId =
-    (identity && identity.tenantId ? String(identity.tenantId) : null) ||
-    (authUser && authUser.tenant_id ? String(authUser.tenant_id) : null) ||
-    (env && env.TENANT_ID ? String(env.TENANT_ID) : null) ||
+  // Tenant/workspace: identity (session actor) → auth_users row → DB lookup by user id/email.
+  // Note: getAuthUser exposes active_workspace_id / active_tenant_id (not legacy workspace_id).
+  let tenantId =
+    trimId(identity?.tenantId) ||
+    trimId(authUser?.active_tenant_id) ||
+    trimId(authUser?.tenant_id) ||
+    trimId(env?.TENANT_ID) ||
     null;
 
-  const workspaceId =
-    (identity && identity.workspaceId ? String(identity.workspaceId) : null) ||
-    (authUser && authUser.workspace_id ? String(authUser.workspace_id) : null) ||
+  let workspaceId =
+    trimId(identity?.workspaceId) ||
+    trimId(authUser?.active_workspace_id) ||
+    trimId(authUser?.workspace_id) ||
     null;
+
+  const uid =
+    authUser && (authUser.id || authUser.user_id || authUser.auth_id)
+      ? String(authUser.id || authUser.user_id || authUser.auth_id).trim()
+      : null;
+  if (!tenantId && uid) {
+    tenantId = (await fetchAuthUserTenantId(env, uid).catch(() => null)) || null;
+  }
+  if (!tenantId && authUser?.email) {
+    tenantId = (await fetchAuthUserTenantId(env, String(authUser.email)).catch(() => null)) || null;
+  }
 
   if (pathLower === '/api/analytics/layout' && request.method === 'GET') {
     return handleAnalyticsLayout(request, url, env, { tenantId, workspaceId });
