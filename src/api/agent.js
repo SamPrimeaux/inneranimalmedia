@@ -5398,12 +5398,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     );
   })();
   if (!requireTools && !bodyPinsRouting && intentResult?.taskType) {
-    resolvedRoutingTaskType = String(intentResult.taskType).trim() || resolvedRoutingTaskType;
+    const tt = String(intentResult.taskType).trim();
+    resolvedRoutingTaskType = (tt === 'question' ? 'chat' : tt) || resolvedRoutingTaskType;
   }
 
   const routingPick = !explicitRow
     ? await resolveRoutingArm(env, {
         taskType: resolvedRoutingTaskType,
+        intentSlug,
         mode: requestedMode,
         workspaceId: workspaceId || '',
         routeKey: promptRouteRow?.route_key ?? body.route_key ?? null,
@@ -5534,7 +5536,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   );
 
   const routingArmIdForRun =
-    routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null;
+    routingPick?.armId ? String(routingPick.armId) : null;
 
   const includeRag         = Number(promptRouteRow?.include_rag          ?? 1) === 1;
   const includeActivePlan  = Number(promptRouteRow?.include_active_plan  ?? 1) === 1;
@@ -6194,7 +6196,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           tenantId,
           sessionId: sessionId ? String(sessionId) : null,
           routingArmId:
-            routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null,
+            routingPick?.armId ? String(routingPick.armId) : null,
           modelUsed: lastLoopStats?.modelKey || fallbackModelKeys[0] || 'unknown',
           tokensIn: lastLoopStats?.totalUsage?.input_tokens ?? 0,
           tokensOut: lastLoopStats?.totalUsage?.output_tokens ?? 0,
@@ -6308,7 +6310,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           tenantId,
           sessionId: sessionId ? String(sessionId) : null,
           routingArmId:
-            routingPick?.source === 'thompson' && routingPick.armId ? routingPick.armId : null,
+            routingPick?.armId ? String(routingPick.armId) : null,
           modelUsed: fallbackModelKeys[0] || 'unknown',
           tokensIn: 0,
           tokensOut: 0,

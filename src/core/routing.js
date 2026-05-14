@@ -653,7 +653,7 @@ export async function getDefaultModelForTask(env, ctx = {}) {
  * @returns {Promise<{ source: 'thompson', modelId: string, modelKey: string, provider: string|null,
  *                     armId: string, taskType: string } | null>}
  */
-export async function resolveRoutingArm(env, { taskType, mode, workspaceId, routeKey, userId, tenantId, toolRequired } = {}) {
+export async function resolveRoutingArm(env, { taskType, intentSlug, mode, workspaceId, routeKey, userId, tenantId, toolRequired } = {}) {
   void routeKey;
   void toolRequired;
   if (!env?.DB || !taskType || !workspaceId) return null;
@@ -672,7 +672,7 @@ export async function resolveRoutingArm(env, { taskType, mode, workspaceId, rout
              ON mrm.model_key    = ra.model_key
             AND mrm.workspace_id = ra.workspace_id
             AND mrm.task_type    = ra.task_type
-      WHERE  ra.task_type        = ?
+      WHERE  (ra.task_type = ? OR (COALESCE(TRIM(ra.intent_slug),'') != '' AND ra.intent_slug = ?))
         AND  ra.mode             = ?
         AND  (ra.workspace_id    = ? OR COALESCE(TRIM(ra.workspace_id),'') = '')
         AND  ra.is_active        = 1
@@ -683,7 +683,7 @@ export async function resolveRoutingArm(env, { taskType, mode, workspaceId, rout
       ORDER BY ra.workspace_id DESC, ra.decayed_score DESC, ra.priority DESC
       LIMIT 40
     `;
-    const { results: arms } = await env.DB.prepare(sql).bind(taskType, mode || 'agent', workspaceId).all();
+    const { results: arms } = await env.DB.prepare(sql).bind(taskType, String(intentSlug || '').trim().toLowerCase(), mode || 'agent', workspaceId).all();
     if (!arms?.length) return null;
 
     const useThompson = await isThompsonRoutingSamplingEnabled(env, { userId, tenantId });
