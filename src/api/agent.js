@@ -575,6 +575,20 @@ function isSimpleAskMessage(message = "") {
 }
 
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null, options = {}) {
+  const _kv = env.SESSION_CACHE ?? null;
+  const _wsId = options?.workspaceId ?? '';
+  const _minimal = options?.minimalAsk ? 'min' : 'full';
+  const _routeKey = promptRouteRow?.route_key ?? 'default';
+  const _ver = _kv ? (await _kv.get(`sp:version:${tenantId}`).catch(() => '0') ?? '0') : '0';
+  const _kvKey = `sp:v1:${tenantId}:${mode}:${_wsId}:${_routeKey}:${_minimal}:${_ver}`;
+
+  if (_kv && !options?._skipCache) {
+    try {
+      const hit = await _kv.get(_kvKey);
+      if (hit) return hit;
+    } catch (_) {}
+  }
+
   const minimalAsk =
     Number(promptRouteRow?.max_tools ?? 8) === 0 &&
     Number(promptRouteRow?.include_rag ?? 1) === 0 &&
@@ -645,6 +659,8 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     if (!minimalAsk && includeWorkspace && contextBlock) parts.push(contextBlock);
 
     const result = parts.join('\n\n---\n\n');
+
+    if (_kv) _kv.put(_kvKey, result, { expirationTtl: 300 }).catch(() => {});
 
     // Fire-and-forget prompt cache tracking
     if (env.DB && layerKeys.length) {
