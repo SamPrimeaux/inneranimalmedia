@@ -1098,7 +1098,7 @@ Return ONLY valid JSON:
         output = result?.text || result?.output_text || '';
       } else if (task.handler_type === 'mcp_tool') {
         const wk = String(task.handler_key || '').trim();
-        if (wk) {
+        if (wk && !wk.startsWith('cap:')) {
           const { executeWorkflowGraph } = await import('./workflow-executor.js');
           const wResult = await executeWorkflowGraph(env, {
             workflowKey: wk,
