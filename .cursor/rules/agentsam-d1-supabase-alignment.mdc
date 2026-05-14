@@ -50,6 +50,17 @@ Mirror payloads must use **only columns that exist** in Supabase (often smaller 
 
 - `public.agentsam_plans` / `public.agentsam_plan_tasks` — **Worker PostgREST upserts** (`Prefer: resolution=merge-duplicates`, `on_conflict=id`) from D1 reads. **Canonical state is still D1.** Supabase columns are a **subset** (e.g. D1 `output_summary` → `notes`); schema drift must be handled in `mapD1PlanToSupabasePublicRow` / `mapD1PlanTaskToSupabasePublicRow`.
 
+### `tasks_total` / `tasks_done` vs live task rows
+
+The **`agentsam_plans.tasks_total`** and **`agentsam_plans.tasks_done`** columns (mirrored to **`public.agentsam_plans`**) are **denormalized counters**. They can **drift** from reality when:
+
+- a script bumps the plan row **before** all `agentsam_plan_tasks` rows exist, or
+- tasks are inserted/closed without updating the plan counters.
+
+**Canonical** status counts for UX and audits: **aggregate from `agentsam_plan_tasks`** (or a Supabase view such as `v_active_plan_dashboard` that joins live tasks). When counters diverge, **fix D1 first** (so the next `mirrorAgentsamD1PlanToSupabasePublic` read is correct), then mirror or patch Supabase.
+
+**Follow-up (zero-touch mirror):** have Worker paths attach **`plan_id`** / **`plan_task_id`** (or stable task keys) on D1 writes so counters stay consistent without manual reconciliation — track as **`task_wire_agent_sam_writes`** (protocol / backlog label until a D1 `agentsam_plan_tasks` row exists).
+
 ## Workflow run lifecycle (required order)
 
 1. **Insert D1** `agentsam_workflow_runs` with:
