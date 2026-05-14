@@ -210,3 +210,36 @@ export async function createAnthropicBatch({ requests, env, userId }) {
   
   return await client.messages.batches.create({ requests });
 }
+
+/**
+ * Optional preflight token count for Anthropic payloads.
+ *
+ * NOT called on every chat request — that would add a full round-trip before
+ * each message. Use only for:
+ *   - Hard context-window enforcement before sending a large payload
+ *   - Audit/debug when prompt size estimates feel wrong
+ *
+ * Post-call usage.input_tokens / usage.output_tokens from the API response
+ * remains the canonical source for billing and agentsam_usage_events rows.
+ * The chars/4 heuristic in provider.js is intentionally cheap telemetry only.
+ *
+ * @param {{ messages: any[], system?: string, tools?: any[], model: string }} params
+ * @param {string} apiKey
+ * @returns {Promise<number|null>} input token count or null on error
+ */
+export async function countAnthropicTokens({ messages, system, tools, model }, apiKey) {
+  if (!apiKey || !messages?.length) return null;
+  try {
+    const client = new Anthropic({ apiKey });
+    const result = await client.messages.countTokens({
+      model,
+      messages,
+      ...(system  ? { system  } : {}),
+      ...(tools?.length ? { tools } : {}),
+    });
+    return result?.input_tokens ?? null;
+  } catch {
+    return null;
+  }
+}
+
