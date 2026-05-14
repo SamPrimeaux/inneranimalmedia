@@ -7,9 +7,9 @@ DEPLOY_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 DEPLOY_MSG=$(git log -1 --pretty=%s)
 DEPLOY_MSG_ESC=$(printf '%s' "$DEPLOY_MSG" | sed "s/'/''/g")
 
-WORKSPACE_ID="${1:-ws_inneranimalmedia}"
-TENANT_ID="${2:-tenant_sam_primeaux}"
-USER_ID="${3:-usr_sam_iam}"
+WORKSPACE_ID="${WORKSPACE_ID:-${1:-}}"
+TENANT_ID="${TENANT_ID:-${2:-}}"
+USER_ID="${USER_ID:-${3:-}}"
 
 echo "[post-deploy] hash=$DEPLOY_HASH workspace=$WORKSPACE_ID"
 

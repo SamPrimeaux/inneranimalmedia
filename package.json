@@ -31,8 +31,8 @@
     "r2:prune:dry-run": "node scripts/prune-r2-orphans.mjs --dry-run --bucket inneranimalmedia --tenant-id tenant_sam_primeaux --workspace-id ws_inneranimalmedia --project-id inneranimalmedia",
     "r2:prune:apply": "node scripts/prune-r2-orphans.mjs --apply --bucket inneranimalmedia --tenant-id tenant_sam_primeaux --workspace-id ws_inneranimalmedia --project-id inneranimalmedia",
     "r2:prune": "node scripts/run-with-agentsam-script-telemetry.mjs --script-id script_connor_r2_prune --workspace-id ws_inneranimalmedia --triggered-by deploy-full -- npm run r2:prune:apply",
-    "deploy:full": "./scripts/deploy-full.sh",
-    "deploy:full:safe": "SKIP_R2_DEPLOY_RECONCILE=1 npm run deploy:full",
+    "deploy:full": "SKIP_R2_DEPLOY_RECONCILE=1 ./scripts/deploy-full.sh",
+    "deploy:full:safe": "npm run deploy:full",
     "deploy:ledger:start": "node scripts/record-supabase-deploy-start.mjs",
     "deploy:ledger:complete": "node scripts/record-supabase-deploy-complete.mjs",
     "deploy:ledger:failure": "node scripts/record-supabase-deploy-failure.mjs",
@@ -73,7 +73,8 @@
     "theme:preview": "node scripts/themes/generate-theme-previews.mjs",
     "theme:preview:all": "node scripts/themes/generate-theme-previews.mjs --all-active",
     "theme:preview:upload": "node scripts/themes/generate-theme-previews.mjs --all-active --upload-r2 --remote",
-    "smoke:agentsam:r2-env": "bash -lc 'source scripts/load-agentsam-env.sh && SMOKE_ID=r2_env_smoke_$(date +%Y%m%d_%H%M%S) && SMOKE_KEY=$AGENTSAM_R2_RESULTS_PREFIX/$SMOKE_ID.json && mkdir -p tmp/r2-smoke && printf \"{\\\"smoke_id\\\":\\\"$SMOKE_ID\\\",\\\"bucket\\\":\\\"$AGENTSAM_R2_BUCKET\\\",\\\"key\\\":\\\"$SMOKE_KEY\\\",\\\"workspace_id\\\":\\\"$IAM_WORKSPACE_ID\\\",\\\"tenant_id\\\":\\\"$IAM_TENANT_ID\\\",\\\"user_id\\\":\\\"$IAM_USER_ID\\\",\\\"created_at\\\":\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\",\\\"purpose\\\":\\\"validate Agent Sam R2 env target\\\"}\\n\" > tmp/r2-smoke/$SMOKE_ID.json && npx wrangler r2 object put \"$AGENTSAM_R2_BUCKET/$SMOKE_KEY\" --file tmp/r2-smoke/$SMOKE_ID.json --remote && npx wrangler r2 object get \"$AGENTSAM_R2_BUCKET/$SMOKE_KEY\" --file tmp/r2-smoke/$SMOKE_ID.readback.json --remote && cat tmp/r2-smoke/$SMOKE_ID.readback.json | jq'"
+    "smoke:agentsam:r2-env": "bash -lc 'source scripts/load-agentsam-env.sh && SMOKE_ID=r2_env_smoke_$(date +%Y%m%d_%H%M%S) && SMOKE_KEY=$AGENTSAM_R2_RESULTS_PREFIX/$SMOKE_ID.json && mkdir -p tmp/r2-smoke && printf \"{\\\"smoke_id\\\":\\\"$SMOKE_ID\\\",\\\"bucket\\\":\\\"$AGENTSAM_R2_BUCKET\\\",\\\"key\\\":\\\"$SMOKE_KEY\\\",\\\"workspace_id\\\":\\\"$IAM_WORKSPACE_ID\\\",\\\"tenant_id\\\":\\\"$IAM_TENANT_ID\\\",\\\"user_id\\\":\\\"$IAM_USER_ID\\\",\\\"created_at\\\":\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\",\\\"purpose\\\":\\\"validate Agent Sam R2 env target\\\"}\\n\" > tmp/r2-smoke/$SMOKE_ID.json && npx wrangler r2 object put \"$AGENTSAM_R2_BUCKET/$SMOKE_KEY\" --file tmp/r2-smoke/$SMOKE_ID.json --remote && npx wrangler r2 object get \"$AGENTSAM_R2_BUCKET/$SMOKE_KEY\" --file tmp/r2-smoke/$SMOKE_ID.readback.json --remote && cat tmp/r2-smoke/$SMOKE_ID.readback.json | jq'",
+    "deploy:full:reconcile": "ALLOW_UNSAFE_R2_RECONCILE=1 ./scripts/deploy-full.sh"
   },
   "keywords": [],
   "author": "",

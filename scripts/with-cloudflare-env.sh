@@ -19,7 +19,20 @@ ENV_FILE="${REPO_ROOT}/.env.cloudflare"
 # Prefer Homebrew / system tools before other shims when resolving npx/node.
 prepend_std_node_toolchain_path() {
   local -a prefix_dirs
-  prefix_dirs=(/opt/homebrew/bin /usr/local/bin /usr/bin /bin)
+  # Resolve active nvm node bin so nvm-managed node/npx/wrangler wins over Homebrew shims.
+  local nvm_bin=""
+  if [[ -f "$HOME/.nvm/nvm.sh" ]]; then
+    source "$HOME/.nvm/nvm.sh" --no-use 2>/dev/null || true
+    nvm_bin="$(nvm which default 2>/dev/null | xargs dirname 2>/dev/null || true)"
+  fi
+  if [[ -z "$nvm_bin" && -n "${NVM_BIN:-}" && -d "${NVM_BIN}" ]]; then
+    nvm_bin="$NVM_BIN"
+  fi
+  if [[ -n "$nvm_bin" && -d "$nvm_bin" ]]; then
+    prefix_dirs=($nvm_bin /opt/homebrew/bin /usr/local/bin /usr/bin /bin)
+  else
+    prefix_dirs=(/opt/homebrew/bin /usr/local/bin /usr/bin /bin)
+  fi
   local d existing=()
   for d in $prefix_dirs; do
     [[ -d $d ]] && existing+=($d)

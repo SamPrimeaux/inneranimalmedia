@@ -5,7 +5,8 @@
 # ── Paths ──────────────────────────────────────────────────────────────────────
 #   Worker only (~1 min):     npm run deploy
 #   Frontend + R2 + Worker:   npm run deploy:frontend   (always: clean Vite → bump-cache → R2 → Worker)
-#   Full pipeline (~several min):  npm run deploy:full:safe
+#   Full pipeline (~several min):  npm run deploy:full
+#   Full pipeline + R2 inventory:  npm run deploy:full:reconcile
 #
 # ── Skips (content-hash vs last run, stored in .deploy-*-hash files; gitignored) ─
 #   Override reingest:        FORCE_SUPABASE_REINGEST=1 npm run deploy:full
