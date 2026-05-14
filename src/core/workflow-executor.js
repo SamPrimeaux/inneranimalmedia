@@ -74,6 +74,24 @@ function normalizeTriggerType(raw) {
   return TRIGGER_TYPES_SAFE.has(t) ? t : 'agent';
 }
 
+/** Normalize `agentsam_workflow_nodes.input_schema_json` (D1 may return string or object). */
+function readWorkflowNodeInputSchemaJson(node) {
+  const raw = node?.input_schema_json;
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return /** @type {Record<string, unknown>} */ (raw);
+  }
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw || '{}');
+      return o && typeof o === 'object' && !Array.isArray(o) ? /** @type {Record<string, unknown>} */ (o) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
 // ── Node type dispatchers ────────────────────────────────────────────
 
 async function dispatchNode(env, node, input, runContext) {
@@ -241,8 +259,7 @@ async function dispatchNode(env, node, input, runContext) {
         ? env.TERMINAL_WS_URL.replace('wss://', 'https://').replace('ws://', 'http://')
         : null;
       if (!termUrl) return { ok: false, error: 'terminal not configured' };
-      let nodeSchema = {};
-      try { nodeSchema = JSON.parse(node?.input_schema_json || '{}'); } catch (_) {}
+      const nodeSchema = readWorkflowNodeInputSchemaJson(node);
       // Also check if previous agent node embedded a command in its JSON result
       let _agentCmd = '';
       if (input?.result) {
@@ -251,9 +268,16 @@ async function dispatchNode(env, node, input, runContext) {
           _agentCmd = _r?.command || _r?.cmd || _r?.wrangler_command || '';
         } catch (_) {}
       }
-      const cmd = input?.command || input?.cmd || _agentCmd || nodeSchema?.default_command || '';
-      if (!cmd) return { ok: false, error: 'no command in terminal node input' };
-      if (/[;&|`$><\\]/.test(cmd)) {
+      const command = String(
+        input?.command ??
+          input?.cmd ??
+          input?.default_command ??
+          _agentCmd ??
+          nodeSchema?.default_command ??
+          '',
+      ).trim();
+      if (!command) throw new Error('no command in terminal node input');
+      if (/[;&|`$><\\]/.test(command)) {
         return { ok: false, error: 'command contains unsafe characters' };
       }
       const tRes = await fetch(`${termUrl.replace(/\/$/, '')}/exec`, {
@@ -262,7 +286,7 @@ async function dispatchNode(env, node, input, runContext) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${env.TERMINAL_SECRET || ''}`,
         },
-        body: JSON.stringify({ command: cmd, timeout_ms: node.timeout_ms || 30000 }),
+        body: JSON.stringify({ command, timeout_ms: node.timeout_ms || 30000 }),
       }).catch(() => null);
       if (!tRes?.ok) return { ok: false, error: `terminal HTTP ${tRes?.status}` };
       const out = await tRes.json().catch(() => ({}));
