@@ -8055,6 +8055,8 @@ export async function handleAgentApi(request, url, env, ctx) {
       return jsonResponse({ pending: [] }, 200, { 'Cache-Control': 'no-store' });
     }
     const runId = String(url.searchParams.get('run_id') || '').trim();
+    /** When set, only queue rows for this Agent chat session (excludes orphan / background rows with NULL session_id). */
+    const sessionId = String(url.searchParams.get('session_id') || '').trim();
     if (!env.DB) {
       return jsonResponse({ approval: null, pending_count: 0 }, 200, { 'Cache-Control': 'no-store' });
     }
@@ -8068,13 +8070,16 @@ export async function handleAgentApi(request, url, env, ctx) {
     const runFilterAlias = runId
       ? ` AND (q.workflow_run_id = ? OR q.session_id = ? OR q.command_run_id = ?)`
       : '';
+    const sessionFilterTable = sessionId ? ` AND session_id = ?` : '';
+    const sessionFilterAlias = sessionId ? ` AND q.session_id = ?` : '';
+    const sessionBinds = sessionId ? [sessionId] : [];
 
     const countRow = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM agentsam_approval_queue
        WHERE status='pending' AND user_id = ?
-         AND (workspace_id = ? OR (workspace_id IS NULL AND tenant_id = ?))${runFilterTable}`,
+         AND (workspace_id = ? OR (workspace_id IS NULL AND tenant_id = ?))${runFilterTable}${sessionFilterTable}`,
     )
-      .bind(...scopeBinds, ...runBinds)
+      .bind(...scopeBinds, ...runBinds, ...sessionBinds)
       .first()
       .catch(() => ({ c: 0 }));
     const pendingCount = Number(countRow?.c || 0) || 0;
@@ -8084,10 +8089,10 @@ export async function handleAgentApi(request, url, env, ctx) {
               0 AS is_mcp_server, NULL AS server_display_name
        FROM agentsam_approval_queue q
        WHERE q.status='pending' AND q.user_id = ?
-         AND (q.workspace_id = ? OR (q.workspace_id IS NULL AND q.tenant_id = ?))${runFilterAlias}
+         AND (q.workspace_id = ? OR (q.workspace_id IS NULL AND q.tenant_id = ?))${runFilterAlias}${sessionFilterAlias}
        ORDER BY q.created_at ASC LIMIT 1`,
     )
-      .bind(...scopeBinds, ...runBinds)
+      .bind(...scopeBinds, ...runBinds, ...sessionBinds)
       .first()
       .catch(() => null);
     if (!row) {

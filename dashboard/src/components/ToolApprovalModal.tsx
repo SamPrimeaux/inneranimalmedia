@@ -33,6 +33,8 @@ type ToolApprovalModalProps = {
   workspaceId?: string | null;
   agentRunId?: string | null;
   toolExecutionActive?: boolean;
+  /** Active Agent chat conversation id — pending queue is scoped to this session when polling. */
+  chatSessionId?: string | null;
   /** Opens `MonacoEditorView` (workspace editor) with virtual file — same as chat “Open in Monaco”. */
   onOpenInEditor?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
   /**
@@ -49,15 +51,20 @@ function shouldPollApprovals(opts: {
   agentRunId: string | null;
   toolExecutionActive: boolean;
   recentPending: boolean;
+  chatSessionId: string;
 }): boolean {
-  const { pathname, hasVisibleApproval, workspaceId, agentRunId, toolExecutionActive, recentPending } = opts;
+  const { pathname, hasVisibleApproval, workspaceId, agentRunId, toolExecutionActive, recentPending, chatSessionId } =
+    opts;
   if (!workspaceId) return false;
+  const onAgentRoute = pathname.toLowerCase().startsWith('/dashboard/agent');
   if (hasVisibleApproval) return true;
   if (toolExecutionActive) return true;
   if (agentRunId) return true;
-  if (recentPending) return true;
-  const p = pathname.toLowerCase();
-  return p.startsWith('/dashboard');
+  if (recentPending && onAgentRoute) return true;
+  if (!onAgentRoute) return false;
+  // On Agent: only poll when a real chat session exists so background/orphan queue rows do not surface on an idle composer.
+  if (!chatSessionId.trim()) return false;
+  return true;
 }
 
 function formatActionTitle(toolName: string, description: string): string {
@@ -164,6 +171,7 @@ export function ToolApprovalModal({
   workspaceId = null,
   agentRunId = null,
   toolExecutionActive = false,
+  chatSessionId = null,
   onOpenInEditor,
   docked = false,
 }: ToolApprovalModalProps) {
@@ -187,6 +195,19 @@ export function ToolApprovalModal({
   const lastPendingSignalRef = useRef(0);
 
   const ws = typeof workspaceId === 'string' ? workspaceId.trim() : '';
+  const sid = typeof chatSessionId === 'string' ? chatSessionId.trim() : '';
+
+  useEffect(() => {
+    if (!location.pathname.toLowerCase().startsWith('/dashboard/agent')) {
+      setApproval(null);
+      setOutcome(null);
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    setApproval(null);
+    setOutcome(null);
+  }, [sid]);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,6 +237,7 @@ export function ToolApprovalModal({
           agentRunId: agentRunId ?? null,
           toolExecutionActive,
           recentPending,
+          chatSessionId: sid,
         })
       ) {
         kick(45_000);
@@ -223,8 +245,9 @@ export function ToolApprovalModal({
       }
       try {
         const runQ = agentRunId?.trim() ? `&run_id=${encodeURIComponent(agentRunId.trim())}` : '';
+        const sessionQ = sid ? `&session_id=${encodeURIComponent(sid)}` : '';
         const r = await fetch(
-          `/api/agent/approval/pending?workspace_id=${encodeURIComponent(ws)}${runQ}`,
+          `/api/agent/approval/pending?workspace_id=${encodeURIComponent(ws)}${runQ}${sessionQ}`,
           { credentials: 'same-origin' },
         );
         if (r.status === 401) {
@@ -278,7 +301,7 @@ export function ToolApprovalModal({
       document.removeEventListener('visibilitychange', onVis);
       clearTimer();
     };
-  }, [location.pathname, pollStopped401, ws, agentRunId, toolExecutionActive]);
+  }, [location.pathname, pollStopped401, ws, agentRunId, toolExecutionActive, sid]);
 
   useEffect(() => {
     if (!runMenuOpen) return;

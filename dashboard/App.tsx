@@ -3036,6 +3036,7 @@ const App: React.FC = () => {
               workspaceId={authWorkspaceId}
               agentRunId={null}
               toolExecutionActive={false}
+              chatSessionId={activeAgentConversationId}
               onOpenInEditor={openInMonacoFromChat}
               docked
             />
