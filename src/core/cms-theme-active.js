@@ -117,11 +117,84 @@ export function mergeAgentDashboardIdeTokens(variables, cfg) {
   return data;
 }
 
+/** @param {unknown} val */
+function parseJsonObject(val) {
+  if (val == null) return null;
+  if (typeof val === "object") return /** @type {Record<string, unknown>} */ (val);
+  if (typeof val === "string") {
+    try {
+      const o = JSON.parse(val);
+      return o && typeof o === "object" ? /** @type {Record<string, unknown>} */ (o) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * D1 `cms_themes.css_vars_json` — must match runtime apply (same as catalog `cssVarsMerged` in preview-model).
+ * @param {Record<string, unknown> | null | undefined} row
+ * @param {Record<string, string>} data
+ */
+function mergeRowCssVarsJsonIntoData(row, data) {
+  const obj = parseJsonObject(row?.css_vars_json);
+  if (!obj) return;
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null) continue;
+    const key = k.startsWith("--") ? k : `--${String(k).replace(/^-+/, "")}`;
+    data[key] = String(v);
+  }
+}
+
+/**
+ * When `config` is sparse, palette lives on `tokens_json` (preview-model already reads it for cards).
+ * @param {Record<string, unknown> | null | undefined} row
+ * @param {Record<string, string>} data
+ */
+function mergeTokensPaletteIntoData(row, data) {
+  const tokens = parseJsonObject(row?.tokens_json);
+  const pal = tokens?.palette;
+  if (!pal || typeof pal !== "object") return;
+  /** @param {string} k */
+  const has = (k) => data[k] != null && String(data[k]).trim() !== "";
+  /** @param {string} key */
+  const get = (key) => {
+    const v = /** @type {Record<string, unknown>} */ (pal)[key];
+    return v != null && String(v).trim() !== "" ? String(v).trim() : "";
+  };
+  const canvas = get("canvas");
+  const panel = get("panel");
+  const panelAlt = get("panelAlt");
+  const nav = get("nav");
+  const shell = get("shell");
+  const accent = get("accent");
+  const accentSoft = get("accentSoft");
+  const surface = panelAlt || panel;
+
+  if (canvas && !has("--bg-canvas")) data["--bg-canvas"] = canvas;
+  if (canvas && !has("--bg-app")) data["--bg-app"] = canvas;
+  if (panel && !has("--bg-panel")) data["--bg-panel"] = panel;
+  if (surface && !has("--bg-elevated")) data["--bg-elevated"] = surface;
+  if (surface && !has("--bg-secondary")) data["--bg-secondary"] = surface;
+  if (nav && !has("--bg-nav")) data["--bg-nav"] = nav;
+  if (shell && !has("--bg-shell")) data["--bg-shell"] = shell;
+  if (accent) {
+    if (!has("--color-primary")) data["--color-primary"] = accent;
+    if (!has("--accent")) data["--accent"] = accent;
+    if (!has("--accent-primary")) data["--accent-primary"] = accent;
+  }
+  if (accentSoft && !has("--accent-hover")) data["--accent-hover"] = accentSoft;
+}
+
 /** Same variable map as `GET /api/themes/active` payload `data` — for collab broadcast parity. */
 export function getCmsThemeDataVarsFromRow(row) {
   const cfg = parseCmsThemeConfig(row?.config);
   const base = variablesFromCmsThemeConfig(cfg);
-  return mergeAgentDashboardIdeTokens(base, cfg);
+  const data = mergeAgentDashboardIdeTokens(base, cfg);
+  mergeRowCssVarsJsonIntoData(row, data);
+  mergeTokensPaletteIntoData(row, data);
+  return mergeAgentDashboardIdeTokens(data, cfg);
 }
 
 /**
@@ -135,8 +208,7 @@ export function buildActiveThemeApiPayload(row) {
   const fam = String(row.theme_family || "").toLowerCase();
   const isDark = fam === "dark" || (fam !== "light" && fam !== "high_contrast_light" && !fam);
   const cfg = parseCmsThemeConfig(row.config);
-  const base = variablesFromCmsThemeConfig(cfg);
-  const data = mergeAgentDashboardIdeTokens(base, cfg);
+  const data = getCmsThemeDataVarsFromRow(row);
   const resolvedDark =
     typeof cfg.is_dark === "boolean"
       ? cfg.is_dark
