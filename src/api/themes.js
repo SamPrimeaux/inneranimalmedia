@@ -23,7 +23,7 @@ async function resolveCanonicalUserIdShort(env, sessionUserId, email) {
     return { userId: null };
   }
 }
-import { buildActiveThemeApiPayload } from "../core/cms-theme-active.js";
+import { buildActiveThemeApiPayload, hydrateCmsThemeCssVarsFromR2 } from "../core/cms-theme-active.js";
 import {
   resolveActiveCmsThemeRow,
   resolveTenantIdForCmsThemeOps,
@@ -843,6 +843,8 @@ export async function handleThemesApi(request, url, env, ctx) {
           `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
         ).first();
       }
+
+      await hydrateCmsThemeCssVarsFromR2(env, outRow);
 
       const payload =
         buildActiveThemeApiPayload(outRow) ||

@@ -1,10 +1,13 @@
 /**
- * Live theme resolution from `cms_themes` rows (D1 `config` JSON).
+ * Live theme resolution from `cms_themes` rows (D1 `config` JSON + `css_vars_json`).
  *
  * **Important:** Authenticated dashboard realtime paths (`GET /api/themes/active`, collab
  * `theme_update`, ThemeSwitcher optimistic apply) MUST use this pipeline — CSS variables merged
  * from D1 — not compiled `theme.css` on R2. R2 artifacts (`css_url`, compiled snapshots) exist for
  * public pages, embeds, exports, and cacheable published HTML — see `scripts/cms/compile-theme-batch.mjs`.
+ *
+ * When `css_vars_json` is still `{}` after a package sync, `hydrateCmsThemeCssVarsFromR2` (called from
+ * `POST /api/themes/apply`) loads `theme.json` from the ASSETS bucket and backfills D1 so clients receive `data`.
  */
 
 /** @param {unknown} raw */
@@ -185,6 +188,101 @@ function mergeTokensPaletteIntoData(row, data) {
     if (!has("--accent-primary")) data["--accent-primary"] = accent;
   }
   if (accentSoft && !has("--accent-hover")) data["--accent-hover"] = accentSoft;
+}
+
+/**
+ * Extract CSS custom properties map from an R2 `theme.json` payload (shape varies by generator).
+ * @param {unknown} themeJson
+ * @returns {Record<string, string>}
+ */
+function cssVarsFromR2ThemeJson(themeJson) {
+  if (!themeJson || typeof themeJson !== "object" || Array.isArray(themeJson)) return {};
+  const o = /** @type {Record<string, unknown>} */ (themeJson);
+  const pick = o.cssVars ?? o.css_vars ?? o.vars;
+  if (pick && typeof pick === "object" && !Array.isArray(pick)) {
+    const out = /** @type {Record<string, string>} */ ({});
+    for (const [k, v] of Object.entries(/** @type {Record<string, unknown>} */ (pick))) {
+      if (v == null) continue;
+      out[k] = typeof v === "string" ? v : String(v);
+    }
+    if (Object.keys(out).length) return out;
+  }
+  const cfgRaw = o.config;
+  if (typeof cfgRaw === "string" && cfgRaw.trim()) {
+    try {
+      const cfg = JSON.parse(cfgRaw);
+      if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
+        const cv =
+          /** @type {Record<string, unknown>} */ (cfg).cssVars ??
+          /** @type {Record<string, unknown>} */ (cfg).css_vars;
+        if (cv && typeof cv === "object" && !Array.isArray(cv)) {
+          const out = /** @type {Record<string, string>} */ ({});
+          for (const [k, v] of Object.entries(/** @type {Record<string, unknown>} */ (cv))) {
+            if (v == null) continue;
+            out[k] = typeof v === "string" ? v : String(v);
+          }
+          if (Object.keys(out).length) return out;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return {};
+}
+
+/**
+ * When D1 `css_vars_json` is empty `{}` but the compiled package exists on R2, read `theme.json`,
+ * merge vars onto the row, and best-effort backfill D1 so the next apply is instant.
+ * Mutates `row.css_vars_json` when hydration succeeds.
+ * @param {*} env
+ * @param {Record<string, unknown> | null | undefined} row
+ */
+export async function hydrateCmsThemeCssVarsFromR2(env, row) {
+  if (!row || typeof row !== "object") return;
+  let cssVars = {};
+  try {
+    const raw = row.css_vars_json;
+    if (typeof raw === "string") cssVars = JSON.parse(raw || "{}");
+    else if (raw && typeof raw === "object" && !Array.isArray(raw))
+      cssVars = { .../** @type {Record<string, unknown>} */ (raw) };
+  } catch {
+    cssVars = {};
+  }
+  if (Object.keys(cssVars).length > 0) return;
+
+  const keyRaw = row.css_r2_key != null ? String(row.css_r2_key).trim() : "";
+  const bucketRaw = row.css_r2_bucket != null ? String(row.css_r2_bucket).trim() : "";
+  const slug = row.slug != null ? String(row.slug).trim() : "";
+  if (!(keyRaw && bucketRaw) && !keyRaw && !slug) return;
+
+  let cssPath = keyRaw;
+  if (!cssPath && slug) cssPath = `cms/themes/${slug}/theme.css`;
+  if (!cssPath) return;
+
+  const jsonKey = cssPath.includes("theme.css")
+    ? cssPath.replace("theme.css", "theme.json")
+    : cssPath.replace(/\.css$/i, ".json");
+
+  try {
+    const r2Obj =
+      (typeof env?.ASSETS?.get === "function" ? await env.ASSETS.get(jsonKey) : null) ??
+      (typeof env?.DASHBOARD?.get === "function" ? await env.DASHBOARD.get(jsonKey) : null) ??
+      (typeof env?.R2?.get === "function" ? await env.R2.get(jsonKey) : null);
+    if (!r2Obj) return;
+    const themeJson = await r2Obj.json();
+    cssVars = cssVarsFromR2ThemeJson(themeJson);
+    if (Object.keys(cssVars).length === 0) return;
+    row.css_vars_json = JSON.stringify(cssVars);
+    if (env?.DB && slug) {
+      env.DB.prepare(`UPDATE cms_themes SET css_vars_json = ? WHERE slug = ?`)
+        .bind(row.css_vars_json, slug)
+        .run()
+        .catch(() => {});
+    }
+  } catch {
+    /* R2 or JSON parse — non-fatal */
+  }
 }
 
 /** Same variable map as `GET /api/themes/active` payload `data` — for collab broadcast parity. */
