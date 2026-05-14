@@ -3036,8 +3036,8 @@ const App: React.FC = () => {
           <div className="pointer-events-auto">
             <ToolApprovalModal
               workspaceId={authWorkspaceId}
-              agentRunId={activeCommandRunId}
-              toolExecutionActive={agentIsStreaming}
+              agentRunId={null}
+              toolExecutionActive={false}
               chatSessionId={activeAgentConversationId}
               onOpenInEditor={openInMonacoFromChat}
               docked
