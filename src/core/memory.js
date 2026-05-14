@@ -23,7 +23,7 @@ import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
 const MEMORY_KV_TTL_SEC   = 180;   // 3 minutes
 const MEMORY_TIMEOUT_MS   = 2000;  // hard cap — never blocks model call
 const MIN_WORDS_FOR_RAG   = 6;     // skip semantic search for short messages
-const SUPABASE_REST_FALLBACK = 'https://dpmuvynqixblxsilnlut.supabase.co';
+const SUPABASE_REST_FALLBACK = null; // read from env.SUPABASE_URL at call time
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

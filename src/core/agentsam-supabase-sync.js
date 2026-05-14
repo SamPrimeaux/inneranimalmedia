@@ -236,7 +236,7 @@ export async function markWorkflowRunSupabaseSynced(env, d1RunId, supabaseRunId)
  * @param {string} d1RunId
  * @param {string} error
  */
-const SUPABASE_RPC_FALLBACK_ORIGIN = 'https://dpmuvynqixblxsilnlut.supabase.co';
+const SUPABASE_RPC_FALLBACK_ORIGIN = null; // read from env.SUPABASE_URL at call time
 
 function restOriginForRpc(env) {
   try {
