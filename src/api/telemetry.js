@@ -254,7 +254,7 @@ export async function writeTelemetry(env, data, modelRates) {
           tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status, event_type,
           ref_table, ref_id, created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())
         ON CONFLICT(ref_table, ref_id) DO UPDATE SET
           tokens_in = tokens_in + excluded.tokens_in,
           tokens_out = tokens_out + excluded.tokens_out,

@@ -71,17 +71,17 @@ Branch: ${branch}`;
       const agentId = agentData.id || agentData.agent_id;
 
       if (env.DB) {
+        // Remote agentsam_agent_run: no plan_id / prompt / model columns; TEXT created_at; model_id + trigger.
         await env.DB.prepare(`
         INSERT INTO agentsam_agent_run
-          (id, user_id, agent_id, plan_id, prompt, status, model, created_at)
-        VALUES (?, ?, ?, ?, ?, 'running', ?, unixepoch())
+          (id, user_id, agent_id, status, trigger, model_id, conversation_id, created_at)
+        VALUES (?, ?, ?, 'running', 'cursor_api', ?, ?, datetime('now'))
       `).bind(
           'arun_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12),
           authUser.id,
           agentId || 'unknown',
-          plan_id || null,
-          fullPrompt.slice(0, 500),
           model,
+          plan_id || null,
         ).run().catch(() => {}); // non-fatal if table schema mismatch
       }
 

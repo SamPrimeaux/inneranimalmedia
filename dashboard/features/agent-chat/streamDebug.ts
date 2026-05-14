@@ -15,6 +15,8 @@ export type IamAgentStreamDebug = {
   error_at: number | null;
   abort_at: number | null;
   context: Record<string, unknown> | null;
+  /** Last workspace capability router decision (SSE capability_selected); not shown in chat bubble. */
+  capability_decision: Record<string, unknown> | null;
   assistant_text_length: number;
   done_received: boolean;
   parser_error: string | null;
@@ -44,6 +46,7 @@ export function initIamAgentStreamDebug(debugId: string): IamAgentStreamDebug {
     error_at: null,
     abort_at: null,
     context: null,
+    capability_decision: null,
     assistant_text_length: 0,
     done_received: false,
     parser_error: null,

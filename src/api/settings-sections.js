@@ -358,7 +358,8 @@ async function getNotifications(env, authUser) {
   const approvals = await safeQueryAll(
     db,
     'agentsam_approval_queue',
-    `SELECT id, kind, status, requested_by, created_at FROM agentsam_approval_queue ORDER BY created_at DESC LIMIT 25`,
+    `SELECT id, tool_name, user_id, status, action_summary, created_at
+     FROM agentsam_approval_queue ORDER BY created_at DESC LIMIT 25`,
     [],
     warnings,
     cache,

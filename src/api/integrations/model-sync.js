@@ -6,9 +6,21 @@ function genModelId(provider, modelKey) {
   return `mdl_${provider}_${h}`.slice(0, 120);
 }
 
-export async function syncProviderModels(env, provider, apiKey) {
+/**
+ * @param {any} env
+ * @param {string} provider
+ * @param {string} apiKey
+ * @param {{ tenantId?: string | null, createdBy?: string | null }} [meta] — required for D1 agentsam_ai NOT NULL columns on remote
+ */
+export async function syncProviderModels(env, provider, apiKey, meta = {}) {
   if (!env?.DB || !apiKey) return;
   const p = String(provider || '').trim();
+  const tenantId = String(meta.tenantId || env.TENANT_ID || '').trim();
+  if (!tenantId) {
+    console.warn('[model-sync] skip syncProviderModels: no tenant_id (pass meta.tenantId or env.TENANT_ID)');
+    return;
+  }
+  const createdBy = String(meta.createdBy || 'apikey_sync').trim() || 'apikey_sync';
   try {
     let models = [];
     if (p === 'anthropic') {
@@ -45,11 +57,14 @@ export async function syncProviderModels(env, provider, apiKey) {
     for (const m of models) {
       if (!m.key) continue;
       const id = genModelId(p, m.key);
+      const display = String(m.name || m.key || '').trim() || m.key;
       await env.DB.prepare(
-        `INSERT OR IGNORE INTO agentsam_ai (id, provider, model_key, display_name, billing_unit, is_active, show_in_picker, picker_eligible, api_platform, pricing_unit, status)
-         VALUES (?, ?, ?, ?, 'tokens', 1, 1, 1, ?, 'usd_per_mtok', 'active')`,
+        `INSERT OR IGNORE INTO agentsam_ai (
+           id, tenant_id, name, role_name, mode, safety_level, tenant_scope, created_by,
+           provider, model_key, display_name, billing_unit, show_in_picker, picker_eligible, api_platform, pricing_unit, status
+         ) VALUES (?, ?, ?, ?, 'model', 'strict', 'multi_tenant', ?, ?, ?, ?, 'tokens', 1, 1, ?, 'usd_per_mtok', 'active')`,
       )
-        .bind(id, p, m.key, m.name || m.key, p)
+        .bind(id, tenantId, display, display, createdBy, p, m.key, display, p)
         .run()
         .catch(() => {});
     }

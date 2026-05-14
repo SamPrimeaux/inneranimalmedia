@@ -837,7 +837,12 @@ export async function handleOAuthApi(request, env, ctx) {
 
     await storeApiKeyAsOauth(env, authUser, provider, apiKey);
     try {
-      ctx?.waitUntil?.(syncProviderModels(env, provider, apiKey));
+      ctx?.waitUntil?.(
+        syncProviderModels(env, provider, apiKey, {
+          tenantId: authUser.tenant_id || env.TENANT_ID,
+          createdBy: authUser.id || authUser.email || 'apikey_sync',
+        }),
+      );
     } catch (_) { /* non-fatal */ }
     return jsonResponse({ success: true, provider, account_display: 'API key validated' });
   }

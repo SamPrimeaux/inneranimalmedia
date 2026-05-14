@@ -207,16 +207,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const d = data as { decision?: Record<string, unknown> };
           const dec = d.decision;
           if (dec && typeof dec === 'object') {
-            const intent = String(dec.intent ?? '—');
-            const surf = String(dec.default_surface ?? 'chat');
-            const b = dec.should_use_browser ? 'yes' : 'no';
-            assistantStreamBuf += `\n\n_Capabilities:_ **${intent}** · surface **${surf}** · browser=${b}\n`;
-            assistantContent = assistantStreamBuf;
-            setMessages((prev) => {
-              const last = [...prev];
-              last[last.length - 1] = { role: 'assistant', content: assistantContent };
-              return last;
-            });
+            patchIamAgentStreamDebug({ capability_decision: dec });
           }
           continue;
         }

@@ -10,6 +10,19 @@ export async function handleBrowserTrust(request, env) {
   const userId = String(user.id || user.auth_id || '').trim();
   if (!userId) return new Response('Unauthorized', { status: 401 });
 
+  const workspaceId = String(
+    request.headers.get('x-iam-workspace-id') ||
+      user.active_workspace_id ||
+      (typeof env?.WORKSPACE_ID === 'string' ? env.WORKSPACE_ID : '') ||
+      '',
+  ).trim();
+  if (!workspaceId) {
+    return jsonResponse(
+      { error: 'workspace_id required', detail: 'Send header x-iam-workspace-id or set active workspace' },
+      400,
+    );
+  }
+
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
 
@@ -21,9 +34,9 @@ export async function handleBrowserTrust(request, env) {
     const origin = url.searchParams.get('origin');
     if (!origin) return jsonResponse({ trusted: false, trust_scope: null });
     const row = await env.DB.prepare(
-      'SELECT trust_scope FROM agentsam_browser_trusted_origin WHERE user_id = ? AND origin = ?',
+      'SELECT trust_scope FROM agentsam_browser_trusted_origin WHERE workspace_id = ? AND user_id = ? AND origin = ?',
     )
-      .bind(userId, origin)
+      .bind(workspaceId, userId, origin)
       .first();
     return jsonResponse({ trusted: !!row, trust_scope: row?.trust_scope ?? null });
   }
@@ -40,13 +53,13 @@ export async function handleBrowserTrust(request, env) {
     if (!origin) return jsonResponse({ error: 'origin required' }, 400);
     await env.DB.prepare(
       `INSERT INTO agentsam_browser_trusted_origin
-        (user_id, origin, trust_scope, created_at, updated_at)
-      VALUES (?, ?, ?, datetime('now'), datetime('now'))
-      ON CONFLICT (user_id, origin) DO UPDATE SET
+        (workspace_id, user_id, origin, trust_scope, created_at, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+      ON CONFLICT (workspace_id, user_id, origin) DO UPDATE SET
         trust_scope = excluded.trust_scope,
         updated_at = datetime('now')`,
     )
-      .bind(userId, origin, trust_scope)
+      .bind(workspaceId, userId, origin, trust_scope)
       .run();
     return jsonResponse({ ok: true });
   }
@@ -61,9 +74,9 @@ export async function handleBrowserTrust(request, env) {
     const origin = body.origin != null ? String(body.origin).trim() : '';
     if (!origin) return jsonResponse({ error: 'origin required' }, 400);
     await env.DB.prepare(
-      'DELETE FROM agentsam_browser_trusted_origin WHERE user_id = ? AND origin = ?',
+      'DELETE FROM agentsam_browser_trusted_origin WHERE workspace_id = ? AND user_id = ? AND origin = ?',
     )
-      .bind(userId, origin)
+      .bind(workspaceId, userId, origin)
       .run();
     return jsonResponse({ ok: true });
   }
