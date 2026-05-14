@@ -1,0 +1,63 @@
+---
+description: Register D1 todo + plan_task + compact memory for each page or batch of work; keep Supabase mirror in mind with minimal duplication.
+alwaysApply: true
+---
+
+# Agent Sam — work item registration (D1 + mirror hygiene)
+
+Every **non-trivial** slice of work (a dashboard page, a Worker route group, a migration batch, or a multi-file feature) should be **traceable** in D1 before you mark it done. Keep payloads **small** and **idempotent** so sprint bookkeeping stays useful without spam.
+
+## 1. Pick anchors (before you edit)
+
+1. **`plan_id`** — Prefer the active sprint plan from `.cursor/rules/agentsam-d1-cursor-session-sync.mdc` (**`plan_may14_2026_repair`** until that block is rotated). Create a **new** `agentsam_plans` row only when the work is a **new program** (multi-week), not every PR.
+2. **`todo_id`** — One row in **`agentsam_todo`** per **deliverable** (user-visible outcome or shippable vertical slice). Naming: `todo_iam_<area>_<short_slug>` (stable, grep-friendly).
+3. **`plan_task_id`** — One row in **`agentsam_plan_tasks`** with `plan_id` + optional `todo_id`, status lifecycle, `output_summary` for the **same slice**. Naming: `task_iam_<area>_<short_slug>_<verb>`.
+
+Reuse existing `todo_id` / `plan_task_id` when continuing the **same** deliverable in a follow-up session (append `session_notes` / `output_summary` instead of minting duplicates).
+
+## 2. Lifecycle (lightweight)
+
+| Phase | `agentsam_todo` | `agentsam_plan_tasks` |
+|-------|-----------------|------------------------|
+| Start substantive work | `execution_status = 'in_progress'`, `status = 'open'` (or project convention) | `status = 'in_progress'` |
+| Ship / validate | `execution_status = 'done'`, `status = 'done'`, `output_summary` ≤ ~500 chars | `status = 'done'`, `completed_at = unixepoch()`, `output_summary` with commit SHA + routes |
+| Blocked | `execution_status` / `status` per enum + `error_trace` or `notes` | `status = 'blocked'`, `blocked_reason` |
+
+Set **`linked_route`** (or `linked_table` / `linked_commit`) on the todo when obvious — it makes dashboards and search useful.
+
+## 3. `context_snapshot` / JSON discipline
+
+- Prefer **one** JSON object on the todo: `surface`, `commits[]` (max ~5), `api[]` or `files[]` (max ~20 paths), optional `risk_flags[]`.
+- Do **not** paste secrets, tokens, or full API payloads.
+
+## 4. Plan roll-up
+
+After **commit** or **deploy**, append a **single line** to `agentsam_plans.session_notes` for that `plan_id` (ISO + SHA + subject). Bump **`tasks_total` / `tasks_done`** when adding/closing tasks so counts stay honest.
+
+## 5. D1 `agentsam_memory` (KV)
+
+For ship or major decision, **upsert** one row (`memory_type = 'project'`, stable `key` per deliverable, short JSON `value` with `plan_id`, `todo_id`, `plan_task_id`, `commit`, `surface`). Use **`ON CONFLICT(tenant_id, user_id, key)`** per session-sync rule. Resolve `user_id` from **`auth_users`** for the tenant — **do not invent** `au_*` in committed code; SQL one-offs may reference a known row only when you have verified it.
+
+## 6. Supabase `public` mirror (eventual consistency)
+
+- **Canonical:** D1 `agentsam_plans` / `agentsam_plan_tasks` / `agentsam_todo`.
+- **Mirror:** Worker **`mirrorAgentsamD1PlanToSupabasePublic`** upserts **`public.agentsam_plans`** / **`public.agentsam_plan_tasks`** when plans/tasks are written through Worker paths or schedulers.
+- **Cursor-only wrangler SQL:** mirror may **lag** until the next Worker touch. If parity matters immediately, use **MCP / PostgREST one-off upsert** with the same `id` and the column map in `agentsam-d1-cursor-session-sync.mdc` — failures are non-fatal; note in `plan_task.notes` if mirror repair was skipped.
+- **Semantic recall:** Supabase **`agent_memory`** is separate from D1 `agentsam_memory`; use for embeddings / `match_agent_memory` with a stable `metadata.sync_key`, not duplicate KV blobs.
+
+## 7. Anti-waste checklist
+
+- [ ] One todo per **deliverable**, not per file.
+- [ ] One plan_task per todo for the same slice unless you need explicit sub-steps.
+- [ ] No second todo for the **same** `linked_route` + same **commit** unless scope genuinely split.
+- [ ] Close or block rows when validation fails — never leave ghost `in_progress` forever.
+
+## Reference — `/dashboard/projects` (C2)
+
+Registered under **`plan_may14_2026_repair`**:
+
+- **`todo_id`:** `todo_iam_dashboard_projects_c2`
+- **`plan_task_id`:** `task_iam_dashboard_projects_c2_ship`
+- **D1 memory key:** `work_item_dashboard_projects_c2` (`agentsam_memory`)
+
+Rotate this “Reference” block when the sprint or surface changes.

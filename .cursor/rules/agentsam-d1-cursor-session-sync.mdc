@@ -65,6 +65,7 @@ Update this block when the sprint rotates:
 
 - **plan_id:** `plan_may14_2026_repair`
 - **Task ids:** keep in sync with D1 `agentsam_plan_tasks` for that `plan_id`.
+- **Example (dashboard /projects C2):** `todo_id` = `todo_iam_dashboard_projects_c2`, `plan_task_id` = `task_iam_dashboard_projects_c2_ship` — see `.cursor/rules/agentsam-work-item-registration.mdc` for the registration pattern.
 
 Do **not** use `~/Downloads/inneranimalmedia` or `inneranimalmedia-agentsam-dashboard` paths (removed / wrong).
 

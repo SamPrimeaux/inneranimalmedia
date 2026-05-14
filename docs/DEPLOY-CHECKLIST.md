@@ -48,3 +48,4 @@ If you changed anything under `dashboard/` that is served as `static/dashboard/*
 - `.cursorrules` — deploy and MCP paths.
 - `docs/LOCATIONS_AND_DEPLOY_AUDIT.md` — R2 keys and source layout.
 - `.cursor/rules/dashboard-r2-before-deploy.mdc` — dashboard HTML + R2 before worker deploy.
+- `scripts/maintenance/README.md` — archived / recovery deploy tooling (e.g. `fix_deploy_pipeline.py`, dry-run by default).
