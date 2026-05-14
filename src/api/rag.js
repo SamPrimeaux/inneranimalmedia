@@ -110,10 +110,61 @@ function r2AutoragBucketName(env) {
   return String(env.R2_AUTORAG_BUCKET_NAME || '').trim();
 }
 
-function openaiEmbeddingsBaseUrl(env) {
-  const b = String(env.OPENAI_API_BASE_URL || '').trim().replace(/\/$/, '');
-  if (!b) throw new Error('OPENAI_API_BASE_URL not configured');
-  return b;
+/**
+ * Provider-aware embeddings: try Ollama first (1024-dim), then OpenAI `text-embedding-3-small` @ 1024 (Supabase `vector(1024)`).
+ * @param {any} env
+ * @param {string} text
+ * @returns {Promise<{ embedding: number[], provider: 'ollama' | 'openai' }>}
+ */
+export async function createEmbedding(env, text) {
+  const input = String(text ?? '');
+  const ollamaBase = String(env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
+  try {
+    const res = await fetch(`${ollamaBase}/api/embeddings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'mxbai-embed-large', prompt: input }),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.embedding) && data.embedding.length === 1024) {
+        return { embedding: data.embedding, provider: 'ollama' };
+      }
+    }
+  } catch (_) {
+    /* fall through to OpenAI */
+  }
+
+  if (!env.OPENAI_API_KEY) throw new Error('no_embedding_provider');
+  const base = String(env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
+  const res = await fetch(`${base}/embeddings`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'text-embedding-3-small',
+      input: input,
+      dimensions: 1024,
+    }),
+  });
+  const raw = await res.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(`OpenAI embeddings: non-JSON (${res.status})`);
+  }
+  if (!res.ok) {
+    throw new Error(data?.error?.message || `OpenAI embeddings HTTP ${res.status}`);
+  }
+  const emb = data?.data?.[0]?.embedding;
+  if (!Array.isArray(emb) || emb.length !== 1024) {
+    throw new Error('OpenAI embeddings: expected 1024 dimensions');
+  }
+  return { embedding: emb, provider: 'openai' };
 }
 
 function verifyInternalSecret(request, env) {
@@ -228,41 +279,6 @@ async function r2PutObjectText(env, key, bodyText) {
   if (!res.ok) throw new Error(`R2 PutObject failed: ${res.status}`);
 }
 
-export async function openaiCreateEmbedding(env, inputText) {
-  const apiKey = env.OPENAI_API_KEY;
-  const model = ragEmbeddingModel(env);
-  const dims = ragEmbeddingDims(env);
-  if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
-  if (!model) throw new Error('RAG_OPENAI_EMBEDDING_MODEL not configured');
-  if (!Number.isFinite(dims)) throw new Error('RAG_EMBEDDING_DIMENSIONS not configured');
-  const base = openaiEmbeddingsBaseUrl(env);
-  const res = await fetch(`${base}/embeddings`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      input: inputText,
-      dimensions: dims,
-    }),
-  });
-  const raw = await res.text();
-  let data;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    throw new Error(`OpenAI embeddings: non-JSON response (${res.status})`);
-  }
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `OpenAI embeddings HTTP ${res.status}`);
-  }
-  const vec = data?.data?.[0]?.embedding;
-  if (!Array.isArray(vec)) throw new Error('OpenAI embeddings: missing vector');
-  return vec;
-}
-
 function vectorLiteral(vec) {
   return `[${vec.join(',')}]`;
 }
@@ -302,7 +318,7 @@ async function withPg(env, fn) {
 
 /**
  * Hybrid keyword + vector search against Supabase `agent_memory` via Hyperdrive (pgvector RPC).
- * Uses OpenAI embeddings (same model/dims as RAG). Returns null on missing bindings or errors.
+ * Uses `createEmbedding` (Ollama preferred, OpenAI fallback @ 1024 dims). Returns null on missing bindings or errors.
  *
  * @param {any} env
  * @param {string} query
@@ -311,7 +327,7 @@ async function withPg(env, fn) {
  * @returns {Promise<Array<{ id: unknown, content: unknown, hybrid_score?: unknown, embedding_distance?: unknown, trigram_similarity?: unknown }>|null>}
  */
 export async function searchAgentMemoryHybrid(env, query, workspaceId, options = {}) {
-  if (!isHyperdriveUsable(env) || !env.OPENAI_API_KEY) return null;
+  if (!isHyperdriveUsable(env)) return null;
 
   const {
     matchLimit = 10,
@@ -321,7 +337,7 @@ export async function searchAgentMemoryHybrid(env, query, workspaceId, options =
 
   let embedding;
   try {
-    embedding = await openaiCreateEmbedding(env, String(query || '').trim());
+    ({ embedding } = await createEmbedding(env, String(query || '').trim()));
   } catch (e) {
     console.warn('[rag] searchAgentMemoryHybrid embed:', e?.message ?? e);
     return null;
@@ -332,7 +348,7 @@ export async function searchAgentMemoryHybrid(env, query, workspaceId, options =
   const q = String(query || '').trim();
 
   const sql = `SELECT id, content, hybrid_score, embedding_distance, trigram_similarity
-     FROM public.search_agent_memory($1::vector, $2, $3, $4, $5, $6)`;
+     FROM public.search_agent_memory($1::vector(1024), $2, $3, $4, $5, $6)`;
   const params = [vecLit, q, workspaceId, matchLimit, keywordWeight, semanticWeight];
 
   try {
@@ -529,7 +545,7 @@ function mergeDedupeSort(rows) {
 }
 
 /**
- * Internal unified search (Hyperdrive RPCs + OpenAI embed).
+ * Internal unified search (Hyperdrive RPCs + `createEmbedding`).
  */
 export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limit, includeSessions }) {
   const agentId = ragAgentId(env);
@@ -541,7 +557,7 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
 
   let vec;
   try {
-    vec = await openaiCreateEmbedding(env, q);
+    ({ embedding: vec } = await createEmbedding(env, q));
   } catch (e) {
     const msg = e?.message ?? String(e);
     console.warn('[rag] runUnifiedRagQuery embed:', msg);
@@ -608,7 +624,7 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
  */
 export async function unifiedRagSearch(env, query, opts = {}) {
   const q = String(query || '').trim();
-  if (!q || !isHyperdriveUsable(env) || !env.OPENAI_API_KEY) {
+  if (!q || !isHyperdriveUsable(env)) {
     return { matches: [], results: [], count: 0, _error: 'missing_bindings' };
   }
   const topK = Math.min(Math.max(1, opts.topK || 8), 24);
@@ -774,11 +790,8 @@ async function handleRagIngest(request, env) {
   const projectId = ragDocumentsProjectId(env);
   if (!projectId) return jsonResponse({ error: 'RAG_DOCUMENTS_PROJECT_ID not configured' }, 503);
 
-  const dims = ragEmbeddingDims(env);
-  if (!Number.isFinite(dims)) return jsonResponse({ error: 'RAG_EMBEDDING_DIMENSIONS not configured' }, 503);
-
   try {
-    const embedding = await openaiCreateEmbedding(env, content);
+    const { embedding } = await createEmbedding(env, content);
     await upsertDocument(env, { source, title, content, embedding, projectId, metadata });
 
     const folder = resolveAutoragFolder(env, metadata);
@@ -897,7 +910,7 @@ async function handleRagSync(request, env) {
             return;
           }
           const text = await r2GetObjectText(env, sourceKey);
-          const embedding = await openaiCreateEmbedding(env, text);
+          const { embedding } = await createEmbedding(env, text);
           const title = sourceKey.split('/').pop() || sourceKey;
           await upsertDocument(env, {
             source: sourceKey,
@@ -921,7 +934,7 @@ async function handleRagSync(request, env) {
 
 /**
  * Insert one curated row into `public.agent_memory` with an OpenAI embedding (same model/dims as RAG).
- * Requires HYPERDRIVE, OPENAI_API_KEY, OPENAI_API_BASE_URL, RAG_OPENAI_EMBEDDING_MODEL, RAG_EMBEDDING_DIMENSIONS.
+ * Requires HYPERDRIVE + `createEmbedding` (Ollama or OpenAI @ 1024 dims). Optional `RAG_OPENAI_EMBEDDING_MODEL` for OpenAI path label in DB.
  *
  * @param {any} env
  * @param {{
@@ -961,16 +974,16 @@ export async function insertCuratedAgentMemory(env, params) {
   const user_id =
     params.user_id != null && String(params.user_id).trim() !== '' ? String(params.user_id).trim() : null;
 
-  const embed_model = ragEmbeddingModel(env);
-  const expectedDims = ragEmbeddingDims(env);
-  if (!embed_model) throw new Error('RAG_OPENAI_EMBEDDING_MODEL not configured');
-  if (!Number.isFinite(expectedDims)) throw new Error('RAG_EMBEDDING_DIMENSIONS not configured');
-
-  const embedding = await openaiCreateEmbedding(env, content);
+  const { embedding, provider } = await createEmbedding(env, content);
+  const expectedDims = 1024;
   const dims = embedding.length;
   if (dims !== expectedDims) {
-    throw new Error(`embedding length ${dims} does not match RAG_EMBEDDING_DIMENSIONS (${expectedDims})`);
+    throw new Error(`embedding length ${dims} does not match expected ${expectedDims}`);
   }
+  const embed_model =
+    provider === 'ollama'
+      ? 'mxbai-embed-large'
+      : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
 
   const vecLit = vectorLiteral(embedding);
 
@@ -1047,11 +1060,12 @@ export async function searchCuratedAgentMemory(env, opts) {
   if (!Number.isFinite(limit) || limit < 1) limit = 10;
   if (limit > 50) limit = 50;
 
-  const embed_model = ragEmbeddingModel(env);
-  if (!embed_model) throw new Error('RAG_OPENAI_EMBEDDING_MODEL not configured');
-  if (!Number.isFinite(ragEmbeddingDims(env))) throw new Error('RAG_EMBEDDING_DIMENSIONS not configured');
-
-  const embedding = await openaiCreateEmbedding(env, query);
+  const { embedding, provider } = await createEmbedding(env, query);
+  const embed_model =
+    provider === 'ollama'
+      ? 'mxbai-embed-large'
+      : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
+  if (embedding.length !== 1024) throw new Error('embedding must be 1024 dimensions');
   const vecLit = vectorLiteral(embedding);
 
   return await withPg(env, async (client) => {
@@ -1138,7 +1152,7 @@ export async function handleAgentMemorySync(request, env) {
   }
 
   try {
-    const embedding = await openaiCreateEmbedding(env, content);
+    const { embedding } = await createEmbedding(env, content);
     const vecLit = vectorLiteral(embedding);
     await withPg(env, async (client) => {
       await client.query(`UPDATE public.agent_memory SET embedding = $1::vector WHERE id = $2::uuid`, [

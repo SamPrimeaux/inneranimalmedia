@@ -16,7 +16,7 @@
  *  to keep agentsam_model_routing_memory populated for cold-start priors.
  */
 
-import { logSemanticSearch, openaiCreateEmbedding } from '../api/rag.js';
+import { logSemanticSearch, createEmbedding } from '../api/rag.js';
 import { compactToolStatsCompacted } from './tool-stats-rollup.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
 
@@ -166,9 +166,9 @@ async function searchSupabaseContext(env, userMessage, tenantId, workspaceId, se
   const tid = String(tenantId || '').trim();
   if (!tid) return '';
 
-  if (isHyperdriveUsable(env) && env.OPENAI_API_KEY) {
+  if (isHyperdriveUsable(env)) {
     try {
-      const embedding = await openaiCreateEmbedding(env, q);
+      const { embedding } = await createEmbedding(env, q);
       if (!Array.isArray(embedding) || !embedding.length) throw new Error('empty_embedding');
       const embeddingStr = `[${embedding.join(',')}]`;
       const queryPreview = String(userMessage || '').slice(0, 120);
