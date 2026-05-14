@@ -182,7 +182,7 @@ async function filterWorkspaceModelTierPool(env, workspaceId, chainRows) {
         .map((t) => String(t).trim()),
     );
     if (!allowed.size) return chainRows;
-    return chainRows.filter((r) => allowed.has(modelCostTierFromRow(r)));
+    return chainRows.filter((r) => { const ct = modelCostTierFromRow(r); return !ct || allowed.has(ct); });
   } catch (e) {
     console.warn('[agent] model tier filter', e?.message ?? e);
     return chainRows;
@@ -283,7 +283,7 @@ function inferArtifactFromAssistantText(text) {
   return { artifact_type, name };
 }
 
-async function logPromptCacheUsage(env, tenantId, layerKeys, routeKey) {
+async function logPromptCacheUsage(env, tenantId, layerKeys, routeKey, provider, modelKey) {
   if (!env.DB || !layerKeys?.length) return;
   try {
     const layerKeysJson = JSON.stringify(layerKeys);
@@ -309,8 +309,8 @@ async function logPromptCacheUsage(env, tenantId, layerKeys, routeKey) {
       await env.DB.prepare(`
         INSERT INTO agentsam_prompt_cache_keys 
         (tenant_id, provider, model_key, cache_key_hash, layer_keys_json, route_key)
-        VALUES (?, 'auto', 'auto', ?, ?, ?)
-      `).bind(tenantId || '', hash, layerKeysJson, routeKey || null).run();
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(tenantId || '', provider || 'unknown', modelKey || 'unknown', hash, layerKeysJson, routeKey || null).run();
     }
   } catch (e) {
     console.warn('[agent] logPromptCacheUsage failed:', e.message);
@@ -650,7 +650,7 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
 
     // Fire-and-forget prompt cache tracking
     if (env.DB && layerKeys.length) {
-      void logPromptCacheUsage(env, tenantId, layerKeys, promptRouteRow?.route_key).catch(() => {});
+      void logPromptCacheUsage(env, tenantId, layerKeys, promptRouteRow?.route_key, options?.provider ?? null, options?.modelKey ?? null).catch(() => {});
     }
 
     return result;
@@ -2329,7 +2329,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
                cost_usd, status${postStatus}, ref_table, ref_id, routing_arm_id, created_at)
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
-               'iam_agent',?,?,?${midExtraPh},?,?,?${tokExtraPh},
+               'iam_agent',?,?${midExtraPh},?,?${tokExtraPh},
                ?,?${postStatusPh}, 'agent_chat_sse', ?, ?, unixepoch())
           `).bind(
             tenantId,
@@ -2356,7 +2356,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
                cost_usd, status${postStatus}, ref_table, ref_id, created_at)
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
-               'iam_agent',?,?,?${midExtraPh},?,?,?${tokExtraPh},
+               'iam_agent',?,?${midExtraPh},?,?${tokExtraPh},
                ?,?${postStatusPh}, 'agent_chat_sse', ?, unixepoch())
           `).bind(
             tenantId,
@@ -2807,17 +2807,58 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       routeArmOutcome(false);
       const detail = e?.message != null ? String(e.message).slice(0, 8000) : String(e).slice(0, 8000);
       emit('error', { message: detail || 'Model call failed', detail });
-      
-      // Log failed step
-      ctx.waitUntil?.(env.DB.prepare(`
-        INSERT INTO agentsam_execution_steps (execution_id, step_type, model_key, status, tool_output, duration_ms)
-        VALUES (?, 'model_turn', ?, 'failed', ?, ?)
-      `).bind(
-        params.chatAgentRunId || sessionId || 'unknown',
-        modelKey,
-        detail.slice(0, 500),
-        Date.now() - modelT0
-      ).run().catch(() => {}));
+
+      const eidFail = String(params.chatAgentRunId || sessionId || 'unknown').slice(0, 200);
+      const lat = Math.max(0, Date.now() - modelT0);
+      const errPayload = JSON.stringify({ model_key: modelKey, message: detail.slice(0, 4000) });
+      ctx.waitUntil?.(
+        (async () => {
+          try {
+            const cols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
+            if (!cols.has('execution_id') || !cols.has('node_key')) return;
+            const parts = [];
+            const vals = [];
+            const binds = [];
+            const q = (name, val) => {
+              if (!cols.has(name)) return;
+              parts.push(name);
+              vals.push('?');
+              binds.push(val);
+            };
+            q('execution_id', eidFail);
+            q('node_key', 'model_dispatch_failed');
+            q('node_type', 'model');
+            q('status', 'failed');
+            if (cols.has('error_json')) {
+              parts.push('error_json');
+              vals.push('?');
+              binds.push(errPayload);
+            } else if (cols.has('output_json')) {
+              parts.push('output_json');
+              vals.push('?');
+              binds.push(errPayload);
+            }
+            q('latency_ms', lat);
+            const nowSec = Math.floor(Date.now() / 1000);
+            q('started_at', nowSec);
+            q('completed_at', nowSec);
+            if (cols.has('created_at')) {
+              parts.push('created_at');
+              vals.push(`datetime('now')`);
+            }
+            if (cols.has('created_at_unix')) {
+              parts.push('created_at_unix');
+              vals.push('?');
+              binds.push(nowSec);
+            }
+            await env.DB.prepare(
+              `INSERT INTO agentsam_execution_steps (${parts.join(', ')}) VALUES (${vals.join(', ')})`,
+            )
+              .bind(...binds)
+              .run();
+          } catch (_) {}
+        })(),
+      );
 
       const fail = new Error('MODEL_DISPATCH_FAILED');
       fail.code = 'MODEL_DISPATCH_FAILED';
