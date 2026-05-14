@@ -175,17 +175,20 @@ async function dispatchNode(env, node, input, runContext) {
           },
         };
       }
-      const [, method] = (handlerKey || '').split('.');
-      const toolKey = method || handlerKey;
+      const hkStr = String(handlerKey || '');
+      const parts = hkStr.split('.');
+      const splitKey = parts.length > 1 ? parts[parts.length - 1] : hkStr;
+      const underscoreKey = hkStr.replace(/\./g, '_');
 
       const toolRow = env.DB
         ? await env.DB.prepare(`
       SELECT tool_key, mcp_service_url, handler_type, handler_config
       FROM agentsam_mcp_tools
-      WHERE tool_key = ? AND is_active = 1 AND enabled = 1
+      WHERE (tool_key = ? OR tool_key = ? OR tool_key = ?)
+        AND is_active = 1 AND enabled = 1
       LIMIT 1
     `)
-            .bind(toolKey)
+            .bind(splitKey, underscoreKey, hkStr)
             .first()
             .catch(() => null)
         : null;

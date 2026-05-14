@@ -1539,7 +1539,58 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
     person_uuid: context.personUuid ?? input?.person_uuid ?? null,
     request: context.request || null,
   };
-  const out = await runBuiltinTool(env, toolName, params, context);
+  let out = await runBuiltinTool(env, toolName, params, context);
+  if (out && typeof out === 'object' && out.error) {
+    const errStr = typeof out.error === 'string' ? out.error : JSON.stringify(out.error);
+    const looksUnknown =
+      /Tool integration for/i.test(errStr) || /not found/i.test(errStr);
+    let resolved = out;
+    if (looksUnknown && env?.DB && toolName) {
+      let cmd = null;
+      try {
+        cmd = await env.DB.prepare(`
+    SELECT mapped_command, router_type, tool_key, workflow_key, execution_mode
+    FROM agentsam_commands
+    WHERE (slug = ? OR tool_key = ? OR mapped_command = ?)
+      AND is_active = 1
+    LIMIT 1
+  `)
+          .bind(toolName, toolName, toolName)
+          .first();
+      } catch (_) {
+        cmd = null;
+      }
+      const router = String(cmd?.router_type || 'tool').toLowerCase();
+      if (cmd?.mapped_command && router === 'tool') {
+        resolved = await runBuiltinTool(
+          env,
+          'terminal_run',
+          { ...params, command: String(cmd.mapped_command) },
+          context,
+        );
+      } else if (cmd?.workflow_key) {
+        try {
+          const { executeWorkflowGraph } = await import('../core/workflow-executor.js');
+          resolved = await executeWorkflowGraph(env, {
+            workflowKey: String(cmd.workflow_key).trim(),
+            input: input && typeof input === 'object' ? input : {},
+            tenantId: context.tenantId,
+            workspaceId: context.workspaceId,
+            userId: context.userId ?? null,
+            userEmail: context.userEmail ?? null,
+            triggerType: 'agent',
+          });
+        } catch (wfErr) {
+          resolved = {
+            error: wfErr && typeof wfErr === 'object' && 'message' in wfErr
+              ? String(wfErr.message)
+              : String(wfErr),
+          };
+        }
+      }
+    }
+    out = resolved;
+  }
   if (out && typeof out === 'object' && out.error) {
     throw new Error(typeof out.error === 'string' ? out.error : JSON.stringify(out.error));
   }
