@@ -8,15 +8,15 @@
  *  2. KV cache per workspace/tenant, 3-minute TTL — warm path is one KV read
  *  3. Hard 2s Promise.race timeout — memory NEVER blocks the model call
  *  4. D1 agentsam_memory keyword match (fast, no embedding)
- *  5. Supabase `search_all_context_logged` — Hyperdrive SQL when usable, else PostgREST RPC
- *  6. No env.AI.run embedding call ever — that killed the Worker with CPU timeouts
+ *  5. Supabase `search_all_context_logged` — Hyperdrive + OpenAI embed when usable; else PostgREST RPC
+ *  6. No env.AI.run embedding — OpenAI HTTP embeddings only (same path as RAG)
  *
  * Thompson routing:
  *  writeRoutingMemoryPrior — called by applyRoutingArmUsageFeedback after each run
  *  to keep agentsam_model_routing_memory populated for cold-start priors.
  */
 
-import { logSemanticSearch } from '../api/rag.js';
+import { logSemanticSearch, openaiCreateEmbedding } from '../api/rag.js';
 import { compactToolStatsCompacted } from './tool-stats-rollup.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
 
@@ -166,18 +166,31 @@ async function searchSupabaseContext(env, userMessage, tenantId, workspaceId, se
   const tid = String(tenantId || '').trim();
   if (!tid) return '';
 
-  if (isHyperdriveUsable(env)) {
+  if (isHyperdriveUsable(env) && env.OPENAI_API_KEY) {
     try {
+      const embedding = await openaiCreateEmbedding(env, q);
+      if (!Array.isArray(embedding) || !embedding.length) throw new Error('empty_embedding');
+      const embeddingStr = `[${embedding.join(',')}]`;
+      const queryPreview = String(userMessage || '').slice(0, 120);
+      const dim = embedding.length;
+      const vecSqlType = `vector(${dim})`;
+      const filterAgent = String(env.RAG_AGENT_ID || 'agent-sam').trim();
+      const ws =
+        workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null;
+
       const sql = `SELECT * FROM public.search_all_context_logged(
-        $1::text, $2::text, $3::text, $4::text, $5::int, $6::double precision
+        $1::${vecSqlType}, $2::text, $3::float8, $4::int,
+        $5::text, $6::text, $7::text, $8::text
       )`;
       const r = await runHyperdriveQuery(env, sql, [
-        q,
-        tid,
-        workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
-        sessionId != null && String(sessionId).trim() !== '' ? String(sessionId).trim() : null,
-        8,
-        0.72,
+        embeddingStr,
+        queryPreview,
+        0.7,
+        10,
+        filterAgent,
+        tid || null,
+        ws,
+        null,
       ]);
       if (r.ok && Array.isArray(r.rows) && r.rows.length) {
         return formatSemanticBlock(r.rows);

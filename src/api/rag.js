@@ -228,7 +228,7 @@ async function r2PutObjectText(env, key, bodyText) {
   if (!res.ok) throw new Error(`R2 PutObject failed: ${res.status}`);
 }
 
-async function openaiCreateEmbedding(env, inputText) {
+export async function openaiCreateEmbedding(env, inputText) {
   const apiKey = env.OPENAI_API_KEY;
   const model = ragEmbeddingModel(env);
   const dims = ragEmbeddingDims(env);
@@ -558,7 +558,7 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
   const thr = typeof threshold === 'number' ? threshold : 0.7;
 
   const sqlCtx = `SELECT * FROM public.search_all_context($1::${vecSqlType}, $2::double precision, $3::integer, $4::text)`;
-  const sqlSess = `SELECT * FROM public.match_session_summaries($1::${vecSqlType}, $2::text, $3::text, $4::double precision, $5::integer)`;
+  const sqlSess = `SELECT * FROM public.match_session_summaries($1::${vecSqlType}, $2::text, $3::text, $4::float8, $5::int)`;
 
   const loadCtxRows = async () => {
     try {
