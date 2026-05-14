@@ -136,7 +136,7 @@ section("4. Verify routing arms for key models")
 arms = d1q(
     """SELECT model_key, task_type, mode, success_alpha, success_beta, is_active, is_eligible
        FROM agentsam_routing_arms
-       WHERE model_key IN ('gpt-5.4-mini','gpt-5.4-nano','claude-sonnet-4-6','gemini-2.5-flash')
+       WHERE is_active=1 AND model_key IN ('gpt-5.4-mini','gpt-5.4-nano','claude-sonnet-4-6','gemini-2.5-flash')
          AND task_type='chat' AND mode='agent'
        ORDER BY model_key""",
     "routing arms check"
