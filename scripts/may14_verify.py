@@ -144,8 +144,8 @@ check(
     not file_contains("dashboard/src/components/ToolApprovalModal.tsx", "type CONFIRM"),
 )
 check(
-    "ToolApprovalModal.tsx has Allow always button",
-    file_contains("dashboard/src/components/ToolApprovalModal.tsx", "Allow always"),
+    "ToolApprovalModal.tsx has Add to Allowlist button",
+    file_contains("dashboard/src/components/ToolApprovalModal.tsx", "Add to Allowlist"),
 )
 
 # ── 6. Live endpoint checks ───────────────────────────────────────────────────
