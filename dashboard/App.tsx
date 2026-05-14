@@ -366,6 +366,7 @@ const App: React.FC = () => {
   const [nativeFolderOpenSignal, setNativeFolderOpenSignal] = useState(0);
   /** ≤768px: secondary rail actions (sheet above bottom tab bar). */
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [agentIsStreaming, setAgentIsStreaming] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
   const onUnifiedSearchOpenChange = useCallback((next: boolean) => {
@@ -3037,7 +3038,7 @@ const App: React.FC = () => {
             <ToolApprovalModal
               workspaceId={authWorkspaceId}
               agentRunId={null}
-              toolExecutionActive={false}
+              toolExecutionActive={agentIsStreaming}
               chatSessionId={activeAgentConversationId}
               onOpenInEditor={openInMonacoFromChat}
               docked
