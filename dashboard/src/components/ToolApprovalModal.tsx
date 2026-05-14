@@ -166,26 +166,17 @@ export function ToolApprovalModal({
     setLoading(false);
   }
 
-  const riskColor: Record<string, string> = {
-    low: 'var(--color-text-success)',
-    medium: 'var(--color-text-warning)',
-    high: 'var(--color-text-danger)',
-    critical: 'var(--color-text-danger)',
-  };
-  const riskBg: Record<string, string> = {
-    low: 'var(--color-background-success)',
-    medium: 'var(--color-background-warning)',
-    high: 'var(--color-background-danger)',
-    critical: 'var(--color-background-danger)',
-  };
-
   return (
     <div
       style={{
-        border: '0.5px solid var(--color-border-secondary)',
-        borderRadius: 'var(--border-radius-lg)',
-        padding: '1rem 1.25rem',
-        background: 'var(--color-background-primary)',
+        backdropFilter: 'blur(12px)',
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '16px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+        padding: '14px 16px',
+        maxWidth: '300px',
+        width: '100%',
         marginTop: '1rem',
       }}
     >
@@ -197,11 +188,11 @@ export function ToolApprovalModal({
         {approval.queue_count > 1 && (
           <span
             style={{
-              fontSize: 11,
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '999px',
+              fontSize: 10,
               padding: '2px 6px',
-              background: 'var(--color-background-secondary)',
-              borderRadius: 'var(--border-radius-md)',
-              color: 'var(--color-text-tertiary)',
             }}
           >
             +{approval.queue_count - 1} pending
@@ -218,12 +209,27 @@ export function ToolApprovalModal({
 
       <span
         style={{
-          fontSize: 11,
+          borderRadius: '999px',
+          fontSize: 10,
           padding: '2px 8px',
-          borderRadius: 'var(--border-radius-md)',
-          background: riskBg[approval.risk_level],
-          color: riskColor[approval.risk_level],
-          fontWeight: 500,
+          fontWeight: 600,
+          ...(approval.risk_level === 'high' || approval.risk_level === 'critical'
+            ? {
+                background: 'rgba(239,68,68,0.15)',
+                color: '#f87171',
+                border: '1px solid rgba(239,68,68,0.3)',
+              }
+            : approval.risk_level === 'medium'
+              ? {
+                  background: 'rgba(234,179,8,0.15)',
+                  color: '#fbbf24',
+                  border: '1px solid rgba(234,179,8,0.3)',
+                }
+              : {
+                  background: 'rgba(34,197,94,0.15)',
+                  color: '#4ade80',
+                  border: '1px solid rgba(34,197,94,0.3)',
+                }),
         }}
       >
         {approval.risk_level.toUpperCase()}
@@ -247,14 +253,15 @@ export function ToolApprovalModal({
           {expanded && (
             <pre
               style={{
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '8px',
                 fontSize: 11,
                 fontFamily: 'var(--font-mono)',
-                background: 'var(--color-background-secondary)',
-                borderRadius: 'var(--border-radius-md)',
-                padding: 10,
+                maxHeight: '64px',
+                overflow: 'hidden',
+                padding: '8px 10px',
                 marginTop: 6,
-                overflowX: 'auto',
-                maxHeight: 160,
                 color: 'var(--color-text-primary)',
               }}
             >
@@ -265,18 +272,52 @@ export function ToolApprovalModal({
       )}
 
       {isHighRisk && (
-        <div style={{ marginTop: 12 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginTop: 12,
+            background: 'rgba(0,0,0,0.3)',
+            borderRadius: 8,
+            padding: '6px 10px',
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <span style={{ color: '#4ade80', fontFamily: 'var(--font-mono)', fontSize: 12 }}>$</span>
           <input
             placeholder="type CONFIRM to enable"
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            style={{ width: '100%', fontSize: 13 }}
+            style={{
+              background: 'none',
+              border: 'none',
+              outline: 'none',
+              color: '#e2e8f0',
+              fontSize: 12,
+              fontFamily: 'var(--font-mono)',
+              flex: 1,
+            }}
           />
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <button onClick={() => respond('denied')} disabled={loading} style={{ flex: 1, fontSize: 13 }}>
+        <button
+          onClick={() => respond('denied')}
+          disabled={loading}
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: '1px solid rgba(255,255,255,0.12)',
+            color: 'var(--color-text-secondary)',
+            borderRadius: 8,
+            padding: '6px 12px',
+            fontSize: 12,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.5 : 1,
+          }}
+        >
           Deny
         </button>
         <button
@@ -284,13 +325,22 @@ export function ToolApprovalModal({
           disabled={!canExecute || loading}
           style={{
             flex: 1,
-            fontSize: 13,
-            background: isHighRisk ? 'var(--color-background-danger)' : 'var(--color-text-primary)',
-            color: isHighRisk ? 'var(--color-text-danger)' : 'var(--color-background-primary)',
-            border: 'none',
-            borderRadius: 'var(--border-radius-md)',
-            cursor: canExecute ? 'pointer' : 'not-allowed',
-            opacity: canExecute ? 1 : 0.4,
+            ...(isHighRisk
+              ? {
+                  background: 'rgba(239,68,68,0.2)',
+                  border: '1px solid rgba(239,68,68,0.4)',
+                  color: '#f87171',
+                }
+              : {
+                  background: 'rgba(255,255,255,0.1)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#e2e8f0',
+                }),
+            borderRadius: 8,
+            padding: '6px 12px',
+            fontSize: 12,
+            cursor: canExecute && !loading ? 'pointer' : 'not-allowed',
+            opacity: canExecute && !loading ? 1 : 0.4,
           }}
         >
           {isHighRisk ? 'Execute (high risk)' : 'Execute'}
