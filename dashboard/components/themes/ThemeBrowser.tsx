@@ -122,8 +122,20 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
       }
 
       const payload = (await res.json().catch(() => null)) as CmsActiveThemePayload | null;
-      if (payload && typeof payload.data === 'object') {
+      const data = payload?.data;
+      if (
+        payload &&
+        data != null &&
+        typeof data === 'object' &&
+        !Array.isArray(data) &&
+        Object.keys(data as object).length > 0
+      ) {
         applyCmsThemeToDocument(payload);
+        try {
+          window.dispatchEvent(new CustomEvent('iam:invalidate-active-theme-fetch'));
+        } catch {
+          /* ignore */
+        }
       }
 
       await loadAll();

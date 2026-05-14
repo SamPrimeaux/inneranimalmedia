@@ -384,6 +384,8 @@ const App: React.FC = () => {
   const [workspaceDisplayName, setWorkspaceDisplayName] = useState<string | null>(null);
   const [agentsamChatPolicy, setAgentsamChatPolicy] = useState<Record<string, unknown> | null>(null);
   const maxTabsPolicyRef = useRef(24);
+  /** Abort stale GET /api/themes/active after Settings → Apply overwrites document (race fix). */
+  const activeThemeBootstrapAbortRef = useRef<AbortController | null>(null);
   const [workspaceSamState, setWorkspaceSamState] = useState<Record<string, unknown> | null>(null);
 
   const workspaceDisplayFallback = useMemo(() => {
@@ -416,7 +418,13 @@ const App: React.FC = () => {
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as Record<string, unknown>;
-        if (msg.type === 'theme_update' && msg.cssVars && typeof msg.cssVars === 'object') {
+        if (
+          msg.type === 'theme_update' &&
+          msg.cssVars &&
+          typeof msg.cssVars === 'object' &&
+          !Array.isArray(msg.cssVars) &&
+          Object.keys(msg.cssVars as object).length > 0
+        ) {
           applyCmsThemeToDocument({
             slug: typeof msg.theme_slug === 'string' ? msg.theme_slug : undefined,
             data: msg.cssVars as Record<string, string>,
@@ -1902,6 +1910,18 @@ const App: React.FC = () => {
     setTimeout(() => terminalRef.current?.writeToTerminal(text), 100);
   }, [isTerminalOpen]);
 
+  useEffect(() => {
+    const onInvalidateActiveThemeFetch = () => {
+      try {
+        activeThemeBootstrapAbortRef.current?.abort();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('iam:invalidate-active-theme-fetch', onInvalidateActiveThemeFetch);
+    return () => window.removeEventListener('iam:invalidate-active-theme-fetch', onInvalidateActiveThemeFetch);
+  }, []);
+
   // Themes: D1 cms_theme_preferences + fallbacks via GET /api/themes/active (?workspace_id)
   useEffect(() => {
     migrateLegacyThemeLocalStorage();
@@ -1910,21 +1930,34 @@ const App: React.FC = () => {
     } else {
       applyCachedCmsThemeFallback();
     }
-    void fetchAndApplyActiveCmsTheme(authWorkspaceId)
+    activeThemeBootstrapAbortRef.current?.abort();
+    const ac = new AbortController();
+    activeThemeBootstrapAbortRef.current = ac;
+    const { signal } = ac;
+    void fetchAndApplyActiveCmsTheme(authWorkspaceId, { signal })
       .then((payload) => {
+        if (signal.aborted) return;
         const hasVars =
           payload?.data &&
           typeof payload.data === 'object' &&
+          !Array.isArray(payload.data) &&
           Object.keys(payload.data).length > 0;
         if (!hasVars) {
           if (authWorkspaceId?.trim()) applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
           else applyCachedCmsThemeFallback();
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        if (signal.aborted) return;
+        const name =
+          err && typeof err === 'object' && 'name' in err ? String((err as { name?: string }).name) : '';
+        if (name === 'AbortError') return;
         if (authWorkspaceId?.trim()) applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
         else applyCachedCmsThemeFallback();
       });
+    return () => {
+      ac.abort();
+    };
   }, [authWorkspaceId]);
 
   // Cmd+J Listener

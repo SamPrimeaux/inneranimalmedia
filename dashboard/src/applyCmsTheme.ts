@@ -291,10 +291,16 @@ function activeThemeUrl(workspaceId: string | null | undefined): string {
 /** Load active theme from API and apply to :root. Returns parsed payload or null. */
 export async function fetchAndApplyActiveCmsTheme(
   workspaceId: string | null | undefined,
+  init?: { signal?: AbortSignal },
 ): Promise<CmsActiveThemePayload | null> {
-  const res = await fetch(activeThemeUrl(workspaceId), { credentials: 'same-origin' });
+  const res = await fetch(activeThemeUrl(workspaceId), {
+    credentials: 'same-origin',
+    signal: init?.signal,
+    cache: 'no-store',
+  });
   if (!res.ok) return null;
   const raw = (await res.json()) as CmsActiveThemePayload;
+  if (init?.signal?.aborted) return null;
   applyCmsThemeToDocument(raw);
   return raw;
 }
