@@ -374,7 +374,7 @@ export default {
         const u = new URL(request.url);
         u.pathname = '/api/oauth/cloudflare/start';
         if (!u.searchParams.get('return_to')) {
-          u.searchParams.set('return_to', '/dashboard/settings/integrations');
+          u.searchParams.set('return_to', '/dashboard/overview');
         }
         return handleOAuthApi(new Request(u.toString(), request), env, ctx);
       }

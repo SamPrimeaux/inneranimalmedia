@@ -12,6 +12,34 @@ function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
 }
 
+const DASHBOARD_LOGIN_FALLBACK = '/dashboard/overview';
+
+/**
+ * Path (pathname + search) for same-origin post-OAuth app login redirect.
+ * Never send users to Integrations from a social **login** callback.
+ */
+function safeDashboardLoginRedirectPath(originBase, returnTo) {
+  if (!returnTo || typeof returnTo !== 'string') return DASHBOARD_LOGIN_FALLBACK;
+  const t = returnTo.trim();
+  if (!t) return DASHBOARD_LOGIN_FALLBACK;
+  if (t.startsWith('/') && !t.startsWith('//') && !t.includes(':')) {
+    if (t.startsWith('/dashboard/settings/integrations')) return DASHBOARD_LOGIN_FALLBACK;
+    if (!t.startsWith('/dashboard')) return DASHBOARD_LOGIN_FALLBACK;
+    return t;
+  }
+  try {
+    const u = new URL(t);
+    const ob = new URL(originBase);
+    if (u.origin !== ob.origin) return DASHBOARD_LOGIN_FALLBACK;
+    const p = u.pathname + (u.search || '');
+    if (p.startsWith('/dashboard/settings/integrations')) return DASHBOARD_LOGIN_FALLBACK;
+    if (!p.startsWith('/dashboard')) return DASHBOARD_LOGIN_FALLBACK;
+    return p;
+  } catch (_) {
+    return DASHBOARD_LOGIN_FALLBACK;
+  }
+}
+
 /** Match worker.js oauthPostLoginGlobeRedirectUrl */
 export function oauthPostLoginGlobeRedirectUrl(originBase, returnToFullUrl) {
   let path = '/dashboard/overview';
@@ -22,6 +50,7 @@ export function oauthPostLoginGlobeRedirectUrl(originBase, returnToFullUrl) {
     /* keep default */
   }
   if (!path.startsWith('/') || path.startsWith('//')) path = '/dashboard/overview';
+  if (path.startsWith('/dashboard/settings/integrations')) path = '/dashboard/overview';
   return `${originBase}/auth/login?globe_exit=1&next=${encodeURIComponent(path)}`;
 }
 
@@ -490,10 +519,7 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     .run();
   await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
 
-  const safeDest =
-    returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
-      ? returnTo
-      : '/dashboard/overview';
+  const safeDest = safeDashboardLoginRedirectPath(oauthOrigin(url), returnTo);
   const headers = new Headers({ Location: `${oauthOrigin(url)}${safeDest}` });
 
   headers.append(

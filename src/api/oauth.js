@@ -3,7 +3,7 @@
  *
  * Pattern:
  *  - GET  /api/oauth/:provider/start    -> 302 to provider (login flows when unauthenticated for google/github match worker.js)
- *  - GET  /api/oauth/:provider/callback (provider redirect) -> 302 back to return_to (default: Settings > Integrations)
+ *  - GET  /api/oauth/:provider/callback (provider redirect) -> 302 back to return_to (default: /dashboard/overview; integrations flows pass explicit return_to)
  *  - POST /api/oauth/apikey/:provider   (auth required) -> validate + store encrypted
  *
  * Notes:
@@ -89,7 +89,7 @@ async function kvDeleteIntegrationOAuthState(env, provider, state) {
   await env.SESSION_CACHE.delete(integrationOAuthKvKey(provider, state));
 }
 
-const DEFAULT_OAUTH_RETURN = '/dashboard/settings/integrations';
+const DEFAULT_OAUTH_RETURN = '/dashboard/overview';
 
 function safeReturnTo(url) {
   const raw = String(url || '').trim();

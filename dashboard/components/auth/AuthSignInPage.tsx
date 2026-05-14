@@ -15,6 +15,20 @@ export function AuthSignInPage() {
   const reset = params.get('reset') === '1';
   const next = params.get('next') || '';
 
+  const oauthReturn = useMemo(() => {
+    const n = next.trim();
+    if (
+      n &&
+      n.startsWith('/') &&
+      !n.startsWith('//') &&
+      n.startsWith('/dashboard') &&
+      !n.startsWith('/dashboard/settings/integrations')
+    ) {
+      return n;
+    }
+    return '/dashboard/overview';
+  }, [next]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -97,6 +111,43 @@ export function AuthSignInPage() {
             {error}
           </div>
         )}
+
+        <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <a
+            href={`/api/oauth/google/start?return_to=${encodeURIComponent(oauthReturn)}`}
+            className="block w-full text-center no-underline"
+            style={{
+              padding: '10px 14px',
+              borderRadius: 6,
+              border: '1px solid rgba(255,255,255,0.2)',
+              background: '#ffffff',
+              color: '#1e293b',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            Continue with Google
+          </a>
+          <a
+            href={`/api/oauth/github/start?next=${encodeURIComponent(oauthReturn)}`}
+            className="block w-full text-center no-underline"
+            style={{
+              padding: '10px 14px',
+              borderRadius: 6,
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--bg-app)',
+              color: 'var(--text-main)',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            Continue with GitHub
+          </a>
+        </div>
+
+        <p style={{ margin: '0 0 14px', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
+          Or sign in with email and password
+        </p>
 
         <form onSubmit={onSubmit}>
           <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
