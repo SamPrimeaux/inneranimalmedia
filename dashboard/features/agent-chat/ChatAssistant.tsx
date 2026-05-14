@@ -68,6 +68,8 @@ import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
+import { ThinkingCard } from '../../src/components/ThinkingCard';
+import type { ThinkingCardState, ThinkingStep } from '../../src/components/ThinkingCard';
 
 
 export { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
@@ -90,6 +92,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onMobileOpenDashboard,
   onOpenCodeTab,
   onLoadingChange,
+  onApprovalRequired,
   onOpenChatHistory,
   agentsamPolicy = null,
   workspaceId = null,
@@ -106,6 +109,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const [isLoading, setIsLoading] = useState(false);
   useEffect(() => { onLoadingChange?.(isLoading); }, [isLoading, onLoadingChange]);
+  const [thinkingState, setThinkingState] =
+    useState<ThinkingCardState | null>(null);
+  const thinkingStartRef = useRef<number>(0);
+
   const [input, setInput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   /** After SSE `done`, ignore duplicate terminal events for this request. */
@@ -891,6 +898,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   async function handleSend(overrideMessage?: string) {
     const text = overrideMessage ?? input;
     if ((!text && attachments.length === 0) || (isLoading && !overrideMessage) || !selectedModelKey) return;
+    setThinkingState(null);
     
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
@@ -1468,8 +1476,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         )}
 
         {messagesVisible && (
-
-          <AgentMessageList
+          <>
+          {thinkingState && (
+          <ThinkingCard
+            steps={thinkingState.steps}
+            thinkingText={thinkingState.thinkingText}
+            status={thinkingState.status}
+            startedAt={thinkingState.startedAt}
+          />
+        )}
+        <AgentMessageList
             scrollRef={scrollRef}
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
             displayMessages={displayMessages}
@@ -1482,6 +1498,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             onRunInTerminal={onRunInTerminal}
             onImagePreview={handleChatImagePreview}
           />
+          </>
         )}
 
         {contextTabVisible && (

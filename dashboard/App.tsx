@@ -2460,6 +2460,7 @@ const App: React.FC = () => {
                         onMobileOpenDashboard={openDashboardFromChat}
                         onOpenCodeTab={focusCodeEditorFromChat}
               onLoadingChange={setAgentIsStreaming}
+              onApprovalRequired={setActiveCommandRunId}
                         syncedHostConversationId={activeAgentConversationId}
                         agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
                         activeAgentChatShellTabId={activeAgentChatTabId}
