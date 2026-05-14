@@ -9,13 +9,13 @@ import { resolveGitHubToken } from '../core/github-token.js';
 import { logSemanticSearch } from './rag.js';
 
 /**
- * Must match `public.documents.embed_model` + `vector(1024)` ingest (Workers AI bge-large).
+ * Must match `public.documents.embed_model` + `vector(1024)` ingest (Workers AI bge-m3).
  * Optional override: env.UNIFIED_SEARCH_EMBED_MODEL (same dims as stored rows only).
  */
 function unifiedSearchEmbedModel(env) {
   const o =
     typeof env?.UNIFIED_SEARCH_EMBED_MODEL === 'string' ? env.UNIFIED_SEARCH_EMBED_MODEL.trim() : '';
-  return o || '@cf/baai/bge-large-en-v1.5';
+  return o || '@cf/baai/bge-m3';
 }
 
 /** @param {any} env */

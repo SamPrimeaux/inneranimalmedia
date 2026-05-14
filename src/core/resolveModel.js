@@ -100,7 +100,7 @@ const ROUTING_POLICY = {
     agent:  { primary: 'gpt-5.4-mini',  fallback: 'claude-haiku-4-5-20251001' },
   },
   embedding: {
-    auto:   { primary: '@cf/baai/bge-large-en-v1.5', fallback: null },
+    auto:   { primary: '@cf/baai/bge-m3', fallback: null },
   },
 };
 

@@ -1,7 +1,7 @@
 /**
  * Workers AI embeddings — shared by docs Vectorize indexing and cron RAG helpers.
  */
-const IAM_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
+const IAM_EMBED_MODEL = '@cf/baai/bge-m3';
 
 /**
  * @param {any} env

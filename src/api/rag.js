@@ -1,6 +1,8 @@
 /**
  * RAG API — OpenAI embeddings + Supabase (Hyperdrive/pgvector) + R2 (S3-compatible).
- * No AI Search, Vectorize, or Workers AI embedding models on this path.
+ * `createEmbedding` supports lanes: text_default (Ollama → OpenAI @1024), edge_bulk (Workers AI bge-m3),
+ * multimodal (Gemini embed @1024 when GOOGLE_AI_API_KEY is set). Vectorize / long-doc paths use
+ * `generateWorkersAiEmbedding` in `embed-workers-ai.js`.
  */
 import { AwsClient } from 'aws4fetch';
 import { jsonResponse } from '../core/responses.js';
@@ -110,61 +112,127 @@ function r2AutoragBucketName(env) {
   return String(env.R2_AUTORAG_BUCKET_NAME || '').trim();
 }
 
+/** @typedef {'text_default' | 'edge_bulk' | 'multimodal'} RagEmbedLane */
+
+export const RAG_EMBED_LANE_TEXT_DEFAULT = 'text_default';
+export const RAG_EMBED_LANE_EDGE_BULK = 'edge_bulk';
+export const RAG_EMBED_LANE_MULTIMODAL = 'multimodal';
+
 /**
- * Provider-aware embeddings: try Ollama first (1024-dim), then OpenAI `text-embedding-3-small` @ 1024 (Supabase `vector(1024)`).
+ * Provider-aware embeddings with optional lane (all target Supabase-compatible `vector(1024)`).
+ *
+ * - **text_default** — Ollama `mxbai-embed-large` @1024, then OpenAI `text-embedding-3-small` @1024.
+ * - **edge_bulk** — Workers AI `@cf/baai/bge-m3`, then same fallback as text_default if unavailable.
+ * - **multimodal** — Gemini `embedContent` @1024 when `GOOGLE_AI_API_KEY` / `GEMINI_API_KEY` set, else text_default.
+ *
  * @param {any} env
  * @param {string} text
- * @returns {Promise<{ embedding: number[], provider: 'ollama' | 'openai' }>}
+ * @param {RagEmbedLane} [lane='text_default']
+ * @returns {Promise<{ embedding: number[], provider: 'ollama' | 'openai' | 'workers_ai' | 'google' }>}
  */
-export async function createEmbedding(env, text) {
+export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFAULT) {
   const input = String(text ?? '');
-  const ollamaBase = String(env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
-  try {
-    const res = await fetch(`${ollamaBase}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'mxbai-embed-large', prompt: input }),
-      signal: AbortSignal.timeout(4000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.embedding) && data.embedding.length === 1024) {
-        return { embedding: data.embedding, provider: 'ollama' };
+  const laneNorm = String(lane || RAG_EMBED_LANE_TEXT_DEFAULT).trim();
+
+  async function embedTextDefault() {
+    const ollamaBase = String(env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
+    const ollamaHeaders = { 'Content-Type': 'application/json' };
+    if (env.OLLAMA_CF_CLIENT_ID) ollamaHeaders['CF-Access-Client-Id'] = String(env.OLLAMA_CF_CLIENT_ID);
+    if (env.OLLAMA_CF_CLIENT_SECRET) ollamaHeaders['CF-Access-Client-Secret'] = String(env.OLLAMA_CF_CLIENT_SECRET);
+    try {
+      const res = await fetch(`${ollamaBase}/api/embeddings`, {
+        method: 'POST',
+        headers: ollamaHeaders,
+        body: JSON.stringify({ model: 'mxbai-embed-large', prompt: input }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.embedding) && data.embedding.length === 1024) {
+          return { embedding: data.embedding, provider: 'ollama' };
+        }
       }
+    } catch (_) {
+      /* fall through to OpenAI */
     }
-  } catch (_) {
-    /* fall through to OpenAI */
+
+    if (!env.OPENAI_API_KEY) throw new Error('no_embedding_provider');
+    const base = String(env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
+    const res = await fetch(`${base}/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: input,
+        dimensions: 1024,
+      }),
+    });
+    const raw = await res.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error(`OpenAI embeddings: non-JSON (${res.status})`);
+    }
+    if (!res.ok) {
+      throw new Error(data?.error?.message || `OpenAI embeddings HTTP ${res.status}`);
+    }
+    const emb = data?.data?.[0]?.embedding;
+    if (!Array.isArray(emb) || emb.length !== 1024) {
+      throw new Error('OpenAI embeddings: expected 1024 dimensions');
+    }
+    return { embedding: emb, provider: 'openai' };
   }
 
-  if (!env.OPENAI_API_KEY) throw new Error('no_embedding_provider');
-  const base = String(env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
-  const res = await fetch(`${base}/embeddings`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: input,
-      dimensions: 1024,
-    }),
-  });
-  const raw = await res.text();
-  let data;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    throw new Error(`OpenAI embeddings: non-JSON (${res.status})`);
+  if (laneNorm === RAG_EMBED_LANE_MULTIMODAL) {
+    const apiKey = String(
+      env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '',
+    ).trim();
+    if (apiKey) {
+      try {
+        const modelId = String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-001')
+          .trim()
+          .replace(/^models\//, '');
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:embedContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: `models/${modelId}`,
+            content: { parts: [{ text: input }] },
+            outputDimensionality: 1024,
+          }),
+        });
+        const d = await res.json().catch(() => ({}));
+        let emb = d?.embedding?.values;
+        if (!Array.isArray(emb) && Array.isArray(d?.embedding)) emb = d.embedding;
+        if (Array.isArray(emb) && emb.length === 1024) {
+          return { embedding: emb, provider: 'google' };
+        }
+      } catch (_) {
+        /* fall through */
+      }
+    }
+    return embedTextDefault();
   }
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `OpenAI embeddings HTTP ${res.status}`);
+
+  if (laneNorm === RAG_EMBED_LANE_EDGE_BULK && env?.AI) {
+    try {
+      const r = await env.AI.run('@cf/baai/bge-m3', { text: [input] });
+      const vecs = r?.data || r?.result || [];
+      const emb = vecs[0];
+      if (Array.isArray(emb) && emb.length === 1024) {
+        return { embedding: emb, provider: 'workers_ai' };
+      }
+    } catch (_) {
+      /* fall through */
+    }
   }
-  const emb = data?.data?.[0]?.embedding;
-  if (!Array.isArray(emb) || emb.length !== 1024) {
-    throw new Error('OpenAI embeddings: expected 1024 dimensions');
-  }
-  return { embedding: emb, provider: 'openai' };
+
+  return embedTextDefault();
 }
 
 function verifyInternalSecret(request, env) {
