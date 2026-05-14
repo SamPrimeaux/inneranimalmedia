@@ -66,7 +66,9 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       if (!tenantId) tenantId = fallbackSystemTenantId(env);
 
       const planIdIn = body.id != null && String(body.id).trim() !== '' ? String(body.id).trim() : undefined;
-      const { id: planId } = await insertAgentsamPlanRow(env, {
+      const { id: planId } = await insertAgentsamPlanRow(
+        env,
+        {
         id: planIdIn,
         tenant_id: tenantId,
         workspace_id: workspaceId,
@@ -104,16 +106,22 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
               ? body.linked_project_keys
               : JSON.stringify(body.linked_project_keys)
             : undefined,
-      });
+        },
+        ctx,
+      );
 
       let taskIds = [];
       if (Array.isArray(body.tasks) && body.tasks.length) {
-        const { ids } = await insertAgentsamPlanTaskRows(env, {
-          planId,
-          tenantId,
-          workspaceId,
-          tasks: body.tasks,
-        });
+        const { ids } = await insertAgentsamPlanTaskRows(
+          env,
+          {
+            planId,
+            tenantId,
+            workspaceId,
+            tasks: body.tasks,
+          },
+          ctx,
+        );
         taskIds = ids;
       }
 

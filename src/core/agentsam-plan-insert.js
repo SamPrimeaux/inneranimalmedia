@@ -4,6 +4,7 @@
  */
 
 import { pragmaTableInfo } from './retention.js';
+import { scheduleMirrorAgentsamPlanToSupabasePublic } from './agentsam-plan-supabase-public-sync.js';
 
 const INSERTABLE_TABLES = new Set(['agentsam_plans', 'agentsam_plan_tasks']);
 
@@ -103,9 +104,10 @@ async function insertRowDynamic(db, table, row, colsCached = null) {
  *
  * @param {any} env
  * @param {Record<string, unknown>} input
+ * @param {any} [ctx] ExecutionContext for Supabase mirror waitUntil
  * @returns {Promise<{ id: string }>}
  */
-export async function insertAgentsamPlanRow(env, input) {
+export async function insertAgentsamPlanRow(env, input, ctx = null) {
   if (!env?.DB) throw new Error('DB not available');
   const tenantId = String(input.tenant_id ?? '').trim();
   if (!tenantId) throw new Error('tenant_id required');
@@ -158,6 +160,7 @@ export async function insertAgentsamPlanRow(env, input) {
   };
 
   await insertRowDynamic(env.DB, 'agentsam_plans', row);
+  scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, id);
   return { id };
 }
 
@@ -190,9 +193,10 @@ function normHandlerType(ht) {
  *   workspaceId?: string | null,
  *   tasks: Array<Record<string, unknown>>,
  * }} p
+ * @param {any} [ctx] ExecutionContext for Supabase mirror waitUntil
  * @returns {Promise<{ ids: string[] }>}
  */
-export async function insertAgentsamPlanTaskRows(env, p) {
+export async function insertAgentsamPlanTaskRows(env, p, ctx = null) {
   if (!env?.DB) throw new Error('DB not available');
   const planId = String(p.planId || '').trim();
   if (!planId) throw new Error('planId required');
@@ -261,5 +265,6 @@ export async function insertAgentsamPlanTaskRows(env, p) {
     await insertRowDynamic(env.DB, 'agentsam_plan_tasks', row, cols);
   }
 
+  scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, planId);
   return { ids };
 }

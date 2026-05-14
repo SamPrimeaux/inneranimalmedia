@@ -24,6 +24,7 @@ import {
   isWorkspaceCapabilityActionIntent,
 } from '../core/workspace-capability-actions/index.js';
 import { syncWorkflowRunToSupabase } from '../core/agentsam-supabase-sync.js';
+import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
 import {
   unifiedRagSearch,
   handleAgentMemorySync,
@@ -8019,6 +8020,14 @@ export async function handleAgentApi(request, url, env, ctx) {
         .bind(denyNote, ptid)
         .run()
         .catch(() => null);
+      const prow = await env.DB
+        .prepare(`SELECT plan_id FROM agentsam_plan_tasks WHERE id = ? LIMIT 1`)
+        .bind(ptid)
+        .first()
+        .catch(() => null);
+      if (prow?.plan_id) {
+        scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, String(prow.plan_id));
+      }
     }
     const esTarget = esid || (row.execution_step_id != null ? String(row.execution_step_id).trim() : '');
     if (esTarget) {

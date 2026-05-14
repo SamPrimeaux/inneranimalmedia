@@ -438,20 +438,24 @@ export async function createPlan(
   const uidRaw = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
   const canonicalUser = uidRaw ? await resolveCanonicalUserId(uidRaw, env).catch(() => uidRaw) : null;
 
-  await insertAgentsamPlanRow(env, {
-    id: pid,
-    tenant_id: tid0,
-    workspace_id: ws0,
-    session_id: sessionId,
-    title: parsed.plan_title || String(goal).slice(0, 80),
-    status: 'active',
-    plan_type: 'feature',
-    plan_date: today,
-    default_model: 'gpt-5.4-mini',
-    tasks_total: tasks.length,
-    tasks_done: 0,
-    workflow_run_id: validWrun,
-  });
+  await insertAgentsamPlanRow(
+    env,
+    {
+      id: pid,
+      tenant_id: tid0,
+      workspace_id: ws0,
+      session_id: sessionId,
+      title: parsed.plan_title || String(goal).slice(0, 80),
+      status: 'active',
+      plan_type: 'feature',
+      plan_date: today,
+      default_model: 'gpt-5.4-mini',
+      tasks_total: tasks.length,
+      tasks_done: 0,
+      workflow_run_id: validWrun,
+    },
+    ctx,
+  );
 
   const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
   const planTaskCols = await pragmaTableInfo(env.DB, 'agentsam_plan_tasks');

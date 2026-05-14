@@ -2,6 +2,9 @@
  * Mirrors a proven D1 agent_chat_plan workflow run to Supabase public.* tables
  * using the same payload shape as scripts/agentsam-supabase-direct-sync.py
  * (PostgREST upsert; no agentsam schema profile).
+ *
+ * Also upserts public.agentsam_plans + public.agentsam_plan_tasks from D1 when
+ * mirrorAgentsamD1PlanToSupabasePublic runs (live parity with D1 operational state).
  */
 
 import { patchD1WorkflowRunSupabaseMirrorState } from './agentsam-supabase-sync.js';
@@ -42,6 +45,180 @@ function isoFromUnix(v) {
   if (!Number.isFinite(n)) return null;
   const ms = n < 1e12 ? n * 1000 : n;
   return new Date(ms).toISOString();
+}
+
+/** D1 may store created_at as unix int or SQLite datetime string. */
+function isoFromD1Time(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  if (Number.isFinite(n)) return isoFromUnix(n);
+  const ms = Date.parse(String(v));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/** D1 JSON stored as TEXT → object for PostgREST jsonb. */
+function jsonTextToJsonb(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'object' && !Array.isArray(v)) return v;
+  if (Array.isArray(v)) return v;
+  const s = String(v).trim();
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Map one D1 agentsam_plans row → public.agentsam_plans (PostgREST) shape.
+ * @param {Record<string, unknown>} plan
+ */
+export function mapD1PlanToSupabasePublicRow(plan) {
+  if (!plan?.id) return null;
+  const planDate = String(plan.plan_date || '').trim().slice(0, 10);
+  const nowIso = new Date().toISOString();
+  return {
+    id: String(plan.id),
+    plan_date: planDate || nowIso.slice(0, 10),
+    title: String(plan.title || 'Plan').slice(0, 2000),
+    status: String(plan.status || 'active'),
+    morning_brief: plan.morning_brief != null ? String(plan.morning_brief) : null,
+    session_notes: plan.session_notes != null ? String(plan.session_notes) : null,
+    eod_summary: plan.eod_summary != null ? String(plan.eod_summary) : null,
+    available_providers: jsonTextToJsonb(plan.available_providers) ?? [],
+    blocked_providers: jsonTextToJsonb(plan.blocked_providers) ?? [],
+    budget_snapshot: jsonTextToJsonb(plan.budget_snapshot) ?? {},
+    default_model: plan.default_model != null ? String(plan.default_model) : null,
+    carry_over_from: plan.carry_over_from != null ? String(plan.carry_over_from) : null,
+    carry_over_count: plan.carry_over_count != null ? Number(plan.carry_over_count) : null,
+    tasks_total: plan.tasks_total != null ? Number(plan.tasks_total) || 0 : 0,
+    tasks_done: plan.tasks_done != null ? Number(plan.tasks_done) || 0 : 0,
+    tasks_blocked: plan.tasks_blocked != null ? Number(plan.tasks_blocked) || 0 : 0,
+    created_at: isoFromD1Time(plan.created_at) || nowIso,
+    updated_at: isoFromD1Time(plan.updated_at) || nowIso,
+  };
+}
+
+/**
+ * Map one D1 agentsam_plan_tasks row → public.agentsam_plan_tasks (PostgREST) shape.
+ * D1 `output_summary` maps to Supabase `notes`.
+ * @param {Record<string, unknown>} task
+ */
+export function mapD1PlanTaskToSupabasePublicRow(task) {
+  if (!task?.id || !task?.plan_id) return null;
+  const notes =
+    task.output_summary != null && String(task.output_summary).trim() !== ''
+      ? String(task.output_summary)
+      : task.notes != null && String(task.notes).trim() !== ''
+        ? String(task.notes)
+        : null;
+  const completedAt = isoFromD1Time(task.completed_at);
+  return {
+    id: String(task.id),
+    plan_id: String(task.plan_id),
+    order_index: task.order_index != null ? Number(task.order_index) || 0 : 0,
+    title: String(task.title || 'Task').slice(0, 2000),
+    description: task.description != null ? String(task.description).slice(0, 8000) : null,
+    priority: String(task.priority || 'P1').toUpperCase(),
+    category: String(task.category || 'other').toLowerCase(),
+    status: String(task.status || 'todo').toLowerCase(),
+    files_involved: jsonTextToJsonb(task.files_involved) ?? [],
+    tables_involved: jsonTextToJsonb(task.tables_involved) ?? [],
+    routes_involved: jsonTextToJsonb(task.routes_involved) ?? [],
+    estimated_minutes: task.estimated_minutes != null ? Number(task.estimated_minutes) : null,
+    actual_minutes: task.actual_minutes != null ? Number(task.actual_minutes) : null,
+    blocked_reason: task.blocked_reason != null ? String(task.blocked_reason) : null,
+    notes,
+    created_at: isoFromD1Time(task.created_at) || new Date().toISOString(),
+    completed_at: completedAt,
+  };
+}
+
+/**
+ * Upsert D1 plan + all its plan_tasks into Supabase public.agentsam_plans / agentsam_plan_tasks.
+ * Non-fatal if env missing; logs on HTTP errors.
+ * @param {any} env
+ * @param {string} planId
+ * @returns {Promise<{ ok: boolean, error?: string }>}
+ */
+export async function mirrorAgentsamD1PlanToSupabasePublic(env, planId) {
+  const pid = String(planId || '').trim();
+  const db = env?.DB;
+  const base = supabaseRestBase(env);
+  const key = supabaseServiceRole(env);
+  if (!pid || !db) return { ok: false, error: 'missing_db_or_plan' };
+  if (!base || !key) return { ok: false, error: 'supabase_env_missing' };
+
+  const headers = {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    Prefer: 'resolution=merge-duplicates,return=minimal',
+  };
+
+  const postUpsert = async (table, rows, onConflict = 'id') => {
+    if (!rows?.length) return { ok: true, skipped: true };
+    const q = `?on_conflict=${encodeURIComponent(onConflict)}`;
+    const res = await fetch(`${base}/rest/v1/${table}${q}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(rows),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      return { ok: false, error: `${table} HTTP ${res.status}: ${text.slice(0, 2000)}` };
+    }
+    return { ok: true };
+  };
+
+  try {
+    const plan = await db.prepare(`SELECT * FROM agentsam_plans WHERE id = ? LIMIT 1`).bind(pid).first();
+    if (!plan?.id) return { ok: false, error: 'plan_not_found' };
+
+    const planRow = mapD1PlanToSupabasePublicRow(plan);
+    if (!planRow) return { ok: false, error: 'plan_map_failed' };
+
+    const { results: taskRowsRaw } = await db
+      .prepare(`SELECT * FROM agentsam_plan_tasks WHERE plan_id = ? ORDER BY order_index ASC, id ASC`)
+      .bind(pid)
+      .all();
+    const tasks = (taskRowsRaw || [])
+      .map((t) => mapD1PlanTaskToSupabasePublicRow(t))
+      .filter(Boolean);
+
+    const pr = await postUpsert('agentsam_plans', [planRow]);
+    if (!pr.ok) return pr;
+
+    const chunk = 40;
+    for (let i = 0; i < tasks.length; i += chunk) {
+      const slice = tasks.slice(i, i + chunk);
+      const tr = await postUpsert('agentsam_plan_tasks', slice);
+      if (!tr.ok) return tr;
+    }
+
+    return { ok: true };
+  } catch (e) {
+    const msg = e?.message != null ? String(e.message) : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Fire-and-forget mirror of D1 plan + tasks to Supabase public tables.
+ * @param {any} env
+ * @param {any} ctx
+ * @param {string} planId
+ */
+export function scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, planId) {
+  const p = mirrorAgentsamD1PlanToSupabasePublic(env, planId).then((r) => {
+    if (!r.ok && r.error && r.error !== 'supabase_env_missing') {
+      console.warn('[scheduleMirrorAgentsamPlanToSupabasePublic]', planId, r.error);
+    }
+    return r;
+  });
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p.catch(() => {}));
+  else void p.catch(() => {});
 }
 
 function normalizeWorkspace(v) {
@@ -364,6 +541,13 @@ export async function mirrorAgentChatPlanD1RunToSupabasePublic(env, runId) {
       if (!r.ok) {
         await patchD1WorkflowRunSupabaseMirrorState(env, rid, { ok: false, error: r.error || table });
         return { ok: false, error: r.error };
+      }
+    }
+
+    if (plan?.id) {
+      const pm = await mirrorAgentsamD1PlanToSupabasePublic(env, String(plan.id));
+      if (!pm.ok) {
+        console.warn('[mirrorAgentChatPlanD1RunToSupabasePublic] agentsam_plans/tasks mirror:', pm.error);
       }
     }
 

@@ -2,6 +2,7 @@
  * Studio session, todos, budget, artifacts.
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
 
 export async function handleStudioSessionApi(request, url, env, ctx) {
   const method = request.method.toUpperCase();
@@ -115,6 +116,10 @@ export async function handleStudioSessionApi(request, url, env, ctx) {
             updated_at = unixepoch()
           WHERE id = ?
         `).bind(todo.plan_id, todo.plan_id, cost_usd || null, tokens_used || null, todo.plan_id).run();
+      }
+
+      if (todo.plan_id) {
+        scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, String(todo.plan_id));
       }
 
       return jsonResponse({ ok: true });

@@ -7,13 +7,13 @@ alwaysApply: true
 
 ## Source of truth
 
-- **D1** is canonical for **operational state** (plans, todos, plan tasks, workflows, runs, executions). **`agentsam_plans` and `agentsam_plan_tasks` lifecycle lives in D1 only** until Worker code performs real PostgREST upserts for matching `public.*` tables.
+- **D1** is canonical for **operational state** (plans, todos, plan tasks, workflows, runs, executions). **`agentsam_plans` and `agentsam_plan_tasks` are written in D1 first**; the Worker **best-effort** mirrors matching rows to **`public.agentsam_plans`** and **`public.agentsam_plan_tasks`** via PostgREST (`mirrorAgentsamD1PlanToSupabasePublic` / `scheduleMirrorAgentsamPlanToSupabasePublic` in `agentsam-plan-supabase-public-sync.js`).
 - **Supabase** is the **required mirror** for **workflow/run/step/event/debug observability** (see live mirror list below) and other shared telemetry tables that are actually written today.
 - Workflow-run changes follow the **D1 → Supabase** lifecycle in the workflow section below.
 
 Supabase does **not** have `agentsam_todo`; mirror only what exists there.
 
-**Do not** describe `public.agentsam_plans` or `public.agentsam_plan_tasks` as live Supabase mirrors until the codebase upserts them (today they are **not** populated by `agentsam-plan-supabase-public-sync.js`; plan/task proof is **D1 + API responses** such as `POST /api/agentsam/plans` returning `tasks_total` / `task_ids`).
+**Supabase plan parity:** `public.agentsam_plans` / `public.agentsam_plan_tasks` are **upserted from D1** on plan insert, plan-task insert, `executePlan` completion, intake/studio plan updates, approval-deny paths that touch plan tasks, and after successful **`mirrorAgentChatPlanD1RunToSupabasePublic`** (same module). Failures are **non-fatal** (logged); proof of operational state remains **D1 + API responses**.
 
 ## Canonical D1 tables (operational)
 
@@ -31,7 +31,7 @@ Supabase does **not** have `agentsam_todo`; mirror only what exists there.
 
 ## Supabase — live mirrors (observability spine)
 
-These are written by Agent Sam paths such as **`mirrorAgentChatPlanD1RunToSupabasePublic`** (`agentsam_workflows`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `agentsam_workflow_events`, `agentsam_debug_snapshots`) and related telemetry:
+These are written by Agent Sam paths such as **`mirrorAgentChatPlanD1RunToSupabasePublic`** (`agentsam_workflows`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `agentsam_workflow_events`, `agentsam_debug_snapshots`) plus **`mirrorAgentsamD1PlanToSupabasePublic`** for **`public.agentsam_plans`** / **`public.agentsam_plan_tasks`**, and related telemetry:
 
 - `public.agentsam_workflows` (registry snapshot for agent_chat_plan mirror)
 - `public.agentsam_workflow_runs`
@@ -46,9 +46,9 @@ These are written by Agent Sam paths such as **`mirrorAgentChatPlanD1RunToSupaba
 
 Mirror payloads must use **only columns that exist** in Supabase (often smaller than D1).
 
-## Supabase — plan rows (not a live mirror yet)
+## Supabase — plan rows (best-effort mirror)
 
-- `public.agentsam_plans` / `public.agentsam_plan_tasks` — **future / optional** parity targets only. **Canonical plan + plan_task state is D1.** Do not claim these Supabase tables are synchronized until upsert code ships and is verified.
+- `public.agentsam_plans` / `public.agentsam_plan_tasks` — **Worker PostgREST upserts** (`Prefer: resolution=merge-duplicates`, `on_conflict=id`) from D1 reads. **Canonical state is still D1.** Supabase columns are a **subset** (e.g. D1 `output_summary` → `notes`); schema drift must be handled in `mapD1PlanToSupabasePublicRow` / `mapD1PlanTaskToSupabasePublicRow`.
 
 ## Workflow run lifecycle (required order)
 

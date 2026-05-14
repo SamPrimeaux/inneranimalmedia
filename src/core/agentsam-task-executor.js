@@ -10,7 +10,7 @@ import { executeCommand, completeCommand } from '../api/command-run-telemetry.js
 import { runTerminalCommandViaHttpExec } from './terminal.js';
 import { pragmaTableInfo } from './retention.js';
 import { insertPlanExecutionStep, resolvePlanTaskCapabilityType } from './agentsam-planner.js';
-import { scheduleMirrorAgentChatPlanToSupabase } from './agentsam-plan-supabase-public-sync.js';
+import { scheduleMirrorAgentChatPlanToSupabase, scheduleMirrorAgentsamPlanToSupabasePublic } from './agentsam-plan-supabase-public-sync.js';
 
 const TASK_AGENT_SYSTEM = `You are Agent Sam executing a specific task. Complete it thoroughly and concisely. Return your result as plain text.`;
 
@@ -475,6 +475,7 @@ export async function executePlan(
     return;
   }
 
+  try {
   const wfStarted = Date.now();
   let wfRun = workflowRunId != null && String(workflowRunId).trim() !== '' ? String(workflowRunId).trim() : null;
   if (!wfRun) {
@@ -1262,5 +1263,8 @@ Return ONLY valid JSON:
       tasks_skipped: skipped,
       status: failed === 0 ? 'ok' : 'partial',
     });
+  }
+  } finally {
+    scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, planId);
   }
 }

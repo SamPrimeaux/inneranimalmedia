@@ -3,6 +3,7 @@
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
 import { insertAgentsamPlanRow } from '../core/agentsam-plan-insert.js';
+import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
 
 function resolveWorkspaceIdForPlan(env, authUser, body) {
   return (body?.workspace_id || body?.workspaceId || authUser?.workspace_id || env?.WORKSPACE_ID || '').toString().trim();
@@ -118,23 +119,27 @@ Rules:
       if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
       if (!tenantId) tenantId = fallbackSystemTenantId(env);
 
-      await insertAgentsamPlanRow(env, {
-        id: planId,
-        tenant_id: tenantId,
-        workspace_id: wsId,
-        title: goal.slice(0, 120),
-        plan_type: 'feature',
-        status: 'active',
-        plan_date: new Date().toISOString().slice(0, 10),
-        morning_brief: JSON.stringify({
-          questions: parsed.questions,
-          goal_type: parsed.goal_type,
-          risk_flags: parsed.risk_flags,
-        }),
-        default_model: 'claude-haiku-4-5-20251001',
-        tasks_total: 0,
-        tasks_done: 0,
-      });
+      await insertAgentsamPlanRow(
+        env,
+        {
+          id: planId,
+          tenant_id: tenantId,
+          workspace_id: wsId,
+          title: goal.slice(0, 120),
+          plan_type: 'feature',
+          status: 'active',
+          plan_date: new Date().toISOString().slice(0, 10),
+          morning_brief: JSON.stringify({
+            questions: parsed.questions,
+            goal_type: parsed.goal_type,
+            risk_flags: parsed.risk_flags,
+          }),
+          default_model: 'claude-haiku-4-5-20251001',
+          tasks_total: 0,
+          tasks_done: 0,
+        },
+        ctx,
+      );
 
       return jsonResponse({
         plan_id: planId,
@@ -286,6 +291,8 @@ User answers: ${JSON.stringify(answers)}`;
         SET session_notes = ?, tasks_total = ?, updated_at = unixepoch()
         WHERE id = ?
       `).bind(JSON.stringify(planData), planData.steps?.length || 0, plan_id).run();
+
+      scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, String(plan_id));
 
       return jsonResponse({
         plan_id,
