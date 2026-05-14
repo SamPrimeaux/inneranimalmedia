@@ -1769,36 +1769,11 @@ function normalizeGateParseFailure(originalMessage) {
 }
 
 async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
-  if (!tenantId || String(tenantId).trim() === '') return normalizeGateParseFailure(message);
-  const gateId = modeConfig?.gate_model ?? null;
-  const gateMeta = await resolveAiModelRowById(env, gateId, tenantId);
-  if (!gateMeta?.model_key) return normalizeGateParseFailure(message);
-
-  const gatePrompt =
-    "Classify the intent of this message into one word (sql/shell/question/deploy/github/file/kv/infra/search/mixed) and rewrite it as a precise technical query. Respond JSON: {intent, rewritten_query, confidence}";
-
-  try {
-    const res = await dispatchComplete(env, {
-      modelKey: gateMeta.model_key,
-      systemPrompt: gatePrompt,
-      messages: [{ role: 'user', content: message }],
-      tools: [],
-      options: { reasoningEffort: modeConfig?.gate_reasoning_effort || 'none' },
-    });
-    const text = typeof res === 'string'
-      ? res
-      : (typeof res?.text === 'string' ? res.text : JSON.stringify(res));
-    const parsed = parseJsonSafe(text, null);
-    const intent = typeof parsed?.intent === 'string' ? parsed.intent : 'auto';
-    const rewritten_query =
-      typeof parsed?.rewritten_query === 'string' && parsed.rewritten_query.trim()
-        ? parsed.rewritten_query.trim()
-        : message;
-    const confidence = Number(parsed?.confidence);
-    return { intent, rewritten_query, confidence: Number.isFinite(confidence) ? confidence : 0 };
-  } catch (_) {
-    return normalizeGateParseFailure(message);
-  }
+  // Gate LLM call removed — was adding 10-20s latency on every turn.
+  // inferIntentHeuristically (called by classifyIntent below) provides
+  // equivalent classification at zero cost. If you need LLM-based rewriting
+  // for a specific mode, add it as an opt-in feature flag, not a mandatory gate.
+  return normalizeGateParseFailure(message);
 }
 
 async function recordArmOutcome(env, armId, success) {
