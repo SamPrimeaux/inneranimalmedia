@@ -750,6 +750,41 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     [onFileSelect, onOpenCodeTab],
   );
 
+
+  const handleThinkingEvent = useCallback((ev: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string }) => {
+    if (ev.type === 'thinking_start') {
+      setThinkingState({ steps: [], thinkingText: '', status: 'thinking', startedAt: Date.now() });
+    } else if (ev.type === 'thinking') {
+      setThinkingState(prev => prev ? { ...prev, thinkingText: (prev.thinkingText || '') + (ev.text || '') } : prev);
+    } else if (ev.type === 'tool_start') {
+      const id = ev.tool_name || String(Date.now());
+      setThinkingState(prev => {
+        const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };
+        if (base.steps.find(s => s.id === id)) return base;
+        return { ...base, status: 'working', steps: [...base.steps, { id, name: id, status: 'running' as const }] };
+      });
+    } else if (ev.type === 'tool_done' || ev.type === 'workflow_step') {
+      const id = ev.tool_name || '';
+      setThinkingState(prev => {
+        if (!prev) return prev;
+        const exists = prev.steps.find(s => s.id === id);
+        const updated = exists
+          ? prev.steps.map(s => s.id === id ? { ...s, status: (ev.ok === false ? 'error' : 'done') as const, preview: ev.output_preview?.slice(0, 120) } : s)
+          : [...prev.steps, { id, name: id, status: (ev.ok === false ? 'error' : 'done') as const, preview: ev.output_preview?.slice(0, 120) }];
+        return { ...prev, steps: updated };
+      });
+    } else if (ev.type === 'tool_error') {
+      setThinkingState(prev => prev ? { ...prev, steps: prev.steps.map(s => s.id === ev.tool_name ? { ...s, status: 'error' as const } : s) } : prev);
+    } else if (ev.type === 'tool_blocked' || ev.type === 'approval_required') {
+      if (ev.command_run_id) onApprovalRequired?.(ev.command_run_id);
+      setThinkingState(prev => prev ? { ...prev, status: 'blocked' } : prev);
+    } else if (ev.type === 'workflow_complete' || ev.type === 'done') {
+      setThinkingState(prev => prev ? { ...prev, status: 'done' } : prev);
+    } else if (ev.type === 'workflow_error' || ev.type === 'error') {
+      setThinkingState(prev => prev ? { ...prev, status: 'error' } : prev);
+    }
+  }, [onApprovalRequired]);
+
   const handleApprovePendingTool = useCallback(async () => {
     if (!pendingToolApproval) return;
     const { tool } = pendingToolApproval;

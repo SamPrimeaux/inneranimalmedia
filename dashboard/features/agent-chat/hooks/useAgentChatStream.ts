@@ -53,6 +53,7 @@ export type ConsumeAgentChatSseContext = {
   setConversationId: React.Dispatch<React.SetStateAction<string>>;
   stripEmptyAssistantTail: (prev: Message[]) => Message[];
   loadSessions: () => void;
+  onThinkingEvent?: (event: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string }) => void;
   onBrowserNavigate?: (event: { type: 'browser_navigate'; url: string }) => void;
   onR2FileUpdated?: (event: { type: 'r2_file_updated'; bucket: string; key: string }) => void;
   onFileSelect?: (file: { name: string; content: string; originalContent?: string }) => void;
@@ -196,6 +197,53 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           if (t.tool && typeof t.tool.name === 'string') {
             onToolApprovalRequest(t.tool);
           }
+          continue;
+        }
+        if (evType === 'thinking_start') {
+          onThinkingEvent?.({ type: 'thinking_start' });
+          continue;
+        }
+        if (evType === 'thinking') {
+          const d = data as { text?: string };
+          onThinkingEvent?.({ type: 'thinking', text: d.text || '' });
+          continue;
+        }
+        if (evType === 'tool_start') {
+          const d = data as { tool_name?: string; node_key?: string };
+          onThinkingEvent?.({ type: 'tool_start', tool_name: d.tool_name || d.node_key || '' });
+          continue;
+        }
+        if (evType === 'tool_done') {
+          const d = data as { tool_name?: string; node_key?: string; ok?: boolean; output_preview?: string };
+          onThinkingEvent?.({ type: 'tool_done', tool_name: d.tool_name || d.node_key || '', ok: d.ok !== false, output_preview: d.output_preview });
+          continue;
+        }
+        if (evType === 'tool_error') {
+          const d = data as { tool_name?: string; node_key?: string };
+          onThinkingEvent?.({ type: 'tool_error', tool_name: d.tool_name || d.node_key || '' });
+          continue;
+        }
+        if (evType === 'tool_blocked') {
+          const d = data as { tool_name?: string; node_key?: string };
+          onThinkingEvent?.({ type: 'tool_blocked', tool_name: d.tool_name || d.node_key || '' });
+          continue;
+        }
+        if (evType === 'workflow_step') {
+          const d = data as { node_key?: string; tool_name?: string; ok?: boolean; output_preview?: string };
+          onThinkingEvent?.({ type: 'workflow_step', tool_name: d.node_key || d.tool_name || '', ok: d.ok !== false, output_preview: d.output_preview });
+          continue;
+        }
+        if (evType === 'workflow_complete') {
+          onThinkingEvent?.({ type: 'workflow_complete' });
+          continue;
+        }
+        if (evType === 'workflow_error') {
+          onThinkingEvent?.({ type: 'workflow_error' });
+          continue;
+        }
+        if (evType === 'approval_required') {
+          const d = data as { command_run_id?: string; approval_id?: string };
+          onThinkingEvent?.({ type: 'approval_required', command_run_id: d.command_run_id || d.approval_id });
           continue;
         }
         if (
