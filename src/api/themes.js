@@ -30,6 +30,7 @@ import {
   userCanAccessWorkspace,
   canUsePlatformAssetsR2Upload,
   broadcastWorkspaceThemeCollab,
+  upsertCmsThemePreferenceRow,
 } from "../core/cms-theme-resolve.js";
 import { normalizeCatalogThemeRow } from "../core/cms-theme-preview-model.js";
 import { buildFullThemePackage } from "../core/cms-theme-package-files.js";
@@ -253,15 +254,16 @@ async function upsertWorkspaceThemeAndResolve(env, authUser, tenantId, workspace
   const slug = String(themeSlug).trim();
   const prefId = `tp_ws_${tid}_${ws}`;
 
-  await env.DB.prepare(
-    `INSERT INTO cms_theme_preferences (id, tenant_id, scope, workspace_id, project_id, user_id, theme_slug, updated_at)
-     VALUES (?, ?, 'workspace', ?, NULL, NULL, ?, unixepoch())
-     ON CONFLICT(id) DO UPDATE SET
-       theme_slug = excluded.theme_slug,
-       updated_at = unixepoch()`,
-  )
-    .bind(prefId, tid, ws, slug)
-    .run();
+  await upsertCmsThemePreferenceRow(env, {
+    prefId,
+    tenantId: tid,
+    scope: "workspace",
+    workspaceId: ws,
+    projectId: null,
+    userId: null,
+    themeSlug: slug,
+    themeCmsRowId: null,
+  });
 
   return resolveActiveCmsThemeRow(env, {
     tenantId: tid,
@@ -786,15 +788,16 @@ export async function handleThemesApi(request, url, env, ctx) {
       }
 
       try {
-        await env.DB.prepare(
-          `INSERT INTO cms_theme_preferences (id, tenant_id, scope, workspace_id, project_id, user_id, theme_slug, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
-           ON CONFLICT(id) DO UPDATE SET
-             theme_slug = excluded.theme_slug,
-             updated_at = unixepoch()`,
-        )
-          .bind(prefId, tid, scope, wsCol, projCol, userCol, slug)
-          .run();
+        await upsertCmsThemePreferenceRow(env, {
+          prefId,
+          tenantId: tid,
+          scope,
+          workspaceId: wsCol,
+          projectId: projCol,
+          userId: userCol,
+          themeSlug: slug,
+          themeCmsRowId: themeRow?.id != null ? String(themeRow.id) : null,
+        });
         if (scope === "workspace" && workspaceId) {
           await patchWorkspaceThemeSlug(env, String(workspaceId).trim(), slug);
         }

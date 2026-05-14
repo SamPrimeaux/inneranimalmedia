@@ -29,7 +29,7 @@ Usage:
     --providers openai --budget-usd 2.00 --include-deep-architect
 """
 
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 
 import os, sys, json, time, hashlib, uuid, subprocess, statistics, argparse
 from datetime import datetime, timezone
@@ -421,7 +421,7 @@ def supa_upsert(table, rows):
         return False, "not configured"
     data = json.dumps(rows if isinstance(rows,list) else [rows]).encode()
     req  = urllib.request.Request(
-        f"{SUPA_URL}/rest/v1/{table}", data=data, method="POST",
+        f"{SUPA_URL}/rest/v1/{table}?on_conflict=workspace_id,snapshot_date,model_key,task_type,mode", data=data, method="POST",
         headers={"Content-Type":"application/json","Authorization":f"Bearer {SUPA_KEY}",
                  "apikey":SUPA_KEY,"Prefer":"resolution=merge-duplicates,return=minimal"}
     )

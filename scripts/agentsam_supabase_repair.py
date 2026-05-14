@@ -16,7 +16,7 @@ Run:
   python3 scripts/agentsam_supabase_repair.py
 """
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 import os, sys, json, subprocess
 from datetime import datetime, timezone
@@ -56,26 +56,8 @@ def supa_sql(sql, label=""):
         for line in sql.strip().splitlines():
             print(f"    {line}")
         return [], None
-    # Use Supabase /rest/v1/rpc/exec_sql if available, else warn
-    # Most setups expose this via pg_net or service role direct SQL
-    # Fallback: use psql if available
-    url = f"{SUPA_URL}/rest/v1/rpc/exec_sql"
-    data = json.dumps({"sql": sql}).encode()
-    req  = urllib.request.Request(url, data=data, method="POST",
-        headers={"Content-Type":"application/json",
-                 "Authorization":f"Bearer {SUPA_KEY}",
-                 "apikey":SUPA_KEY})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read()), None
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        # exec_sql not exposed — fall back to psql
-        if e.code in (404, 405):
-            return _psql(sql, label)
-        return None, f"{e.code}: {body[:200]}"
-    except Exception as ex:
-        return None, str(ex)
+    # exec_sql RPC not available on this project — use psql directly
+    return _psql(sql, label)
 
 def _psql(sql, label=""):
     """Run SQL via psql using the DB URL from env."""

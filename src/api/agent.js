@@ -107,6 +107,7 @@ import {
   capabilityRouterPromptBlock,
 } from '../core/capability-router.js';
 import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter.js';
+import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
@@ -7691,7 +7692,23 @@ export async function handleAgentApi(request, url, env, ctx) {
         ]);
         
         const row = globalWs || (personalWs ? { id: wsId, state_json: personalWs.state_json, name: 'Personal' } : null);
-        if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
+        if (!row) {
+          const canWs =
+            wsId &&
+            (await userCanAccessWorkspace(env, authUser, wsId).catch(() => false));
+          if (canWs) {
+            return jsonResponse({
+              id: wsId,
+              name: 'Workspace',
+              environment: 'local',
+              status: 'active',
+              settings: {},
+              state: {},
+              state_json: '{}',
+            });
+          }
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
         
         const safeJson = (v) => { 
           if (!v) return {}; 
@@ -8111,6 +8128,54 @@ export async function handleAgentApi(request, url, env, ctx) {
           .catch(() => null);
       }
     }
+    return jsonResponse({ ok: true });
+  }
+
+  // ── POST /api/agent/allowlist — ToolApprovalModal “Allow always” (session-scoped workspace)
+  if (method === 'POST' && path === '/api/agent/allowlist') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const command = body.command != null ? String(body.command).trim() : '';
+    if (!command) return jsonResponse({ error: 'command required' }, 400);
+
+    const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+    const uid = String(actorCtx?.userId || authUser.id || '').trim();
+    if (!uid) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+    const bodyWs = body.workspace_id != null ? String(body.workspace_id).trim() : '';
+    const sessionWs = String(actorCtx?.workspaceId || '').trim();
+    const wsId =
+      bodyWs && sessionWs && bodyWs === sessionWs ? bodyWs : sessionWs;
+    if (!wsId) return jsonResponse({ error: 'workspace required' }, 400);
+
+    const id = `acl_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+    await env.DB
+      .prepare(
+        `INSERT INTO agentsam_command_allowlist (id, user_id, workspace_id, command, created_at)
+         VALUES (?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id, workspace_id, command) DO NOTHING`,
+      )
+      .bind(id, uid, wsId, command)
+      .run();
+
+    const patId = `acp_${id}`;
+    try {
+      await env.DB
+        .prepare(
+          `INSERT OR IGNORE INTO agentsam_command_pattern
+           (id, workspace_id, pattern, pattern_type, mapped_command,
+            description, category, risk_level, requires_confirmation, is_active)
+           VALUES (?, ?, ?, 'exact', ?, 'iam_tool_approval_allowlist', 'misc', 'low', 0, 1)`,
+        )
+        .bind(patId, wsId, command, command)
+        .run();
+    } catch {
+      /* FK / duplicate — non-fatal */
+    }
+
     return jsonResponse({ ok: true });
   }
 
