@@ -58,6 +58,9 @@ export interface Message {
   previewArtifacts?: AgentPreviewArtifact[];
 }
 
+/** Host-managed chat tab strip (e.g. App.tsx multi-session). */
+export type AgentChatShellTab = { id: string; title: string };
+
 export interface ChatAssistantProps {
   activeProject: ProjectType;
   activeFileContent?: string;
@@ -89,6 +92,14 @@ export interface ChatAssistantProps {
   agentsamPolicy?: Record<string, unknown> | null;
   /** IAM workspace id (`auth_users.active_workspace_id` / settings) — scopes approval polling and APIs. */
   workspaceId?: string | null;
+  /** Mirror active tab's server conversation id when the host switches chat tabs (empty = unsaved thread). */
+  syncedHostConversationId?: string;
+  /** Optional horizontal tab strip above chat (Cursor-style parallel threads). */
+  agentChatShellTabs?: AgentChatShellTab[];
+  activeAgentChatShellTabId?: string | null;
+  onAgentChatShellTabSelect?: (tabId: string) => void;
+  /** Open a parallel chat tab (host allocates tab + messages slot). */
+  onAgentChatShellNewTab?: () => void;
 }
 
 export type StagedAttachment = {

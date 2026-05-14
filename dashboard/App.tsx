@@ -82,6 +82,7 @@ const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
+const WorkflowsPage = lazy(() => import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
 
 function DashboardRoutesFallback() {
   return (
@@ -321,9 +322,29 @@ const App: React.FC = () => {
   const [ideWorkspace, setIdeWorkspace] = useState<IdeWorkspaceSnapshot>(() => ({ source: 'none' }));
   const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
   const [gitBranch, setGitBranch] = useState(() => '');
-  const [agentChatConversationId, setAgentChatConversationId] = useState(() =>
-    typeof window !== 'undefined' ? localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID)?.trim() || '' : '',
+  const stableAgentChatTabId = useMemo(
+    () =>
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `tab_${Date.now()}`,
+    [],
   );
+  const [agentChatTabs, setAgentChatTabs] = useState<Array<{ id: string; conversationId: string; title: string }>>(() => {
+    let persisted = '';
+    try {
+      persisted =
+        typeof localStorage !== 'undefined' ? localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID)?.trim() || '' : '';
+    } catch {
+      /* ignore */
+    }
+    return [{ id: stableAgentChatTabId, conversationId: persisted, title: persisted ? 'Chat' : 'New chat' }];
+  });
+  const [activeAgentChatTabId, setActiveAgentChatTabId] = useState(() => stableAgentChatTabId);
+  const [messagesByTabId, setMessagesByTabId] = useState<
+    Record<string, { role: 'user' | 'assistant'; content: string }[]>
+  >(() => ({
+    [stableAgentChatTabId]: [{ role: 'assistant', content: buildAgentSamGreeting(formatWorkspaceStatusLine({ source: 'none' })) }],
+  }));
   const [dbExplorerJump, setDbExplorerJump] = useState<DatabaseExplorerJump | null>(null);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
@@ -400,6 +421,16 @@ const App: React.FC = () => {
   }, [authWorkspaceId, workspaceRows, ideWorkspace]);
 
   const workspaceDisplayLine = workspaceDisplayName || workspaceDisplayFallback;
+
+  const activeAgentConversationId = useMemo(
+    () => agentChatTabs.find((t) => t.id === activeAgentChatTabId)?.conversationId?.trim() ?? '',
+    [agentChatTabs, activeAgentChatTabId],
+  );
+
+  const agentChatTabsRef = useRef(agentChatTabs);
+  const activeAgentChatTabIdRef = useRef(activeAgentChatTabId);
+  agentChatTabsRef.current = agentChatTabs;
+  activeAgentChatTabIdRef.current = activeAgentChatTabId;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -625,7 +656,7 @@ const App: React.FC = () => {
   const hydrateGenRef = useRef(0);
   const prevAgentConvRef = useRef<string>('');
   useEffect(() => {
-    const id = agentChatConversationId?.trim() || '';
+    const id = activeAgentConversationId?.trim() || '';
     const prev = prevAgentConvRef.current;
     prevAgentConvRef.current = id;
 
@@ -651,10 +682,10 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [agentChatConversationId]);
+  }, [activeAgentConversationId]);
 
   useEffect(() => {
-    const id = agentChatConversationId?.trim();
+    const id = activeAgentConversationId?.trim();
     if (!id) return;
     const t = window.setTimeout(() => {
       void persistIdeToApi(id, {
@@ -665,7 +696,7 @@ const App: React.FC = () => {
       });
     }, 650);
     return () => clearTimeout(t);
-  }, [agentChatConversationId, ideWorkspace, gitBranch, recentFiles]);
+  }, [activeAgentConversationId, ideWorkspace, gitBranch, recentFiles]);
   
   const mappedRecentFiles = useMemo(() => {
     return recentFiles.map(f => ({
@@ -754,10 +785,10 @@ const App: React.FC = () => {
   const lastPersistedTabRef = useRef<TabId | null>(null);
   useEffect(() => {
     lastPersistedTabRef.current = null;
-  }, [agentChatConversationId]);
+  }, [activeAgentConversationId]);
 
   useEffect(() => {
-    const id = agentChatConversationId?.trim();
+    const id = activeAgentConversationId?.trim();
     if (!id) return;
     const prev = lastPersistedTabRef.current;
     lastPersistedTabRef.current = activeTab;
@@ -769,7 +800,7 @@ const App: React.FC = () => {
       gitBranch,
       recentFiles,
     });
-  }, [activeTab, agentChatConversationId, ideWorkspace, gitBranch, recentFiles]);
+  }, [activeTab, activeAgentConversationId, ideWorkspace, gitBranch, recentFiles]);
 
   useEffect(() => {
     return () => {
@@ -974,33 +1005,101 @@ const App: React.FC = () => {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }, [terminalDrawerH, clampTerminalH]);
-  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>(() => [
-    { role: 'assistant', content: buildAgentSamGreeting(formatWorkspaceStatusLine({ source: 'none' })) },
-  ]);
+
+  const chatMessages = useMemo(() => {
+    return (
+      messagesByTabId[activeAgentChatTabId] ?? [
+        { role: 'assistant' as const, content: buildAgentSamGreeting(workspaceDisplayLine) },
+      ]
+    );
+  }, [messagesByTabId, activeAgentChatTabId, workspaceDisplayLine]);
+
+  const setChatMessages = useCallback(
+    (updater: React.SetStateAction<{ role: 'user' | 'assistant'; content: string }[]>) => {
+      setMessagesByTabId((prev) => {
+        const cur =
+          prev[activeAgentChatTabId] ?? [
+            { role: 'assistant' as const, content: buildAgentSamGreeting(workspaceDisplayLine) },
+          ];
+        const next = typeof updater === 'function' ? (updater as (c: typeof cur) => typeof cur)(cur) : updater;
+        return { ...prev, [activeAgentChatTabId]: next };
+      });
+    },
+    [activeAgentChatTabId, workspaceDisplayLine],
+  );
 
   useEffect(() => {
-    setChatMessages((prev) => {
-      if (prev.length !== 1 || prev[0].role !== 'assistant') return prev;
+    setMessagesByTabId((prev) => {
+      const cur = prev[activeAgentChatTabId];
+      if (!cur || cur.length !== 1 || cur[0].role !== 'assistant') return prev;
       const next = buildAgentSamGreeting(workspaceDisplayLine);
-      if (prev[0].content === next) return prev;
-      return [{ role: 'assistant', content: next }];
+      if (cur[0].content === next) return prev;
+      return { ...prev, [activeAgentChatTabId]: [{ role: 'assistant', content: next }] };
     });
-  }, [workspaceDisplayLine]);
+  }, [workspaceDisplayLine, activeAgentChatTabId]);
 
   useEffect(() => {
     const onConv = (e: Event) => {
       const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
-      const id = typeof raw === 'string' ? raw.trim() : '';
-      setAgentChatConversationId(id);
-      if (!id) {
-        setChatMessages([{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }]);
+
+      if (raw === null || raw === undefined) {
+        const tid = activeAgentChatTabIdRef.current;
+        setAgentChatTabs((prev) => prev.map((t) => (t.id === tid ? { ...t, conversationId: '', title: 'New chat' } : t)));
+        try {
+          localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+        } catch {
+          /* ignore */
+        }
+        setMessagesByTabId((prev) => ({
+          ...prev,
+          [tid]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
+        }));
         return;
       }
-      void fetch(`/api/agent/sessions/${encodeURIComponent(id)}/messages`, { credentials: 'same-origin' })
+
+      const convId = typeof raw === 'string' ? raw.trim() : '';
+      if (!convId) return;
+
+      try {
+        localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, convId);
+      } catch {
+        /* ignore */
+      }
+
+      const prevTabs = agentChatTabsRef.current;
+      const act = activeAgentChatTabIdRef.current;
+      const byConv = prevTabs.find((t) => t.conversationId === convId);
+      let targetTabId = '';
+
+      if (byConv) {
+        targetTabId = byConv.id;
+        if (byConv.id !== act) setActiveAgentChatTabId(byConv.id);
+      } else {
+        const activeRow = prevTabs.find((t) => t.id === act);
+        if (activeRow && !activeRow.conversationId.trim()) {
+          targetTabId = act;
+          setAgentChatTabs((prev) =>
+            prev.map((t) => (t.id === act ? { ...t, conversationId: convId, title: 'Chat' } : t)),
+          );
+        } else {
+          const nid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tab_${Date.now()}`;
+          targetTabId = nid;
+          setAgentChatTabs((prev) => [...prev, { id: nid, conversationId: convId, title: 'Chat' }]);
+          setActiveAgentChatTabId(nid);
+        }
+      }
+
+      if (!targetTabId) return;
+
+      void fetch(`/api/agent/sessions/${encodeURIComponent(convId)}/messages`, { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : []))
         .then((rows: unknown) => {
+          const tid = targetTabId;
           if (!Array.isArray(rows) || rows.length === 0) {
-            setChatMessages([{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }]);
+            setMessagesByTabId((prev) => ({
+              ...prev,
+              [tid]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
+            }));
             return;
           }
           const mapped: { role: 'user' | 'assistant'; content: string }[] = [];
@@ -1009,28 +1108,100 @@ const App: React.FC = () => {
             const o = row as { role?: string; content?: unknown };
             const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
             if (!role) continue;
-            const raw = o.content;
+            const rawContent = o.content;
             const content =
-              typeof raw === 'string'
-                ? raw
-                : raw != null && typeof raw === 'object'
-                  ? JSON.stringify(raw)
+              typeof rawContent === 'string'
+                ? rawContent
+                : rawContent != null && typeof rawContent === 'object'
+                  ? JSON.stringify(rawContent)
                   : '';
             mapped.push({ role, content: content.trim() ? content : '(empty)' });
           }
           if (mapped.length === 0) {
-            setChatMessages([{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }]);
+            setMessagesByTabId((prev) => ({
+              ...prev,
+              [tid]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
+            }));
             return;
           }
-          setChatMessages(mapped);
+          setMessagesByTabId((prev) => ({ ...prev, [tid]: mapped }));
         })
         .catch(() => {
-          setChatMessages([{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }]);
+          setMessagesByTabId((prev) => ({
+            ...prev,
+            [targetTabId]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
+          }));
         });
     };
     window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
     return () => window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
   }, [workspaceDisplayLine]);
+
+  const didInitialAgentMessagesFetch = useRef(false);
+  useEffect(() => {
+    if (didInitialAgentMessagesFetch.current) return;
+    const conv = agentChatTabs.find((t) => t.id === activeAgentChatTabId)?.conversationId?.trim();
+    if (!conv) return;
+    didInitialAgentMessagesFetch.current = true;
+    void fetch(`/api/agent/sessions/${encodeURIComponent(conv)}/messages`, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: unknown) => {
+        const tid = activeAgentChatTabId;
+        if (!Array.isArray(rows) || rows.length === 0) return;
+        const mapped: { role: 'user' | 'assistant'; content: string }[] = [];
+        for (const row of rows) {
+          if (!row || typeof row !== 'object') continue;
+          const o = row as { role?: string; content?: unknown };
+          const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
+          if (!role) continue;
+          const rawContent = o.content;
+          const content =
+            typeof rawContent === 'string'
+              ? rawContent
+              : rawContent != null && typeof rawContent === 'object'
+                ? JSON.stringify(rawContent)
+                : '';
+          mapped.push({ role, content: content.trim() ? content : '(empty)' });
+        }
+        if (mapped.length === 0) return;
+        setMessagesByTabId((prev) => ({ ...prev, [tid]: mapped }));
+      })
+      .catch(() => {});
+  }, [agentChatTabs, activeAgentChatTabId]);
+
+  const createNewAgentChatTab = useCallback(() => {
+    const cap = maxTabsPolicyRef.current;
+    if (agentChatTabs.length >= cap) {
+      setToastMsg(`Maximum chat tabs reached (${cap}).`);
+      return;
+    }
+    const nid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tab_${Date.now()}`;
+    setAgentChatTabs((prev) => [...prev, { id: nid, conversationId: '', title: 'New chat' }]);
+    setActiveAgentChatTabId(nid);
+    setMessagesByTabId((prev) => ({
+      ...prev,
+      [nid]: [{ role: 'assistant', content: buildAgentSamGreeting(workspaceDisplayLine) }],
+    }));
+    try {
+      localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+    } catch {
+      /* ignore */
+    }
+  }, [agentChatTabs.length, workspaceDisplayLine]);
+
+  const selectAgentChatTab = useCallback(
+    (tabId: string) => {
+      setActiveAgentChatTabId(tabId);
+      const conv = agentChatTabs.find((t) => t.id === tabId)?.conversationId?.trim() ?? '';
+      try {
+        if (conv) localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, conv);
+        else localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+      } catch {
+        /* ignore */
+      }
+    },
+    [agentChatTabs],
+  );
 
   const narrowBackToCenter = useCallback(() => {
     setActiveActivity(null);
@@ -2184,6 +2355,13 @@ const App: React.FC = () => {
                 onClick={() => navigate('/dashboard/analytics/overview')}
               />
               <ActivityRailItem icon={Bot} label="Agent" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/agent'} onClick={() => navigate('/dashboard/agent')} />
+              <ActivityRailItem
+                icon={Network}
+                label="Workflows"
+                expanded={sidebarRailExpanded}
+                active={location.pathname === '/dashboard/workflows'}
+                onClick={() => navigate('/dashboard/workflows')}
+              />
               <ActivityRailItem icon={GraduationCap} label="Learn" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/learn'} onClick={() => navigate('/dashboard/learn')} />
               <ActivityRailItem
                   icon={Palette}
@@ -2281,6 +2459,11 @@ const App: React.FC = () => {
                         onOpenGitHubIntegration={openGitHubFromChat}
                         onMobileOpenDashboard={openDashboardFromChat}
                         onOpenCodeTab={focusCodeEditorFromChat}
+                        syncedHostConversationId={activeAgentConversationId}
+                        agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
+                        activeAgentChatShellTabId={activeAgentChatTabId}
+                        onAgentChatShellTabSelect={selectAgentChatTab}
+                        onAgentChatShellNewTab={createNewAgentChatTab}
                     />
                     </div>
                 </div>
@@ -2312,7 +2495,7 @@ const App: React.FC = () => {
                   {activeActivity === 'search' ? (
                       <KnowledgeSearchPanel
                         onClose={() => setActiveActivity(null)}
-                        activeConversationId={agentChatConversationId}
+                        activeConversationId={activeAgentConversationId}
                       />
                   ) : location.pathname === '/dashboard/meet' && meetCtxValue ? (
                       <MeetProvider value={meetCtxValue}>
@@ -2429,6 +2612,7 @@ const App: React.FC = () => {
                       <Route path="/dashboard/health/:tab" element={<RedirectHealthToAnalytics />} />
                       <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/learn" element={<LearnPage />} />
+                      <Route path="/dashboard/workflows" element={<WorkflowsPage />} />
                       <Route path="/dashboard/database" element={<DatabasePage />} />
                       <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
                       <Route
@@ -2762,6 +2946,11 @@ const App: React.FC = () => {
                             onOpenGitHubIntegration={openGitHubFromChat}
                             onMobileOpenDashboard={openDashboardFromChat}
                             onOpenCodeTab={focusCodeEditorFromChat}
+                            syncedHostConversationId={activeAgentConversationId}
+                            agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
+                            activeAgentChatShellTabId={activeAgentChatTabId}
+                            onAgentChatShellTabSelect={selectAgentChatTab}
+                            onAgentChatShellNewTab={createNewAgentChatTab}
                          />
                     </div>
                 </div>
