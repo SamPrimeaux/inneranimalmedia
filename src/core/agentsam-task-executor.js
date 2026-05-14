@@ -6,6 +6,7 @@
 
 import { dispatchComplete } from './provider.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
+import { fetchAuthUserTenantId } from './auth.js';
 import { executeCommand, completeCommand } from '../api/command-run-telemetry.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
 import { pragmaTableInfo } from './retention.js';
@@ -13,6 +14,35 @@ import { insertPlanExecutionStep, resolvePlanTaskCapabilityType } from './agents
 import { scheduleMirrorAgentChatPlanToSupabase, scheduleMirrorAgentsamPlanToSupabasePublic } from './agentsam-plan-supabase-public-sync.js';
 
 const TASK_AGENT_SYSTEM = `You are Agent Sam executing a specific task. Complete it thoroughly and concisely. Return your result as plain text.`;
+
+/**
+ * Tenant/workspace for plan execution: caller params → agentsam_plans → logged-in user (auth_users.tenant_id).
+ */
+async function resolvePlanTenantWorkspace(env, { planId, tenantId, workspaceId, userId }) {
+  let tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
+  let wid = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+
+  if (env?.DB && planId) {
+    const prow = await env.DB
+      .prepare(`SELECT tenant_id, workspace_id FROM agentsam_plans WHERE id = ? LIMIT 1`)
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    if (!tid && prow?.tenant_id != null && String(prow.tenant_id).trim() !== '') {
+      tid = String(prow.tenant_id).trim();
+    }
+    if (!wid && prow?.workspace_id != null && String(prow.workspace_id).trim() !== '') {
+      wid = String(prow.workspace_id).trim();
+    }
+  }
+
+  const uid = userId != null && String(userId).trim() !== '' ? String(userId).trim() : '';
+  if (!tid && uid) {
+    tid = await fetchAuthUserTenantId(env, uid).catch(() => null);
+  }
+
+  return { tenantId: tid, workspaceId: wid };
+}
 
 /** Shell text to run after authorization (quality_gate.proposed_shell, cmd:, agentsam_commands id, or description). */
 function shellCommandForTerminalTask(task) {
@@ -57,11 +87,18 @@ async function ensurePlanTerminalApprovalProposal(env, p) {
   if (prow?.workflow_run_id != null && String(prow.workflow_run_id).trim() !== '') {
     workflowRunId = String(prow.workflow_run_id).trim();
   }
-  if (!tid) tid = 'tenant_sam_primeaux';
 
   const uidRaw = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
   if (!uidRaw) return { ok: false };
   const canonicalUser = await resolveCanonicalUserId(uidRaw, env).catch(() => uidRaw);
+
+  if (!tid) {
+    tid = await fetchAuthUserTenantId(env, canonicalUser).catch(() => null);
+  }
+  if (!tid) {
+    tid = await fetchAuthUserTenantId(env, uidRaw).catch(() => null);
+  }
+  if (!tid) return { ok: false };
 
   const existingCrid = task.command_run_id != null ? String(task.command_run_id).trim() : '';
   if (existingCrid) {
@@ -460,8 +497,8 @@ export async function executePlan(
   {
     planId,
     userId,
-    workspaceId,
-    tenantId,
+    workspaceId: workspaceIdIn,
+    tenantId: tenantIdIn,
     emit,
     ctx = null,
     onlyTaskId = null,
@@ -475,7 +512,21 @@ export async function executePlan(
     return;
   }
 
+  let tenantId = tenantIdIn != null && String(tenantIdIn).trim() !== '' ? String(tenantIdIn).trim() : null;
+  let workspaceId =
+    workspaceIdIn != null && String(workspaceIdIn).trim() !== '' ? String(workspaceIdIn).trim() : '';
+
   try {
+  const resolvedTw = await resolvePlanTenantWorkspace(env, { planId, tenantId, workspaceId, userId });
+  tenantId = resolvedTw.tenantId;
+  workspaceId = resolvedTw.workspaceId;
+  if (!tenantId) {
+    emit('text', {
+      text: '[Agent Sam] **Tenant not resolved** for this plan. Ensure you are logged in and have a tenant on your account, or that the plan has `tenant_id` set.',
+    });
+    return;
+  }
+
   const wfStarted = Date.now();
   let wfRun = workflowRunId != null && String(workflowRunId).trim() !== '' ? String(workflowRunId).trim() : null;
   if (!wfRun) {
@@ -582,7 +633,7 @@ export async function executePlan(
         const br = await runBrowserCapabilityAction({
           env,
           runId: wfRun,
-          tenantId: tenantId || 'tenant_sam_primeaux',
+          tenantId,
           workspaceId: workspaceId || '',
           userId: userId || '',
           message: `${task.title}\n${task.description || ''}`,
@@ -671,7 +722,7 @@ export async function executePlan(
         const xr = await runExcalidrawCapabilityAction({
           env,
           runId: wfRun,
-          tenantId: tenantId || 'tenant_sam_primeaux',
+          tenantId,
           workspaceId: workspaceId || '',
           userId: userId || '',
           message: `${task.title}\n${task.description || ''}`,
@@ -1104,7 +1155,7 @@ Return ONLY valid JSON:
           const wResult = await executeWorkflowGraph(env, {
             workflowKey: wk,
             input: { message: task.description || task.title },
-            tenantId: tenantId || 'tenant_sam_primeaux',
+            tenantId,
             workspaceId: workspaceId || '',
             userId,
             triggerType: 'agent',
