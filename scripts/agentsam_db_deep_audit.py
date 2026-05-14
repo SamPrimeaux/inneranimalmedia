@@ -5,6 +5,8 @@ For each table: schema, NULL analysis, FK consistency, data quality score.
 Outputs: smoke test SQLs, fix recommendations, gap report.
 """
 
+VERSION = "1.0.0"
+
 import json, os, urllib.request, time
 from pathlib import Path
 from datetime import datetime, timezone

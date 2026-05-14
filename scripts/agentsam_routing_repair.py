@@ -14,6 +14,8 @@ Run:
 Requires: npx wrangler in PATH, CF credentials in env or wrangler.toml
 """
 
+VERSION = "1.1.0"
+
 import subprocess, json, sys, textwrap
 from datetime import datetime, timezone
 
