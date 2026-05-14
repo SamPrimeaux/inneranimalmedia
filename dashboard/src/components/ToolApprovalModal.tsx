@@ -62,9 +62,10 @@ function shouldPollApprovals(opts: {
   if (agentRunId) return true;
   if (recentPending && onAgentRoute) return true;
   if (!onAgentRoute) return false;
-  // On Agent: only poll when a real chat session exists so background/orphan queue rows do not surface on an idle composer.
+  // Only poll when execution is actually in flight (agentRunId / toolExecutionActive / recentPending).
+  // A chatSessionId alone (idle composer) is not sufficient — that was causing the premature modal.
   if (!chatSessionId.trim()) return false;
-  return true;
+  return false;
 }
 
 function formatActionTitle(toolName: string, description: string): string {

@@ -2459,6 +2459,7 @@ const App: React.FC = () => {
                         onOpenGitHubIntegration={openGitHubFromChat}
                         onMobileOpenDashboard={openDashboardFromChat}
                         onOpenCodeTab={focusCodeEditorFromChat}
+              onLoadingChange={setAgentIsStreaming}
                         syncedHostConversationId={activeAgentConversationId}
                         agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
                         activeAgentChatShellTabId={activeAgentChatTabId}
@@ -3034,8 +3035,8 @@ const App: React.FC = () => {
           <div className="pointer-events-auto">
             <ToolApprovalModal
               workspaceId={authWorkspaceId}
-              agentRunId={null}
-              toolExecutionActive={false}
+              agentRunId={activeCommandRunId}
+              toolExecutionActive={agentIsStreaming}
               chatSessionId={activeAgentConversationId}
               onOpenInEditor={openInMonacoFromChat}
               docked

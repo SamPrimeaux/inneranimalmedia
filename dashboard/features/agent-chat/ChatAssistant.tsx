@@ -89,6 +89,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onOpenGitHubIntegration,
   onMobileOpenDashboard,
   onOpenCodeTab,
+  onLoadingChange,
   onOpenChatHistory,
   agentsamPolicy = null,
   workspaceId = null,
@@ -104,6 +105,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [agentsamPolicy]);
 
   const [isLoading, setIsLoading] = useState(false);
+  useEffect(() => { onLoadingChange?.(isLoading); }, [isLoading, onLoadingChange]);
   const [input, setInput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   /** After SSE `done`, ignore duplicate terminal events for this request. */
