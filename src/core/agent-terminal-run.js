@@ -21,7 +21,8 @@ function isLikelySafeShellCommand(cmd) {
     /^(pwd|whoami|hostname|date|uname)(\s|$)/i.test(c) ||
     /^echo\s+/i.test(c) ||
     /^ls(\s|$)/i.test(c) ||
-    /^printenv(\s|$)/i.test(c)
+    /^printenv(\s|$)/i.test(c) ||
+    (/^python3(\d(\.\d+)?)?\s+-m\s+py_compile\s+/i.test(c) && !/[\r\n]/.test(c) && c.length <= 12000)
   );
 }
 

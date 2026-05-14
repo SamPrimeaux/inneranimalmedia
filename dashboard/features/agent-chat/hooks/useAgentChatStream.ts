@@ -7,14 +7,8 @@
 
 import type React from 'react';
 import { LS_AGENT_CHAT_CONVERSATION_ID } from '../../../agentChatConstants';
-import type {
-  ExecPanelState,
-  Message,
-  ToolApprovalPayload,
-  WorkflowLedgerState,
-  AgentPreviewArtifact,
-  AgentPreviewArtifactKind,
-} from '../types';
+import type { Message, ToolApprovalPayload, WorkflowLedgerState, AgentPreviewArtifact, AgentPreviewArtifactKind } from '../types';
+import type { AgentToolTraceRow } from '../execution/types';
 import {
   extractMonacoInvokesFromBuffer,
   hideIncompleteMonacoInvokeTail,
@@ -49,7 +43,10 @@ export type ConsumeAgentChatSseContext = {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
   setWorkflowLedger: React.Dispatch<React.SetStateAction<WorkflowLedgerState>>;
-  setExecPanel: React.Dispatch<React.SetStateAction<ExecPanelState>>;
+  /** Optional: Agent Sam tool / terminal trace rows (replaces legacy single exec panel). */
+  setToolTraceRows?: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
+  /** When a streamed monaco invoke opens a `.py` draft in the editor. */
+  onPythonDraftOpened?: (fileName: string) => void;
   setConversationId: React.Dispatch<React.SetStateAction<string>>;
   stripEmptyAssistantTail: (prev: Message[]) => Message[];
   loadSessions: () => void;
@@ -78,7 +75,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     setMessages,
     setIsLoading,
     setWorkflowLedger,
-    setExecPanel,
+    setToolTraceRows,
+    onPythonDraftOpened,
     setConversationId,
     stripEmptyAssistantTail,
     loadSessions,
@@ -103,7 +101,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   const MAX_READS = 2000;
   const MAX_EMPTY_RUN = 200;
 
+  /** Active SSE tool row id for tool_output / tool_done / tool_error pairing. */
+  let activeToolTraceId: string | null = null;
+
   if (!mergeIntoLastAssistant) {
+    activeToolTraceId = null;
+    setToolTraceRows?.([]);
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
   }
   assistantContent = assistantStreamBuf;
@@ -685,35 +688,54 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               }),
             );
           }
-          setExecPanel({
-            tool_name: d.tool_name || 'tool',
-            status: 'running',
-            lines: [d.input_preview ?? ''],
-            started: new Date().toLocaleTimeString(),
-            is_sql:
-              !!d.tool_name &&
-              (d.tool_name.includes('d1') || d.tool_name.includes('sql') || d.tool_name.includes('query')),
-          });
+          const rowId = `sse-tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          activeToolTraceId = rowId;
+          const isSql =
+            !!d.tool_name &&
+            (d.tool_name.includes('d1') || d.tool_name.includes('sql') || d.tool_name.includes('query'));
+          const preview = d.input_preview != null ? String(d.input_preview) : '';
+          setToolTraceRows?.((prev) => [
+            ...prev,
+            {
+              id: rowId,
+              toolName: d.tool_name || 'tool',
+              status: 'running',
+              lines: preview ? [preview] : [],
+              startedAtLabel: new Date().toLocaleTimeString(),
+              isSql,
+            },
+          ]);
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_error') {
           const d = data as { type?: string; tool?: string; error?: string };
           const msg = String(d.error || 'tool_error').slice(0, 4000);
-          setExecPanel((p) =>
-            p
-              ? {
-                  ...p,
-                  status: 'error',
-                  lines: [...p.lines, `[${d.tool || 'tool'}] ${msg}`],
-                }
-              : {
-                  tool_name: String(d.tool || 'tool'),
-                  status: 'error',
-                  lines: [msg],
-                  started: new Date().toLocaleTimeString(),
-                  is_sql: String(d.tool || '').includes('d1'),
-                },
-          );
+          const toolLabel = String(d.tool || 'tool');
+          setToolTraceRows?.((prev) => {
+            if (activeToolTraceId && prev.some((r) => r.id === activeToolTraceId)) {
+              return prev.map((r) =>
+                r.id === activeToolTraceId
+                  ? {
+                      ...r,
+                      status: 'error' as const,
+                      lines: [...r.lines, `[${toolLabel}] ${msg}`],
+                    }
+                  : r,
+              );
+            }
+            const id = `sse-tool-err-${Date.now()}`;
+            return [
+              ...prev,
+              {
+                id,
+                toolName: toolLabel,
+                status: 'error',
+                lines: [msg],
+                startedAtLabel: new Date().toLocaleTimeString(),
+              },
+            ];
+          });
+          activeToolTraceId = null;
           assistantStreamBuf += `\n\n_Tool error (${String(d.tool || 'tool')}):_ ${msg}\n`;
           assistantContent = assistantStreamBuf;
           setMessages((prev) => {
@@ -730,7 +752,21 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           typeof (data as { chunk?: unknown }).chunk === 'string'
         ) {
           const d = data as { type: 'tool_output'; chunk: string };
-          setExecPanel((p) => (p ? { ...p, lines: [...p.lines, d.chunk] } : p));
+          setToolTraceRows?.((prev) => {
+            if (activeToolTraceId) {
+              return prev.map((r) =>
+                r.id === activeToolTraceId ? { ...r, lines: [...r.lines, d.chunk] } : r,
+              );
+            }
+            if (!prev.length) return prev;
+            const last = prev[prev.length - 1];
+            if (last.status === 'running') {
+              return prev.map((r, i) =>
+                i === prev.length - 1 ? { ...r, lines: [...r.lines, d.chunk] } : r,
+              );
+            }
+            return prev;
+          });
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_done') {
           const d = data as {
@@ -767,20 +803,24 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               }),
             );
           }
-          setExecPanel((p) =>
-            p
-              ? {
-                  ...p,
-                  status: d.status === 'error' ? 'error' : 'done',
-                  duration_ms: d.duration_ms,
-                  sql_rows: d.rows ?? undefined,
-                  lines:
-                    d.status === 'error' && d.error
-                      ? [...p.lines, String(d.error).slice(0, 4000)]
-                      : p.lines,
-                }
-              : p,
-          );
+          setToolTraceRows?.((prev) => {
+            if (!activeToolTraceId || !prev.some((r) => r.id === activeToolTraceId)) return prev;
+            return prev.map((r) =>
+              r.id === activeToolTraceId
+                ? {
+                    ...r,
+                    status: d.status === 'error' ? 'error' : 'done',
+                    durationMs: d.duration_ms,
+                    sqlRows: d.rows ?? undefined,
+                    lines:
+                      d.status === 'error' && d.error
+                        ? [...r.lines, String(d.error).slice(0, 4000)]
+                        : r.lines,
+                  }
+                : r,
+            );
+          });
+          activeToolTraceId = null;
         }
         if (data && typeof data === 'object' && 'conversation_id' in data) {
           const cid = (data as { conversation_id?: string }).conversation_id;
@@ -823,6 +863,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             assistantStreamBuf = nextBuf;
             for (const f of extracted.files) {
               try {
+                if (/\.py$/i.test(f.name)) {
+                  onPythonDraftOpened?.(f.name);
+                }
                 onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
               } catch (e) {
                 console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);

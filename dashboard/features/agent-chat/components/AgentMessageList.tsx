@@ -14,7 +14,10 @@ import type {
 } from '../types';
 import { AgentChatMarkdown } from './AgentChatMarkdown';
 import { AgentCodeFencePreview } from './AgentCodeFencePreview';
-import type { ExecPanelState, WorkflowLedgerState } from '../types';
+import type { WorkflowLedgerState } from '../types';
+import type { AgentToolTraceRow } from '../execution/types';
+import { ExecutionTimeline } from '../execution/ExecutionTimeline';
+import { ArtifactChipList } from '../execution/ArtifactChipList';
 
 const getLangMeta = (lang: string) => {
   const map: Record<string, { ext: string; icon: React.ReactNode }> = {
@@ -67,8 +70,8 @@ export type AgentMessageListProps = {
   showEmptyThreadPlaceholder: boolean;
   displayMessages: Message[];
   isLoading: boolean;
-  execPanel: ExecPanelState;
-  setExecPanel: React.Dispatch<React.SetStateAction<ExecPanelState>>;
+  toolTraceRows: AgentToolTraceRow[];
+  setToolTraceRows: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
   workspaceId: string | null;
   workflowLedger: WorkflowLedgerState;
   onFileSelect?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
@@ -325,44 +328,17 @@ function AssistantPreviewArtifactsBar({
   onFileSelect?: AgentMessageListProps['onFileSelect'];
   onImagePreview?: AgentMessageListProps['onImagePreview'];
 }) {
-  if (!artifacts.length) return null;
-  const extFor = (a: AgentPreviewArtifact) =>
-    a.kind === 'sql' ? 'sql' : a.kind === 'diff' ? 'diff' : a.language || 'txt';
-
   return (
-    <div className="mb-2 flex flex-wrap gap-2" aria-label="Stream previews">
-      {artifacts.map((a) =>
-        a.kind === 'image' && a.imageUrl ? (
-          <button
-            key={a.id}
-            type="button"
-            onClick={() =>
-              onImagePreview
-                ? onImagePreview(a.imageUrl!)
-                : window.open(a.imageUrl, '_blank', 'noopener,noreferrer')
-            }
-            className="group relative overflow-hidden rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] max-h-28 max-w-[160px]"
-            title={a.title || 'Image preview'}
-          >
-            <img src={a.imageUrl} alt="" className="max-h-28 w-full object-contain" />
-          </button>
-        ) : (
-          <button
-            key={a.id}
-            type="button"
-            onClick={() =>
-              onFileSelect?.({
-                name: `sse-preview-${extFor(a)}-${a.id.slice(0, 8)}.${extFor(a)}`,
-                content: a.content || `# ${a.title || a.kind}\n`,
-              })
-            }
-            className="rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/90 px-2.5 py-1.5 text-[11px] font-medium text-[var(--dashboard-muted)] hover:border-[var(--solar-cyan)]/35 hover:text-[var(--solar-cyan)]"
-          >
-            {a.title || a.kind}
-          </button>
-        ),
-      )}
-    </div>
+    <ArtifactChipList
+      artifacts={artifacts}
+      onOpenArtifact={(a) =>
+        onFileSelect?.({
+          name: `sse-preview-${a.kind}-${a.id.slice(0, 8)}.${a.kind === 'sql' ? 'sql' : a.kind === 'diff' ? 'diff' : a.language || 'txt'}`,
+          content: a.content || `# ${a.title || a.kind}\n`,
+        })
+      }
+      onOpenImageUrl={onImagePreview}
+    />
   );
 }
 
@@ -371,8 +347,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   showEmptyThreadPlaceholder,
   displayMessages,
   isLoading,
-  execPanel,
-  setExecPanel,
+  toolTraceRows,
+  setToolTraceRows,
   workspaceId,
   workflowLedger,
   onFileSelect,
@@ -514,112 +490,11 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         </div>
       )}
 
-      {execPanel && (
-        <div
-          onClick={() => execPanel.status !== 'running' && setExecPanel(null)}
-          style={{
-            border: `0.5px solid ${
-              execPanel.status === 'error' ? 'var(--color-border-danger)' : 'var(--color-border-tertiary)'
-            }`,
-            borderRadius: 'var(--border-radius-lg)',
-            marginTop: 8,
-            overflow: 'hidden',
-            cursor: execPanel.status !== 'running' ? 'pointer' : 'default',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '8px 12px',
-              background: 'var(--color-background-secondary)',
-              fontSize: 12,
-            }}
-          >
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                background:
-                  execPanel.status === 'running'
-                    ? 'var(--color-text-warning)'
-                    : execPanel.status === 'error'
-                      ? 'var(--color-text-danger)'
-                      : 'var(--color-text-success)',
-                flexShrink: 0,
-              }}
-            />
-            <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{execPanel.status.toUpperCase()}</span>
-            <span style={{ color: 'var(--color-text-tertiary)', flex: 1 }}>tool: {execPanel.tool_name}</span>
-            {execPanel.duration_ms != null && (
-              <span style={{ color: 'var(--color-text-tertiary)' }}>{(execPanel.duration_ms / 1000).toFixed(1)}s</span>
-            )}
-          </div>
-          {execPanel.is_sql && execPanel.sql_rows?.length ? (
-            <div style={{ overflowX: 'auto', padding: 8 }}>
-              <table style={{ width: '100%', fontSize: 11, fontFamily: 'var(--font-mono)', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    {Object.keys(execPanel.sql_rows[0]).map((k) => (
-                      <th
-                        key={k}
-                        style={{
-                          textAlign: 'left',
-                          padding: '3px 8px',
-                          borderBottom: '0.5px solid var(--color-border-tertiary)',
-                          color: 'var(--color-text-tertiary)',
-                          fontWeight: 500,
-                        }}
-                      >
-                        {k}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {execPanel.sql_rows.map((row, ri) => (
-                    <tr key={ri}>
-                      {Object.values(row).map((v, j) => (
-                        <td
-                          key={j}
-                          style={{
-                            padding: '3px 8px',
-                            borderBottom: '0.5px solid var(--color-border-tertiary)',
-                            color: 'var(--color-text-primary)',
-                          }}
-                        >
-                          {String(v ?? '')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', padding: '4px 8px' }}>
-                {execPanel.sql_rows.length} rows · {execPanel.duration_ms ?? 0}ms
-              </div>
-            </div>
-          ) : (
-            <pre
-              style={{
-                margin: 0,
-                padding: '8px 12px',
-                fontSize: 11,
-                fontFamily: 'var(--font-mono)',
-                maxHeight: 180,
-                overflowY: 'auto',
-                color: 'var(--color-text-primary)',
-                background: 'var(--color-background-primary)',
-              }}
-            >
-              {execPanel.lines.join('\n')}
-              {execPanel.status === 'running' ? '\n▊' : ''}
-            </pre>
-          )}
-        </div>
-      )}
+      <ExecutionTimeline
+        rows={toolTraceRows}
+        onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
+        onClear={() => setToolTraceRows([])}
+      />
     </div>
   );
 };

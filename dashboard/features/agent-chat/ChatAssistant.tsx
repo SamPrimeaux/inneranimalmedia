@@ -30,6 +30,7 @@ import {
   Target,
   Sparkles,
   Layers,
+  ShieldCheck,
 } from 'lucide-react';
 import { ProjectType } from '../../types';
 import type { ActiveFile } from '../../types';
@@ -44,9 +45,10 @@ import type {
   SlashCmd,
   StagedAttachment,
   ToolApprovalPayload,
-  ExecPanelState,
   WorkflowLedgerState,
 } from './types';
+import type { AgentToolTraceRow } from './execution/types';
+import { ExecutionTimeline, ScriptDraftPanel, shellSingleQuote } from './execution';
 import {
   LS_GH_REPO,
   MENTION_CONTEXT_HEADER,
@@ -69,7 +71,9 @@ import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
 import { ThinkingCard } from '../../src/components/ThinkingCard';
-import type { ThinkingCardState, ThinkingStep } from '../../src/components/ThinkingCard';
+import type { ThinkingCardState } from '../../src/components/ThinkingCard';
+import '../agent-presence/presenceMotion.css';
+import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
 
 
 export { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
@@ -375,15 +379,94 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   } | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
 
-  const [execPanel, setExecPanel] = useState<{
-    tool_name: string;
-    status: 'running' | 'done' | 'error';
-    lines: string[];
-    duration_ms?: number;
-    started: string;
-    is_sql: boolean;
-    sql_rows?: Record<string, unknown>[];
-  } | null>(null);
+  const [toolTraceRows, setToolTraceRows] = useState<AgentToolTraceRow[]>([]);
+  const [pythonDraftHint, setPythonDraftHint] = useState<string | null>(null);
+  const [draftSyntaxBusy, setDraftSyntaxBusy] = useState(false);
+  const [draftRunBusy, setDraftRunBusy] = useState(false);
+
+  const runDraftTerminalCommand = useCallback(async (label: string, cmd: string) => {
+    const id = `local-script-${Date.now()}`;
+    setToolTraceRows((prev) => [
+      ...prev,
+      {
+        id,
+        toolName: label,
+        status: 'running',
+        lines: [`$ ${cmd}`],
+        startedAtLabel: new Date().toLocaleTimeString(),
+        local: true,
+      },
+    ]);
+    try {
+      const res = await fetch('/api/agent/terminal/run', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ command: cmd }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { output?: string; error?: string };
+      const out = (j.output ?? j.error ?? '').slice(0, 12000);
+      const ok = res.ok && !j.error;
+      setToolTraceRows((prev) =>
+        prev.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                status: ok ? 'done' : 'error',
+                lines: [`$ ${cmd}`, out || (res.ok ? '(no stdout/stderr captured)' : `HTTP ${res.status}`)],
+              }
+            : r,
+        ),
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToolTraceRows((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: 'error', lines: [...r.lines, msg] } : r)),
+      );
+    }
+  }, []);
+
+  const handlePythonDraftOpened = useCallback((fileName: string) => {
+    setPythonDraftHint(fileName);
+  }, []);
+
+  const handleDraftSyntaxCheck = useCallback(async () => {
+    const wp = activeFile?.workspacePath?.trim();
+    const name = activeFile?.name || activeFileName || '';
+    if (!wp || wp.startsWith('mcp_tool:') || !/\.py$/i.test(name)) return;
+    setDraftSyntaxBusy(true);
+    try {
+      const cmd = `python3 -m py_compile ${shellSingleQuote(wp)}`;
+      await runDraftTerminalCommand('Syntax check (py_compile)', cmd);
+    } finally {
+      setDraftSyntaxBusy(false);
+    }
+  }, [activeFile, activeFileName, runDraftTerminalCommand]);
+
+  const handleDraftRunScript = useCallback(async () => {
+    const wp = activeFile?.workspacePath?.trim();
+    const name = activeFile?.name || activeFileName || '';
+    if (!wp || wp.startsWith('mcp_tool:') || !/\.py$/i.test(name)) return;
+    setDraftRunBusy(true);
+    try {
+      const cmd = `python3 ${shellSingleQuote(wp)}`;
+      await runDraftTerminalCommand('Run Python script', cmd);
+    } finally {
+      setDraftRunBusy(false);
+    }
+  }, [activeFile, activeFileName, runDraftTerminalCommand]);
+
+  const { presence, logoMotion } = useAgentPresence({
+    isLoading,
+    mode,
+    thinkingState,
+    pendingToolApproval,
+    approvalBusy,
+    toolTraceRows,
+    workflowLedger,
+    draftSyntaxBusy,
+    draftRunBusy,
+  });
 
   const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>('');
@@ -836,7 +919,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           setMessages,
           setIsLoading,
           setWorkflowLedger,
-          setExecPanel,
+          setToolTraceRows,
+          onPythonDraftOpened: handlePythonDraftOpened,
           setConversationId,
           stripEmptyAssistantTail,
           loadSessions,
@@ -898,7 +982,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } finally {
       setApprovalBusy(false);
     }
-  }, [pendingToolApproval, conversationId, setMessages, messages, onBrowserNavigate, onR2FileUpdated, onFileSelect, loadSessions, stripEmptyAssistantTail, setWorkflowLedger, setExecPanel, setConversationId]);
+  }, [pendingToolApproval, conversationId, setMessages, messages, onBrowserNavigate, onR2FileUpdated, onFileSelect, loadSessions, stripEmptyAssistantTail, setWorkflowLedger, setToolTraceRows, handlePythonDraftOpened, setConversationId]);
 
   const handleDenyPendingTool = useCallback(async () => {
     if (!pendingToolApproval) return;
@@ -978,6 +1062,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setIsLoading(true);
     setMentionOpen(false);
     setSlashOpen(false);
+    setToolTraceRows([]);
+    setPythonDraftHint(null);
 
     const attachContextFiles: Array<{ name: string; content: string }> = [];
     for (const a of attachments) {
@@ -1091,7 +1177,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         setMessages,
         setIsLoading,
         setWorkflowLedger,
-        setExecPanel,
+        setToolTraceRows,
+        onPythonDraftOpened: handlePythonDraftOpened,
         setConversationId,
         stripEmptyAssistantTail,
         loadSessions,
@@ -1313,11 +1400,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {isNarrow && (
           <header className="grid grid-cols-[auto_1fr_auto] items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)] shrink-0 bg-[var(--dashboard-panel)] z-10">
-            <img
-              src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
-              alt=""
-              className="w-6 h-6 rounded object-cover shrink-0"
-            />
+            <AgentPresenceLogo motion={logoMotion} sizePx={24} />
             <nav className="flex items-center justify-center gap-2 sm:gap-3 min-w-0 max-w-full overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
               {(['agents', 'automations', 'dashboard'] as const).map((tab) => (
                 <button
@@ -1397,49 +1480,58 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 Context
               </button>
             </div>
+            <div className="px-3 pb-2">
+              <AgentPresenceStatus presence={presence} showBadge={false} className="opacity-95" />
+            </div>
           </div>
         )}
 
         {!isNarrow && (
-          <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b border-[var(--dashboard-border)]">
-            <span className="flex-1 text-[13px] font-semibold text-[var(--dashboard-text)] truncate min-w-0">
-              {threadTitle || 'Chat'}
-            </span>
-            {onOpenChatHistory && (
-              <button
-                type="button"
-                onClick={() => onOpenChatHistory()}
-                className="shrink-0 text-[0.6875rem] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] px-2 py-1.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors"
-              >
-                Chats
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
-              title="New chat"
-              aria-label="New chat"
-            >
-              <Plus size={18} strokeWidth={2} />
-            </button>
+          <div className="flex-shrink-0 flex items-start gap-2.5 px-3 py-2 border-b border-[var(--dashboard-border)]">
+            <AgentPresenceLogo motion={logoMotion} sizePx={28} className="mt-0.5" />
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="flex-1 text-[13px] font-semibold text-[var(--dashboard-text)] truncate min-w-0">
+                  {threadTitle || 'Chat'}
+                </span>
+                {onOpenChatHistory && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenChatHistory()}
+                    className="shrink-0 text-[0.6875rem] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] px-2 py-1.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    Chats
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleNewChat}
+                  className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
+                  title="New chat"
+                  aria-label="New chat"
+                >
+                  <Plus size={18} strokeWidth={2} />
+                </button>
 
-            <button
-              type="button"
-              onClick={() => onOpenCodeTab?.()}
-              title="Code editor"
-              aria-label="Open code editor"
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
-            >
-              <FileCode size={16} />
-            </button>
-            <button
-              type="button"
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
-              aria-label="More options"
-            >
-              <MoreHorizontal size={15} />
-            </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenCodeTab?.()}
+                  title="Code editor"
+                  aria-label="Open code editor"
+                  className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
+                >
+                  <FileCode size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
+                  aria-label="More options"
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+              </div>
+              <AgentPresenceStatus presence={presence} className="pl-0.5" />
+            </div>
           </div>
         )}
 
@@ -1520,13 +1612,31 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             startedAt={thinkingState.startedAt}
           />
         )}
+          {(() => {
+            const scriptDraftName =
+              (activeFileName && /\.py$/i.test(activeFileName) ? activeFileName : null) || pythonDraftHint;
+            if (!scriptDraftName || !/\.py$/i.test(scriptDraftName)) return null;
+            return (
+            <div className="px-3 sm:px-4 shrink-0">
+              <ScriptDraftPanel
+                fileName={scriptDraftName}
+                workspacePath={activeFile?.workspacePath ?? null}
+                onFocusEditor={() => onOpenCodeTab?.()}
+                onSyntaxCheck={handleDraftSyntaxCheck}
+                onRunScript={handleDraftRunScript}
+                syntaxBusy={draftSyntaxBusy}
+                runBusy={draftRunBusy}
+              />
+            </div>
+            );
+          })()}
         <AgentMessageList
             scrollRef={scrollRef}
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
             displayMessages={displayMessages}
             isLoading={isLoading}
-            execPanel={execPanel}
-            setExecPanel={setExecPanel}
+            toolTraceRows={toolTraceRows}
+            setToolTraceRows={setToolTraceRows}
             workspaceId={workspaceId ?? null}
             workflowLedger={workflowLedger}
             onFileSelect={onFileSelect}
@@ -1827,8 +1937,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   canSend || isLoading
                     ? 'bg-[var(--solar-cyan)] text-[var(--solar-base03)] shadow-[0_0_16px_color-mix(in_srgb,var(--solar-cyan)_25%,transparent)] hover:brightness-110'
                     : 'text-[var(--text-chrome-muted)] bg-[var(--bg-disabled)] cursor-not-allowed'
+                } ${isLoading ? 'agent-send-pulse' : ''} ${
+                  pendingToolApproval && !isLoading ? 'agent-send-approval !border !border-[var(--solar-yellow)]/45' : ''
                 }`}
-                title={isLoading ? 'Stop' : 'Send'}
+                title={
+                  isLoading ? 'Stop' : pendingToolApproval ? 'Approval required — confirm below' : 'Send'
+                }
               >
                 {isLoading ? (
                   <>
@@ -1839,6 +1953,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                       </span>
                     )}
                   </>
+                ) : pendingToolApproval ? (
+                  <ShieldCheck size={14} className="text-[var(--solar-base03)]" />
                 ) : (
                   <Send size={12} />
                 )}
