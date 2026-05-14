@@ -1,0 +1,113 @@
+---
+description: After commits/deploys, sync D1 plans/tasks/memory and mirror plan state + agent_memory to Supabase public.
+alwaysApply: true
+---
+
+# Agent Sam — Cursor D1 session sync (plans + memory)
+
+**Repo root (only):** `/Users/samprimeaux/inneranimalmedia` — confirm with `pwd` before any `wrangler` or script.
+
+**Wrangler:** use production config and env wrapper from repo root:
+
+```bash
+./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --json --command "…"
+```
+
+## After ANY commit or deploy
+
+1. Resolve `COMMIT` / `COMMIT_MSG` from git (`HEAD` after commit, or the deployed SHA).
+2. **Append `session_notes`** on the active sprint plan (replace `plan_id` when the sprint changes):
+
+```sql
+UPDATE agentsam_plans
+SET session_notes = COALESCE(session_notes,'') || char(10) || '[ISO8601] commit <SHA>: <subject>',
+    updated_at = unixepoch()
+WHERE id = '<plan_id>';
+```
+
+Escape single quotes in `<subject>` for SQL (`'` → `''`).
+
+3. **Plan tasks:** use valid statuses: `todo` → `in_progress` → `done` (or `blocked` with `blocked_reason`). Only set `done` when work is actually finished; use `WHERE status IN ('todo','in_progress')` for idempotent closes.
+
+4. **`agentsam_memory`:** the table uses **`user_id` (NOT NULL), `key`, `value`, `memory_type`** (allowed: `fact`, `preference`, `project`, `skill`, `error`, `decision`). There is **no** `role`, `content`, or `embed_model` column. Prefer **`memory_type = 'project'`** for deploy/commit summaries.
+
+Example insert (upsert on natural key — adjust `user_id` to your canonical `au_*` if different):
+
+```sql
+INSERT INTO agentsam_memory (
+  id, tenant_id, user_id, workspace_id, memory_type, key, value, session_id, source, confidence
+) VALUES (
+  'mem_<random_hex>',
+  '<tenant_id>',
+  '<user_id>',
+  '<workspace_id>',
+  'project',
+  'deploy_commit_<SHA>',
+  'Deployed commit <SHA>: <subject>',
+  'session_<YYYYMMDD>',
+  'cursor_session_sync',
+  1.0
+)
+ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+  value = excluded.value,
+  session_id = excluded.session_id,
+  source = excluded.source,
+  updated_at = unixepoch();
+```
+
+## After ANY D1 schema change or migration
+
+Insert a **`memory_type = 'project'`** (or `fact`) row with `key` like `schema_event_<timestamp>` and `value` describing table + change (same column shape as above).
+
+## Active sprint pointer
+
+Update this block when the sprint rotates:
+
+- **plan_id:** `plan_may14_2026_repair`
+- **Task ids:** keep in sync with D1 `agentsam_plan_tasks` for that `plan_id`.
+
+Do **not** use `~/Downloads/inneranimalmedia` or `inneranimalmedia-agentsam-dashboard` paths (removed / wrong).
+
+## Supabase (`public`) — planning + recall (not the same as D1 memory)
+
+Worker code **`mirrorAgentsamD1PlanToSupabasePublic`** (scheduled on plan/task writes and `executePlan`) upserts **`public.agentsam_plans`** / **`public.agentsam_plan_tasks`** from D1. For manual repair or Cursor-only sessions, you can still run MCP SQL; failures there do not patch D1.
+
+| D1 | Supabase `public` | Notes |
+|----|-------------------|--------|
+| `agentsam_plans` | `agentsam_plans` | PG has fewer columns (no `tenant_id` / `plan_type` on plans). Sync `id`, `plan_date`, `title`, `status`, `session_notes`, `tasks_total` / `tasks_done` / `tasks_blocked`, timestamps. |
+| `agentsam_plan_tasks` | `agentsam_plan_tasks` | PG has no `output_summary`; map D1 `output_summary` → **`notes`**. `completed_at` is `timestamptz` — use `to_timestamp(d1_unix)`. |
+| `agentsam_memory` (key/value) | **`agent_memory`** (role/content/embedding) | Different models: use **`agent_memory`** for session summaries tied to `match_agent_memory`. Dedupe with `metadata->>'sync_key'` (delete then insert, or a stable key). |
+
+Project: **inneranimalmedia-business-supabase** (`dpmuvynqixblxsilnlut`). The Worker maps columns in **`mapD1PlanToSupabasePublicRow`** / **`mapD1PlanTaskToSupabasePublicRow`**; use MCP SQL only for **one-off repair** if the mirror drifts.
+
+## When may14_wire_workflow_handlers.py fails anchor detection
+
+The dispatch block is **not** on `nodeType === 'terminal'`. Find it with:
+
+```bash
+grep -nE "nodeType|handler_key|handlerKey" src/core/workflow-executor.js | head -30
+```
+
+Insert the `analytics_dashboard` + `wrangler` cases just **before** the `} else {` fallback block near the **end** of the node-type dispatch.
+
+## When may14_terminal_workspace_cd.py fails anchor detection
+
+`terminal_sessions` **INSERT** is around **line ~7860** in `src/api/agent.js` (line numbers drift — search for the INSERT if needed):
+
+```bash
+sed -n '7855,7880p' src/api/agent.js
+```
+
+Inject the workspace `cd` block **immediately after** the `.run()` call on that INSERT.
+
+## agentsam_memory schema (D1, migration 269)
+
+- **`memory_type` CHECK:** `fact` | `preference` | `project` | `skill` | `error` | `decision`
+- **Required:** `user_id`, `key`, `value`, `memory_type`
+- **Not on this table:** `role`, `content`, `embed_model`, `session_summary` (those belong to Supabase **`agent_memory`**, not D1)
+
+## Supabase agent_memory vs D1 agentsam_memory
+
+- **D1 `agentsam_memory`** → key/value store, operational KV
+- **Supabase `agent_memory`** → role/content/embedding, semantic recall
+- **Never mix** the two schemas.
