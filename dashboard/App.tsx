@@ -367,6 +367,7 @@ const App: React.FC = () => {
   /** ≤768px: secondary rail actions (sheet above bottom tab bar). */
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [agentIsStreaming, setAgentIsStreaming] = useState(false);
+  const [activeCommandRunId, setActiveCommandRunId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
   const onUnifiedSearchOpenChange = useCallback((next: boolean) => {
@@ -3037,7 +3038,7 @@ const App: React.FC = () => {
           <div className="pointer-events-auto">
             <ToolApprovalModal
               workspaceId={authWorkspaceId}
-              agentRunId={null}
+              agentRunId={activeCommandRunId}
               toolExecutionActive={agentIsStreaming}
               chatSessionId={activeAgentConversationId}
               onOpenInEditor={openInMonacoFromChat}
