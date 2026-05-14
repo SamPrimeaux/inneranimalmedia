@@ -1,6 +1,6 @@
 /**
  * RAG API — OpenAI embeddings + Supabase (Hyperdrive/pgvector) + R2 (S3-compatible).
- * `createEmbedding` supports lanes: text_default (Ollama → OpenAI @1024), edge_bulk (Workers AI bge-m3),
+ * `createEmbedding` supports lanes: text_default (**OpenAI first**, Ollama fallback @1024), edge_bulk (Workers AI bge-m3),
  * multimodal (Gemini embed @1024 when GOOGLE_AI_API_KEY is set). Vectorize / long-doc paths use
  * `generateWorkersAiEmbedding` in `embed-workers-ai.js`.
  */
@@ -18,6 +18,9 @@ export const RAG_CHUNK_OVERLAP = 80;
 export const RAG_EMBED_BATCH_SIZE = 32;
 export const RAG_COMPACT_MAX_MSG_CHARS = 800;
 export const RAG_COMPACT_HOURS = 48;
+
+/** Width for `public.documents.embedding`, `match_documents_scoped`, and related pgvector columns (Hyperdrive). */
+export const RAG_SUPABASE_VECTOR_DIM = 1024;
 
 // ── small utilities (kept for callers / chunking) ─────────────────────────────
 
@@ -104,7 +107,8 @@ export function ragEmbeddingModel(env) {
 }
 
 export function ragEmbeddingDims(env) {
-  const n = Number(env.RAG_EMBEDDING_DIMENSIONS || 1024);
+  // Must match RAG_SUPABASE_VECTOR_DIM / Supabase vector(N) for Hyperdrive RAG; changing N requires a DB migration.
+  const n = Number(env.RAG_EMBEDDING_DIMENSIONS || RAG_SUPABASE_VECTOR_DIM);
   return Number.isFinite(n) && n > 0 ? n : NaN;
 }
 
@@ -119,11 +123,14 @@ export const RAG_EMBED_LANE_EDGE_BULK = 'edge_bulk';
 export const RAG_EMBED_LANE_MULTIMODAL = 'multimodal';
 
 /**
- * Provider-aware embeddings with optional lane (all target Supabase-compatible `vector(1024)`).
+ * Provider-aware embeddings with optional lane (all target Supabase **`vector(1024)`** used by
+ * `match_documents_scoped` / `documents` search in `unified-search.js` and Hyperdrive RPCs).
  *
- * - **text_default** — Ollama `mxbai-embed-large` @1024, then OpenAI `text-embedding-3-small` @1024.
- * - **edge_bulk** — Workers AI `@cf/baai/bge-m3`, then same fallback as text_default if unavailable.
- * - **multimodal** — Gemini `embedContent` @1024 when `GOOGLE_AI_API_KEY` / `GEMINI_API_KEY` set, else text_default.
+ * - **text_default** — **OpenAI** `text-embedding-3-small` @1024 first, then **Ollama** `mxbai-embed-large` @1024 fallback.
+ * - **edge_bulk** — Workers AI `@cf/baai/bge-m3` @1024, then same stack as text_default if unavailable.
+ * - **multimodal** — Gemini `embedContent` @1024 when Google API key set, else text_default.
+ *
+ * `RAG_EMBEDDING_DIMENSIONS` must remain **1024** for Supabase ingest unless the DB migration changes column width.
  *
  * @param {any} env
  * @param {string} text
@@ -133,8 +140,50 @@ export const RAG_EMBED_LANE_MULTIMODAL = 'multimodal';
 export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFAULT) {
   const input = String(text ?? '');
   const laneNorm = String(lane || RAG_EMBED_LANE_TEXT_DEFAULT).trim();
+  const dim = RAG_SUPABASE_VECTOR_DIM;
 
   async function embedTextDefault() {
+    /** @type {string|null} */
+    let openaiErr = null;
+
+    if (env.OPENAI_API_KEY) {
+      try {
+        const base = String(env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
+        const res = await fetch(`${base}/embeddings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: 'text-embedding-3-small',
+            input: input,
+            dimensions: dim,
+          }),
+        });
+        const raw = await res.text();
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          openaiErr = `OpenAI embeddings: non-JSON (${res.status})`;
+        }
+        if (data && res.ok) {
+          const emb = data?.data?.[0]?.embedding;
+          if (Array.isArray(emb) && emb.length === dim) {
+            return { embedding: emb, provider: 'openai' };
+          }
+          openaiErr = openaiErr || `OpenAI embeddings: expected ${dim} dimensions, got ${emb?.length ?? 0}`;
+        } else if (data) {
+          openaiErr = data?.error?.message || `OpenAI embeddings HTTP ${res.status}`;
+        } else if (!res.ok) {
+          openaiErr = openaiErr || `OpenAI embeddings HTTP ${res.status}`;
+        }
+      } catch (e) {
+        openaiErr = e?.message != null ? String(e.message) : String(e);
+      }
+    }
+
     const ollamaBase = String(env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
     const ollamaHeaders = { 'Content-Type': 'application/json' };
     if (env.OLLAMA_CF_CLIENT_ID) ollamaHeaders['CF-Access-Client-Id'] = String(env.OLLAMA_CF_CLIENT_ID);
@@ -148,43 +197,16 @@ export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFA
       });
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.embedding) && data.embedding.length === 1024) {
+        if (Array.isArray(data.embedding) && data.embedding.length === dim) {
           return { embedding: data.embedding, provider: 'ollama' };
         }
       }
     } catch (_) {
-      /* fall through to OpenAI */
+      /* exhausted */
     }
 
     if (!env.OPENAI_API_KEY) throw new Error('no_embedding_provider');
-    const base = String(env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
-    const res = await fetch(`${base}/embeddings`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: input,
-        dimensions: 1024,
-      }),
-    });
-    const raw = await res.text();
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      throw new Error(`OpenAI embeddings: non-JSON (${res.status})`);
-    }
-    if (!res.ok) {
-      throw new Error(data?.error?.message || `OpenAI embeddings HTTP ${res.status}`);
-    }
-    const emb = data?.data?.[0]?.embedding;
-    if (!Array.isArray(emb) || emb.length !== 1024) {
-      throw new Error('OpenAI embeddings: expected 1024 dimensions');
-    }
-    return { embedding: emb, provider: 'openai' };
+    throw new Error(openaiErr || 'no_embedding_provider');
   }
 
   if (laneNorm === RAG_EMBED_LANE_MULTIMODAL) {
@@ -203,13 +225,13 @@ export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFA
           body: JSON.stringify({
             model: `models/${modelId}`,
             content: { parts: [{ text: input }] },
-            outputDimensionality: 1024,
+            outputDimensionality: dim,
           }),
         });
         const d = await res.json().catch(() => ({}));
         let emb = d?.embedding?.values;
         if (!Array.isArray(emb) && Array.isArray(d?.embedding)) emb = d.embedding;
-        if (Array.isArray(emb) && emb.length === 1024) {
+        if (Array.isArray(emb) && emb.length === dim) {
           return { embedding: emb, provider: 'google' };
         }
       } catch (_) {
@@ -224,7 +246,7 @@ export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFA
       const r = await env.AI.run('@cf/baai/bge-m3', { text: [input] });
       const vecs = r?.data || r?.result || [];
       const emb = vecs[0];
-      if (Array.isArray(emb) && emb.length === 1024) {
+      if (Array.isArray(emb) && emb.length === dim) {
         return { embedding: emb, provider: 'workers_ai' };
       }
     } catch (_) {
@@ -386,7 +408,7 @@ async function withPg(env, fn) {
 
 /**
  * Hybrid keyword + vector search against Supabase `agent_memory` via Hyperdrive (pgvector RPC).
- * Uses `createEmbedding` (Ollama preferred, OpenAI fallback @ 1024 dims). Returns null on missing bindings or errors.
+ * Uses `createEmbedding` (OpenAI first, Ollama fallback @ 1024 dims). Returns null on missing bindings or errors.
  *
  * @param {any} env
  * @param {string} query
@@ -1002,7 +1024,7 @@ async function handleRagSync(request, env) {
 
 /**
  * Insert one curated row into `public.agent_memory` with an OpenAI embedding (same model/dims as RAG).
- * Requires HYPERDRIVE + `createEmbedding` (Ollama or OpenAI @ 1024 dims). Optional `RAG_OPENAI_EMBEDDING_MODEL` for OpenAI path label in DB.
+ * Requires HYPERDRIVE + `createEmbedding` (OpenAI first, Ollama fallback @ 1024 dims). Optional `RAG_OPENAI_EMBEDDING_MODEL` for OpenAI path label in DB.
  *
  * @param {any} env
  * @param {{
@@ -1043,7 +1065,7 @@ export async function insertCuratedAgentMemory(env, params) {
     params.user_id != null && String(params.user_id).trim() !== '' ? String(params.user_id).trim() : null;
 
   const { embedding, provider } = await createEmbedding(env, content);
-  const expectedDims = 1024;
+  const expectedDims = RAG_SUPABASE_VECTOR_DIM;
   const dims = embedding.length;
   if (dims !== expectedDims) {
     throw new Error(`embedding length ${dims} does not match expected ${expectedDims}`);
@@ -1051,7 +1073,11 @@ export async function insertCuratedAgentMemory(env, params) {
   const embed_model =
     provider === 'ollama'
       ? 'mxbai-embed-large'
-      : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
+      : provider === 'workers_ai'
+        ? '@cf/baai/bge-m3'
+        : provider === 'google'
+          ? String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-001').trim()
+          : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
 
   const vecLit = vectorLiteral(embedding);
 
@@ -1132,8 +1158,14 @@ export async function searchCuratedAgentMemory(env, opts) {
   const embed_model =
     provider === 'ollama'
       ? 'mxbai-embed-large'
-      : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
-  if (embedding.length !== 1024) throw new Error('embedding must be 1024 dimensions');
+      : provider === 'workers_ai'
+        ? '@cf/baai/bge-m3'
+        : provider === 'google'
+          ? String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-001').trim()
+          : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
+  if (embedding.length !== RAG_SUPABASE_VECTOR_DIM) {
+    throw new Error(`embedding must be ${RAG_SUPABASE_VECTOR_DIM} dimensions`);
+  }
   const vecLit = vectorLiteral(embedding);
 
   return await withPg(env, async (client) => {
