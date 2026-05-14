@@ -202,6 +202,20 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
   const kMonacoData = themeMonacoDataStorageKey(wsCtx);
   const kMonacoBg = themeMonacoBgStorageKey(wsCtx);
 
+  /** Keys from last applied theme for this storage bucket — strip orphans before set (inline vars persist otherwise). */
+  let prevCssVarKeys: string[] = [];
+  try {
+    const prevRaw = localStorage.getItem(kCss);
+    if (prevRaw && prevRaw.trim()) {
+      const prev = JSON.parse(prevRaw) as Record<string, unknown>;
+      if (prev && typeof prev === 'object' && !Array.isArray(prev)) {
+        prevCssVarKeys = Object.keys(prev).filter((k) => typeof k === 'string' && k.startsWith('--'));
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
   if (wsCtx) {
     try {
       localStorage.removeItem(INNERANIMALMEDIA_LS_THEME_CSS);
@@ -219,9 +233,18 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
   let applied = false;
   if (vars && typeof vars === 'object' && Object.keys(vars).length > 0) {
     applied = true;
+    const root = document.documentElement;
+    const nextKeys = new Set(
+      Object.keys(vars).filter((k) => typeof k === 'string' && k.startsWith('--')),
+    );
+    for (const k of prevCssVarKeys) {
+      if (!nextKeys.has(k)) {
+        root.style.removeProperty(k);
+      }
+    }
     Object.entries(vars).forEach(([k, v]) => {
       if (v == null || k == null) return;
-      document.documentElement.style.setProperty(k, String(v));
+      root.style.setProperty(k, String(v));
     });
     try {
       /* DB / API wins over any stale first-paint cache */
