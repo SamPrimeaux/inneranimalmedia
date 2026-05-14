@@ -802,7 +802,7 @@ Return ONLY valid JSON:
 
       if (task.handler_type === 'agent' || !task.handler_type) {
         const result = await dispatchComplete(env, {
-          modelKey: 'auto',
+          modelKey: params?.modelKey || 'auto',
           taskType: task.category === 'db' ? 'sql_d1_generation' : 'code',
           mode: 'agent',
           systemPrompt: TASK_AGENT_SYSTEM,

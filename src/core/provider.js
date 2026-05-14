@@ -38,11 +38,21 @@ async function pickFallbackCatalogModelKey(db, allowDegraded) {
   const scope = hasTenant ? `AND COALESCE(tenant_id,'') = '' AND COALESCE(workspace_id,'') = ''` : '';
   const degradedClause =
     !allowDegraded && hasDegraded ? 'AND COALESCE(is_degraded,0) = 0' : '';
+  // never pick embedding / audio / image models as a chat fallback
+  const chatGuard = `AND model_key NOT LIKE '%bge%'
+     AND model_key NOT LIKE '%embed%'
+     AND model_key NOT LIKE '%mxbai%'
+     AND model_key NOT LIKE '%whisper%'
+     AND model_key NOT LIKE '%tts%'
+     AND model_key NOT LIKE '%image%'
+     AND model_key NOT LIKE 'workers_ai_audio%'
+     AND model_key NOT LIKE 'workers_ai_embed%'
+     AND model_key NOT LIKE 'workers_ai_image%'`;
   const orderBy = hasTier
     ? `CASE LOWER(COALESCE(tier,'')) WHEN 'micro' THEN 0 WHEN 'flash' THEN 1 WHEN 'standard' THEN 2 WHEN 'power' THEN 3 WHEN 'reasoning' THEN 4 WHEN 'frontier' THEN 5 ELSE 9 END, model_key ASC`
     : 'model_key ASC';
   const sql = `SELECT model_key FROM agentsam_model_catalog
-     WHERE is_active = 1 ${degradedClause} ${scope}
+     WHERE is_active = 1 ${degradedClause} ${scope} ${chatGuard}
      ORDER BY ${orderBy}
      LIMIT 1`;
   try {
