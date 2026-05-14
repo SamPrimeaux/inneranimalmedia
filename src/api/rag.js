@@ -1081,14 +1081,14 @@ export async function searchCuratedAgentMemory(env, opts) {
         am.tenant_id,
         am.workspace_id,
         am.user_id,
-        (am.embedding <=> $1::vector)::double precision AS embedding_distance
+        (am.embedding <=> $1::vector(1024))::double precision AS embedding_distance
       FROM public.agent_memory am
       WHERE am.embedding IS NOT NULL
         AND am.workspace_id = $2
         AND ($3::text IS NULL OR am.tenant_id = $3)
         AND ($4::text IS NULL OR am.user_id = $4 OR am.user_id IS NULL)
         AND ($5::text IS NULL OR am.session_id = $5)
-      ORDER BY am.embedding <=> $1::vector
+      ORDER BY am.embedding <=> $1::vector(1024)
       LIMIT $6`;
     const { rows } = await client.query(sql, [vecLit, workspace_id, tenant_id, user_id, session_id, limit]);
 
