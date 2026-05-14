@@ -667,3 +667,15 @@ export async function upsertAgentsamMemory(env, row) {
        ) VALUES (?, ?, ?, ?, ?, ?, 'agent_sam', 1.0, 1.0, unixepoch())
        ON CONFLICT(user_id, workspace_id, key) DO UPDATE SET
          tenant_id = excluded.tenant_id,
+          value = excluded.value,
+          source = excluded.source,
+          confidence = excluded.confidence,
+          decay_score = excluded.decay_score,
+          updated_at = unixepoch()`,
+    )
+      .run()
+      .catch(() => {});
+  } catch (e) {
+    console.warn('[agentsam_memory] upsertAgentsamMemory', e?.message ?? e);
+  }
+}
