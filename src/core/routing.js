@@ -635,145 +635,67 @@ export async function getDefaultModelForTask(env, ctx = {}) {
  */
 
 /**
- * UNIFIED routing resolution — replaces the double getDefaultModelForTask +
- * selectThompsonArm pattern. One JOIN query, one flag check, one ai lookup.
- *
- * D1 reads per call (typical):
- *   1 — arms + catalog + ai + routing_memory JOIN
- *   1 — feature flag (thompson_sampling)
- *   0 — no per-arm loops, no separate PRAGMA, no duplicate scans
- *
- * Returns the same shape as getDefaultModelForTask for drop-in compatibility.
+ * Single-query routing arm resolution (workspace + global arms in one scan).
+ * Replaces sequential getDefaultModelForTask + selectThompsonArm for chat turns.
  *
  * @param {object} env
- * @param {{ taskType: string, mode: string, workspaceId: string,
- *            routeKey?: string|null, toolRequired?: boolean,
- *            userId?: string, tenantId?: string }} ctx
+ * @param {{ taskType: string, mode?: string, workspaceId: string, routeKey?: string|null,
+ *            userId?: string|null, tenantId?: string|null, toolRequired?: boolean }} [opts]
+ * @returns {Promise<{ source: 'thompson', modelId: string, modelKey: string, provider: string|null,
+ *                     armId: string, taskType: string } | null>}
  */
-export async function resolveRoutingArm(env, ctx = {}) {
-  const db = env?.DB;
-  if (!db) return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_db' };
-
-  const ws       = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
-  const tt       = ctx.taskType    != null ? String(ctx.taskType).trim()    : 'chat';
-  const mode     = ctx.mode        != null ? String(ctx.mode).trim()        : 'auto';
-  const toolReq  = ctx.toolRequired ? 1 : 0;
-
-  if (!ws) return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'missing_workspace' };
-
+export async function resolveRoutingArm(env, { taskType, mode, workspaceId, routeKey, userId, tenantId, toolRequired } = {}) {
+  void routeKey;
+  void toolRequired;
+  if (!env?.DB || !taskType || !workspaceId) return null;
   try {
-    // ── 1. Single JOIN: arms × catalog × ai × routing_memory ─────────────────
-    const toolsClause = toolReq ? ' AND ra.supports_tools = 1' : '';
     const sql = `
-      SELECT
-        ra.id, ra.model_key, ra.fallback_model_key,
-        ra.success_alpha, ra.success_beta, ra.decayed_score,
-        ra.priority, ra.tools_json, ra.workspace_id,
-        ai.id   AS ai_model_id,
-        ai.api_platform,
-        COALESCE(mrm.success_rate, 0.5)   AS prior_success_rate,
-        COALESCE(mrm.avg_latency_ms, 0)   AS prior_latency_ms,
-        COALESCE(mrm.sample_n, 0)         AS prior_sample_n
-      FROM agentsam_routing_arms ra
-      JOIN agentsam_model_catalog mc
-        ON mc.model_key = ra.model_key
-       AND mc.is_active  = 1
-       AND mc.is_degraded = 0
-      JOIN agentsam_ai ai
-        ON ai.model_key = ra.model_key
-       AND ai.mode      = 'model'
-       AND ai.status    = 'active'
-       AND ai.is_global = 1
+      SELECT ra.*,
+             mc.is_active AS catalog_active, mc.tier, mc.is_degraded,
+             ai.id        AS ai_model_id,    ai.api_platform,
+             mrm.success_rate, mrm.avg_latency_ms, mrm.sample_n
+      FROM   agentsam_routing_arms ra
+      JOIN   agentsam_model_catalog mc  ON mc.model_key  = ra.model_key AND mc.is_active = 1
+      JOIN   agentsam_ai            ai  ON ai.model_key  = ra.model_key
+                                       AND ai.mode       = 'model'
+                                       AND ai.status     = 'active'
       LEFT JOIN agentsam_model_routing_memory mrm
-        ON mrm.model_key    = ra.model_key
-       AND mrm.workspace_id = ra.workspace_id
-       AND mrm.task_type    = ra.task_type
-      WHERE ra.task_type      = ?
-        AND ra.mode           = ?
-        AND ra.workspace_id   = ?
-        AND ra.is_active      = 1
-        AND ra.is_eligible    = 1
-        AND ra.is_paused      = 0
-        AND ra.budget_exhausted = 0
-        ${toolsClause}
-        AND lower(trim(ra.model_key)) != 'gpt-5.5'
-      ORDER BY ra.decayed_score DESC, COALESCE(ra.priority,0) DESC
+             ON mrm.model_key    = ra.model_key
+            AND mrm.workspace_id = ra.workspace_id
+            AND mrm.task_type    = ra.task_type
+      WHERE  ra.task_type        = ?
+        AND  ra.mode             = ?
+        AND  (ra.workspace_id    = ? OR COALESCE(TRIM(ra.workspace_id),'') = '')
+        AND  ra.is_active        = 1
+        AND  ra.is_eligible      = 1
+        AND  ra.is_paused        = 0
+        AND  ra.budget_exhausted = 0
+        AND  mc.is_degraded      = 0
+      ORDER BY ra.workspace_id DESC, ra.decayed_score DESC, ra.priority DESC
       LIMIT 40
     `;
+    const { results: arms } = await env.DB.prepare(sql).bind(taskType, mode || 'agent', workspaceId).all();
+    if (!arms?.length) return null;
 
-    let arms = (await db.prepare(sql).bind(tt, mode, ws).all().catch(() => ({ results: [] }))).results || [];
+    const useThompson = await isThompsonRoutingSamplingEnabled(env, { userId, tenantId });
 
-    // Fallback to global arms if workspace returned nothing
-    if (!arms.length) {
-      const sqlGlobal = sql.replace(
-        'AND ra.workspace_id   = ?',
-        "AND COALESCE(TRIM(ra.workspace_id),'') = ''"
-      );
-      // global query doesn't bind workspace
-      const binds = toolReq ? [tt, mode] : [tt, mode];
-      arms = (await db.prepare(sqlGlobal).bind(...binds).all().catch(() => ({ results: [] }))).results || [];
-    }
+    const arm = useThompson ? pickRoutingArmByThompson(arms) : (arms[0] ?? null);
+    if (!arm) return null;
 
-    if (!arms.length) {
-      return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_eligible_arms' };
-    }
-
-    // ── 2. Single flag check (cached in KV if available) ─────────────────────
-    const useThompson = await isThompsonRoutingSamplingEnabled(env, {
-      userId:   ctx.userId,
-      tenantId: ctx.tenantId,
-    });
-
-    // ── 3. Thompson selection with routing_memory priors blended in ───────────
-    let selectedArm;
-    if (useThompson) {
-      // Blend prior success_rate into Beta params if we have samples
-      const enriched = arms.map(arm => {
-        const n = Number(arm.prior_sample_n) || 0;
-        if (n < 5) return arm; // not enough data, use raw bandit params
-        const sr    = Math.max(0.05, Math.min(0.95, Number(arm.prior_success_rate) || 0.5));
-        const pseudo = Math.min(n, 20); // cap blending weight
-        return {
-          ...arm,
-          success_alpha: Math.max(1e-6, Number(arm.success_alpha ?? 1) + Math.round(sr * pseudo)),
-          success_beta:  Math.max(1e-6, Number(arm.success_beta  ?? 1) + Math.round((1 - sr) * pseudo)),
-        };
-      });
-      selectedArm = pickRoutingArmByThompson(enriched);
-    } else {
-      selectedArm = arms[0];
-    }
-
-    if (!selectedArm?.model_key) {
-      return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'no_arm_selected' };
-    }
-
-    const modelId = selectedArm.ai_model_id
-      ? String(selectedArm.ai_model_id).trim()
-      : null;
-
-    if (!modelId) {
-      return {
-        modelId:          null,
-        armId:            selectedArm.id || null,
-        source:           'fallback',
-        fallbackReason:   'arm_missing_ai_model_id',
-        fallbackModelKey: selectedArm.fallback_model_key || selectedArm.model_key,
-      };
-    }
+    const modelIdRaw = arm.ai_model_id != null ? String(arm.ai_model_id).trim() : '';
+    if (!modelIdRaw) return null;
 
     return {
-      modelId,
-      armId:            selectedArm.id || null,
-      modelKey:         selectedArm.model_key,
-      apiPlatform:      selectedArm.api_platform ?? null,
-      fallbackModelKey: selectedArm.fallback_model_key || null,
-      source:           'thompson',
+      source: 'thompson',
+      modelId: modelIdRaw,
+      modelKey: String(arm.model_key),
+      provider: arm.api_platform != null ? String(arm.api_platform) : null,
+      armId: arm.id != null ? String(arm.id) : '',
+      taskType,
     };
-
   } catch (e) {
-    console.warn('[routing] resolveRoutingArm failed:', e?.message ?? e);
-    return { modelId: null, armId: null, source: 'fallback', fallbackReason: String(e?.message ?? 'error') };
+    console.warn('[resolveRoutingArm]', e?.message ?? e);
+    return null;
   }
 }
 

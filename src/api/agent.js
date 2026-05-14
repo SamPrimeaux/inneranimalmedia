@@ -87,7 +87,6 @@ import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
 import { runBuiltinTool, normalizeToolName } from '../tools/ai-dispatch.js';
 import {
-  getDefaultModelForTask,
   resolveRoutingArm,
   scheduleRoutingArmBanditUpdate,
   scheduleRoutingArmQualityUpdate,
@@ -96,8 +95,6 @@ import {
   queryRoutingArmsCandidates,
   resolveRoutingTaskType,
 } from '../core/routing.js';
-import { pickRoutingArmByThompson } from '../core/thompson.js';
-import { isThompsonRoutingSamplingEnabled } from '../core/routing-thompson-flag.js';
 import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
@@ -1801,45 +1798,6 @@ async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
     return { intent, rewritten_query, confidence: Number.isFinite(confidence) ? confidence : 0 };
   } catch (_) {
     return normalizeGateParseFailure(message);
-  }
-}
-
-async function selectThompsonArm(env, taskType, mode, workspaceId, routeKey, opts = {}) {
-  if (!env.DB || !taskType || !workspaceId) return null;
-  try {
-    const arms = await queryRoutingArmsCandidates(env, {
-      taskType,
-      mode,
-      workspaceId,
-      toolRequired: !!opts.toolRequired,
-      routeKey: routeKey ?? null,
-    });
-    const useThompson = await isThompsonRoutingSamplingEnabled(env, {
-      userId: opts.userId,
-      tenantId: opts.tenantId,
-    });
-    const arm = useThompson ? pickRoutingArmByThompson(arms) : arms[0] ?? null;
-    if (!arm?.model_key) return null;
-    const aiRow = await env.DB.prepare(
-      `SELECT ai.id AS ai_model_id, ai.api_platform
-       FROM agentsam_ai ai
-       WHERE ai.model_key = ? AND ai.mode = 'model' AND ai.status = 'active'
-       LIMIT 1`,
-    )
-      .bind(String(arm.model_key))
-      .first()
-      .catch(() => null);
-    return {
-      source: 'thompson',
-      modelId: aiRow?.ai_model_id || arm.model_key,
-      armId: arm.id,
-      toolsJson: arm.tools_json,
-      workflowAgent: arm.workflow_agent,
-      reasoningEffort: arm.reasoning_effort || 'medium',
-    };
-  } catch (e) {
-    console.warn('[routing] selectThompsonArm failed:', e?.message);
-    return null;
   }
 }
 
@@ -5203,36 +5161,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     resolvedRoutingTaskType = String(intentResult.taskType).trim() || resolvedRoutingTaskType;
   }
 
-  let routingPick = null;
-  try {
-    routingPick = await resolveRoutingArm(env, {
-      taskType: resolvedRoutingTaskType,
-      tenantId,
-      userId,
-      mode: requestedMode,
-      workspaceId,
-      toolRequired: requireTools,
-      mutates: !!(capabilityDecision?.approval_required || capabilityDecision?.risk_level === 'high' || capabilityDecision?.risk_level === 'critical'),
-      estimatedSteps: (capabilityDecision?.needs_capabilities?.length || 0) > 1 ? 2 : 1,
-      routeKey:
-        body.route_key != null && String(body.route_key).trim() !== ''
-          ? String(body.route_key).trim()
-          : null,
-    });
-  } catch (_) {
-    routingPick = null;
-  }
-  const thompsonPick = await selectThompsonArm(
-    env,
-    intentResult.taskType,
-    intentResult.mode || requestedMode,
-    workspaceId,
-    promptRouteRow?.route_key ?? null,
-    { toolRequired: requireTools, userId, tenantId },
-  );
-  if (thompsonPick && (!routingPick || routingPick.source !== 'thompson')) {
-    routingPick = thompsonPick;
-  }
+  const routingPick = !explicitRow
+    ? await resolveRoutingArm(env, {
+        taskType: resolvedRoutingTaskType,
+        mode: requestedMode,
+        workspaceId: workspaceId || '',
+        routeKey: promptRouteRow?.route_key ?? body.route_key ?? null,
+        userId,
+        tenantId,
+        toolRequired: requireTools,
+      })
+    : null;
   const thompsonRow =
     routingPick?.source === 'thompson' && routingPick?.modelId
       ? await resolveAiModelRowById(env, routingPick.modelId, tenantId)
