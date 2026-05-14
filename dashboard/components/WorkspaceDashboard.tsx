@@ -4,7 +4,7 @@ import {
   Github, 
   Terminal, 
   ArrowRight,
-  Mic,
+  ArrowUp,
   X,
   FileText,
   Bug,
@@ -86,6 +86,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   const displayPlanTasks: unknown[] = activePlanId ? (realtimePlanTasks as unknown[]) : workspacePlanTasks;
 
   const [chatInput, setChatInput] = useState('');
+  const [taglineIndex, setTaglineIndex] = useState(0);
   const [models, setModels] = useState<AIModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -98,6 +99,29 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch models from API
+  const getGreeting = () => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  const taglines = [
+    'What are we building today',
+    'Ready when you are',
+    'Your stack is standing by',
+    'Where do we start',
+    'All systems operational',
+    'Lets get to work',
+  ];
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTaglineIndex(i => (i + 1) % taglines.length);
+    }, 8000);
+    return () => clearInterval(id);
+  }, []);
+
   useEffect(() => {
     fetch('/api/agent/models?show_in_picker=1')
       .then(res => res.json())
@@ -152,15 +176,21 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   return (
     <div className="flex-1 flex flex-col items-center justify-start bg-[var(--scene-bg)] overflow-y-auto py-12 px-6 no-scrollbar h-full">
       
-      {/* ── Branded Logo (Refactored to match screenshot) ── */}
+      {/* ── Branded Logo + Greeting ── */}
       <div className="flex flex-col items-center mb-6 text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
-        <div className="w-16 h-16 mb-2 rounded-2xl flex items-center justify-center grayscale opacity-80">
-            <img 
-              src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail" 
-              alt="Agent Sam"
-              className="w-full h-full object-contain"
-            />
+        <div className="w-16 h-16 mb-4 rounded-2xl flex items-center justify-center grayscale opacity-80">
+          <img
+            src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
+            alt="Inner Animal Media"
+            className="w-full h-full object-contain"
+          />
         </div>
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--dashboard-text)] mb-1">
+          {getGreeting()}
+        </h1>
+        <p className="text-[13px] text-[var(--dashboard-muted)] opacity-60 transition-all duration-700">
+          {taglines[taglineIndex]}
+        </p>
       </div>
 
       {/* ── Directory Dropdown (NEW) ── */}
@@ -305,18 +335,13 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <button 
-                  className="p-1 px-2 text-[var(--dashboard-muted)] hover:text-white transition-colors"
-                  title="Voice Command"
-                >
-                  <Mic size={18} />
-                </button>
-                <button 
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
                   onClick={isAgentRunning ? handleStopAgent : handleSendMessage}
-                  className={`flex items-center justify-center w-8 h-8 rounded-full transition-all ${isAgentRunning ? 'bg-[var(--solar-red)] text-white' : (chatInput.trim() ? 'bg-white text-black' : 'bg-white/10 text-white/30')}`}
+                  className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${isAgentRunning ? 'bg-[var(--solar-red)] text-white' : 'bg-white text-black hover:bg-white/90'}`}
                 >
-                  {isAgentRunning ? <X size={18} /> : <ArrowRight size={18} />}
+                  {isAgentRunning ? <X size={16} /> : <ArrowUp size={16} />}
                 </button>
               </div>
 
@@ -324,18 +349,28 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
           </div>
         </div>
 
-        {/* ── Secondary Pill Buttons (NEW) ── */}
+        {/* ── Pill Buttons ── */}
         <div className="mt-4 flex items-center justify-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1200 delay-300">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-white">
-            <span>Plan New Idea</span>
-            <span className="opacity-40 text-[10px]">⇧ Tab</span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } }))}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
+          >
+            <span>Create Skill</span>
           </button>
           <button
             type="button"
-            onClick={() => onOpenEditor?.()}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-white"
+            onClick={() => { window.location.href = '/dashboard/library'; }}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
           >
-            <span>Open Editor Window</span>
+            <span>View Artifacts</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { window.location.href = '/dashboard/projects'; }}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
+          >
+            <span>Open Project</span>
           </button>
         </div>
 
