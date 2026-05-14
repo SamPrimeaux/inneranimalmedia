@@ -101,7 +101,7 @@ VALUES (
   {q(j(['cms-editor','agentsam-cms-editor','agentsam-cms-app','parallel-workers']))},
   {q(j([]))},
   {q(j([]))},
-  unixepoch(), unixepoch(), 1, 'high', 1,
+  unixepoch(), unixepoch(), 1, 'high', 0,
   'cms/plans/20260515/parallel-cms-workers/'
 );
 """

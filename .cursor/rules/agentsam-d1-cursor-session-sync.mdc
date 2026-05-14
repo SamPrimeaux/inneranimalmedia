@@ -111,3 +111,52 @@ Inject the workspace `cd` block **immediately after** the `.run()` call on that 
 - **D1 `agentsam_memory`** → key/value store, operational KV
 - **Supabase `agent_memory`** → role/content/embedding, semantic recall
 - **Never mix** the two schemas.
+
+## Script quality standards
+
+### Worker identity — NEVER create a new worker when one exists
+If a worker already exists for a purpose, always reuse it.
+Check before writing any wrangler.toml:
+```bash
+npx wrangler workers list 2>/dev/null | grep agentsam
+```
+Use the existing name. No `agentsam-cms-app-v2`, no `agentsam-cms-new`. One worker per purpose.
+
+### Quality flags to document in agentsam_plan_tasks.notes
+- IGNORED_INSTRUCTION: agent created new resource when told to reuse existing
+- HARDCODED_IDENTITY: any ws_*/tenant_*/au_* hardcoded in code
+- WRONG_REPO_PATH: used ~/Downloads/inneranimalmedia/... instead of /Users/samprimeaux/inneranimalmedia
+- DRY_RUN_MISMATCH: dry run showed different target than actual deploy
+- MODEL_HALLUCINATION: used fake model name that 400s on real API
+- STALE_FILE: ran script before downloading updated version
+
+### Before any deploy script runs
+1. `grep WORKER scripts/the_script.py` — confirm worker name matches existing
+2. `npx wrangler workers list | grep <name>` — confirm it exists
+3. dry run output must show the correct URL before applying
+
+## Deployment validation — health is not success
+
+A `/health` 200 response only proves the Worker is alive. It is not product success.
+
+For any frontend, CMS, dashboard, or app deploy, agents must run real browser validation before marking a task done.
+
+Required deploy validation:
+1. `curl /health` must pass.
+2. Public root URL must load in Playwright.
+3. Playwright must capture a screenshot.
+4. Browser console must be checked.
+5. Any `ReferenceError`, `SyntaxError`, failed module import, missing React/global runtime, or blank screen means the task failed.
+6. Root HTML/body must contain expected product markers.
+7. For CMS editor work, visible UI must include expected editor markers such as pages, sections, preview, publish, rollback, or known CMS shell labels.
+8. If the deploy was supposed to improve UI, agent must provide before/after proof or an artifact diff.
+9. No task may be marked `done` from health-only validation.
+10. Stubbing is forbidden. Fake routes, fake data, placeholder success states, and no-op deploys must be marked failed or blocked.
+
+Quality flags:
+- HEALTH_ONLY_FALSE_SUCCESS: task marked done using only /health
+- BLANK_SCREEN: root page renders empty/blank/dark shell without app UI
+- CONSOLE_RUNTIME_ERROR: browser console has runtime errors
+- NO_VISUAL_CHANGE: deploy succeeded but UI did not materially change
+- STUBBED_SUCCESS: fake success path or placeholder data used as proof
+- MISSING_PLAYWRIGHT_PROOF: no screenshot/browser validation attached
