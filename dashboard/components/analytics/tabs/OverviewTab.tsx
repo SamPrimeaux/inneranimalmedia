@@ -19,7 +19,7 @@ import { formatCost } from '@/lib/formatCost';
 
 type Props = { layout: AnalyticsLayoutResponse | null };
 
-const VERIFIED_RUN = 'wrun_model_20260509_235456';
+type RangeKey = '7d' | '24h' | '30d';
 
 type SourceStatus = {
   live: string[];
@@ -78,16 +78,6 @@ type PulseResponse = {
   sourceStatus?: SourceStatus;
   meta?: { generatedAt?: string; timeRange?: string; workspaceId?: string | null; tenantId?: string | null };
 };
-
-async function getJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
 
 function fmtNumber(n: unknown): string {
   const v = Number(n);
@@ -153,24 +143,48 @@ export default function OverviewTab(_props: Props) {
   const [pulse, setPulse] = useState<PulseResponse | null>(null);
   const [health, setHealth] = useState<{ rows?: Array<Record<string, unknown>>; warnings?: unknown[] } | null>(null);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  const [range, setRange] = useState<RangeKey>('7d');
+  const [loading, setLoading] = useState(true);
+  const [overviewHttpError, setOverviewHttpError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const q = new URLSearchParams({ range: '7d', highlightRun: VERIFIED_RUN });
-      const [p, h] = await Promise.all([
-        getJson<PulseResponse>(`/api/analytics/overview?${q.toString()}`),
-        getJson<{ rows?: Array<Record<string, unknown>> }>('/api/analytics/source-health?range=30d'),
-      ]);
-      if (!alive) return;
-      setPulse(p);
-      setHealth(h);
-      setLoadedAt(Date.now());
+      setLoading(true);
+      setOverviewHttpError(null);
+      try {
+        const q = new URLSearchParams({ range });
+        const [resP, resH] = await Promise.all([
+          fetch(`/api/analytics/overview?${q.toString()}`, { credentials: 'include' }),
+          fetch('/api/analytics/source-health?range=30d', { credentials: 'include' }),
+        ]);
+        if (!alive) return;
+        if (!resP.ok) {
+          setPulse(null);
+          setOverviewHttpError(`GET /api/analytics/overview → HTTP ${resP.status}`);
+          setHealth(resH.ok ? ((await resH.json()) as { rows?: Array<Record<string, unknown>> }) : null);
+          setLoadedAt(Date.now());
+          return;
+        }
+        const p = (await resP.json()) as PulseResponse;
+        const h = resH.ok ? ((await resH.json()) as { rows?: Array<Record<string, unknown>> }) : null;
+        if (!alive) return;
+        setPulse(p);
+        setHealth(h);
+        setLoadedAt(Date.now());
+      } catch (e) {
+        if (!alive) return;
+        setPulse(null);
+        setOverviewHttpError(e instanceof Error ? e.message : String(e));
+        setLoadedAt(Date.now());
+      } finally {
+        if (alive) setLoading(false);
+      }
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [range]);
 
   const wfChart = useMemo(() => {
     const rows = pulse?.workflowRunsOverTime || [];
@@ -214,6 +228,24 @@ export default function OverviewTab(_props: Props) {
 
   const scatterProviders = useMemo(() => [...new Set(scatterData.map((d) => d.provider))], [scatterData]);
 
+  /** Top models by run count — horizontal bar chart. */
+  const leaderBarData = useMemo(() => {
+    const rows = pulse?.modelLeaderboard || [];
+    return rows
+      .slice(0, 10)
+      .map((r) => ({
+        label: String(r.model || 'unknown').replace(/\s+/g, ' ').trim().slice(0, 32),
+        runs: Number(r.runs ?? 0) || 0,
+        ms: Math.round(Number(r.avg_latency_ms ?? 0) || 0),
+      }))
+      .filter((r) => r.runs > 0);
+  }, [pulse?.modelLeaderboard]);
+
+  const latencyBarData = useMemo(
+    () => leaderBarData.filter((r) => r.ms > 0).slice(0, 8),
+    [leaderBarData],
+  );
+
   const kpis = pulse?.kpis;
   const wf = kpis?.workflowRuns?.value as Record<string, unknown> | undefined;
   const wfTotal = Number(wf?.total ?? pulse?.summary?.workflow_run_count ?? 0) || 0;
@@ -230,24 +262,73 @@ export default function OverviewTab(_props: Props) {
   const codebaseStub = codebase && isStubPayload(codebase as { warnings?: Array<{ code?: string }> });
   const ragStub = rag && isStubPayload(rag as { warnings?: Array<{ code?: string }> });
 
-  if (!pulse?.ok) {
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-8 text-center text-sm text-[var(--text-muted)]">
+        Loading analytics overview…
+      </div>
+    );
+  }
+
+  if (overviewHttpError != null || pulse == null) {
     return (
       <div className="space-y-3">
         <BlockedCallout
-          title="Overview pulse unavailable"
+          title={overviewHttpError ?? 'Could not load overview'}
           endpoint="/api/analytics/overview"
           tables={['agentsam_workflow_runs', 'agentsam_usage_events', 'agentsam_execution_steps']}
-          nextStep="Confirm session, env.DB binding, and tenant resolution on the Worker."
+          nextStep="Sign in at /auth/login, then reload. If this persists, check the network response for /api/analytics/overview (session cookies must be sent)."
+        />
+      </div>
+    );
+  }
+
+  if (!pulse.ok) {
+    return (
+      <div className="space-y-3">
+        <BlockedCallout
+          title="Overview response unsuccessful"
+          endpoint="/api/analytics/overview"
+          nextStep="Inspect the JSON body for error fields or Worker logs."
         />
       </div>
     );
   }
 
   return (
-    <div className="space-y-3 text-[var(--text)]">
+    <div className="space-y-4 text-[var(--text)]">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--border-subtle)] pb-3">
+        <div>
+          <div className="text-[14px] font-semibold tracking-tight">Performance overview</div>
+          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+            Workflow runs, token volume, and model mix — filtered by your tenant and workspace when the API resolves
+            them.
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Range</span>
+          <div className="inline-flex rounded-md border border-[var(--border-subtle)] bg-[var(--bg-canvas)] p-0.5">
+            {(['24h', '7d', '30d'] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRange(r)}
+                className={`px-2.5 py-1 text-[11px] rounded transition-colors ${
+                  range === r
+                    ? 'bg-emerald-600/30 text-emerald-100 font-medium'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-start justify-between gap-2 text-[11px] text-[var(--text-muted)]">
         <div>
-          System Pulse
+          System pulse
           {pulse.meta?.tenantId ? (
             <span className="ml-2 font-mono text-[10px]">tenant:{String(pulse.meta.tenantId).slice(0, 24)}</span>
           ) : null}
@@ -256,7 +337,7 @@ export default function OverviewTab(_props: Props) {
           ) : null}
         </div>
         <div className="text-right">
-          <div>Range: {pulse.range}</div>
+          <div>API range: {pulse.range}</div>
           <div>Refreshed: {loadedAt ? new Date(loadedAt).toLocaleString() : '—'}</div>
           {pulse.meta?.generatedAt ? <div className="font-mono text-[10px]">API: {pulse.meta.generatedAt}</div> : null}
         </div>
@@ -395,18 +476,18 @@ export default function OverviewTab(_props: Props) {
           <div className="h-56 mt-2">
             {wfChart.length ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={wfChart}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-                  <XAxis dataKey="day" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                <BarChart data={wfChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} tickLine={false} />
+                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
                   <Tooltip
                     contentStyle={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', fontSize: 11 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Bar dataKey="completed" stackId="a" fill="#34d399" name="completed" />
-                  <Bar dataKey="failed" stackId="a" fill="#f87171" name="failed" />
-                  <Bar dataKey="running" stackId="a" fill="#38bdf8" name="running" />
-                  <Bar dataKey="other" stackId="a" fill="#94a3b8" name="other" />
+                  <Bar dataKey="completed" stackId="a" fill="#34d399" name="completed" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="failed" stackId="a" fill="#f87171" name="failed" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="running" stackId="a" fill="#38bdf8" name="running" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="other" stackId="a" fill="#64748b" name="other" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -416,25 +497,86 @@ export default function OverviewTab(_props: Props) {
         </div>
 
         <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
-          <div className="text-[11px] uppercase text-[var(--text-muted)]">Tokens over time</div>
-          <div className="text-[12px] text-[var(--text-muted)] mb-2">agentsam_usage_events · in vs out</div>
+          <div className="text-[11px] uppercase text-[var(--text-muted)]">Tokens by day</div>
+          <div className="text-[12px] text-[var(--text-muted)] mb-2">Input vs output (stacked bars)</div>
           <div className="h-56">
             {tokenChart.length ? (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={tokenChart}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-                  <XAxis dataKey="day" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                <BarChart data={tokenChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} tickLine={false} />
+                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} tickLine={false} axisLine={false} />
                   <Tooltip
                     contentStyle={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', fontSize: 11 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Line type="monotone" dataKey="in" name="input" stroke="#38bdf8" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="out" name="output" stroke="#c084fc" strokeWidth={2} dot={false} />
-                </LineChart>
+                  <Bar dataKey="in" name="Input tokens" fill="#38bdf8" stackId="tok" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="out" name="Output tokens" fill="#c084fc" stackId="tok" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="text-[12px] text-[var(--text-muted)] p-4">EMPTY · no usage rows in window</div>
+              <div className="text-[12px] text-[var(--text-muted)] p-4">No usage rows in this window.</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[11px] uppercase text-[var(--text-muted)]">Model usage (runs)</div>
+          <div className="text-[12px] text-[var(--text-muted)] mb-2">Top models by call volume</div>
+          <div className="h-64">
+            {leaderBarData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={leaderBarData} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} tickLine={false} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    width={118}
+                    tick={{ fill: 'var(--text-muted)', fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', fontSize: 11 }}
+                  />
+                  <Bar dataKey="runs" name="Runs" fill="#34d399" radius={[0, 6, 6, 0]} barSize={14} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-[12px] text-[var(--text-muted)] p-4">No model leaderboard rows in window.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
+          <div className="text-[11px] uppercase text-[var(--text-muted)]">Model latency (avg ms)</div>
+          <div className="text-[12px] text-[var(--text-muted)] mb-2">From usage leaderboard — same models as left</div>
+          <div className="h-64">
+            {latencyBarData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={latencyBarData} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} tickLine={false} unit=" ms" />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    width={118}
+                    tick={{ fill: 'var(--text-muted)', fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', fontSize: 11 }}
+                    formatter={(v: number) => [`${fmtNumber(v)} ms`, 'Avg latency']}
+                  />
+                  <Bar dataKey="ms" name="Avg ms" fill="#fbbf24" radius={[0, 6, 6, 0]} barSize={14} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-[12px] text-[var(--text-muted)] p-4">No latency samples for models in window.</div>
             )}
           </div>
         </div>
