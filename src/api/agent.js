@@ -2727,7 +2727,13 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
   };
 
-  const modeMax = Math.max(1, Math.floor(Number(maxToolCalls) || 15));
+  /** Treat explicit 0 as zero tool turns (minimal-ask / fast-path); `||` would wrongly upgrade 0 → 15. */
+  const modeMax = (() => {
+    if (maxToolCalls === 0 || maxToolCalls === '0') return 0;
+    const n = Number(maxToolCalls);
+    if (Number.isFinite(n) && n > 0) return Math.max(1, Math.floor(n));
+    return Math.max(1, Math.floor(Number(maxToolCalls) || 15));
+  })();
   const polMax = Math.floor(Number(userPolicy?.max_tool_chain_depth));
   const effectiveMaxToolCalls =
     Number.isFinite(polMax) && polMax > 0 ? Math.min(modeMax, polMax) : modeMax;
@@ -4549,6 +4555,129 @@ function normalizeAgentRuntimeMode(raw) {
   return 'agent';
 }
 
+/**
+ * Ask-mode fast path: fixed system prompt, empty tools, no routing/memory/RAG pipeline.
+ * Caller must pass `request` on opts (Worker fetch API Request).
+ */
+async function agentChatDirectSseHandler(env, ctx, opts) {
+  const request = opts.request;
+  if (!request) return jsonResponse({ error: 'internal_request_missing' }, 500);
+  const message = String(opts.message ?? '').trim();
+  if (!message) return jsonResponse({ error: 'message required' }, 400);
+  if (opts.stream === false) return jsonResponse({ error: 'stream_required' }, 400);
+
+  const systemPrompt =
+    String(opts.systemPrompt || '').trim() ||
+    'You are Agent Sam, an AI assistant for Inner Animal Media. Be direct, concise, and helpful.';
+  const modelKey = String(
+    opts.modelKey ?? opts.model_key ?? opts.model ?? 'gemini-2.5-flash',
+  ).trim();
+  if (!modelKey) return jsonResponse({ error: 'model_key required' }, 400);
+
+  const workspaceId = opts.workspaceId;
+  const tenantId = opts.tenantId ?? null;
+  const userId = opts.userId ?? null;
+  const sessionId =
+    opts.conversationId || opts.session_id || opts.sessionId || null;
+
+  const userPolicy = await loadAgentSamUserPolicy(env, userId, workspaceId);
+  const modeConfig = {
+    temperature: 0.7,
+    max_runtime_ms: 120000,
+    max_turns: 4,
+    max_tool_calls: 0,
+  };
+
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const emit = (type, payload) => {
+    try {
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`));
+    } catch (_) {}
+  };
+
+  const chatAgentRunId =
+    env.DB && userId && workspaceId ? newChatAgentRunId() : null;
+
+  (async () => {
+    const doneGuard = { emitted: false };
+    const safeDone = (p) => {
+      if (doneGuard.emitted) return;
+      doneGuard.emitted = true;
+      emit('done', p || {});
+    };
+    try {
+      emit('context', {
+        intent: 'ask_fast',
+        mode: 'ask',
+        prompt_lane: 'ask_fast_path',
+        minimal_prompt_d1_only: 1,
+        model: modelKey,
+        tool_count: 0,
+        ...(chatAgentRunId ? { agent_run_id: chatAgentRunId } : {}),
+      });
+
+      const mcpRuntimeContext = {
+        userId,
+        tenantId,
+        workspaceId,
+        personUuid: null,
+        sessionId,
+        isSuperadmin: false,
+        routeKey: null,
+      };
+
+      await runAgentToolLoop(env, ctx, emit, {
+        request,
+        messages: [{ role: 'user', content: message }],
+        tools: [],
+        systemPrompt,
+        modelKey,
+        temperature: modeConfig.temperature,
+        maxToolCalls: 0,
+        mode: 'ask',
+        modeConfig,
+        userPolicy,
+        sessionId,
+        tenantId,
+        userId,
+        workspaceId,
+        routingTaskType: 'chat',
+        qualityScore: null,
+        mcpRuntimeContext,
+        routingArmId: null,
+        thompsonModelKey: null,
+        runStartedAt: Date.now(),
+        maxRuntimeMs: modeConfig.max_runtime_ms,
+        chatAgentRunId,
+        promptAuditContext: {
+          route: 'agent_chat_ask_fast',
+          session_id: sessionId,
+          workspace_id: workspaceId,
+          mode: 'ask',
+        },
+        doneGuard,
+        chatRouteKey: null,
+      });
+    } catch (e) {
+      emit('error', { message: String(e?.message || e || 'error').slice(0, 2000) });
+      if (!doneGuard.emitted) safeDone({});
+    } finally {
+      await writer.close().catch(() => {});
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
 export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const { ingestBypass, identity } = opts;
   const contentType = request.headers.get('content-type') || '';
@@ -4673,6 +4802,45 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     '';
   if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+
+  // ── ASK FAST PATH — no tools, no routing, no memory, just stream ────────
+  if (requestedMode === 'ask') {
+    const kv = env.SESSION_CACHE ?? null;
+    const kvKey = `sp:ask:v1:${tenantId ?? 'global'}`;
+    let fastPrompt = null;
+
+    if (kv) {
+      try {
+        fastPrompt = await kv.get(kvKey);
+      } catch (_) {}
+    }
+
+    if (!fastPrompt) {
+      const row = await env.DB?.prepare(
+        `SELECT body FROM agentsam_prompt_versions
+         WHERE prompt_key = 'core_identity' AND is_active = 1 LIMIT 1`,
+      )
+        .first()
+        .catch(() => null);
+      fastPrompt =
+        (row?.body != null ? String(row.body) : null) ??
+        'You are Agent Sam, an AI assistant for Inner Animal Media. Be direct, concise, and helpful.';
+      if (kv) kv.put(kvKey, fastPrompt, { expirationTtl: 600 }).catch(() => {});
+    }
+
+    return agentChatDirectSseHandler(env, ctx, {
+      request,
+      ...body,
+      systemPrompt: fastPrompt,
+      modelKey: body.model_key ?? body.model ?? 'gemini-2.5-flash',
+      tools: [],
+      workspaceId,
+      tenantId,
+      userId,
+      stream: true,
+    });
+  }
+  // ── END ASK FAST PATH ───────────────────────────────────────────────────
 
   /** @type {Record<string, unknown>|null} */
   let browserContextPayload = null;
