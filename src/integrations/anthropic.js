@@ -153,7 +153,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     tools: builtTools,
     tool_choice: options.tool_choice || undefined,
     stream: true,
-    betas: betasFiltered.length > 0 ? betasFiltered : undefined,
+    // betas sent via client.beta path below, not in body
   };
 
   // 2. Adaptive Thinking & Effort (v4.6 GA Path)
@@ -161,9 +161,14 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     (logicalModelKey.includes('4-6') || logicalModelKey.includes('4-5')) &&
     !logicalModelKey.includes('haiku');
   if (isSotaModel) {
-    streamParams.thinking = { type: 'adaptive' };
+    // Claude 4 models use effort param directly, not inside thinking object
+    // 'adaptive' is not a valid type — valid: 'enabled' (with budget_tokens) or 'disabled'
     if (options.effort) {
-      streamParams.thinking.effort = options.effort; // 'high', 'medium', 'low'
+      streamParams.effort = options.effort; // 'max', 'high', 'medium', 'low'
+    }
+    // Only enable explicit thinking budget if caller specifically requested it
+    if (options.thinkingBudget) {
+      streamParams.thinking = { type: 'enabled', budget_tokens: Number(options.thinkingBudget) };
     }
   } else if (options.thinking) {
     streamParams.thinking = options.thinking;
@@ -179,10 +184,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     streamParams.output_config = { format: { type: 'json_schema', schema: options.jsonSchema } };
   }
 
-  // 4. Data Residency
-  if (options.inference_geo) {
-    streamParams.inference_geo = options.inference_geo; // 'us' or 'global'
-  }
+  // 4. Data Residency — inference_geo is not a standard Anthropic field; skip
 
   // Code execution / multi-part turns: reuse Anthropic sandbox container across pause_turn continuations
   const c = options.container;
@@ -190,7 +192,10 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     streamParams.container = typeof c === 'string' ? c : c?.id;
   }
 
-  const response = await client.messages.create(streamParams);
+  // Route to beta endpoint when betas are required, standard endpoint otherwise
+  const response = betasFiltered.length > 0
+    ? await client.beta.messages.create({ ...streamParams, betas: betasFiltered })
+    : await client.messages.create(streamParams);
   return response;
 }
 
