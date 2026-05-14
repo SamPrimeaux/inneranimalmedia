@@ -5,6 +5,7 @@
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { buildFinanceAnalyticsExtension } from './analytics.js';
+import { handleProjectsApi } from './projects.js';
 
 /**
  * Main dispatcher for Finance-related API routes (/api/finance/*, /api/clients, /api/projects, /api/billing/*).
@@ -45,8 +46,10 @@ export async function handleFinanceApi(request, url, env, ctx) {
         // ── /api/clients ──
         if (pathLower === '/api/clients') return handleClientsRequest(request, url, env);
 
-        // ── /api/projects ──
-        if (pathLower === '/api/projects') return handleProjectsRequest(request, url, env);
+        // ── /api/projects* ──
+        if (pathLower.startsWith('/api/projects')) {
+            return handleProjectsApi(request, url, env, authUser);
+        }
 
         // ── /api/billing ──
         if (pathLower === '/api/billing/summary') return handleBillingSummary(env);
@@ -257,11 +260,6 @@ async function handleClientsRequest(request, url, env) {
         return jsonResponse({ success: true, id: clientId });
     }
     return jsonResponse({ error: 'Method not allowed' }, 405);
-}
-
-async function handleProjectsRequest(request, url, env) {
-    const { results } = await env.DB.prepare(`SELECT * FROM projects ORDER BY priority DESC, name ASC`).all();
-    return jsonResponse({ success: true, projects: results || [] });
 }
 
 async function handleBillingSummary(env) {
