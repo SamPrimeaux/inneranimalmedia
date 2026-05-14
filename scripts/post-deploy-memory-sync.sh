@@ -37,7 +37,7 @@ INSERT INTO agentsam_memory (
   '[\"deploy\",\"production\",\"state\"]',
   unixepoch()
 )
-ON CONFLICT(tenant_id, user_id, \"key\") DO UPDATE SET
+ON CONFLICT(id) DO UPDATE SET
   value = excluded.value,
   workspace_id = excluded.workspace_id,
   source = excluded.source,
