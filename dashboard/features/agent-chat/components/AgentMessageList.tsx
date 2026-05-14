@@ -14,7 +14,6 @@ import type {
 } from '../types';
 import { AgentChatMarkdown } from './AgentChatMarkdown';
 import { AgentCodeFencePreview } from './AgentCodeFencePreview';
-import { ToolApprovalModal } from '../../../src/components/ToolApprovalModal';
 import type { ExecPanelState, WorkflowLedgerState } from '../types';
 
 const getLangMeta = (lang: string) => {
@@ -621,11 +620,6 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
           )}
         </div>
       )}
-      <ToolApprovalModal
-        workspaceId={workspaceId}
-        agentRunId={workflowLedger.runId}
-        toolExecutionActive={execPanel?.status === 'running'}
-      />
     </div>
   );
 };

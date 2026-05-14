@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
+import { GripVertical, Code2, ExternalLink, Play, Copy } from 'lucide-react';
+import type { ActiveFile } from '../../types';
 
 type Approval = {
   id: string;
@@ -16,10 +18,28 @@ type Approval = {
 const BACKOFF_MS = [5000, 15000, 45000];
 const RECENT_PENDING_MS = 120_000;
 
+/** Beyond this, show truncated in-card preview and nudge Monaco. */
+const LARGE_CHARS = 4000;
+const LARGE_LINES = 48;
+const TRUNCATE_LINES = 32;
+
+const SQL_KW = new Set(
+  `select from where update set and or insert into values delete create alter drop table index null is like join left right inner outer on as order by group having limit offset with returning public begin commit rollback transaction case when then else end distinct union all exists not in between asc desc primary key references default constraint cascade`.split(
+    /\s+/,
+  ),
+);
+
 type ToolApprovalModalProps = {
   workspaceId?: string | null;
   agentRunId?: string | null;
   toolExecutionActive?: boolean;
+  /** Opens `MonacoEditorView` (workspace editor) with virtual file — same as chat “Open in Monaco”. */
+  onOpenInEditor?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
+  /**
+   * `true` = fixed global dock (App shell): no top margin; parent handles position.
+   * `false` = inline in chat column (legacy).
+   */
+  docked?: boolean;
 };
 
 function shouldPollApprovals(opts: {
@@ -36,61 +56,131 @@ function shouldPollApprovals(opts: {
   if (toolExecutionActive) return true;
   if (agentRunId) return true;
   if (recentPending) return true;
-  return pathname.toLowerCase().includes('/dashboard/agent');
+  const p = pathname.toLowerCase();
+  return p.startsWith('/dashboard');
 }
 
-// Theme-aware CSS variable lookup.
-// Walks the IAM theme var chain: mg (moon-glass) → solar → color-* → last-resort.
-// Add new themes here by prepending their var names — no hardcoded hex anywhere.
-function tv(...chain: string[]): string {
-  // Build nested var() chain: var(--a, var(--b, var(--c, fallback)))
-  return chain.reduceRight((acc, cur) =>
-    cur.startsWith('#') || cur.startsWith('rgba') || cur.startsWith('rgb')
-      ? acc ? `var(${acc}, ${cur})` : cur  // last item is the raw fallback
-      : acc ? `var(${cur}, ${acc})` : `var(${cur})`
+function formatActionTitle(toolName: string, description: string): string {
+  const d0 = String(description || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .find(Boolean);
+  if (d0 && d0.length >= 4 && d0.length <= 100) return d0;
+  const raw = String(toolName || '').trim();
+  if (raw) {
+    const t = raw.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+    return t.length > 72 ? t.slice(0, 70) + '…' : t;
+  }
+  return d0 || 'Approval';
+}
+
+function isDeployLike(a: Approval): boolean {
+  const blob = `${a.tool_name} ${a.description}`.toLowerCase();
+  return (
+    /\bdeploy\b/.test(blob) ||
+    /\bwrangler\b/.test(blob) ||
+    /\bedge\s*function\b/.test(blob) ||
+    /\bgithub\b.*\b(push|repo)\b/.test(blob) ||
+    /\bfunctions?\b.*\bdeploy\b/.test(blob)
   );
 }
 
-// Semantic tokens — resolved at paint time from :root CSS vars injected by cms_themes
-const T = {
-  shell:        tv('--mg-shell-bg',       '--solar-bg-app',      '--color-bg-app',      '--bg-app',      '#0f1923'),
-  panel:        tv('--mg-panel',          '--solar-bg-panel',    '--color-bg-panel',    '--bg-panel',    '#1a2332'),
-  border:       tv('--mg-border',         '--solar-border',      '--color-border',      '--border',      '#2a3547'),
-  textPrimary:  tv('--mg-text',           '--solar-text',        '--color-text-primary','--text-main',   '#f0f4f8'),
-  textSecond:   tv('--mg-text-secondary', '--solar-text-muted',  '--color-text-secondary','--text-muted','#94a3b8'),
-  textThird:    tv('--color-text-tertiary','--text-subtle',      '#64748b'),
-  accent:       tv('--mg-accent',         '--solar-blue',        '--color-accent',      '--accent',      '#4f8cff'),
-  mono:         tv('--font-mono',         'monospace'),
-  // Risk — semantic, not decorative. These follow the theme's danger/warn/success tokens.
-  danger:       tv('--color-danger',      '--solar-red',         '#f87171'),
-  dangerBg:     tv('--color-danger-bg',   'rgba(239,68,68,0.15)'),
-  dangerBorder: tv('--color-danger-border','rgba(239,68,68,0.3)'),
-  warn:         tv('--color-warn',        '--solar-yellow',      '#fbbf24'),
-  warnBg:       tv('--color-warn-bg',     'rgba(234,179,8,0.15)'),
-  warnBorder:   tv('--color-warn-border', 'rgba(234,179,8,0.3)'),
-  ok:           tv('--color-success',     '--solar-green',       '#4ade80'),
-  okBg:         tv('--color-success-bg',  'rgba(34,197,94,0.12)'),
-  okBorder:     tv('--color-success-border','rgba(34,197,94,0.3)'),
-  indigo:       tv('--color-indigo',      '--solar-indigo',      '#a5b4fc'),
-  indigoBg:     tv('--color-indigo-bg',   'rgba(99,102,241,0.1)'),
-  indigoBorder: tv('--color-indigo-border','rgba(99,102,241,0.25)'),
-} as const;
+function looksLikeSql(s: string): boolean {
+  const t = s.trim().slice(0, 400).toLowerCase();
+  return /^\s*(select|insert|update|delete|with|create|alter|drop|truncate|explain)\b/.test(t);
+}
+
+function highlightSqlLine(line: string, keyPrefix: string): React.ReactNode {
+  if (line === '') return '\u00A0';
+  const tokenRe =
+    /('(?:[^']|'')*'|"(?:[^"\\]|\\.)*"|\/\*[\s\S]*?\*\/|--[^\n]*|\w+|[(),;]|\s+)/g;
+  const parts: React.ReactNode[] = [];
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = tokenRe.exec(line)) !== null) {
+    const tok = m[0];
+    const k = `${keyPrefix}-${i++}`;
+    if (/^\s+$/.test(tok) || tok.startsWith('--') || tok.startsWith('/*')) {
+      parts.push(
+        <span key={k} style={{ color: 'var(--color-text-tertiary, #64748b)' }}>
+          {tok}
+        </span>,
+      );
+      continue;
+    }
+    if (tok.startsWith("'") || tok.startsWith('"')) {
+      parts.push(
+        <span key={k} style={{ color: 'var(--solar-green, #86efac)' }}>
+          {tok}
+        </span>,
+      );
+      continue;
+    }
+    if (/^[,();]$/.test(tok)) {
+      parts.push(
+        <span key={k} style={{ color: 'var(--dashboard-muted, #94a3b8)' }}>
+          {tok}
+        </span>,
+      );
+      continue;
+    }
+    if (/^\w+$/.test(tok) && SQL_KW.has(tok.toLowerCase())) {
+      parts.push(
+        <span key={k} style={{ color: 'var(--solar-cyan, #7dd3fc)', fontWeight: 600 }}>
+          {tok}
+        </span>,
+      );
+      continue;
+    }
+    parts.push(
+      <span key={k} style={{ color: 'var(--dashboard-text, #e2e8f0)' }}>
+        {tok}
+      </span>,
+    );
+  }
+  return parts;
+}
+
+function SqlPreviewBody({ text, truncated }: { text: string; truncated: boolean }) {
+  const lines = text.split('\n');
+  return (
+    <>
+      {lines.map((ln, li) => (
+        <div key={li} className="whitespace-pre [overflow-wrap:anywhere]">
+          {highlightSqlLine(ln, `L${li}`)}
+        </div>
+      ))}
+      {truncated ? (
+        <div className="mt-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-[var(--dashboard-border)]/60 pt-2">
+          Preview truncated in chat — use <strong className="text-[var(--solar-cyan)]">Open in editor</strong> for the
+          full script and Monaco highlighting.
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 export function ToolApprovalModal({
   workspaceId = null,
   agentRunId = null,
   toolExecutionActive = false,
+  onOpenInEditor,
+  docked = false,
 }: ToolApprovalModalProps) {
   const location = useLocation();
   const [approval, setApproval] = useState<Approval | null>(null);
   const approvalRef = useRef<Approval | null>(null);
   approvalRef.current = approval;
 
-  const [expanded, setExpanded] = useState(false);
+  const [queryFolded, setQueryFolded] = useState(false);
+  const [runMenuOpen, setRunMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [allowlistLoading, setAllowlistLoading] = useState(false);
-  const [allowlistDone, setAllowlistDone] = useState(false);
   const [pollStopped401, setPollStopped401] = useState(false);
+  const [outcome, setOutcome] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
+
+  const runMenuRef = useRef<HTMLDivElement | null>(null);
+  const playBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const backoffRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,40 +191,68 @@ export function ToolApprovalModal({
   useEffect(() => {
     let cancelled = false;
     const clearTimer = () => {
-      if (timerRef.current != null) { clearTimeout(timerRef.current); timerRef.current = null; }
+      if (timerRef.current != null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
 
     async function run() {
       if (cancelled || pollStopped401) return;
-      if (!ws) { kick(30_000); return; }
-      if (document.hidden) { kick(8000); return; }
+      if (!ws) {
+        kick(30_000);
+        return;
+      }
+      if (document.hidden) {
+        kick(8000);
+        return;
+      }
       const recentPending = Date.now() - lastPendingSignalRef.current < RECENT_PENDING_MS;
-      if (!shouldPollApprovals({
-        pathname: location.pathname,
-        hasVisibleApproval: approvalRef.current != null,
-        workspaceId: ws,
-        agentRunId: agentRunId ?? null,
-        toolExecutionActive,
-        recentPending,
-      })) { kick(45_000); return; }
+      if (
+        !shouldPollApprovals({
+          pathname: location.pathname,
+          hasVisibleApproval: approvalRef.current != null,
+          workspaceId: ws,
+          agentRunId: agentRunId ?? null,
+          toolExecutionActive,
+          recentPending,
+        })
+      ) {
+        kick(45_000);
+        return;
+      }
       try {
         const runQ = agentRunId?.trim() ? `&run_id=${encodeURIComponent(agentRunId.trim())}` : '';
         const r = await fetch(
           `/api/agent/approval/pending?workspace_id=${encodeURIComponent(ws)}${runQ}`,
           { credentials: 'same-origin' },
         );
-        if (r.status === 401) { setPollStopped401(true); return; }
-        if (r.status === 400) { kick(20_000); return; }
+        if (r.status === 401) {
+          setPollStopped401(true);
+          return;
+        }
+        if (r.status === 400) {
+          kick(20_000);
+          return;
+        }
         if (!r.ok) {
           const i = Math.min(backoffRef.current, BACKOFF_MS.length - 1);
           backoffRef.current = Math.min(backoffRef.current + 1, BACKOFF_MS.length - 1);
-          kick(BACKOFF_MS[i]); return;
+          kick(BACKOFF_MS[i]);
+          return;
         }
         backoffRef.current = 0;
         const d = (await r.json()) as { approval?: Approval | null; pending_count?: number };
         const pc = typeof d.pending_count === 'number' ? d.pending_count : d.approval?.queue_count ?? 0;
         if (pc > 0) lastPendingSignalRef.current = Date.now();
-        if (!cancelled) { setApproval(d.approval ?? null); setAllowlistDone(false); }
+        if (!cancelled) {
+          setApproval(d.approval ?? null);
+          if (d.approval) {
+            setOutcome(null);
+            setQueryFolded(false);
+            setRunMenuOpen(false);
+          }
+        }
         kick(4000);
       } catch {
         const i = Math.min(backoffRef.current, BACKOFF_MS.length - 1);
@@ -148,7 +266,9 @@ export function ToolApprovalModal({
       timerRef.current = window.setTimeout(run, delay);
     }
 
-    const onVis = () => { if (!document.hidden && !pollStopped401) kick(4000); };
+    const onVis = () => {
+      if (!document.hidden && !pollStopped401) kick(4000);
+    };
     document.addEventListener('visibilitychange', onVis);
     backoffRef.current = 0;
     kick(4000);
@@ -160,215 +280,288 @@ export function ToolApprovalModal({
     };
   }, [location.pathname, pollStopped401, ws, agentRunId, toolExecutionActive]);
 
-  if (!approval) return null;
+  useEffect(() => {
+    if (!runMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (runMenuRef.current?.contains(t) || playBtnRef.current?.contains(t)) return;
+      setRunMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [runMenuOpen]);
 
-  const isHighRisk = approval.risk_level === 'high' || approval.risk_level === 'critical';
-  const preview = approval.preview_sql || approval.preview_command || '';
-  const cmdLabel = preview.length > 46 ? preview.slice(0, 44) + '…' : preview;
+  const preview = approval ? approval.preview_sql || approval.preview_command || '' : '';
+  const previewLines = preview ? preview.split('\n').length : 0;
+  const isLarge = preview.length > LARGE_CHARS || previewLines > LARGE_LINES;
+  const displayPreview = useMemo(() => {
+    if (!preview) return '';
+    if (!isLarge) return preview;
+    return preview.split('\n').slice(0, TRUNCATE_LINES).join('\n');
+  }, [preview, isLarge]);
 
-  const risk = isHighRisk
-    ? { color: T.danger,  bg: T.dangerBg,  border: T.dangerBorder }
-    : approval.risk_level === 'medium'
-      ? { color: T.warn,  bg: T.warnBg,    border: T.warnBorder }
-      : { color: T.ok,    bg: T.okBg,      border: T.okBorder };
+  const virtualName = useMemo(() => {
+    if (!approval) return 'approval_preview.sql';
+    const base = approval.tool_name.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 48) || 'approval';
+    return looksLikeSql(preview) ? `${base}.sql` : `${base}.txt`;
+  }, [approval, preview]);
 
-  async function respond(action: 'approved' | 'denied') {
-    setLoading(true);
-    await fetch(`/api/agent/approval/${approval!.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ status: action }),
-    });
-    setApproval(null);
-    setLoading(false);
-  }
+  const openEditor = useCallback(() => {
+    if (!preview.trim() || !onOpenInEditor) return;
+    onOpenInEditor({ name: virtualName, content: preview });
+  }, [preview, virtualName, onOpenInEditor]);
 
-  async function addToAllowlistAndRun() {
-    if (!preview) { respond('approved'); return; }
-    setAllowlistLoading(true);
+  const copyPreview = useCallback(async () => {
+    if (!preview) return;
     try {
-      await fetch('/api/agent/allowlist', {
-        method: 'POST',
+      await navigator.clipboard.writeText(preview);
+    } catch {
+      /* ignore */
+    }
+  }, [preview]);
+
+  async function patchApproval(action: 'approved' | 'denied'): Promise<{ ok: boolean; error?: string }> {
+    const id = approval?.id;
+    if (!id) return { ok: false, error: 'No approval' };
+    try {
+      const r = await fetch(`/api/agent/approval/${id}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ command: preview, workspace_id: ws }),
+        body: JSON.stringify({ status: action }),
       });
-      setAllowlistDone(true);
-    } catch { /* fire-and-forget — still run */ }
-    setAllowlistLoading(false);
-    respond('approved');
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) return { ok: false, error: data.error || `Request failed (${r.status})` };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error)?.message || 'Network error' };
+    }
   }
 
+  async function finishWithOutcome(
+    action: 'approved' | 'denied',
+    successText: string,
+    clearAfterMs: number,
+  ): Promise<void> {
+    setLoading(true);
+    const res = await patchApproval(action);
+    setLoading(false);
+    setRunMenuOpen(false);
+    if (!res.ok) {
+      setOutcome({ tone: 'err', text: res.error || 'Request failed' });
+      return;
+    }
+    setOutcome({ tone: 'ok', text: successText });
+    window.setTimeout(() => {
+      setApproval(null);
+      setOutcome(null);
+    }, clearAfterMs);
+  }
+
+  async function addToAllowlistAndApprove(): Promise<void> {
+    if (!approval) return;
+    setAllowlistLoading(true);
+    setRunMenuOpen(false);
+    if (preview.trim()) {
+      try {
+        await fetch('/api/agent/allowlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ command: preview, workspace_id: ws }),
+        });
+      } catch {
+        /* still try approve */
+      }
+    }
+    setAllowlistLoading(false);
+    await finishWithOutcome(
+      'approved',
+      preview.trim()
+        ? 'Added to allowlist and approved — agent continues.'
+        : 'Approved — agent continues.',
+      2800,
+    );
+  }
+
+  if (!approval) return null;
+
+  const deployish = isDeployLike(approval);
+  const cancelLabel = deployish ? 'Skip' : 'Cancel';
+  const runLabel = deployish ? 'Deploy' : 'Run';
+  const titleRaw = formatActionTitle(approval.tool_name, approval.description);
+  const title = titleRaw.toUpperCase();
+  const showSqlHighlight = looksLikeSql(displayPreview);
+  const descOne = String(approval.description || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .find(Boolean);
+  const showDesc = descOne && descOne.replace(/\s+/g, ' ') !== titleRaw.replace(/\s+/g, ' ');
+
   return (
-    <div style={{
-      backdropFilter: 'blur(12px)',
-      background: T.panel,
-      border: `1px solid ${T.border}`,
-      borderRadius: '16px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-      padding: '14px 16px',
-      maxWidth: '300px',
-      width: '100%',
-      marginTop: '1rem',
-    }}>
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <i className="ti ti-plug" aria-hidden="true" style={{ fontSize: 16, color: T.textSecond }} />
-        <span style={{ fontSize: 13, color: T.textSecond, flex: 1 }}>
-          {approval.server_display_name ?? 'Agent Sam'}
-        </span>
-        {approval.queue_count > 1 && (
-          <span style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: `1px solid ${T.border}`,
-            borderRadius: '999px',
-            fontSize: 10,
-            padding: '2px 6px',
-            color: T.textSecond,
-          }}>
-            +{approval.queue_count - 1} pending
+    <div
+      className={`${docked ? '' : 'mt-4 '}w-full max-w-[min(100%,32rem)] rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)]/95 shadow-lg backdrop-blur-md overflow-hidden`}
+      style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.35)' }}
+    >
+      {/* Minimal header */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--dashboard-border)]/80 bg-[var(--dashboard-panel)]/90">
+        <GripVertical
+          size={16}
+          className="shrink-0 text-[var(--dashboard-muted)] opacity-70"
+          aria-hidden
+        />
+        <div className="min-w-0 flex-1 flex items-center gap-2">
+          <span
+            className="truncate text-[0.7rem] font-mono font-semibold tracking-wide text-[var(--dashboard-text)] uppercase"
+            title={title}
+          >
+            {title}
           </span>
-        )}
-      </div>
-
-      {/* Tool name */}
-      <p style={{ fontSize: 15, fontWeight: 500, margin: '0 0 6px', color: T.textPrimary }}>
-        {approval.tool_name.replace(/_/g, ' ')}?
-      </p>
-
-      {/* Description */}
-      <p style={{ fontSize: 13, color: T.textSecond, margin: '0 0 10px', lineHeight: 1.5 }}>
-        {approval.description}
-      </p>
-
-      {/* Risk badge */}
-      <span style={{
-        borderRadius: '999px',
-        fontSize: 10,
-        padding: '2px 8px',
-        fontWeight: 600,
-        background: risk.bg,
-        color: risk.color,
-        border: `1px solid ${risk.border}`,
-      }}>
-        {approval.risk_level.toUpperCase()}
-      </span>
-
-      {/* Expandable preview */}
-      {preview && (
-        <div style={{ marginTop: 12 }}>
-          <button
-            onClick={() => setExpanded(e => !e)}
-            style={{ fontSize: 12, color: T.textThird, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-          >
-            Preview {expanded ? '▲' : '▼'}
-          </button>
-          {expanded && (
-            <pre style={{
-              background: T.shell,
-              border: `1px solid ${T.border}`,
-              borderRadius: '8px',
-              fontSize: 11,
-              fontFamily: T.mono,
-              maxHeight: '80px',
-              overflow: 'auto',
-              padding: '8px 10px',
-              marginTop: 6,
-              color: T.textPrimary,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-            }}>
-              {preview}
-            </pre>
-          )}
-        </div>
-      )}
-
-      {/* Action buttons */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 14 }}>
-
-        {/* ▶ Run */}
-        <button
-          onClick={() => respond('approved')}
-          disabled={loading}
-          style={{
-            width: '100%',
-            background: risk.bg,
-            border: `1px solid ${risk.border}`,
-            color: risk.color,
-            borderRadius: 8,
-            padding: '7px 12px',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.5 : 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            letterSpacing: '0.02em',
-          }}
-        >
-          <span style={{ fontSize: 10 }}>▶</span> Run
-        </button>
-
-        {/* + Allow always */}
-        {preview && (
-          <button
-            onClick={addToAllowlistAndRun}
-            disabled={allowlistLoading || loading}
-            title={`Always allow: ${preview}`}
-            style={{
-              width: '100%',
-              background: allowlistDone ? T.indigoBg : 'transparent',
-              border: `1px solid ${T.indigoBorder}`,
-              color: T.indigo,
-              borderRadius: 8,
-              padding: '7px 12px',
-              fontSize: 11,
-              cursor: (allowlistLoading || loading) ? 'not-allowed' : 'pointer',
-              opacity: (allowlistLoading || loading) ? 0.5 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 5,
-              overflow: 'hidden',
-            }}
-          >
-            <span style={{ flexShrink: 0 }}>{allowlistDone ? '✓' : '+'}</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {allowlistDone ? 'Added to allowlist' : `Allow always: ${cmdLabel}`}
+          {approval.queue_count > 1 ? (
+            <span className="shrink-0 rounded-full border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[0.6rem] text-[var(--dashboard-muted)]">
+              +{approval.queue_count - 1} pending
             </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {preview ? (
+            <button
+              type="button"
+              title={queryFolded ? 'Show query' : 'Hide query'}
+              onClick={() => setQueryFolded((f) => !f)}
+              className={`p-1.5 rounded-md border transition-colors ${
+                queryFolded
+                  ? 'border-transparent text-[var(--dashboard-muted)] hover:bg-[var(--scene-bg)]'
+                  : 'border-[var(--dashboard-border)]/80 bg-[var(--scene-bg)]/80 text-[var(--solar-cyan)]'
+              }`}
+            >
+              <Code2 size={16} aria-hidden />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            title="Open in editor (Monaco)"
+            onClick={openEditor}
+            disabled={!preview.trim() || !onOpenInEditor}
+            className="p-1.5 rounded-md border border-transparent text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--dashboard-border)] hover:bg-[var(--scene-bg)] disabled:opacity-35 disabled:pointer-events-none transition-colors"
+          >
+            <ExternalLink size={16} aria-hidden />
           </button>
-        )}
-
-        {/* Deny */}
-        <button
-          onClick={() => respond('denied')}
-          disabled={loading}
-          style={{
-            width: '100%',
-            background: 'transparent',
-            border: `1px solid ${T.border}`,
-            color: T.textThird,
-            borderRadius: 8,
-            padding: '6px 12px',
-            fontSize: 12,
-            cursor: loading ? 'not-allowed' : 'pointer',
-            opacity: loading ? 0.5 : 1,
-          }}
-        >
-          Deny
-        </button>
+          <div className="relative" ref={runMenuRef}>
+            <button
+              ref={playBtnRef}
+              type="button"
+              title={runLabel}
+              disabled={loading || allowlistLoading}
+              onClick={() => setRunMenuOpen((o) => !o)}
+              className="p-1.5 rounded-md border border-[var(--dashboard-border)]/70 bg-[var(--scene-bg)]/90 text-[var(--dashboard-text)] hover:border-[var(--solar-cyan)]/50 hover:text-[var(--solar-cyan)] disabled:opacity-40 transition-colors"
+            >
+              <Play size={15} className="fill-current" aria-hidden />
+            </button>
+            {runMenuOpen ? (
+              <div
+                className="absolute right-0 top-[calc(100%+6px)] z-[80] min-w-[13.5rem] rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/98 backdrop-blur-lg py-1.5 px-1.5 shadow-xl"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="w-full text-left rounded-lg px-3 py-2 text-[0.75rem] font-medium text-[var(--dashboard-text)] hover:bg-[var(--scene-bg)] border border-transparent hover:border-[var(--dashboard-border)]"
+                  disabled={loading || allowlistLoading}
+                  onClick={() => void finishWithOutcome('denied', deployish ? 'Skipped.' : 'Cancelled.', 2200)}
+                >
+                  {cancelLabel}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={loading || allowlistLoading}
+                  onClick={() =>
+                    void finishWithOutcome(
+                      'approved',
+                      looksLikeSql(preview)
+                        ? 'Approved — SQL feedback (rows, errors, or e.g. “Success. No rows returned”) appears in chat after execution.'
+                        : 'Approved — agent continues.',
+                      2800,
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg px-3 py-2.5 text-[0.8rem] font-semibold text-[var(--solar-green)] border border-[var(--color-success-border,rgba(34,197,94,0.35))] bg-[rgba(74,222,128,0.12)] backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_4px_18px_rgba(34,197,94,0.15)] hover:bg-[rgba(74,222,128,0.18)] disabled:opacity-45"
+                >
+                  {runLabel}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={loading || allowlistLoading}
+                  onClick={() => void addToAllowlistAndApprove()}
+                  className="mt-1 w-full rounded-lg px-3 py-2 text-[0.72rem] font-semibold text-[var(--solar-indigo,#a5b4fc)] border border-[var(--dashboard-border)]/80 bg-[rgba(99,102,241,0.08)] hover:bg-[rgba(99,102,241,0.14)] disabled:opacity-45"
+                >
+                  {allowlistLoading ? 'Saving…' : 'Add to Allowlist'}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
 
-      {approval.is_mcp_server && (
-        <p style={{ fontSize: 11, color: T.textThird, marginTop: 10, marginBottom: 0 }}>
-          No PII sent to external tools.
+      {preview && !queryFolded ? (
+        <div className="border-b border-[var(--dashboard-border)]/60 bg-[var(--bg-code-pre,var(--scene-bg))]">
+          <div className="flex items-center justify-end gap-1 px-2 py-1">
+            <button
+              type="button"
+              title="Copy"
+              onClick={() => void copyPreview()}
+              className="p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--dashboard-panel)] transition-colors"
+            >
+              <Copy size={14} aria-hidden />
+            </button>
+          </div>
+          <pre
+            className="m-0 max-h-[min(40vh,280px)] overflow-auto px-3 pb-3 text-[0.6875rem] font-mono leading-relaxed"
+            style={{ tabSize: 2 }}
+          >
+            {showSqlHighlight ? (
+              <SqlPreviewBody text={displayPreview} truncated={isLarge} />
+            ) : (
+              <>
+                <span className="text-[var(--dashboard-text)] whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  {displayPreview}
+                </span>
+                {isLarge ? (
+                  <div className="mt-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-[var(--dashboard-border)]/60 pt-2">
+                    Large payload — open in <strong className="text-[var(--solar-cyan)]">editor</strong> for full
+                    Monaco view.
+                  </div>
+                ) : null}
+              </>
+            )}
+          </pre>
+        </div>
+      ) : null}
+
+      {showDesc ? (
+        <p className="m-0 px-3 py-2 text-[0.7rem] leading-snug text-[var(--dashboard-muted)] border-b border-[var(--dashboard-border)]/40 line-clamp-2">
+          {descOne}
         </p>
-      )}
+      ) : null}
+
+      {outcome ? (
+        <div
+          className={`px-3 py-2.5 text-[0.72rem] font-mono border-t ${
+            outcome.tone === 'ok'
+              ? 'bg-[rgba(34,197,94,0.08)] text-[var(--solar-green)] border-[var(--color-success-border,rgba(34,197,94,0.25))]'
+              : 'bg-[rgba(248,113,113,0.08)] text-[var(--solar-red,#f87171)] border-[var(--color-danger-border,rgba(248,113,113,0.35))]'
+          }`}
+        >
+          {outcome.text}
+        </div>
+      ) : null}
+
+      {approval.is_mcp_server ? (
+        <p className="m-0 px-3 py-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-[var(--dashboard-border)]/30">
+          {approval.server_display_name ?? 'Agent Sam'} — external tool; no PII sent by default.
+        </p>
+      ) : null}
     </div>
   );
 }
