@@ -2698,11 +2698,39 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     doneGuard.emitted = true;
     emit('done', payload);
   };
-  const routingArmIdStr = routingArmIdParam != null ? String(routingArmIdParam).trim() : '';
+  // Resolve arm from DB when caller doesn't supply one
+  const _resolvedArmId = (routingArmIdParam == null || String(routingArmIdParam).trim() === '') && env?.DB
+    ? await (async () => {
+        try {
+          const mk  = String(modelKey || '');
+          const tt  = String(routingTaskType || 'chat');
+          const md  = String(mode || 'agent');
+          const ws  = routingWs || 'ws_inneranimalmedia';
+          // workspace-scoped arm first, then global fallback
+          const arm = await env.DB.prepare(
+            `SELECT id FROM agentsam_routing_arms
+             WHERE model_key=? AND task_type=? AND mode=? AND workspace_id=?
+               AND is_active=1 AND is_eligible=1 LIMIT 1`
+          ).bind(mk, tt, md, ws).first()
+          ?? await env.DB.prepare(
+            `SELECT id FROM agentsam_routing_arms
+             WHERE model_key=? AND task_type=? AND mode=?
+               AND (workspace_id IS NULL OR workspace_id='')
+               AND is_active=1 AND is_eligible=1 LIMIT 1`
+          ).bind(mk, tt, md).first();
+          return arm?.id ?? null;
+        } catch { return null; }
+      })()
+    : routingArmIdParam;
+  const routingArmIdStr = _resolvedArmId != null ? String(_resolvedArmId).trim() : '';
   const thompsonMkStr = thompsonModelKeyParam != null ? String(thompsonModelKeyParam).trim() : '';
 
   const attributedRoutingArmId = () =>
-    routingArmIdStr && thompsonMkStr && String(modelKey) === thompsonMkStr ? routingArmIdStr : null;
+    // accept arm if it was DB-resolved (no thompsonMkStr required) or if thompson model matches
+    routingArmIdStr && (
+      !thompsonMkStr ||
+      String(modelKey) === thompsonMkStr
+    ) ? routingArmIdStr : null;
 
   const routeArmOutcome = (success) => {
     const aid = attributedRoutingArmId();
