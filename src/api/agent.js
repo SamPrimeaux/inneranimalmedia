@@ -88,6 +88,7 @@ import { getAgentMetadata, logSkillInvocation,
 import { runBuiltinTool, normalizeToolName } from '../tools/ai-dispatch.js';
 import {
   getDefaultModelForTask,
+  resolveRoutingArm,
   scheduleRoutingArmBanditUpdate,
   scheduleRoutingArmQualityUpdate,
   applyRoutingArmUsageFeedback,
@@ -5204,8 +5205,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   let routingPick = null;
   try {
-    routingPick = await getDefaultModelForTask(env, {
-      taskKey: resolvedRoutingTaskType,
+    routingPick = await resolveRoutingArm(env, {
+      taskType: resolvedRoutingTaskType,
       tenantId,
       userId,
       mode: requestedMode,
