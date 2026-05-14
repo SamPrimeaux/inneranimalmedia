@@ -1,3 +1,4 @@
+import { writeRoutingMemoryPrior } from "./memory.js";
 /**
  * Agent Sam model routing — Thompson sampling over agentsam_routing_arms (Beta bandit).
  *
@@ -721,6 +722,17 @@ export async function applyRoutingArmUsageFeedback(env, o) {
         .bind(da, dBeta, costUsd, costUsd, durationMs, durationMs, armId)
         .run();
     }
+  if (o?.workspaceId && o?.taskType && o?.modelKey) {
+    writeRoutingMemoryPrior(env, {
+      workspaceId: String(o.workspaceId),
+      taskType:    String(o.taskType),
+      modelKey:    String(o.modelKey),
+      provider:    o.provider ?? null,
+      success,
+      latencyMs:   durationMs,
+      costUsd,
+    }).catch(() => {});
+  }
   } catch (e) {
     console.warn('[routing_arms] usage feedback', e?.message ?? e);
   }

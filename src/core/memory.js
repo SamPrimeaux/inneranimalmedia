@@ -1,55 +1,279 @@
 /**
- * agentsam_memory — prompt injection for chat and scheduled decay (01:00 UTC cron).
+ * src/core/memory.js
  *
- * Returns a markdown-ish block for callers to concatenate **after** the main system prompt
- * (identity + policy strings). Do not prepend ahead of core system instructions.
+ * Agent memory for prompt injection — single entry point: loadAgentMemoryForPrompt.
+ *
+ * Design:
+ *  1. Skip entirely for short/command messages (< 6 words) — no DB hit
+ *  2. KV cache per workspace/tenant, 3-minute TTL — warm path is one KV read
+ *  3. Hard 2s Promise.race timeout — memory NEVER blocks the model call
+ *  4. D1 agentsam_memory keyword match (fast, no embedding)
+ *  5. Supabase search_all_context_logged via Hyperdrive (semantic, fires only for longer messages)
+ *  6. No env.AI.run embedding call ever — that killed the Worker with CPU timeouts
+ *
+ * Thompson routing:
+ *  writeRoutingMemoryPrior — called by applyRoutingArmUsageFeedback after each run
+ *  to keep agentsam_model_routing_memory populated for cold-start priors.
  */
 
-import {
-  logSemanticSearch,
-  ragEmbeddingDims,
-  ragEmbeddingModel,
-  searchAgentMemoryHybrid,
-} from '../api/rag.js';
+import { logSemanticSearch } from '../api/rag.js';
 import { compactToolStatsCompacted } from './tool-stats-rollup.js';
 
-const IAM_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
-/** Default REST origin when env.SUPABASE_URL is unset (matches project Postgres RPC). */
+const MEMORY_KV_TTL_SEC   = 180;   // 3 minutes
+const MEMORY_TIMEOUT_MS   = 2000;  // hard cap — never blocks model call
+const MIN_WORDS_FOR_RAG   = 6;     // skip semantic search for short messages
 const SUPABASE_REST_FALLBACK = 'https://dpmuvynqixblxsilnlut.supabase.co';
 
-function supabaseRestOrigin(env) {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function supabaseOrigin(env) {
   const raw = env?.SUPABASE_URL && String(env.SUPABASE_URL).trim();
-  if (raw) return raw.replace(/\/$/, '');
-  return SUPABASE_REST_FALLBACK;
+  return raw ? raw.replace(/\/$/, '') : SUPABASE_REST_FALLBACK;
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
+function wordCount(s) {
+  return s.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function isSimpleCommand(msg) {
+  return /^(pong|ping|hi|hello|hey|yes|no|ok|okay|sure|thanks|thx|test|help)[\s!?.]*$/i.test(
+    msg.trim(),
+  );
+}
+
+function formatD1MemoryBlock(rows) {
+  if (!rows?.length) return '';
+  const lines = rows.map((r) => {
+    const t = String(r.memory_type || 'fact').toUpperCase();
+    return `[${t}] ${r.key}: ${r.value}`;
+  });
+  return `\n## Agent Memory (${lines.length} items)\n${lines.join('\n')}\n`;
+}
+
+function formatSemanticBlock(rows) {
+  if (!rows?.length) return '';
+  const lines = rows
+    .map((r) => {
+      const sim = r.similarity != null ? `[${Number(r.similarity).toFixed(2)}] ` : '';
+      const text = r.content ?? r.text ?? r.value ?? '';
+      return text ? `- ${sim}${text}` : null;
+    })
+    .filter(Boolean);
+  if (!lines.length) return '';
+  return `\n## Semantic Context (${lines.length} items)\n${lines.join('\n')}\n`;
+}
+
+// ─── KV cache ─────────────────────────────────────────────────────────────────
+
+function memoryKvKey(tenantId, workspaceId) {
+  return `agentsam_memory:${tenantId}:${workspaceId || 'global'}`;
+}
+
+async function getCachedMemory(env, tenantId, workspaceId) {
+  if (!env?.SESSION_CACHE) return null;
+  try {
+    const val = await env.SESSION_CACHE.get(memoryKvKey(tenantId, workspaceId));
+    return val ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedMemory(env, tenantId, workspaceId, value) {
+  if (!env?.SESSION_CACHE || !value) return;
+  try {
+    await env.SESSION_CACHE.put(memoryKvKey(tenantId, workspaceId), value, {
+      expirationTtl: MEMORY_KV_TTL_SEC,
+    });
+  } catch {
+    // KV write failure must never break chat
+  }
+}
+
+// ─── D1 agentsam_memory (keyword path, no embedding) ─────────────────────────
+
+async function loadD1Memory(env, tenantId, workspaceId) {
+  if (!env?.DB || !tenantId) return '';
+  try {
+    const wsClause = workspaceId
+      ? `AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id,'')) = '')`
+      : `AND (workspace_id IS NULL OR TRIM(COALESCE(workspace_id,'')) = '')`;
+    const binds = workspaceId
+      ? [String(tenantId), String(workspaceId)]
+      : [String(tenantId)];
+
+    const { results } = await env.DB.prepare(
+      `SELECT id, key, value, memory_type, confidence, decay_score
+       FROM agentsam_memory
+       WHERE tenant_id = ? ${wsClause}
+         AND decay_score > 0.3
+         AND (expires_at IS NULL OR expires_at > unixepoch())
+         AND value NOT LIKE '[STALE%'
+       ORDER BY
+         CASE memory_type
+           WHEN 'error'      THEN 1
+           WHEN 'decision'   THEN 2
+           WHEN 'fact'       THEN 3
+           WHEN 'skill'      THEN 4
+           WHEN 'preference' THEN 5
+           WHEN 'project'    THEN 6
+           ELSE 7
+         END,
+         confidence DESC, decay_score DESC
+       LIMIT 20`,
+    )
+      .bind(...binds)
+      .all();
+
+    const list = results || [];
+    if (!list.length) return '';
+
+    // Fire-and-forget recall count update
+    const ids = list.map((r) => r.id).filter(Boolean);
+    if (ids.length && env.DB) {
+      const ph = ids.map(() => '?').join(',');
+      env.DB.prepare(
+        `UPDATE agentsam_memory
+         SET recall_count    = recall_count + 1,
+             last_recalled_at = unixepoch(),
+             updated_at       = unixepoch()
+         WHERE id IN (${ph})`,
+      )
+        .bind(...ids)
+        .run()
+        .catch(() => {});
+    }
+
+    return formatD1MemoryBlock(list);
+  } catch (e) {
+    console.warn('[memory] d1_load', e?.message ?? e);
+    return '';
+  }
+}
+
+// ─── Supabase search_all_context_logged (semantic, Hyperdrive) ────────────────
+
+async function searchSupabaseContext(env, userMessage, tenantId, workspaceId, sessionId) {
+  const key = env?.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return '';
+  try {
+    const url = `${supabaseOrigin(env)}/rest/v1/rpc/search_all_context_logged`;
+    const body = JSON.stringify({
+      p_query:        userMessage.slice(0, 1000),
+      p_tenant_id:    tenantId,
+      p_workspace_id: workspaceId || null,
+      p_session_id:   sessionId   || null,
+      p_match_count:  8,
+      p_threshold:    0.72,
+    });
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:  `Bearer ${key}`,
+        apikey:         key,
+        Prefer:         'return=representation',
+      },
+      body,
+    });
+    if (!res.ok) return '';
+    const json = await res.json().catch(() => []);
+    return formatSemanticBlock(Array.isArray(json) ? json : []);
+  } catch {
+    return '';
+  }
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
+
+/**
+ * Primary entry point called by agent.js before every model dispatch.
+ *
+ * Returns a markdown block to append to the system prompt, or '' to skip.
+ * Never throws. Never blocks longer than MEMORY_TIMEOUT_MS.
+ */
+export async function loadAgentMemoryForPrompt(env, tenantId, ctx = {}) {
+  const userMessage  = ctx?.userMessage != null ? String(ctx.userMessage).trim() : '';
+  const workspaceId  = ctx?.workspaceId  != null && String(ctx.workspaceId).trim()  !== '' ? String(ctx.workspaceId).trim()  : null;
+  const sessionId    = ctx?.sessionId    != null && String(ctx.sessionId).trim()    !== '' ? String(ctx.sessionId).trim()    : null;
+
+  // Fast exits — don't touch any DB
+  if (!tenantId) return '';
+  if (!userMessage || isSimpleCommand(userMessage)) return '';
+
+  const isLongMessage = wordCount(userMessage) >= MIN_WORDS_FOR_RAG;
+
+  // KV cache hit — one read, no D1 or Supabase
+  const cached = await withTimeout(
+    getCachedMemory(env, tenantId, workspaceId),
+    300,
+  );
+  if (cached != null) return cached;
+
+  // Race both sources against the hard timeout
+  const work = async () => {
+    const parts = await Promise.all([
+      // D1 key/value facts — always fast
+      loadD1Memory(env, tenantId, workspaceId),
+      // Supabase semantic — only for longer messages
+      isLongMessage
+        ? searchSupabaseContext(env, userMessage, tenantId, workspaceId, sessionId)
+        : Promise.resolve(''),
+    ]);
+
+    const d1Block   = parts[0] || '';
+    const semBlock  = parts[1] || '';
+    const combined  = [d1Block, semBlock].filter(Boolean).join('\n');
+
+    // Write back to KV for next request (fire-and-forget)
+    if (combined) {
+      setCachedMemory(env, tenantId, workspaceId, combined).catch(() => {});
+    }
+
+    return combined || '';
+  };
+
+  try {
+    return (await withTimeout(work(), MEMORY_TIMEOUT_MS)) || '';
+  } catch {
+    return '';
+  }
 }
 
 /**
- * @param {any} env
- * @param {number[]} embedding
- * @param {string|null} sessionId
- * @param {string|null} agentId
- * @param {string|null} workspaceId
- * @returns {Promise<any[]>}
+ * Raw D1-only memory load (no embedding, no timeout) — used by crons and non-chat paths.
  */
+export async function loadAgentMemory(env, tenantId) {
+  return loadD1Memory(env, tenantId, null);
+}
+
+// ─── Supabase recallSemanticMemory (kept for backward compat, non-chat paths) ─
+
 export async function recallSemanticMemory(env, embedding, sessionId, agentId, workspaceId) {
-  const supabaseKey = env?.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseKey || !Array.isArray(embedding) || !embedding.length) return [];
-  const supabaseUrl = supabaseRestOrigin(env);
+  const key = env?.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key || !Array.isArray(embedding) || !embedding.length) return [];
   try {
-    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/recall_agent_memory`, {
-      method: 'POST',
+    const res = await fetch(`${supabaseOrigin(env)}/rest/v1/rpc/match_agent_memory`, {
+      method:  'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${supabaseKey}`,
-        apikey: supabaseKey,
+        Authorization:  `Bearer ${key}`,
+        apikey:         key,
       },
       body: JSON.stringify({
         query_embedding: embedding,
-        p_session_id: sessionId || null,
-        p_agent_id: agentId || null,
-        p_workspace_id: workspaceId || null,
-        p_limit: 10,
-        p_threshold: 0.75,
+        p_session_id:    sessionId   || null,
+        p_agent_id:      agentId     || null,
+        p_workspace_id:  workspaceId || null,
+        p_limit:         10,
+        p_threshold:     0.75,
       }),
     });
     if (!res.ok) return [];
@@ -60,200 +284,85 @@ export async function recallSemanticMemory(env, embedding, sessionId, agentId, w
   }
 }
 
-function formatSemanticRecallBlock(rows) {
-  const lines = (rows || []).map((r) => {
-    if (r == null) return '';
-    if (typeof r === 'string') return `- ${r}`;
-    const sim = r.similarity != null ? `[${Number(r.similarity).toFixed(3)}] ` : '';
-    const text =
-      r.content ?? r.text ?? r.value ?? r.memory ?? (typeof r === 'object' ? JSON.stringify(r) : String(r));
-    return `- ${sim}${text}`;
-  }).filter(Boolean);
-  if (!lines.length) return '';
-  return `\n## Agent Memory (semantic, ${lines.length} items)\n${lines.join('\n')}\n`;
-}
+// ─── Thompson routing memory write-back ───────────────────────────────────────
 
 /**
- * Semantic recall via Supabase RPC + Workers AI embedding; falls back to D1 agentsam_memory.
- * @param {any} env
- * @param {string} tenantId
- * @param {{ userMessage?: string, sessionId?: string|null, agentId?: string|null, workspaceId?: string|null }} [ctx]
+ * Called by applyRoutingArmUsageFeedback after every run to keep
+ * agentsam_model_routing_memory populated for cold-start Thompson priors.
+ *
+ * Uses INSERT OR REPLACE with an Welford running average so each row stays
+ * lightweight and never grows unbounded.
  */
-export async function loadAgentMemoryForPrompt(env, tenantId, ctx = {}) {
-  const userMessage = ctx?.userMessage != null ? String(ctx.userMessage) : '';
-  const fallback = () => loadAgentMemory(env, tenantId);
-  if (!tenantId || !userMessage.trim()) {
-    return fallback();
-  }
-
-  const workspaceId =
-    ctx.workspaceId != null && String(ctx.workspaceId).trim() !== ''
-      ? String(ctx.workspaceId).trim()
-      : null;
-
-  if (workspaceId) {
-    const tHybrid = Date.now();
-    const hybridRows = await searchAgentMemoryHybrid(env, userMessage, workspaceId, {});
-    const hybridMs = Date.now() - tHybrid;
-    const hr = Array.isArray(hybridRows) ? hybridRows : [];
-    const hybridSims = hr.map((r) => Number(r.hybrid_score)).filter((n) => Number.isFinite(n));
-    const topHybrid = hybridSims.length ? Math.max(...hybridSims) : null;
-    const avgHybrid = hybridSims.length ? hybridSims.reduce((a, b) => a + b, 0) / hybridSims.length : null;
-    await logSemanticSearch(env, {
-      searchFn: 'agent_memory_search',
-      tenantId,
-      sessionId: ctx.sessionId ?? null,
-      queryPreview: userMessage,
-      matchThreshold: 0.75,
-      matchCountRequested: 10,
-      matchCountReturned: hr.length,
-      topSimilarity: topHybrid,
-      avgSimilarity: avgHybrid,
-      sourcesHit: ['agent_memory'],
-      latencyMs: hybridMs,
-      metadata: {
-        workspace_id: workspaceId,
-        path: 'hyperdrive_search_agent_memory',
-        embed_model: ragEmbeddingModel(env) || null,
-        embedding_dims: Number.isFinite(ragEmbeddingDims(env)) ? ragEmbeddingDims(env) : null,
-      },
-    });
-    if (hr.length > 0) {
-      console.log('[rag] memory search via', 'hyperdrive');
-      const mapped = hr.map((r) => ({
-        similarity: r.hybrid_score,
-        content: r.content,
-      }));
-      const block = formatSemanticRecallBlock(mapped);
-      return block || fallback();
-    }
-  }
-
-  console.log('[rag] memory search via', 'vectorize');
-
-  if (!env?.SUPABASE_SERVICE_ROLE_KEY || !env?.AI) {
-    return fallback();
-  }
+export async function writeRoutingMemoryPrior(env, {
+  workspaceId,
+  taskType,
+  modelKey,
+  provider,
+  success,
+  latencyMs,
+  costUsd,
+}) {
+  if (!env?.DB || !workspaceId || !taskType || !modelKey) return;
   try {
-    const tRecall = Date.now();
-    const resp = await env.AI.run(IAM_EMBED_MODEL, {
-      text: [userMessage.slice(0, 8000)],
-    });
-    const vecs = resp?.data || resp?.result || [];
-    const rawEmb = vecs?.[0];
-    const queryEmbedding = Array.isArray(rawEmb)
-      ? rawEmb
-      : rawEmb != null && typeof rawEmb.length === 'number'
-        ? Array.from(rawEmb)
-        : null;
-    if (!queryEmbedding?.length) return fallback();
-    const recalled = await recallSemanticMemory(
-      env,
-      queryEmbedding,
-      ctx.sessionId ?? null,
-      ctx.agentId ?? null,
-      ctx.workspaceId ?? null,
-    );
-    const recallMs = Date.now() - tRecall;
-    const rec = Array.isArray(recalled) ? recalled : [];
-    const recSims = rec.map((r) => Number(r.similarity)).filter((n) => Number.isFinite(n));
-    const topRec = recSims.length ? Math.max(...recSims) : null;
-    const avgRec = recSims.length ? recSims.reduce((a, b) => a + b, 0) / recSims.length : null;
-    await logSemanticSearch(env, {
-      searchFn: 'agent_memory_search',
-      tenantId,
-      sessionId: ctx.sessionId ?? null,
-      queryPreview: userMessage,
-      matchThreshold: 0.75,
-      matchCountRequested: 10,
-      matchCountReturned: rec.length,
-      topSimilarity: topRec,
-      avgSimilarity: avgRec,
-      sourcesHit: ['agent_memory'],
-      latencyMs: recallMs,
-      metadata: {
-        workspace_id: workspaceId,
-        path: 'supabase_recall_agent_memory',
-        embed_model: IAM_EMBED_MODEL,
-        embedding_dims: queryEmbedding.length,
-      },
-    });
-    if (!rec.length) return fallback();
-    const block = formatSemanticRecallBlock(recalled);
-    return block || fallback();
-  } catch {
-    return fallback();
-  }
-}
+    const ws  = String(workspaceId).trim();
+    const tt  = String(taskType).trim();
+    const mk  = String(modelKey).trim();
+    const pv  = provider ? String(provider).trim() : null;
 
-export async function loadAgentMemory(env, tenantId) {
-  if (!env?.DB || !tenantId) return '';
-  try {
-    const rows = await env.DB.prepare(
-      `SELECT id, key, value, memory_type, confidence, decay_score
-       FROM agentsam_memory
-       WHERE tenant_id = ?
-         AND decay_score > 0.3
-         AND (expires_at IS NULL OR expires_at > unixepoch())
-         AND value NOT LIKE '[STALE%'
-       ORDER BY
-         CASE memory_type
-           WHEN 'error' THEN 1
-           WHEN 'decision' THEN 2
-           WHEN 'fact' THEN 3
-           WHEN 'skill' THEN 4
-           WHEN 'preference' THEN 5
-           WHEN 'project' THEN 6
-           ELSE 7
-         END,
-         confidence DESC,
-         decay_score DESC
-       LIMIT 20`,
-    )
-      .bind(String(tenantId))
-      .all();
+    // Read existing row
+    const existing = await env.DB.prepare(
+      `SELECT success_rate, avg_latency_ms, avg_cost_usd, sample_n
+       FROM agentsam_model_routing_memory
+       WHERE workspace_id = ? AND task_type = ? AND model_key = ?
+       LIMIT 1`,
+    ).bind(ws, tt, mk).first().catch(() => null);
 
-    const list = rows?.results || [];
-    if (!list.length) return '';
+    const n         = Number(existing?.sample_n ?? 0);
+    const newN      = n + 1;
+    const successVal = success ? 1.0 : 0.0;
 
-    const lines = list.map((r) => {
-      const t = String(r.memory_type || 'fact').toUpperCase();
-      return `[${t}] ${r.key}: ${r.value}`;
-    });
+    // Welford incremental mean
+    const prevSr  = Number(existing?.success_rate   ?? 0.5);
+    const prevLat = Number(existing?.avg_latency_ms ?? latencyMs ?? 0);
+    const prevCost= Number(existing?.avg_cost_usd   ?? costUsd   ?? 0);
 
-    const ids = list.map((r) => r.id).filter(Boolean);
-    if (ids.length) {
-      const ph = ids.map(() => '?').join(',');
-      env.DB.prepare(
-        `UPDATE agentsam_memory
-         SET recall_count = recall_count + 1,
-             last_recalled_at = unixepoch(),
-             updated_at = unixepoch()
-         WHERE id IN (${ph})`,
-      )
-        .bind(...ids)
-        .run()
-        .catch(() => {});
-    }
+    const newSr   = prevSr   + (successVal                   - prevSr)   / newN;
+    const newLat  = latencyMs != null ? prevLat + (latencyMs - prevLat) / newN : prevLat;
+    const newCost = costUsd   != null ? prevCost + (costUsd  - prevCost) / newN : prevCost;
 
-    return `\n## Agent Memory (${list.length} items)\n${lines.join('\n')}\n`;
+    await env.DB.prepare(
+      `INSERT INTO agentsam_model_routing_memory
+         (workspace_id, task_type, model_key, provider,
+          success_rate, avg_latency_ms, avg_cost_usd, sample_n,
+          last_evaluated_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+       ON CONFLICT(task_type, model_key, workspace_id) DO UPDATE SET
+         provider          = excluded.provider,
+         success_rate      = excluded.success_rate,
+         avg_latency_ms    = excluded.avg_latency_ms,
+         avg_cost_usd      = excluded.avg_cost_usd,
+         sample_n          = excluded.sample_n,
+         last_evaluated_at = excluded.last_evaluated_at,
+         updated_at        = excluded.updated_at`,
+    ).bind(ws, tt, mk, pv, newSr, newLat, newCost, newN).run();
   } catch (e) {
-    console.warn('[agentsam_memory] loadAgentMemory', e?.message ?? e);
-    return '';
+    // Routing memory write must never break chat
+    console.warn('[memory] writeRoutingMemoryPrior', e?.message ?? e);
   }
 }
 
-/** Snapshot agentsam_tool_call_log into agentsam_tool_stats_compacted (daily). */
+// ─── Cron / rollup exports (unchanged) ────────────────────────────────────────
+
 export async function compactAgentsamToolCallLogToStats(env) {
   if (!env?.DB) return;
-  // Delegate to canonical writer (tenant-level until migration 263 rebuilds unique key).
-  await compactToolStatsCompacted(env, {
-    includeAllTenants: true,
-    metadata: { invoked_by: 'src/core/memory.js::compactAgentsamToolCallLogToStats' },
-  }).catch(() => null);
+  await compactToolStatsCompacted(env, {});
 }
 
-/** Roll up agentsam_command_run into agentsam_execution_performance_metrics for the prior local day. */
+export { rollupExecutionPerformanceMetrics }  from './rollup-execution.js';
+export { rollupUsageEventsDaily }             from './rollup-usage.js';
+export { rollupOtlpTracesDaily }              from './rollup-traces.js';
+export { runAgentsamMemoryDecay }             from './memory-decay.js';
+export { upsertAgentsamMemory }               from './memory-upsert.js';
 export async function rollupExecutionPerformanceMetrics(env) {
   if (!env?.DB) return;
   await env.DB.prepare(
@@ -558,15 +667,3 @@ export async function upsertAgentsamMemory(env, row) {
        ) VALUES (?, ?, ?, ?, ?, ?, 'agent_sam', 1.0, 1.0, unixepoch())
        ON CONFLICT(user_id, workspace_id, key) DO UPDATE SET
          tenant_id = excluded.tenant_id,
-         value = excluded.value,
-         confidence = excluded.confidence,
-         decay_score = 1.0,
-         memory_type = excluded.memory_type,
-         updated_at = unixepoch()`,
-    )
-      .bind(tenantId, userId, workspaceId, memoryType, key, value)
-      .run();
-  } catch (e) {
-    console.warn('[agentsam_memory] upsertAgentsamMemory', e?.message ?? e);
-  }
-}
