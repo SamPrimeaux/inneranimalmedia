@@ -5,7 +5,11 @@
 import { AwsClient } from 'aws4fetch';
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
-import { runHyperdriveQuery } from '../core/hyperdrive-query.js';
+import {
+  hyperdriveNativeQueryAvailable,
+  isHyperdriveUsable,
+  runHyperdriveQuery,
+} from '../core/hyperdrive-query.js';
 
 export const RAG_CHUNK_MAX_CHARS = 600;
 export const RAG_CHUNK_OVERLAP = 80;
@@ -263,7 +267,27 @@ function vectorLiteral(vec) {
   return `[${vec.join(',')}]`;
 }
 
+/**
+ * Run SQL against Supabase Postgres via Hyperdrive.
+ * Prefers native `env.HYPERDRIVE.query` when available (no TCP `pg` in Worker);
+ * falls back to `pg` + `connectionString` for local or legacy configs.
+ * @param {any} env
+ * @param {(client: { query: (sql: string, params?: unknown[]) => Promise<{ rows?: unknown[] }> }) => Promise<unknown>} fn
+ */
 async function withPg(env, fn) {
+  if (hyperdriveNativeQueryAvailable(env)) {
+    const adapter = {
+      /**
+       * @param {string} sql
+       * @param {unknown[]} [params]
+       */
+      query: async (sql, params = []) => {
+        const result = await env.HYPERDRIVE.query(sql, params);
+        return { rows: result?.rows ?? [], rowCount: result?.rows?.length ?? 0 };
+      },
+    };
+    return await fn(adapter);
+  }
   const cs = env.HYPERDRIVE?.connectionString;
   if (!cs) throw new Error('HYPERDRIVE not configured');
   const { Client } = await import('pg');
@@ -287,7 +311,7 @@ async function withPg(env, fn) {
  * @returns {Promise<Array<{ id: unknown, content: unknown, hybrid_score?: unknown, embedding_distance?: unknown, trigram_similarity?: unknown }>|null>}
  */
 export async function searchAgentMemoryHybrid(env, query, workspaceId, options = {}) {
-  if (!env.HYPERDRIVE?.connectionString || !env.OPENAI_API_KEY) return null;
+  if (!isHyperdriveUsable(env) || !env.OPENAI_API_KEY) return null;
 
   const {
     matchLimit = 10,
@@ -584,7 +608,7 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
  */
 export async function unifiedRagSearch(env, query, opts = {}) {
   const q = String(query || '').trim();
-  if (!q || !env.HYPERDRIVE?.connectionString || !env.OPENAI_API_KEY) {
+  if (!q || !isHyperdriveUsable(env) || !env.OPENAI_API_KEY) {
     return { matches: [], results: [], count: 0, _error: 'missing_bindings' };
   }
   const topK = Math.min(Math.max(1, opts.topK || 8), 24);

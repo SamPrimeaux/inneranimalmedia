@@ -8,7 +8,7 @@
  *  2. KV cache per workspace/tenant, 3-minute TTL — warm path is one KV read
  *  3. Hard 2s Promise.race timeout — memory NEVER blocks the model call
  *  4. D1 agentsam_memory keyword match (fast, no embedding)
- *  5. Supabase search_all_context_logged via Hyperdrive (semantic, fires only for longer messages)
+ *  5. Supabase `search_all_context_logged` — Hyperdrive SQL when usable, else PostgREST RPC
  *  6. No env.AI.run embedding call ever — that killed the Worker with CPU timeouts
  *
  * Thompson routing:
@@ -18,6 +18,7 @@
 
 import { logSemanticSearch } from '../api/rag.js';
 import { compactToolStatsCompacted } from './tool-stats-rollup.js';
+import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
 
 const MEMORY_KV_TTL_SEC   = 180;   // 3 minutes
 const MEMORY_TIMEOUT_MS   = 2000;  // hard cap — never blocks model call
@@ -161,6 +162,31 @@ async function loadD1Memory(env, tenantId, workspaceId) {
 // ─── Supabase search_all_context_logged (semantic, Hyperdrive) ────────────────
 
 async function searchSupabaseContext(env, userMessage, tenantId, workspaceId, sessionId) {
+  const q = userMessage.slice(0, 1000);
+  const tid = String(tenantId || '').trim();
+  if (!tid) return '';
+
+  if (isHyperdriveUsable(env)) {
+    try {
+      const sql = `SELECT * FROM public.search_all_context_logged(
+        $1::text, $2::text, $3::text, $4::text, $5::int, $6::double precision
+      )`;
+      const r = await runHyperdriveQuery(env, sql, [
+        q,
+        tid,
+        workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
+        sessionId != null && String(sessionId).trim() !== '' ? String(sessionId).trim() : null,
+        8,
+        0.72,
+      ]);
+      if (r.ok && Array.isArray(r.rows) && r.rows.length) {
+        return formatSemanticBlock(r.rows);
+      }
+    } catch (e) {
+      console.warn('[memory] search_all_context_logged hyperdrive', e?.message ?? e);
+    }
+  }
+
   const key = env?.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) return '';
   try {
