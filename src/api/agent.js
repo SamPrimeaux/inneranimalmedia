@@ -96,6 +96,8 @@ import {
   queryRoutingArmsCandidates,
   resolveRoutingTaskType,
 } from '../core/routing.js';
+import { writeUsageEvent } from '../core/usage-event-writer.js';
+import { fireAgentHooks } from '../core/hook-dispatcher.js';
 import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
@@ -1834,7 +1836,7 @@ async function resolveAiModelFromRequest(env, body, tenantIdCtx) {
 }
 
 function normalizeGateParseFailure(originalMessage) {
-  return { intent: 'auto', rewritten_query: originalMessage, confidence: 0 };
+  return { intent: 'auto', rewritten_query: originalMessage, confidence: 0.75 };
 }
 
 async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
@@ -6067,6 +6069,43 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       }
       if (routingPick?.armId) {
         await recordArmOutcome(env, routingPick.armId, succeeded);
+        // Write usage event for rollup + billing
+        if (ctx?.waitUntil) {
+          ctx.waitUntil(
+            writeUsageEvent(env, {
+              workspace_id: workspaceId,
+              tenant_id: tenantId ?? null,
+              user_id: userId,
+              model_key: modelKey ?? null,
+              provider: routingPick?.provider ?? null,
+              arm_id: routingPick?.armId ?? null,
+              task_type: resolvedRoutingTaskType ?? 'chat',
+              mode: requestedMode ?? 'auto',
+              input_tokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+              output_tokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+              cost_usd: costUsd ?? 0,
+              duration_ms: Date.now() - chatT0,
+              succeeded,
+              conversation_id: conversationId ?? null,
+            }).catch(e => console.warn('[usage_events]', e?.message ?? e))
+          );
+          // Fire registered hooks for this run
+          ctx.waitUntil(
+            fireAgentHooks(env, ctx, 'agent_run_complete', {
+              tenant_id: tenantId ?? null,
+              workspace_id: workspaceId,
+              run_id: chatAgentRunId ?? null,
+              model_key: modelKey ?? null,
+              arm_id: routingPick?.armId ?? null,
+              succeeded,
+              task_type: resolvedRoutingTaskType ?? 'chat',
+              mode: requestedMode ?? 'auto',
+              cost_usd: costUsd ?? 0,
+              input_tokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+              output_tokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+            }).catch(e => console.warn('[hook-dispatcher]', e?.message ?? e))
+          );
+        }
         routingArmOutcomeLogged = true;
       }
 

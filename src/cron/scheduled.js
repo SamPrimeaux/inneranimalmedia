@@ -10,7 +10,7 @@ import { runWeeklyRollup } from './jobs/weekly-rollup.js';
 import { runSpendLedgerRollup } from './jobs/spend-ledger-rollup.js';
 import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
-import { runThirtyMinuteJobs } from './jobs/thirty-minute-cron.js';
+import { runThirtyMinuteJobs, runHourlyRoutingJobs } from './jobs/thirty-minute-cron.js';
 import { runWebhookPayloadPurgeCron } from './jobs/webhook-payload-purge.js';
 
 /**
@@ -29,7 +29,7 @@ export async function handleScheduled(event, env, ctx) {
 
     /** Hourly trigger is registered in wrangler but unused in legacy worker.scheduled (final block). */
     case '0 * * * *':
-      console.log('[cron] 0 * * * * reserved (no handler; legacy worker had none)');
+      await runHourlyRoutingJobs(env, ctx);
       break;
 
     case '0 0 * * *':

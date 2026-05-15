@@ -161,15 +161,19 @@ export async function runThirtyMinuteJobs(env, ctx) {
   ctx.waitUntil(
     (async () => {
       await sweepStaleCronRuns(env);
-      await reconcileRoutingArmsFromAgentRuns(env);
-      await rollupAgentsamModelRoutingMemory(env);
-      await enforceTaskSlosFromRoutingMemory(env);
-      await syncRoutingArmPauseFromDrift(env);
-      await runRoutingAnalyticsRollups(env);
+      // routing jobs moved to hourly cron
     })(),
   );
   ctx.waitUntil(sweepExpiredApprovalQueue(env));
   ctx.waitUntil(processQueues(env));
   ctx.waitUntil(runOvernightCronStep(env));
   ctx.waitUntil(sweepStaleTerminalSessions(env));
+}
+
+export async function runHourlyRoutingJobs(env, ctx) {
+  ctx.waitUntil(reconcileRoutingArmsFromAgentRuns(env).catch(e => console.warn('[cron/hourly] reconcileRoutingArms', e?.message)));
+  ctx.waitUntil(rollupAgentsamModelRoutingMemory(env).catch(e => console.warn('[cron/hourly] rollupRoutingMemory', e?.message)));
+  ctx.waitUntil(enforceTaskSlosFromRoutingMemory(env).catch(e => console.warn('[cron/hourly] enforceSlos', e?.message)));
+  ctx.waitUntil(syncRoutingArmPauseFromDrift(env).catch(e => console.warn('[cron/hourly] syncPause', e?.message)));
+  ctx.waitUntil(runRoutingAnalyticsRollups(env).catch(e => console.warn('[cron/hourly] analyticsRollup', e?.message)));
 }

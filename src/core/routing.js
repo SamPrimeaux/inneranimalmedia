@@ -1,4 +1,5 @@
 import { writeRoutingMemoryPrior } from "./memory.js";
+import { triggerEvalAfterNRuns } from './eval-runner.js';
 /**
  * Agent Sam model routing — Thompson sampling over agentsam_routing_arms (Beta bandit).
  *
