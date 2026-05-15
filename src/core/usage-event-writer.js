@@ -37,6 +37,7 @@ export async function writeUsageEvent(env, params) {
     user_id      = null,
     session_id   = null,
     routing_arm_id = null,
+    plan_id      = null,
     event_type   = 'chat',
     tokens_in    = 0,
     tokens_out   = 0,
@@ -62,14 +63,14 @@ export async function writeUsageEvent(env, params) {
         provider, model, model_key,
         tokens_in, tokens_out, total_tokens, cost_usd, duration_ms,
         event_type, tool_name, status, reason,
-        ref_table, ref_id, routing_arm_id,
+        ref_table, ref_id, routing_arm_id, plan_id,
         agent_name, created_at
       ) VALUES (
         ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?,
+        ?, ?, ?, ?,
         'agent-sam', unixepoch()
       )
     `).bind(
@@ -77,7 +78,7 @@ export async function writeUsageEvent(env, params) {
       provider, model, model_key,
       tokens_in, tokens_out, (tokens_in + tokens_out), cost_usd, duration_ms,
       event_type, tool_name, status, reason,
-      ref_table, ref_id, routing_arm_id,
+      ref_table, ref_id, routing_arm_id, plan_id
     ).run();
 
     return result?.meta?.last_row_id ?? null;
@@ -94,7 +95,7 @@ export async function writeUsageEvent(env, params) {
  */
 export async function writeUsageEventFromStream(env, {
   workspace_id, tenant_id, user_id, session_id,
-  model, model_key, provider, routing_arm_id,
+  model, model_key, provider, routing_arm_id, plan_id,
   usage,          // { input_tokens, output_tokens } from provider response
   cost_usd,       // pre-calculated by your cost estimator
   duration_ms,    // Date.now() - start_time
@@ -102,7 +103,7 @@ export async function writeUsageEventFromStream(env, {
 }) {
   return writeUsageEvent(env, {
     workspace_id, tenant_id, user_id, session_id,
-    model, model_key, provider, routing_arm_id,
+    model, model_key, provider, routing_arm_id, plan_id,
     event_type:  'chat',
     tokens_in:   usage?.input_tokens  ?? usage?.tokens_in  ?? 0,
     tokens_out:  usage?.output_tokens ?? usage?.tokens_out ?? 0,
