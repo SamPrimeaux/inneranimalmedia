@@ -250,16 +250,11 @@ export async function writeTelemetry(env, data, modelRates) {
       ).run().catch(e => console.warn('[ai_provider_usage] rollup failed:', e.message));
 
       await env.DB.prepare(`
-        INSERT INTO agentsam_usage_events (
+        INSERT OR IGNORE INTO agentsam_usage_events (
           tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status, event_type,
           ref_table, ref_id, created_at
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())
-        ON CONFLICT(ref_table, ref_id) DO UPDATE SET
-          tokens_in = tokens_in + excluded.tokens_in,
-          tokens_out = tokens_out + excluded.tokens_out,
-          total_tokens = tokens_in + excluded.tokens_in + tokens_out + excluded.tokens_out,
-          cost_usd = cost_usd + excluded.cost_usd
       `).bind(
         tidInsert,
         wsInsert,

@@ -3027,8 +3027,8 @@ const App: React.FC = () => {
         <div
           className={`fixed z-[92] max-md:left-2 max-md:right-2 pointer-events-none ${
             agentPosition === 'left'
-              ? 'md:left-auto md:right-[max(0.75rem,env(safe-area-inset-right,0px))]'
-              : 'md:right-auto md:left-[max(0.75rem,env(safe-area-inset-left,0px))]'
+              ? 'md:right-auto md:left-[max(0.75rem,env(safe-area-inset-left,0px))]'
+              : 'md:left-auto md:right-[max(0.75rem,env(safe-area-inset-right,0px))]'
           }`}
           style={{
             bottom: 'calc(3.25rem + env(safe-area-inset-bottom, 0px))',

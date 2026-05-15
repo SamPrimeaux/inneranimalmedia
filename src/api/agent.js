@@ -197,7 +197,7 @@ async function filterWorkspaceModelTierPool(env, workspaceId, chainRows) {
  */
 async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) {
   const {
-    userId, workspaceId, conversationId,
+    userId, tenantId, workspaceId, conversationId,
   } = opts;
   if (!env?.DB) return systemPrompt;
   const uid = userId != null ? String(userId).trim() : '';
