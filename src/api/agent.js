@@ -98,6 +98,7 @@ import {
 } from '../core/routing.js';
 import { writeUsageEvent } from '../core/usage-event-writer.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
+import { triggerEvalAfterNRuns } from '../core/eval-runner.js';
 import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
@@ -1847,7 +1848,7 @@ async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
   return normalizeGateParseFailure(message);
 }
 
-async function recordArmOutcome(env, armId, success) {
+async function recordArmOutcome(env, ctx, armId, success, routingInfo) {
   if (!env.DB || !armId) return;
   try {
     await env.DB.prepare(
@@ -1864,6 +1865,16 @@ async function recordArmOutcome(env, armId, success) {
     )
       .bind(success ? 1 : 0, success ? 1 : 0, success ? 1 : 0, armId)
       .run();
+
+    if (ctx?.waitUntil && routingInfo) {
+      ctx.waitUntil(triggerEvalAfterNRuns(env, ctx, {
+        armId,
+        taskType: routingInfo.taskType,
+        mode: routingInfo.mode,
+        modelKey: routingInfo.modelKey,
+        workspaceId: routingInfo.workspaceId
+      }).catch(e => console.warn('[eval] triggerEvalAfterNRuns failed:', e?.message)));
+    }
   } catch (e) {
     console.warn('[routing] recordArmOutcome failed:', e?.message);
   }
@@ -5766,9 +5777,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
       // Wire agentsam_executions start
       ctx.waitUntil?.(env.DB.prepare(`
-        INSERT INTO agentsam_executions (id, workspace_id, tenant_id, user_id, status)
-        VALUES (?, ?, ?, ?, 'running')
-      `).bind(chatAgentRunId, resolvedWorkspaceId, tenantId, userId).run().catch(() => {}));
+        INSERT INTO agentsam_executions (id, workspace_id, tenant_id, user_id, status, routing_arm_id, plan_id)
+        VALUES (?, ?, ?, ?, 'running', ?, ?)
+      `).bind(chatAgentRunId, resolvedWorkspaceId, tenantId, userId, routingArmIdForRun, body?.planId ?? body?.plan_id ?? null).run().catch(() => {}));
     }
     const runStartedAt = chatT0;
     const maxRunMsChat =
@@ -6068,7 +6079,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         });
       }
       if (routingPick?.armId) {
-        await recordArmOutcome(env, routingPick.armId, succeeded);
+        await recordArmOutcome(env, ctx, routingPick.armId, succeeded, {
+          taskType: resolvedRoutingTaskType ?? 'chat',
+          mode: requestedMode ?? 'auto',
+          modelKey: modelKey ?? lastLoopStats?.modelKey ?? fallbackModelKeys[0],
+          workspaceId: workspaceId ?? resolvedWorkspaceId
+        });
         // Write usage event for rollup + billing
         if (ctx?.waitUntil) {
           ctx.waitUntil(
@@ -6076,17 +6092,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               workspace_id: workspaceId,
               tenant_id: tenantId ?? null,
               user_id: userId,
+              session_id: conversationId ?? null,
               model_key: modelKey ?? null,
               provider: routingPick?.provider ?? null,
-              arm_id: routingPick?.armId ?? null,
-              task_type: resolvedRoutingTaskType ?? 'chat',
-              mode: requestedMode ?? 'auto',
-              input_tokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-              output_tokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+              routing_arm_id: routingPick?.armId ?? null,
+              plan_id: body?.planId ?? body?.plan_id ?? null,
+              event_type: resolvedRoutingTaskType ?? 'chat',
+              tokens_in: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+              tokens_out: lastLoopStats?.totalUsage?.output_tokens ?? 0,
               cost_usd: costUsd ?? 0,
               duration_ms: Date.now() - chatT0,
-              succeeded,
-              conversation_id: conversationId ?? null,
+              status: succeeded ? 'ok' : 'error',
             }).catch(e => console.warn('[usage_events]', e?.message ?? e))
           );
           // Fire registered hooks for this run
@@ -6273,7 +6289,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         safeDoneChat({ stream_failed: true, fatal: true });
       }
       if (routingPick?.armId && !routingArmOutcomeLogged) {
-        await recordArmOutcome(env, routingPick.armId, false);
+        await recordArmOutcome(env, ctx, routingPick.armId, false, {
+          taskType: resolvedRoutingTaskType ?? 'chat',
+          mode: requestedMode ?? 'auto',
+          modelKey: fallbackModelKeys[0],
+          workspaceId: resolvedWorkspaceId ?? ''
+        });
         routingArmOutcomeLogged = true;
       }
       scheduleAgentsamCommandRunInsert(env, ctx, {
