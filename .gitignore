@@ -111,3 +111,4 @@ __pycache__/
 # Generated site preview output
 scripts/generated-sites/
 .iam_cookie
+!.env.agentsam.example
