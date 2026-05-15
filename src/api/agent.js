@@ -4070,18 +4070,7 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   const monaco =
     /\bopen\s+monaco\b/i.test(t) ||
     /\bopen\s+(the\s+)?code\s+editor\b/i.test(t) ||
-    ((/\bopen\b/i.test(t) && /\b(the\s+)?editor\b/i.test(t)) && !/\bbrowser\b/i.test(t)) ||
-    /\bgenerate\s+(an\s+)?app\b/i.test(t) ||
-    /\bbuild\s+(an\s+)?app\b/i.test(t) ||
-    /\bscaffold\s+(an\s+)?app\b/i.test(t) ||
-    /\bcreate\s+(an\s+)?app\b/i.test(t) ||
-    /\bscaffold\s+(a\s+)?component\b/i.test(t) ||
-    /\bcreate\s+(a\s+)?component\b/i.test(t) ||
-    /\bwrite\s+(a\s+)?file\b/i.test(t) ||
-    /\bedit\s+(a\s+)?file\b/i.test(t) ||
-    /\b(task\s+tracker(\s+app)?)\b/i.test(t) ||
-    /\b(full[\s-]?stack|fullstack)\b/i.test(t) ||
-    /\b(react|frontend)\b/i.test(t);
+    ((/\bopen\b/i.test(t) && /\b(the\s+)?editor\b/i.test(t)) && !/\bbrowser\b/i.test(t) && !/\bproject\b/i.test(t));
   if (monaco) return { route: 'monaco', reason: 'agent_monaco_code_surface' };
 
   return null;
