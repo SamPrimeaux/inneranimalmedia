@@ -210,7 +210,8 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
       `SELECT id, name, content_markdown FROM agentsam_skill
        WHERE user_id = ? AND is_active = 1
          AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
-       ORDER BY sort_order ASC`,
+       ORDER BY always_apply DESC, sort_order ASC
+       LIMIT 8`,
     )
       .bind(uid, ws)
       .all();
@@ -5174,7 +5175,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const intentPattern = await loadIntentPattern(env, intentSlug);
 
-  let promptRouteRow = await resolveAgentsamPromptRoute(env, tenantId, requestedMode, intentSlug);
+  const promptRouteIntentSlug =
+    String(intentResult?.taskType || intentSlug)
+      .toLowerCase()
+      .trim() || 'auto';
+  let promptRouteRow = await resolveAgentsamPromptRoute(
+    env,
+    tenantId,
+    requestedMode,
+    promptRouteIntentSlug,
+  );
 
   const skipSimpleAskGreetingRoute =
     body?.tool_required === true ||
