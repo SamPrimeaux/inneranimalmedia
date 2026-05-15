@@ -5648,6 +5648,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     try {
       systemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, {
         userId,
+        tenantId: tenantId ?? resolvedTenantId ?? null,
         workspaceId,
         conversationId: sessionId,
       });
