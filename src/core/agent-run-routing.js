@@ -4,6 +4,7 @@
  */
 
 import { writeSupabaseRoutingDecision } from '../integrations/supabase.js';
+import { deriveProvider } from './memory.js';
 import { estimateCostUsdFromCatalog } from './model-catalog-cost.js';
 import { pragmaTableInfo } from './retention.js';
 
@@ -52,11 +53,11 @@ async function buildChatRoutingDecisionPayload(env, p) {
   const provider =
     p.provider != null && String(p.provider).trim() !== ''
       ? String(p.provider).trim()
-      : catalog?.provider != null && String(catalog.provider).trim() !== ''
-        ? String(catalog.provider).trim()
-        : arm?.provider != null && String(arm.provider).trim() !== ''
-          ? String(arm.provider).trim()
-          : 'unknown';
+      : arm?.provider != null && String(arm.provider).trim() !== ''
+        ? String(arm.provider).trim()
+        : catalog?.provider != null && String(catalog.provider).trim() !== ''
+          ? String(catalog.provider).trim()
+          : deriveProvider(selectedModel ?? arm?.model_key ?? p.modelKey) ?? 'unknown';
 
   return {
     run_group_id: runGroupId,
