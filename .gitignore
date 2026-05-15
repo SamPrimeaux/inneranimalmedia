@@ -87,16 +87,12 @@ audit_agentsam_report.json
 run_migrations.sh
 
 # Agent Sam local embed/inspection session helpers (not shipped)
-scripts/batch_embed_all.py
 scripts/chunk_agentsam_inspection.py
-scripts/chunk_and_embed_inspection.py
 scripts/consolidate_deployments.py
-scripts/embed_supabase_semantic.py
 scripts/inspect_agentsam.py
 scripts/quick_audit.py
 scripts/repo_map.py
 scripts/session_closeout.py
-scripts/smoke_embed.py
 
 # Local deploy/test reports
 iam-test-reports/
