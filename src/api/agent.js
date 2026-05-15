@@ -726,7 +726,9 @@ function inferIntentHeuristically(text) {
   const hasDeploy = is(/\b(deploy|wrangler deploy|npm run deploy|push to prod|promote|release)\b/);
   const hasSql =
     is(/\b(select|insert|update|delete|upsert|create table|drop table|alter table|migrate|from\s+\w|where\s+\w)\b/) ||
-    is(/\bd1_query|sql query\b/);
+    is(/\bd1_query|sql query\b/) ||
+    is(/\b(query|count|show me|list|fetch|retrieve|lookup|look up)\b.*\b(table|row|record|column|database|agentsam_|d1)\b/) ||
+    is(/agentsam_[a-z_]+/);
   const hasShell = is(
     /\b(run|bash|zsh|terminal|shell|pm2|npm run|pnpm|yarn run|git\s|ls\b|cat\s|chmod|curl\b)\b/,
   );
@@ -5328,7 +5330,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const toolsBuiltCount = tools.length;
 
   if (agentLikeTooling && !agentWantsToolExecution) {
-    tools = [];
+    // Only strip tools for ask/plan/context modes — agent/debug/multitask/auto always keep tools
+    // Agent Sam has 650+ tables across CF D1 + Supabase — model must decide tool use, not heuristics
+    if (['ask', 'plan', 'context'].includes(requestedMode)) {
+      tools = [];
+    }
   }
 
   const requireTools = agentLikeTooling && tools.length > 0 && agentWantsToolExecution;
