@@ -66,6 +66,29 @@ ollama_active = d1q(
 active_count = ollama_active[0]["c"] if ollama_active else 0
 check("Ollama pinstest dupes purged (≤2 active)", active_count <= 2, f"{active_count} active remaining")
 
+wf_indexes = d1q(
+    "SELECT name FROM sqlite_master WHERE type='index' AND name IN ("
+    "'uq_agentsam_wf_global_key','uq_agentsam_wf_tenant_key',"
+    "'uq_agentsam_mcpwf_global_key','uq_agentsam_mcpwf_tenant_key'"
+    ")"
+)
+idx_names = {r.get("name") for r in wf_indexes}
+check(
+    "partial unique indexes on NULL workflow tiers",
+    len(idx_names) >= 4,
+    f"found {sorted(idx_names)}",
+)
+
+bad_node_types = d1q(
+    "SELECT DISTINCT node_type FROM agentsam_workflow_nodes "
+    "WHERE node_type IN ('tool_call','agent_eval')"
+)
+check(
+    "no invalid workflow node_type (tool_call/agent_eval)",
+    len(bad_node_types) == 0,
+    str(bad_node_types) if bad_node_types else "clean",
+)
+
 # scaffold-new-worker has deploy node
 deploy_node = d1q(
     "SELECT id FROM agentsam_workflow_nodes WHERE workflow_id='wf_scaffold_new_worker' AND node_key='deploy'"

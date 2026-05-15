@@ -3,7 +3,8 @@ import requests, json, time, subprocess
 RUN_ID     = f"wrun_pintest_{int(time.time())}"
 EXEC_ID    = f"exec_pintest_{int(time.time())}"
 SESSION_ID = f"sess_pintest_{int(time.time())}"
-WF_ID      = f"wf_pintest_{int(time.time())}"
+WF_KEY     = "wf_pintest_e2e_smoke"
+WF_ID      = WF_KEY
 TENANT     = "tenant_sam_primeaux"
 WORKSPACE  = "ws_inneranimalmedia"
 MODEL      = "qwen2.5-coder:7b"
@@ -37,7 +38,7 @@ d1(f"""INSERT OR REPLACE INTO agentsam_workflows
     '{WF_ID}',
     '{TENANT}',
     '{WORKSPACE}',
-    'wf_pintest_e2e',
+    '{WF_KEY}',
     'E2E Observability Pintest',
     1,
     datetime({NOW},'unixepoch')
@@ -57,7 +58,7 @@ d1(f"""INSERT OR REPLACE INTO agentsam_workflow_runs
    trigger_type, status, started_at, environment, model_used,
    steps_completed, steps_total, input_tokens, output_tokens, cost_usd)
   VALUES (
-    '{RUN_ID}', '{WF_ID}', 'wf_pintest_e2e', 'E2E Observability Pintest',
+    '{RUN_ID}', '{WF_ID}', '{WF_KEY}', 'E2E Observability Pintest',
     '{TENANT}', '{WORKSPACE}', 'manual', 'running',
     {NOW}, 'production', '{MODEL}', 0, 5, 0, 0, 0
   )""")

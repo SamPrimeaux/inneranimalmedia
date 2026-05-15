@@ -168,6 +168,7 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
       add('workspace_id', ws);
       add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
       add('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
+      add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
       add('trigger', 'chat_sse');
       add('status', 'running');
       add('ai_model_ref', p.modelKey != null ? String(p.modelKey).slice(0, 200) : null);
@@ -267,6 +268,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         pushSet('cost_usd', costUsd);
         pushSet('error_message', p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : null);
         pushSet('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
+        pushSet('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
         pushSet('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
         if (p.workflowRunId != null && String(p.workflowRunId).trim() !== '') {
           pushSet('workflow_run_id', String(p.workflowRunId).trim().slice(0, 120));
@@ -315,6 +317,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
       add('workspace_id', ws);
       add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
       add('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
+      add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
       add('trigger', 'chat_sse');
       add('status', p.success ? 'completed' : 'failed');
       add('ai_model_ref', mk);

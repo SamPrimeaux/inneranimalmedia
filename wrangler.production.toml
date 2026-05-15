@@ -177,3 +177,10 @@ AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.clo
 [observability.logs]
 enabled = true
 invocation_logs = true
+
+[build]
+command = ""
+
+# These are Workers-native or handled via fetch — don't bundle them
+[define]
+"process.env.NODE_ENV" = '"production"'

@@ -82,7 +82,8 @@ const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
-const WorkflowsPage = lazy(() => import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
+const WorkflowsPage = lazy(() 
+const WorkflowCanvas = lazy(() => import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
 
 function DashboardRoutesFallback() {
   return (
@@ -300,6 +301,8 @@ const App: React.FC = () => {
     typeof window !== 'undefined' && window.innerWidth < 768 ? null : 'files',
   );
   const LS_SIDEBAR_RAIL = 'iam_sidebar_expanded';
+  /** User-chosen agent column side; survives reloads (not overwritten by workspace policy fetch). */
+  const LS_AGENT_POSITION = 'iam_agent_position';
   const [sidebarRailExpanded, setSidebarRailExpanded] = useState(() => {
     if (typeof window === 'undefined') return true;
     try {
@@ -311,9 +314,17 @@ const App: React.FC = () => {
     }
     return true;
   });
-  const [agentPosition, setAgentPosition] = useState<'right' | 'left' | 'off'>(() =>
-    typeof window !== 'undefined' && window.innerWidth < 768 ? 'off' : 'right',
-  );
+  const [agentPosition, setAgentPosition] = useState<'right' | 'left' | 'off'>(() => {
+    if (typeof window === 'undefined') return 'right';
+    if (window.innerWidth < 768) return 'off';
+    try {
+      const v = localStorage.getItem(LS_AGENT_POSITION);
+      if (v === 'left' || v === 'right' || v === 'off') return v;
+    } catch {
+      /* ignore */
+    }
+    return 'right';
+  });
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalDrawerH, setTerminalDrawerH] = useState(288);
   /** Mirrored from Lab shell for Output tab (build / r2 / help). */
@@ -394,6 +405,15 @@ const App: React.FC = () => {
     mq.addEventListener('change', fn);
     return () => mq.removeEventListener('change', fn);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isNarrowViewport) return;
+    try {
+      localStorage.setItem(LS_AGENT_POSITION, agentPosition);
+    } catch {
+      /* ignore */
+    }
+  }, [agentPosition, isNarrowViewport]);
 
   useEffect(() => {
     logDashboardThemeDebug();
@@ -505,9 +525,6 @@ const App: React.FC = () => {
           return;
         }
         setAgentsamChatPolicy(d.policy);
-        const loc = String(d.policy.default_agent_location || '').toLowerCase();
-        if (loc === 'pane') setAgentPosition('left');
-        else if (loc === 'sidebar') setAgentPosition('right');
         const m = Number(d.policy.max_tab_count);
         if (Number.isFinite(m) && m >= 2) maxTabsPolicyRef.current = Math.min(48, Math.max(2, Math.floor(m)));
       })
@@ -2616,7 +2633,7 @@ const App: React.FC = () => {
                       <Route path="/dashboard/health/:tab" element={<RedirectHealthToAnalytics />} />
                       <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/learn" element={<LearnPage />} />
-                      <Route path="/dashboard/workflows" element={<WorkflowsPage />} />
+                      <Route path="/dashboard/workflows" element={<WorkflowCanvas />} />
                       <Route path="/dashboard/database" element={<DatabasePage />} />
                       <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
                       <Route
