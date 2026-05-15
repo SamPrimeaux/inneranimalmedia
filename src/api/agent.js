@@ -1926,8 +1926,22 @@ async function shouldIncludeRag(env, taskType, tenantId) {
 async function resolveWorkflowForMessage(env, taskType, message, workspaceId) {
   if (!env.DB) return null;
   const t = String(message || '').toLowerCase();
+  if (userExplicitlyRequestsMonacoEditor(message)) {
+    try {
+      const wf = await env.DB.prepare(
+        `SELECT id, workflow_key, display_name, default_task_type,
+                risk_level, requires_approval
+         FROM agentsam_workflows
+         WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
+      )
+        .bind('i-am-builder-monaco')
+        .first();
+      if (wf) return wf;
+    } catch {
+      /* fall through */
+    }
+  }
   const keywordMap = [
-    [/\b(monaco|edit file|write to file|open file)\b/, 'i-am-builder-monaco'],
     [/\b(excalidraw|draw|diagram|wireframe|flowchart)\b/, 'i-am-architect-excalidraw'],
     [/\b(architect|plan|design spec)\b/, 'i-am-architect-plan'],
     [/\b(playwright|screenshot|browser test|e2e)\b/, 'i-am-inspector-playwright'],
@@ -3987,6 +4001,27 @@ async function firstActiveWorkflowKeyAmong(env, keys) {
 }
 
 /**
+ * User explicitly wants the in-dashboard Monaco / code editor surface — not generic
+ * "write a file" / "edit file" work (those use normal agent tools + file_updated UI).
+ */
+function userExplicitlyRequestsMonacoEditor(message) {
+  const raw = String(message || '').trim();
+  const t = raw.toLowerCase();
+  if (!t) return false;
+  if (/\bopen\s+monaco\b/i.test(t)) return true;
+  if (/\bopen\s+(the\s+)?code\s+editor\b/i.test(t)) return true;
+  if (/\bopen\s+the\s+editor\b/i.test(t) || /^\s*open\s+editor\s*$/i.test(raw)) return true;
+  if (
+    /\bopen\b/i.test(t) &&
+    /\b(the\s+)?editor\b/i.test(t) &&
+    !/\bbrowser\b/i.test(t) &&
+    !/\bproject\b/i.test(t)
+  )
+    return true;
+  return false;
+}
+
+/**
  * Deterministic surface → workflow routing before tool catalog / model dispatch.
  * @returns {null | { route: 'monaco' | 'browser' | 'excalidraw', reason: string }}
  */
@@ -4018,10 +4053,7 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   if (isAsk) {
     if (/\bopen\s+excalidraw\b/i.test(t)) return { route: 'excalidraw', reason: 'ask_explicit_open_excalidraw' };
     if (askBrowser) return { route: 'browser', reason: 'ask_explicit_browser_surface' };
-    if (/\bopen\s+monaco\b/i.test(t)) return { route: 'monaco', reason: 'ask_explicit_open_monaco' };
-    if (/\bopen\s+(the\s+)?code\s+editor\b/i.test(t)) return { route: 'monaco', reason: 'ask_explicit_code_editor' };
-    if (/\bopen\s+the\s+editor\b/i.test(t) || /^\s*open\s+editor\s*$/i.test(raw))
-      return { route: 'monaco', reason: 'ask_explicit_editor' };
+    if (userExplicitlyRequestsMonacoEditor(raw)) return { route: 'monaco', reason: 'ask_explicit_monaco_editor' };
     return null;
   }
 
@@ -4067,11 +4099,7 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
     (/\bhttps?:\/\/\S+/i.test(t) && /\b(inspect|debug|open\s+the\s+browser|open\s+browser|screenshot|navigate)\b/i.test(t));
   if (browser) return { route: 'browser', reason: 'agent_browser_surface' };
 
-  const monaco =
-    /\bopen\s+monaco\b/i.test(t) ||
-    /\bopen\s+(the\s+)?code\s+editor\b/i.test(t) ||
-    ((/\bopen\b/i.test(t) && /\b(the\s+)?editor\b/i.test(t)) && !/\bbrowser\b/i.test(t) && !/\bproject\b/i.test(t));
-  if (monaco) return { route: 'monaco', reason: 'agent_monaco_code_surface' };
+  if (userExplicitlyRequestsMonacoEditor(raw)) return { route: 'monaco', reason: 'agent_monaco_code_surface' };
 
   return null;
 }
