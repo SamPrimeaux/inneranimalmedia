@@ -416,6 +416,10 @@ def sha256_text(value: str) -> str:
 def ensure_psql() -> str:
     psql = shutil.which("psql")
     if not psql:
+        alt_path = "/opt/homebrew/opt/libpq/bin/psql"
+        if os.path.exists(alt_path) and os.access(alt_path, os.X_OK):
+            psql = alt_path
+    if not psql:
         raise SystemExit(
             "psql was not found. Install PostgreSQL client tools, then rerun. "
             "On macOS: brew install libpq && brew link --force libpq"
@@ -423,7 +427,7 @@ def ensure_psql() -> str:
     return psql
 
 
-def run_psql_json(database_url: str, sql: str) -> list[dict[str, Any]]:
+def run_psql_json(database_url: str, sql: str, env: dict[str, str] | None = None) -> list[dict[str, Any]]:
     psql = ensure_psql()
     wrapped = f"""
     with q as (
@@ -443,7 +447,12 @@ def run_psql_json(database_url: str, sql: str) -> list[dict[str, Any]]:
         "-c",
         wrapped,
     ]
-    proc = subprocess.run(cmd, text=True, capture_output=True)
+    
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
+
+    proc = subprocess.run(cmd, text=True, capture_output=True, env=run_env)
     if proc.returncode != 0:
         raise RuntimeError(
             "psql query failed\n\n"
@@ -728,6 +737,16 @@ def main() -> int:
         default=now_run_id(),
         help="Run id used for output folder.",
     )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Only run the preflight check, then exit.",
+    )
+    parser.add_argument(
+        "--no-write-on-error",
+        action="store_true",
+        help="Do not create the output directory or reports if preflight fails.",
+    )
     args = parser.parse_args()
 
     if not args.database_url:
@@ -736,6 +755,37 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+
+    pg_password = os.getenv("PGPASSWORD") or os.getenv("SUPABASE_DB_PASSWORD")
+    
+    has_url_password = False
+    if "://" in args.database_url and "@" in args.database_url:
+        user_pass = args.database_url.split("://", 1)[1].split("@", 1)[0]
+        if ":" in user_pass:
+            has_url_password = True
+
+    if not has_url_password and not pg_password:
+        print("Error: No database password found. Please set SUPABASE_DB_PASSWORD or PGPASSWORD, or include it in the URL.", file=sys.stderr)
+        return 1
+
+    db_env = os.environ.copy()
+    if pg_password:
+        db_env["PGPASSWORD"] = pg_password
+
+    # Preflight Check
+    try:
+        run_psql_json(args.database_url, "select 1 as preflight;", env=db_env)
+    except Exception as exc:
+        print(f"Preflight connection check failed:\n\n{exc}", file=sys.stderr)
+        if not args.no_write_on_error:
+            out_dir = Path(args.out) / args.run_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "PREFLIGHT_ERROR.md").write_text(f"# Preflight Error\n\n```text\n{exc}\n```\n", encoding="utf-8")
+        return 1
+
+    if args.preflight_only:
+        print("Preflight check passed.")
+        return 0
 
     out_dir = Path(args.out) / args.run_id
     json_dir = out_dir / "json"
@@ -752,7 +802,7 @@ def main() -> int:
     for name, sql in AUDIT_SQL.items():
         print(f"Running {name}...")
         try:
-            rows = run_psql_json(args.database_url, sql)
+            rows = run_psql_json(args.database_url, sql, env=db_env)
             all_data[name] = rows
             write_json(json_dir / f"{name}.json", rows)
             write_markdown_report(
