@@ -325,6 +325,18 @@ export async function recallSemanticMemory(env, embedding, sessionId, agentId, w
 
 // ─── Thompson routing memory write-back ───────────────────────────────────────
 
+/** Derive provider from model_key when arm/catalog provider is missing. */
+export function deriveProvider(modelKey, fallback = null) {
+  if (!modelKey) return fallback;
+  const k = modelKey.toLowerCase();
+  if (k.startsWith('gpt-') || k.startsWith('o1') || k.startsWith('o3') || k.startsWith('o4')) return 'openai';
+  if (k.startsWith('claude-')) return 'anthropic';
+  if (k.startsWith('gemini-')) return 'google';
+  if (k.startsWith('llama') || k.startsWith('wai-') || k.startsWith('@cf/')) return 'workers_ai';
+  if (k.startsWith('qwen') || k.includes('deepseek')) return 'ollama';
+  return fallback;
+}
+
 /**
  * Called by applyRoutingArmUsageFeedback after every run to keep
  * agentsam_model_routing_memory populated for cold-start Thompson priors.
@@ -349,7 +361,7 @@ export async function writeRoutingMemoryPrior(env, {
     const pv =
       provider != null && String(provider).trim() !== ''
         ? String(provider).trim()
-        : 'unknown';
+        : deriveProvider(mk) ?? 'unknown';
 
     // Read existing row
     const existing = await env.DB.prepare(
