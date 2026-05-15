@@ -3176,6 +3176,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       const useOpenAIResponses = platform === 'openai_responses' || platform === 'responses';
       const useOpenAIChatCompletions =
         platform === 'openai' || platform === 'openai_chat_completions';
+      const useOpenAiShapedToolStream =
+        tools.length > 0 &&
+        (useOpenAIChatCompletions || platform === 'gemini_api');
 
       const applyNormalizedOpenAI = (parsed) => {
         const textBlock = assistantContent[assistantContent.length - 1];
@@ -3203,7 +3206,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         }
         applyNormalizedOpenAI(parsed);
         if (parsed.responseId) openaiPreviousResponseId = parsed.responseId;
-      } else if (stream.body && useOpenAIChatCompletions && tools.length > 0) {
+      } else if (stream.body && useOpenAiShapedToolStream) {
         assistantContent.push({ type: 'text', text: '' });
         const parsed = await consumeOpenAIChatCompletionsSse(stream.body, emit);
         applyNormalizedOpenAI(parsed);
@@ -6106,7 +6109,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             }),
             maxRunMsChat + 5000
           );
-          if (textEmitted <= 0) throw new Error('empty_stream');
+          if (textEmitted <= 0 && (lastLoopStats?.toolCallsUsed ?? 0) === 0) {
+            throw new Error('empty_stream');
+          }
           succeeded = true;
           lastAssistantStreamText = streamAccum;
           
