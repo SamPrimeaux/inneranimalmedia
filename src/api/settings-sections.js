@@ -439,8 +439,11 @@ async function getDocs(env, authUser, workspaceId) {
   const ruleDocs = await safeQueryAll(
     db,
     'agentsam_rules_document',
-    `SELECT id, title, scope, is_active, updated_at FROM agentsam_rules_document ORDER BY COALESCE(updated_at, id) DESC LIMIT 50`,
-    [],
+    `SELECT id, title, scope, is_active, updated_at FROM agentsam_rules_document
+      WHERE (workspace_id = ? OR workspace_id IS NULL)
+        AND (user_id = ? OR user_id IS NULL)
+      ORDER BY COALESCE(updated_at, id) DESC LIMIT 50`,
+    [wsId, String(authUser?.id || '')],
     warnings,
     cache,
   );

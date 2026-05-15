@@ -233,9 +233,10 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
       `SELECT title, body_markdown FROM agentsam_rules_document
        WHERE is_active = 1
          AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+         AND (user_id = ? OR user_id IS NULL)
        ORDER BY updated_at DESC`,
     )
-      .bind(ws)
+      .bind(ws, uid)
       .all();
     const rules = rRes.results || [];
     if (rules.length) {

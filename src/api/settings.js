@@ -2669,10 +2669,12 @@ export async function handleSettingsRequest(request, env, ctx) {
     const storedUserId = canonicalAuthId || sessionUserId;
     const { results } = await env.DB.prepare(
       `SELECT * FROM agentsam_rules_document
-       WHERE (user_id = ? OR user_id IS NULL) AND COALESCE(is_active, 1) = 1
+       WHERE (user_id = ? OR user_id IS NULL)
+         AND (workspace_id = ? OR workspace_id IS NULL)
+         AND COALESCE(is_active, 1) = 1
        ORDER BY datetime(updated_at) DESC`,
     )
-      .bind(String(storedUserId))
+      .bind(String(storedUserId), String(wsId))
       .all()
       .catch(() => ({ results: [] }));
     return jsonResponse({ rules: results || [] });
@@ -2704,9 +2706,11 @@ export async function handleSettingsRequest(request, env, ctx) {
       await env.DB.prepare(
         `UPDATE agentsam_rules_document
          SET ${sets.join(', ')}, updated_at = datetime('now')
-         WHERE id = ?`,
+         WHERE id = ?
+           AND workspace_id = ?
+           AND user_id = ?`,
       )
-        .bind(...vals, id)
+        .bind(...vals, id, String(wsId), String(canonicalAuthId || sessionUserId))
         .run();
       return jsonResponse({ ok: true });
     }
