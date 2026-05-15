@@ -1,10 +1,92 @@
 /**
- * Persist chat SSE runs to agentsam_agent_run (replaces routing_decisions writes).
+ * Persist chat SSE runs to agentsam_agent_run; mirrors routing decisions to Supabase.
  * Uses PRAGMA table_info for forward-compatible inserts/updates.
  */
 
+import { writeSupabaseRoutingDecision } from '../integrations/supabase.js';
 import { estimateCostUsdFromCatalog } from './model-catalog-cost.js';
 import { pragmaTableInfo } from './retention.js';
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} p
+ */
+async function buildChatRoutingDecisionPayload(env, p) {
+  const runGroupId = p.run_group_id ?? p.runGroupId ?? p.runId ?? null;
+  const tenantId = p.tenantId != null ? String(p.tenantId).trim() : null;
+  const workspaceId = p.workspaceId != null ? String(p.workspaceId).trim() : null;
+  const selectedModel =
+    p.selectedModel != null
+      ? String(p.selectedModel)
+      : p.modelKey != null
+        ? String(p.modelKey)
+        : null;
+
+  let arm = null;
+  const armId = p.routingArmId != null ? String(p.routingArmId).trim() : '';
+  if (armId && env?.DB) {
+    try {
+      arm = await env.DB.prepare(
+        `SELECT task_type, provider, model_key FROM agentsam_routing_arms WHERE id = ? LIMIT 1`,
+      )
+        .bind(armId)
+        .first();
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+
+  let catalog = null;
+  if (selectedModel && env?.DB) {
+    try {
+      catalog = await env.DB.prepare(
+        `SELECT provider, api_platform FROM agentsam_ai_models WHERE model_key = ? LIMIT 1`,
+      )
+        .bind(selectedModel.slice(0, 200))
+        .first();
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+
+  const provider =
+    p.provider != null && String(p.provider).trim() !== ''
+      ? String(p.provider).trim()
+      : catalog?.provider != null && String(catalog.provider).trim() !== ''
+        ? String(catalog.provider).trim()
+        : arm?.provider != null && String(arm.provider).trim() !== ''
+          ? String(arm.provider).trim()
+          : 'unknown';
+
+  return {
+    run_group_id: runGroupId,
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    task_type: p.taskType ?? p.task_type ?? arm?.task_type ?? null,
+    mode: p.mode ?? null,
+    intent: p.intent ?? null,
+    requested_model: p.requestedModel ?? p.requested_model ?? null,
+    resolved_requested_model: p.resolvedRequestedModel ?? p.resolved_requested_model ?? null,
+    selected_model: selectedModel ?? arm?.model_key ?? null,
+    provider,
+    api_platform: p.apiPlatform ?? p.api_platform ?? catalog?.api_platform ?? null,
+    tools_required: p.requiresTools ?? p.tools_required ?? false,
+    supports_tools_required: p.modelSupportsTools ?? p.supports_tools_required ?? true,
+    routing_strategy: p.routingStrategy ?? p.routing_strategy ?? 'default',
+    routing_arm_id: armId || null,
+    override_happened: p.overrideHappened ?? p.override_happened ?? false,
+    override_reason: p.overrideReason ?? p.override_reason ?? null,
+    fallback_used: p.fallbackUsed ?? p.fallback_used ?? false,
+    fallback_reason: p.fallbackReason ?? p.fallback_reason ?? null,
+    estimated_cost_usd: p.estimatedCostUsd ?? p.estimated_cost_usd ?? 0,
+    success: p.success !== false,
+    latency_ms: p.routingLatencyMs ?? p.latency_ms ?? null,
+    plan_id: p.planId ?? p.plan_id ?? null,
+    task_id: p.taskId ?? p.task_id ?? null,
+    source_tool: p.sourceTool ?? p.source_tool ?? 'agent_chat',
+    metadata: p.metadata && typeof p.metadata === 'object' ? p.metadata : {},
+  };
+}
 
 export function newChatAgentRunId() {
   return `arun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -28,6 +110,28 @@ export function newChatAgentRunId() {
  *   personUuid?: string | null,
  *   commandId?: string | null,
  *   workSessionId?: string | null,
+ *   run_group_id?: string | null,
+ *   taskType?: string | null,
+ *   mode?: string | null,
+ *   intent?: string | null,
+ *   requestedModel?: string | null,
+ *   resolvedRequestedModel?: string | null,
+ *   selectedModel?: string | null,
+ *   provider?: string | null,
+ *   apiPlatform?: string | null,
+ *   requiresTools?: boolean,
+ *   modelSupportsTools?: boolean,
+ *   routingStrategy?: string | null,
+ *   overrideHappened?: boolean,
+ *   overrideReason?: string | null,
+ *   fallbackUsed?: boolean,
+ *   fallbackReason?: string | null,
+ *   estimatedCostUsd?: number,
+ *   routingLatencyMs?: number | null,
+ *   planId?: string | null,
+ *   taskId?: string | null,
+ *   sourceTool?: string | null,
+ *   metadata?: Record<string, unknown>,
  * }} p
  */
 export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
@@ -36,6 +140,10 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
   const ws = p.workspaceId != null ? String(p.workspaceId).trim() : '';
   const rid = p.runId != null ? String(p.runId).trim() : '';
   if (!uid || !ws || !rid) return;
+
+  buildChatRoutingDecisionPayload(env, p)
+    .then((routingDecisionPayload) => writeSupabaseRoutingDecision(env, routingDecisionPayload))
+    .catch(() => {});
 
   ctx.waitUntil(
     (async () => {

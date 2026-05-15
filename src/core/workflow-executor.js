@@ -724,7 +724,13 @@ export async function executeWorkflowGraph(env, opts) {
     onStep = null,
     onStream = null,
     onRunCreated = null,
+    run_group_id: optsRunGroupId,
   } = opts;
+
+  const runGroupId =
+    optsRunGroupId ??
+    opts?.run_group_id ??
+    ('rg_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16));
 
   if (!env.DB) return { ok: false, error: 'DB not available' };
 
@@ -779,6 +785,7 @@ export async function executeWorkflowGraph(env, opts) {
   await env.DB.prepare(
     `INSERT INTO agentsam_workflow_runs (
       id, workflow_id, workflow_key, tenant_id, workspace_id,
+      run_group_id,
       user_id, user_email, trigger_type, status,
       input_json, output_json, step_results_json, metadata_json,
       steps_total, steps_completed, environment,
@@ -786,6 +793,7 @@ export async function executeWorkflowGraph(env, opts) {
       started_at, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?,
+      ?,
       ?, ?, ?, 'running',
       ?, '{}', '[]', '{}',
       ?, 0, 'production',
@@ -799,6 +807,7 @@ export async function executeWorkflowGraph(env, opts) {
       workflowKey,
       tenantId,
       workspaceId,
+      runGroupId,
       userId ?? null,
       userEmail ?? null,
       triggerType,

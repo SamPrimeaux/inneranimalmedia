@@ -346,7 +346,10 @@ export async function writeRoutingMemoryPrior(env, {
     const ws  = String(workspaceId).trim();
     const tt  = String(taskType).trim();
     const mk  = String(modelKey).trim();
-    const pv  = provider ? String(provider).trim() : null;
+    const pv =
+      provider != null && String(provider).trim() !== ''
+        ? String(provider).trim()
+        : 'unknown';
 
     // Read existing row
     const existing = await env.DB.prepare(
@@ -397,43 +400,7 @@ export async function compactAgentsamToolCallLogToStats(env) {
   await compactToolStatsCompacted(env, {});
 }
 
-export async function rollupExecutionPerformanceMetrics(env) {
-  if (!env?.DB) return;
-  await env.DB.prepare(
-    `INSERT INTO agentsam_execution_performance_metrics
-      (id, tenant_id, workspace_id, metric_date, metric_grain, source_table,
-       command_id, command_slug,
-       execution_count, success_count, failure_count,
-       avg_duration_ms, min_duration_ms, max_duration_ms,
-       success_rate_percent, total_tokens_consumed, total_cost_usd, total_cost_cents,
-       last_computed_at)
-     SELECT
-       'epm_' || lower(hex(randomblob(8))),
-       w.tenant_id,
-       acr.workspace_id,
-       date('now', '-1 day'),
-       'daily',
-       'agentsam_command_run',
-       acr.selected_command_id,
-       acr.selected_command_slug,
-       COUNT(*),
-       SUM(CASE WHEN acr.success=1 THEN 1 ELSE 0 END),
-       SUM(CASE WHEN acr.success=0 THEN 1 ELSE 0 END),
-       AVG(acr.duration_ms),
-       MIN(acr.duration_ms),
-       MAX(acr.duration_ms),
-       ROUND(AVG(acr.success)*100, 2),
-       SUM(COALESCE(acr.input_tokens, 0) + COALESCE(acr.output_tokens, 0)),
-       SUM(COALESCE(acr.cost_usd, 0)),
-       SUM(COALESCE(acr.cost_usd, 0) * 100),
-       unixepoch()
-     FROM agentsam_command_run acr
-     INNER JOIN agentsam_workspace w ON w.id = acr.workspace_id
-     WHERE acr.selected_command_id IS NOT NULL
-       AND acr.created_at >= unixepoch('now', '-1 day')
-       AND acr.created_at < unixepoch('now')
-     GROUP BY w.tenant_id, acr.workspace_id, acr.selected_command_id, acr.selected_command_slug
-     ON CONFLICT(
+const EPM_ON_CONFLICT = `ON CONFLICT(
        tenant_id,
        workspace_id,
        metric_date,
@@ -453,17 +420,173 @@ export async function rollupExecutionPerformanceMetrics(env) {
        execution_count = excluded.execution_count,
        success_count = excluded.success_count,
        failure_count = excluded.failure_count,
+       timeout_count = COALESCE(excluded.timeout_count, timeout_count),
        avg_duration_ms = excluded.avg_duration_ms,
        min_duration_ms = excluded.min_duration_ms,
        max_duration_ms = excluded.max_duration_ms,
        success_rate_percent = excluded.success_rate_percent,
+       failure_rate_percent = COALESCE(excluded.failure_rate_percent, failure_rate_percent),
        total_tokens_consumed = excluded.total_tokens_consumed,
+       input_tokens = COALESCE(excluded.input_tokens, input_tokens),
+       output_tokens = COALESCE(excluded.output_tokens, output_tokens),
        total_cost_usd = excluded.total_cost_usd,
+       avg_cost_usd = COALESCE(excluded.avg_cost_usd, avg_cost_usd),
        total_cost_cents = excluded.total_cost_cents,
-       last_computed_at = unixepoch()`,
-  )
-    .run()
-    .catch((e) => console.warn('[cron] agentsam_execution_performance_metrics', e?.message ?? e));
+       sla_breach_count = COALESCE(excluded.sla_breach_count, sla_breach_count),
+       sla_breach_rate_percent = COALESCE(excluded.sla_breach_rate_percent, sla_breach_rate_percent),
+       last_computed_at = unixepoch()`;
+
+/** Daily grain: command runs (scoped), agent runs, and unscoped command runs → execution_performance_metrics. */
+export async function rollupExecutionPerformanceMetrics(env) {
+  if (!env?.DB) return;
+  const dayStart = `unixepoch('now', '-1 day')`;
+  const dayEnd = `unixepoch('now')`;
+  const metricDate = `date('now', '-1 day')`;
+
+  const statements = [
+    env.DB.prepare(
+      `INSERT INTO agentsam_execution_performance_metrics
+      (id, tenant_id, workspace_id, metric_date, metric_grain, source_table,
+       command_id, command_slug,
+       execution_count, success_count, failure_count,
+       avg_duration_ms, min_duration_ms, max_duration_ms,
+       success_rate_percent, total_tokens_consumed, total_cost_usd, total_cost_cents,
+       last_computed_at)
+     SELECT
+       'epm_' || lower(hex(randomblob(8))),
+       w.tenant_id,
+       acr.workspace_id,
+       ${metricDate},
+       'daily',
+       'agentsam_command_run',
+       acr.selected_command_id,
+       acr.selected_command_slug,
+       COUNT(*),
+       SUM(CASE WHEN acr.success=1 THEN 1 ELSE 0 END),
+       SUM(CASE WHEN acr.success=0 THEN 1 ELSE 0 END),
+       AVG(acr.duration_ms),
+       MIN(acr.duration_ms),
+       MAX(acr.duration_ms),
+       ROUND(AVG(acr.success)*100, 2),
+       SUM(COALESCE(acr.input_tokens, 0) + COALESCE(acr.output_tokens, 0)),
+       SUM(COALESCE(acr.cost_usd, 0)),
+       SUM(COALESCE(acr.cost_usd, 0) * 100),
+       unixepoch()
+     FROM agentsam_command_run acr
+     INNER JOIN agentsam_workspace w ON w.id = acr.workspace_id
+     WHERE acr.selected_command_id IS NOT NULL
+       AND acr.created_at >= ${dayStart}
+       AND acr.created_at < ${dayEnd}
+     GROUP BY w.tenant_id, acr.workspace_id, acr.selected_command_id, acr.selected_command_slug
+     ${EPM_ON_CONFLICT}`,
+    ),
+    env.DB.prepare(
+      `INSERT INTO agentsam_execution_performance_metrics
+      (id, tenant_id, workspace_id, metric_date, metric_grain, source_table,
+       model_key, intent_category,
+       execution_count, success_count, failure_count, timeout_count,
+       avg_duration_ms, min_duration_ms, max_duration_ms,
+       total_tokens_consumed, input_tokens, output_tokens,
+       total_cost_usd, avg_cost_usd, total_cost_cents,
+       success_rate_percent, failure_rate_percent,
+       sla_breach_count, sla_breach_rate_percent,
+       last_computed_at)
+     SELECT
+       'epm_' || lower(hex(randomblob(8))),
+       COALESCE(NULLIF(trim(ar.tenant_id), ''), 'platform'),
+       COALESCE(ar.workspace_id, ''),
+       ${metricDate},
+       'daily',
+       'mixed',
+       COALESCE(ar.model_id, ''),
+       COALESCE(ar.task_type, ''),
+       COUNT(*),
+       SUM(CASE WHEN ar.status = 'completed' THEN 1 ELSE 0 END),
+       SUM(CASE WHEN ar.status = 'failed' THEN 1 ELSE 0 END),
+       SUM(COALESCE(ar.timed_out, 0)),
+       ROUND(AVG(
+         CASE WHEN ar.completed_at IS NOT NULL AND ar.started_at IS NOT NULL
+           THEN (julianday(ar.completed_at) - julianday(ar.started_at)) * 86400000
+           ELSE NULL END
+       )),
+       CAST(MIN(
+         CASE WHEN ar.completed_at IS NOT NULL AND ar.started_at IS NOT NULL
+           THEN (julianday(ar.completed_at) - julianday(ar.started_at)) * 86400000
+           ELSE NULL END
+       ) AS INTEGER),
+       CAST(MAX(
+         CASE WHEN ar.completed_at IS NOT NULL AND ar.started_at IS NOT NULL
+           THEN (julianday(ar.completed_at) - julianday(ar.started_at)) * 86400000
+           ELSE NULL END
+       ) AS INTEGER),
+       SUM(COALESCE(ar.input_tokens, 0) + COALESCE(ar.output_tokens, 0)),
+       SUM(COALESCE(ar.input_tokens, 0)),
+       SUM(COALESCE(ar.output_tokens, 0)),
+       ROUND(SUM(COALESCE(ar.cost_usd, 0)), 6),
+       ROUND(AVG(COALESCE(ar.cost_usd, 0)), 6),
+       ROUND(SUM(COALESCE(ar.cost_usd, 0)) * 100, 4),
+       ROUND(100.0 * SUM(CASE WHEN ar.status = 'completed' THEN 1 ELSE 0 END) / COUNT(*), 2),
+       ROUND(100.0 * SUM(CASE WHEN ar.status = 'failed' THEN 1 ELSE 0 END) / COUNT(*), 2),
+       SUM(COALESCE(ar.sla_breach, 0)),
+       ROUND(100.0 * SUM(COALESCE(ar.sla_breach, 0)) / COUNT(*), 2),
+       unixepoch()
+     FROM agentsam_agent_run ar
+     WHERE date(ar.created_at) = ${metricDate}
+     GROUP BY
+       COALESCE(NULLIF(trim(ar.tenant_id), ''), 'platform'),
+       COALESCE(ar.workspace_id, ''),
+       COALESCE(ar.model_id, ''),
+       COALESCE(ar.task_type, '')
+     ${EPM_ON_CONFLICT}`,
+    ),
+    env.DB.prepare(
+      `INSERT INTO agentsam_execution_performance_metrics
+      (id, tenant_id, workspace_id, metric_date, metric_grain, source_table,
+       model_key, intent_category,
+       execution_count, success_count, failure_count,
+       avg_duration_ms, min_duration_ms, max_duration_ms,
+       total_tokens_consumed, total_cost_usd, avg_cost_usd, total_cost_cents,
+       success_rate_percent, failure_rate_percent,
+       last_computed_at)
+     SELECT
+       'epm_' || lower(hex(randomblob(8))),
+       COALESCE(NULLIF(trim(w.tenant_id), ''), 'platform'),
+       acr.workspace_id,
+       ${metricDate},
+       'daily',
+       'mixed',
+       COALESCE(acr.model_id, ''),
+       COALESCE(acr.intent_category, acr.normalized_intent, ''),
+       COUNT(*),
+       SUM(CASE WHEN acr.success = 1 THEN 1 ELSE 0 END),
+       SUM(CASE WHEN acr.success = 0 THEN 1 ELSE 0 END),
+       ROUND(AVG(acr.duration_ms)),
+       MIN(acr.duration_ms),
+       MAX(acr.duration_ms),
+       SUM(COALESCE(acr.input_tokens, 0) + COALESCE(acr.output_tokens, 0)),
+       ROUND(SUM(COALESCE(acr.cost_usd, 0)), 6),
+       ROUND(AVG(COALESCE(acr.cost_usd, 0)), 6),
+       ROUND(SUM(COALESCE(acr.cost_usd, 0)) * 100, 4),
+       ROUND(100.0 * SUM(CASE WHEN acr.success = 1 THEN 1 ELSE 0 END) / COUNT(*), 2),
+       ROUND(100.0 * SUM(CASE WHEN acr.success = 0 THEN 1 ELSE 0 END) / COUNT(*), 2),
+       unixepoch()
+     FROM agentsam_command_run acr
+     INNER JOIN agentsam_workspace w ON w.id = acr.workspace_id
+     WHERE acr.selected_command_id IS NULL
+       AND acr.created_at >= ${dayStart}
+       AND acr.created_at < ${dayEnd}
+     GROUP BY
+       COALESCE(NULLIF(trim(w.tenant_id), ''), 'platform'),
+       acr.workspace_id,
+       COALESCE(acr.model_id, ''),
+       COALESCE(acr.intent_category, acr.normalized_intent, '')
+     ${EPM_ON_CONFLICT}`,
+    ),
+  ];
+
+  for (const stmt of statements) {
+    await stmt.run().catch((e) => console.warn('[cron] agentsam_execution_performance_metrics', e?.message ?? e));
+  }
 }
 
 /** Roll up yesterday's agentsam_usage_events into agentsam_usage_rollups_daily (midnight UTC cron). */
