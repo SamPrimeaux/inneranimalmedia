@@ -581,7 +581,7 @@ function isSimpleAskMessage(message = "") {
 }
 
 /** Workers AI embed for Vectorize lane queries (must match index dimensions). */
-const VECTOR_CONTEXT_EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
+const VECTOR_CONTEXT_EMBED_MODEL = '@cf/baai/bge-m3';
 
 /**
  * Query Vectorize for semantically relevant context before building system prompt.
