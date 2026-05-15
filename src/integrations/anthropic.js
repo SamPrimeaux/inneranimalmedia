@@ -72,8 +72,10 @@ export function buildAnthropicMessagesTools(tools, opts = {}) {
   });
 
   const codeTool = codeExecOff ? null : anthropicCodeExecutionToolForModel(modelKey);
-  const head = [TOOL_SEARCH_BM25, ...(codeTool ? [codeTool] : [])];
-  return [...head, ...mapped];
+  // Domain tools first (d1_query, terminal, github, r2), code execution last
+  // Model picks the right tool — not biased by position
+  const tail = codeTool ? [codeTool] : [];
+  return [TOOL_SEARCH_BM25, ...mapped, ...tail];
 }
 
 /**
