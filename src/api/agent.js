@@ -595,21 +595,25 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     } catch (_) {}
   }
 
-  const minimalAsk =
-    Number(promptRouteRow?.max_tools ?? 8) === 0 &&
-    Number(promptRouteRow?.include_rag ?? 1) === 0 &&
-    Number(promptRouteRow?.include_active_plan ?? 1) === 0 &&
-    Number(promptRouteRow?.include_recent_memory ?? 1) === 0 &&
-    Number(promptRouteRow?.include_workspace_ctx ?? 1) === 0;
+  const routeDerivedMinimal =
+    promptRouteRow &&
+    Number(promptRouteRow.max_tools ?? 8) === 0 &&
+    Number(promptRouteRow.include_rag ?? 1) === 0 &&
+    Number(promptRouteRow.include_active_plan ?? 1) === 0 &&
+    Number(promptRouteRow.include_recent_memory ?? 1) === 0 &&
+    Number(promptRouteRow.include_workspace_ctx ?? 1) === 0;
+
+  const minimalAsk = Boolean(options?.minimalAsk) || Boolean(routeDerivedMinimal);
 
   try {
     const layerKeys = (() => {
       if (promptRouteRow?.prompt_layer_keys) {
         try {
           const parsed = JSON.parse(promptRouteRow.prompt_layer_keys);
-          if (Array.isArray(parsed)) return parsed;
+          if (Array.isArray(parsed) && parsed.length) return parsed;
         } catch { /* fall through */ }
       }
+      if (minimalAsk) return ['core_identity'];
       // Default layers for mode
       const base = ['core_identity', 'db_safety', 'security', 'tool_loop'];
       if (['build', 'deploy', 'agent'].includes(mode)) base.push('deploy_safety');
@@ -625,7 +629,7 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
       if (platformTid && tenantId && tenantId !== platformTid) layerKeys.push('client_work');
     }
 
-    if (!layerKeys.includes('company_no_emojis')) layerKeys.push('company_no_emojis');
+    if (!minimalAsk && !layerKeys.includes('company_no_emojis')) layerKeys.push('company_no_emojis');
 
     // Pipeline flags from promptRouteRow
     const includeActivePlan  = Number(promptRouteRow?.include_active_plan  ?? 1) === 1;
@@ -761,13 +765,15 @@ function inferIntentHeuristically(text) {
 }
 
 async function classifyIntent(_env, lastMessageText) {
-  const { taskType, mode } = inferIntentHeuristically(lastMessageText);
+  const { taskType: rawTt, mode } = inferIntentHeuristically(lastMessageText);
+  const taskType =
+    rawTt != null && String(rawTt).trim() !== '' ? String(rawTt).trim() : 'chat';
   const legacyMap = {
     sql_d1_generation: 'sql',
     terminal_execution: 'shell',
     code: 'shell',
   };
-  return { intent: legacyMap[taskType] ?? 'question', taskType, mode };
+  return { intent: legacyMap[taskType] ?? 'question', taskType, mode: mode || 'agent' };
 }
 
 /** Heuristic capability families for merging registry tools before routing (runs before nano capability router). */
@@ -1837,6 +1843,35 @@ async function resolveAiModelFromRequest(env, body, tenantIdCtx) {
     /* fallthrough */
   }
   return { row: null, rawRequestedKey: rawKey || null, rawRequestedId: rawId || null };
+}
+
+/** Ask SSE fast path: body/catalog first, then agentsam_prompt_routes models, then tenant default. */
+async function resolveAskFastModelKey(env, body, tenantId, promptRouteRow) {
+  const { row } = await resolveAiModelFromRequest(env, body, tenantId);
+  if (row?.model_key) return String(row.model_key).trim();
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  if (!tid || !env?.DB) return 'gemini-2.5-flash';
+  try {
+    if (promptRouteRow?.preferred_model) {
+      const pref = String(promptRouteRow.preferred_model).trim();
+      if (pref) {
+        const pr = await resolveAgentsamAiRowByModelKey(env, tid, pref);
+        if (pr?.model_key) return String(pr.model_key).trim();
+      }
+    }
+    if (promptRouteRow?.fallback_model) {
+      const fb = String(promptRouteRow.fallback_model).trim();
+      if (fb) {
+        const fr = await resolveAgentsamAiRowByModelKey(env, tid, fb);
+        if (fr?.model_key) return String(fr.model_key).trim();
+      }
+    }
+  } catch (_) {
+    /* fall through */
+  }
+  const def = await resolveDefaultModel(env, tid);
+  if (def) return String(def).trim();
+  return 'gemini-2.5-flash';
 }
 
 function normalizeGateParseFailure(originalMessage) {
@@ -4619,8 +4654,8 @@ function normalizeAgentRuntimeMode(raw) {
 }
 
 /**
- * Ask-mode fast path: fixed system prompt, empty tools, no routing/memory/RAG pipeline.
- * Caller must pass `request` on opts (Worker fetch API Request).
+ * Ask-mode fast path: no tools; system prompt + model from D1 (`buildSystemPrompt`,
+ * `agentsam_prompt_routes`, `agentsam_ai` / defaults). Caller must pass `request` on opts.
  */
 async function agentChatDirectSseHandler(env, ctx, opts) {
   const request = opts.request;
@@ -4632,9 +4667,7 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
   const systemPrompt =
     String(opts.systemPrompt || '').trim() ||
     'You are Agent Sam, an AI assistant for Inner Animal Media. Be direct, concise, and helpful.';
-  const modelKey = String(
-    opts.modelKey ?? opts.model_key ?? opts.model ?? 'gemini-2.5-flash',
-  ).trim();
+  const modelKey = String(opts.modelKey ?? opts.model_key ?? opts.model ?? '').trim();
   if (!modelKey) return jsonResponse({ error: 'model_key required' }, 400);
 
   const workspaceId = opts.workspaceId;
@@ -4644,12 +4677,21 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
     opts.conversationId || opts.session_id || opts.sessionId || null;
 
   const userPolicy = await loadAgentSamUserPolicy(env, userId, workspaceId);
+  const loadedMc = opts.modeConfig && typeof opts.modeConfig === 'object' ? opts.modeConfig : {};
   const modeConfig = {
-    temperature: 0.7,
-    max_runtime_ms: 120000,
-    max_turns: 4,
+    ...loadedMc,
     max_tool_calls: 0,
   };
+
+  const intentResult =
+    opts.intentResult && typeof opts.intentResult === 'object' ? opts.intentResult : {};
+  const promptRouteRow =
+    opts.promptRouteRow && typeof opts.promptRouteRow === 'object' ? opts.promptRouteRow : null;
+  const routeKey =
+    promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
+      ? String(promptRouteRow.route_key).trim()
+      : null;
+  const routingTaskType = String(intentResult?.taskType || 'chat').trim() || 'chat';
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -4672,9 +4714,11 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
     };
     try {
       emit('context', {
-        intent: 'ask_fast',
+        intent: intentResult.intent != null ? String(intentResult.intent) : 'question',
+        task_type: intentResult.taskType != null ? String(intentResult.taskType) : null,
         mode: 'ask',
         prompt_lane: 'ask_fast_path',
+        route_key: routeKey,
         minimal_prompt_d1_only: 1,
         model: modelKey,
         tool_count: 0,
@@ -4688,7 +4732,7 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
         personUuid: null,
         sessionId,
         isSuperadmin: false,
-        routeKey: null,
+        routeKey,
       };
 
       await runAgentToolLoop(env, ctx, emit, {
@@ -4706,7 +4750,7 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
         tenantId,
         userId,
         workspaceId,
-        routingTaskType: 'chat',
+        routingTaskType,
         qualityScore: null,
         mcpRuntimeContext,
         routingArmId: null,
@@ -4719,9 +4763,11 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
           session_id: sessionId,
           workspace_id: workspaceId,
           mode: 'ask',
+          route_key: routeKey,
+          task_type: intentResult.taskType ?? null,
         },
         doneGuard,
-        chatRouteKey: null,
+        chatRouteKey: routeKey,
       });
     } catch (e) {
       emit('error', { message: String(e?.message || e || 'error').slice(0, 2000) });
@@ -4866,36 +4912,37 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
 
-  // ── ASK FAST PATH — no tools, no routing, no memory, just stream ────────
+  // ── ASK FAST PATH — no tools; prompt + model from D1 / route table ─────
   if (requestedMode === 'ask') {
-    const kv = env.SESSION_CACHE ?? null;
-    const kvKey = `sp:ask:v1:${tenantId ?? 'global'}`;
-    let fastPrompt = null;
-
-    if (kv) {
-      try {
-        fastPrompt = await kv.get(kvKey);
-      } catch (_) {}
-    }
-
-    if (!fastPrompt) {
-      const row = await env.DB?.prepare(
-        `SELECT body FROM agentsam_prompt_versions
-         WHERE prompt_key = 'core_identity' AND is_active = 1 LIMIT 1`,
-      )
-        .first()
-        .catch(() => null);
-      fastPrompt =
-        (row?.body != null ? String(row.body) : null) ??
-        'You are Agent Sam, an AI assistant for Inner Animal Media. Be direct, concise, and helpful.';
-      if (kv) kv.put(kvKey, fastPrompt, { expirationTtl: 600 }).catch(() => {});
-    }
+    const intentResult = await classifyIntent(env, message);
+    const promptRouteIntentSlug =
+      String(intentResult?.taskType || 'auto').toLowerCase().trim() || 'auto';
+    const promptRouteRow = await resolveAgentsamPromptRoute(
+      env,
+      tenantId,
+      requestedMode,
+      promptRouteIntentSlug,
+    );
+    const modeConfig = await loadModeConfig(env, 'ask');
+    const askSystemPrompt = await buildSystemPrompt(
+      env,
+      tenantId,
+      'ask',
+      '',
+      modeConfig,
+      promptRouteRow,
+      { minimalAsk: true, workspaceId },
+    );
+    const resolvedModelKey = await resolveAskFastModelKey(env, body, tenantId, promptRouteRow);
 
     return agentChatDirectSseHandler(env, ctx, {
       request,
       ...body,
-      systemPrompt: fastPrompt,
-      modelKey: body.model_key ?? body.model ?? 'gemini-2.5-flash',
+      systemPrompt: askSystemPrompt,
+      modelKey: resolvedModelKey,
+      modeConfig,
+      promptRouteRow,
+      intentResult,
       tools: [],
       workspaceId,
       tenantId,
