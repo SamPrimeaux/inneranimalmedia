@@ -3,7 +3,10 @@
  * Uses PRAGMA table_info for forward-compatible inserts/updates.
  */
 
-import { writeSupabaseRoutingDecision } from '../integrations/supabase.js';
+import {
+  patchSupabaseRoutingDecision,
+  writeSupabaseRoutingDecision,
+} from '../integrations/supabase.js';
 import { deriveProvider } from './memory.js';
 import { estimateCostUsdFromCatalog } from './model-catalog-cost.js';
 import { pragmaTableInfo } from './retention.js';
@@ -285,6 +288,14 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
           await env.DB.prepare(`UPDATE agentsam_agent_run SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
         } catch (e) {
           console.warn('[agentsam_agent_run] chat finalize update', e?.message ?? e);
+        }
+        if (!p.success) {
+          const failureReason =
+            p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : 'agent_run_failed';
+          patchSupabaseRoutingDecision(env, runId, {
+            success: false,
+            failure_reason: failureReason,
+          }).catch(() => {});
         }
         return;
       }
