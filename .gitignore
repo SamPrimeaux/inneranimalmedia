@@ -4,7 +4,6 @@
 !.env.example
 !.env.cloudflare.example
 .dev.vars
-IAM_SECRETS.env
 *.pem
 *.key
 
