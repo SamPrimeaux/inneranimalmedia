@@ -580,6 +580,78 @@ function isSimpleAskMessage(message = "") {
   return ["hi","hello","hey","yo","sup","thanks","thank you","ok","okay","test","ping"].includes(s);
 }
 
+/** Workers AI embed for Vectorize lane queries (must match index dimensions). */
+const VECTOR_CONTEXT_EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
+
+/**
+ * Query Vectorize for semantically relevant context before building system prompt.
+ * Uses Workers AI to embed the message (free tier, ~2ms).
+ * Returns grouped results by source lane.
+ */
+async function resolveVectorContext(env, message, _taskType) {
+  if (!env.VECTORIZE || !env.AI) return {};
+
+  try {
+    const text = String(message || '').trim();
+    if (!text) return {};
+
+    const embResult = await env.AI.run(VECTOR_CONTEXT_EMBED_MODEL, { text: [text] });
+    const embedding = embResult?.data?.[0] ?? embResult?.result?.[0];
+    if (!Array.isArray(embedding) || !embedding.length) return {};
+
+    const [skills, tools, routes, memory, workflows] = await Promise.all([
+      env.VECTORIZE.query(embedding, { topK: 3, filter: { source: 'skill' }, returnMetadata: 'all' }),
+      env.VECTORIZE.query(embedding, { topK: 2, filter: { source: 'tool' }, returnMetadata: 'all' }),
+      env.VECTORIZE.query(embedding, { topK: 2, filter: { source: 'route' }, returnMetadata: 'all' }),
+      env.VECTORIZE.query(embedding, { topK: 3, filter: { source: 'memory' }, returnMetadata: 'all' }),
+      env.VECTORIZE.query(embedding, { topK: 2, filter: { source: 'workflow' }, returnMetadata: 'all' }),
+    ]);
+
+    const THRESHOLD = 0.72;
+
+    const filter = (hits) => (hits?.matches || [])
+      .filter((h) => h.score >= THRESHOLD)
+      .map((h) => h.metadata);
+
+    return {
+      skills: filter(skills),
+      tools: filter(tools),
+      routes: filter(routes),
+      memory: filter(memory),
+      workflows: filter(workflows),
+    };
+  } catch (e) {
+    console.warn('[vectorContext] failed:', e?.message ?? e);
+    return {};
+  }
+}
+
+/**
+ * Convert vector context hits into a prompt block.
+ * Hard cap: ~400 chars total — never blows prompt budget.
+ */
+function buildVectorContextBlock(ctx) {
+  const lines = [];
+
+  if (ctx.skills?.length) {
+    lines.push('## Relevant Skills');
+    ctx.skills.forEach((s) => lines.push(`- ${s.label || s.name}: ${s.description || s.slug || ''}`));
+  }
+  if (ctx.memory?.length) {
+    lines.push('## Prior Context');
+    ctx.memory.forEach((m) => lines.push(`- ${m.label || m.memory_type}: ${m.description || ''}`));
+  }
+  if (ctx.workflows?.length) {
+    lines.push('## Available Workflows');
+    ctx.workflows.forEach((w) => lines.push(`- ${w.label || w.workflow_key || w.name}`));
+  }
+
+  const block = lines.join('\n');
+  if (block.length <= 50) return '';
+  const prefixed = `\n\n${block}`;
+  return prefixed.length > 400 ? prefixed.slice(0, 400) : prefixed;
+}
+
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null, options = {}) {
   const _kv = env.SESSION_CACHE ?? null;
   const _wsId = options?.workspaceId ?? '';
@@ -588,10 +660,11 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
   const _ver = _kv ? (await _kv.get(`sp:version:${tenantId}`).catch(() => '0') ?? '0') : '0';
   const _kvKey = `sp:v1:${tenantId}:${mode}:${_wsId}:${_routeKey}:${_minimal}:${_ver}`;
 
+  let cachedPrompt = null;
   if (_kv && !options?._skipCache) {
     try {
       const hit = await _kv.get(_kvKey);
-      if (hit) return hit;
+      if (hit) cachedPrompt = hit;
     } catch (_) {}
   }
 
@@ -604,6 +677,19 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     Number(promptRouteRow.include_workspace_ctx ?? 1) === 0;
 
   const minimalAsk = Boolean(options?.minimalAsk) || Boolean(routeDerivedMinimal);
+
+  const appendVectorContextBlock = async (systemPrompt) => {
+    const includeVectorRag = Number(promptRouteRow?.include_rag ?? 1) === 1;
+    const msg = String(options?.message ?? '').trim();
+    if (!includeVectorRag || !msg) return systemPrompt;
+    const vectorCtx = await resolveVectorContext(env, msg, options?.taskType ?? null);
+    const vectorBlock = buildVectorContextBlock(vectorCtx);
+    return vectorBlock ? `${systemPrompt}${vectorBlock}` : systemPrompt;
+  };
+
+  if (cachedPrompt != null) {
+    return appendVectorContextBlock(cachedPrompt);
+  }
 
   try {
     const layerKeys = (() => {
@@ -677,10 +763,11 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
       void logPromptCacheUsage(env, tenantId, layerKeys, promptRouteRow?.route_key, options?.provider ?? null, options?.modelKey ?? null).catch(() => {});
     }
 
-    return result;
+    return appendVectorContextBlock(result);
   } catch (e) {
     console.warn('[agent] buildSystemPrompt failed:', e?.message);
-    return FALLBACK_CORE_SYSTEM + (!minimalAsk && contextBlock ? `\n\n${contextBlock}` : '');
+    const fallback = FALLBACK_CORE_SYSTEM + (!minimalAsk && contextBlock ? `\n\n${contextBlock}` : '');
+    return appendVectorContextBlock(fallback);
   }
 }
 
@@ -4931,7 +5018,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       '',
       modeConfig,
       promptRouteRow,
-      { minimalAsk: true, workspaceId },
+      { minimalAsk: true, workspaceId, message, taskType: promptRouteIntentSlug },
     );
     const resolvedModelKey = await resolveAskFastModelKey(env, body, tenantId, promptRouteRow);
 
@@ -5662,6 +5749,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     sessionId,
     planId: body.planId ?? body.plan_id ?? null,
     taskId: body.taskId ?? body.task_id ?? null,
+    message,
+    taskType: intentResult?.taskType ?? null,
   };
 
   /** Minimal lane: never seed from `agentMeta.system_prompt` (often huge); D1 layers only. */
