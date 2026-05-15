@@ -926,6 +926,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           loadSessions,
           onBrowserNavigate,
           onR2FileUpdated,
+          onThinkingEvent: handleThinkingEvent,
           onFileSelect: onFileSelect
             ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
             : undefined,
@@ -1184,6 +1185,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         loadSessions,
         onBrowserNavigate,
         onR2FileUpdated,
+        onThinkingEvent: handleThinkingEvent,
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
           : undefined,

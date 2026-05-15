@@ -253,10 +253,10 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
         skillRows.map((row) =>
           env.DB.prepare(
             `INSERT INTO agentsam_skill_invocation
-             (skill_id, user_id, workspace_id, conversation_id, trigger_method, success)
-             VALUES (?, ?, ?, ?, 'auto', 1)`,
+             (skill_id, user_id, workspace_id, conversation_id, trigger_method, success, tenant_id)
+             VALUES (?, ?, ?, ?, 'auto', 1, ?)`,
           )
-            .bind(String(row.id), uid, ws, conv)
+            .bind(String(row.id), uid, ws, conv, tenantId ?? null)
             .run()
             .catch((e) => console.warn('[agentsam_skill_invocation]', e?.message ?? e)),
         ),
