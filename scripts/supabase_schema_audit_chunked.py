@@ -316,11 +316,11 @@ AUDIT_SQL: dict[str, str] = {
           fk.constraint_name,
           array_to_string(array(
             select a.attname
-            from unnest(fk.fk_attnums) attnum
+            from unnest(fk.fk_attnums) as u(attnum)
             join pg_attribute a
               on a.attrelid = fk.conrelid
-             and a.attnum = attnum
-            order by array_position(fk.fk_attnums, attnum)
+             and a.attnum = u.attnum
+            order by array_position(fk.fk_attnums, u.attnum)
           ), ', ') as fk_columns
         from fk_cols fk
         where not exists (
@@ -763,6 +763,8 @@ def main() -> int:
         user_pass = args.database_url.split("://", 1)[1].split("@", 1)[0]
         if ":" in user_pass:
             has_url_password = True
+    elif "password=" in args.database_url:
+        has_url_password = True
 
     if not has_url_password and not pg_password:
         print("Error: No database password found. Please set SUPABASE_DB_PASSWORD or PGPASSWORD, or include it in the URL.", file=sys.stderr)
