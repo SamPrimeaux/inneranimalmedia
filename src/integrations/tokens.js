@@ -25,8 +25,10 @@ export async function resolveModelApiKey(env, provider, modelKey, userId) {
     const fromDefault = await resolveApiKey(env, uid, defaultName);
     if (fromDefault) return fromDefault;
     if (p === 'google' || p === 'gemini') {
-      const geminiAlias = await resolveApiKey(env, uid, 'GEMINI_API_KEY');
-      if (geminiAlias) return geminiAlias;
+      for (const alias of ['GEMINI_API_KEY', 'GOOGLE_API_KEY']) {
+        const fromAlias = await resolveApiKey(env, uid, alias);
+        if (fromAlias) return fromAlias;
+      }
     }
   }
 

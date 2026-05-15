@@ -1,6 +1,6 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
-import { resolveApiKey } from '../core/vault.js';
+import { resolveModelApiKey } from './tokens.js';
 
 /**
  * Google Gemini Service Integration.
@@ -206,19 +206,65 @@ export async function chatWithToolsGemini(env, request, params) {
   } = params;
 
   const authUser = await getAuthUser(request, env);
-  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const userId =
+    paramUserId != null && String(paramUserId).trim() !== ''
+      ? String(paramUserId).trim()
+      : authUser
+        ? String(authUser.id)
+        : null;
+  if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-  const userId = paramUserId != null ? String(paramUserId) : String(authUser.id);
-  const apiKey = (await resolveApiKey(env, userId, 'GOOGLE_AI_API_KEY')) || '';
-  if (!apiKey.trim()) return jsonResponse({ error: 'Google AI API key not configured' }, 503);
+  const apiKey = await resolveModelApiKey(env, 'google', modelKey, userId);
+  if (!apiKey || !String(apiKey).trim()) {
+    return jsonResponse({ error: 'Google AI API key not configured' }, 503);
+  }
 
   const geminiTools = normalizeGeminiTools(toolDefinitions);
   const resolvedModel =
     (providerModelId != null && String(providerModelId).trim() !== ''
       ? String(providerModelId).trim()
       : null)
-    || modelKey
-    
+    || modelKey;
+
+  const contents = toGeminiContents(messages);
+  const body = {
+    contents,
+    ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
+    ...(geminiTools ? { tools: geminiTools } : {}),
+    generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+  };
+
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}` +
+    `:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+  let upstream;
+  try {
+    upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    return jsonResponse({ error: `Gemini fetch failed: ${e?.message ?? e}` }, 502);
+  }
+
+  if (!upstream.ok) {
+    const errText = await upstream.text().catch(() => '');
+    let detail = errText;
+    try {
+      const j = JSON.parse(errText);
+      detail = j?.error?.message ?? j?.message ?? detail;
+    } catch {
+      /* keep errText */
+    }
+    const status = upstream.status >= 400 ? upstream.status : 502;
+    return jsonResponse({ error: `Gemini ${upstream.status}: ${detail}` }, status);
+  }
+
+  if (!upstream.body) {
+    return jsonResponse({ error: 'Gemini stream body missing' }, 502);
+  }
 
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -229,32 +275,7 @@ export async function chatWithToolsGemini(env, request, params) {
 
   (async () => {
     try {
-      const contents = toGeminiContents(messages);
-
-      const body = {
-        contents,
-        ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
-        ...(geminiTools   ? { tools: geminiTools }                                    : {}),
-        generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
-      };
-
-      const url =
-        `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}` +
-        `:streamGenerateContent?alt=sse&key=${apiKey}`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        await emitJson({ type: 'error', message: `Gemini ${response.status}: ${errText}` });
-        return;
-      }
-
-      const reader = response.body.getReader();
+      const reader = upstream.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
 
@@ -264,7 +285,7 @@ export async function chatWithToolsGemini(env, request, params) {
 
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split('\n');
-        buf = lines.pop() ?? ''; // hold incomplete line
+        buf = lines.pop() ?? '';
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -278,7 +299,6 @@ export async function chatWithToolsGemini(env, request, params) {
         }
       }
 
-      // Flush any remainder in the buffer
       const tail = buf.trim();
       if (tail.startsWith('data:')) {
         const jsonStr = tail.slice(5).trim();
@@ -287,11 +307,12 @@ export async function chatWithToolsGemini(env, request, params) {
         }
       }
 
-      // Agent loop requires [DONE] to close — Gemini never sends it, so we do.
       await writer.write(encoder.encode('data: [DONE]\n\n'));
-
     } catch (e) {
-      await emitJson({ type: 'error', message: e.message });
+      await emitJson({
+        choices: [{ delta: {}, finish_reason: 'error', index: 0 }],
+        error: { message: e?.message ?? String(e) },
+      });
     } finally {
       await writer.close();
     }
@@ -301,7 +322,7 @@ export async function chatWithToolsGemini(env, request, params) {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
     },
   });
 }
