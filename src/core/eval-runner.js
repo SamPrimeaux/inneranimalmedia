@@ -116,7 +116,7 @@ export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, m
 
       // Update suite run count
       ctx.waitUntil(
-        env.DB.prepare('UPDATE agentsam_eval_suites SET run_count = run_count + 1, last_run_at = datetime('now') WHERE id = ?')
+        env.DB.prepare(`UPDATE agentsam_eval_suites SET run_count = run_count + 1, last_run_at = datetime('now') WHERE id = ?`)
           .bind(suite.id).run().catch(() => {})
       );
     }

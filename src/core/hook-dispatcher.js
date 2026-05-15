@@ -36,7 +36,7 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
         ctx.waitUntil(
           env.DB.prepare(
             `INSERT INTO agentsam_hook_execution
-             (id, hook_id, event_type, tenant_id, workspace_id, status, error_message,
+             (id, hook_id, event_type, tenant_id, workspace_id, status, error,
               payload_json, duration_ms, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
           ).bind(
@@ -45,7 +45,7 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
             eventType,
             payload.tenant_id ?? hook.tenant_id ?? null,
             payload.workspace_id ?? hook.workspace_id ?? null,
-            status: outcome,
+            outcome,
             errorMsg,
             JSON.stringify(payload).slice(0, 4096),
             Date.now() - t0,
