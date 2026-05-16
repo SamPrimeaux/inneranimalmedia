@@ -816,39 +816,91 @@ function inferIntentHeuristically(text) {
   if (!t) return { taskType: 'chat', mode: 'auto' };
 
   const is = (pattern) => pattern.test(t);
-  const hasDeploy = is(/\b(deploy|wrangler deploy|npm run deploy|push to prod|promote|release)\b/);
-  const hasSql =
-    is(/\b(select|insert|update|delete|upsert|create table|drop table|alter table|migrate|from\s+\w|where\s+\w)\b/) ||
-    is(/\bd1_query|sql query\b/) ||
-    is(/\b(query|count|show me|list|fetch|retrieve|lookup|look up)\b.*\b(table|row|record|column|database|agentsam_|d1)\b/) ||
-    is(/agentsam_[a-z_]+/);
-  const hasShell = is(
-    /\b(run|bash|zsh|terminal|shell|pm2|npm run|pnpm|yarn run|git\s|ls\b|cat\s|chmod|curl\b)\b/,
-  );
-  const hasCode = is(
-    /\b(write|edit|fix|create file|refactor|implement|monaco|\.js\b|\.ts\b|\.jsx\b|worker\.js|function|component|class)\b/,
-  );
-  const hasDebug = is(/\b(debug|error|trace|why.*fail|not working|broken|exception|crash|stack trace)\b/);
-  const hasPlan = is(/\b(plan|roadmap|architect|diagram|excalidraw|spec|wireframe|flowchart)\b/);
-  const hasRecall = is(/\b(recall|remember|what did|history|past session|previous|last time|earlier today)\b/);
-  const hasCms = is(/\b(cms|theme|page|component|liquid|shopify|content edit)\b/);
-  const hasTool = is(/\b(use tool|invoke|mcp tool|call tool|run tool)\b/);
-  const hasWorkflow = is(/\b(run workflow|start workflow|trigger|execute workflow|pipeline)\b/);
-  const hasMultitask = is(
-    /\b(orchestrate|multi[- ]?step|multi[- ]?agent|automate|end[- ]?to[- ]?end|full[- ]?stack|build[- ]?and[- ]?deploy|create[- ]?and[- ]?launch|chain|sequence of tasks?|series of tasks?|autonomous|run everything|parallel tasks?)\b/,
-  );
 
-  if (hasWorkflow) return { taskType: 'workflow_orchestration', mode: 'agent' };
-  if (hasDeploy) return { taskType: 'deploy', mode: 'agent' };
-  if (hasSql && !hasCode) return { taskType: 'sql_d1_generation', mode: 'agent' };
+  // ── Infra / orchestration ────────────────────────────────────────────────
+  const hasDeploy    = is(/(deploy|wrangler deploy|npm run deploy|push to prod|promote|release|cf build|cloudflare build)/);
+  const hasCfOps     = is(/(wrangler|kv namespace|durable object|cloudflare queue|r2 bucket list|cf worker|worker binding|workers ai|pages project|d1 create|d1 migrate|secret put|tail log)/);
+  const hasWorkflow  = is(/(run workflow|start workflow|trigger workflow|execute workflow|agentic run)/);
+  const hasMultitask = is(/(orchestrate|multi[- ]?step|multi[- ]?agent|automate|end[- ]?to[- ]?end|full[- ]?stack|build[- ]?and[- ]?deploy|chain of tasks?|sequence of tasks?|parallel tasks?|run everything|autonomous)/);
+
+  // ── Database ─────────────────────────────────────────────────────────────
+  const hasDbWrite   = is(/(add to|insert into|seed|write to|upsert into|add records?|add rows?|add lessons?|add entries|add data|create records?|put into|store in d1|d1 write|populate table|bulk insert)/) ||
+                       (is(/(add|insert|create|put|seed|upload)/) && is(/(d1|database|table|record|row|lesson|entry|entries)/));
+  const hasDbRead    = is(/(select|count|show me|list all|fetch all|retrieve|look up|query the|read from).*(table|row|record|d1|database|agentsam_)/) ||
+                       is(/agentsam_[a-z_]+/) || is(/d1_query/);
+  const hasSupabase  = is(/(supabase|postgres|postgresql|hyperdrive|pg query|pgvector|neon)/);
+  const hasSql       = is(/(select|insert|update|delete|upsert|create table|drop table|alter table|migrate|pragma|join|where\s+\w|group by|order by)/);
+
+  // ── Terminal / shell ─────────────────────────────────────────────────────
+  const hasShell     = is(/(run command|bash|zsh|terminal|shell|pm2|npm run|pnpm|yarn run|git\s|ls|cat\s|chmod|curl|ssh|exec)/);
+
+  // ── R2 / storage ─────────────────────────────────────────────────────────
+  const hasR2        = is(/(r2|upload to|put file|store file|get from bucket|read from r2|list r2|r2 object|r2 bucket)/);
+
+  // ── Web / browser ─────────────────────────────────────────────────────────
+  const hasWebSearch = is(/(search the web|look it up online|google|browse|find online|search online|web search|look up.*online|find.*article|current news|latest.*on)/) ||
+                       is(/https?:\/\//);
+  const hasBrowser   = is(/(screenshot|inspect.*url|navigate to|open.*browser|browser.*inspect|playwright|puppeteer|headless)/);
+
+  // ── Vector / RAG ─────────────────────────────────────────────────────────
+  const hasVectorize = is(/(vectorize|embed|embedding|semantic search|rag|index.*knowledge|upsert.*vector|similarity search|knowledge base)/);
+
+  // ── GitHub ───────────────────────────────────────────────────────────────
+  const hasGitHub    = is(/(github|pull request|open pr|merge pr|git commit|git push|diff|branch|repo|repository|git blame|git log)/);
+
+  // ── Codebase search ───────────────────────────────────────────────────────
+  const hasSearchCode = is(/(grep|find in codebase|which file|where is|search.*src|find.*function|locate.*file|find.*component|codebase.*search|search.*codebase)/);
+
+  // ── Code ops (lower priority than db_write) ───────────────────────────────
+  const hasCode      = is(/(edit file|fix file|create file|implement|monaco|worker\.js|\.js|\.ts|\.jsx|\.tsx|function\s+\w|class\s+\w|component)/);
+  const hasRefactor  = is(/(refactor|restructure|rename|reorganize|extract function|clean up code|move file|split|decompose)/);
+  const hasReview    = is(/(review|code review|audit|check quality|analyze.*code|quality check|is this correct)/);
+  const hasExplain   = is(/(explain|what is|how does|describe|tell me about|what does|how do i|walk me through|break down|eli5|summarize how)/);
+
+  // ── Debug ────────────────────────────────────────────────────────────────
+  const hasDebug     = is(/(debug|error|trace|why.*fail|not working|broken|exception|crash|stack trace|404|500|bug|fix.*error|diagnose)/);
+
+  // ── Planning ─────────────────────────────────────────────────────────────
+  const hasPlan      = is(/(plan|roadmap|architect|diagram|excalidraw|spec|wireframe|flowchart|sprint|task breakdown|prioritize|what should i work on)/);
+
+  // ── Memory / recall ───────────────────────────────────────────────────────
+  const hasRecall    = is(/(recall|remember|what did|history|past session|previous|last time|earlier today|what was|remind me)/);
+
+  // ── CMS ───────────────────────────────────────────────────────────────────
+  const hasCms       = is(/(cms|theme|liquid|shopify|content edit|cms page|cms section|cms component)/);
+
+  // ── Agent / skill / tool ─────────────────────────────────────────────────
+  const hasTool      = is(/(use tool|invoke|mcp tool|call tool|run tool|tool call)/);
+  const hasSkill     = is(/(use skill|apply skill|run skill|invoke skill|skill:)/);
+  const hasSpawn     = is(/(spawn subagent|delegate to|assign to agent|run.*agent|subagent|agent.*handle|have.*agent|let.*agent)/);
+
+  // ── Priority-ordered classification ──────────────────────────────────────
+  if (hasWorkflow)    return { taskType: 'workflow_orchestration', mode: 'agent' };
+  if (hasDeploy)      return { taskType: 'deploy',                 mode: 'agent' };
+  if (hasMultitask)   return { taskType: 'multitask',              mode: 'agent' };
+  if (hasSpawn)       return { taskType: 'agent_spawn',            mode: 'agent' };
+  if (hasDbWrite)     return { taskType: 'db_write',               mode: 'agent' };
+  if (hasSupabase)    return { taskType: 'supabase',               mode: 'agent' };
+  if (hasDbRead && !hasSql) return { taskType: 'db_read',          mode: 'agent' };
+  if (hasR2)          return { taskType: 'r2_ops',                 mode: 'agent' };
+  if (hasCfOps)       return { taskType: 'cf_ops',                 mode: 'agent' };
   if (hasShell && !hasCode) return { taskType: 'terminal_execution', mode: 'agent' };
-  if (hasDebug) return { taskType: 'debug', mode: 'agent' };
-  if (hasPlan) return { taskType: 'plan', mode: 'agent' };
-  if (hasMultitask) return { taskType: 'multitask', mode: 'agent' };
-  if (hasRecall) return { taskType: 'summary', mode: 'auto' };
-  if (hasCms) return { taskType: 'cms_edit', mode: 'agent' };
-  if (hasTool) return { taskType: 'tool_use', mode: 'agent' };
-  if (hasCode || (hasSql && hasShell)) return { taskType: 'code', mode: 'agent' };
+  if (hasBrowser)     return { taskType: 'browser',                mode: 'agent' };
+  if (hasWebSearch)   return { taskType: 'web_search',             mode: 'agent' };
+  if (hasVectorize)   return { taskType: 'vectorize',              mode: 'agent' };
+  if (hasGitHub)      return { taskType: 'github',                 mode: 'agent' };
+  if (hasSql)         return { taskType: 'sql_d1_generation',      mode: 'agent' };
+  if (hasDebug)       return { taskType: 'debug',                  mode: 'agent' };
+  if (hasSearchCode)  return { taskType: 'search_code',            mode: 'agent' };
+  if (hasRefactor)    return { taskType: 'refactor',               mode: 'agent' };
+  if (hasReview)      return { taskType: 'review',                 mode: 'agent' };
+  if (hasCode)        return { taskType: 'code',                   mode: 'agent' };
+  if (hasPlan)        return { taskType: 'plan',                   mode: 'agent' };
+  if (hasSkill)       return { taskType: 'skill_use',              mode: 'agent' };
+  if (hasTool)        return { taskType: 'tool_use',               mode: 'agent' };
+  if (hasCms)         return { taskType: 'cms_edit',               mode: 'agent' };
+  if (hasRecall)      return { taskType: 'summary',                mode: 'auto'  };
+  if (hasExplain)     return { taskType: 'explain',                mode: 'auto'  };
   return { taskType: 'chat', mode: 'agent' };
 }
 
@@ -856,12 +908,37 @@ async function classifyIntent(_env, lastMessageText) {
   const { taskType: rawTt, mode } = inferIntentHeuristically(lastMessageText);
   const taskType =
     rawTt != null && String(rawTt).trim() !== '' ? String(rawTt).trim() : 'chat';
-  const legacyMap = {
-    sql_d1_generation: 'sql',
-    terminal_execution: 'shell',
-    code: 'shell',
+  // Route intent directly — no collapsing to legacy 3-value set
+  const intentRouteMap = {
+    workflow_orchestration: 'workflow_orchestration',
+    deploy:                 'deploy',
+    multitask:              'multitask',
+    agent_spawn:            'agent_spawn',
+    db_write:               'db_write',
+    db_read:                'db_read',
+    supabase:               'supabase',
+    r2_ops:                 'r2_ops',
+    cf_ops:                 'cf_ops',
+    terminal_execution:     'terminal_execution',
+    browser:                'agent_general',
+    web_search:             'agent_research',
+    vectorize:              'vectorize',
+    github:                 'github',
+    sql_d1_generation:      'db_query',
+    debug:                  'debug',
+    search_code:            'search_code',
+    refactor:               'refactor',
+    review:                 'review',
+    code:                   'code',
+    plan:                   'plan',
+    skill_use:              'skill_use',
+    tool_use:               'tool_use',
+    cms_edit:               'cms_edit',
+    summary:                'summary',
+    explain:                'explain',
+    chat:                   'chat',
   };
-  return { intent: legacyMap[taskType] ?? 'question', taskType, mode: mode || 'agent' };
+  return { intent: intentRouteMap[taskType] ?? taskType, taskType, mode: mode || 'agent' };
 }
 
 /** Heuristic capability families for merging registry tools before routing (runs before nano capability router). */
@@ -5113,6 +5190,29 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     (!intentResult || typeof intentResult !== 'object')
   ) {
     console.error('[agent] classifyIntent_invalid', { message: String(message || '').slice(0, 240) });
+  }
+
+  // ── Thompson arm selection ────────────────────────────────────────────────
+  let _autoModelResult = null;
+  let _selectedArmId   = null;
+  try {
+    _autoModelResult = await selectAutoModel(env, {
+      taskType:    intentResult?.taskType  || 'chat',
+      mode:        intentResult?.mode      || requestedMode || 'agent',
+      workspaceId: workspaceId,
+      tenantId:    tenantId,
+    });
+    _selectedArmId = _autoModelResult?.id ?? null;
+    if (_autoModelResult?.model_key) {
+      console.log('[agent] selectAutoModel', {
+        taskType: intentResult?.taskType,
+        model:    _autoModelResult.model_key,
+        provider: _autoModelResult.provider,
+        armId:    _selectedArmId,
+      });
+    }
+  } catch (_autoErr) {
+    console.warn('[agent] selectAutoModel_failed', String(_autoErr?.message || _autoErr).slice(0, 120));
   }
 
   const trimmedMsg = message.trim();
