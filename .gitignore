@@ -74,6 +74,10 @@ captures/*/upload-failures.log
 iam_remediation.py
 iam_remediation_output.txt
 
+# Local secret audit tooling + reports (may reference env keys — never commit)
+analytics/secret-audit-report.json
+scripts/audit_secrets.py
+
 # Snapshot / schema audit outputs (local only)
 snapshot-before.json
 snapshot-after.json

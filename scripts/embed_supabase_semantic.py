@@ -12,17 +12,62 @@ Embeds with local Ollama mxbai-embed-large (1024-dim).
 Writes vectors back to Supabase embedding column AND pushes to Vectorize.
 
 Usage:
-  python3 scripts/embed_supabase_semantic.py
+  ./scripts/with-cloudflare-env.sh python3 scripts/embed_supabase_semantic.py
+
+Requires SUPABASE_DB_URL in the environment (session pooler, port 5432).
+Load from .env.cloudflare via with-cloudflare-env.sh — never hardcode passwords in this file.
 """
 
 import hashlib
 import json
+import os
 import re
 import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 
-DB_URL  = "postgresql://postgres.dpmuvynqixblxsilnlut:DLnyxTu1lKjZYrFFNeiAtXNAsm7xFJI@aws-1-us-east-2.pooler.supabase.com:5432/postgres"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_env_cloudflare() -> None:
+    """Merge .env.cloudflare into os.environ when keys are not already set."""
+    env_path = REPO_ROOT / ".env.cloudflare"
+    if not env_path.is_file():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
+def require_db_url() -> str:
+    load_env_cloudflare()
+    url = (os.environ.get("SUPABASE_DB_URL") or "").strip()
+    if not url:
+        print(
+            "Missing SUPABASE_DB_URL. Run:\n"
+            "  ./scripts/with-cloudflare-env.sh python3 scripts/embed_supabase_semantic.py\n"
+            "Use the session pooler URL (port 5432) from Supabase Dashboard → Settings → Database.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if "db.dpmuvynqixblxsilnlut.supabase.co" in url:
+        print(
+            "SUPABASE_DB_URL uses direct db.* host (IPv6-only). "
+            "Use aws-1-us-east-2.pooler.supabase.com:5432 — see .cursor/rules/supabase-connection.mdc",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return url
+
+
+DB_URL = ""
 OLLAMA  = "http://localhost:11434"
 MODEL   = "mxbai-embed-large:latest"
 INDEX   = "ai-search-inneranimalmedia-autorag"
@@ -370,6 +415,9 @@ def push_vectorize(lines: list, label: str):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    global DB_URL
+    DB_URL = require_db_url()
+
     try:
         import psycopg2
     except ImportError:
