@@ -88,8 +88,8 @@ export function activeFileFromText(input: {
   };
 }
 
-export async function fetchR2FileMeta(binding: string, key: string): Promise<R2FileMetaResponse | null> {
-  const qs = new URLSearchParams({ bucket: binding, key });
+export async function fetchR2FileMeta(bucket: string, key: string): Promise<R2FileMetaResponse | null> {
+  const qs = new URLSearchParams({ bucket, key });
   const res = await fetch(`/api/r2/file?${qs}`, { credentials: 'same-origin' });
   const data = (await res.json().catch(() => ({}))) as R2FileMetaResponse;
   if (!res.ok) return null;
@@ -116,16 +116,16 @@ export function resolveKindFromR2Meta(
 }
 
 export async function openR2KeyInEditor(
-  binding: string,
+  bucket: string,
   key: string,
   onOpen: (file: ActiveFile) => void,
 ): Promise<boolean> {
   const base = key.split('/').pop() || key;
-  const data = await fetchR2FileMeta(binding, key);
+  const data = await fetchR2FileMeta(bucket, key);
   if (!data) return false;
 
   const kind = resolveKindFromR2Meta(data, base, key);
-  const bucketName = data.bucket || binding;
+  const bucketName = data.bucket || bucket;
   const streamUrl = buildR2ObjectUrl(bucketName, key);
   const previewUrl = data.previewUrl || streamUrl;
 
@@ -138,7 +138,7 @@ export async function openR2KeyInEditor(
         contentType: data.contentType,
         size: data.size,
         r2Key: key,
-        r2Bucket: binding,
+        r2Bucket: bucketName,
         binaryMessage: data.message,
       }),
     );
@@ -151,7 +151,7 @@ export async function openR2KeyInEditor(
       name: base,
       content: data.content,
       r2Key: key,
-      r2Bucket: binding,
+      r2Bucket: bucketName,
     }),
   );
   return true;

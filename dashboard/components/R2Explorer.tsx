@@ -17,42 +17,15 @@ import {
   FilePlus,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
-
-/** Map bucket list label (from /api/r2/buckets) to /api/r2/file binding allowlist name */
-function bucketLabelToBinding(label: string): string {
-    const b = label.trim().toLowerCase();
-    if (b === 'agent-sam' || b === 'tools') return 'DASHBOARD';
-    if (b === 'agent-sam-sandbox-cicd' || b === 'inneranimalmedia-assets') return 'ASSETS';
-    if (b === 'iam-platform') return 'R2';
-    if (b === 'iam-docs') return 'DOCS_BUCKET';
-    if (b === 'autorag') return 'AUTORAG_BUCKET';
-    return label.trim();
-}
+import {
+    pickR2BucketResolveMap,
+    pickR2DisplayBuckets,
+    resolveR2BucketLabel,
+    type R2BucketsApiResponse,
+} from '../src/lib/r2Buckets';
 
 const IAM_PALETTE_OPEN_R2 = 'iam-palette-open-r2';
 const IAM_PALETTE_R2_BUCKET_KEY = 'iam-palette-r2-bucket';
-
-/** Pick the list label that matches `requested` or shares the same Worker binding. */
-function resolveBucketLabel(requested: string, labels: string[]): string {
-    const r = requested.trim();
-    if (!r) return r;
-    if (labels.includes(r)) return r;
-    const sig = bucketLabelToBinding(r);
-    return labels.find((l) => bucketLabelToBinding(l) === sig) ?? r;
-}
-
-/** agent-sam and tools share env.DASHBOARD — one row per binding for dropdowns */
-function dedupeR2BucketLabels(names: string[]): string[] {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const n of names) {
-        const sig = bucketLabelToBinding(n);
-        if (seen.has(sig)) continue;
-        seen.add(sig);
-        out.push(n);
-    }
-    return out;
-}
 
 function parentR2Prefix(prefix: string): string {
     if (!prefix) return '';
@@ -138,7 +111,8 @@ export const R2Explorer: React.FC<{
     const [childrenByPrefix, setChildrenByPrefix] = useState<Record<string, R2ListingSlice>>({});
     const [loadingFolderPrefixes, setLoadingFolderPrefixes] = useState<Set<string>>(() => new Set());
 
-    const displayBuckets = useMemo(() => dedupeR2BucketLabels(buckets), [buckets]);
+    const [bucketResolve, setBucketResolve] = useState<Record<string, string>>({});
+    const displayBuckets = buckets;
 
     const resetTreeState = useCallback(() => {
         setExpandedFolders(new Set());
@@ -152,7 +126,7 @@ export const R2Explorer: React.FC<{
             if (!b) return;
             setBuckets((prev) => {
                 const merged = prev.includes(b) ? prev : [...prev, b];
-                const canonical = resolveBucketLabel(b, dedupeR2BucketLabels(merged));
+                const canonical = resolveR2BucketLabel(b, displayBuckets.length ? displayBuckets : merged, bucketResolve);
                 setBucket(canonical);
                 return merged;
             });
@@ -162,14 +136,15 @@ export const R2Explorer: React.FC<{
             resetTreeState();
             if (opts?.openPanel !== false) setObjectPanelOpen(true);
         },
-        [resetTreeState],
+        [resetTreeState, displayBuckets, bucketResolve],
     );
 
     const loadBuckets = useCallback(async () => {
         try {
             const res = await fetch('/api/r2/buckets', { credentials: 'same-origin' });
-            const data = await res.json();
-            const list = Array.isArray(data.buckets) ? data.buckets : [];
+            const data = (await res.json()) as R2BucketsApiResponse;
+            const list = pickR2DisplayBuckets(data);
+            setBucketResolve(pickR2BucketResolveMap(data));
             setBuckets(list);
             try {
                 const pending = sessionStorage.getItem(IAM_PALETTE_R2_BUCKET_KEY)?.trim();
@@ -387,13 +362,12 @@ export const R2Explorer: React.FC<{
         const file = e.target.files?.[0];
         if (!file || !bucket) return;
         const key = prefix ? `${prefix.replace(/\/$/, '')}/${file.name}` : file.name;
-        const binding = bucketLabelToBinding(bucket);
         setIsLoading(true);
         setUploadProgress(null);
         try {
             const { uploadFileToR2 } = await import('../src/lib/r2MultipartUpload');
             const result = await uploadFileToR2({
-                bucket: binding,
+                bucket,
                 key,
                 file,
                 onProgress: (p) => {
@@ -422,14 +396,13 @@ export const R2Explorer: React.FC<{
         }
         const keyName = window.prompt('New file key (e.g. folder/file.txt):');
         if (!keyName) return;
-        const binding = bucketLabelToBinding(bucket);
         setIsLoading(true);
         try {
             const res = await fetch('/api/r2/file', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ bucket: binding, key: keyName, content: '' }),
+                body: JSON.stringify({ bucket, key: keyName, content: '' }),
             });
             if (res.ok) {
                 await fetchObjects();
@@ -493,11 +466,10 @@ export const R2Explorer: React.FC<{
 
     const openInEditor = async (key: string) => {
         if (!onOpenInEditor || !bucket) return;
-        const binding = bucketLabelToBinding(bucket);
         setIsLoading(true);
         try {
             const { openR2KeyInEditor } = await import('../src/lib/mediaPreview');
-            await openR2KeyInEditor(binding, key, onOpenInEditor);
+            await openR2KeyInEditor(bucket, key, onOpenInEditor);
         } catch (e) {
             console.error(e);
         } finally {

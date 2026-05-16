@@ -26,6 +26,7 @@ import type { MediaLibraryItem } from '../features/moviemode/types';
 import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
 import { GoogleDriveExplorer } from './GoogleDriveExplorer';
+import { pickR2DisplayBuckets, type R2BucketsApiResponse } from '../src/lib/r2Buckets';
 
 const NATIVE_WS_DB_NAME = 'iam-agent-native-workspace-v1';
 const NATIVE_WS_STORE = 'handles';
@@ -162,30 +163,6 @@ async function loadPersistedNativeDirectoryHandle(): Promise<FileSystemDirectory
   }
 }
 
-/** Map API bucket name (GET /api/r2/buckets) to allowlisted binding for /api/r2/file (worker resolveR2BindingAllowlist). */
-function bucketLabelToBinding(label: string): string {
-    const b = label.trim().toLowerCase();
-    if (b === 'agent-sam' || b === 'tools') return 'DASHBOARD';
-    if (b === 'agent-sam-sandbox-cicd' || b === 'inneranimalmedia-assets') return 'ASSETS';
-    if (b === 'iam-platform') return 'R2';
-    if (b === 'iam-docs') return 'DOCS_BUCKET';
-    if (b === 'autorag') return 'AUTORAG_BUCKET';
-    return label.trim();
-}
-
-/** agent-sam and tools share env.DASHBOARD — show one row to avoid duplicate trees. */
-function dedupeR2BucketLabels(names: string[]): string[] {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const n of names) {
-        const sig = bucketLabelToBinding(n);
-        if (seen.has(sig)) continue;
-        seen.add(sig);
-        out.push(n);
-    }
-    return out;
-}
-
 function parentR2Prefix(prefix: string): string {
     if (!prefix) return '';
     const trimmed = prefix.replace(/\/+$/, '');
@@ -262,14 +239,14 @@ export const LocalExplorer: React.FC<{
     const loadR2Buckets = useCallback(async () => {
         try {
             const res = await fetch('/api/r2/buckets', { credentials: 'same-origin' });
-            const data = await res.json();
-            setR2Buckets(Array.isArray(data.buckets) ? data.buckets : []);
+            const data = (await res.json()) as R2BucketsApiResponse;
+            setR2Buckets(pickR2DisplayBuckets(data));
         } catch {
             setR2Buckets([]);
         }
     }, []);
 
-    const displayR2Buckets = useMemo(() => dedupeR2BucketLabels(r2Buckets), [r2Buckets]);
+    const displayR2Buckets = r2Buckets;
 
     useEffect(() => {
         loadR2Buckets();
@@ -429,7 +406,6 @@ export const LocalExplorer: React.FC<{
         if (!seg) return;
         const prefix = r2PrefixByBucket[bucket] ?? '';
         const key = `${prefix}${seg}/`;
-        const binding = bucketLabelToBinding(bucket);
         setR2Loading(true);
         setR2Err(null);
         try {
@@ -437,7 +413,7 @@ export const LocalExplorer: React.FC<{
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ bucket: binding, key, content: '' }),
+                body: JSON.stringify({ bucket, key, content: '' }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -478,11 +454,10 @@ export const LocalExplorer: React.FC<{
 
     const openR2Key = async (bucket: string, key: string) => {
         if (!onOpenInEditor) return;
-        const binding = bucketLabelToBinding(bucket);
         setR2Loading(true);
         try {
             const { openR2KeyInEditor } = await import('../src/lib/mediaPreview');
-            await openR2KeyInEditor(binding, key, onOpenInEditor);
+            await openR2KeyInEditor(bucket, key, onOpenInEditor);
         } catch (e) {
             console.error(e);
         } finally {
