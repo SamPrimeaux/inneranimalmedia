@@ -126,15 +126,37 @@ export async function signR2Request(method, bucket, path, query, env, payloadOpt
 }
 
 export async function r2GetViaBindingOrS3(env, binding, s3BucketName, key) {
-  if (binding && binding.get) return binding.get(key);
+  const fetched = await r2FetchObjectViaBindingOrS3(env, binding, s3BucketName, key);
+  if (!fetched) return null;
+  const text = new TextDecoder().decode(fetched.body);
+  return { text: async () => text };
+}
+
+/** Fetch object bytes + metadata via Worker binding or account S3 API. */
+export async function r2FetchObjectViaBindingOrS3(env, binding, s3BucketName, key) {
+  if (binding?.get) {
+    const obj = await binding.get(key);
+    if (!obj) return null;
+    const body = await obj.arrayBuffer();
+    return {
+      body,
+      contentType: obj.httpMetadata?.contentType || null,
+      etag: obj.etag || null,
+    };
+  }
   if (!s3BucketName || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) return null;
   const path = r2ObjectPathForS3(key);
   const signed = await signR2Request('GET', s3BucketName, path, '', env);
   if (!signed) return null;
   const res = await fetch(signed.endpoint, { method: 'GET', headers: signed.headers });
   if (res.status === 404) return null;
-  const text = await res.text();
-  return { text: async () => text };
+  if (!res.ok) return null;
+  const body = await res.arrayBuffer();
+  return {
+    body,
+    contentType: res.headers.get('content-type'),
+    etag: res.headers.get('etag'),
+  };
 }
 
 export async function r2PutViaBindingOrS3(env, binding, s3BucketName, key, body, contentType) {
