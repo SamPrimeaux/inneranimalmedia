@@ -37,7 +37,7 @@ try {
 
 import { execFileSync, execSync } from 'child_process';
 import pathMod from 'path';
-import pg from 'pg';
+import { connectPgOrSkip } from './lib/pg-connect.mjs';
 import { serializeAgentsamGuardrailContent } from './lib/agentsam-guardrails-ingest.mjs';
 
 const root = pathMod.join(__dirname, '..');
@@ -136,17 +136,6 @@ async function embedText(text) {
   return vec;
 }
 
-function pgClientOptions() {
-  const useSsl =
-    /\.supabase\.co\b/.test(dbUrl) ||
-    /\.pooler\.supabase\.com\b/.test(dbUrl) ||
-    /supabase\.com/.test(dbUrl);
-  return {
-    connectionString: dbUrl,
-    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
-  };
-}
-
 async function clearSource(client, source) {
   await client.query('DELETE FROM documents WHERE source = $1 AND project_id = $2', [source, PROJECT_ID]);
 }
@@ -176,8 +165,12 @@ async function ingestRows(client, label, source, rows, buildTitleContent) {
   return rows.length;
 }
 
-const client = new pg.Client(pgClientOptions());
-await client.connect();
+const pgConn = await connectPgOrSkip(dbUrl, { label: 'ingest-d1-memory' });
+if (pgConn.skipped) {
+  console.warn(`[ingest-d1-memory] Skipping D1 memory ingest: ${pgConn.reason}`);
+  process.exit(0);
+}
+const client = pgConn.client;
 try {
   const pm = runD1Sql(
     `SELECT key, value, memory_type FROM project_memory WHERE project_id = 'inneranimalmedia'`

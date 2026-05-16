@@ -11,7 +11,7 @@
  */
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import pg from 'pg';
+import { connectPgOrSkip } from './lib/pg-connect.mjs';
 import { repoRoot, DEPLOY_CONTEXT_FILE } from './lib/supabase-deploy-paths.mjs';
 
 async function healthCheck(url) {
@@ -99,12 +99,12 @@ async function main() {
   const dbUrl = (process.env.SUPABASE_DB_URL || '').trim();
 
   if (dbUrl && tenantId) {
-    const client = new pg.Client({
-      connectionString: dbUrl,
-      ssl: dbUrl.includes('localhost') ? undefined : { rejectUnauthorized: false },
-    });
+    const pgConn = await connectPgOrSkip(dbUrl, { label: 'deploy-eval' });
+    if (pgConn.skipped) {
+      semanticErr = pgConn.reason;
+    } else {
+      const client = pgConn.client;
     try {
-      await client.connect();
       await logSemanticSearchPg(client, {
         searchFn: 'deploy_smoke_match_documents_scoped',
         tenantId,
@@ -128,6 +128,7 @@ async function main() {
       semanticErr = String(e?.message || e);
     } finally {
       await client.end().catch(() => {});
+    }
     }
   } else {
     semanticErr = dbUrl ? 'missing tenant_id for semantic smoke' : 'SUPABASE_DB_URL unset';
