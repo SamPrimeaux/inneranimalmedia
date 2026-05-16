@@ -98,6 +98,7 @@ import {
   selectAutoModel,
   recordRoutingArmOutcome,
 } from '../core/routing.js';
+import { listAgentsamSlashCommands } from '../core/agentsam-command-catalog.js';
 import { writeUsageEvent } from '../core/usage-event-writer.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
 import { triggerEvalAfterNRuns } from '../core/eval-runner.js';
@@ -7390,16 +7391,25 @@ export async function handleAgentApi(request, url, env, ctx) {
     } catch (e) { return jsonResponse({ error: e?.message }, 500); }
   }
 
-  // ── /api/agent/commands ───────────────────────────────────────────────────
+  // ── /api/agent/commands — agentsam_commands (show_in_slash); legacy agentsam_slash_commands retired
   if (path === '/api/agent/commands' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT slug, display_name as name, description, usage_hint, handler_type, is_active
-         FROM agentsam_slash_commands
-         WHERE is_active = 1
-         ORDER BY sort_order ASC, slug ASC`
-      ).all();
+      const authUser = await getAuthUser(request, env);
+      let tenantId =
+        authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
+      if (!tenantId && authUser?.id) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId && authUser?.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
+      const wsRes = authUser
+        ? await resolveEffectiveWorkspaceId(env, request, authUser, {})
+        : { workspaceId: null };
+      const results = await listAgentsamSlashCommands(env.DB, {
+        tenantId,
+        workspaceId: wsRes?.workspaceId ?? null,
+        limit: 200,
+      });
       return jsonResponse(results || []);
     } catch (e) { return jsonResponse({ error: e?.message }, 500); }
   }
@@ -7611,7 +7621,15 @@ export async function handleAgentApi(request, url, env, ctx) {
     await Promise.allSettled([
       env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all().then(r => { tables = (r.results||[]).map(x=>x.name); }),
       env.DB.prepare(`SELECT id, name FROM agentsam_mcp_workflows ORDER BY COALESCE(name,id) LIMIT 100`).all().then(r => { workflows = r.results||[]; }),
-      tenantId ? env.DB.prepare(`SELECT slug, display_name AS name, category FROM agentsam_commands WHERE tenant_id = ? AND COALESCE(is_active, 1) = 1 ORDER BY category, display_name LIMIT 200`).bind(tenantId).all().then(r => { commands = r.results||[]; }) : Promise.resolve(),
+      tenantId
+        ? listAgentsamSlashCommands(env.DB, { tenantId, limit: 200 }).then((rows) => {
+            commands = (rows || []).map((r) => ({
+              slug: r.slug,
+              name: r.name || r.display_name,
+              category: r.category,
+            }));
+          })
+        : Promise.resolve(),
       tenantId ? env.DB.prepare(`SELECT key FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 150`).bind(tenantId).all().then(r => { memory_keys = (r.results||[]).map(x=>x.key); }) : Promise.resolve(),
       env.DB.prepare(`SELECT id, name FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name LIMIT 50`).all().then(r => { workspaces = r.results||[]; }),
     ]);

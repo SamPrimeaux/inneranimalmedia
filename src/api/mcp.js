@@ -959,18 +959,17 @@ export async function handleMcpApi(request, url, env, ctx) {
     if (pathLower === '/api/mcp/commands' && method === 'GET') {
       let rows = [];
       try {
-        const r = await env.DB.prepare(
-          `SELECT id, slug,
-                  display_name AS label,
-                  description,
-                  handler_ref AS routed_to_agent,
-                  sort_order,
-                  0 AS is_pinned
-           FROM agentsam_slash_commands
-           WHERE COALESCE(is_active, 1) = 1
-           ORDER BY sort_order ASC`,
-        ).all();
-        rows = r.results || [];
+        const { listAgentsamSlashCommands } = await import('../core/agentsam-command-catalog.js');
+        const catalog = await listAgentsamSlashCommands(env.DB, { limit: 200 });
+        rows = (catalog || []).map((r) => ({
+          id: r.id,
+          slug: r.slug,
+          label: r.display_name || r.name,
+          description: r.description,
+          routed_to_agent: r.handler_ref || r.mapped_command || null,
+          sort_order: r.sort_order ?? 50,
+          is_pinned: 0,
+        }));
       } catch (_) {}
       if (!rows.length) {
         try {

@@ -142,7 +142,7 @@ export type ChatModelRow = {
   provider: string;
   model_key: string;
   api_platform: string;
-  /** D1 `ai_models.picker_group` — section title in model picker; falls back to `provider`. */
+  /** D1 `agentsam_ai.picker_group` — section title in model picker; falls back to `provider`. */
   picker_group?: string;
   size_class?: string;
   input_rate_per_mtok?: number | null;

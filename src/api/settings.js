@@ -2640,12 +2640,14 @@ export async function handleSettingsRequest(request, env, ctx) {
 
   if (pathLower === '/api/settings/commands' && method === 'GET') {
     if (!env.DB) return jsonResponse({ commands: [] });
-    const { results } = await env.DB.prepare(
-      `SELECT * FROM agentsam_slash_commands WHERE COALESCE(is_active, 1) = 1 ORDER BY COALESCE(sort_order, 9999)`,
-    )
-      .all()
-      .catch(() => ({ results: [] }));
-    return jsonResponse({ commands: results || [] });
+    const tid = await resolveAuthTenantId(env, authUser);
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+    const { listAgentsamCommandsForSettings } = await import('../core/agentsam-command-catalog.js');
+    const results = await listAgentsamCommandsForSettings(env.DB, {
+      tenantId: tid,
+      workspaceId: wsRes?.workspaceId ?? null,
+    }).catch(() => []);
+    return jsonResponse({ commands: results || [], source: 'agentsam_commands' });
   }
 
   {
@@ -2657,7 +2659,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       const body = await request.json().catch(() => ({}));
       const raw = Object.prototype.hasOwnProperty.call(body, 'is_active') ? body.is_active : body.enabled;
       const enabled = raw === true || raw === 1 || raw === '1';
-      await env.DB.prepare(`UPDATE agentsam_slash_commands SET is_active = ? WHERE id = ?`)
+      await env.DB.prepare(`UPDATE agentsam_commands SET is_active = ?, updated_at = datetime('now') WHERE id = ?`)
         .bind(enabled ? 1 : 0, id)
         .run();
       return jsonResponse({ ok: true });
