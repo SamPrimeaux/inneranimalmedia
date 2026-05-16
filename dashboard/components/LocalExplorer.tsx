@@ -203,7 +203,8 @@ export const LocalExplorer: React.FC<{
     onOpenMovieMode?: (item: MediaLibraryItem) => void;
     /** Bumps when Welcome (or parent) should open the native folder picker (showDirectoryPicker). */
     nativeFolderOpenSignal?: number;
-}> = ({ onFileSelect, onWorkspaceRootChange, onOpenInEditor, onOpenMovieMode, nativeFolderOpenSignal = 0 }) => {
+    workspace_id?: string | null;
+}> = ({ onFileSelect, onWorkspaceRootChange, onOpenInEditor, onOpenMovieMode, nativeFolderOpenSignal = 0, workspace_id = null }) => {
     const [rootDir, setRootDir] = useState<FileNode | null>(null);
     /**
      * When the directory handle cannot be revalidated, show vscode.dev-style resume copy.
@@ -1042,7 +1043,7 @@ export const LocalExplorer: React.FC<{
                 </div>
                 {expandedSections.github && (
                     <div className="min-h-[200px] max-h-[min(45vh,380px)] flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
-                        <GitHubExplorer onOpenInEditor={onOpenInEditor} />
+                        <GitHubExplorer workspace_id={workspace_id} onOpenInEditor={onOpenInEditor} />
                     </div>
                 )}
             </div>

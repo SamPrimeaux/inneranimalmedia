@@ -10,8 +10,6 @@ export const PTY_REPO_DIRNAME = 'inneranimalmedia';
 const REMOTION_INSTALL_CMD =
   'npm install --save-dev remotion @remotion/renderer @remotion/bundler @remotion/player';
 
-const PTY_EXEC_URL = 'http://localhost:3099/exec';
-
 /** Platform PTY mount (iam-pty `IAM_WORKSPACES_ROOT`); not a per-customer secret. */
 export function ptyWorkspacesRootFromEnv(env) {
   const r = env?.IAM_WORKSPACES_ROOT != null ? String(env.IAM_WORKSPACES_ROOT).trim() : '';
@@ -113,10 +111,20 @@ export async function execOnPtyHost(env, { command, cwd = null, timeout_ms = 120
   const wd = cwd != null ? String(cwd).trim() : '';
   if (wd) payload.cwd = wd;
 
+  const execUrl = (() => {
+    const raw = env?.PTY_EXEC_URL != null ? String(env.PTY_EXEC_URL).trim() : '';
+    if (raw) return raw;
+    const local = env?.PTY_EXEC_URL_LOCAL != null ? String(env.PTY_EXEC_URL_LOCAL).trim() : '';
+    if (local) return local;
+    const tunnel = env?.PTY_EXEC_URL_TUNNEL != null ? String(env.PTY_EXEC_URL_TUNNEL).trim() : '';
+    if (tunnel) return tunnel;
+    return 'http://localhost:3099/exec';
+  })();
+
   if (env?.PTY_SERVICE) {
     try {
       const res = await env.PTY_SERVICE.fetch(
-        new Request(PTY_EXEC_URL, {
+        new Request(execUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -148,9 +156,10 @@ export async function execOnPtyHost(env, { command, cwd = null, timeout_ms = 120
  * @param {any} env
  * @param {string} repoRoot
  */
-export async function validateMoviemodeRepoOnPty(env, repoRoot) {
+export async function validateMoviemodeRepoOnPty(env, repoRoot, ctx = {}) {
   const root = String(repoRoot || '').trim();
-  if (!root) {
+  const uid = String(ctx?.userId || '').trim();
+  if (!root || !uid) {
     return {
       ok: false,
       errorCode: 'workspace_context_missing',

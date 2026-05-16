@@ -1342,6 +1342,8 @@ const App: React.FC = () => {
       } else if (s === 'monaco' || s === 'code') {
         openTab('code');
         if (isNarrowViewport) setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
+      } else if (s === 'r2') {
+        window.dispatchEvent(new CustomEvent('iam:palette-open-r2'));
       }
     };
     window.addEventListener('iam:agent-open-surface', h as EventListener);
@@ -1363,6 +1365,24 @@ const App: React.FC = () => {
   }, [openTab, revealMainWorkspaceIfNarrow]);
 
   const consumeGithubExpandRepo = useCallback(() => setGithubExpandRepo(null), []);
+
+  useEffect(() => {
+    const handleOpenR2Palette = (e: Event) => {
+      const r2BucketName = (e as CustomEvent<{ bucket?: string }>).detail?.bucket?.trim();
+      revealMainWorkspaceIfNarrow();
+      setActiveActivity('remote');
+      if (r2BucketName) {
+        try {
+          sessionStorage.setItem('iam-palette-r2-bucket', r2BucketName);
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket: r2BucketName } }));
+      }
+    };
+    window.addEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);
+    return () => window.removeEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);
+  }, [revealMainWorkspaceIfNarrow]);
 
   useEffect(() => {
     if (!activeFile) return;
@@ -2563,6 +2583,7 @@ const App: React.FC = () => {
                       </MeetProvider>
                   ) : activeActivity === 'files' && location.pathname === '/dashboard/agent' ? (
                       <LocalExplorer
+                          workspace_id={authWorkspaceId}
                           nativeFolderOpenSignal={nativeFolderOpenSignal}
                           onWorkspaceRootChange={onExplorerWorkspaceRootChange}
                           onFileSelect={openInEditorFromExplorer}
@@ -2573,6 +2594,7 @@ const App: React.FC = () => {
                       <MCPPanel />
                   ) : activeActivity === 'actions' ? (
                       <GitHubExplorer
+                          workspace_id={authWorkspaceId}
                           expandRepoFullName={githubExpandRepo}
                           onExpandRepoConsumed={consumeGithubExpandRepo}
                           onOpenInEditor={(file) => {

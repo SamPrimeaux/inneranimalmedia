@@ -270,10 +270,10 @@ async function handleR2FileRoute(request, url, env, method) {
   if (!bucketParam || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
 
   const { bucketName, binding } = resolveR2Access(env, bucketParam);
-  const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
-  if (s3Denied) return s3Denied;
 
   if (method === 'DELETE') {
+    const s3DeniedDel = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3DeniedDel) return s3DeniedDel;
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
     const ok = await r2DeleteViaBindingOrS3(env, binding, bucketName, key);
@@ -282,6 +282,8 @@ async function handleR2FileRoute(request, url, env, method) {
   }
 
   if (method === 'POST' || method === 'PUT') {
+    const s3DeniedPut = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3DeniedPut) return s3DeniedPut;
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
     const content = body.content != null ? String(body.content) : '';
@@ -295,18 +297,30 @@ async function handleR2FileRoute(request, url, env, method) {
 
   if (method === 'HEAD' || method === 'GET') {
     if (method === 'HEAD') {
+      const metaHead = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+      if (metaHead) {
+        const deniedHead = await assertR2ObjectAccess(request, env, bucketName, key);
+        if (deniedHead) return deniedHead;
+        return jsonResponse({ ok: true, bucket: bucketName, ...metaHead });
+      }
+      const s3DeniedHead = await assertR2UnboundS3Auth(request, env, binding);
+      if (s3DeniedHead) return s3DeniedHead;
       const deniedHead = await assertR2ObjectAccess(request, env, bucketName, key);
       if (deniedHead) return deniedHead;
-      const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
-      if (!meta) return jsonResponse({ error: 'Not found' }, 404);
-      return jsonResponse({ ok: true, bucket: bucketName, ...meta });
+      const fallbackHead = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+      if (!fallbackHead) return jsonResponse({ error: 'Not found' }, 404);
+      return jsonResponse({ ok: true, bucket: bucketName, ...fallbackHead });
     }
+
+    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+    if (!meta) {
+      const s3DeniedGet = await assertR2UnboundS3Auth(request, env, binding);
+      if (s3DeniedGet) return s3DeniedGet;
+    }
+    if (!meta) return jsonResponse({ error: 'Not found' }, 404);
 
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
-
-    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
-    if (!meta) return jsonResponse({ error: 'Not found' }, 404);
 
     const ct = meta.contentType || getContentTypeFromKey(key) || 'application/octet-stream';
     const size = meta.size ?? null;
@@ -499,7 +513,8 @@ export async function handleR2Api(request, url, env) {
     if (!bucket) return jsonResponse({ error: 'bucket required' }, 400);
     const { bucketName, binding } = resolveR2Access(env, bucket);
 
-    if (binding && binding.list) {
+    const listViaBinding = async () => {
+      if (!binding || !binding.list) return null;
       if (recursive) {
         const allObjects = [];
         let cursor;
@@ -518,22 +533,25 @@ export async function handleR2Api(request, url, env) {
           }
           cursor = list.truncated ? list.cursor : undefined;
         } while (cursor && allObjects.length < limitParam);
-        return jsonResponse({ objects: allObjects, prefixes: [] });
+        return { objects: allObjects, prefixes: [] };
       }
-      
       const list = await binding.list({ prefix, delimiter: '/', limit: limitParam });
-      const objects = (list.objects || []).filter(o => !o.key.endsWith('/')).map(o => ({
-        key: o.key,
-        size: o.size ?? 0,
-        last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
-      }));
-      return jsonResponse({ objects, prefixes: list.rolledUpPrefixes || [] });
-    }
-    
+      return {
+        objects: (list.objects || []).filter(o => !o.key.endsWith('/')).map(o => ({
+          key: o.key,
+          size: o.size ?? 0,
+          last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+        })),
+        prefixes: list.rolledUpPrefixes || [],
+      };
+    };
+
+    const bindingList = await listViaBinding();
+    if (bindingList) return jsonResponse(bindingList);
+
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
 
-    // S3 Compatibility Fallback (any account bucket when R2 API token is configured)
     const signed = await signR2Request(
       'GET',
       bucketName,
@@ -544,14 +562,14 @@ export async function handleR2Api(request, url, env) {
       env,
     );
     if (!signed) return jsonResponse({ error: 'Bucket not bound and credentials missing' }, 400);
-    
+
     const listResp = await fetch(signed.endpoint, { method: 'GET', headers: signed.headers });
     if (!listResp.ok) return jsonResponse({ error: 'R2 list failed', status: listResp.status }, 400);
-    
+
     const parsed = parseListObjectsV2Xml(await listResp.text());
-    return jsonResponse({ 
+    return jsonResponse({
       objects: parsed.objects.map(o => ({ key: o.key, size: o.size, last_modified: o.lastModified })),
-      prefixes: parsed.prefixes || []
+      prefixes: parsed.prefixes || [],
     });
   }
 
@@ -713,13 +731,19 @@ export async function handleR2Api(request, url, env) {
     const key = url.searchParams.get('key');
     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
     const { bucketName, binding } = resolveR2Access(env, bucket);
+    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+    if (meta) {
+      const denied = await assertR2ObjectAccess(request, env, bucketName, key);
+      if (denied) return denied;
+      return jsonResponse({ ok: true, bucket: bucketName, ...meta });
+    }
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
-    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
-    if (!meta) return jsonResponse({ error: 'Not found' }, 404);
-    return jsonResponse({ ok: true, bucket: bucketName, ...meta });
+    const fallbackMeta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+    if (!fallbackMeta) return jsonResponse({ error: 'Not found' }, 404);
+    return jsonResponse({ ok: true, bucket: bucketName, ...fallbackMeta });
   }
 
   if (pathLower === '/api/r2/copy' && method === 'POST') {
@@ -760,13 +784,19 @@ export async function handleR2Api(request, url, env) {
     const key = (url.searchParams.get('key') || '').trim();
     if (!bucketParam || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
     const { bucketName, binding } = resolveR2Access(env, bucketParam);
+    const streamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
+    if (streamRes) {
+      const denied = await assertR2ObjectAccess(request, env, bucketName, key);
+      if (denied) return denied;
+      return streamRes;
+    }
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
-    const streamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
-    if (!streamRes) return jsonResponse({ error: 'Not found' }, 404);
-    return streamRes;
+    const fallbackStreamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
+    if (!fallbackStreamRes) return jsonResponse({ error: 'Not found' }, 404);
+    return fallbackStreamRes;
   }
 
   if (pathLower === '/api/r2/file') {

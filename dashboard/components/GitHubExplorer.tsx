@@ -47,7 +47,8 @@ export const GitHubExplorer: React.FC<{
   onOpenInEditor?: (file: ActiveFile) => void;
   expandRepoFullName?: string | null;
   onExpandRepoConsumed?: () => void;
-}> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed }) => {
+  workspace_id?: string | null;
+}> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   /** True when repo list returned 404 — show “Reconnect” copy vs first-time connect. */
   const [reconnectAfterReposFailure, setReconnectAfterReposFailure] = useState(false);
@@ -191,7 +192,15 @@ export const GitHubExplorer: React.FC<{
       /* ignore */
     }
     void fetchRepos();
-  }, []);
+  }, [workspace_id]);
+
+  useEffect(() => {
+    setRepos([]);
+    setExpandedRepo(null);
+    setPathByRepo({});
+    setItemsByRepoPath({});
+    setLoadError(null);
+  }, [workspace_id]);
 
   const filteredRepos = useMemo(() => {
     const q = repoFilter.trim().toLowerCase();
@@ -200,7 +209,7 @@ export const GitHubExplorer: React.FC<{
       const fn = String(r.full_name || r.name || '').toLowerCase();
       return fn.includes(q);
     });
-  }, [repos, repoFilter]);
+  }, [repos, repoFilter, workspace_id]);
 
   const defaultBranchFor = (fullName: string) => {
     const r = repos.find((x) => x.full_name === fullName);
@@ -208,7 +217,7 @@ export const GitHubExplorer: React.FC<{
     return typeof b === 'string' && b.trim() ? b.trim() : 'main';
   };
 
-  const cacheKey = (fullName: string, path: string) => `${fullName}::${path}`;
+  const cacheKey = (fullName: string, path: string) => `${workspace_id ?? ''}::${fullName}::${path}`;
 
   const loadContents = useCallback(async (fullName: string, path: string, branch: string): Promise<void> => {
     const [owner, repo] = fullName.split('/');
@@ -279,7 +288,7 @@ export const GitHubExplorer: React.FC<{
     } finally {
       setLoadingPath(null);
     }
-  }, []);
+  }, [workspace_id]);
 
   useEffect(() => {
     const fn = expandRepoFullName?.trim();
@@ -292,7 +301,7 @@ export const GitHubExplorer: React.FC<{
       await loadContents(fn, '', br);
       onExpandRepoConsumed?.();
     })();
-  }, [expandRepoFullName, loadContents, onExpandRepoConsumed, repos, isLoading]);
+  }, [expandRepoFullName, loadContents, onExpandRepoConsumed, repos, isLoading, workspace_id]);
 
   const toggleRepo = (fullName: string) => {
     if (expandedRepo === fullName) {

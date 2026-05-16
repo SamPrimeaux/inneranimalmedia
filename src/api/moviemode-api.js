@@ -539,7 +539,7 @@ async function startRemotionRenderOnPty(env, jobId, job) {
     return;
   }
 
-  const validation = await validateMoviemodeRepoOnPty(env, resolved.repoRoot);
+  const validation = await validateMoviemodeRepoOnPty(env, resolved.repoRoot, { userId: uid });
   if (!validation.ok) {
     await writeMoviemodeJobError(env, jobId, job, {
       ...validation,
