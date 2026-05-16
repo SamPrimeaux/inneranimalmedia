@@ -19,7 +19,10 @@ import {
     Search,
     RefreshCw,
     AlertTriangle,
+    Camera,
 } from 'lucide-react';
+import { MediaLibrary } from '../features/moviemode/MediaLibrary';
+import type { MediaLibraryItem } from '../features/moviemode/types';
 import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
 import { GoogleDriveExplorer } from './GoogleDriveExplorer';
@@ -214,14 +217,16 @@ function mapFileNodeInTree(node: FileNode, target: FileNode, fn: (n: FileNode) =
 }
 
 export const LocalExplorer: React.FC<{
-    onFileSelect: (fileData: { name: string; content: string; handle: any; workspacePath?: string }) => void;
+    onFileSelect: (file: ActiveFile) => void;
     /** Fires when user connects a native folder — drives status bar + persisted workspace. */
     onWorkspaceRootChange?: (info: { folderName: string }) => void;
     /** Open R2 object in Monaco (same as R2 panel). */
     onOpenInEditor?: (file: ActiveFile) => void;
+    /** Open clip in MovieMode studio (Remotion timeline). */
+    onOpenMovieMode?: (item: MediaLibraryItem) => void;
     /** Bumps when Welcome (or parent) should open the native folder picker (showDirectoryPicker). */
     nativeFolderOpenSignal?: number;
-}> = ({ onFileSelect, onWorkspaceRootChange, onOpenInEditor, nativeFolderOpenSignal = 0 }) => {
+}> = ({ onFileSelect, onWorkspaceRootChange, onOpenInEditor, onOpenMovieMode, nativeFolderOpenSignal = 0 }) => {
     const [rootDir, setRootDir] = useState<FileNode | null>(null);
     /**
      * When the directory handle cannot be revalidated, show vscode.dev-style resume copy.
@@ -236,6 +241,7 @@ export const LocalExplorer: React.FC<{
         r2: true,
         github: true,
         drive: true,
+        moviemode: false,
     });
     /** Local tunnel registry row is connected but last_verified_at is missing or older than 5 minutes. */
     const [localTunnelVerifyWarning, setLocalTunnelVerifyWarning] = useState(false);
@@ -652,7 +658,8 @@ export const LocalExplorer: React.FC<{
             const file = await node.handle.getFile();
             const workspacePath = pathPrefix ? `${pathPrefix}/${node.name}` : node.name;
             const { openLocalFileInEditor } = await import('../src/lib/mediaPreview');
-            await openLocalFileInEditor(file, node.handle, workspacePath, onFileSelect);
+            const openHandler = onOpenInEditor || onFileSelect;
+            await openLocalFileInEditor(file, node.handle, workspacePath, openHandler);
             return;
         }
 
@@ -1066,7 +1073,7 @@ export const LocalExplorer: React.FC<{
             </div>
 
             {/* Section 4: Google Drive */}
-            <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 mb-8">
+            <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1">
                 <div 
                     onClick={() => toggleSection('drive')}
                     className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
@@ -1078,6 +1085,26 @@ export const LocalExplorer: React.FC<{
                 {expandedSections.drive && (
                     <div className="min-h-[200px] max-h-[min(45vh,380px)] flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
                         <GoogleDriveExplorer onOpenInEditor={onOpenInEditor} />
+                    </div>
+                )}
+            </div>
+
+            {/* Section 5: MovieMode — Media Library */}
+            <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 mb-8">
+                <div
+                    onClick={() => toggleSection('moviemode')}
+                    className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
+                >
+                    {expandedSections.moviemode ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
+                    <Camera size={14} className="text-[var(--solar-orange)] group-hover:text-white" />
+                    <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">MovieMode</span>
+                </div>
+                {expandedSections.moviemode && onOpenMovieMode && (
+                    <div className="flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
+                        <MediaLibrary
+                            rootHandle={rootDir?.handle ?? null}
+                            onOpenInMovieMode={onOpenMovieMode}
+                        />
                     </div>
                 )}
             </div>

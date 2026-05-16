@@ -83,6 +83,9 @@ const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
 const WorkflowsPage = lazy(() => import('./pages/workflows/WorkflowsPage'));
 const WorkflowCanvas = lazy(() => import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
+const MovieModeStudio = lazy(() =>
+  import('./features/moviemode/MovieModeStudio').then((m) => ({ default: m.MovieModeStudio })),
+);
 
 function DashboardRoutesFallback() {
   return (
@@ -295,7 +298,7 @@ const App: React.FC = () => {
   const [activeProject] = useState<ProjectType>(ProjectType.SANDBOX);
 
   // IDE State
-  type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb' | 'excalidraw';
+  type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'moviemode';
   const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'drive' | 'database' | null>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? null : 'files',
   );
@@ -727,6 +730,7 @@ const App: React.FC = () => {
   // Tabs: Workspace matches default activeTab (welcome had no panel — stranded tab id removed from defaults).
   const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
   const [activeTab, setActiveTab] = useState<TabId>('Workspace');
+  const [movieModeTimeline, setMovieModeTimeline] = useState<import('./src/types/moviemode').MovieModeTimeline | null>(null);
   
   // Derived from EditorContext to minimize massive refactor breakage
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
@@ -1282,6 +1286,29 @@ const App: React.FC = () => {
       setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
     }
   }, [revealMainWorkspaceIfNarrow, isNarrowViewport, openTab]);
+
+  const openInEditorFromExplorer = useCallback(
+    (file: ActiveFile) => {
+      const originalContent =
+        file.fileKind && file.fileKind !== 'text'
+          ? file.originalContent ?? ''
+          : file.originalContent ?? file.content;
+      openFile({ ...file, originalContent });
+      openTab('code');
+      revealMainWorkspaceIfNarrow();
+    },
+    [openFile, openTab, revealMainWorkspaceIfNarrow],
+  );
+
+  const openMovieModeFromExplorer = useCallback(
+    async (item: import('./features/moviemode/types').MediaLibraryItem) => {
+      const { createTimelineWithClip } = await import('./features/moviemode/createEmptyTimeline');
+      setMovieModeTimeline(createTimelineWithClip(item));
+      openTab('moviemode');
+      revealMainWorkspaceIfNarrow();
+    },
+    [openTab, revealMainWorkspaceIfNarrow],
+  );
 
   /** Agent Sam SSE `surface_open` / orchestration — open the right workspace tab without new buttons. */
   useEffect(() => {
@@ -2537,16 +2564,9 @@ const App: React.FC = () => {
                           onWorkspaceRootChange={({ folderName }) => {
                               setIdeWorkspace({ source: 'local', folderName });
                           }}
-                          onFileSelect={(file) => {
-                          setActiveFile({ ...file, originalContent: file.content });
-                          openTab('code');
-                          revealMainWorkspaceIfNarrow();
-                      }}
-                          onOpenInEditor={(file) => {
-                              setActiveFile(file);
-                              openTab('code');
-                              revealMainWorkspaceIfNarrow();
-                          }}
+                          onFileSelect={openInEditorFromExplorer}
+                          onOpenInEditor={openInEditorFromExplorer}
+                          onOpenMovieMode={openMovieModeFromExplorer}
                       />
                   ) : activeActivity === 'mcps' ? (
                       <MCPPanel />
@@ -2762,6 +2782,15 @@ const App: React.FC = () => {
                           onClose={(e) => closeTab('excalidraw', e)}
                       />
                   )}
+                  {openTabs.includes('moviemode') && (
+                      <Tab
+                          title="MovieMode"
+                          icon={<Camera size={13} className="text-[var(--solar-orange)]"/>}
+                          active={activeTab === 'moviemode'}
+                          onClick={() => setActiveTab('moviemode')}
+                          onClose={(e) => closeTab('moviemode', e)}
+                      />
+                  )}
 
                   {/* Quick-open buttons for closed panels */}
                   <div className="ml-auto flex items-center gap-0.5 pr-2 shrink-0">
@@ -2841,6 +2870,22 @@ const App: React.FC = () => {
                   {activeTab === 'excalidraw' && (
                       <div className="absolute inset-0 z-10 flex flex-col">
                           <ExcalidrawView />
+                      </div>
+                  )}
+                  {activeTab === 'moviemode' && (
+                      <div className="absolute inset-0 z-10 flex flex-col">
+                          <Suspense
+                            fallback={
+                              <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
+                                Loading MovieMode…
+                              </div>
+                            }
+                          >
+                            <MovieModeStudio
+                              timeline={movieModeTimeline}
+                              onTimelineChange={setMovieModeTimeline}
+                            />
+                          </Suspense>
                       </div>
                   )}
                   </div>

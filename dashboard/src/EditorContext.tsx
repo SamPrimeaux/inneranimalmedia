@@ -35,15 +35,28 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const openFile = useCallback((file: ActiveFile) => {
     const id = getFileId(file);
+    const isMedia = Boolean(file.fileKind && file.fileKind !== 'text');
     setTabs(prev => {
-      // If already open, just switch
-      if (prev.find(t => t.id === id)) return prev;
-      
+      const existing = prev.find((t) => t.id === id);
+      if (existing) {
+        return prev.map((t) => {
+          if (t.id !== id) return t;
+          const merged: EditorTab = {
+            ...t,
+            ...file,
+            id,
+            isDirty: isMedia ? false : file.content !== t.lastSavedContent,
+            lastSavedContent: isMedia ? t.lastSavedContent : file.content,
+          };
+          return merged;
+        });
+      }
+
       const newTab: EditorTab = {
         ...file,
         id,
         isDirty: false,
-        lastSavedContent: file.content
+        lastSavedContent: isMedia ? '' : file.content,
       };
       return [...prev, newTab];
     });
