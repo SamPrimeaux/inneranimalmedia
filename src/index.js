@@ -36,6 +36,19 @@ import {
 import { handleGithubWebhook } from './api/webhooks/github.js';
 import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
+
+function getMimeType(key) {
+  if (key.endsWith('.js'))    return 'application/javascript';
+  if (key.endsWith('.css'))   return 'text/css';
+  if (key.endsWith('.html'))  return 'text/html; charset=utf-8';
+  if (key.endsWith('.json'))  return 'application/json';
+  if (key.endsWith('.woff2')) return 'font/woff2';
+  if (key.endsWith('.woff'))  return 'font/woff';
+  if (key.endsWith('.svg'))   return 'image/svg+xml';
+  if (key.endsWith('.png'))   return 'image/png';
+  if (key.endsWith('.map'))   return 'application/json';
+  return 'application/octet-stream';
+}
 import { createTracer } from './core/tracer.js';
 import { isLikelyWordPressProbePath } from './core/wp-probe-path.js';
 
@@ -673,12 +686,12 @@ export default {
 
           if (env.ASSETS) {
             const obj = await env.ASSETS.get(assetKey);
-            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream' } });
+            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey) } });
           }
 
           if (env.DASHBOARD) {
             const obj = await getDashboardR2Object(env.DASHBOARD, assetKey);
-            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream' } });
+            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey), 'Cache-Control': 'public, max-age=31536000' } });
 
             if (pathLower.startsWith('/dashboard/') || pathLower === '/onboarding' || pathLower.startsWith('/onboarding/')) {
               const index = await getDashboardSpaHtmlShell(env.DASHBOARD);
