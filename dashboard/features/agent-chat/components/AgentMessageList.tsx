@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import { AgentChatMarkdown } from './AgentChatMarkdown';
 import { AgentCodeFencePreview } from './AgentCodeFencePreview';
+import { AgentCodeDiffPreview } from './AgentCodeDiffPreview';
 import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
@@ -328,17 +329,42 @@ function AssistantPreviewArtifactsBar({
   onFileSelect?: AgentMessageListProps['onFileSelect'];
   onImagePreview?: AgentMessageListProps['onImagePreview'];
 }) {
+  const diffArts = artifacts.filter(
+    (a) => a.kind === 'diff' && typeof a.before === 'string' && typeof a.content === 'string',
+  );
+  const chipArts = artifacts.filter((a) => !diffArts.includes(a));
+
   return (
-    <ArtifactChipList
-      artifacts={artifacts}
-      onOpenArtifact={(a) =>
-        onFileSelect?.({
-          name: `sse-preview-${a.kind}-${a.id.slice(0, 8)}.${a.kind === 'sql' ? 'sql' : a.kind === 'diff' ? 'diff' : a.language || 'txt'}`,
-          content: a.content || `# ${a.title || a.kind}\n`,
-        })
-      }
-      onOpenImageUrl={onImagePreview}
-    />
+  <>
+      {diffArts.map((a) => (
+        <AgentCodeDiffPreview
+          key={a.id}
+          path={a.path || a.title || a.id}
+          before={a.before!}
+          after={a.content!}
+          language={a.language}
+          onOpenMonaco={(file) =>
+            onFileSelect?.({
+              ...file,
+              originalContent: file.originalContent ?? a.before,
+            })
+          }
+        />
+      ))}
+      {chipArts.length > 0 ? (
+        <ArtifactChipList
+          artifacts={chipArts}
+          onOpenArtifact={(a) =>
+            onFileSelect?.({
+              name: `sse-preview-${a.kind}-${a.id.slice(0, 8)}.${a.kind === 'sql' ? 'sql' : a.kind === 'diff' ? 'diff' : a.language || 'txt'}`,
+              content: a.content || `# ${a.title || a.kind}\n`,
+              originalContent: a.before,
+            })
+          }
+          onOpenImageUrl={onImagePreview}
+        />
+      ) : null}
+    </>
   );
 }
 

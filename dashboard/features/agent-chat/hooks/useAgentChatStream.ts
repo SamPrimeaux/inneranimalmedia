@@ -84,6 +84,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     onR2FileUpdated,
     onFileSelect,
     onToolApprovalRequest,
+    onThinkingEvent,
     mergeIntoLastAssistant = false,
     initialAssistantBuffer = '',
   } = ctx;
@@ -293,6 +294,38 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           }
           continue;
         }
+        if (evType === 'code_diff') {
+          const d = data as {
+            path?: string;
+            before?: string;
+            after?: string;
+            language?: string;
+          };
+          const path = typeof d.path === 'string' ? d.path.trim() : '';
+          const before = typeof d.before === 'string' ? d.before : '';
+          const after = typeof d.after === 'string' ? d.after : '';
+          if (path && before !== after) {
+            const art: AgentPreviewArtifact = {
+              id: `diff_${path.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 40)}_${Date.now().toString(36)}`,
+              kind: 'diff',
+              path,
+              before,
+              content: after,
+              language: typeof d.language === 'string' ? d.language : undefined,
+              title: path,
+            };
+            setMessages((prev) => {
+              const next = [...prev];
+              const idx = next.length - 1;
+              if (idx < 0 || next[idx].role !== 'assistant') return prev;
+              const prevArts = next[idx].previewArtifacts || [];
+              if (prevArts.some((x) => x.id === art.id)) return prev;
+              next[idx] = { ...next[idx], previewArtifacts: [...prevArts, art] };
+              return next;
+            });
+          }
+          continue;
+        }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'preview_artifact') {
           const d = data as {
             type: string;
@@ -317,6 +350,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               content: typeof raw.content === 'string' ? raw.content : undefined,
               language: typeof raw.language === 'string' ? raw.language : undefined,
               imageUrl: typeof raw.imageUrl === 'string' ? raw.imageUrl : undefined,
+              before: typeof (raw as { before?: string }).before === 'string' ? (raw as { before: string }).before : undefined,
+              path: typeof (raw as { path?: string }).path === 'string' ? (raw as { path: string }).path : undefined,
             };
             setMessages((prev) => {
               const next = [...prev];

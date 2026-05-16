@@ -31,6 +31,7 @@ import {
   Sparkles,
   Layers,
   ShieldCheck,
+  Play,
 } from 'lucide-react';
 import { ProjectType } from '../../types';
 import type { ActiveFile } from '../../types';
@@ -72,6 +73,7 @@ import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug
 import { AgentMessageList } from './components/AgentMessageList';
 import { ThinkingCard } from '../../src/components/ThinkingCard';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
+import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
 import '../agent-presence/presenceMotion.css';
 import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
 
@@ -97,6 +99,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onOpenCodeTab,
   onLoadingChange,
   onApprovalRequired,
+  agentRunId = null,
   onOpenChatHistory,
   agentsamPolicy = null,
   workspaceId = null,
@@ -1697,38 +1700,49 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             paddingBottom: isNarrow ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
           }}
         >
+          <ToolApprovalModal
+            workspaceId={workspaceId}
+            agentRunId={agentRunId}
+            toolExecutionActive={isLoading}
+            chatSessionId={conversationId}
+            onOpenInEditor={onFileSelect}
+          />
           {pendingToolApproval && (
-            <div
-              role="region"
-              aria-label="Tool approval"
-              className="rounded-lg border border-[var(--solar-cyan)]/35 bg-[var(--scene-bg)] p-3 space-y-2"
-            >
-              <div className="text-[0.6875rem] font-semibold text-[var(--text-heading)]">
-                {pendingToolApproval.tool.plan_terminal ? 'Terminal command approval' : 'Tool approval required'}
-              </div>
-              <div className="text-[0.6875rem] font-mono text-[var(--solar-cyan)]">{pendingToolApproval.tool.name}</div>
-              {pendingToolApproval.tool.preview ? (
-                <div className="text-[0.6875rem] text-[var(--dashboard-text)] whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
-                  {pendingToolApproval.tool.preview}
+            <div role="region" aria-label="Plan task approval" className="w-full min-w-0 max-w-full shrink-0">
+              <div className="relative w-full min-w-0 rounded-2xl border border-white/[0.08] bg-[color-mix(in_srgb,var(--dashboard-panel)_72%,transparent)] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-amber-400/20 overflow-hidden">
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.04] via-transparent to-black/[0.12]" aria-hidden />
+                <div className="relative px-3 py-2.5 border-b border-white/[0.06]">
+                  <p className="text-[0.8125rem] font-medium text-[var(--dashboard-text)]">
+                    {pendingToolApproval.tool.plan_terminal ? 'Plan task approval' : 'Tool approval'}
+                  </p>
+                  <p className="mt-0.5 text-[0.6875rem] font-mono text-[var(--solar-cyan)] truncate">
+                    {pendingToolApproval.tool.name}
+                  </p>
                 </div>
-              ) : null}
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="button"
-                  disabled={approvalBusy}
-                  onClick={() => void handleApprovePendingTool()}
-                  className="px-3 py-1.5 rounded-lg text-[0.6875rem] font-semibold bg-[var(--solar-green)]/20 border border-[var(--solar-green)]/40 text-[var(--solar-green)] hover:bg-[var(--solar-green)]/30 disabled:opacity-50"
-                >
-                  {approvalBusy ? 'Running…' : pendingToolApproval.tool.plan_terminal ? 'Allow' : 'Confirm'}
-                </button>
-                <button
-                  type="button"
-                  disabled={approvalBusy}
-                  onClick={handleDenyPendingTool}
-                  className="px-3 py-1.5 rounded-lg text-[0.6875rem] font-semibold bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] text-[var(--dashboard-muted)] hover:border-[var(--solar-red)]/50 hover:text-[var(--solar-red)] disabled:opacity-50"
-                >
-                  Deny
-                </button>
+                {pendingToolApproval.tool.preview ? (
+                  <pre className="m-0 max-h-[min(24vh,160px)] overflow-auto px-3 py-2 text-[0.6875rem] font-mono text-[var(--dashboard-text)]/90 whitespace-pre-wrap break-words border-b border-white/[0.05] bg-black/20">
+                    {pendingToolApproval.tool.preview}
+                  </pre>
+                ) : null}
+                <div className="relative flex flex-wrap items-center gap-2 px-3 py-2.5">
+                  <button
+                    type="button"
+                    disabled={approvalBusy}
+                    onClick={() => void handleApprovePendingTool()}
+                    className="inline-flex items-center justify-center gap-1.5 min-h-[2rem] px-3.5 rounded-lg text-[0.75rem] font-semibold text-[var(--solar-base03)] bg-[var(--solar-cyan)] shadow-[0_1px_0_rgba(255,255,255,0.12)_inset,0_4px_14px_rgba(34,211,238,0.22)] hover:brightness-110 disabled:opacity-45"
+                  >
+                    <Play size={13} className="fill-current" aria-hidden />
+                    {approvalBusy ? 'Running…' : 'Run'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={approvalBusy}
+                    onClick={handleDenyPendingTool}
+                    className="inline-flex items-center justify-center min-h-[2rem] px-2.5 rounded-lg text-[0.72rem] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-white/[0.04] disabled:opacity-45"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             </div>
           )}

@@ -117,7 +117,8 @@ export function ThinkingCard({
         background: 'var(--bg-surface, rgba(255,255,255,0.03))',
         overflow: 'hidden',
         marginBottom: 8,
-        maxWidth: 520,
+        maxWidth: '100%',
+        width: '100%',
       }}
     >
       <button

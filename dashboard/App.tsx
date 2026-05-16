@@ -29,7 +29,6 @@ import { R2Explorer } from './components/R2Explorer';
 import { SourcePanel } from './components/SourcePanel';
 import { ProjectType, type ActiveFile } from './types';
 import { SHELL_VERSION } from './src/shellVersion';
-import { ToolApprovalModal } from './src/components/ToolApprovalModal';
 import {
   fetchAndApplyActiveCmsTheme,
   applyCachedCmsThemeFallback,
@@ -2480,6 +2479,7 @@ const App: React.FC = () => {
                         onOpenCodeTab={focusCodeEditorFromChat}
               onLoadingChange={setAgentIsStreaming}
               onApprovalRequired={setActiveCommandRunId}
+              agentRunId={activeCommandRunId}
                         syncedHostConversationId={activeAgentConversationId}
                         agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
                         activeAgentChatShellTabId={activeAgentChatTabId}
@@ -3038,32 +3038,6 @@ const App: React.FC = () => {
           <span>Settings</span>
         </button>
       </nav>
-
-      {/* Pending approvals: all /dashboard/* routes; dock on workspace side so it does not cover the chat column */}
-      {authWorkspaceId?.trim() ? (
-        <div
-          className={`fixed z-[92] max-md:left-2 max-md:right-2 pointer-events-none ${
-            agentPosition === 'left'
-              ? 'md:right-auto md:left-[max(0.75rem,env(safe-area-inset-left,0px))]'
-              : 'md:left-auto md:right-[max(0.75rem,env(safe-area-inset-right,0px))]'
-          }`}
-          style={{
-            bottom: 'calc(3.25rem + env(safe-area-inset-bottom, 0px))',
-            maxWidth: 'min(32rem, calc(100vw - 1rem))',
-          }}
-        >
-          <div className="pointer-events-auto">
-            <ToolApprovalModal
-              workspaceId={authWorkspaceId}
-              agentRunId={activeCommandRunId}
-              toolExecutionActive={agentIsStreaming}
-              chatSessionId={activeAgentConversationId}
-              onOpenInEditor={openInMonacoFromChat}
-              docked
-            />
-          </div>
-        </div>
-      ) : null}
 
       {mobileMoreOpen && (
         <>

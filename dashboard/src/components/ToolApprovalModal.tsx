@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { GripVertical, Code2, ExternalLink, Play, Copy } from 'lucide-react';
+import { Code2, ExternalLink, Play, Copy, ShieldAlert, ChevronDown, ChevronUp, X } from 'lucide-react';
 import type { ActiveFile } from '../../types';
 
 type Approval = {
@@ -18,7 +18,6 @@ type Approval = {
 const BACKOFF_MS = [5000, 15000, 45000];
 const RECENT_PENDING_MS = 120_000;
 
-/** Beyond this, show truncated in-card preview and nudge Monaco. */
 const LARGE_CHARS = 4000;
 const LARGE_LINES = 48;
 const TRUNCATE_LINES = 32;
@@ -33,15 +32,11 @@ type ToolApprovalModalProps = {
   workspaceId?: string | null;
   agentRunId?: string | null;
   toolExecutionActive?: boolean;
-  /** Active Agent chat conversation id — pending queue is scoped to this session when polling. */
   chatSessionId?: string | null;
-  /** Opens `MonacoEditorView` (workspace editor) with virtual file — same as chat “Open in Monaco”. */
   onOpenInEditor?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
-  /**
-   * `true` = fixed global dock (App shell): no top margin; parent handles position.
-   * `false` = inline in chat column (legacy).
-   */
+  /** @deprecated Fixed dock removed — always inline in chat column. */
   docked?: boolean;
+  className?: string;
 };
 
 function shouldPollApprovals(opts: {
@@ -62,8 +57,6 @@ function shouldPollApprovals(opts: {
   if (agentRunId) return true;
   if (recentPending && onAgentRoute) return true;
   if (!onAgentRoute) return false;
-  // Only poll when execution is actually in flight (agentRunId / toolExecutionActive / recentPending).
-  // A chatSessionId alone (idle composer) is not sufficient — that was causing the premature modal.
   if (!chatSessionId.trim()) return false;
   return false;
 }
@@ -73,13 +66,13 @@ function formatActionTitle(toolName: string, description: string): string {
     .split('\n')
     .map((s) => s.trim())
     .find(Boolean);
-  if (d0 && d0.length >= 4 && d0.length <= 100) return d0;
+  if (d0 && d0.length >= 4 && d0.length <= 120) return d0;
   const raw = String(toolName || '').trim();
   if (raw) {
     const t = raw.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
     return t.length > 72 ? t.slice(0, 70) + '…' : t;
   }
-  return d0 || 'Approval';
+  return d0 || 'Approval required';
 }
 
 function isDeployLike(a: Approval): boolean {
@@ -98,6 +91,31 @@ function looksLikeSql(s: string): boolean {
   return /^\s*(select|insert|update|delete|with|create|alter|drop|truncate|explain)\b/.test(t);
 }
 
+function riskStyles(level: Approval['risk_level']): { pill: string; ring: string } {
+  switch (level) {
+    case 'critical':
+      return {
+        pill: 'bg-red-500/15 text-red-300 border-red-400/30',
+        ring: 'ring-red-400/25',
+      };
+    case 'high':
+      return {
+        pill: 'bg-amber-500/12 text-amber-200 border-amber-400/28',
+        ring: 'ring-amber-400/20',
+      };
+    case 'medium':
+      return {
+        pill: 'bg-yellow-500/10 text-yellow-200/90 border-yellow-400/22',
+        ring: 'ring-yellow-400/15',
+      };
+    default:
+      return {
+        pill: 'bg-emerald-500/10 text-emerald-200/90 border-emerald-400/22',
+        ring: 'ring-emerald-400/12',
+      };
+  }
+}
+
 function highlightSqlLine(line: string, keyPrefix: string): React.ReactNode {
   if (line === '') return '\u00A0';
   const tokenRe =
@@ -110,7 +128,7 @@ function highlightSqlLine(line: string, keyPrefix: string): React.ReactNode {
     const k = `${keyPrefix}-${i++}`;
     if (/^\s+$/.test(tok) || tok.startsWith('--') || tok.startsWith('/*')) {
       parts.push(
-        <span key={k} style={{ color: 'var(--color-text-tertiary, #64748b)' }}>
+        <span key={k} className="text-[var(--dashboard-muted)]/80">
           {tok}
         </span>,
       );
@@ -118,7 +136,7 @@ function highlightSqlLine(line: string, keyPrefix: string): React.ReactNode {
     }
     if (tok.startsWith("'") || tok.startsWith('"')) {
       parts.push(
-        <span key={k} style={{ color: 'var(--solar-green, #86efac)' }}>
+        <span key={k} className="text-emerald-300/90">
           {tok}
         </span>,
       );
@@ -126,7 +144,7 @@ function highlightSqlLine(line: string, keyPrefix: string): React.ReactNode {
     }
     if (/^[,();]$/.test(tok)) {
       parts.push(
-        <span key={k} style={{ color: 'var(--dashboard-muted, #94a3b8)' }}>
+        <span key={k} className="text-[var(--dashboard-muted)]">
           {tok}
         </span>,
       );
@@ -134,14 +152,14 @@ function highlightSqlLine(line: string, keyPrefix: string): React.ReactNode {
     }
     if (/^\w+$/.test(tok) && SQL_KW.has(tok.toLowerCase())) {
       parts.push(
-        <span key={k} style={{ color: 'var(--solar-cyan, #7dd3fc)', fontWeight: 600 }}>
+        <span key={k} className="text-sky-300/95 font-medium">
           {tok}
         </span>,
       );
       continue;
     }
     parts.push(
-      <span key={k} style={{ color: 'var(--dashboard-text, #e2e8f0)' }}>
+      <span key={k} className="text-[var(--dashboard-text)]/95">
         {tok}
       </span>,
     );
@@ -159,9 +177,8 @@ function SqlPreviewBody({ text, truncated }: { text: string; truncated: boolean 
         </div>
       ))}
       {truncated ? (
-        <div className="mt-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-[var(--dashboard-border)]/60 pt-2">
-          Preview truncated in chat — use <strong className="text-[var(--solar-cyan)]">Open in editor</strong> for the
-          full script and Monaco highlighting.
+        <div className="mt-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-white/[0.06] pt-2">
+          Truncated — open in editor for the full script.
         </div>
       ) : null}
     </>
@@ -174,22 +191,18 @@ export function ToolApprovalModal({
   toolExecutionActive = false,
   chatSessionId = null,
   onOpenInEditor,
-  docked = false,
+  className = '',
 }: ToolApprovalModalProps) {
   const location = useLocation();
   const [approval, setApproval] = useState<Approval | null>(null);
   const approvalRef = useRef<Approval | null>(null);
   approvalRef.current = approval;
 
-  const [queryFolded, setQueryFolded] = useState(false);
-  const [runMenuOpen, setRunMenuOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [allowlistLoading, setAllowlistLoading] = useState(false);
   const [pollStopped401, setPollStopped401] = useState(false);
   const [outcome, setOutcome] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
-
-  const runMenuRef = useRef<HTMLDivElement | null>(null);
-  const playBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const backoffRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -273,8 +286,7 @@ export function ToolApprovalModal({
           setApproval(d.approval ?? null);
           if (d.approval) {
             setOutcome(null);
-            setQueryFolded(false);
-            setRunMenuOpen(false);
+            setPreviewOpen(true);
           }
         }
         kick(4000);
@@ -303,17 +315,6 @@ export function ToolApprovalModal({
       clearTimer();
     };
   }, [location.pathname, pollStopped401, ws, agentRunId, toolExecutionActive, sid]);
-
-  useEffect(() => {
-    if (!runMenuOpen) return;
-    const close = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (runMenuRef.current?.contains(t) || playBtnRef.current?.contains(t)) return;
-      setRunMenuOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [runMenuOpen]);
 
   const preview = approval ? approval.preview_sql || approval.preview_command || '' : '';
   const previewLines = preview ? preview.split('\n').length : 0;
@@ -370,7 +371,6 @@ export function ToolApprovalModal({
     setLoading(true);
     const res = await patchApproval(action);
     setLoading(false);
-    setRunMenuOpen(false);
     if (!res.ok) {
       setOutcome({ tone: 'err', text: res.error || 'Request failed' });
       return;
@@ -385,7 +385,6 @@ export function ToolApprovalModal({
   async function addToAllowlistAndApprove(): Promise<void> {
     if (!approval) return;
     setAllowlistLoading(true);
-    setRunMenuOpen(false);
     if (preview.trim()) {
       try {
         await fetch('/api/agent/allowlist', {
@@ -402,7 +401,7 @@ export function ToolApprovalModal({
     await finishWithOutcome(
       'approved',
       preview.trim()
-        ? 'Added to allowlist and approved — agent continues.'
+        ? 'Added to allowlist — agent continues.'
         : 'Approved — agent continues.',
       2800,
     );
@@ -411,181 +410,167 @@ export function ToolApprovalModal({
   if (!approval) return null;
 
   const deployish = isDeployLike(approval);
-  const cancelLabel = deployish ? 'Skip' : 'Cancel';
+  const cancelLabel = deployish ? 'Skip' : 'Dismiss';
   const runLabel = deployish ? 'Deploy' : 'Run';
-  const titleRaw = formatActionTitle(approval.tool_name, approval.description);
-  const title = titleRaw.toUpperCase();
+  const title = formatActionTitle(approval.tool_name, approval.description);
+  const risk = riskStyles(approval.risk_level);
   const showSqlHighlight = looksLikeSql(displayPreview);
-  const descOne = String(approval.description || '')
-    .split('\n')
-    .map((s) => s.trim())
-    .find(Boolean);
-  const showDesc = descOne && descOne.replace(/\s+/g, ' ') !== titleRaw.replace(/\s+/g, ' ');
+  const busy = loading || allowlistLoading;
 
   return (
     <div
-      className={`${docked ? '' : 'mt-4 '}w-full max-w-[min(100%,32rem)] rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)]/95 shadow-lg backdrop-blur-md overflow-hidden`}
-      style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.35)' }}
+      role="region"
+      aria-label="Action approval"
+      className={`w-full min-w-0 max-w-full shrink-0 ${className}`.trim()}
     >
-      {/* Minimal header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--dashboard-border)]/80 bg-[var(--dashboard-panel)]/90">
-        <GripVertical
-          size={16}
-          className="shrink-0 text-[var(--dashboard-muted)] opacity-70"
-          aria-hidden
-        />
-        <div className="min-w-0 flex-1 flex items-center gap-2">
-          <span
-            className="truncate text-[0.7rem] font-mono font-semibold tracking-wide text-[var(--dashboard-text)] uppercase"
-            title={title}
-          >
-            {title}
-          </span>
-          {approval.queue_count > 1 ? (
-            <span className="shrink-0 rounded-full border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[0.6rem] text-[var(--dashboard-muted)]">
-              +{approval.queue_count - 1} pending
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          {preview ? (
-            <button
-              type="button"
-              title={queryFolded ? 'Show query' : 'Hide query'}
-              onClick={() => setQueryFolded((f) => !f)}
-              className={`p-1.5 rounded-md border transition-colors ${
-                queryFolded
-                  ? 'border-transparent text-[var(--dashboard-muted)] hover:bg-[var(--scene-bg)]'
-                  : 'border-[var(--dashboard-border)]/80 bg-[var(--scene-bg)]/80 text-[var(--solar-cyan)]'
-              }`}
-            >
-              <Code2 size={16} aria-hidden />
-            </button>
-          ) : null}
+      <div
+        className={`relative w-full min-w-0 rounded-2xl border border-white/[0.08] bg-[color-mix(in_srgb,var(--dashboard-panel)_72%,transparent)] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ${risk.ring} overflow-hidden`}
+      >
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.04] via-transparent to-black/[0.12]" aria-hidden />
+
+        <div className="relative flex items-start gap-2.5 px-3 py-2.5 border-b border-white/[0.06]">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 border border-amber-400/20 text-amber-200/90">
+            <ShieldAlert size={15} aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[0.8125rem] font-medium leading-snug text-[var(--dashboard-text)] line-clamp-2">
+              {title}
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <span
+                className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide ${risk.pill}`}
+              >
+                {approval.risk_level}
+              </span>
+              {approval.queue_count > 1 ? (
+                <span className="text-[0.625rem] text-[var(--dashboard-muted)]">
+                  +{approval.queue_count - 1} in queue
+                </span>
+              ) : null}
+              {approval.is_mcp_server ? (
+                <span className="text-[0.625rem] text-[var(--dashboard-muted)] truncate max-w-[10rem]">
+                  {approval.server_display_name ?? 'MCP'}
+                </span>
+              ) : null}
+            </div>
+          </div>
           <button
             type="button"
-            title="Open in editor (Monaco)"
-            onClick={openEditor}
-            disabled={!preview.trim() || !onOpenInEditor}
-            className="p-1.5 rounded-md border border-transparent text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--dashboard-border)] hover:bg-[var(--scene-bg)] disabled:opacity-35 disabled:pointer-events-none transition-colors"
+            title="Dismiss"
+            disabled={busy}
+            onClick={() => void finishWithOutcome('denied', 'Dismissed.', 1200)}
+            className="shrink-0 p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-white/[0.06] disabled:opacity-40 transition-colors"
           >
-            <ExternalLink size={16} aria-hidden />
+            <X size={14} aria-hidden />
           </button>
-          <div className="relative" ref={runMenuRef}>
+        </div>
+
+        {preview ? (
+          <div className="relative border-b border-white/[0.05]">
             <button
-              ref={playBtnRef}
               type="button"
-              title={runLabel}
-              disabled={loading || allowlistLoading}
-              onClick={() => setRunMenuOpen((o) => !o)}
-              className="p-1.5 rounded-md border border-[var(--dashboard-border)]/70 bg-[var(--scene-bg)]/90 text-[var(--dashboard-text)] hover:border-[var(--solar-cyan)]/50 hover:text-[var(--solar-cyan)] disabled:opacity-40 transition-colors"
+              onClick={() => setPreviewOpen((o) => !o)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-[0.6875rem] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-white/[0.03] transition-colors"
             >
-              <Play size={15} className="fill-current" aria-hidden />
+              <span className="inline-flex items-center gap-1.5">
+                <Code2 size={13} aria-hidden />
+                {looksLikeSql(preview) ? 'SQL preview' : 'Command preview'}
+              </span>
+              {previewOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
-            {runMenuOpen ? (
-              <div
-                className="absolute right-0 top-[calc(100%+6px)] z-[80] min-w-[13.5rem] rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/98 backdrop-blur-lg py-1.5 px-1.5 shadow-xl"
-                role="menu"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="w-full text-left rounded-lg px-3 py-2 text-[0.75rem] font-medium text-[var(--dashboard-text)] hover:bg-[var(--scene-bg)] border border-transparent hover:border-[var(--dashboard-border)]"
-                  disabled={loading || allowlistLoading}
-                  onClick={() => void finishWithOutcome('denied', deployish ? 'Skipped.' : 'Cancelled.', 2200)}
+            {previewOpen ? (
+              <div className="relative mx-2 mb-2 rounded-xl border border-white/[0.06] bg-black/25 overflow-hidden">
+                <div className="flex items-center justify-end gap-0.5 px-1.5 py-1 border-b border-white/[0.05]">
+                  <button
+                    type="button"
+                    title="Copy"
+                    onClick={() => void copyPreview()}
+                    className="p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-white/[0.05] transition-colors"
+                  >
+                    <Copy size={13} aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    title="Open in editor"
+                    onClick={openEditor}
+                    disabled={!onOpenInEditor}
+                    className="p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-white/[0.05] disabled:opacity-35 transition-colors"
+                  >
+                    <ExternalLink size={13} aria-hidden />
+                  </button>
+                </div>
+                <pre
+                  className="m-0 max-h-[min(28vh,200px)] overflow-auto px-2.5 py-2 text-[0.6875rem] font-mono leading-relaxed"
+                  style={{ tabSize: 2 }}
                 >
-                  {cancelLabel}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={loading || allowlistLoading}
-                  onClick={() =>
-                    void finishWithOutcome(
-                      'approved',
-                      looksLikeSql(preview)
-                        ? 'Approved — SQL feedback (rows, errors, or e.g. “Success. No rows returned”) appears in chat after execution.'
-                        : 'Approved — agent continues.',
-                      2800,
-                    )
-                  }
-                  className="mt-1 w-full rounded-lg px-3 py-2.5 text-[0.8rem] font-semibold text-[var(--solar-green)] border border-[var(--color-success-border,rgba(34,197,94,0.35))] bg-[rgba(74,222,128,0.12)] backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_4px_18px_rgba(34,197,94,0.15)] hover:bg-[rgba(74,222,128,0.18)] disabled:opacity-45"
-                >
-                  {runLabel}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={loading || allowlistLoading}
-                  onClick={() => void addToAllowlistAndApprove()}
-                  className="mt-1 w-full rounded-lg px-3 py-2 text-[0.72rem] font-semibold text-[var(--solar-indigo,#a5b4fc)] border border-[var(--dashboard-border)]/80 bg-[rgba(99,102,241,0.08)] hover:bg-[rgba(99,102,241,0.14)] disabled:opacity-45"
-                >
-                  {allowlistLoading ? 'Saving…' : 'Add to Allowlist'}
-                </button>
+                  {showSqlHighlight ? (
+                    <SqlPreviewBody text={displayPreview} truncated={isLarge} />
+                  ) : (
+                    <>
+                      <span className="text-[var(--dashboard-text)]/95 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {displayPreview}
+                      </span>
+                      {isLarge ? (
+                        <div className="mt-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-white/[0.06] pt-2">
+                          Large payload — open in editor.
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </pre>
               </div>
             ) : null}
           </div>
+        ) : null}
+
+        {outcome ? (
+          <div
+            className={`px-3 py-2 text-[0.72rem] border-b border-white/[0.05] ${
+              outcome.tone === 'ok'
+                ? 'bg-emerald-500/8 text-emerald-300'
+                : 'bg-red-500/8 text-red-300'
+            }`}
+          >
+            {outcome.text}
+          </div>
+        ) : null}
+
+        <div className="relative flex flex-wrap items-center gap-2 px-3 py-2.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void finishWithOutcome(
+                'approved',
+                looksLikeSql(preview)
+                  ? 'Approved — results appear in chat after execution.'
+                  : 'Approved — agent continues.',
+                2800,
+              )
+            }
+            className="inline-flex items-center justify-center gap-1.5 min-h-[2rem] px-3.5 rounded-lg text-[0.75rem] font-semibold text-[var(--solar-base03)] bg-[var(--solar-cyan)] shadow-[0_1px_0_rgba(255,255,255,0.12)_inset,0_4px_14px_rgba(34,211,238,0.22)] hover:brightness-110 disabled:opacity-45 transition-all"
+          >
+            <Play size={13} className="fill-current" aria-hidden />
+            {loading ? 'Running…' : runLabel}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void addToAllowlistAndApprove()}
+            className="inline-flex items-center justify-center min-h-[2rem] px-3 rounded-lg text-[0.75rem] font-medium text-[var(--dashboard-text)] border border-white/[0.1] bg-white/[0.04] backdrop-blur-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-white/[0.07] disabled:opacity-45 transition-all"
+          >
+            {allowlistLoading ? 'Saving…' : 'Add to Allowlist'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void finishWithOutcome('denied', deployish ? 'Skipped.' : 'Cancelled.', 2200)}
+            className="inline-flex items-center justify-center min-h-[2rem] px-2.5 rounded-lg text-[0.72rem] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-white/[0.04] disabled:opacity-45 transition-colors"
+          >
+            {cancelLabel}
+          </button>
         </div>
       </div>
-
-      {preview && !queryFolded ? (
-        <div className="border-b border-[var(--dashboard-border)]/60 bg-[var(--bg-code-pre,var(--scene-bg))]">
-          <div className="flex items-center justify-end gap-1 px-2 py-1">
-            <button
-              type="button"
-              title="Copy"
-              onClick={() => void copyPreview()}
-              className="p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--dashboard-panel)] transition-colors"
-            >
-              <Copy size={14} aria-hidden />
-            </button>
-          </div>
-          <pre
-            className="m-0 max-h-[min(40vh,280px)] overflow-auto px-3 pb-3 text-[0.6875rem] font-mono leading-relaxed"
-            style={{ tabSize: 2 }}
-          >
-            {showSqlHighlight ? (
-              <SqlPreviewBody text={displayPreview} truncated={isLarge} />
-            ) : (
-              <>
-                <span className="text-[var(--dashboard-text)] whitespace-pre-wrap [overflow-wrap:anywhere]">
-                  {displayPreview}
-                </span>
-                {isLarge ? (
-                  <div className="mt-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-[var(--dashboard-border)]/60 pt-2">
-                    Large payload — open in <strong className="text-[var(--solar-cyan)]">editor</strong> for full
-                    Monaco view.
-                  </div>
-                ) : null}
-              </>
-            )}
-          </pre>
-        </div>
-      ) : null}
-
-      {showDesc ? (
-        <p className="m-0 px-3 py-2 text-[0.7rem] leading-snug text-[var(--dashboard-muted)] border-b border-[var(--dashboard-border)]/40 line-clamp-2">
-          {descOne}
-        </p>
-      ) : null}
-
-      {outcome ? (
-        <div
-          className={`px-3 py-2.5 text-[0.72rem] font-mono border-t ${
-            outcome.tone === 'ok'
-              ? 'bg-[rgba(34,197,94,0.08)] text-[var(--solar-green)] border-[var(--color-success-border,rgba(34,197,94,0.25))]'
-              : 'bg-[rgba(248,113,113,0.08)] text-[var(--solar-red,#f87171)] border-[var(--color-danger-border,rgba(248,113,113,0.35))]'
-          }`}
-        >
-          {outcome.text}
-        </div>
-      ) : null}
-
-      {approval.is_mcp_server ? (
-        <p className="m-0 px-3 py-2 text-[0.65rem] text-[var(--dashboard-muted)] border-t border-[var(--dashboard-border)]/30">
-          {approval.server_display_name ?? 'Agent Sam'} — external tool; no PII sent by default.
-        </p>
-      ) : null}
     </div>
   );
 }

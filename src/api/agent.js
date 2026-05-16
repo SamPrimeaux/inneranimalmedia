@@ -2897,6 +2897,62 @@ async function consumeOpenAIResponsesSse(readable, emit) {
   };
 }
 
+/** Emit structured diff preview when tool JSON includes before/after + path. */
+function tryEmitCodeDiffFromToolOutput(emit, toolName, toolOutput) {
+  if (!emit) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(String(toolOutput || 'null'));
+  } catch {
+    return;
+  }
+  if (!parsed || typeof parsed !== 'object') return;
+  const path =
+    (typeof parsed.path === 'string' && parsed.path.trim()) ||
+    (typeof parsed.file_path === 'string' && parsed.file_path.trim()) ||
+    (typeof parsed.file === 'string' && parsed.file.trim()) ||
+    (Array.isArray(parsed.files_touched) && typeof parsed.files_touched[0] === 'string'
+      ? String(parsed.files_touched[0]).trim()
+      : '');
+  const before =
+    typeof parsed.before === 'string'
+      ? parsed.before
+      : typeof parsed.content_before === 'string'
+        ? parsed.content_before
+        : typeof parsed.original === 'string'
+          ? parsed.original
+          : typeof parsed.original_content === 'string'
+            ? parsed.original_content
+            : null;
+  const after =
+    typeof parsed.after === 'string'
+      ? parsed.after
+      : typeof parsed.content_after === 'string'
+        ? parsed.content_after
+        : typeof parsed.modified === 'string'
+          ? parsed.modified
+          : typeof parsed.patched_content === 'string'
+            ? parsed.patched_content
+            : typeof parsed.content === 'string'
+              ? parsed.content
+              : null;
+  if (!path || before == null || after == null || before === after) return;
+  const language =
+    typeof parsed.language === 'string' && parsed.language.trim()
+      ? parsed.language.trim()
+      : (() => {
+          const m = path.match(/\.([a-z0-9]+)$/i);
+          return m ? m[1].toLowerCase() : 'plaintext';
+        })();
+  emit('code_diff', {
+    path: path.slice(0, 500),
+    before: before.slice(0, 120_000),
+    after: after.slice(0, 120_000),
+    language,
+    tool_name: toolName ? String(toolName).slice(0, 120) : undefined,
+  });
+}
+
 // ─── SSE Tool Loop ────────────────────────────────────────────────────────────
 
 async function runAgentToolLoop(env, ctx, emit, params) {
@@ -3846,6 +3902,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
                 },
               });
             }
+            tryEmitCodeDiffFromToolOutput(emit, call.name, toolOutput);
           }
         } catch (_) {
           /* not JSON — skip preview */

@@ -40,11 +40,15 @@ export type AgentPreviewArtifact = {
   id: string;
   kind: AgentPreviewArtifactKind;
   title?: string;
-  /** Code / SQL / diff text */
+  /** Code / SQL / diff — for diffs this is the "after" content */
   content?: string;
   language?: string;
   /** Image URL (https or data:) */
   imageUrl?: string;
+  /** Monaco diff viewer — original file content (SSE `code_diff.before`) */
+  before?: string;
+  /** Repo-relative or virtual path (SSE `code_diff.path`) */
+  path?: string;
 };
 
 export interface Message {
@@ -100,6 +104,12 @@ export interface ChatAssistantProps {
   onAgentChatShellTabSelect?: (tabId: string) => void;
   /** Open a parallel chat tab (host allocates tab + messages slot). */
   onAgentChatShellNewTab?: () => void;
+  /** Parent mirrors streaming state (approval polling). */
+  onLoadingChange?: (loading: boolean) => void;
+  /** SSE surfaced a command_run awaiting approval. */
+  onApprovalRequired?: (commandRunId: string) => void;
+  /** Active agentsam_command_run id for approval queue scoping. */
+  agentRunId?: string | null;
 }
 
 export type StagedAttachment = {
