@@ -94,10 +94,14 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
+    "@remotion/bundler": "^4.0.462",
+    "@remotion/player": "^4.0.462",
+    "@remotion/renderer": "^4.0.462",
     "acorn": "^8.16.0",
     "acorn-jsx": "^5.3.2",
     "acorn-walk": "^8.3.5",
     "chrome-devtools-mcp": "^0.26.0",
+    "remotion": "^4.0.462",
     "wrangler": "^4.91.0"
   },
   "type": "module",

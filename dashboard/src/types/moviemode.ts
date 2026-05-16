@@ -33,6 +33,8 @@ export type MovieModeTimeline = {
       metadata?: Record<string, unknown>;
     }>;
   }>;
+  /** Remotion edit-session overlays (ms-based); synced with MovieModeComposition */
+  overlays?: TextOverlay[];
   exportVariants: Array<{
     type:
       | 'master_music'
@@ -51,3 +53,47 @@ export type MovieModeTimeline = {
     loop: boolean;
   }>;
 };
+
+export interface TimelineClip {
+  id: string;
+  trackType: 'video' | 'audio' | 'text';
+  src: string;
+  fileRef: string;
+  startMs: number;
+  durationMs: number;
+  trimInMs: number;
+  trimOutMs: number;
+  volume: number;
+  label: string;
+}
+
+export interface TextOverlay {
+  id: string;
+  text: string;
+  startMs: number;
+  durationMs: number;
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+  fontWeight: 'normal' | 'bold';
+  background: string;
+  align: 'left' | 'center' | 'right';
+  animation: 'none' | 'fade-in' | 'slide-up';
+}
+
+export interface EditSession {
+  clips: TimelineClip[];
+  overlays: TextOverlay[];
+  fps: number;
+  width: number;
+  height: number;
+}
+
+export interface ExportJob {
+  jobId: string;
+  status: 'queued' | 'rendering' | 'uploading' | 'done' | 'error';
+  progressPercent: number;
+  r2Key?: string;
+  errorMessage?: string;
+}

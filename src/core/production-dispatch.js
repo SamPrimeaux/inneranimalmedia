@@ -123,7 +123,7 @@ export async function dispatchProductionDomainRoutes(rc) {
   }
 
   if (pathLower.startsWith('/api/moviemode/') || pathLower.startsWith('/api/media/assets')) {
-    return handleMoviemodeApi(request, url, env);
+    return handleMoviemodeApi(request, url, env, ctx);
   }
 
   if (
