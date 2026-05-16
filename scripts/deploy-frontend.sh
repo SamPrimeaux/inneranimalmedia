@@ -25,7 +25,10 @@ fi
 
 DIST="dashboard/dist"
 BUCKET="inneranimalmedia"
-PREFIX="static/dashboard/agent"
+# Vite base is /static/dashboard/app/ (dashboard/vite.config.ts). The live SPA shell loads
+# /static/dashboard/app/agent-dashboard.js — sync app/ first or production keeps stale JS.
+PREFIX="static/dashboard/app"
+PREFIX_LEGACY="static/dashboard/agent"
 TOML="wrangler.production.toml"
 DEPLOY_ENV="${DEPLOY_ENV:-production}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
@@ -81,24 +84,34 @@ if ! command -v rclone >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ Syncing $DIST to R2 static/dashboard/agent/ …"
-echo "   (rclone sync: remote files under static/dashboard/agent/ not present in local dist are deleted — stale hashed JS/CSS pruned)"
 find "$REPO_ROOT/$DIST" -name "*.map" -delete
 R2_SYNC_STATUS=passed
 R2_SYNC_START=$(date +%s)
-rclone sync "$REPO_ROOT/$DIST" \
-  ":s3:inneranimalmedia/static/dashboard/agent" \
-  --s3-provider Cloudflare \
-  --s3-access-key-id "$R2_ACCESS_KEY_ID" \
-  --s3-secret-access-key "$R2_SECRET_ACCESS_KEY" \
-  --s3-endpoint "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-  --checksum \
-  --transfers 20 \
-  --delete-after \
-  --progress
+
+rclone_sync_dashboard_prefix() {
+  local prefix="$1"
+  echo "→ Syncing $DIST to R2 ${prefix}/ …"
+  echo "   (rclone sync: deletes remote files under ${prefix}/ not in local dist)"
+  rclone sync "$REPO_ROOT/$DIST" \
+    ":s3:inneranimalmedia/${prefix}" \
+    --s3-provider Cloudflare \
+    --s3-access-key-id "$R2_ACCESS_KEY_ID" \
+    --s3-secret-access-key "$R2_SECRET_ACCESS_KEY" \
+    --s3-endpoint "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+    --checksum \
+    --transfers 20 \
+    --delete-after \
+    --progress
+}
+
+# Canonical (matches Vite asset URLs in dist/index.html)
+rclone_sync_dashboard_prefix "$PREFIX"
+# Legacy mirror (dashboard/agent.html, bookmarks, Worker fallbacks)
+rclone_sync_dashboard_prefix "$PREFIX_LEGACY"
+
 R2_SYNC_END=$(date +%s)
 R2_SYNC_MS=$(( (R2_SYNC_END - R2_SYNC_START) * 1000 ))
-echo "→ R2 sync complete"
+echo "→ R2 sync complete (${PREFIX}/ + ${PREFIX_LEGACY}/)"
 
 # Canonical URL `/static/dashboard/shell.css` (HTML + shells) must hit this exact key; Vite only copies
 # the file into dist as `static/dashboard/shell.css`, which rclone maps to
