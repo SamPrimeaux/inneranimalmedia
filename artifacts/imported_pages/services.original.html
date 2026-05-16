@@ -87,7 +87,15 @@
         }
 
         /* Glass Header */
-.glass-header.light-mode {
+        .glass-header {
+            background: rgba(2, 6, 23, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .glass-header.light-mode {
             background: rgba(255, 255, 255, 0.9);
             border-bottom: 1px solid rgba(30, 41, 59, 0.08);
         }
@@ -222,16 +230,59 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         
         /* Mobile Menu */
-</style>
+        #mobile-menu {
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease;
+        }
+        #mobile-menu.active {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    </style>
 </head>
-<!-- IAM_SERVICES_GLOBAL_HEADER_FOOTER_KEEP_SCENES_20260516 -->
 <body class="antialiased selection:bg-brand-blue selection:text-white">
 
     <!-- Sticky Header -->
-<!-- imported services header removed; global iam-header.html is injected by Worker -->
+    <header id="main-header" class="fixed top-0 left-0 w-full z-50 glass-header h-[96px] flex items-center justify-center transition-all duration-500">
+        <div class="w-full max-w-screen-xl-tight px-6 flex items-center justify-between">
+            <!-- Logo (2x Size) -->
+            <a href="/" class="block w-20 h-20 relative transition-transform hover:scale-105">
+                <img id="header-logo" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/small" alt="InnerAnimal" class="w-full h-full object-contain">
+            </a>
+
+            <!-- Desktop Nav -->
+            <nav class="hidden md:flex items-center gap-10">
+                <a href="/" class="text-sm font-medium nav-link">Home</a>
+                <a href="/work" class="text-sm font-bold nav-link active">Work</a>
+                <a href="/about" class="text-sm font-medium nav-link">About</a>
+                <a href="/services" class="text-sm font-medium nav-link">Services</a>
+                <a href="/contact" class="text-sm font-medium nav-link">Contact</a>
+            </nav>
+
+            <!-- User / Mobile Trigger -->
+            <button id="user-circle" class="user-trigger w-16 h-16 rounded-full overflow-hidden border-2 border-white/20 cursor-pointer hover:border-brand-blue transition-all shadow-lg bg-black/20 backdrop-blur-sm" onclick="toggleMobileMenu()">
+                <div class="icon-state img-state">
+                    <img id="header-user" src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/f8bfc7dd-7234-4336-1029-6f31a5bd7d00/avatar" alt="User" class="w-full h-full object-cover">
+                </div>
+                <div class="icon-state close-state">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </div>
+            </button>
+        </div>
+    </header>
+
     <!-- Mobile Menu Overlay -->
-<!-- imported services mobile menu removed; global iam-header.html owns navigation -->
-</div>
+    <div id="mobile-menu" class="fixed inset-0 z-40 bg-brand-dark/95 backdrop-blur-2xl translate-x-full opacity-0 flex flex-col justify-center items-center">
+        <nav class="flex flex-col gap-8 text-center">
+            <a href="/" class="text-4xl font-black text-white hover:text-brand-blue transition-colors">Home</a>
+            <a href="/work" class="text-4xl font-black text-brand-blue">Work</a>
+            <a href="/services" class="text-4xl font-black text-white hover:text-brand-blue transition-colors">Services</a>
+            <a href="/about" class="text-4xl font-black text-white hover:text-brand-blue transition-colors">About</a>
+            <a href="/contact" class="text-4xl font-black text-white hover:text-brand-blue transition-colors">Contact</a>
+        </nav>
+        <div class="absolute bottom-12 text-sm text-brand-muted">
+            InnerAnimal Media © 2026
+        </div>
+    </div>
 
     <!-- Filter Sidebar (Desktop Sticky) -->
     <aside class="filter-nav-container">
@@ -470,7 +521,49 @@
         </section>
 
         <!-- 6. Footer -->
-<!-- imported services footer removed; global iam-footer.html is injected by Worker -->
+        <footer class="bg-brand-navy text-white pt-48 pb-16 border-t border-white/5">
+            <div class="w-full max-w-screen-xl-tight px-6 mx-auto grid grid-cols-1 md:grid-cols-4 gap-16">
+                <div class="md:col-span-1">
+                    <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/small" alt="Logo" class="w-20 h-20 mb-8 opacity-100">
+                    <p class="text-gray-400 text-sm leading-relaxed max-w-xs">
+                        Unleash your InnerAnimal and Optimize Output by optimizing IA level AI.
+                    </p>
+                </div>
+                
+                <div>
+                    <h4 class="text-brand-teal font-bold mb-6 text-sm tracking-widest uppercase">Products</h4>
+                    <ul class="space-y-4 text-sm text-gray-400">
+                        <li><a href="/meauxide" class="hover:text-white transition-colors block">MeauxIDE</a></li>
+                        <li><a href="/meauxcad" class="hover:text-white transition-colors block">MeauxCAD</a></li>
+                        <li><a href="/games" class="hover:text-white transition-colors block">MeauxGame</a></li>
+                        <li><a href="/learn" class="hover:text-white transition-colors block">Learn</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="text-brand-teal font-bold mb-6 text-sm tracking-widest uppercase">Company</h4>
+                    <ul class="space-y-4 text-sm text-gray-400">
+                        <li><a href="/work" class="hover:text-white transition-colors block">Work</a></li>
+                        <li><a href="/services" class="hover:text-white transition-colors block">Services</a></li>
+                        <li><a href="/about" class="hover:text-white transition-colors block">About</a></li>
+                        <li><a href="/contact" class="hover:text-white transition-colors block">Contact</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="text-brand-teal font-bold mb-6 text-sm tracking-widest uppercase">Legal</h4>
+                    <ul class="space-y-4 text-sm text-gray-400">
+                        <li><a href="/privacy" class="hover:text-white transition-colors block">Privacy</a></li>
+                        <li><a href="/terms" class="hover:text-white transition-colors block">Terms</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="w-full max-w-screen-xl-tight px-6 mx-auto mt-24 pt-10 border-t border-white/10 flex flex-col md:flex-row justify-between items-center text-xs text-gray-500">
+                <p>© 2026 InnerAnimal Media. All rights reserved.</p>
+                <p>System v3.4</p>
+            </div>
+        </footer>
+
     </main>
 
     <script>
