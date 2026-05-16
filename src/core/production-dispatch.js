@@ -49,6 +49,7 @@ import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
 import { handleUnifiedSearchApi } from '../api/unified-search.js';
 import { handleCommandsApi } from '../api/commands.js';
 import { handleImagesWorkspaceApi } from '../api/images-workspace.js';
+import { handleMoviemodeApi } from '../api/moviemode-api.js';
 
 /**
  * @typedef {object} ProductionRouteContext
@@ -119,6 +120,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/r2/')) {
     return handleR2Api(request, url, env);
+  }
+
+  if (pathLower.startsWith('/api/moviemode/') || pathLower.startsWith('/api/media/assets')) {
+    return handleMoviemodeApi(request, url, env);
   }
 
   if (
