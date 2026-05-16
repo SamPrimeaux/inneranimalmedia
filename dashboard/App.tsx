@@ -59,7 +59,7 @@ import { AuthSignInPage } from './components/auth/AuthSignInPage';
 import { AuthSignUpPage } from './components/auth/AuthSignUpPage';
 import { AuthForgotPage } from './components/auth/AuthForgotPage';
 import { AuthResetPage } from './components/auth/AuthResetPage';
-import { AuthOAuthConsentPage } from './components/auth/AuthOAuthConsentPage';
+import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library } from 'lucide-react';
 import ProjectManagement from "./pages/projects/ProjectManagement";
@@ -82,7 +82,7 @@ const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
-const WorkflowsPage = lazy(() 
+const WorkflowsPage = lazy(() => import('./pages/workflows/WorkflowsPage'));
 const WorkflowCanvas = lazy(() => import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
 
 function DashboardRoutesFallback() {
