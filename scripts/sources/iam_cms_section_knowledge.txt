@@ -1,0 +1,47 @@
+KNOWLEDGE DOMAIN: IAM CMS Homepage Section Migration — Selected Work Replaced by Agent Sam Platform Services
+
+PLATFORM CONTEXT: Inner Animal Media uses a Shopify-Liquid-style CMS architecture where cms_pages holds the page shell, cms_page_sections holds the ordered body sections with visibility control, cms_liquid_sections holds the reusable section registry, cms_liquid_imports holds artifact provenance and import status, R2 holds the actual stored section artifacts, and source code holds renderer behavior. D1 stores content graph and metadata. R2 stores heavy artifacts, files, and generated outputs.
+
+SECTION 1: WHAT CHANGED ON THE HOMEPAGE
+
+The original homepage body order was hero, services and capabilities, selected_work, faq, and cta. The selected_work section was replaced by agent_sam_platform_services. The new homepage body order is hero, services and capabilities, agent_sam_platform_services, faq, and cta. The old selected_work section was not deleted. It was hidden by setting is_visible to 0, preserving it for rollback. The replacement section agent_sam_platform_services sits at sort_order 30, the same slot previously occupied by selected_work.
+
+SECTION 2: THE D1 SECTION PLACEMENT RECORDS
+
+The current homepage section order in D1 cms_page_sections is as follows. sec_home_hero has section_type hero and is visible. sec_home_capabilities has section_type services and is visible. sec_home_work has section_type work with section_name selected-work and is hidden with is_visible 0. sec_home_agent_sam_platform_services has section_type agent_sam_platform_services with section_name Agent Sam Platform Services at sort_order 30 and is visible with liquid_section_id lsec_agent_sam_platform_services. sec_home_faq has section_type faq and is visible. sec_home_cta has section_type cta and is visible.
+
+The key replacement row is id sec_home_agent_sam_platform_services with page_id page_home, sort_order 30, is_visible 1, and liquid_section_id lsec_agent_sam_platform_services. This row tells the renderer to render the Agent Sam Platform Services section at position 30 on the homepage.
+
+SECTION 3: THE SECTION CONTENT DATA
+
+The structured CMS content data for agent_sam_platform_services includes eyebrow Agent Sam Platform, headline The all-in-one command center for intelligent agents, subheadline covering build deploy and optimize, cta_primary pointing to slash dashboard slash agent, cta_secondary pointing to slash dashboard slash analytics slash overview, and three feature cards labeled Build, Deploy, and Optimize. The section also carries SEO semantic hints and a template_artifact object containing repo_path, r2_bucket, r2_key, public_url_guess, and liquid_section_id. D1 holds the text, CTA, card, and SEO structured data. D1 does not hold the visual layout, animation, or mockup behavior. That belongs in source code and templates.
+
+SECTION 4: THE R2 ARTIFACT
+
+The section HTML artifact was uploaded to R2 bucket inneranimalmedia at key cms/sections/homepage/agent_sam_platform_services/3d5a37ecdd71/agentsam_platform_services.html. The source file originated at /Users/samprimeaux/Downloads/agentsam_platform_services.html and was staged into the repo at cms/sections/homepage/agentsam_platform_services.html before being uploaded. Staging the file into the repo means it is versioned, auditable, modifiable, and available to Cursor, Claude, and renderers. The R2 upload gives it object storage backing with a stable URL.
+
+SECTION 5: THE IMPORT LEDGER ROW
+
+The cms_liquid_imports table is the artifact and import provenance ledger. Its purpose is to record that a source or R2 artifact was imported or registered. It is not for page SEO or section placement. The import row for this migration has id limp_agent_sam_platform_services, status complete, source_type r2_html_section, r2_bucket inneranimalmedia, and r2_key cms/sections/homepage/agent_sam_platform_services/3d5a37ecdd71/agentsam_platform_services.html. This row provides the audit trail that the Agent Sam section came from an R2-backed HTML section artifact.
+
+The full cms_liquid_imports schema after the rebuild includes id, tenant_id, workspace_id, project_id, import_key, import_name, source_type, source_path, source_url, r2_bucket, r2_key, r2_url, file_name, content_type, content_size_bytes, content_sha256, status, sections_found, sections_mapped, assets_registered, metadata_json, result_json, started_at, completed_at, created_at, and updated_at.
+
+SECTION 6: THE LIQUID SECTION REGISTRY ROW
+
+The cms_liquid_sections table is the reusable section registry. Its purpose is to record that a reusable section exists, define its schema and settings, declare its render dependencies, and map it to the page section it serves. The liquid section row has id lsec_agent_sam_platform_services, import_id limp_agent_sam_platform_services, section_key agent_sam_platform_services, section_type agent_sam_platform_services, mapped_section_id sec_home_agent_sam_platform_services, and parse_status registered. It also points to the R2 artifact through render_deps and settings_map_json.
+
+SECTION 7: THE FOREIGN KEY CHAIN
+
+The correct foreign key relationships after the rebuild are cms_liquid_sections.import_id references cms_liquid_imports(id), cms_liquid_sections.mapped_section_id references cms_page_sections(id), cms_page_sections.liquid_section_id references cms_liquid_sections(id), and cms_page_sections.page_id references cms_pages(id). During the rebuild process the foreign keys were temporarily pointing at renamed backup tables named cms_liquid_imports_old and cms_liquid_sections_rebuild_backup. This caused FOREIGN KEY constraint failed errors on inserts. The fix was to rebuild the affected tables so all foreign keys point to the correct live tables.
+
+SECTION 8: THE CLEAN CMS_PAGE_SECTIONS SCHEMA
+
+The shopify_section_key column was dropped from cms_page_sections during this migration. The final schema for cms_page_sections is id, page_id, section_type, section_name, section_data, sort_order, is_visible, css_classes, custom_css, created_at, updated_at, liquid_section_id, and created_at_unix. This schema is sufficient for the runtime. The liquid_section_id foreign key connects to cms_liquid_sections which connects to cms_liquid_imports which connects to the R2 artifact.
+
+SECTION 9: WHAT IS NOT DONE YET AND WHAT TO DO NEXT
+
+The public site will not visually change until renderer code is wired. The database now declares what should happen but the frontend and runtime must obey it. The next task is renderer work, not more D1 work. The homepage renderer must load visible cms_page_sections rows, skip rows where is_visible is 0, see section_type equal to agent_sam_platform_services, and render the Agent Sam Platform Services section from the registered template. The renderer should use liquid_section_id to look up the liquid section, then use the render_deps and r2_key to load the template artifact from R2.
+
+SECTION 10: THE ARCHITECTURE PATTERN
+
+This migration establishes the canonical IAM CMS pattern for adding or replacing homepage sections. The steps are: stage the HTML artifact into the repo under cms/sections/, upload it to R2 with a content-addressed key, create a cms_liquid_imports row recording the R2 provenance, create a cms_liquid_sections row in the reusable section registry, insert or update a cms_page_sections row pointing to the liquid section, hide any replaced sections by setting is_visible to 0 rather than deleting them, verify the foreign key chain is intact, and wire the renderer to handle the new section_type. D1 owns content and metadata. R2 owns artifacts. Source code owns behavior. The separation between these three layers is the core architectural principle.

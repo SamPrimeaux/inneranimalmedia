@@ -1,0 +1,87 @@
+KNOWLEDGE DOMAIN: Retrieval-Augmented Generation — End-to-End Reference for Agent Sam
+
+PLATFORM CONTEXT: Inner Animal Media runs on Cloudflare Workers. The embedding model is mxbai-embed-large:latest running locally via Ollama at http://localhost:11434. This model produces 1024-dimensional dense vectors. Running locally means zero API cost, no rate limits, and no data leaving the machine during ingestion. The Vectorize index is ai-search-inneranimalmedia-autorag with 1024 dimensions and cosine similarity. The R2 bucket autorag.inneranimalmedia.com stores source documents and ingestion manifests.
+
+SECTION 1: WHAT RAG IS AND WHY IT EXISTS
+
+Retrieval-Augmented Generation is a pattern where an LLM is given relevant external context at inference time rather than relying solely on its training weights. The LLM parametric memory knows general facts up to a training cutoff. RAG provides episodic memory: specific, current, private, or domain-specific content the model was never trained on.
+
+The pipeline has two phases. Ingestion runs offline: documents are chunked, embedded, and stored in a vector index. Retrieval runs at inference time: the user query is embedded, the index is searched for semantically similar chunks, and the top chunks are injected into the LLM prompt as context. The LLM answers using both its parametric knowledge and the retrieved context.
+
+Without RAG, Agent Sam answering questions about IAM codebase, client data, or internal workflows would hallucinate. With RAG, Agent Sam retrieves the exact relevant chunk and grounds its answer in real content.
+
+SECTION 2: THE EMBEDDING MODEL — mxbai-embed-large:latest via Ollama
+
+The embedding model is mxbai-embed-large:latest running locally via Ollama. It produces 1024-dimensional dense vectors. The Ollama embedding endpoint is POST http://localhost:11434/api/embeddings with body containing model and prompt fields. The response contains an embedding array of 1024 floats. Always validate the returned array has exactly 1024 elements before proceeding.
+
+The critical usage pattern is asymmetric instruction formatting. When embedding a document chunk for storage, use the raw chunk text with no query prefix. When embedding a user query at retrieval time, prepend: Represent this sentence for searching: followed by the query text. This prefix orients the vector for retrieval. Skipping the query prefix degrades cosine similarity scores measurably.
+
+The effective token limit for optimal quality via Ollama is approximately 512 tokens. Keep chunks under 250 tokens to stay safely within the quality zone with room for the context prefix. The ingest.py script uses 900 character chunks which is approximately 225 tokens.
+
+SECTION 3: CLOUDFLARE VECTORIZE V2 OPERATIONS
+
+The Vectorize index is ai-search-inneranimalmedia-autorag. Account ID is ede6590ac0d2fb7daf155b35653457b2. Configured with 1024 dimensions and cosine similarity. Vectorize uses HNSW indexing internally for approximate nearest neighbor search.
+
+Vector IDs must be strings. IAM convention is source_id underscore chunk underscore zero-padded index, for example wf_rag_vectorize_knowledge_001_chunk_004. This enables targeted deletion by source ID prefix. Never use random UUIDs as vector IDs.
+
+Always use upsert not insert. Upsert is idempotent: existing vectors with the same ID are overwritten. Insert throws on duplicate IDs.
+
+Vectorize metadata is a flat JSON object. Metadata values must be strings, numbers, or booleans. No nested objects or arrays. Metadata filter fields must be pre-indexed at index creation time in Vectorize v2 before they can be used in query filters. The IAM index does not have workspace_id pre-indexed so all queries must run without a metadata filter.
+
+Upsert REST endpoint is POST to the v2 indexes path with slash upsert appended. Content-Type must be application/x-ndjson. Each line of the body is one JSON vector record with id, values array, and metadata object.
+
+Query REST endpoint is POST to the v2 indexes path with slash query appended. The body must include vector array, topK integer, and returnMetadata set to the string all. Do not pass the boolean true for returnMetadata in v2 — it must be the string all.
+
+Vectorize indexing is asynchronous. Always wait 5 seconds after upsert before running a verification query.
+
+SECTION 4: CHUNKING STRATEGY
+
+Chunking is the most impactful variable in RAG quality. The embedding averages over the semantic content of the entire chunk. Too large blurs the embedding over multiple competing ideas. Too small loses the context needed to be useful when retrieved.
+
+The ingest.py script uses 900 character target chunks with 100 character overlap. This is approximately 225 tokens per chunk, well under Ollama mxbai context limits. The overlap of 100 characters ensures sentences near chunk boundaries appear in both adjacent chunks preventing retrieval gaps.
+
+Recursive character splitting splits first on double newlines, then single newlines, then period-space, then space. This respects document structure and avoids mid-sentence splits.
+
+Every chunk has a context prefix prepended before embedding. The prefix is: This chunk is from the IAM knowledge base for Agent Sam. Contextual prefixes improve retrieval recall by 35 to 49 percent according to Anthropic research.
+
+Never chunk across document boundaries. Each source document is a hard split point identified by its source_id.
+
+SECTION 5: SIMILARITY SCORING AND RETRIEVAL
+
+Cloudflare Vectorize returns cosine similarity scores from zero to one where higher means more similar. For mxbai-embed-large on English prose, scores above 0.85 mean highly relevant, 0.70 to 0.85 means likely relevant, 0.55 to 0.70 means tangentially related, below 0.55 means probably not useful.
+
+Apply a minimum score threshold of 0.65 before injecting retrieved chunks into a prompt. If the top chunk scores below 0.65 the index has no relevant content and Agent Sam should say so rather than hallucinate.
+
+Retrieve more chunks than you plan to use then filter. Standard pattern is topK 20 from Vectorize, filter to chunks above threshold, deduplicate near-identical chunks, use top 3 to 6 in the prompt.
+
+The query vector must always use the instruction prefix Represent this sentence for searching: before the query text. Never embed a raw query without this prefix when using mxbai-embed-large.
+
+Do not inject more than 6 retrieved chunks into a single prompt. The lost-in-the-middle phenomenon is real: LLMs recall content from the beginning and end of context better than the middle.
+
+SECTION 6: INGEST.PY USAGE REFERENCE
+
+The ingest.py script lives at scripts/ingest.py in the inneranimalmedia repo. It requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment variables sourced from .env.cloudflare. It also reads OLLAMA_BASE_URL defaulting to http://localhost:11434 and OLLAMA_EMBEDDING_MODEL defaulting to mxbai-embed-large:latest.
+
+The basic ingest command is: python3 scripts/ingest.py --source-id SOURCE_ID --file path/to/doc.txt
+
+The verify-only command is: python3 scripts/ingest.py --source-id SOURCE_ID --file path/to/doc.txt --verify
+
+The dry-run command embeds but does not upsert: python3 scripts/ingest.py --source-id SOURCE_ID --file path/to/doc.txt --dry-run
+
+A custom verification query can be specified with the --verify-query flag followed by a quoted string. The script automatically prepends the mxbai query instruction prefix to the verification query.
+
+Source documents live in scripts/sources/ as plain text files. One txt file per knowledge domain. The source_id must be unique per document. Re-running ingest with the same source_id is safe because Vectorize upserts are idempotent.
+
+SECTION 7: WHAT AGENT SAM MUST NEVER DO
+
+Never embed a user query without the prefix Represent this sentence for searching: before the query text. Omitting this prefix produces a document-oriented vector rather than a query-oriented vector and degrades retrieval quality.
+
+Never run Vectorize queries with a workspace_id metadata filter unless workspace_id has been explicitly registered as a filter index on the Vectorize index at creation time. The IAM index does not have pre-indexed filter fields so all queries run without metadata filters.
+
+Never inject more than 6 retrieved chunks into a single prompt without deliberate justification.
+
+Never skip verification after ingestion. Silent ingestion failures are the hardest bugs to diagnose.
+
+Never assume Vectorize is queryable immediately after upsert. Always wait at least 5 seconds.
+
+Never store PII or secrets in Vectorize metadata or chunk content.

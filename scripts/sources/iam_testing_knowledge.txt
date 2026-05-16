@@ -1,0 +1,89 @@
+KNOWLEDGE DOMAIN: IAM Smoke Testing, Quality Validation, AI Spend Analytics, and D1-to-Supabase Join Strategy
+
+PLATFORM CONTEXT: Inner Animal Media uses Cloudflare D1 as the live execution and source-of-truth layer and Supabase as the analytics, proof, and reporting layer. These two databases are joined by a canonical set of shared IDs that must appear on every test record: run_group_id, plan_id, task_id, route_key, routing_arm_id, provider, model_key, task_type, and source_tool. Without these shared IDs the data is powerful but fragmented. With them Agent Sam has a complete telemetry graph across routing, prompts, tools, cost, SLOs, and outcomes.
+
+SECTION 1: THE CANONICAL TEST SPINE
+
+Every smoke test, eval run, and agent execution must carry consistent shared identifiers across all tables it writes to. The run_group_id format is smoke_YYYYMMDD_HHMMSS_short_slug and is shared by every record in a single test session. The plan_id format is plan_YYYYMMDD_agent_smoke. Each individual test scenario gets its own task_id in the format task_short_slug. The comparison_key encodes the full test context as task_type colon provider colon model colon mode and enables cross-model and cross-provider comparison queries.
+
+Every row written during a test must carry tenant_id, workspace_id, run_group_id, plan_id, task_id, route_key, routing_arm_id, provider, model_key, task_type, and source_tool wherever those fields exist on the target table. A record missing these IDs cannot be joined, aggregated into performance metrics, or used to trigger SLO evaluation.
+
+SECTION 2: D1 TABLE ROLES
+
+The D1 table ai_api_test_runs is the primary raw model API testing table. It stores both direct and batch test runs and contains every field needed for AI spend analytics including run_group_id, parent_batch_id, comparison_key, test_suite, test_name, mode, provider, model, status, http_status, success, schema_valid, input_tokens, output_tokens, cached_tokens, total_cost_usd, latency_ms, time_to_first_token_ms, prompt_hash, response_hash, assertion_passed, prompt_id, and experiment_id.
+
+The D1 table agentsam_agent_run is the high-level agent execution record capturing user_id, workspace_id, conversation_id, model_id, routing_arm_id, input_tokens, output_tokens, cost_usd, quality_score, task_type, timed_out, sla_breach, and tenant_id. Every real Agent Sam execution produces one row here.
+
+The D1 table agentsam_commands is the command catalog and registry of possible agent actions, not an execution history table. Command execution history is tracked via agentsam_command_run, agentsam_tool_chain, and agentsam_executions.
+
+The D1 table agentsam_prompt_routes defines what prompt layers, tools, RAG inclusion, memory inclusion, workspace context, model preference, fallback model, and token budget to use for each route_key.
+
+The D1 table agentsam_task_slos defines pass and fail thresholds by task_type with fields sla_p95_latency_ms, sla_avg_cost_usd, sla_min_quality, sla_min_schema_valid_rate, sla_min_tool_success_rate, alert_threshold_pct, and pause_arm_on_breach. This table turns subjective quality assessment into objective SLO enforcement.
+
+The D1 table agentsam_tool_chain is the per-tool-call trace within an agent session capturing tool_name, input_json, output_summary, result_json, error_message, retry_count, duration_ms, cost_usd, timed_out, sla_breach, and routing_arm_id.
+
+The D1 table agentsam_execution_performance_metrics is the pre-aggregated analytics rollup table. It rolls up execution_count, success_count, failure_count, timeout_count, sla_breach_count, avg_duration_ms, p95_duration_ms, total_cost_usd, and avg_quality_score grouped by tenant, workspace, model, provider, tool, command, task_type, and time grain.
+
+The D1 tables agentsam_eval_suites, agentsam_eval_runs, and agentsam_eval_cases form the structured evaluation system. eval_runs capture model_key, provider, input_tokens, output_tokens, latency_ms, cost_usd, score_quality, score_latency, score_cost, score_tool_use, score_overall, schema_valid, retry_count, tool_calls_attempted, and tool_calls_succeeded.
+
+SECTION 3: D1 TO SUPABASE JOIN STRATEGY
+
+For AI spend analytics the primary join is D1 ai_api_test_runs into Supabase public.agentsam_eval_runs via run_group_id. Additional mappings are test_suite to suite_key, provider to provider, model to model_key, total_cost_usd to cost_usd, latency_ms to duration_ms, time_to_first_token_ms to first_token_ms, and schema_valid and assertion_passed into metrics_json. Results roll up to Supabase model_performance_snapshots and agentsam_model_cost_snapshots.
+
+For agent run proof the primary join is D1 agentsam_agent_run into Supabase public.agentsam_workflow_runs storing the D1 run ID as d1_run_id. The Supabase agentsam_workflow_runs table is the canonical dashboard row because it has plan_id, task_id, run_group_id, provider, model_key, latency_ms, cost, and sync status.
+
+For command and tool execution proof the chain is D1 agentsam_commands and agentsam_tools through agentsam_tool_chain and agentsam_executions into Supabase public.agentsam_tool_call_events and agentsam.tool_calls. Build and deploy outcomes flow into Supabase public.build_deploy_events.
+
+For prompt routing validation D1 agentsam_prompt_routes maps into Supabase public.agentsam_routing_decisions via route_key and into public.agentsam_prompt_runs via included prompt layers, tool keys, context sources, and token budget. Every route tested must produce exactly one routing decision row and one prompt run row in Supabase.
+
+SECTION 4: SLO DEFINITIONS BY TASK TYPE
+
+For task_type ai_api_smoke the SLO values are sla_p95_latency_ms 15000, sla_avg_cost_usd 0.05, sla_min_quality 0.80, and sla_min_schema_valid_rate 0.95.
+
+For task_type cloudflare_command the SLO values are sla_p95_latency_ms 60000, sla_avg_cost_usd 0.10, sla_min_quality 0.85, and sla_min_tool_success_rate 0.95.
+
+For task_type agent_refactor the SLO values are sla_p95_latency_ms 180000, sla_avg_cost_usd 0.75, sla_min_quality 0.85, sla_min_schema_valid_rate 0.90, and sla_min_tool_success_rate 0.90.
+
+For task_type deploy_validation the SLO values are sla_p95_latency_ms 120000, sla_avg_cost_usd 0.25, sla_min_quality 0.90, and sla_min_tool_success_rate 0.95.
+
+For task_type routing_decision the SLO values are sla_p95_latency_ms 5000, sla_avg_cost_usd 0.01, sla_min_quality 0.85, and sla_min_schema_valid_rate 0.99.
+
+For task_type embedding_search the SLO values are sla_p95_latency_ms 2000, sla_avg_cost_usd 0.001, and sla_min_quality 0.75.
+
+For task_type mcp_tool the SLO values are sla_p95_latency_ms 30000, sla_avg_cost_usd 0.05, sla_min_quality 0.80, and sla_min_tool_success_rate 0.92.
+
+For task_type terminal_command the SLO values are sla_p95_latency_ms 45000, sla_avg_cost_usd 0.02, and sla_min_tool_success_rate 0.98.
+
+SLO breaches must be written back to the sla_breach field on agentsam_agent_run, agentsam_tool_chain, agentsam_executions, and agentsam_execution_steps. If pause_arm_on_breach is 1 the routing arm responsible must be paused in agentsam_routing_arms.
+
+SECTION 5: FOUR CANONICAL SMOKE TEST FLOWS
+
+Flow A is AI spend and model quality comparison using D1 ai_api_test_runs, agentsam_eval_suites, agentsam_eval_cases, agentsam_eval_runs, and agentsam_task_slos joined to Supabase public.agentsam_eval_runs and public.model_performance_snapshots. The test matrix covers providers openai, google, and workers_ai with models gpt-5.4, gpt-5.4-mini, gpt-5.4-nano across modes direct, structured_json, and tool_plan.
+
+Flow B is routing proof using D1 agentsam_prompt_routes, agentsam_commands, and agentsam_tools joined to Supabase public.agentsam_routing_decisions and public.agentsam_prompt_runs. Test routes include cloudflare_command, db_schema_audit, ui_review, model_comparison, deploy_validation, and agent_refactor. Each route must produce exactly one routing decision, one prompt run, one eval run, and an optional workflow run. Missing rows mean the route is not wired correctly.
+
+Flow C is tool and command execution proof starting with read-only commands only: wrangler whoami, wrangler d1 list, wrangler d1 execute with a read-only query, wrangler r2 bucket list, wrangler deployments list, curl health endpoint, and python schema audit preflight. Destructive or deploy commands come only after read-only logging is confirmed clean.
+
+Flow D is plan and task workflow proof targeting one plan, three tasks, and each task producing a routing decision, prompt run, tool calls, eval run, workflow proof, and SLO result.
+
+SECTION 6: SUPABASE TABLE ROLES BY DASHBOARD CATEGORY
+
+For AI spend analytics dashboards the primary Supabase tables are public.agentsam_eval_runs, public.agentsam_tool_call_events, public.agentsam_model_cost_snapshots, public.model_performance_snapshots, public.cost_forecasts, agentsam.usage_events, and agentsam.workflow_daily_rollups.
+
+For routing validation dashboards the primary tables are public.agentsam_routing_decisions, public.agentsam_prompt_runs, public.agentsam_eval_runs, and public.model_performance_snapshots.
+
+For tool reliability dashboards the primary tables are public.agentsam_tool_call_events, agentsam.tool_calls, agentsam.mcp_health_checks, agentsam.workflow_quality_snapshots, and agentsam.workflow_daily_rollups.
+
+For Cloudflare build and deploy proof the primary tables are public.build_deploy_events, agentsam.worker_events, agentsam.worker_errors, agentsam.worker_hourly_rollups, agentsam.worker_daily_rollups, and public.agentsam_debug_snapshots.
+
+SECTION 7: AGENT SAM TESTING RULES
+
+Agent Sam must always write run_group_id, plan_id, task_id, tenant_id, workspace_id, provider, model_key, task_type, and route_key to every row produced during a test or agent execution.
+
+Agent Sam must always check agentsam_task_slos for the relevant task_type before marking a run complete and set sla_breach to 1 on relevant rows if thresholds are exceeded.
+
+Agent Sam must always start tool and command smoke tests with read-only operations before moving to write or deploy operations.
+
+Agent Sam must always mirror compact normalized results from D1 to Supabase after each test flow within the same run_group_id.
+
+Agent Sam must never run a model comparison test without recording both prompt_hash and response_hash for deduplication and cache analysis.
