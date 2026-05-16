@@ -83,7 +83,25 @@ type R2ObjectRow = {
     size?: number;
     last_modified?: string | null;
     lastModified?: string | null;
+    type?: string;
 };
+
+type R2ListingSlice = { folders: string[]; files: R2ObjectRow[] };
+
+function isR2Folder(item: { key: string; type?: string }): boolean {
+    return item.type === 'folder' || item.key.endsWith('/');
+}
+
+function folderPrefixKey(key: string): string {
+    return key.endsWith('/') ? key : `${key}/`;
+}
+
+function folderDisplayName(fullPrefix: string, parentPrefix: string): string {
+    const pfx = parentPrefix.replace(/\/$/, '');
+    const base = pfx ? `${pfx}/` : '';
+    const rel = base && fullPrefix.startsWith(base) ? fullPrefix.slice(base.length) : fullPrefix;
+    return rel.replace(/\/$/, '') || fullPrefix.replace(/\/$/, '').split('/').pop() || fullPrefix;
+}
 
 export const R2Explorer: React.FC<{
     onOpenInEditor?: (file: ActiveFile) => void;
@@ -103,8 +121,17 @@ export const R2Explorer: React.FC<{
     const [syncMsg, setSyncMsg] = useState<string | null>(null);
     const [searchActive, setSearchActive] = useState(false);
     const [objectPanelOpen, setObjectPanelOpen] = useState(true);
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
+    const [childrenByPrefix, setChildrenByPrefix] = useState<Record<string, R2ListingSlice>>({});
+    const [loadingFolderPrefixes, setLoadingFolderPrefixes] = useState<Set<string>>(() => new Set());
 
     const displayBuckets = useMemo(() => dedupeR2BucketLabels(buckets), [buckets]);
+
+    const resetTreeState = useCallback(() => {
+        setExpandedFolders(new Set());
+        setChildrenByPrefix({});
+        setLoadingFolderPrefixes(new Set());
+    }, []);
 
     const loadBuckets = useCallback(async () => {
         try {
@@ -208,11 +235,61 @@ export const R2Explorer: React.FC<{
     }, [displayBuckets]);
 
     useEffect(() => {
+        resetTreeState();
+    }, [bucket, prefix, resetTreeState]);
+
+    useEffect(() => {
         if (bucket) {
             fetchObjects();
             fetchStats();
         }
     }, [bucket, prefix, fetchObjects, fetchStats]);
+
+    const fetchFolderChildren = useCallback(
+        async (folderPrefix: string): Promise<R2ListingSlice | null> => {
+            if (!bucket) return null;
+            const fp = folderPrefixKey(folderPrefix);
+            setLoadingFolderPrefixes((prev) => new Set(prev).add(fp));
+            try {
+                const qs = new URLSearchParams({ bucket, prefix: fp });
+                const res = await fetch(`/api/r2/list?${qs}`, { credentials: 'same-origin' });
+                const data = await res.json();
+                const objects = Array.isArray(data.objects) ? data.objects : [];
+                const prefs = Array.isArray(data.prefixes) ? data.prefixes : [];
+                const slice = partitionR2Listing(objects, prefs, fp);
+                setChildrenByPrefix((prev) => ({ ...prev, [fp]: slice }));
+                return slice;
+            } catch (err) {
+                console.error('R2 folder list failed:', err);
+                return null;
+            } finally {
+                setLoadingFolderPrefixes((prev) => {
+                    const next = new Set(prev);
+                    next.delete(fp);
+                    return next;
+                });
+            }
+        },
+        [bucket],
+    );
+
+    const toggleFolder = useCallback(
+        (folderPrefix: string) => {
+            const fp = folderPrefixKey(folderPrefix);
+            setExpandedFolders((prev) => {
+                const expanding = !prev.has(fp);
+                const next = new Set(prev);
+                if (expanding) {
+                    next.add(fp);
+                    void fetchFolderChildren(fp);
+                } else {
+                    next.delete(fp);
+                }
+                return next;
+            });
+        },
+        [fetchFolderChildren],
+    );
 
     const formatBytes = (n: number) => {
         if (!Number.isFinite(n) || n < 0) return '0 B';
@@ -407,22 +484,86 @@ export const R2Explorer: React.FC<{
     const browseEmpty = !searchActive && r2Folders.length === 0 && r2Files.length === 0;
     const searchEmpty = searchActive && searchObjects.length === 0;
 
-    const renderObjectRow = (obj: R2ObjectRow, label: string) => (
+    const handleItemActivate = (item: R2ObjectRow) => {
+        if (isR2Folder(item)) {
+            toggleFolder(item.key);
+            return;
+        }
+        if (onOpenInEditor) void openInEditor(item.key);
+    };
+
+    function renderFolderNode(folderPrefix: string, depth: number): React.ReactNode {
+        const fp = folderPrefixKey(folderPrefix);
+        const expanded = expandedFolders.has(fp);
+        const loadingChildren = loadingFolderPrefixes.has(fp);
+        const children = childrenByPrefix[fp];
+        const indent = { paddingLeft: `${8 + depth * 14}px` };
+
+        return (
+            <div key={fp} className="flex flex-col">
+                <button
+                    type="button"
+                    onClick={() => toggleFolder(fp)}
+                    style={indent}
+                    className="flex items-center gap-2 pr-2 py-1.5 hover:bg-[var(--bg-hover)] rounded text-left w-full border-none bg-transparent font-inherit text-[var(--text-main)]"
+                >
+                    {expanded ? (
+                        <ChevronDown size={12} className="text-[var(--text-muted)] shrink-0" />
+                    ) : (
+                        <ChevronRight size={12} className="text-[var(--text-muted)] shrink-0" />
+                    )}
+                    <Folder size={13} className="text-[var(--solar-blue)] shrink-0" />
+                    <span className="text-[11px] font-mono truncate">{folderDisplayName(fp, prefix)}</span>
+                    {loadingChildren && <Loader2 size={10} className="animate-spin ml-auto shrink-0 opacity-60" />}
+                </button>
+                {expanded && (
+                    <div className="flex flex-col gap-0.5 border-l border-[var(--border-subtle)]/40 ml-3">
+                        {loadingChildren && !children && (
+                            <div
+                                style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
+                                className="py-1 text-[9px] text-[var(--text-muted)] font-mono"
+                            >
+                                Loading…
+                            </div>
+                        )}
+                        {children?.folders.map((childFp) => renderFolderNode(childFp, depth + 1))}
+                        {children?.files.map((obj) => renderObjectRow(obj, folderDisplayName(obj.key, fp), depth + 1))}
+                        {children && children.folders.length === 0 && children.files.length === 0 && !loadingChildren && (
+                            <div
+                                style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
+                                className="py-1 text-[9px] text-[var(--text-muted)] italic font-mono"
+                            >
+                                Empty folder
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    function renderObjectRow(obj: R2ObjectRow, label: string, depth = 0): React.ReactNode {
+        if (isR2Folder(obj)) {
+            return renderFolderNode(obj.key, depth);
+        }
+
+        const indent = { paddingLeft: `${8 + depth * 14}px` };
+
+        return (
         <div
             key={obj.key}
             role={onOpenInEditor ? 'button' : undefined}
             tabIndex={onOpenInEditor ? 0 : undefined}
-            onClick={() => {
-                if (onOpenInEditor) void openInEditor(obj.key);
-            }}
+            style={indent}
+            onClick={() => handleItemActivate(obj)}
             onKeyDown={(e) => {
                 if (!onOpenInEditor) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    void openInEditor(obj.key);
+                    handleItemActivate(obj);
                 }
             }}
-            className={`flex items-center gap-2 px-2 py-1.5 hover:bg-[var(--bg-hover)] rounded transition-all group ${
+            className={`flex items-center gap-2 pr-2 py-1.5 hover:bg-[var(--bg-hover)] rounded transition-all group ${
                 onOpenInEditor ? 'cursor-pointer' : ''
             }`}
         >
@@ -468,7 +609,8 @@ export const R2Explorer: React.FC<{
             </button>
             <ChevronRight size={10} className="opacity-0 group-hover:opacity-40 shrink-0" />
         </div>
-    );
+        );
+    }
 
     return (
         <div className="w-full h-full min-h-0 bg-[var(--bg-panel)] flex flex-col text-[var(--text-main)] overflow-hidden">
@@ -481,6 +623,7 @@ export const R2Explorer: React.FC<{
                     <button
                         type="button"
                         onClick={() => {
+                            resetTreeState();
                             loadBuckets();
                             fetchObjects();
                             fetchStats();
@@ -605,18 +748,7 @@ export const R2Explorer: React.FC<{
                         bucket &&
                         objectPanelOpen &&
                         !searchActive &&
-                        r2Folders.map((fp) => (
-                            <button
-                                key={fp}
-                                type="button"
-                                onClick={() => setPrefix(fp)}
-                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-[var(--bg-hover)] rounded text-left w-full border-none bg-transparent font-inherit text-[var(--text-main)]"
-                            >
-                                <Folder size={13} className="text-[var(--solar-blue)] shrink-0" />
-                                <span className="text-[11px] font-mono truncate">{shortKey(fp).replace(/\/$/, '') || fp}</span>
-                                <ChevronRight size={10} className="opacity-40 ml-auto shrink-0" />
-                            </button>
-                        ))}
+                        r2Folders.map((fp) => renderFolderNode(fp, 0))}
                     {!isLoading &&
                         bucket &&
                         objectPanelOpen &&

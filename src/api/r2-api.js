@@ -11,6 +11,23 @@ import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
 function isDashboardMediaBucket(name) {
   return name === 'inneranimalmedia' || name === 'inneranimalmedia-assets';
 }
+
+const DASHBOARD_MEDIA_KEY_PREFIXES = ['users/', 'workspace-media/', 'uploads/', 'media/', 'captures/'];
+
+function isDashboardMediaScopedKey(key) {
+  return DASHBOARD_MEDIA_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+async function assertR2ObjectAccess(request, env, bucket, key) {
+  if (!isDashboardMediaBucket(bucket) || !isDashboardMediaScopedKey(key)) return null;
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (!(await canAccessMediaObjectKey(env, authUser, key))) {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  return null;
+}
+
 import { insertAiGenerationLog } from './telemetry';
 
 /**
@@ -167,64 +184,83 @@ export async function handleR2Api(request, url, env) {
     return jsonResponse({ objects: allObjects });
   }
 
-  if (pathLower === '/api/r2/upload' && method === 'POST') {
+  if ((pathLower === '/api/r2/upload' && method === 'POST') || (pathLower === '/api/r2/put' && method === 'PUT')) {
     const bucket = url.searchParams.get('bucket');
-    const key = url.searchParams.get('key') || `upload/${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    if (!bucket) return jsonResponse({ error: 'bucket required' }, 400);
-    const binding = getR2Binding(env, bucket);
-    if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 400);
-
-    if (
-      isDashboardMediaBucket(bucket) &&
-      (key.startsWith('users/') ||
-        key.startsWith('workspace-media/') ||
-        key.startsWith('uploads/') ||
-        key.startsWith('media/') ||
-        key.startsWith('captures/'))
-    ) {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-      if (!(await canAccessMediaObjectKey(env, authUser, key))) {
-        return jsonResponse({ error: 'Forbidden' }, 403);
-      }
-    }
-
-    const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
-    const body = await request.arrayBuffer();
-    await binding.put(key, body, { httpMetadata: { contentType } });
-    
-    void insertAiGenerationLog(env, {
-      generationType: 'r2_upload',
-      responseText: `${bucket}:${key}`,
-      metadataJson: { key, byte_length: body.byteLength, content_type: contentType }
-    });
-    
-    return jsonResponse({ ok: true, key, url: `${url.origin}/api/r2/buckets/${encodeURIComponent(bucket)}/object/${encodeURIComponent(key)}` });
-  }
-
-  if (pathLower === '/api/r2/delete' && method === 'DELETE') {
-    const bucket = url.searchParams.get('bucket');
-    const key = url.searchParams.get('key');
+    const key =
+      url.searchParams.get('key') ||
+      (pathLower === '/api/r2/upload' ? `upload/${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : null);
     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
     const binding = getR2Binding(env, bucket);
     if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 400);
 
-    if (
-      isDashboardMediaBucket(bucket) &&
-      (key.startsWith('users/') ||
-        key.startsWith('workspace-media/') ||
-        key.startsWith('uploads/') ||
-        key.startsWith('media/') ||
-        key.startsWith('captures/'))
-    ) {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-      if (!(await canAccessMediaObjectKey(env, authUser, key))) {
-        return jsonResponse({ error: 'Forbidden' }, 403);
+    const denied = await assertR2ObjectAccess(request, env, bucket, key);
+    if (denied) return denied;
+
+    const contentType =
+      request.headers.get('Content-Type') || getContentTypeFromKey(key) || 'application/octet-stream';
+    const body = await request.arrayBuffer();
+    await binding.put(key, body, { httpMetadata: { contentType } });
+
+    void insertAiGenerationLog(env, {
+      generationType: pathLower === '/api/r2/put' ? 'r2_put' : 'r2_upload',
+      responseText: `${bucket}:${key}`,
+      metadataJson: { key, byte_length: body.byteLength, content_type: contentType },
+    });
+
+    return jsonResponse({
+      ok: true,
+      key,
+      url: `${url.origin}/api/r2/buckets/${encodeURIComponent(bucket)}/object/${encodeURIComponent(key)}`,
+    });
+  }
+
+  if (pathLower === '/api/r2/delete' && method === 'DELETE') {
+    let bucket = url.searchParams.get('bucket');
+    let key = url.searchParams.get('key');
+    if (!bucket || !key) {
+      try {
+        const body = await request.clone().json();
+        if (!bucket && body?.bucket != null) bucket = String(body.bucket).trim();
+        if (!key && body?.key != null) key = String(body.key).trim();
+      } catch (_) {
+        /* query params only */
       }
     }
+    if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const binding = getR2Binding(env, bucket);
+    if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 400);
+
+    const denied = await assertR2ObjectAccess(request, env, bucket, key);
+    if (denied) return denied;
+
     await binding.delete(key);
-    return jsonResponse({ deleted: true, bucket, key });
+    return jsonResponse({ ok: true, deleted: true, bucket, key });
+  }
+
+  if (pathLower === '/api/r2/copy' && method === 'POST') {
+    const bucket = url.searchParams.get('bucket');
+    const fromKey = url.searchParams.get('from');
+    const toKey = url.searchParams.get('to');
+    if (!bucket || !fromKey || !toKey) {
+      return jsonResponse({ error: 'bucket, from, and to required' }, 400);
+    }
+    const binding = getR2Binding(env, bucket);
+    if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 400);
+
+    const deniedFrom = await assertR2ObjectAccess(request, env, bucket, fromKey);
+    if (deniedFrom) return deniedFrom;
+    const deniedTo = await assertR2ObjectAccess(request, env, bucket, toKey);
+    if (deniedTo) return deniedTo;
+
+    const obj = await binding.get(fromKey);
+    if (!obj) return jsonResponse({ error: 'Source not found', bucket, from: fromKey }, 404);
+
+    const buf = await obj.arrayBuffer();
+    const contentType =
+      obj.httpMetadata?.contentType || getContentTypeFromKey(toKey) || 'application/octet-stream';
+    await binding.put(toKey, buf, { httpMetadata: { contentType } });
+
+    return jsonResponse({ ok: true, bucket, from: fromKey, to: toKey, bytes: buf.byteLength });
   }
 
   if (pathLower === '/api/r2/url' && method === 'GET') {
@@ -255,20 +291,8 @@ export async function handleR2Api(request, url, env) {
     
     if (method === 'GET') {
       if (binding) {
-        if (
-          isDashboardMediaBucket(name) &&
-          (key.startsWith('users/') ||
-            key.startsWith('workspace-media/') ||
-            key.startsWith('uploads/') ||
-            key.startsWith('media/') ||
-            key.startsWith('captures/'))
-        ) {
-          const authUser = await getAuthUser(request, env);
-          if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-          if (!(await canAccessMediaObjectKey(env, authUser, key))) {
-            return jsonResponse({ error: 'Forbidden' }, 403);
-          }
-        }
+        const deniedGet = await assertR2ObjectAccess(request, env, name, key);
+        if (deniedGet) return deniedGet;
         const obj = await binding.get(key);
         if (!obj) return jsonResponse({ error: 'Not found' }, 404);
         const headers = new Headers();
@@ -283,20 +307,8 @@ export async function handleR2Api(request, url, env) {
     
     if (method === 'PUT') {
       if (!binding) return jsonResponse({ error: 'Bucket not bound' }, 404);
-      if (
-        isDashboardMediaBucket(name) &&
-        (key.startsWith('users/') ||
-          key.startsWith('workspace-media/') ||
-          key.startsWith('uploads/') ||
-          key.startsWith('media/') ||
-          key.startsWith('captures/'))
-      ) {
-        const authUser = await getAuthUser(request, env);
-        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!(await canAccessMediaObjectKey(env, authUser, key))) {
-          return jsonResponse({ error: 'Forbidden' }, 403);
-        }
-      }
+      const deniedPut = await assertR2ObjectAccess(request, env, name, key);
+      if (deniedPut) return deniedPut;
       const ct = request.headers.get('Content-Type') || getContentTypeFromKey(key) || 'application/octet-stream';
       const buf = await request.arrayBuffer();
       await binding.put(key, buf, { httpMetadata: { contentType: ct } });

@@ -1,5 +1,20 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Loader2, Search, Folder, GitBranch, Github } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  ArrowRight,
+  ChevronRight,
+  Database,
+  HardDrive,
+  Layers,
+  Loader2,
+  MessageSquare,
+  Search,
+  Terminal,
+  Workflow,
+  LayoutGrid,
+  FileText,
+} from 'lucide-react';
+import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from '../agentChatConstants';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -10,206 +25,317 @@ export type UnifiedSearchNavigate =
   | { kind: 'column'; sql: string }
   | { kind: 'file'; path: string };
 
-type DeployRow = {
-  type: 'deployment';
+type SourceChipId = 'all' | 'r2' | 'd1' | 'commands' | 'workflows' | 'chats';
+
+type PaletteCategory =
+  | 'resource'
+  | 'r2'
+  | 'd1'
+  | 'chat'
+  | 'deploy'
+  | 'command'
+  | 'workflow'
+  | 'file'
+  | 'tip'
+  | 'search';
+
+type PaletteItem = {
+  id: string;
+  category: PaletteCategory;
+  title: string;
+  subtitle?: string;
+  bound?: boolean;
+  objectCount?: number | null;
+  commandText?: string;
+  conversationId?: string;
+  workflowKey?: string;
+  r2Bucket?: string;
+  dbTarget?: 'd1' | 'hyperdrive';
+  filePath?: string;
+  deploySummary?: string;
+  /** Unified-search row passthrough */
+  legacyRow?: LegacyUnifiedRow;
+};
+
+type LegacyUnifiedRow = {
+  type: string;
   id: string;
   title: string;
   subtitle?: string;
+  sql_text?: string;
+  url?: string | null;
   summary?: string;
 };
-type SnippetRow = { type: 'snippet'; id: string; title: string; subtitle?: string; sql_text: string };
-type QueryRow = { type: 'query'; id: string; title: string; subtitle?: string; sql_text: string };
-type TableRow = { type: 'table'; id: string; title: string; subtitle?: string };
-type ColumnRow = { type: 'column'; id: string; title: string; subtitle?: string; sql_text: string };
-type ConvRow = { type: 'conversation'; id: string; title: string; subtitle?: string };
-type KnowRow = {
-  type: 'knowledge';
-  id: string;
-  title: string;
-  subtitle?: string;
-  url?: string | null;
-  score?: number | null;
-};
-type CommandRow = { type: 'command'; id: string; title: string; subtitle?: string; cmd: string };
-type RecentFileRow = { type: 'file'; id: string; title: string; subtitle?: string; path: string };
 
-type WorkspaceRow = {
-  type: 'workspace';
-  id: string;
-  title: string;
-  subtitle?: string;
-  slug: string;
-  status: string;
-  github_repo: string | null;
-  member_role?: string;
-};
-type BranchRow = {
-  type: 'branch';
-  id: string;
-  title: string;
-  subtitle?: string;
-  ref: string;
-  sha: string;
-  isProtected: boolean;
-  repo: string;
-};
-type RepoRow = {
-  type: 'repo';
-  id: string;
-  title: string;
-  subtitle?: string;
-  full_name: string;
-  owner: string;
-  isPrivate: boolean;
-  pushed_at: string;
-  default_branch: string;
-  linked_worker: string | null;
-};
+type QueryMode = 'default' | 'r2' | 'd1' | 'command' | 'workflow' | 'file' | 'search';
 
-type UnifiedRow =
-  | DeployRow
-  | SnippetRow
-  | QueryRow
-  | TableRow
-  | ColumnRow
-  | ConvRow
-  | KnowRow
-  | CommandRow
-  | RecentFileRow
-  | WorkspaceRow
-  | BranchRow
-  | RepoRow;
-
-/** Must stay in sync with `src/core/unified-source-filters.js` ALLOWED_SOURCE_FILTERS (except `all`). */
-const SOURCE_FACETS: { id: string; label: string }[] = [
-  { id: 'docs', label: 'Docs' },
-  { id: 'd1', label: 'D1' },
-  { id: 'commands', label: 'Commands' },
-  { id: 'rules', label: 'Rules' },
-  { id: 'guardrails', label: 'Guardrails' },
-  { id: 'memory', label: 'Memory' },
-  { id: 'codebase', label: 'Code' },
-  { id: 'scripts', label: 'Scripts' },
-  { id: 'workspace', label: 'Workspaces' },
-  { id: 'branch', label: 'Branches' },
-  { id: 'repo', label: 'Repos' },
+const SOURCE_CHIPS: { id: SourceChipId; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'all', label: 'All', Icon: LayoutGrid },
+  { id: 'r2', label: 'R2', Icon: HardDrive },
+  { id: 'd1', label: 'D1', Icon: Database },
+  { id: 'commands', label: 'Commands', Icon: Terminal },
+  { id: 'workflows', label: 'Workflows', Icon: Workflow },
+  { id: 'chats', label: 'Chats', Icon: MessageSquare },
 ];
 
-const IDE_COMMANDS: CommandRow[] = [
-  { type: 'command', id: 'fmt', title: 'Format Document', subtitle: 'Run Prettier on active file', cmd: 'editor.format' },
-  { type: 'command', id: 'debug', title: 'Start Debugging', subtitle: 'Attach debugger to local process', cmd: 'debug.start' },
-  { type: 'command', id: 'clear', title: 'Clear Console', subtitle: 'Reset terminal buffers', cmd: 'terminal.clear' },
+const SEARCH_TIPS: PaletteItem[] = [
+  { id: 'tip-r2', category: 'tip', title: 'r2:', subtitle: 'Search R2 buckets' },
+  { id: 'tip-d1', category: 'tip', title: 'd1:', subtitle: 'D1 & data stores' },
+  { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Wrangler & CF commands' },
+  { id: 'tip-wf', category: 'tip', title: 'wf', subtitle: 'Workflows' },
+  { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Recent files' },
 ];
 
-function flattenResults(data: {
-  deployments?: DeployRow[];
-  snippets?: SnippetRow[];
-  past_queries?: QueryRow[];
-  tables?: TableRow[];
-  columns?: ColumnRow[];
-  conversations?: ConvRow[];
-  knowledge?: KnowRow[];
-}): UnifiedRow[] {
-  const out: UnifiedRow[] = [];
-  for (const d of data.deployments || []) out.push(d);
-  for (const s of data.snippets || []) out.push(s);
-  for (const p of data.past_queries || []) out.push(p);
-  for (const t of data.tables || []) out.push(t);
-  for (const col of data.columns || []) out.push(col);
-  for (const c of data.conversations || []) out.push(c);
-  for (const k of data.knowledge || []) out.push(k);
+function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
+  const q = raw.trim();
+  const lower = q.toLowerCase();
+  if (lower.startsWith('r2:')) return { mode: 'r2', term: q.slice(3).trim() };
+  if (lower === 'r2' || lower.startsWith('r2 ')) return { mode: 'r2', term: q.replace(/^r2\s*/i, '').trim() };
+  if (lower.startsWith('d1:')) return { mode: 'd1', term: q.slice(3).trim() };
+  if (lower === 'd1' || lower.startsWith('d1 ')) return { mode: 'd1', term: q.replace(/^d1\s*/i, '').trim() };
+  if (q.startsWith('/')) return { mode: 'command', term: q.slice(1).trim() };
+  if (lower.startsWith('wf:') || lower === 'wf' || lower.startsWith('wf ')) {
+    return { mode: 'workflow', term: q.replace(/^wf:?/i, '').trim() };
+  }
+  if (q.startsWith('@')) return { mode: 'file', term: q.slice(1).trim() };
+  if (q.length >= 2) return { mode: 'search', term: q };
+  return { mode: 'default', term: q };
+}
+
+function chipMatchesCategory(chip: SourceChipId, category: PaletteCategory): boolean {
+  if (chip === 'all') return category !== 'tip';
+  if (chip === 'r2') return category === 'r2' || category === 'resource';
+  if (chip === 'd1') return category === 'd1';
+  if (chip === 'commands') return category === 'command';
+  if (chip === 'workflows') return category === 'workflow';
+  if (chip === 'chats') return category === 'chat';
+  return true;
+}
+
+function matchesTerm(item: PaletteItem, term: string): boolean {
+  if (!term) return true;
+  const hay = `${item.title} ${item.subtitle || ''}`.toLowerCase();
+  return hay.includes(term.toLowerCase());
+}
+
+async function fetchJson<T>(url: string): Promise<T | null> {
+  try {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBoundR2Buckets(): Promise<string[]> {
+  const fromList = await fetchJson<{ buckets?: string[]; bucket_names?: string[] }>(
+    '/api/r2/list?buckets=true',
+  );
+  if (fromList) {
+    const list = fromList.buckets || fromList.bucket_names;
+    if (Array.isArray(list) && list.length) return list.map(String);
+  }
+  const fromBuckets = await fetchJson<{ buckets?: string[] }>('/api/r2/buckets');
+  if (fromBuckets?.buckets?.length) return fromBuckets.buckets.map(String);
+  return [];
+}
+
+async function fetchAllR2BucketNames(): Promise<{ name: string; bound: boolean; object_count?: number }[]> {
+  const bound = await fetchBoundR2Buckets();
+  const boundSet = new Set(bound);
+  let account: string[] = [];
+
+  const fromAll = await fetchJson<{ buckets?: string[]; bucket_names?: string[] }>(
+    '/api/r2/list?buckets=true&all=true',
+  );
+  if (fromAll) {
+    account = (fromAll.buckets || fromAll.bucket_names || []).map(String);
+  }
+  if (!account.length) {
+    const storage = await fetchJson<{ buckets?: { storage_name?: string; bucket_name?: string; object_count?: number }[] }>(
+      '/api/storage/buckets',
+    );
+    if (storage?.buckets?.length) {
+      account = storage.buckets
+        .map((b) => String(b.storage_name || b.bucket_name || '').trim())
+        .filter(Boolean);
+    }
+  }
+
+  const merged: string[] = [...bound];
+  for (const n of account) {
+    if (!boundSet.has(n)) merged.push(n);
+  }
+
+  const withCounts = await Promise.all(
+    merged.slice(0, 80).map(async (name) => {
+      const stats = await fetchJson<{ object_count?: number }>(
+        `/api/r2/stats?bucket=${encodeURIComponent(name)}`,
+      );
+      return {
+        name,
+        bound: boundSet.has(name),
+        object_count: typeof stats?.object_count === 'number' ? stats.object_count : undefined,
+      };
+    }),
+  );
+  return withCounts;
+}
+
+function sortBuckets(
+  rows: { name: string; bound: boolean }[],
+  term: string,
+): { name: string; bound: boolean; object_count?: number }[] {
+  const t = term.toLowerCase();
+  const filtered = t ? rows.filter((r) => r.name.toLowerCase().includes(t)) : rows;
+  const bound = filtered.filter((r) => r.bound);
+  const rest = filtered.filter((r) => !r.bound).sort((a, b) => a.name.localeCompare(b.name));
+  return [...bound, ...rest];
+}
+
+function buildDefaultDataStores(): PaletteItem[] {
+  return [
+    {
+      id: 'db-d1',
+      category: 'd1',
+      title: 'inneranimalmedia-business',
+      subtitle: 'Cloudflare D1 · bound Worker database',
+      dbTarget: 'd1',
+    },
+    {
+      id: 'db-hyperdrive',
+      category: 'd1',
+      title: 'Supabase (Hyperdrive)',
+      subtitle: 'Postgres mirror · session-scoped',
+      dbTarget: 'hyperdrive',
+    },
+    {
+      id: 'db-vectorize',
+      category: 'd1',
+      title: 'Vectorize',
+      subtitle: 'Embeddings index · tenant registry',
+    },
+    {
+      id: 'db-autorag',
+      category: 'd1',
+      title: 'AutoRAG',
+      subtitle: 'RAG pipeline · autorag bucket',
+    },
+  ];
+}
+
+function normalizeLegacySearchRows(data: Record<string, unknown>): LegacyUnifiedRow[] {
+  const ranked = data.results;
+  if (!Array.isArray(ranked)) return [];
+  const out: LegacyUnifiedRow[] = [];
+  for (const raw of ranked) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    const type = String(r.type || '');
+    out.push({
+      type,
+      id: String(r.id ?? r.path ?? ''),
+      title: String(r.title ?? ''),
+      subtitle: r.subtitle != null ? String(r.subtitle) : undefined,
+      sql_text: r.sql_text != null ? String(r.sql_text) : undefined,
+      url: r.url != null ? String(r.url) : null,
+      summary: r.summary != null ? String(r.summary) : undefined,
+    });
+  }
   return out;
 }
 
-function normalizeSearchRows(data: Record<string, unknown>): UnifiedRow[] {
-  const ranked = data.results;
-  if (Array.isArray(ranked) && ranked.length > 0) {
-    const out: UnifiedRow[] = [];
-    for (const raw of ranked) {
-      if (!raw || typeof raw !== 'object') continue;
-      const r = raw as Record<string, unknown>;
-      const type = String(r.type || '');
-      const id = String(r.id ?? r.path ?? '');
-      const title = String(r.title ?? '');
-      const subtitle = r.subtitle != null ? String(r.subtitle) : undefined;
-      if (type === 'deployment') {
-        out.push({ type: 'deployment', id, title, subtitle, summary: r.summary != null ? String(r.summary) : undefined });
-        continue;
+function legacyToPalette(row: LegacyUnifiedRow): PaletteItem | null {
+  const id = `${row.type}-${row.id}`;
+  switch (row.type) {
+    case 'deployment':
+      return {
+        id,
+        category: 'deploy',
+        title: row.title,
+        subtitle: row.subtitle,
+        deploySummary: row.summary || row.subtitle || row.title,
+        legacyRow: row,
+      };
+    case 'conversation':
+      return {
+        id,
+        category: 'chat',
+        title: row.title,
+        subtitle: row.subtitle,
+        conversationId: row.id,
+        legacyRow: row,
+      };
+    case 'command':
+      return {
+        id,
+        category: 'command',
+        title: row.title,
+        subtitle: row.subtitle,
+        commandText: row.sql_text || row.title,
+        legacyRow: row,
+      };
+    case 'workspace':
+    case 'branch':
+    case 'repo':
+      return {
+        id,
+        category: 'search',
+        title: row.title,
+        subtitle: row.subtitle || row.type,
+        legacyRow: row,
+      };
+    default:
+      if (row.type === 'table' || row.type === 'snippet' || row.type === 'query' || row.type === 'column') {
+        return {
+          id,
+          category: 'search',
+          title: row.title,
+          subtitle: row.subtitle || row.type,
+          legacyRow: row,
+        };
       }
-      if (type === 'snippet' || type === 'query' || type === 'column') {
-        out.push({ type: type as any, id, title, subtitle, sql_text: String(r.sql_text ?? '') });
-        continue;
-      }
-      if (type === 'table' || type === 'conversation') {
-        out.push({ type: type as any, id, title, subtitle });
-        continue;
-      }
-      if (type === 'knowledge') {
-        out.push({ type: 'knowledge', id, title, subtitle, url: r.url != null ? String(r.url) : null, score: typeof r.score === 'number' ? r.score : null });
-        continue;
-      }
-      switch (type) {
-        case 'workspace':
-          out.push({
-            type: 'workspace',
-            id: String(r.id),
-            title: String(r.display_name || r.slug || r.id),
-            subtitle: String(r.slug || ''),
-            slug: String(r.slug || ''),
-            status: String(r.status || 'active'),
-            github_repo: r.github_repo ? String(r.github_repo) : null,
-            member_role: r.member_role ? String(r.member_role) : undefined,
-          });
-          break;
-        case 'branch':
-          out.push({
-            type: 'branch',
-            id: String(r.ref ?? r.id ?? ''),
-            title: String(r.ref ?? r.title ?? ''),
-            subtitle: r.sha != null ? String(r.sha) : undefined,
-            ref: String(r.ref ?? ''),
-            sha: String(r.sha || ''),
-            isProtected: Boolean(r.protected),
-            repo: String(r.repo || ''),
-          });
-          break;
-        case 'repo':
-          out.push({
-            type: 'repo',
-            id: String(r.full_name ?? r.id ?? ''),
-            title: String(r.name ?? r.title ?? ''),
-            subtitle: r.owner != null ? String(r.owner) : undefined,
-            full_name: String(r.full_name ?? ''),
-            owner: String(r.owner || ''),
-            isPrivate: Boolean(r.private),
-            pushed_at: String(r.pushed_at || ''),
-            default_branch: String(r.default_branch || 'main'),
-            linked_worker: r.linked_worker ? String(r.linked_worker) : null,
-          });
-          break;
-        default:
-          break;
-      }
-    }
-    return out;
+      return {
+        id,
+        category: 'search',
+        title: row.title,
+        subtitle: row.subtitle,
+        legacyRow: row,
+      };
   }
-  return flattenResults(data as Parameters<typeof flattenResults>[0]);
 }
 
-function rowLabel(row: UnifiedRow): string {
-  switch (row.type) {
-    case 'deployment': return 'Deploy';
-    case 'snippet': return 'Snippet';
-    case 'query': return 'Query';
-    case 'table': return 'Table';
-    case 'column': return 'Column';
-    case 'conversation': return 'Chat';
-    case 'command': return 'Cmd';
-    case 'file': return 'File';
-    case 'workspace': return 'WS';
-    case 'branch': return 'Branch';
-    case 'repo': return 'Repo';
-    default: return 'Knowledge';
+function sectionTitle(mode: QueryMode, chip: SourceChipId, hasQuery: boolean): string | null {
+  if (!hasQuery && mode === 'default') return null;
+  if (mode === 'r2') return 'R2 Buckets';
+  if (mode === 'd1') return 'Databases';
+  if (mode === 'command') return 'Commands';
+  if (mode === 'workflow') return 'Workflows';
+  if (mode === 'file') return 'Files';
+  if (chip !== 'all') return SOURCE_CHIPS.find((c) => c.id === chip)?.label ?? 'Results';
+  return 'Results';
+}
+
+function rowIcon(category: PaletteCategory) {
+  switch (category) {
+    case 'r2':
+    case 'resource':
+      return HardDrive;
+    case 'd1':
+      return Database;
+    case 'command':
+      return Terminal;
+    case 'workflow':
+      return Workflow;
+    case 'chat':
+      return MessageSquare;
+    case 'deploy':
+      return Layers;
+    case 'file':
+      return FileText;
+    default:
+      return Search;
   }
 }
 
@@ -225,11 +351,12 @@ export const UnifiedSearchBar: React.FC<{
   workspaceLabel,
   recentFiles = [],
   onNavigate,
-  onRunCommand,
+  onRunCommand: _onRunCommand,
   controlledOpen,
   onControlledOpenChange,
   initialFacets,
 }) => {
+  const navigate = useNavigate();
   const isControlled = controlledOpen !== undefined;
   const [localOpen, setLocalOpen] = useState(false);
   const open = isControlled ? controlledOpen : localOpen;
@@ -238,158 +365,530 @@ export const UnifiedSearchBar: React.FC<{
     if (isControlled) onControlledOpenChange?.(next);
     else setLocalOpen(next);
   };
+
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<UnifiedRow[]>([]);
-  const [recentSearches, setRecentSearches] = useState<{ query?: string; result_kind?: string; opened_id?: string }[]>([]);
-  /** Empty = search all document sources (server default). */
-  const [sourceFacets, setSourceFacets] = useState<string[]>([]);
+  const [items, setItems] = useState<PaletteItem[]>([]);
   const [active, setActive] = useState(0);
+  const [sourceChip, setSourceChip] = useState<SourceChipId>('all');
+  const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (open && initialFacets?.length) {
-      setSourceFacets(initialFacets);
-    }
-    if (!open) {
-      setSourceFacets([]);
-    }
-  }, [open, initialFacets]);
-
-  const loadRecentSearches = useCallback(async () => {
-    try {
-      const r = await fetch('/api/unified-search/recent', { credentials: 'same-origin' });
-      const j = r.ok ? await r.json() : { items: [] };
-      setRecentSearches(Array.isArray(j.items) ? j.items : []);
-    } catch {
-      setRecentSearches([]);
-    }
-  }, []);
+  const { mode, term } = useMemo(() => parseQueryMode(q), [q]);
 
   useEffect(() => {
     if (!open) return;
-    void loadRecentSearches();
+    if (initialFacets?.length) {
+      const map: Record<string, SourceChipId> = {
+        d1: 'd1',
+        commands: 'commands',
+        codebase: 'all',
+        scripts: 'commands',
+      };
+      const first = initialFacets.map((f) => map[f]).find(Boolean);
+      if (first) setSourceChip(first);
+    }
     setActive(0);
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open, loadRecentSearches]);
+  }, [open, initialFacets]);
 
-  const runSearch = useCallback(async (query: string) => {
-    const t = query.trim();
-    const structural = sourceFacets.some((f) => f === 'workspace' || f === 'branch' || f === 'repo');
-    if (t.length < 2 && !structural) {
-      setRows([]);
-      return;
-    }
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 2200);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  const loadDefault = useCallback(async () => {
     setLoading(true);
     try {
-      const payload: Record<string, unknown> = { query: t, limit: 22 };
-      if (sourceFacets.length > 0) {
-        payload.source_filters = sourceFacets;
+      const [buckets, sessions, deploys, vectors] = await Promise.all([
+        fetchBoundR2Buckets(),
+        fetchJson<
+          { id?: string; name?: string; message_count?: number; started_at?: number }[]
+        >('/api/agent/sessions?limit=5').then((d) => (Array.isArray(d) ? d : [])),
+        fetchJson<{ deployments?: { worker_name?: string; environment?: string; status?: string; deployed_at?: string; deployment_notes?: string }[] }>(
+          '/api/overview/deployments?limit=5',
+        ).then((d) => (d?.deployments || []).slice(0, 5)),
+        fetchJson<{ indexes?: { display_name?: string; binding_name?: string; index_name?: string }[] }>(
+          '/api/storage/vectors',
+        ),
+      ]);
+
+      const resourceRows: PaletteItem[] = buckets.slice(0, 6).map((name) => ({
+        id: `res-r2-${name}`,
+        category: 'resource',
+        title: name,
+        subtitle: 'R2 bucket · Worker binding',
+        r2Bucket: name,
+        bound: true,
+      }));
+
+      const stores = buildDefaultDataStores();
+      if (vectors?.indexes?.[0]) {
+        const vx = vectors.indexes[0];
+        stores[2] = {
+          ...stores[2],
+          title: vx.display_name || vx.index_name || vx.binding_name || 'Vectorize',
+          subtitle: `${vx.binding_name || 'VECTORIZE'} · embeddings`,
+        };
       }
-      const res = await fetch('/api/unified-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify(payload),
+
+      const chatRows: PaletteItem[] = sessions.slice(0, 5).map((s) => ({
+        id: `chat-${s.id}`,
+        category: 'chat',
+        title: String(s.name || 'Conversation'),
+        subtitle:
+          typeof s.message_count === 'number'
+            ? `${s.message_count} messages`
+            : s.started_at
+              ? new Date(s.started_at * 1000).toLocaleString()
+              : undefined,
+        conversationId: String(s.id || ''),
+      }));
+
+      const deployRows: PaletteItem[] = deploys.map((d, i) => {
+        const title = [d.worker_name, d.environment].filter(Boolean).join(' · ') || 'Deployment';
+        const summary = [d.status, d.deployed_at, d.deployment_notes].filter(Boolean).join(' — ');
+        return {
+          id: `deploy-${i}-${title}`,
+          category: 'deploy',
+          title,
+          subtitle: summary,
+          deploySummary: summary || title,
+        };
       });
-      const data = res.ok ? await res.json() : {};
-      setRows(normalizeSearchRows(data && typeof data === 'object' ? (data as Record<string, unknown>) : {}));
-      setActive(0);
-    } catch {
-      setRows([]);
+
+      setItems([...resourceRows, ...stores, ...chatRows, ...deployRows]);
     } finally {
       setLoading(false);
     }
-  }, [sourceFacets]);
+  }, []);
+
+  const loadR2 = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    try {
+      const rows = await fetchAllR2BucketNames();
+      const sorted = sortBuckets(rows, searchTerm);
+      setItems(
+        sorted.map((b) => ({
+          id: `r2-${b.name}`,
+          category: 'r2',
+          title: b.name,
+          subtitle: b.bound ? 'Bound to this Worker' : 'Account bucket',
+          bound: b.bound,
+          objectCount: b.object_count ?? null,
+          r2Bucket: b.name,
+        })),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadD1 = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    try {
+      const stores = buildDefaultDataStores().filter((s) => matchesTerm(s, searchTerm));
+      const tableRows: PaletteItem[] = [];
+      const tables = await fetchJson<{ tables?: { name: string }[] }>('/api/d1/tables');
+      if (tables?.tables?.length) {
+        for (const t of tables.tables.slice(0, 12)) {
+          const name = String(t.name || '');
+          if (!name || (searchTerm && !name.toLowerCase().includes(searchTerm.toLowerCase()))) continue;
+          tableRows.push({
+            id: `d1-table-${name}`,
+            category: 'd1',
+            title: name,
+            subtitle: 'D1 table · inneranimalmedia-business',
+            dbTarget: 'd1',
+          });
+        }
+      }
+      setItems([...stores, ...tableRows]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadCommands = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    try {
+      let rows: { id?: string; slug?: string; name?: string; display_name?: string; description?: string; mapped_command?: string; command_template?: string; category?: string }[] = [];
+
+      const primary = await fetchJson<{ commands?: typeof rows; results?: typeof rows }>(
+        `/api/commands?limit=20${searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ''}`,
+      );
+      if (primary?.commands?.length) rows = primary.commands;
+      else if (Array.isArray(primary)) rows = primary;
+      else if (primary?.results?.length) rows = primary.results;
+
+      if (!rows.length) {
+        const catalog = await fetchJson<{ commands?: { slug?: string; name?: string; category?: string }[] }>(
+          '/api/agent/context-picker/catalog',
+        );
+        rows = (catalog?.commands || []).map((c) => ({
+          slug: c.slug,
+          display_name: c.name,
+          category: c.category,
+          mapped_command: c.slug,
+        }));
+      }
+
+      if (!rows.length) {
+        const mcp = await fetchJson<{ suggestions?: { slug?: string; label?: string; description?: string; routed_to_agent?: string }[] }>(
+          '/api/mcp/commands',
+        );
+        rows = (mcp?.suggestions || []).map((s) => ({
+          slug: s.slug,
+          display_name: s.label,
+          description: s.description,
+          mapped_command: s.slug,
+        }));
+      }
+
+      const filtered = rows
+        .filter((r) => {
+          if (!searchTerm) return true;
+          const hay = `${r.slug || ''} ${r.display_name || r.name || ''} ${r.mapped_command || ''} ${r.command_template || ''}`.toLowerCase();
+          return hay.includes(searchTerm.toLowerCase());
+        })
+        .slice(0, 20);
+
+      setItems(
+        filtered.map((r, i) => {
+          const cmd = String(r.mapped_command || r.command_template || r.slug || '').trim();
+          const title = String(r.display_name || r.name || r.slug || cmd || 'Command');
+          return {
+            id: `cmd-${r.id || r.slug || i}`,
+            category: 'command',
+            title,
+            subtitle: [r.category, r.description, cmd !== title ? cmd : ''].filter(Boolean).join(' · ') || undefined,
+            commandText: cmd || title,
+          };
+        }),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadWorkflows = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    try {
+      let rows: { id?: string; workflow_key?: string; display_name?: string; description?: string }[] = [];
+
+      const primary = await fetchJson<typeof rows | { workflows?: typeof rows }>(
+        `/api/workflows?limit=10${searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ''}`,
+      );
+      if (Array.isArray(primary)) rows = primary;
+      else if (primary && typeof primary === 'object' && Array.isArray((primary as { workflows?: typeof rows }).workflows)) {
+        rows = (primary as { workflows: typeof rows }).workflows;
+      }
+
+      if (!rows.length) {
+        const fallback = await fetchJson<typeof rows>('/api/agentsam/workflows');
+        if (Array.isArray(fallback)) rows = fallback;
+      }
+
+      const filtered = rows
+        .filter((w) => {
+          if (!searchTerm) return true;
+          const hay = `${w.workflow_key || ''} ${w.display_name || ''} ${w.description || ''}`.toLowerCase();
+          return hay.includes(searchTerm.toLowerCase());
+        })
+        .slice(0, 10);
+
+      setItems(
+        filtered.map((w) => ({
+          id: `wf-${w.id || w.workflow_key}`,
+          category: 'workflow',
+          title: String(w.display_name || w.workflow_key || 'Workflow'),
+          subtitle: w.workflow_key || w.description || undefined,
+          workflowKey: String(w.workflow_key || w.id || ''),
+        })),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadFiles = useCallback(
+    async (searchTerm: string) => {
+      setLoading(true);
+      try {
+        const local: PaletteItem[] = recentFiles
+          .filter((f) => !searchTerm || `${f.name} ${f.path}`.toLowerCase().includes(searchTerm.toLowerCase()))
+          .slice(0, 8)
+          .map((f) => ({
+            id: `file-local-${f.path}`,
+            category: 'file',
+            title: f.name,
+            subtitle: f.label || f.path,
+            filePath: f.path,
+          }));
+
+        let remote: PaletteItem[] = [];
+        if (searchTerm.length >= 2) {
+          const res = await fetch('/api/unified-search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ query: searchTerm, limit: 12, source_filters: ['codebase'] }),
+          });
+          const data = res.ok ? await res.json() : {};
+          remote = normalizeLegacySearchRows(data as Record<string, unknown>)
+            .filter((r) => r.type === 'knowledge' || r.type === 'file')
+            .map((r) =>
+              legacyToPalette(r),
+            )
+            .filter((x): x is PaletteItem => !!x)
+            .map((r) => ({ ...r, category: 'file' as const, filePath: r.legacyRow?.url || r.title }));
+        }
+
+        setItems([...local, ...remote]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [recentFiles],
+  );
+
+  const loadUnifiedSearch = useCallback(
+    async (searchTerm: string, chip: SourceChipId) => {
+      setLoading(true);
+      try {
+        const sourceMap: Record<SourceChipId, string[] | undefined> = {
+          all: undefined,
+          r2: ['codebase'],
+          d1: ['d1'],
+          commands: ['commands'],
+          workflows: ['codebase'],
+          chats: ['memory'],
+        };
+        const filters = sourceMap[chip];
+
+        let legacy: LegacyUnifiedRow[] = [];
+        const getUrl = `/api/unified-search?q=${encodeURIComponent(searchTerm)}&sources=all`;
+        const getRes = await fetch(getUrl, { credentials: 'same-origin' });
+        if (getRes.ok) {
+          legacy = normalizeLegacySearchRows((await getRes.json()) as Record<string, unknown>);
+        } else {
+          const res = await fetch('/api/unified-search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              query: searchTerm,
+              limit: 24,
+              ...(filters ? { source_filters: filters } : {}),
+            }),
+          });
+          if (res.ok) legacy = normalizeLegacySearchRows((await res.json()) as Record<string, unknown>);
+        }
+
+        const palette = legacy.map(legacyToPalette).filter((x): x is PaletteItem => !!x);
+        if (chip === 'all') {
+          setItems(palette);
+          return;
+        }
+        setItems(palette.filter((p) => chipMatchesCategory(chip, p.category)));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  const runQuery = useCallback(async () => {
+    if (mode === 'default') {
+      await loadDefault();
+      return;
+    }
+    if (mode === 'r2') {
+      await loadR2(term);
+      return;
+    }
+    if (mode === 'd1') {
+      await loadD1(term);
+      return;
+    }
+    if (mode === 'command') {
+      await loadCommands(term);
+      return;
+    }
+    if (mode === 'workflow') {
+      await loadWorkflows(term);
+      return;
+    }
+    if (mode === 'file') {
+      await loadFiles(term);
+      return;
+    }
+    await loadUnifiedSearch(term, sourceChip);
+  }, [mode, term, sourceChip, loadDefault, loadR2, loadD1, loadCommands, loadWorkflows, loadFiles, loadUnifiedSearch]);
 
   useEffect(() => {
     if (!open) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => void runSearch(q), 220);
+    debounceRef.current = setTimeout(() => void runQuery(), mode === 'default' ? 0 : 180);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [q, open, runSearch, sourceFacets]);
+  }, [open, q, mode, sourceChip, runQuery]);
 
-  const applyRow = useCallback(
-    (row: UnifiedRow, searchQuery: string) => {
-      if (row.type === 'workspace' || row.type === 'branch') {
-        void fetch('/api/unified-search/track', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ query: searchQuery, result_kind: row.type, opened_id: row.id }),
-        }).catch(() => {});
-        setOpen(false);
-        setQ('');
-        setRows([]);
+  const closePalette = useCallback(() => {
+    setOpen(false);
+    setQ('');
+    setItems([]);
+    setSourceChip('all');
+    setActive(0);
+  }, []);
+
+  const openR2Bucket = useCallback((bucket: string) => {
+    try {
+      sessionStorage.setItem('iam-palette-r2-bucket', bucket);
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'remote', r2Bucket: bucket } }));
+    window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket } }));
+  }, []);
+
+  const openDatabase = useCallback((target?: 'd1' | 'hyperdrive') => {
+    try {
+      if (target) sessionStorage.setItem('iam-palette-db-target', target);
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'database', dbTarget: target } }));
+  }, []);
+
+  const applyItem = useCallback(
+    (item: PaletteItem, searchQuery: string) => {
+      if (item.category === 'tip') {
+        setQ(item.title);
         return;
       }
-      if (row.type === 'repo') {
-        void fetch('/api/unified-search/track', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ query: searchQuery, result_kind: row.type, opened_id: row.id }),
-        }).catch(() => {});
-        if (row.full_name) {
-          window.open(`https://github.com/${row.full_name}`, '_blank', 'noopener,noreferrer');
-        }
-        setOpen(false);
-        setQ('');
-        setRows([]);
-        return;
-      }
-      if (row.type === 'command') {
-        onRunCommand?.(row.cmd);
-        setOpen(false);
-        return;
-      }
-      if (row.type === 'file') {
-        onNavigate({ kind: 'knowledge', url: row.path, label: row.title } as any, searchQuery);
-        setOpen(false);
-        return;
-      }
-      
+
       void fetch('/api/unified-search/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ query: searchQuery, result_kind: row.type, opened_id: row.id }),
+        body: JSON.stringify({
+          query: searchQuery,
+          result_kind: item.category,
+          opened_id: item.id,
+        }),
       }).catch(() => {});
 
-      if (row.type === 'table') {
-        onNavigate({ kind: 'table', name: row.id }, searchQuery);
-      } else if (row.type === 'conversation') {
-        onNavigate({ kind: 'conversation', id: row.id }, searchQuery);
-      } else if (row.type === 'column') {
-        if (row.sql_text) onNavigate({ kind: 'column', sql: row.sql_text }, searchQuery);
-      } else if (row.type === 'snippet' || row.type === 'query') {
-        if (row.sql_text) onNavigate({ kind: 'sql', sql: row.sql_text }, searchQuery);
-      } else if (row.type === 'deployment') {
-        onNavigate({ kind: 'deployment', summary: row.summary || row.subtitle || row.title }, searchQuery);
-      } else {
-        onNavigate({ kind: 'knowledge', url: row.url ?? null, label: row.title || row.subtitle || 'Result' }, searchQuery);
+      if (item.category === 'r2' || (item.category === 'resource' && item.r2Bucket)) {
+        openR2Bucket(item.r2Bucket || item.title);
+        closePalette();
+        return;
       }
-      setOpen(false);
-      setQ('');
-      setRows([]);
+
+      if (item.category === 'd1') {
+        if (item.id.startsWith('d1-table-')) {
+          onNavigate({ kind: 'table', name: item.title }, searchQuery);
+        } else {
+          openDatabase(item.dbTarget);
+        }
+        closePalette();
+        return;
+      }
+
+      if (item.category === 'chat' && item.conversationId) {
+        try {
+          localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, item.conversationId);
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(
+          new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id: item.conversationId } }),
+        );
+        onNavigate({ kind: 'conversation', id: item.conversationId }, searchQuery);
+        closePalette();
+        return;
+      }
+
+      if (item.category === 'deploy') {
+        navigate('/dashboard/analytics/deploys');
+        closePalette();
+        return;
+      }
+
+      if (item.category === 'command' && item.commandText) {
+        void navigator.clipboard?.writeText(item.commandText).catch(() => {});
+        setToast('Copied to clipboard');
+        closePalette();
+        return;
+      }
+
+      if (item.category === 'workflow' && item.workflowKey) {
+        navigate('/dashboard/workflows');
+        closePalette();
+        return;
+      }
+
+      if (item.category === 'file' && item.filePath) {
+        onNavigate({ kind: 'knowledge', url: item.filePath, label: item.title }, searchQuery);
+        closePalette();
+        return;
+      }
+
+      if (item.legacyRow) {
+        const row = item.legacyRow;
+        if (row.type === 'conversation' && row.id) {
+          onNavigate({ kind: 'conversation', id: row.id }, searchQuery);
+        } else if (row.type === 'table') {
+          onNavigate({ kind: 'table', name: row.id }, searchQuery);
+        } else if ((row.type === 'snippet' || row.type === 'query' || row.type === 'column') && row.sql_text) {
+          onNavigate({ kind: row.type === 'column' ? 'column' : 'sql', sql: row.sql_text }, searchQuery);
+        } else if (row.type === 'deployment') {
+          navigate('/dashboard/analytics/deploys');
+        } else {
+          onNavigate({ kind: 'knowledge', url: row.url ?? null, label: row.title }, searchQuery);
+        }
+        closePalette();
+        return;
+      }
+
+      closePalette();
     },
-    [onNavigate, onRunCommand],
+    [closePalette, navigate, onNavigate, openDatabase, openR2Bucket],
   );
 
-  const flatList = useMemo(() => {
-    const t = q.trim();
-    const structural = sourceFacets.some((f) => f === 'workspace' || f === 'branch' || f === 'repo');
-    if (t.length >= 2 || structural) return rows;
-    const palette: UnifiedRow[] = [];
-    recentFiles.slice(0, 5).forEach(f => {
-      palette.push({ type: 'file', id: f.path, title: f.name, subtitle: f.label || f.path, path: f.path });
+  const displaySections = useMemo(() => {
+    const filtered = items.filter((item) => {
+      if (item.category === 'tip') return mode === 'default' && !q.trim();
+      if (mode !== 'default' && mode !== 'search') return true;
+      if (mode === 'search') return chipMatchesCategory(sourceChip, item.category);
+      return chipMatchesCategory(sourceChip, item.category);
     });
-    IDE_COMMANDS.forEach(c => palette.push(c));
-    return palette;
-  }, [q, rows, recentFiles, sourceFacets]);
+
+    if (mode === 'default' && !q.trim()) {
+      const resources = filtered.filter((i) => i.category === 'resource' || i.category === 'd1');
+      const chats = filtered.filter((i) => i.category === 'chat');
+      const deploys = filtered.filter((i) => i.category === 'deploy');
+      const tips = SEARCH_TIPS;
+      return [
+        { key: 'resources', label: 'Resources', rows: resources },
+        { key: 'chats', label: 'Recent chats', rows: chats },
+        { key: 'deploys', label: 'Recent deploys', rows: deploys },
+        { key: 'tips', label: 'Search tips', rows: tips },
+      ].filter((s) => s.rows.length > 0);
+    }
+
+    const title = sectionTitle(mode, sourceChip, !!q.trim());
+    return [{ key: 'main', label: title || 'Results', rows: filtered }];
+  }, [items, mode, q, sourceChip]);
+
+  const flatList = useMemo(() => displaySections.flatMap((s) => s.rows), [displaySections]);
+
+  useEffect(() => {
+    setActive(0);
+  }, [flatList.length, q, sourceChip, mode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -398,11 +897,14 @@ export const UnifiedSearchBar: React.FC<{
         e.preventDefault();
         setOpen((o) => !o);
       }
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape' && open) {
+        e.preventDefault();
+        closePalette();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [open, closePalette]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -413,24 +915,26 @@ export const UnifiedSearchBar: React.FC<{
       setActive((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter' && flatList.length > 0) {
       e.preventDefault();
-      const row = flatList[active];
-      if (row) applyRow(row, q.trim());
+      const item = flatList[active];
+      if (item) applyItem(item, q.trim());
     }
   };
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  let rowIndex = -1;
 
   return (
     <div className="nav-search-container w-full max-w-lg min-w-0">
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         className="flex flex-col items-stretch w-full px-3 py-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] text-left hover:border-[var(--solar-cyan)]/40 transition-colors gap-0.5"
       >
         <div className="flex items-center gap-2 min-w-0">
           <Search size={14} className="shrink-0 opacity-70 text-[var(--text-muted)]" />
           <span className="text-[11px] text-[var(--text-muted)] truncate flex-1">
-            workspace: <span className="text-[var(--text-main)] font-medium">{workspaceLabel?.trim() || 'dashboard'}</span>
+            workspace:{' '}
+            <span className="text-[var(--text-main)] font-medium">{workspaceLabel?.trim() || 'dashboard'}</span>
           </span>
           <kbd className="hidden xl:inline text-[9px] font-mono px-1 py-px rounded border border-[var(--border-subtle)] text-[var(--text-muted)] shrink-0">
             {isMac ? 'Cmd' : 'Ctrl'}+K
@@ -439,8 +943,15 @@ export const UnifiedSearchBar: React.FC<{
       </button>
 
       {open && (
-        <div className="nav-dropdown rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-2xl overflow-hidden flex flex-col max-h-[min(65vh,500px)]">
-            <div className="px-3 py-2 border-b border-[var(--border-subtle)] space-y-1">
+        <>
+          <button
+            type="button"
+            aria-label="Close search"
+            className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px]"
+            onClick={closePalette}
+          />
+          <div className="nav-dropdown rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col max-h-[min(70vh,520px)] z-50">
+            <div className="px-3 py-2.5 border-b border-[var(--border-subtle)] space-y-2">
               <div className="flex items-center gap-2">
                 <Search size={16} className="text-[var(--text-muted)] shrink-0" />
                 <input
@@ -448,41 +959,31 @@ export const UnifiedSearchBar: React.FC<{
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={onKeyDown}
-                  placeholder="Search files, commands, deploys, chats…"
+                  placeholder="Search buckets, D1, commands, chats…"
                   className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[13px] text-[var(--text-main)] placeholder:text-[var(--text-muted)]"
                 />
+                <kbd className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] shrink-0">
+                  Esc
+                </kbd>
                 {loading ? <Loader2 size={16} className="animate-spin text-[var(--solar-cyan)] shrink-0" /> : null}
               </div>
-              <div className="flex flex-wrap gap-1 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setSourceFacets([])}
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium border transition-colors ${
-                    sourceFacets.length === 0
-                      ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--text-main)]'
-                      : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
-                  }`}
-                >
-                  All sources
-                </button>
-                {SOURCE_FACETS.map((f) => {
-                  const on = sourceFacets.includes(f.id);
+              <div className="flex flex-wrap gap-1">
+                {SOURCE_CHIPS.map(({ id, label, Icon }) => {
+                  const on = sourceChip === id;
                   return (
                     <button
-                      key={f.id}
+                      key={id}
                       type="button"
-                      onClick={() =>
-                        setSourceFacets((prev) =>
-                          prev.includes(f.id) ? prev.filter((x) => x !== f.id) : [...prev, f.id],
-                        )
-                      }
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium border transition-colors ${
+                      title={label}
+                      onClick={() => setSourceChip(id)}
+                      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium border transition-colors ${
                         on
                           ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--text-main)]'
                           : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
                       }`}
                     >
-                      {f.label}
+                      <Icon size={11} className="shrink-0 opacity-80" />
+                      <span>{label}</span>
                     </button>
                   );
                 })}
@@ -490,132 +991,79 @@ export const UnifiedSearchBar: React.FC<{
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto chat-hide-scroll">
-              {flatList.map((row, i) => {
-                const rowClass = `w-full text-left px-3 py-2.5 border-b border-[var(--border-subtle)]/60 transition-colors ${
-                  i === active ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]/70'
-                }`;
-                if (row.type === 'workspace') {
-                  return (
-                    <button
-                      key={`${row.type}-${row.id}-${i}`}
-                      type="button"
-                      onClick={() => applyRow(row, q.trim())}
-                      className={rowClass}
-                    >
-                      <div className="flex items-start gap-2 min-w-0">
-                        <Folder size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" aria-hidden />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2 mb-0.5">
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
-                              {rowLabel(row)}
-                            </span>
-                            <span
-                              className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                                row.status === 'active' ? 'bg-emerald-500' : 'bg-[var(--text-muted)]/45'
-                              }`}
-                              title={row.status}
-                            />
-                          </div>
-                          <div className="text-[12px] font-semibold text-[var(--text-main)] truncate">{row.title}</div>
-                          <div className="text-[11px] font-mono text-[var(--text-muted)] truncate">
-                            {row.slug}
-                            {row.github_repo ? ` · ${row.github_repo}` : ''}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                }
-                if (row.type === 'branch') {
-                  return (
-                    <button
-                      key={`${row.type}-${row.id}-${i}`}
-                      type="button"
-                      onClick={() => applyRow(row, q.trim())}
-                      className={rowClass}
-                    >
-                      <div className="flex items-start gap-2 min-w-0">
-                        <GitBranch size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" aria-hidden />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2 mb-0.5">
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
-                              {rowLabel(row)}
-                            </span>
-                            {row.isProtected ? (
-                              <span className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-muted)] border border-[var(--border-subtle)] rounded px-1 shrink-0">
-                                protected
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-[12px] text-[var(--text-main)] truncate">
-                            <span className="font-semibold">{row.ref}</span>{' '}
-                            <span className="font-mono text-[var(--text-muted)]">{row.sha}</span>
-                          </div>
-                          <div className="text-[11px] text-[var(--text-muted)] truncate">{row.repo}</div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                }
-                if (row.type === 'repo') {
-                  return (
-                    <button
-                      key={`${row.type}-${row.id}-${i}`}
-                      type="button"
-                      onClick={() => applyRow(row, q.trim())}
-                      className={rowClass}
-                    >
-                      <div className="flex items-start gap-2 min-w-0">
-                        <Github size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" aria-hidden />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2 mb-0.5">
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
-                              {rowLabel(row)}
-                            </span>
-                            {row.isPrivate ? (
-                              <span className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-muted)] border border-[var(--border-subtle)] rounded px-1 shrink-0">
-                                private
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-[12px] truncate">
-                            <span className="font-semibold text-[var(--text-main)]">{row.title}</span>
-                            <span className="text-[var(--text-muted)]"> / {row.owner}</span>
-                          </div>
-                          <div
-                            className={`text-[11px] truncate ${
-                              row.linked_worker ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'
-                            }`}
-                          >
-                            {row.linked_worker ? `linked: ${row.linked_worker}` : 'not linked'}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                }
-                return (
-                  <button
-                    key={`${row.type}-${row.id}-${i}`}
-                    type="button"
-                    onClick={() => applyRow(row, q.trim())}
-                    className={rowClass}
-                  >
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--solar-cyan)] shrink-0">
-                        {rowLabel(row)}
-                      </span>
-                      <span className="text-[12px] font-semibold text-[var(--text-main)] truncate">{row.title}</span>
+              {flatList.length === 0 && !loading ? (
+                <div className="px-3 py-6 text-center text-[12px] text-[var(--text-muted)]">No results</div>
+              ) : null}
+
+              {displaySections.map((section) => (
+                <div key={section.key}>
+                  {section.label ? (
+                    <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                      {section.label}
                     </div>
-                    {row.subtitle ? (
-                      <div className="text-[11px] text-[var(--text-muted)] line-clamp-2">{row.subtitle}</div>
-                    ) : null}
-                  </button>
-                );
-              })}
+                  ) : null}
+                  {section.rows.map((item) => {
+                    rowIndex += 1;
+                    const i = rowIndex;
+                    const Icon = rowIcon(item.category);
+                    const selected = i === active;
+                    const isTip = item.category === 'tip';
+                    return (
+                      <button
+                        key={`${item.id}-${i}`}
+                        type="button"
+                        onClick={() => applyItem(item, q.trim())}
+                        onMouseEnter={() => setActive(i)}
+                        className={`w-full text-left px-3 py-2 border-b border-[var(--border-subtle)]/50 transition-colors flex items-center gap-2.5 group ${
+                          selected ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]/70'
+                        }`}
+                      >
+                        <Icon
+                          size={14}
+                          className={`shrink-0 ${item.category === 'r2' || item.category === 'resource' ? 'text-amber-500/90' : 'text-[var(--text-muted)]'}`}
+                          aria-hidden
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[12px] font-medium text-[var(--text-main)] truncate">{item.title}</span>
+                            {item.bound ? (
+                              <span className="text-[9px] uppercase tracking-wide text-[var(--solar-cyan)] shrink-0">bound</span>
+                            ) : null}
+                          </div>
+                          {item.subtitle ? (
+                            <div className="text-[11px] text-[var(--text-muted)] truncate">{item.subtitle}</div>
+                          ) : null}
+                          {typeof item.objectCount === 'number' ? (
+                            <div className="text-[10px] text-[var(--text-muted)] font-mono">
+                              {item.objectCount.toLocaleString()} objects
+                            </div>
+                          ) : null}
+                        </div>
+                        {selected && !isTip ? (
+                          <ArrowRight size={14} className="shrink-0 text-[var(--text-muted)] opacity-70" />
+                        ) : isTip ? (
+                          <ChevronRight size={14} className="shrink-0 text-[var(--text-muted)] opacity-50" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-        </div>
+
+            <div className="px-3 py-2 border-t border-[var(--border-subtle)] flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
+              <span>↑ ↓ to navigate</span>
+              <span>↵ to select</span>
+            </div>
+          </div>
+        </>
       )}
+
+      {toast ? (
+        <div className="fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 px-3 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] text-[12px] text-[var(--text-main)] shadow-xl">
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 };
