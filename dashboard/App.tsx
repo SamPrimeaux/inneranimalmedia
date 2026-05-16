@@ -1788,12 +1788,22 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const onSidebarToggle = (e: Event) => {
-      const act = (e as CustomEvent<{ activity?: string }>).detail?.activity;
+      const detail = (e as CustomEvent<{ activity?: string; r2Bucket?: string }>).detail;
+      const act = detail?.activity;
       if (!act) return;
       if (act === 'files' && location.pathname !== '/dashboard/agent' && location.pathname !== '/dashboard/meet') {
         navigate('/dashboard/agent');
       }
       setActiveActivity(act as typeof activeActivity);
+      const paletteBucket = detail?.r2Bucket?.trim();
+      if (paletteBucket && act === 'remote') {
+        try {
+          sessionStorage.setItem('iam-palette-r2-bucket', paletteBucket);
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket: paletteBucket } }));
+      }
     };
     window.addEventListener('iam-sidebar-toggle', onSidebarToggle as EventListener);
     return () => window.removeEventListener('iam-sidebar-toggle', onSidebarToggle as EventListener);

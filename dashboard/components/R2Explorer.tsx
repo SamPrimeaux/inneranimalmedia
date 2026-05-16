@@ -26,7 +26,19 @@ function bucketLabelToBinding(label: string): string {
     if (b === 'iam-platform') return 'R2';
     if (b === 'iam-docs') return 'DOCS_BUCKET';
     if (b === 'autorag') return 'AUTORAG_BUCKET';
-    return 'DASHBOARD';
+    return label.trim();
+}
+
+const IAM_PALETTE_OPEN_R2 = 'iam-palette-open-r2';
+const IAM_PALETTE_R2_BUCKET_KEY = 'iam-palette-r2-bucket';
+
+/** Pick the list label that matches `requested` or shares the same Worker binding. */
+function resolveBucketLabel(requested: string, labels: string[]): string {
+    const r = requested.trim();
+    if (!r) return r;
+    if (labels.includes(r)) return r;
+    const sig = bucketLabelToBinding(r);
+    return labels.find((l) => bucketLabelToBinding(l) === sig) ?? r;
 }
 
 /** agent-sam and tools share env.DASHBOARD — one row per binding for dropdowns */
@@ -133,17 +145,54 @@ export const R2Explorer: React.FC<{
         setLoadingFolderPrefixes(new Set());
     }, []);
 
+    const selectBucket = useCallback(
+        (name: string, opts?: { openPanel?: boolean }) => {
+            const b = name.trim();
+            if (!b) return;
+            setBuckets((prev) => {
+                const merged = prev.includes(b) ? prev : [...prev, b];
+                const canonical = resolveBucketLabel(b, dedupeR2BucketLabels(merged));
+                setBucket(canonical);
+                return merged;
+            });
+            setPrefix('');
+            setSearchActive(false);
+            setSearchQ('');
+            resetTreeState();
+            if (opts?.openPanel !== false) setObjectPanelOpen(true);
+        },
+        [resetTreeState],
+    );
+
     const loadBuckets = useCallback(async () => {
         try {
             const res = await fetch('/api/r2/buckets', { credentials: 'same-origin' });
             const data = await res.json();
             const list = Array.isArray(data.buckets) ? data.buckets : [];
             setBuckets(list);
+            try {
+                const pending = sessionStorage.getItem(IAM_PALETTE_R2_BUCKET_KEY)?.trim();
+                if (pending) {
+                    sessionStorage.removeItem(IAM_PALETTE_R2_BUCKET_KEY);
+                    selectBucket(pending);
+                }
+            } catch {
+                /* ignore */
+            }
         } catch (err) {
             console.error('R2 buckets failed:', err);
             setBuckets([]);
         }
-    }, []);
+    }, [selectBucket]);
+
+    useEffect(() => {
+        const onPaletteOpen = (e: Event) => {
+            const b = (e as CustomEvent<{ bucket?: string }>).detail?.bucket;
+            if (b) selectBucket(b);
+        };
+        window.addEventListener(IAM_PALETTE_OPEN_R2, onPaletteOpen as EventListener);
+        return () => window.removeEventListener(IAM_PALETTE_OPEN_R2, onPaletteOpen as EventListener);
+    }, [selectBucket]);
 
     const fetchObjects = useCallback(async () => {
         if (!bucket) return;
@@ -221,7 +270,12 @@ export const R2Explorer: React.FC<{
             setBucket('');
             return;
         }
-        setBucket((prev) => (prev && displayBuckets.includes(prev) ? prev : displayBuckets[0]));
+        setBucket((prev) => {
+            if (!prev) return displayBuckets[0];
+            if (displayBuckets.includes(prev)) return prev;
+            const resolved = resolveBucketLabel(prev, displayBuckets);
+            return displayBuckets.includes(resolved) ? resolved : displayBuckets[0];
+        });
     }, [displayBuckets]);
 
     useEffect(() => {
@@ -657,10 +711,7 @@ export const R2Explorer: React.FC<{
                                     if (selected) {
                                         setObjectPanelOpen((v) => !v);
                                     } else {
-                                        setBucket(b);
-                                        setPrefix('');
-                                        setSearchActive(false);
-                                        setObjectPanelOpen(true);
+                                        selectBucket(b);
                                     }
                                 }}
                                 className={`flex items-center gap-2 px-2 py-1.5 rounded text-left text-[10px] font-mono border border-[var(--border-subtle)]/60 hover:bg-[var(--bg-hover)] ${
