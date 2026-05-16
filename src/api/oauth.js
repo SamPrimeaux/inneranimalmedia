@@ -805,10 +805,426 @@ async function storeApiKeyAsOauth(env, authUser, provider, apiKey) {
   } catch { /* ignore */ }
 }
 
+
+// ── MCP OAuth Provider Contract -------------------------------------------------
+// Implements the app-side OAuth provider endpoints consumed by the custom MCP server:
+//
+// GET  /api/oauth/authorize
+// POST /api/oauth/token
+// GET  /api/oauth/userinfo
+//
+// Existing integration OAuth routes remain under /api/oauth/:provider/start|callback.
+
+const MCP_OAUTH_PROVIDER = 'inneranimalmedia_mcp';
+const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
+const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+function mcpOAuthNow() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function mcpOAuthBase64Url(buffer) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  let str = '';
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function mcpOAuthSha256Hex(value) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function mcpOAuthPkceS256(value) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+  return mcpOAuthBase64Url(buf);
+}
+
+function mcpOAuthRandomToken(prefix, bytes = 32) {
+  const arr = new Uint8Array(bytes);
+  crypto.getRandomValues(arr);
+  const hex = Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${prefix}_${hex}`;
+}
+
+function mcpOAuthJsonError(error, status = 400, extra = {}) {
+  return jsonResponse({ error, ...extra }, status);
+}
+
+function mcpOAuthSafePathWithSearch(url) {
+  return `${url.pathname}${url.search || ''}`;
+}
+
+function mcpOAuthAllowedRedirectUri(raw, env) {
+  let u;
+  try {
+    u = new URL(String(raw || ''));
+  } catch {
+    return { ok: false, error: 'invalid_redirect_uri', url: null };
+  }
+
+  if (u.protocol !== 'https:') {
+    return { ok: false, error: 'redirect_uri_must_be_https', url: null };
+  }
+
+  const host = u.hostname.toLowerCase();
+  const configured = String(env.MCP_OAUTH_ALLOWED_REDIRECT_HOSTS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+
+  const allowedHosts = configured.length
+    ? configured
+    : [
+        'mcp.inneranimalmedia.com',
+        'inneranimalmedia.com',
+        'www.inneranimalmedia.com',
+      ];
+
+  const ok = allowedHosts.includes(host) || host.endsWith('.inneranimalmedia.com');
+  if (!ok) {
+    return { ok: false, error: 'redirect_uri_not_allowed', url: null };
+  }
+
+  return { ok: true, error: null, url: u };
+}
+
+async function mcpOAuthResolveTenantId(env, authUser) {
+  const direct = String(authUser?.tenant_id || env.TENANT_ID || env.DEFAULT_TENANT_ID || '').trim();
+  if (direct) return direct;
+
+  if (env.DB && authUser?.id) {
+    try {
+      const row = await env.DB.prepare(`SELECT tenant_id FROM auth_users WHERE id = ? LIMIT 1`)
+        .bind(authUser.id)
+        .first();
+      if (row?.tenant_id) return String(row.tenant_id);
+    } catch (_) {}
+  }
+
+  return 'tenant_sam_primeaux';
+}
+
+async function mcpOAuthResolveWorkspaceId(env, authUser, url) {
+  const requested = String(url.searchParams.get('workspace_id') || '').trim();
+  if (requested) return requested;
+
+  const direct = String(authUser?.workspace_id || authUser?.active_workspace_id || env.WORKSPACE_ID || env.DEFAULT_WORKSPACE_ID || '').trim();
+  if (direct) return direct;
+
+  if (env.DB && authUser?.id) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT workspace_id
+           FROM workspace_members
+          WHERE user_id = ?
+          ORDER BY joined_at ASC
+          LIMIT 1`,
+      )
+        .bind(authUser.id)
+        .first();
+      if (row?.workspace_id) return String(row.workspace_id);
+    } catch (_) {}
+  }
+
+  return 'ws_inneranimalmedia';
+}
+
+function mcpOAuthNormalizeScope(raw) {
+  const scopes = String(raw || 'mcp:tools mcp:userinfo')
+    .split(/[\s,]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  if (!scopes.includes('mcp:userinfo')) scopes.push('mcp:userinfo');
+  return Array.from(new Set(scopes)).join(' ');
+}
+
+async function mcpOAuthReadBody(request) {
+  const ct = String(request.headers.get('Content-Type') || '').toLowerCase();
+
+  if (ct.includes('application/json')) {
+    const j = await request.json().catch(() => ({}));
+    return {
+      grant_type: String(j.grant_type || j.grantType || ''),
+      code: String(j.code || ''),
+      redirect_uri: String(j.redirect_uri || j.redirectUri || ''),
+      code_verifier: String(j.code_verifier || j.codeVerifier || ''),
+      client_id: String(j.client_id || j.clientId || ''),
+    };
+  }
+
+  const raw = await request.text().catch(() => '');
+  const form = new URLSearchParams(raw);
+  return {
+    grant_type: String(form.get('grant_type') || ''),
+    code: String(form.get('code') || ''),
+    redirect_uri: String(form.get('redirect_uri') || ''),
+    code_verifier: String(form.get('code_verifier') || ''),
+    client_id: String(form.get('client_id') || ''),
+  };
+}
+
+async function handleMcpOAuthAuthorize(request, env, _ctx) {
+  if (!env.DB) return mcpOAuthJsonError('database_not_configured', 503);
+
+  const url = new URL(request.url);
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) {
+    const login = new URL('/auth/login', url.origin);
+    login.searchParams.set('next', mcpOAuthSafePathWithSearch(url));
+    return Response.redirect(login.href, 302);
+  }
+
+  const responseType = String(url.searchParams.get('response_type') || 'code').toLowerCase();
+  const clientId = String(url.searchParams.get('client_id') || 'mcp').trim();
+  const redirectRaw = String(url.searchParams.get('redirect_uri') || '').trim();
+  const state = String(url.searchParams.get('state') || '').trim();
+  const codeChallenge = String(url.searchParams.get('code_challenge') || '').trim();
+  const codeChallengeMethod = String(url.searchParams.get('code_challenge_method') || 'S256').toUpperCase();
+  const scope = mcpOAuthNormalizeScope(url.searchParams.get('scope'));
+
+  if (responseType !== 'code') return mcpOAuthJsonError('unsupported_response_type', 400);
+  if (!clientId) return mcpOAuthJsonError('invalid_client', 400);
+  if (!state) return mcpOAuthJsonError('invalid_state', 400);
+  if (!codeChallenge) return mcpOAuthJsonError('missing_code_challenge', 400);
+  if (codeChallengeMethod !== 'S256') return mcpOAuthJsonError('unsupported_code_challenge_method', 400);
+
+  const redirectCheck = mcpOAuthAllowedRedirectUri(redirectRaw, env);
+  if (!redirectCheck.ok) return mcpOAuthJsonError(redirectCheck.error, 400);
+
+  const tenantId = await mcpOAuthResolveTenantId(env, authUser);
+  const workspaceId = await mcpOAuthResolveWorkspaceId(env, authUser, url);
+
+  const code = mcpOAuthRandomToken('mcp_code', 24);
+  const codeHash = await mcpOAuthSha256Hex(code);
+  const now = mcpOAuthNow();
+  const expiresAt = now + MCP_OAUTH_CODE_TTL_SECONDS;
+
+  const metadata = {
+    client_id: clientId,
+    redirect_uri: redirectCheck.url.href,
+    code_challenge: codeChallenge,
+    code_challenge_method: codeChallengeMethod,
+    scope,
+    workspace_id: workspaceId,
+    user_email: authUser.email || null,
+    user_name: authUser.name || null,
+    issued_at: now,
+  };
+
+  await env.DB.prepare(
+    `INSERT INTO oauth_state_nonces
+       (id, tenant_id, user_id, provider, state_hash, redirect_after, metadata_json, expires_at, consumed_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, unixepoch())`,
+  )
+    .bind(
+      `mcp_auth_${crypto.randomUUID()}`,
+      tenantId,
+      authUser.id || authUser.email || '',
+      MCP_OAUTH_PROVIDER,
+      codeHash,
+      redirectCheck.url.href,
+      JSON.stringify(metadata),
+      expiresAt,
+    )
+    .run();
+
+  const dest = new URL(redirectCheck.url.href);
+  dest.searchParams.set('code', code);
+  dest.searchParams.set('state', state);
+
+  return Response.redirect(dest.href, 302);
+}
+
+async function handleMcpOAuthToken(request, env, _ctx) {
+  if (!env.DB) return mcpOAuthJsonError('database_not_configured', 503);
+
+  const body = await mcpOAuthReadBody(request);
+  if (body.grant_type && body.grant_type !== 'authorization_code') {
+    return mcpOAuthJsonError('unsupported_grant_type', 400);
+  }
+  if (!body.code) return mcpOAuthJsonError('missing_code', 400);
+  if (!body.code_verifier) return mcpOAuthJsonError('missing_code_verifier', 400);
+  if (!body.redirect_uri) return mcpOAuthJsonError('missing_redirect_uri', 400);
+
+  const codeHash = await mcpOAuthSha256Hex(body.code);
+  const row = await env.DB.prepare(
+    `SELECT id, tenant_id, user_id, provider, state_hash, redirect_after, metadata_json, expires_at, consumed_at
+       FROM oauth_state_nonces
+      WHERE provider = ?
+        AND state_hash = ?
+      LIMIT 1`,
+  )
+    .bind(MCP_OAUTH_PROVIDER, codeHash)
+    .first();
+
+  if (!row) return mcpOAuthJsonError('invalid_grant', 400);
+  if (row.consumed_at) return mcpOAuthJsonError('invalid_grant_consumed', 400);
+  if (Number(row.expires_at || 0) <= mcpOAuthNow()) return mcpOAuthJsonError('invalid_grant_expired', 400);
+
+  let metadata = {};
+  try {
+    metadata = JSON.parse(row.metadata_json || '{}');
+  } catch {
+    metadata = {};
+  }
+
+  const expectedRedirect = String(metadata.redirect_uri || row.redirect_after || '').trim();
+  if (expectedRedirect && expectedRedirect !== body.redirect_uri) {
+    return mcpOAuthJsonError('redirect_uri_mismatch', 400);
+  }
+
+  const expectedChallenge = String(metadata.code_challenge || '');
+  const gotChallenge = await mcpOAuthPkceS256(body.code_verifier);
+  if (!expectedChallenge || gotChallenge !== expectedChallenge) {
+    return mcpOAuthJsonError('invalid_code_verifier', 400);
+  }
+
+  const userId = String(row.user_id || '').trim();
+  if (!userId) return mcpOAuthJsonError('invalid_user', 400);
+
+  const authRow = await env.DB.prepare(
+    `SELECT id, email, name, tenant_id, person_uuid
+       FROM auth_users
+      WHERE id = ?
+      LIMIT 1`,
+  )
+    .bind(userId)
+    .first()
+    .catch(() => null);
+
+  const tenantId = String(row.tenant_id || authRow?.tenant_id || 'tenant_sam_primeaux');
+  const workspaceId = String(metadata.workspace_id || 'ws_inneranimalmedia');
+  const scope = mcpOAuthNormalizeScope(metadata.scope || 'mcp:tools mcp:userinfo');
+  const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
+  const tokenHash = await mcpOAuthSha256Hex(accessToken);
+  const now = mcpOAuthNow();
+  const expiresAt = now + MCP_OAUTH_TOKEN_TTL_SECONDS;
+
+  await env.DB.prepare(
+    `UPDATE oauth_state_nonces
+        SET consumed_at = unixepoch()
+      WHERE id = ?`,
+  )
+    .bind(row.id)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO mcp_workspace_tokens
+       (id, workspace_id, tenant_id, label, token_hash, allowed_tools,
+        rate_limit_per_hour, is_active, created_at, expires_at, user_id,
+        token_type, created_by, scopes_json, allowed_capability_keys_json,
+        allowed_lanes_json, allowed_risk_levels_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      `tok_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
+      workspaceId,
+      tenantId,
+      `MCP OAuth ${authRow?.email || userId}`,
+      tokenHash,
+      '[]',
+      100,
+      expiresAt,
+      userId,
+      'oauth',
+      userId,
+      JSON.stringify(scope.split(/\s+/).filter(Boolean)),
+      JSON.stringify(['mcp.*', 'agent.*', 'workspace.*']),
+      JSON.stringify(['general', 'inspect', 'operate']),
+      JSON.stringify(['low', 'medium']),
+    )
+    .run();
+
+  return jsonResponse({
+    access_token: accessToken,
+    token_type: 'Bearer',
+    expires_in: MCP_OAUTH_TOKEN_TTL_SECONDS,
+    scope,
+  });
+}
+
+async function handleMcpOAuthUserinfo(request, env, _ctx) {
+  if (!env.DB) return mcpOAuthJsonError('database_not_configured', 503);
+
+  const auth = String(request.headers.get('Authorization') || '');
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return mcpOAuthJsonError('missing_bearer_token', 401);
+
+  const token = m[1].trim();
+  const tokenHash = await mcpOAuthSha256Hex(token);
+  const now = mcpOAuthNow();
+
+  const row = await env.DB.prepare(
+    `SELECT
+        t.id AS token_id,
+        t.workspace_id,
+        t.tenant_id,
+        t.user_id,
+        t.scopes_json,
+        t.expires_at,
+        t.is_active,
+        u.email AS email,
+        u.name AS name,
+        u.person_uuid AS person_uuid
+       FROM mcp_workspace_tokens t
+       LEFT JOIN auth_users u ON u.id = t.user_id
+      WHERE t.token_hash = ?
+        AND t.is_active = 1
+        AND (t.revoked_at IS NULL OR t.revoked_at = 0)
+      LIMIT 1`,
+  )
+    .bind(tokenHash)
+    .first();
+
+  if (!row) return mcpOAuthJsonError('invalid_token', 401);
+  if (row.expires_at && Number(row.expires_at) <= now) {
+    return mcpOAuthJsonError('token_expired', 401);
+  }
+
+  await env.DB.prepare(
+    `UPDATE mcp_workspace_tokens
+        SET last_used_at = unixepoch()
+      WHERE id = ?`,
+  )
+    .bind(row.token_id)
+    .run()
+    .catch(() => {});
+
+  let scopes = [];
+  try {
+    scopes = JSON.parse(row.scopes_json || '[]');
+  } catch {
+    scopes = [];
+  }
+
+  return jsonResponse({
+    sub: row.user_id,
+    user_id: row.user_id,
+    email: row.email || null,
+    name: row.name || null,
+    tenant_id: row.tenant_id,
+    workspace_id: row.workspace_id,
+    person_uuid: row.person_uuid || null,
+    scopes,
+  });
+}
+
 export async function handleOAuthApi(request, env, ctx) {
   const url = new URL(request.url);
   const pathLower = url.pathname.toLowerCase().replace(/\/$/, '');
   const method = request.method.toUpperCase();
+
+  if (pathLower === '/api/oauth/authorize' && method === 'GET') {
+    return handleMcpOAuthAuthorize(request, env, ctx);
+  }
+  if (pathLower === '/api/oauth/token' && method === 'POST') {
+    return handleMcpOAuthToken(request, env, ctx);
+  }
+  if (pathLower === '/api/oauth/userinfo' && method === 'GET') {
+    return handleMcpOAuthUserinfo(request, env, ctx);
+  }
 
   if (pathLower === '/api/oauth/gmail/start' && method === 'GET') {
     return gmailOAuthStart(request, url, env);
