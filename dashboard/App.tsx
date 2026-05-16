@@ -1310,6 +1310,10 @@ const App: React.FC = () => {
     [openTab, revealMainWorkspaceIfNarrow],
   );
 
+  const onExplorerWorkspaceRootChange = useCallback(({ folderName }: { folderName: string }) => {
+    setIdeWorkspace({ source: 'local', folderName });
+  }, []);
+
   /** Agent Sam SSE `surface_open` / orchestration — open the right workspace tab without new buttons. */
   useEffect(() => {
     const h = (e: Event) => {
@@ -2561,9 +2565,7 @@ const App: React.FC = () => {
                   ) : activeActivity === 'files' && location.pathname === '/dashboard/agent' ? (
                       <LocalExplorer
                           nativeFolderOpenSignal={nativeFolderOpenSignal}
-                          onWorkspaceRootChange={({ folderName }) => {
-                              setIdeWorkspace({ source: 'local', folderName });
-                          }}
+                          onWorkspaceRootChange={onExplorerWorkspaceRootChange}
                           onFileSelect={openInEditorFromExplorer}
                           onOpenInEditor={openInEditorFromExplorer}
                           onOpenMovieMode={openMovieModeFromExplorer}
