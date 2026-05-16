@@ -28,7 +28,7 @@ export async function handleR2Dispatch(request, env, ctx, authUser) {
         const bucket = body.bucket || url.searchParams.get('bucket') || 'inneranimalmedia';
         const key = body.key || url.searchParams.get('key');
 
-        const binding = env[bucket.toUpperCase().replace(/-/g, '_')];
+        const binding = r2Core.resolveR2Access(env, bucket)?.binding || r2Core.getR2Binding(env, bucket);
 
         if (path.endsWith('/list')) {
             const prefix = body.prefix || url.searchParams.get('prefix') || '';

@@ -2130,6 +2130,12 @@ async function shouldIncludeRag(env, taskType, tenantId) {
 async function resolveWorkflowForMessage(env, taskType, message, workspaceId) {
   if (!env.DB) return null;
   const t = String(message || '').toLowerCase();
+  // Detect D1/database/SQL/query intents first, and bypass workflow routing
+  // for these cases to allow direct D1 tool execution.
+  const d1SqlIntentKeywords = /\b(d1|database|sql|query|table|schema|db)\b/;
+  if (d1SqlIntentKeywords.test(t)) {
+    return null;
+  }
   if (userExplicitlyRequestsMonacoEditor(message)) {
     try {
       const wf = await env.DB.prepare(
@@ -5139,6 +5145,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     '';
   if (!workspaceId) workspaceId = String(bootstrapWorkspaceId || '').trim();
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+  // All PTY execution paths MUST have an authenticated userId
+  if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
+
 
   // ── ASK FAST PATH — no tools; prompt + model from D1 / route table ─────
   if (requestedMode === 'ask') {
@@ -5224,6 +5233,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     return executeWorkflowAndStream(env, surfacePreflight.workflowKey, message, actor, workspaceId, ctx, {
       runtimeMode: requestedMode,
       browserContext: browserContextPayload,
+      ptyExecUrl: env.PTY_EXEC_URL,
     });
   }
   if (surfacePreflight?.kind === 'missing_workflow') {
@@ -7932,9 +7942,9 @@ export async function handleAgentApi(request, url, env, ctx) {
     const linkedRows = await env.DB.prepare(
       `SELECT repo_full_name, cloudflare_worker_name
        FROM github_repositories
-       WHERE tenant_id = ?`,
+       WHERE tenant_id = ? AND workspace_id = ?`,
     )
-      .bind(authUser.tenant_id)
+      .bind(authUser.tenant_id, authUser.workspace_id)
       .all();
 
     const linkedMap = Object.fromEntries(

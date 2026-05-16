@@ -771,7 +771,6 @@ export const UnifiedSearchBar: React.FC<{
       /* ignore */
     }
     window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'remote', r2Bucket: bucket } }));
-    window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket } }));
   }, []);
 
   const loadBucketMenu = useCallback(async () => {
@@ -779,9 +778,9 @@ export const UnifiedSearchBar: React.FC<{
     try {
       const rows = await fetchAllR2BucketNames();
       setBucketMenuRows(rows);
-    } catch {
-      setBucketMenuRows([]);
-    } finally {
+    } catch (e) {
+      console.error('Failed to load R2 bucket menu:', e);
+    } finally { // Preserve existing rows on transient failure
       setBucketMenuLoading(false);
     }
   }, []);
