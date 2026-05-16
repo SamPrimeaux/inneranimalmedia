@@ -167,7 +167,7 @@ function bucketLabelToBinding(label: string): string {
     if (b === 'iam-platform') return 'R2';
     if (b === 'iam-docs') return 'DOCS_BUCKET';
     if (b === 'autorag') return 'AUTORAG_BUCKET';
-    return 'DASHBOARD';
+    return label.trim();
 }
 
 /** agent-sam and tools share env.DASHBOARD — show one row to avoid duplicate trees. */
