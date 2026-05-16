@@ -299,9 +299,7 @@ const App: React.FC = () => {
 
   // IDE State
   type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'moviemode';
-  const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'drive' | 'database' | null>(() =>
-    typeof window !== 'undefined' && window.innerWidth < 768 ? null : 'files',
-  );
+  const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'drive' | 'database' | null>(null);
   const LS_SIDEBAR_RAIL = 'iam_sidebar_expanded';
   /** User-chosen agent column side; survives reloads (not overwritten by workspace policy fetch). */
   const LS_AGENT_POSITION = 'iam_agent_position';
@@ -880,7 +878,7 @@ const App: React.FC = () => {
   const shellLayoutRef = useRef({
     sidebarW: 260,
     sidebarRailExpanded: true,
-    activityOpen: true,
+    activityOpen: false,
   });
   useEffect(() => {
     shellLayoutRef.current = {
@@ -2546,6 +2544,7 @@ const App: React.FC = () => {
               </>
           )}
 
+          <div className="flex flex-1 min-w-0 overflow-hidden">
           <div 
               className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl md:shadow-none hover:border-[var(--solar-cyan)] relative group
               ${activeActivity ? 'absolute inset-y-0 left-0 md:relative md:left-0 max-md:!w-full max-md:z-[46] max-md:inset-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto' : 'border-none opacity-0 pointer-events-none'}`}
@@ -2962,6 +2961,7 @@ const App: React.FC = () => {
                 </div>
               </div>
           </main>
+          </div>
 
           {/* 6. Optional Right Agent Panel */}
           {agentPosition === 'right' && (

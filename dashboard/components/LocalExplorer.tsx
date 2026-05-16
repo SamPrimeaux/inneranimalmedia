@@ -214,10 +214,10 @@ export const LocalExplorer: React.FC<{
         folderName: string;
     } | null>(null);
     const [expandedSections, setExpandedSections] = useState({
-        local: true,
-        r2: true,
-        github: true,
-        drive: true,
+        local: false,
+        r2: false,
+        github: false,
+        drive: false,
         moviemode: false,
     });
     /** Local tunnel registry row is connected but last_verified_at is missing or older than 5 minutes. */

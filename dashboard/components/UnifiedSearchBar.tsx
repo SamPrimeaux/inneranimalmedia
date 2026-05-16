@@ -406,7 +406,11 @@ export const UnifiedSearchBar: React.FC<{
   const [sourceChip, setSourceChip] = useState<SourceChipId>('all');
   const [commandSections, setCommandSections] = useState<CommandSection[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [bucketMenuOpen, setBucketMenuOpen] = useState(false);
+  const [bucketMenuRows, setBucketMenuRows] = useState<{ name: string; bound: boolean }[]>([]);
+  const [bucketMenuLoading, setBucketMenuLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const bucketMenuRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { mode, term } = useMemo(() => parseQueryMode(q), [q]);
@@ -770,6 +774,33 @@ export const UnifiedSearchBar: React.FC<{
     window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket } }));
   }, []);
 
+  const loadBucketMenu = useCallback(async () => {
+    setBucketMenuLoading(true);
+    try {
+      const rows = await fetchAllR2BucketNames();
+      setBucketMenuRows(rows);
+    } catch {
+      setBucketMenuRows([]);
+    } finally {
+      setBucketMenuLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!bucketMenuOpen) return;
+    void loadBucketMenu();
+  }, [bucketMenuOpen, loadBucketMenu]);
+
+  useEffect(() => {
+    if (!bucketMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (bucketMenuRef.current?.contains(e.target as Node)) return;
+      setBucketMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [bucketMenuOpen]);
+
   const openDatabase = useCallback((target?: 'd1' | 'hyperdrive') => {
     try {
       if (target) sessionStorage.setItem('iam-palette-db-target', target);
@@ -944,22 +975,71 @@ export const UnifiedSearchBar: React.FC<{
 
   return (
     <div className="nav-search-container w-full max-w-lg min-w-0">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex flex-col items-stretch w-full px-3 py-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] text-left hover:border-[var(--solar-cyan)]/40 transition-colors gap-0.5"
-      >
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-stretch w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--solar-cyan)]/40 transition-colors overflow-hidden">
+        <div ref={bucketMenuRef} className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]">
+          <button
+            type="button"
+            onClick={() => setBucketMenuOpen((o) => !o)}
+            className="flex items-center gap-1 px-2 py-1.5 text-left w-full min-w-0 hover:bg-[var(--bg-hover)] transition-colors"
+            aria-expanded={bucketMenuOpen}
+            aria-haspopup="listbox"
+            title="R2 buckets"
+          >
+            <HardDrive size={13} className="shrink-0 opacity-70 text-[var(--text-muted)]" />
+            <span className="text-[11px] text-[var(--text-muted)] truncate">
+              <span className="text-[var(--text-main)] font-medium">{workspaceLabel?.trim() || 'dashboard'}</span>
+            </span>
+            <ChevronRight
+              size={12}
+              className={`shrink-0 text-[var(--text-muted)] transition-transform ${bucketMenuOpen ? 'rotate-90' : ''}`}
+            />
+          </button>
+          {bucketMenuOpen ? (
+            <div
+              role="listbox"
+              className="absolute top-full left-0 mt-1 z-[60] min-w-[220px] max-w-[min(320px,90vw)] max-h-[min(280px,50vh)] overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-xl py-1"
+            >
+              {bucketMenuLoading ? (
+                <div className="px-3 py-2 text-[11px] text-[var(--text-muted)] flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin" /> Loading buckets…
+                </div>
+              ) : bucketMenuRows.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-[var(--text-muted)]">No buckets</div>
+              ) : (
+                bucketMenuRows.map((b) => (
+                  <button
+                    key={b.name}
+                    type="button"
+                    role="option"
+                    className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--bg-hover)] flex items-center justify-between gap-2"
+                    onClick={() => {
+                      openR2Bucket(b.name);
+                      setBucketMenuOpen(false);
+                    }}
+                  >
+                    <span className="truncate text-[var(--text-main)]">{b.name}</span>
+                    {b.bound ? (
+                      <span className="shrink-0 text-[9px] uppercase tracking-wide text-[var(--solar-cyan)]">bound</span>
+                    ) : null}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-1 items-center gap-2 min-w-0 px-2 py-1.5 text-left hover:bg-[var(--bg-hover)] transition-colors"
+          title="Search (Cmd+K)"
+        >
           <Search size={14} className="shrink-0 opacity-70 text-[var(--text-muted)]" />
-          <span className="text-[11px] text-[var(--text-muted)] truncate flex-1">
-            workspace:{' '}
-            <span className="text-[var(--text-main)] font-medium">{workspaceLabel?.trim() || 'dashboard'}</span>
-          </span>
+          <span className="text-[11px] text-[var(--text-muted)] truncate flex-1">Search…</span>
           <kbd className="hidden xl:inline text-[9px] font-mono px-1 py-px rounded border border-[var(--border-subtle)] text-[var(--text-muted)] shrink-0">
             {isMac ? 'Cmd' : 'Ctrl'}+K
           </kbd>
-        </div>
-      </button>
+        </button>
+      </div>
 
       {open && (
         <>
