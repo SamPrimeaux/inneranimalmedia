@@ -132,6 +132,7 @@ export const R2Explorer: React.FC<{
     const [syncPrefix, setSyncPrefix] = useState('');
     const [syncMsg, setSyncMsg] = useState<string | null>(null);
     const [searchActive, setSearchActive] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<string | null>(null);
     const [objectPanelOpen, setObjectPanelOpen] = useState(true);
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
     const [childrenByPrefix, setChildrenByPrefix] = useState<Record<string, R2ListingSlice>>({});
@@ -386,21 +387,30 @@ export const R2Explorer: React.FC<{
         const file = e.target.files?.[0];
         if (!file || !bucket) return;
         const key = prefix ? `${prefix.replace(/\/$/, '')}/${file.name}` : file.name;
-        const fd = new FormData();
-        fd.set('bucket', bucket);
-        fd.set('key', key);
-        fd.set('file', file);
+        const binding = bucketLabelToBinding(bucket);
         setIsLoading(true);
+        setUploadProgress(null);
         try {
-            const res = await fetch('/api/r2/upload', { method: 'POST', credentials: 'same-origin', body: fd });
-            if (res.ok) {
+            const { uploadFileToR2 } = await import('../src/lib/r2MultipartUpload');
+            const result = await uploadFileToR2({
+                bucket: binding,
+                key,
+                file,
+                onProgress: (p) => {
+                    if (p.message) setUploadProgress(p.message);
+                },
+            });
+            if (result.ok) {
                 await fetchObjects();
                 await fetchStats();
+            } else if (result.error) {
+                console.error('Upload failed:', result.error);
             }
         } catch (err) {
             console.error('Upload failed:', err);
         } finally {
             setIsLoading(false);
+            setUploadProgress(null);
             e.target.value = '';
         }
     };
@@ -486,48 +496,8 @@ export const R2Explorer: React.FC<{
         const binding = bucketLabelToBinding(bucket);
         setIsLoading(true);
         try {
-            const qs = new URLSearchParams({ bucket: binding, key });
-            const res = await fetch(`/api/r2/file?${qs}`, { credentials: 'same-origin' });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) return;
-            const base = key.split('/').pop() || key;
-            if (data.isImage === true) {
-                onOpenInEditor({
-                    name: base,
-                    content: '',
-                    originalContent: '',
-                    r2Key: key,
-                    r2Bucket: binding,
-                    isImage: true,
-                    isBinary: true,
-                    previewUrl: typeof data.previewUrl === 'string' ? data.previewUrl : undefined,
-                    contentType: typeof data.contentType === 'string' ? data.contentType : undefined,
-                    size: typeof data.size === 'number' ? data.size : undefined,
-                });
-                return;
-            }
-            if (data.isBinary === true) {
-                onOpenInEditor({
-                    name: base,
-                    content: '',
-                    originalContent: '',
-                    r2Key: key,
-                    r2Bucket: binding,
-                    isBinary: true,
-                    contentType: typeof data.contentType === 'string' ? data.contentType : undefined,
-                    size: typeof data.size === 'number' ? data.size : undefined,
-                    binaryMessage: typeof data.message === 'string' ? data.message : undefined,
-                });
-                return;
-            }
-            if (typeof data.content !== 'string') return;
-            onOpenInEditor({
-                name: base,
-                content: data.content,
-                originalContent: data.content,
-                r2Key: key,
-                r2Bucket: binding,
-            });
+            const { openR2KeyInEditor } = await import('../src/lib/mediaPreview');
+            await openR2KeyInEditor(binding, key, onOpenInEditor);
         } catch (e) {
             console.error(e);
         } finally {

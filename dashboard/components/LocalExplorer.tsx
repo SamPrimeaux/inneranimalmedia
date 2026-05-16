@@ -475,48 +475,8 @@ export const LocalExplorer: React.FC<{
         const binding = bucketLabelToBinding(bucket);
         setR2Loading(true);
         try {
-            const qs = new URLSearchParams({ bucket: binding, key });
-            const res = await fetch(`/api/r2/file?${qs}`, { credentials: 'same-origin' });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) return;
-            const base = key.split('/').pop() || key;
-            if (data.isImage === true) {
-                onOpenInEditor({
-                    name: base,
-                    content: '',
-                    originalContent: '',
-                    r2Key: key,
-                    r2Bucket: binding,
-                    isImage: true,
-                    isBinary: true,
-                    previewUrl: typeof data.previewUrl === 'string' ? data.previewUrl : undefined,
-                    contentType: typeof data.contentType === 'string' ? data.contentType : undefined,
-                    size: typeof data.size === 'number' ? data.size : undefined,
-                });
-                return;
-            }
-            if (data.isBinary === true) {
-                onOpenInEditor({
-                    name: base,
-                    content: '',
-                    originalContent: '',
-                    r2Key: key,
-                    r2Bucket: binding,
-                    isBinary: true,
-                    contentType: typeof data.contentType === 'string' ? data.contentType : undefined,
-                    size: typeof data.size === 'number' ? data.size : undefined,
-                    binaryMessage: typeof data.message === 'string' ? data.message : undefined,
-                });
-                return;
-            }
-            if (typeof data.content !== 'string') return;
-            onOpenInEditor({
-                name: base,
-                content: data.content,
-                originalContent: data.content,
-                r2Key: key,
-                r2Bucket: binding,
-            });
+            const { openR2KeyInEditor } = await import('../src/lib/mediaPreview');
+            await openR2KeyInEditor(binding, key, onOpenInEditor);
         } catch (e) {
             console.error(e);
         } finally {
@@ -690,9 +650,9 @@ export const LocalExplorer: React.FC<{
     const toggleDir = async (node: FileNode, pathPrefix: string) => {
         if (node.kind === 'file') {
             const file = await node.handle.getFile();
-            const content = await file.text();
             const workspacePath = pathPrefix ? `${pathPrefix}/${node.name}` : node.name;
-            onFileSelect({ name: node.name, content, handle: node.handle, workspacePath });
+            const { openLocalFileInEditor } = await import('../src/lib/mediaPreview');
+            await openLocalFileInEditor(file, node.handle, workspacePath, onFileSelect);
             return;
         }
 

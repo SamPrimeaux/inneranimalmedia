@@ -100,11 +100,17 @@ export interface ProjectConfig {
   lastModified: number;
 }
 
+import type { FileKind } from './src/lib/fileKind';
+
 /** Open file in Monaco — local handle, R2, GitHub, or Drive metadata */
 export type ActiveFile = {
   name: string;
   content: string;
   originalContent?: string;
+  /** Classified media/text kind — non-text opens FilePreview instead of Monaco body */
+  fileKind?: FileKind;
+  /** Blob URL for local binary preview (revoke on tab close) */
+  localObjectUrl?: string;
   /** Relative path within the connected native folder (for lightweight chat context). */
   workspacePath?: string;
   handle?: FileSystemFileHandle;

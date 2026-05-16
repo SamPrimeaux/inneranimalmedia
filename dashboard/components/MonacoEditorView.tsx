@@ -12,6 +12,9 @@ import {
 
 import type { ActiveFile } from '../types';
 import { useEditor } from '../src/EditorContext';
+import { FilePreview } from '../src/components/FilePreview';
+import { detectFileKind, isEditableTextKind } from '../src/lib/fileKind';
+import { buildR2ObjectUrl } from '../src/lib/mediaPreview';
 import { X } from 'lucide-react';
 
 type FileData = ActiveFile;
@@ -372,6 +375,23 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   const ext = activeFile.name.split('.').pop()?.toLowerCase() || 'txt';
   const language = LANG_MAP[ext] || 'plaintext';
 
+  const resolvedKind =
+    activeFile.fileKind ||
+    (activeFile.isImage ? 'image' : activeFile.isBinary ? 'binary' : detectFileKind({
+      name: activeFile.name,
+      key: activeFile.r2Key,
+      contentType: activeFile.contentType,
+      size: activeFile.size,
+    }));
+
+  const showMediaPreview = !isEditableTextKind(resolvedKind);
+  const previewUrl =
+    activeFile.previewUrl ||
+    (activeFile.localObjectUrl ? activeFile.localObjectUrl : null) ||
+    (activeFile.r2Bucket && activeFile.r2Key
+      ? buildR2ObjectUrl(activeFile.r2Bucket, activeFile.r2Key)
+      : null);
+
   const hasDiffData = activeFile?.originalContent !== undefined && activeFile.originalContent !== activeFile.content;
 
   return (
@@ -428,7 +448,27 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
       {/* ── Editor Body ── */}
       <div className="flex-1 overflow-hidden">
-        {showDiff && hasDiffData ? (
+        {showMediaPreview && previewUrl ? (
+          <FilePreview
+            kind={resolvedKind}
+            name={activeFile.name}
+            url={previewUrl}
+            contentType={activeFile.contentType}
+            size={activeFile.size}
+            message={activeFile.binaryMessage}
+            onRevokeObjectUrl={
+              activeFile.localObjectUrl
+                ? () => {
+                    try {
+                      URL.revokeObjectURL(activeFile.localObjectUrl!);
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                : undefined
+            }
+          />
+        ) : showDiff && hasDiffData ? (
           <DiffEditor
             height="100%"
             language={language}

@@ -1252,6 +1252,14 @@ const App: React.FC = () => {
         name: file.name,
         content: file.content,
         originalContent: file.originalContent !== undefined ? file.originalContent : file.content ?? '',
+        fileKind: file.fileKind,
+        isImage: file.isImage,
+        isBinary: file.isBinary,
+        previewUrl: file.previewUrl,
+        contentType: file.contentType,
+        size: file.size,
+        binaryMessage: file.binaryMessage,
+        localObjectUrl: file.localObjectUrl,
         githubPath: file.githubPath,
         githubSha: file.githubSha,
         r2Key: file.r2Key,
@@ -1384,20 +1392,11 @@ const App: React.FC = () => {
             githubBranch: entry.githubBranch,
           });
         } else if (entry.r2Bucket && entry.r2Key) {
-          const res = await fetch(
-            `/api/r2/file?bucket=${encodeURIComponent(entry.r2Bucket)}&key=${encodeURIComponent(entry.r2Key)}`,
-            { credentials: 'same-origin' },
-          );
-          if (!res.ok) throw new Error('r2');
-          const data = await res.json();
-          const content = typeof data.content === 'string' ? data.content : '';
-          setActiveFile({
-            name: entry.name,
-            content,
-            originalContent: content,
-            r2Key: entry.r2Key,
-            r2Bucket: entry.r2Bucket,
+          const { openR2KeyInEditor } = await import('./src/lib/mediaPreview');
+          const opened = await openR2KeyInEditor(entry.r2Bucket, entry.r2Key, (f) => {
+            setActiveFile(f);
           });
+          if (!opened) throw new Error('r2');
         } else if (entry.driveFileId) {
           const res = await fetch(
             `/api/integrations/gdrive/file?fileId=${encodeURIComponent(entry.driveFileId)}`,
