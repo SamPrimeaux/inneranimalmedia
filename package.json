@@ -102,7 +102,7 @@
     "acorn-walk": "^8.3.5",
     "chrome-devtools-mcp": "^0.26.0",
     "remotion": "^4.0.462",
-    "wrangler": "^4.91.0"
+    "wrangler": "^4.92.0"
   },
   "type": "module",
   "private": true
