@@ -15,10 +15,12 @@
     "@google/genai": "^1.29.1",
     "@google/model-viewer": "^4.2.0",
     "@monaco-editor/react": "^4.7.0",
+    "@remotion/player": "^4.0.286",
     "@supabase/supabase-js": "^2.105.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "cannon-es": "0.20.0",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^0.553.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -28,6 +30,7 @@
     "rehype-autolink-headings": "^7.1.0",
     "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "remotion": "^4.0.286",
     "source-map": "^0.7.6"
   },
   "devDependencies": {

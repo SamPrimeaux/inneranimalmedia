@@ -50,7 +50,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       optimizeDeps: {
-        include: ['react', 'react-dom', '@excalidraw/excalidraw'],
+        include: ['react', 'react-dom', '@excalidraw/excalidraw', 'remotion', '@remotion/player'],
       },
       build: {
         minify: true,
@@ -78,6 +78,7 @@ export default defineConfig(({ mode }) => {
               'settings': ['./components/settings/SettingsPanel'],
               'learn': ['./components/LearnPage'],
               'studio': ['./components/DesignStudioPage'],
+              'vendor-remotion': ['remotion', '@remotion/player'],
             },
           }
         }
