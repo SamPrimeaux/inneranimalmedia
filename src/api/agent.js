@@ -8646,7 +8646,6 @@ export async function handleAgentApi(request, url, env, ctx) {
         ? String(planRow.workflow_run_id).trim()
         : null;
 
-    await env.DB
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const emitResume = (event, data) => {
