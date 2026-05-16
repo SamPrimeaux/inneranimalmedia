@@ -95,6 +95,8 @@ import {
   loadChatRoutingArmsModelKeyOrder,
   queryRoutingArmsCandidates,
   resolveRoutingTaskType,
+  selectAutoModel,
+  recordRoutingArmOutcome,
 } from '../core/routing.js';
 import { writeUsageEvent } from '../core/usage-event-writer.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
