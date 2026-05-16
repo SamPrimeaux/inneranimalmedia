@@ -97,13 +97,19 @@ def chunk_lines(lines: list[str], size: int, overlap: int) -> list[tuple[int, li
 def embed_ollama(text: str) -> Optional[list[float]]:
     """Get 1024-dim embedding from local Ollama."""
     try:
+        # Ollama >= 0.1.26 uses /api/embed; older used /api/embeddings
         r = httpx.post(
-            f"{OLLAMA_BASE}/api/embeddings",
-            json={"model": OLLAMA_MODEL, "prompt": text},
+            f"{OLLAMA_BASE}/api/embed",
+            json={"model": OLLAMA_MODEL, "input": text[:512]},
             timeout=30,
         )
         r.raise_for_status()
-        return r.json()["embedding"]
+        data = r.json()
+        # /api/embed returns {"embeddings": [[...]]} (list of lists)
+        embeddings = data.get("embeddings") or data.get("embedding")
+        if isinstance(embeddings[0], list):
+            return embeddings[0]
+        return embeddings
     except Exception as e:
         log(f"  [WARN] Ollama embed failed: {e}")
         return None
@@ -225,7 +231,7 @@ def analyze_bug(client: OpenAI, bug: str, relevant_chunks: list[dict]) -> dict:
             {"role": "user",   "content": user_msg},
         ],
         temperature=0.1,
-        max_tokens=1200,
+        max_completion_tokens=1200,
     )
     raw = resp.choices[0].message.content.strip()
     # Strip markdown fences if present
