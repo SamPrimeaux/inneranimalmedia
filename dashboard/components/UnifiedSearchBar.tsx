@@ -15,6 +15,14 @@ import {
   FileText,
 } from 'lucide-react';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from '../agentChatConstants';
+import {
+  WRANGLER_CATEGORY_LABELS,
+  filterWranglerCatalog,
+  groupWranglerCatalog,
+  normalizeCommandRow,
+  type WranglerCatalogEntry,
+  type WranglerCommandCategory,
+} from '../lib/wranglerCommandCatalog';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -53,9 +61,12 @@ type PaletteItem = {
   dbTarget?: 'd1' | 'hyperdrive';
   filePath?: string;
   deploySummary?: string;
+  commandCategory?: WranglerCommandCategory;
   /** Unified-search row passthrough */
   legacyRow?: LegacyUnifiedRow;
 };
+
+type CommandSection = { key: string; label: string; rows: PaletteItem[] };
 
 type LegacyUnifiedRow = {
   type: string;
@@ -81,10 +92,37 @@ const SOURCE_CHIPS: { id: SourceChipId; label: string; Icon: React.ComponentType
 const SEARCH_TIPS: PaletteItem[] = [
   { id: 'tip-r2', category: 'tip', title: 'r2:', subtitle: 'Search R2 buckets' },
   { id: 'tip-d1', category: 'tip', title: 'd1:', subtitle: 'D1 & data stores' },
-  { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Wrangler & CF commands' },
-  { id: 'tip-wf', category: 'tip', title: 'wf', subtitle: 'Workflows' },
+  { id: 'tip-cmd', category: 'tip', title: '/', subtitle: 'Wrangler commands (R2, D1, KV, Workers…)' },
+  { id: 'tip-wf', category: 'tip', title: 'wf', subtitle: 'D1 agentsam_workflows' },
   { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Recent files' },
 ];
+
+function catalogEntryToPalette(c: WranglerCatalogEntry): PaletteItem {
+  return {
+    id: c.id,
+    category: 'command',
+    title: c.display_name,
+    subtitle: c.mapped_command,
+    commandText: c.mapped_command,
+    commandCategory: c.category,
+  };
+}
+
+function mergeCommandCatalog(
+  apiRows: Record<string, unknown>[],
+  searchTerm: string,
+  limit = 80,
+): WranglerCatalogEntry[] {
+  const byCmd = new Map<string, WranglerCatalogEntry>();
+  for (const raw of apiRows) {
+    const n = normalizeCommandRow(raw);
+    if (n) byCmd.set(n.mapped_command.toLowerCase(), n);
+  }
+  for (const c of filterWranglerCatalog(searchTerm, limit)) {
+    if (!byCmd.has(c.mapped_command.toLowerCase())) byCmd.set(c.mapped_command.toLowerCase(), c);
+  }
+  return [...byCmd.values()].sort((a, b) => (a.sort_order ?? 50) - (b.sort_order ?? 0));
+}
 
 function parseQueryMode(raw: string): { mode: QueryMode; term: string } {
   const q = raw.trim();
@@ -129,15 +167,10 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 }
 
 async function fetchBoundR2Buckets(): Promise<string[]> {
-  const fromList = await fetchJson<{ buckets?: string[]; bucket_names?: string[] }>(
-    '/api/r2/list?buckets=true',
-  );
-  if (fromList) {
-    const list = fromList.buckets || fromList.bucket_names;
-    if (Array.isArray(list) && list.length) return list.map(String);
-  }
   const fromBuckets = await fetchJson<{ buckets?: string[] }>('/api/r2/buckets');
   if (fromBuckets?.buckets?.length) return fromBuckets.buckets.map(String);
+  const fromList = await fetchJson<{ buckets?: string[] }>('/api/r2/list?buckets=true');
+  if (fromList?.buckets?.length) return fromList.buckets.map(String);
   return [];
 }
 
@@ -371,6 +404,7 @@ export const UnifiedSearchBar: React.FC<{
   const [items, setItems] = useState<PaletteItem[]>([]);
   const [active, setActive] = useState(0);
   const [sourceChip, setSourceChip] = useState<SourceChipId>('all');
+  const [commandSections, setCommandSections] = useState<CommandSection[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -514,64 +548,35 @@ export const UnifiedSearchBar: React.FC<{
   const loadCommands = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      let rows: { id?: string; slug?: string; name?: string; display_name?: string; description?: string; mapped_command?: string; command_template?: string; category?: string }[] = [];
+      const chipCategory =
+        sourceChip === 'r2'
+          ? 'r2'
+          : sourceChip === 'd1'
+            ? 'd1'
+            : sourceChip === 'workflows'
+              ? 'workflows'
+              : '';
+      const qs = new URLSearchParams({ limit: '80' });
+      if (searchTerm) qs.set('q', searchTerm);
+      if (chipCategory && chipCategory !== 'workflows') qs.set('category', chipCategory);
 
-      const primary = await fetchJson<{ commands?: typeof rows; results?: typeof rows }>(
-        `/api/commands?limit=20${searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ''}`,
-      );
-      if (primary?.commands?.length) rows = primary.commands;
-      else if (Array.isArray(primary)) rows = primary;
-      else if (primary?.results?.length) rows = primary.results;
+      const primary = await fetchJson<{ commands?: Record<string, unknown>[] }>(`/api/commands?${qs}`);
+      const apiRows = Array.isArray(primary?.commands) ? primary.commands : [];
 
-      if (!rows.length) {
-        const catalog = await fetchJson<{ commands?: { slug?: string; name?: string; category?: string }[] }>(
-          '/api/agent/context-picker/catalog',
-        );
-        rows = (catalog?.commands || []).map((c) => ({
-          slug: c.slug,
-          display_name: c.name,
-          category: c.category,
-          mapped_command: c.slug,
-        }));
-      }
+      const merged = mergeCommandCatalog(apiRows, searchTerm, 80);
+      const grouped = groupWranglerCatalog(merged);
+      const sections: CommandSection[] = grouped.map((g) => ({
+        key: g.category,
+        label: g.label,
+        rows: g.rows.map(catalogEntryToPalette),
+      }));
 
-      if (!rows.length) {
-        const mcp = await fetchJson<{ suggestions?: { slug?: string; label?: string; description?: string; routed_to_agent?: string }[] }>(
-          '/api/mcp/commands',
-        );
-        rows = (mcp?.suggestions || []).map((s) => ({
-          slug: s.slug,
-          display_name: s.label,
-          description: s.description,
-          mapped_command: s.slug,
-        }));
-      }
-
-      const filtered = rows
-        .filter((r) => {
-          if (!searchTerm) return true;
-          const hay = `${r.slug || ''} ${r.display_name || r.name || ''} ${r.mapped_command || ''} ${r.command_template || ''}`.toLowerCase();
-          return hay.includes(searchTerm.toLowerCase());
-        })
-        .slice(0, 20);
-
-      setItems(
-        filtered.map((r, i) => {
-          const cmd = String(r.mapped_command || r.command_template || r.slug || '').trim();
-          const title = String(r.display_name || r.name || r.slug || cmd || 'Command');
-          return {
-            id: `cmd-${r.id || r.slug || i}`,
-            category: 'command',
-            title,
-            subtitle: [r.category, r.description, cmd !== title ? cmd : ''].filter(Boolean).join(' · ') || undefined,
-            commandText: cmd || title,
-          };
-        }),
-      );
+      setCommandSections(sections);
+      setItems(sections.flatMap((s) => s.rows));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sourceChip]);
 
   const loadWorkflows = useCallback(async (searchTerm: string) => {
     setLoading(true);
@@ -702,6 +707,11 @@ export const UnifiedSearchBar: React.FC<{
 
   const runQuery = useCallback(async () => {
     if (mode === 'default') {
+      if (sourceChip === 'commands') {
+        await loadCommands('');
+        return;
+      }
+      setCommandSections([]);
       await loadDefault();
       return;
     }
@@ -725,6 +735,10 @@ export const UnifiedSearchBar: React.FC<{
       await loadFiles(term);
       return;
     }
+    if (sourceChip === 'commands') {
+      await loadCommands(term);
+      return;
+    }
     await loadUnifiedSearch(term, sourceChip);
   }, [mode, term, sourceChip, loadDefault, loadR2, loadD1, loadCommands, loadWorkflows, loadFiles, loadUnifiedSearch]);
 
@@ -741,6 +755,7 @@ export const UnifiedSearchBar: React.FC<{
     setOpen(false);
     setQ('');
     setItems([]);
+    setCommandSections([]);
     setSourceChip('all');
     setActive(0);
   }, []);
@@ -860,6 +875,10 @@ export const UnifiedSearchBar: React.FC<{
   );
 
   const displaySections = useMemo(() => {
+    if ((mode === 'command' || (mode === 'default' && sourceChip === 'commands')) && commandSections.length > 0) {
+      return commandSections;
+    }
+
     const filtered = items.filter((item) => {
       if (item.category === 'tip') return mode === 'default' && !q.trim();
       if (mode !== 'default' && mode !== 'search') return true;
@@ -882,7 +901,7 @@ export const UnifiedSearchBar: React.FC<{
 
     const title = sectionTitle(mode, sourceChip, !!q.trim());
     return [{ key: 'main', label: title || 'Results', rows: filtered }];
-  }, [items, mode, q, sourceChip]);
+  }, [items, mode, q, sourceChip, commandSections]);
 
   const flatList = useMemo(() => displaySections.flatMap((s) => s.rows), [displaySections]);
 
@@ -1030,8 +1049,13 @@ export const UnifiedSearchBar: React.FC<{
                               <span className="text-[9px] uppercase tracking-wide text-[var(--solar-cyan)] shrink-0">bound</span>
                             ) : null}
                           </div>
+                          {item.commandCategory ? (
+                            <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--solar-cyan)]/80">
+                              {WRANGLER_CATEGORY_LABELS[item.commandCategory]}
+                            </div>
+                          ) : null}
                           {item.subtitle ? (
-                            <div className="text-[11px] text-[var(--text-muted)] truncate">{item.subtitle}</div>
+                            <div className="text-[11px] font-mono text-[var(--text-muted)] truncate">{item.subtitle}</div>
                           ) : null}
                           {typeof item.objectCount === 'number' ? (
                             <div className="text-[10px] text-[var(--text-muted)] font-mono">

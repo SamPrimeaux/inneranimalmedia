@@ -98,6 +98,24 @@ export async function handleR2Api(request, url, env) {
 
   // 2. Object Management
   if (pathLower === '/api/r2/list' && method === 'GET') {
+    if (url.searchParams.get('buckets') === 'true') {
+      const bound = listBoundR2BucketNames(env);
+      const listAll = url.searchParams.get('all') === 'true';
+      if (!listAll) {
+        return jsonResponse({ buckets: bound, bound, source: 'bindings' });
+      }
+      const account = await listAllR2BucketsViaS3(env);
+      if (account?.length) {
+        const boundSet = new Set(bound);
+        const merged = [...bound];
+        for (const name of account) {
+          if (!boundSet.has(name)) merged.push(name);
+        }
+        return jsonResponse({ buckets: merged, bound, account, source: 'bindings+s3' });
+      }
+      return jsonResponse({ buckets: bound, bound, source: 'bindings' });
+    }
+
     const bucket = url.searchParams.get('bucket');
     const prefix = url.searchParams.get('prefix') || '';
     const recursive = url.searchParams.get('recursive') === '1' || url.searchParams.get('recursive') === 'true';
@@ -469,6 +487,46 @@ async function signR2Request(method, bucket, path, query, env) {
     endpoint,
     headers: { ...headerMap, Authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}` }
   };
+}
+
+/** S3 ListBuckets (account-wide) when R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY are set. */
+async function listAllR2BucketsViaS3(env) {
+  const accessKey = env.R2_ACCESS_KEY_ID;
+  const secretKey = env.R2_SECRET_ACCESS_KEY;
+  const host = getR2S3Host(env);
+  if (!accessKey || !secretKey || !host) return null;
+
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '').slice(0, 15) + 'Z';
+  const dateStamp = amzDate.slice(0, 8);
+  const endpoint = `https://${host}/`;
+  const headerMap = { host, 'x-amz-content-sha256': EMPTY_HASH, 'x-amz-date': amzDate };
+  const sortedKeys = Object.keys(headerMap).sort();
+  const canonicalHeaders = sortedKeys.map((k) => `${k}:${headerMap[k]}\n`).join('');
+  const signedHeaders = sortedKeys.join(';');
+  const canonicalRequest = ['GET', '/', '', canonicalHeaders, signedHeaders, EMPTY_HASH].join('\n');
+  const credentialScope = `${dateStamp}/auto/s3/aws4_request`;
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, await sha256hex(canonicalRequest)].join('\n');
+  const signingKey = await getSigningKey(secretKey, dateStamp, 'auto', 's3');
+  const signature = await hmacHex(signingKey, stringToSign);
+  const headers = {
+    ...headerMap,
+    Authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+  };
+
+  const listResp = await fetch(endpoint, { method: 'GET', headers });
+  if (!listResp.ok) return null;
+  return parseListBucketsXml(await listResp.text());
+}
+
+function parseListBucketsXml(xml) {
+  const buckets = [];
+  const blocks = xml.match(/<Bucket>[\s\S]*?<\/Bucket>/gi) || [];
+  for (const block of blocks) {
+    const name = (block.match(/<Name>([^<]*)<\/Name>/i) || [])[1];
+    if (name) buckets.push(name);
+  }
+  return buckets.sort((a, b) => a.localeCompare(b));
 }
 
 function parseListObjectsV2Xml(xml) {

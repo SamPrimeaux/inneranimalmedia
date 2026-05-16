@@ -47,6 +47,7 @@ import { handleAnalyticsApi } from '../api/analytics/index.js';
 import { handleVaultApi } from '../api/vault.js';
 import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
 import { handleUnifiedSearchApi } from '../api/unified-search.js';
+import { handleCommandsApi } from '../api/commands.js';
 import { handleImagesWorkspaceApi } from '../api/images-workspace.js';
 
 /**
@@ -98,6 +99,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/search')) {
     return handleSearchApi(request, url, env, ctx);
+  }
+
+  if (pathLower === '/api/commands' || pathLower.startsWith('/api/commands/')) {
+    return handleCommandsApi(request, url, env);
   }
 
   if (pathLower.startsWith('/api/unified-search')) {
