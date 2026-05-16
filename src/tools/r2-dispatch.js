@@ -55,6 +55,22 @@ export async function handleR2Dispatch(request, env, ctx, authUser) {
             return jsonResponse({ bucket, key, success });
         }
 
+        // 5. HEAD Object (metadata)
+        if (path.endsWith('/head')) {
+            if (!key) return jsonResponse({ error: 'Missing key' }, 400);
+            const meta = await r2Core.r2HeadViaBindingOrS3(env, binding, bucket, key);
+            if (!meta) return jsonResponse({ error: 'Object not found' }, 404);
+            return jsonResponse({ bucket, ...meta });
+        }
+
+        // 6. DELETE many (DeleteObjects)
+        if (path.endsWith('/delete-batch')) {
+            const keys = Array.isArray(body.keys) ? body.keys : [];
+            if (!keys.length) return jsonResponse({ error: 'Missing keys array' }, 400);
+            const result = await r2Core.r2DeleteManyViaBindingOrS3(env, binding, bucket, keys);
+            return jsonResponse({ bucket, deleted: result.deleted, errors: result.errors });
+        }
+
         return jsonResponse({ error: 'R2 action not found' }, 404);
 
     } catch (e) {

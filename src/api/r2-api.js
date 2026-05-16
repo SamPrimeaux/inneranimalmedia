@@ -8,8 +8,10 @@ import { getAuthUser, jsonResponse } from '../core/auth';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
 import {
   getR2S3Host,
+  r2DeleteManyViaBindingOrS3,
   r2DeleteViaBindingOrS3,
   r2FetchObjectViaBindingOrS3,
+  r2HeadViaBindingOrS3,
   r2PutViaBindingOrS3,
   signR2Request,
 } from '../core/r2.js';
@@ -98,6 +100,48 @@ function isLikelyTextKeyOrType(key, contentType) {
 import { insertAiGenerationLog } from './telemetry';
 
 /**
+ * Resolve bucket/key/body for PutObject from query string, raw body, or multipart form.
+ */
+async function parseR2PutPayload(request, url, defaultKeyIfMissing) {
+  const ct = (request.headers.get('Content-Type') || '').toLowerCase();
+  let bucket = (url.searchParams.get('bucket') || '').trim();
+  let key = (url.searchParams.get('key') || '').trim();
+  let body = null;
+  let contentType = null;
+
+  if (ct.includes('multipart/form-data')) {
+    const fd = await request.formData().catch(() => null);
+    if (fd) {
+      const b = fd.get('bucket');
+      const k = fd.get('key');
+      if (b != null && String(b).trim()) bucket = String(b).trim();
+      if (k != null && String(k).trim()) key = String(k).trim();
+      const file = fd.get('file');
+      if (file && typeof file !== 'string') {
+        body = await file.arrayBuffer();
+        contentType = (file.type || '').split(';')[0].trim() || null;
+        if (!key && 'name' in file && file.name) {
+          key = String(file.name).replace(/^\/+/, '');
+        }
+      } else {
+        const raw = fd.get('content');
+        if (raw != null) {
+          body = new TextEncoder().encode(String(raw));
+          contentType = 'text/plain; charset=utf-8';
+        }
+      }
+    }
+  } else {
+    body = await request.arrayBuffer();
+    const hdrCt = request.headers.get('Content-Type');
+    if (hdrCt) contentType = hdrCt.split(';')[0].trim();
+  }
+
+  if (!key && defaultKeyIfMissing) key = defaultKeyIfMissing;
+  return { bucket, key, body, contentType };
+}
+
+/**
  * List one page of objects via binding or S3 API.
  * @returns {Promise<{ objects: Array<{key:string,size?:number,last_modified?:string|null}>, prefixes?: string[], cursor?: string, continuationToken?: string, error?: string }>}
  */
@@ -159,7 +203,7 @@ async function listR2ObjectPage(env, bucketName, binding, prefix, opts = {}) {
 
 async function handleR2FileRoute(request, url, env, method) {
   let body = {};
-  if (method !== 'GET') {
+  if (method !== 'GET' && method !== 'HEAD') {
     try {
       body = await request.clone().json();
     } catch (_) {
@@ -196,7 +240,15 @@ async function handleR2FileRoute(request, url, env, method) {
     return jsonResponse({ ok: true, bucket: bucketName, key });
   }
 
-  if (method === 'GET') {
+  if (method === 'HEAD' || method === 'GET') {
+    if (method === 'HEAD') {
+      const deniedHead = await assertR2ObjectAccess(request, env, bucketName, key);
+      if (deniedHead) return deniedHead;
+      const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+      if (!meta) return jsonResponse({ error: 'Not found' }, 404);
+      return jsonResponse({ ok: true, bucket: bucketName, ...meta });
+    }
+
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
     const fetched = await r2FetchObjectViaBindingOrS3(env, binding, bucketName, key);
@@ -471,11 +523,13 @@ export async function handleR2Api(request, url, env) {
   }
 
   if ((pathLower === '/api/r2/upload' && method === 'POST') || (pathLower === '/api/r2/put' && method === 'PUT')) {
-    const bucket = url.searchParams.get('bucket');
-    const key =
-      url.searchParams.get('key') ||
-      (pathLower === '/api/r2/upload' ? `upload/${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : null);
+    const defaultKey =
+      pathLower === '/api/r2/upload' ? `upload/${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : null;
+    const parsed = await parseR2PutPayload(request, url, defaultKey);
+    const { bucket, key, body, contentType: parsedCt } = parsed;
     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    if (body == null) return jsonResponse({ error: 'body or file field required' }, 400);
+
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -483,9 +537,7 @@ export async function handleR2Api(request, url, env) {
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
 
-    const contentType =
-      request.headers.get('Content-Type') || getContentTypeFromKey(key) || 'application/octet-stream';
-    const body = await request.arrayBuffer();
+    const contentType = parsedCt || getContentTypeFromKey(key) || 'application/octet-stream';
     const ok = await r2PutViaBindingOrS3(env, binding, bucketName, key, body, contentType);
     if (!ok) return jsonResponse({ error: 'Put failed', bucket: bucketName, key }, 500);
 
@@ -526,6 +578,49 @@ export async function handleR2Api(request, url, env) {
     const ok = await r2DeleteViaBindingOrS3(env, binding, bucketName, key);
     if (!ok) return jsonResponse({ error: 'Delete failed', bucket: bucketName, key }, 500);
     return jsonResponse({ ok: true, deleted: true, bucket: bucketName, key });
+  }
+
+  if (pathLower === '/api/r2/delete-batch' && method === 'POST') {
+    let batchBody = {};
+    try {
+      batchBody = await request.json();
+    } catch (_) {
+      batchBody = {};
+    }
+    const bucket = (batchBody.bucket != null ? String(batchBody.bucket) : url.searchParams.get('bucket') || '').trim();
+    const keys = Array.isArray(batchBody.keys) ? batchBody.keys.map((k) => String(k || '').trim()).filter(Boolean) : [];
+    if (!bucket || !keys.length) return jsonResponse({ error: 'bucket and keys[] required' }, 400);
+
+    const { bucketName, binding } = resolveR2Access(env, bucket);
+    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3Denied) return s3Denied;
+
+    for (const k of keys) {
+      const denied = await assertR2ObjectAccess(request, env, bucketName, k);
+      if (denied) return denied;
+    }
+
+    const result = await r2DeleteManyViaBindingOrS3(env, binding, bucketName, keys);
+    return jsonResponse({
+      ok: result.errors.length === 0,
+      bucket: bucketName,
+      deleted: result.deleted,
+      errors: result.errors.length ? result.errors : undefined,
+    });
+  }
+
+  if (pathLower === '/api/r2/head' && (method === 'GET' || method === 'HEAD')) {
+    const bucket = url.searchParams.get('bucket');
+    const key = url.searchParams.get('key');
+    if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const { bucketName, binding } = resolveR2Access(env, bucket);
+    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3Denied) return s3Denied;
+    const denied = await assertR2ObjectAccess(request, env, bucketName, key);
+    if (denied) return denied;
+    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+    if (!meta) return jsonResponse({ error: 'Not found' }, 404);
+    return jsonResponse({ ok: true, bucket: bucketName, ...meta });
   }
 
   if (pathLower === '/api/r2/copy' && method === 'POST') {
@@ -616,6 +711,16 @@ export async function handleR2Api(request, url, env) {
       const ok = await r2PutViaBindingOrS3(env, binding, bucketName, key, buf, ct);
       if (!ok) return jsonResponse({ error: 'Put failed' }, 500);
       return jsonResponse({ ok: true, key, bucket: bucketName });
+    }
+
+    if (method === 'DELETE') {
+      const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+      if (s3Denied) return s3Denied;
+      const deniedDel = await assertR2ObjectAccess(request, env, bucketName, key);
+      if (deniedDel) return deniedDel;
+      const ok = await r2DeleteViaBindingOrS3(env, binding, bucketName, key);
+      if (!ok) return jsonResponse({ error: 'Delete failed' }, 500);
+      return jsonResponse({ ok: true, deleted: true, bucket: bucketName, key });
     }
   }
 
