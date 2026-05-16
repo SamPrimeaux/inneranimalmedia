@@ -6,22 +6,46 @@
 
 import { getAuthUser, jsonResponse } from '../core/auth';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
+import { detectFileKind, isEditableTextKind } from '../core/file-kind.js';
 import {
   getR2S3Host,
   r2DeleteManyViaBindingOrS3,
   r2DeleteViaBindingOrS3,
   r2FetchObjectViaBindingOrS3,
   r2HeadViaBindingOrS3,
+  r2ObjectGetResponse,
   r2PutViaBindingOrS3,
   signR2Request,
 } from '../core/r2.js';
+import {
+  MULTIPART_THRESHOLD_BYTES,
+  RECOMMENDED_PART_SIZE,
+  assertUploadSize,
+  normalizeR2ObjectKey,
+} from '../core/r2-keys.js';
+import {
+  r2AbortMultipartUpload,
+  r2CompleteMultipartUpload,
+  r2CreateMultipartUpload,
+  r2UploadMultipartPart,
+} from '../core/r2-multipart.js';
 
 /** Primary dashboard asset bucket (logical name); bindings may alias legacy names to the same bucket. */
 function isDashboardMediaBucket(name) {
   return name === 'inneranimalmedia' || name === 'inneranimalmedia-assets';
 }
 
-const DASHBOARD_MEDIA_KEY_PREFIXES = ['users/', 'workspace-media/', 'uploads/', 'media/', 'captures/'];
+const DASHBOARD_MEDIA_KEY_PREFIXES = [
+  'users/',
+  'workspace-media/',
+  'uploads/',
+  'media/',
+  'captures/',
+  'moviemode/',
+  'cms/themes/',
+  'cms/pages/',
+  'workspaces/',
+];
 
 function isDashboardMediaScopedKey(key) {
   return DASHBOARD_MEDIA_KEY_PREFIXES.some((p) => key.startsWith(p));
@@ -75,29 +99,58 @@ async function assertR2UnboundS3Auth(request, env, binding) {
   return null;
 }
 
-const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'avif']);
-const TEXT_EXT = new Set([
-  'txt', 'md', 'json', 'js', 'mjs', 'ts', 'tsx', 'jsx', 'css', 'html', 'htm', 'xml', 'yaml', 'yml',
-  'sql', 'sh', 'env', 'csv', 'log', 'vue', 'svelte', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h',
-]);
-
-function isImageKeyOrType(key, contentType) {
-  const ct = (contentType || '').toLowerCase();
-  if (ct.startsWith('image/')) return true;
-  const ext = (key.split('.').pop() || '').toLowerCase();
-  return IMAGE_EXT.has(ext);
-}
-
-function isLikelyTextKeyOrType(key, contentType) {
-  const ct = (contentType || '').toLowerCase();
-  if (ct.startsWith('text/') || ct.includes('json') || ct.includes('javascript') || ct.includes('xml')) {
-    return true;
-  }
-  const ext = (key.split('.').pop() || '').toLowerCase();
-  return TEXT_EXT.has(ext);
-}
-
 import { insertAiGenerationLog } from './telemetry';
+
+async function authWorkspaceContext(request, env) {
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) return { authUser: null, workspaceId: null, tenantId: null };
+  const workspaceId =
+    authUser.active_workspace_id || authUser.workspace_id || authUser.activeWorkspaceId || null;
+  const tenantId = authUser.tenant_id || authUser.active_tenant_id || null;
+  return { authUser, workspaceId: workspaceId ? String(workspaceId) : null, tenantId: tenantId ? String(tenantId) : null };
+}
+
+async function assertR2UploadKey(request, env, rawKey) {
+  const { authUser, workspaceId } = await authWorkspaceContext(request, env);
+  if (!authUser) return { error: jsonResponse({ error: 'Unauthorized' }, 401) };
+  const norm = normalizeR2ObjectKey(rawKey, { workspaceId: workspaceId || undefined });
+  if (!norm.ok) return { error: jsonResponse({ error: norm.error || 'invalid_key' }, 400) };
+  return { key: norm.key, authUser, workspaceId };
+}
+
+async function upsertMediaAssetRow(env, row) {
+  if (!env.DB || !row?.bucket || !row?.object_key) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO media_assets (
+        id, tenant_id, workspace_id, bucket, object_key, filename, content_type, media_kind,
+        size_bytes, etag, status, source_kind, metadata_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'registered', 'r2', '{}', datetime('now'))
+      ON CONFLICT(workspace_id, bucket, object_key) DO UPDATE SET
+        content_type = excluded.content_type,
+        media_kind = excluded.media_kind,
+        size_bytes = excluded.size_bytes,
+        etag = excluded.etag,
+        status = 'uploaded',
+        updated_at = datetime('now')`,
+    )
+      .bind(
+        row.id || `asset_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`,
+        row.tenant_id || 'unknown',
+        row.workspace_id || 'unknown',
+        row.bucket,
+        row.object_key,
+        row.filename || row.object_key.split('/').pop() || row.object_key,
+        row.content_type || null,
+        row.media_kind || 'unknown',
+        row.size_bytes ?? null,
+        row.etag || null,
+      )
+      .run();
+  } catch (e) {
+    console.warn('[r2] media_assets upsert skipped', e?.message || e);
+  }
+}
 
 /**
  * Resolve bucket/key/body for PutObject from query string, raw body, or multipart form.
@@ -251,40 +304,45 @@ async function handleR2FileRoute(request, url, env, method) {
 
     const denied = await assertR2ObjectAccess(request, env, bucketName, key);
     if (denied) return denied;
-    const fetched = await r2FetchObjectViaBindingOrS3(env, binding, bucketName, key);
-    if (!fetched) return jsonResponse({ error: 'Not found' }, 404);
 
-    const ct = fetched.contentType || getContentTypeFromKey(key) || 'application/octet-stream';
-    const size = fetched.body.byteLength;
+    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+    if (!meta) return jsonResponse({ error: 'Not found' }, 404);
+
+    const ct = meta.contentType || getContentTypeFromKey(key) || 'application/octet-stream';
+    const size = meta.size ?? null;
     const proxyUrl = `${url.origin}/api/r2/buckets/${encodeURIComponent(bucketName)}/object/${encodeURIComponent(key)}`;
+    const fileKind = detectFileKind({ key, name: key.split('/').pop(), contentType: ct, size });
 
-    if (isImageKeyOrType(key, ct)) {
-      const presigned = await presignR2GetObjectUrl(env, bucketName, key);
+    if (isEditableTextKind(fileKind)) {
+      const fetched = await r2FetchObjectViaBindingOrS3(env, binding, bucketName, key);
+      if (!fetched) return jsonResponse({ error: 'Not found' }, 404);
+      const content = new TextDecoder('utf-8', { fatal: false }).decode(fetched.body);
       return jsonResponse({
         bucket: bucketName,
         key,
-        isImage: true,
-        isBinary: true,
+        fileKind,
+        content,
         contentType: ct,
-        size,
-        previewUrl: presigned || proxyUrl,
-        url: proxyUrl,
+        size: fetched.body.byteLength,
       });
     }
 
-    if (isLikelyTextKeyOrType(key, ct)) {
-      const content = new TextDecoder('utf-8', { fatal: false }).decode(fetched.body);
-      return jsonResponse({ bucket: bucketName, key, content, contentType: ct, size });
-    }
-
+    const presigned = await presignR2GetObjectUrl(env, bucketName, key);
+    const previewUrl = presigned || proxyUrl;
     return jsonResponse({
       bucket: bucketName,
       key,
+      fileKind,
+      isImage: fileKind === 'image',
       isBinary: true,
       contentType: ct,
       size,
-      message: 'Binary object — open via preview URL or download.',
-      previewUrl: proxyUrl,
+      previewUrl,
+      url: proxyUrl,
+      message:
+        fileKind === 'video' || fileKind === 'audio'
+          ? 'Media object — stream via preview URL (supports Range requests).'
+          : 'Binary object — open via preview URL or download.',
     });
   }
 
@@ -526,9 +584,26 @@ export async function handleR2Api(request, url, env) {
     const defaultKey =
       pathLower === '/api/r2/upload' ? `upload/${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : null;
     const parsed = await parseR2PutPayload(request, url, defaultKey);
-    const { bucket, key, body, contentType: parsedCt } = parsed;
-    if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const { bucket, key: rawKey, body, contentType: parsedCt } = parsed;
+    if (!bucket || !rawKey) return jsonResponse({ error: 'bucket and key required' }, 400);
     if (body == null) return jsonResponse({ error: 'body or file field required' }, 400);
+
+    const keyCheck = await assertR2UploadKey(request, env, rawKey);
+    if (keyCheck.error) return keyCheck.error;
+    const key = keyCheck.key;
+
+    const sizeCheck = assertUploadSize(body.byteLength);
+    if (!sizeCheck.ok) return jsonResponse({ error: sizeCheck.error }, 400);
+    if (body.byteLength > MULTIPART_THRESHOLD_BYTES) {
+      return jsonResponse(
+        {
+          error: 'file_too_large_for_single_upload',
+          multipartThresholdBytes: MULTIPART_THRESHOLD_BYTES,
+          hint: 'Use POST /api/r2/multipart/create then PUT parts and POST complete',
+        },
+        413,
+      );
+    }
 
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
@@ -540,6 +615,18 @@ export async function handleR2Api(request, url, env) {
     const contentType = parsedCt || getContentTypeFromKey(key) || 'application/octet-stream';
     const ok = await r2PutViaBindingOrS3(env, binding, bucketName, key, body, contentType);
     if (!ok) return jsonResponse({ error: 'Put failed', bucket: bucketName, key }, 500);
+
+    const kind = detectFileKind({ key, contentType, size: body.byteLength });
+    const { tenantId, workspaceId } = await authWorkspaceContext(request, env);
+    await upsertMediaAssetRow(env, {
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      bucket: bucketName,
+      object_key: key,
+      content_type: contentType,
+      media_kind: kind === 'pdf' ? 'binary' : kind,
+      size_bytes: body.byteLength,
+    });
 
     void insertAiGenerationLog(env, {
       generationType: pathLower === '/api/r2/put' ? 'r2_put' : 'r2_upload',
@@ -656,8 +743,168 @@ export async function handleR2Api(request, url, env) {
     });
   }
 
+  if (pathLower === '/api/r2/stream' && (method === 'GET' || method === 'HEAD')) {
+    const bucketParam = (url.searchParams.get('bucket') || '').trim();
+    const key = (url.searchParams.get('key') || '').trim();
+    if (!bucketParam || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const { bucketName, binding } = resolveR2Access(env, bucketParam);
+    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3Denied) return s3Denied;
+    const denied = await assertR2ObjectAccess(request, env, bucketName, key);
+    if (denied) return denied;
+    const streamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
+    if (!streamRes) return jsonResponse({ error: 'Not found' }, 404);
+    return streamRes;
+  }
+
   if (pathLower === '/api/r2/file') {
     return handleR2FileRoute(request, url, env, method);
+  }
+
+  if (pathLower === '/api/r2/multipart/create' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const bucketRaw = String(body.bucket || '').trim();
+    const keyRaw = String(body.key || '').trim();
+    if (!bucketRaw || !keyRaw) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const keyCheck = await assertR2UploadKey(request, env, keyRaw);
+    if (keyCheck.error) return keyCheck.error;
+    const { bucketName, binding } = resolveR2Access(env, bucketRaw);
+    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3Denied) return s3Denied;
+    const denied = await assertR2ObjectAccess(request, env, bucketName, keyCheck.key);
+    if (denied) return denied;
+    const contentType = body.contentType || getContentTypeFromKey(keyCheck.key) || 'application/octet-stream';
+    const meta = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
+    const created = await r2CreateMultipartUpload(env, binding, bucketName, keyCheck.key, contentType, meta);
+    if (created.error) return jsonResponse({ error: created.error, detail: created.detail }, 500);
+    return jsonResponse({
+      ok: true,
+      bucket: bucketName,
+      key: keyCheck.key,
+      uploadId: created.uploadId,
+      recommendedPartSize: RECOMMENDED_PART_SIZE,
+      multipartThresholdBytes: MULTIPART_THRESHOLD_BYTES,
+    });
+  }
+
+  if (pathLower === '/api/r2/multipart/part' && method === 'PUT') {
+    const bucketRaw = (url.searchParams.get('bucket') || '').trim();
+    const keyRaw = (url.searchParams.get('key') || '').trim();
+    const uploadId = (url.searchParams.get('uploadId') || '').trim();
+    const partNumber = parseInt(url.searchParams.get('partNumber') || '0', 10);
+    if (!bucketRaw || !keyRaw || !uploadId || !partNumber) {
+      return jsonResponse({ error: 'bucket, key, uploadId, partNumber required' }, 400);
+    }
+    const keyCheck = await assertR2UploadKey(request, env, keyRaw);
+    if (keyCheck.error) return keyCheck.error;
+    const { bucketName, binding } = resolveR2Access(env, bucketRaw);
+    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3Denied) return s3Denied;
+    const denied = await assertR2ObjectAccess(request, env, bucketName, keyCheck.key);
+    if (denied) return denied;
+    const buf = await request.arrayBuffer();
+    const sizeCheck = assertUploadSize(buf.byteLength);
+    if (!sizeCheck.ok) return jsonResponse({ error: sizeCheck.error }, 400);
+    const part = await r2UploadMultipartPart(
+      env,
+      binding,
+      bucketName,
+      keyCheck.key,
+      uploadId,
+      partNumber,
+      buf,
+    );
+    if (!part.ok) return jsonResponse({ error: part.error, detail: part.detail }, 500);
+    return jsonResponse({
+      ok: true,
+      partNumber: part.partNumber,
+      etag: part.etag,
+      size: part.size,
+    });
+  }
+
+  if (pathLower === '/api/r2/multipart/complete' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const bucketRaw = String(body.bucket || '').trim();
+    const keyRaw = String(body.key || '').trim();
+    const uploadId = String(body.uploadId || '').trim();
+    const parts = Array.isArray(body.parts) ? body.parts : [];
+    if (!bucketRaw || !keyRaw || !uploadId || !parts.length) {
+      return jsonResponse({ error: 'bucket, key, uploadId, parts[] required' }, 400);
+    }
+    const keyCheck = await assertR2UploadKey(request, env, keyRaw);
+    if (keyCheck.error) return keyCheck.error;
+    const { bucketName, binding } = resolveR2Access(env, bucketRaw);
+    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3Denied) return s3Denied;
+    const denied = await assertR2ObjectAccess(request, env, bucketName, keyCheck.key);
+    if (denied) return denied;
+    const done = await r2CompleteMultipartUpload(
+      env,
+      binding,
+      bucketName,
+      keyCheck.key,
+      uploadId,
+      parts,
+    );
+    if (!done.ok) return jsonResponse({ error: done.error, detail: done.detail }, 500);
+    const head = await r2HeadViaBindingOrS3(env, binding, bucketName, keyCheck.key);
+    const ct = head?.contentType || getContentTypeFromKey(keyCheck.key) || 'application/octet-stream';
+    const kind = detectFileKind({ key: keyCheck.key, contentType: ct, size: head?.size });
+    const { tenantId, workspaceId } = await authWorkspaceContext(request, env);
+    await upsertMediaAssetRow(env, {
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      bucket: bucketName,
+      object_key: keyCheck.key,
+      content_type: ct,
+      media_kind: kind === 'pdf' ? 'binary' : kind,
+      size_bytes: head?.size ?? null,
+      etag: done.etag || head?.etag || null,
+    });
+    void insertAiGenerationLog(env, {
+      generationType: 'r2_multipart_complete',
+      responseText: `${bucketName}:${keyCheck.key}`,
+      metadataJson: { key: keyCheck.key, parts: parts.length, etag: done.etag },
+    });
+    return jsonResponse({
+      ok: true,
+      bucket: bucketName,
+      key: keyCheck.key,
+      etag: done.etag,
+      url: `${url.origin}/api/r2/buckets/${encodeURIComponent(bucketName)}/object/${encodeURIComponent(keyCheck.key)}`,
+    });
+  }
+
+  if (pathLower === '/api/r2/multipart/abort' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const bucketRaw = String(body.bucket || '').trim();
+    const keyRaw = String(body.key || '').trim();
+    const uploadId = String(body.uploadId || '').trim();
+    if (!bucketRaw || !keyRaw || !uploadId) {
+      return jsonResponse({ error: 'bucket, key, uploadId required' }, 400);
+    }
+    const { bucketName, binding } = resolveR2Access(env, bucketRaw);
+    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+    if (s3Denied) return s3Denied;
+    const aborted = await r2AbortMultipartUpload(env, binding, bucketName, keyRaw, uploadId);
+    if (!aborted.ok) return jsonResponse({ error: aborted.error }, 500);
+    return jsonResponse({ ok: true, aborted: true });
   }
 
   if (pathLower === '/api/r2/url' && method === 'GET') {
@@ -686,19 +933,23 @@ export async function handleR2Api(request, url, env) {
     const key = decodeURIComponent(objectKeyMatch[2]);
     const { bucketName, binding } = resolveR2Access(env, name);
 
-    if (method === 'GET') {
+    if (method === 'GET' || method === 'HEAD') {
       const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
       if (s3Denied) return s3Denied;
       const deniedGet = await assertR2ObjectAccess(request, env, bucketName, key);
       if (deniedGet) return deniedGet;
-      const fetched = await r2FetchObjectViaBindingOrS3(env, binding, bucketName, key);
-      if (!fetched) return jsonResponse({ error: 'Not found' }, 404);
-      const headers = new Headers();
-      if (fetched.etag) headers.set('ETag', fetched.etag);
-      const ct = fetched.contentType || getContentTypeFromKey(key) || 'application/octet-stream';
-      headers.set('Content-Type', ct);
+      const streamRes = await r2ObjectGetResponse(
+        request,
+        env,
+        binding,
+        bucketName,
+        key,
+        getContentTypeFromKey(key),
+      );
+      if (!streamRes) return jsonResponse({ error: 'Not found' }, 404);
+      const headers = new Headers(streamRes.headers);
       headers.set('Content-Disposition', 'inline');
-      return new Response(fetched.body, { status: 200, headers });
+      return new Response(streamRes.body, { status: streamRes.status, headers });
     }
 
     if (method === 'PUT') {

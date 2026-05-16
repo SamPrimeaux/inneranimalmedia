@@ -4,6 +4,8 @@
  * Deconstructed from legacy worker.js.
  */
 
+import { escapeXmlText } from './r2-xml.js';
+
 /**
  * Returns the S3-compatible host for R2.
  */
@@ -64,7 +66,7 @@ async function getSigningKey(secret, date, region, service) {
   return hmacBytes(kService, 'aws4_request');
 }
 
-function r2ObjectPathForS3(key) {
+export function r2ObjectPathForS3(key) {
   const k = String(key || '').replace(/^\/+/, '');
   if (!k) return '';
   return `/${k.split('/').map((s) => encodeURIComponent(s)).join('/')}`;
@@ -98,6 +100,10 @@ export async function signR2Request(method, bucket, path, query, env, payloadOpt
     headerMap['content-type'] = payloadOpts?.contentType || 'application/octet-stream';
     headerMap['content-length'] = bodyBytes.byteLength.toString();
   }
+  const extra = payloadOpts?.extraHeaders || {};
+  for (const [k, v] of Object.entries(extra)) {
+    if (v != null && String(v).trim()) headerMap[String(k).toLowerCase()] = String(v).trim();
+  }
 
   const sortedKeys = Object.keys(headerMap).sort();
   const canonicalHeaders = sortedKeys.map((k) => `${k}:${headerMap[k]}\n`).join('');
@@ -121,8 +127,155 @@ export async function signR2Request(method, bucket, path, query, env, payloadOpt
     fetchHeaders['content-type'] = headerMap['content-type'];
     fetchHeaders['content-length'] = headerMap['content-length'];
   }
+  for (const k of sortedKeys) {
+    if (k === 'host' || k === 'x-amz-content-sha256' || k === 'x-amz-date') continue;
+    fetchHeaders[k] = headerMap[k];
+  }
 
   return { endpoint, headers: fetchHeaders, bodyBytes };
+}
+
+/** Parse HTTP Range: bytes=start-end (inclusive). Returns null if invalid/absent. */
+export function parseHttpRange(rangeHeader, totalSize) {
+  if (!rangeHeader || totalSize == null || totalSize < 0) return null;
+  const m = /^bytes=(\d*)-(\d*)$/i.exec(String(rangeHeader).trim());
+  if (!m) return null;
+  let start = m[1] === '' ? null : parseInt(m[1], 10);
+  let end = m[2] === '' ? null : parseInt(m[2], 10);
+  if (start == null && end == null) return null;
+  if (start == null && end != null) {
+    const suffixLen = end;
+    start = Math.max(0, totalSize - suffixLen);
+    end = totalSize - 1;
+  } else {
+    start = start ?? 0;
+    end = end == null ? totalSize - 1 : end;
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) return null;
+  end = Math.min(end, totalSize - 1);
+  if (start >= totalSize) return null;
+  return { offset: start, length: end - start + 1, start, end, total: totalSize };
+}
+
+/** Fetch object bytes with optional Range (binding or S3). */
+export async function r2FetchObjectWithRange(env, binding, s3BucketName, key, rangeHeader) {
+  const path = r2ObjectPathForS3(key);
+
+  if (binding?.get) {
+    let head = null;
+    if (binding.head) {
+      const h = await binding.head(key);
+      if (h) head = { size: h.size ?? 0, contentType: h.httpMetadata?.contentType || null, etag: h.etag || null };
+    }
+    const totalSize = head?.size ?? null;
+    const parsed = totalSize != null ? parseHttpRange(rangeHeader, totalSize) : null;
+    const getOpts = parsed ? { range: { offset: parsed.offset, length: parsed.length } } : undefined;
+    const obj = await binding.get(key, getOpts);
+    if (!obj) return null;
+    const body = await obj.arrayBuffer();
+    const contentType = obj.httpMetadata?.contentType || head?.contentType || null;
+    return {
+      body,
+      contentType,
+      etag: obj.etag || head?.etag || null,
+      size: totalSize,
+      range: parsed,
+    };
+  }
+
+  if (!s3BucketName || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) return null;
+
+  let headMeta = null;
+  const headSigned = await signR2Request('HEAD', s3BucketName, path, '', env);
+  if (headSigned) {
+    const headRes = await fetch(headSigned.endpoint, { method: 'HEAD', headers: headSigned.headers });
+    if (headRes.ok) {
+      headMeta = {
+        size: parseInt(headRes.headers.get('content-length') || '0', 10) || 0,
+        contentType: headRes.headers.get('content-type'),
+        etag: headRes.headers.get('etag'),
+      };
+    }
+  }
+
+  const extraHeaders = {};
+  if (rangeHeader) extraHeaders.range = rangeHeader;
+  const signed = await signR2Request('GET', s3BucketName, path, '', env, { extraHeaders });
+  if (!signed) return null;
+  const res = await fetch(signed.endpoint, { method: 'GET', headers: signed.headers });
+  if (res.status === 404) return null;
+  if (!res.ok && res.status !== 206) return null;
+
+  const body = await res.arrayBuffer();
+  const cr = res.headers.get('content-range');
+  let parsed = null;
+  if (cr) {
+    const rm = /bytes (\d+)-(\d+)\/(\d+)/.exec(cr);
+    if (rm) {
+      parsed = {
+        offset: parseInt(rm[1], 10),
+        length: parseInt(rm[2], 10) - parseInt(rm[1], 10) + 1,
+        start: parseInt(rm[1], 10),
+        end: parseInt(rm[2], 10),
+        total: parseInt(rm[3], 10),
+      };
+    }
+  } else if (headMeta?.size != null && rangeHeader) {
+    parsed = parseHttpRange(rangeHeader, headMeta.size);
+  }
+
+  return {
+    body,
+    contentType: res.headers.get('content-type') || headMeta?.contentType || null,
+    etag: res.headers.get('etag') || headMeta?.etag || null,
+    size: headMeta?.size ?? body.byteLength,
+    range: parsed,
+    status: res.status,
+    acceptRanges: res.headers.get('accept-ranges') || (headMeta ? 'bytes' : null),
+    contentRange: cr,
+  };
+}
+
+/** Build streaming Response for R2 object GET with Range support. */
+export async function r2ObjectGetResponse(request, env, binding, s3BucketName, key, contentTypeHint) {
+  const rangeHeader = request.headers.get('Range');
+  const method = (request.method || 'GET').toUpperCase();
+
+  if (method === 'HEAD') {
+    const meta = await r2HeadViaBindingOrS3(env, binding, s3BucketName, key);
+    if (!meta) return null;
+    const headers = new Headers();
+    if (meta.contentType) headers.set('Content-Type', meta.contentType);
+    if (meta.size != null) headers.set('Content-Length', String(meta.size));
+    if (meta.etag) headers.set('ETag', meta.etag);
+    if (meta.last_modified) headers.set('Last-Modified', meta.last_modified);
+    headers.set('Accept-Ranges', 'bytes');
+    headers.set('Cache-Control', 'private, max-age=3600');
+    return new Response(null, { status: 200, headers });
+  }
+
+  const fetched = await r2FetchObjectWithRange(env, binding, s3BucketName, key, rangeHeader);
+  if (!fetched) return null;
+
+  const ct = fetched.contentType || contentTypeHint || 'application/octet-stream';
+  const headers = new Headers();
+  headers.set('Content-Type', ct);
+  headers.set('Accept-Ranges', fetched.acceptRanges || 'bytes');
+  headers.set('Cache-Control', 'private, max-age=3600');
+  if (fetched.etag) headers.set('ETag', fetched.etag);
+
+  if (fetched.range) {
+    headers.set(
+      'Content-Range',
+      fetched.contentRange || `bytes ${fetched.range.start}-${fetched.range.end}/${fetched.range.total}`,
+    );
+    headers.set('Content-Length', String(fetched.body.byteLength));
+    return new Response(fetched.body, { status: 206, headers });
+  }
+
+  const len = fetched.size != null ? fetched.size : fetched.body.byteLength;
+  headers.set('Content-Length', String(fetched.body.byteLength || len));
+  return new Response(fetched.body, { status: fetched.status === 206 ? 206 : 200, headers });
 }
 
 export async function r2GetViaBindingOrS3(env, binding, s3BucketName, key) {
@@ -269,15 +422,6 @@ export async function r2DeleteManyViaBindingOrS3(env, binding, s3BucketName, key
     deleted += Math.max(0, deletedInChunk);
   }
   return { deleted, errors };
-}
-
-function escapeXmlText(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 }
 
 function buildS3ListQuery(prefix, limit) {
