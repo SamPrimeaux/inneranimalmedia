@@ -32,7 +32,7 @@ import {
 
 /** Primary dashboard asset bucket (logical name); bindings may alias legacy names to the same bucket. */
 function isDashboardMediaBucket(name) {
-  return name === 'inneranimalmedia' || name === 'inneranimalmedia-assets';
+  return name === 'inneranimalmedia';
 }
 
 const DASHBOARD_MEDIA_KEY_PREFIXES = [
@@ -64,10 +64,10 @@ async function assertR2ObjectAccess(request, env, bucket, key) {
 /** Dashboard /api/r2/file sends binding labels; map to canonical R2 bucket names. */
 const BINDING_LABEL_TO_BUCKET = {
   DASHBOARD: 'inneranimalmedia',
-  ASSETS: 'inneranimalmedia-assets',
+  ASSETS: 'inneranimalmedia',
   R2: 'iam-platform',
   DOCS_BUCKET: 'iam-docs',
-  AUTORAG_BUCKET: 'autorag',
+  AUTORAG_BUCKET: 'inneranimalmedia-autorag',
 };
 
 export function resolveR2BucketName(env, bucketOrBinding) {
@@ -994,28 +994,27 @@ export async function handleR2Api(request, url, env) {
 
 export function getR2Binding(env, bucketName) {
   const map = {
-    'inneranimalmedia-assets': env.ASSETS,
+    inneranimalmedia: env.DASHBOARD || env.ASSETS,
+    'inneranimalmedia-autorag': env.AUTORAG_BUCKET,
     autorag: env.AUTORAG_BUCKET,
-    inneranimalmedia: env.DASHBOARD,
     dashboard: env.DASHBOARD,
-    'inneranimalmedia-sandbox-cicd': env.ASSETS,
+    'inneranimalmedia-sandbox-cicd': env.ASSETS || env.DASHBOARD,
     'iam-platform': env.R2,
     'iam-docs': env.DOCS_BUCKET,
-    tools: env.DASHBOARD,
+    tools: env.TOOLS || env.DASHBOARD,
+    'inneranimalmedia-email-archive': env.EMAIL,
   };
   return map[bucketName] || null;
 }
 
 export function listBoundR2BucketNames(env) {
   const names = [];
-  if (env.ASSETS) names.push('inneranimalmedia-assets');
-  if (env.AUTORAG_BUCKET) names.push('autorag');
-  if (env.DASHBOARD) {
-    names.push('inneranimalmedia');
-    names.push('tools');
-  }
+  if (env.DASHBOARD || env.ASSETS) names.push('inneranimalmedia');
+  if (env.AUTORAG_BUCKET) names.push('inneranimalmedia-autorag');
   if (env.R2) names.push('iam-platform');
   if (env.DOCS_BUCKET) names.push('iam-docs');
+  if (env.TOOLS) names.push('tools');
+  if (env.EMAIL) names.push('inneranimalmedia-email-archive');
   return names;
 }
 
