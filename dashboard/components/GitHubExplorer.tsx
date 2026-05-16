@@ -35,7 +35,8 @@ const GITHUB_REPOS_RL_UNTIL_KEY = 'iam_github_repos_rl_until';
 type RepoListErrorKind = 'reconnect' | 'rate_limit' | 'unavailable' | 'other';
 
 function repoListErrorKind(status: number): RepoListErrorKind {
-  if (status === 401 || status === 403 || status === 404) return 'reconnect';
+  if (status === 401 || status === 403) return 'reconnect';
+  if (status === 404) return 'unavailable';
   if (status === 429) return 'rate_limit';
   if (status >= 500) return 'unavailable';
   return 'other';

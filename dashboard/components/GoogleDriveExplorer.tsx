@@ -115,6 +115,7 @@ export const GoogleDriveExplorer: React.FC<{
       const qs = url.searchParams.toString();
       window.history.replaceState({}, '', `${url.pathname}${qs ? `?${qs}` : ''}${url.hash}`);
 
+      setIsAuthenticated(true);
       void (async () => {
         try {
           await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
