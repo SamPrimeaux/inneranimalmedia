@@ -360,19 +360,25 @@ export async function handleR2Api(request, url, env) {
   // 1. Buckets & Inventory
   if (pathLower === '/api/r2/buckets' && method === 'GET') {
     const bound = listBoundR2BucketNames(env);
+    const display = dedupeBoundR2BucketNames(env);
+    const resolve = buildR2BucketResolveMap(env);
     if (url.searchParams.get('all') !== 'true') {
-      return jsonResponse({ buckets: bound, bound, source: 'bindings' });
+      return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
     }
     const account = await listAllR2BucketsViaS3(env);
     if (account?.length) {
       const boundSet = new Set(bound);
-      const merged = [...bound];
+      const merged = [...display];
+      const mergedSet = new Set(merged);
       for (const name of account) {
-        if (!boundSet.has(name)) merged.push(name);
+        if (!boundSet.has(name) && !mergedSet.has(name)) {
+          merged.push(name);
+          mergedSet.add(name);
+        }
       }
-      return jsonResponse({ buckets: merged, bound, account, source: 'bindings+s3' });
+      return jsonResponse({ buckets: merged, bound, resolve, account, source: 'bindings+s3' });
     }
-    return jsonResponse({ buckets: bound, bound, source: 'bindings' });
+    return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
   }
 
   if (pathLower === '/api/r2/stats' && method === 'GET' && url.searchParams.get('bucket')) {
@@ -463,20 +469,26 @@ export async function handleR2Api(request, url, env) {
   if (pathLower === '/api/r2/list' && method === 'GET') {
     if (url.searchParams.get('buckets') === 'true') {
       const bound = listBoundR2BucketNames(env);
+      const display = dedupeBoundR2BucketNames(env);
+      const resolve = buildR2BucketResolveMap(env);
       const listAll = url.searchParams.get('all') === 'true';
       if (!listAll) {
-        return jsonResponse({ buckets: bound, bound, source: 'bindings' });
+        return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
       }
       const account = await listAllR2BucketsViaS3(env);
       if (account?.length) {
         const boundSet = new Set(bound);
-        const merged = [...bound];
+        const merged = [...display];
+        const mergedSet = new Set(merged);
         for (const name of account) {
-          if (!boundSet.has(name)) merged.push(name);
+          if (!boundSet.has(name) && !mergedSet.has(name)) {
+            merged.push(name);
+            mergedSet.add(name);
+          }
         }
-        return jsonResponse({ buckets: merged, bound, account, source: 'bindings+s3' });
+        return jsonResponse({ buckets: merged, bound, resolve, account, source: 'bindings+s3' });
       }
-      return jsonResponse({ buckets: bound, bound, source: 'bindings' });
+      return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
     }
 
     const bucket = url.searchParams.get('bucket');
@@ -1005,6 +1017,62 @@ export function listBoundR2BucketNames(env) {
   if (env.R2) names.push('iam-platform');
   if (env.DOCS_BUCKET) names.push('iam-docs');
   return names;
+}
+
+/** Stable id for buckets that share the same Worker binding (e.g. inneranimalmedia + tools). */
+export function getR2BindingSlot(env, bucketName) {
+  const binding = getR2Binding(env, bucketName);
+  if (!binding) return `unbound:${String(bucketName || '').trim()}`;
+  if (binding === env.DASHBOARD) return 'DASHBOARD';
+  if (binding === env.ASSETS) return 'ASSETS';
+  if (binding === env.R2) return 'R2';
+  if (binding === env.DOCS_BUCKET) return 'DOCS_BUCKET';
+  if (binding === env.AUTORAG_BUCKET) return 'AUTORAG_BUCKET';
+  return `binding:${String(bucketName || '').trim()}`;
+}
+
+/** One row per physical binding — order follows listBoundR2BucketNames (primary name wins). */
+export function dedupeBoundR2BucketNames(env) {
+  const names = listBoundR2BucketNames(env);
+  const seen = new Set();
+  const out = [];
+  for (const name of names) {
+    const slot = getR2BindingSlot(env, name);
+    if (seen.has(slot)) continue;
+    seen.add(slot);
+    out.push(name);
+  }
+  return out;
+}
+
+/** Map any bound bucket / legacy binding label to the display bucket from `dedupeBoundR2BucketNames`. */
+export function resolveListedR2BucketName(env, requested, listedOptional) {
+  const listed = listedOptional || dedupeBoundR2BucketNames(env);
+  const raw = String(requested || '').trim();
+  if (!raw) return '';
+  if (listed.includes(raw)) return raw;
+  const canonical = resolveR2BucketName(env, raw);
+  if (listed.includes(canonical)) return canonical;
+  const slot = getR2BindingSlot(env, canonical);
+  const bySlot = listed.find((n) => getR2BindingSlot(env, n) === slot);
+  return bySlot || canonical;
+}
+
+export function buildR2BucketResolveMap(env) {
+  const listed = dedupeBoundR2BucketNames(env);
+  const all = listBoundR2BucketNames(env);
+  const map = {};
+  for (const name of all) {
+    const primary = resolveListedR2BucketName(env, name, listed);
+    map[name] = primary;
+    map[name.toLowerCase()] = primary;
+  }
+  for (const [label, bucket] of Object.entries(BINDING_LABEL_TO_BUCKET)) {
+    const primary = resolveListedR2BucketName(env, bucket, listed);
+    map[label] = primary;
+    map[label.toLowerCase()] = primary;
+  }
+  return map;
 }
 
 export async function r2LiveBucketStats(env, bucketName) {
