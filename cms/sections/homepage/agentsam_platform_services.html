@@ -1,0 +1,681 @@
+<section class="cms-agent-platform" aria-labelledby="agent-platform-title">
+  <style>
+    .cms-agent-platform {
+      --bg: #030303;
+      --text: #f7f7f8;
+      --muted: rgba(247, 247, 248, 0.72);
+      --muted-2: rgba(247, 247, 248, 0.58);
+      --card: #0b0b0d;
+      --panel: rgba(255, 255, 255, 0.94);
+      --panel-soft: rgba(255, 255, 255, 0.72);
+      --line: rgba(255, 255, 255, 0.1);
+      --accent: #5a7df7;
+      --green: #18c46c;
+      --radius: 10px;
+      background: var(--bg);
+      color: var(--text);
+      padding: clamp(72px, 8vw, 120px) 20px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+
+    .cms-agent-platform * {
+      box-sizing: border-box;
+    }
+
+    .cms-agent-platform__inner {
+      width: min(100%, 1480px);
+      margin: 0 auto;
+    }
+
+    .cms-agent-platform__hero {
+      text-align: center;
+      max-width: 1040px;
+      margin: 0 auto clamp(58px, 7vw, 92px);
+    }
+
+    .cms-agent-platform__eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      padding: 8px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.045);
+      font-size: 13px;
+      line-height: 1;
+      letter-spacing: 0.01em;
+    }
+
+    .cms-agent-platform__dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 99px;
+      background: var(--green);
+      box-shadow: 0 0 18px rgba(24, 196, 108, 0.85);
+    }
+
+    .cms-agent-platform h2 {
+      margin: 0;
+      font-size: clamp(42px, 6vw, 76px);
+      line-height: 1.03;
+      letter-spacing: -0.055em;
+      font-weight: 650;
+    }
+
+    .cms-agent-platform__subhead {
+      margin: 28px auto 0;
+      max-width: 980px;
+      color: var(--muted);
+      font-size: clamp(18px, 2vw, 25px);
+      line-height: 1.55;
+      letter-spacing: -0.02em;
+    }
+
+    .cms-agent-platform__actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      margin-top: 34px;
+    }
+
+    .cms-agent-platform__button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 26px;
+      border-radius: 999px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 650;
+      transition: transform 180ms ease, background 180ms ease, color 180ms ease, border-color 180ms ease;
+    }
+
+    .cms-agent-platform__button--primary {
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .cms-agent-platform__button--ghost {
+      background: transparent;
+      border: 1px solid transparent;
+    }
+
+    .cms-agent-platform__button:hover {
+      transform: translateY(-1px);
+    }
+
+    .cms-agent-platform__button--primary:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .cms-agent-platform__button--ghost:hover {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.055);
+    }
+
+    .cms-agent-platform__grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: clamp(28px, 3vw, 40px);
+    }
+
+    .cms-agent-platform__item {
+      min-width: 0;
+    }
+
+    .cms-agent-platform__visual {
+      position: relative;
+      height: clamp(330px, 31vw, 465px);
+      border-radius: 6px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 5% 0%, rgba(255, 220, 170, 0.7), transparent 28%),
+        radial-gradient(circle at 92% 0%, rgba(182, 214, 255, 0.95), transparent 38%),
+        linear-gradient(135deg, #6bb7ff 0%, #4d78ec 48%, #f4d5a6 100%);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+        0 24px 80px rgba(0, 0, 0, 0.32);
+      isolation: isolate;
+    }
+
+    .cms-agent-platform__visual::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.3), transparent 26%),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent 40%, rgba(255, 255, 255, 0.16));
+      opacity: 0.72;
+      z-index: -1;
+    }
+
+    .cms-agent-platform__mock {
+      position: absolute;
+      background: var(--panel);
+      color: #151517;
+      box-shadow: 0 18px 60px rgba(3, 3, 3, 0.14);
+      overflow: hidden;
+    }
+
+    .cms-agent-platform__mock-title {
+      font-size: 15px;
+      font-weight: 750;
+      letter-spacing: -0.02em;
+    }
+
+    .cms-agent-platform__caption {
+      margin-top: 26px;
+    }
+
+    .cms-agent-platform__caption h3 {
+      margin: 0;
+      font-size: clamp(25px, 2.1vw, 31px);
+      line-height: 1.15;
+      letter-spacing: -0.04em;
+      font-weight: 560;
+    }
+
+    .cms-agent-platform__caption p {
+      margin: 18px 0 0;
+      color: rgba(247, 247, 248, 0.78);
+      font-size: clamp(18px, 1.55vw, 22px);
+      line-height: 1.52;
+      letter-spacing: -0.025em;
+      max-width: 520px;
+    }
+
+    /* Build mockup */
+    .cms-agent-platform__mock--build {
+      left: 14%;
+      right: -9%;
+      bottom: 0;
+      height: 86%;
+      border-radius: 9px 0 0 0;
+      padding: 22px;
+    }
+
+    .cms-agent-platform__flow {
+      position: absolute;
+      left: 38px;
+      right: 18px;
+      top: 52%;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      transform: translateY(-50%);
+    }
+
+    .cms-agent-platform__node {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 10px 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      background: rgba(255, 255, 255, 0.76);
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
+      white-space: nowrap;
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .cms-agent-platform__node small {
+      display: block;
+      color: rgba(0, 0, 0, 0.45);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .cms-agent-platform__icon {
+      width: 28px;
+      height: 28px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 10px;
+      background: rgba(24, 196, 108, 0.17);
+      color: #0a9f53;
+      flex: 0 0 auto;
+    }
+
+    .cms-agent-platform__icon--orange {
+      background: rgba(255, 135, 79, 0.2);
+      color: #c65f31;
+    }
+
+    .cms-agent-platform__icon--blue {
+      background: rgba(90, 125, 247, 0.16);
+      color: #365ddc;
+    }
+
+    .cms-agent-platform__wire {
+      width: 28px;
+      height: 1px;
+      background: rgba(0, 0, 0, 0.22);
+      flex: 0 0 auto;
+    }
+
+    .cms-agent-platform__branch {
+      position: absolute;
+      left: 70%;
+      top: 50%;
+      width: 80px;
+      height: 92px;
+      border-left: 1px solid rgba(0, 0, 0, 0.12);
+      border-radius: 18px;
+      transform: translateY(-50%);
+    }
+
+    .cms-agent-platform__branch .cms-agent-platform__node {
+      position: absolute;
+      left: 18px;
+      min-width: 132px;
+      opacity: 0.96;
+    }
+
+    .cms-agent-platform__branch .cms-agent-platform__node:first-child {
+      top: -8px;
+    }
+
+    .cms-agent-platform__branch .cms-agent-platform__node:last-child {
+      bottom: -8px;
+      opacity: 0.38;
+    }
+
+    /* Deploy mockup */
+    .cms-agent-platform__mock--deploy {
+      left: 14%;
+      right: 14%;
+      bottom: 0;
+      height: 86%;
+      border-radius: 9px 9px 0 0;
+      padding: 24px;
+    }
+
+    .cms-agent-platform__chat-pill {
+      display: inline-flex;
+      float: right;
+      margin-top: 28px;
+      padding: 16px 18px;
+      border-radius: 7px;
+      background: #12b864;
+      color: white;
+      font-size: 15px;
+      font-weight: 650;
+    }
+
+    .cms-agent-platform__analysis {
+      clear: both;
+      padding-top: 24px;
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    .cms-agent-platform__analysis strong {
+      display: block;
+      margin-bottom: 14px;
+      font-weight: 650;
+    }
+
+    .cms-agent-platform__mini-card {
+      margin-top: 16px;
+      padding: 16px 18px;
+      border-radius: 9px;
+      background: white;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .cms-agent-platform__metric-label {
+      color: rgba(0, 0, 0, 0.68);
+      font-size: 14px;
+    }
+
+    .cms-agent-platform__metric {
+      margin-top: 4px;
+      font-size: 31px;
+      line-height: 1;
+      letter-spacing: -0.05em;
+      font-weight: 560;
+    }
+
+    .cms-agent-platform__bars {
+      display: flex;
+      align-items: end;
+      gap: 14px;
+      height: 94px;
+      margin-top: 18px;
+    }
+
+    .cms-agent-platform__bar-set {
+      display: flex;
+      align-items: end;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .cms-agent-platform__bar {
+      width: 14px;
+      border-radius: 4px 4px 0 0;
+      background: #8bcdf7;
+    }
+
+    .cms-agent-platform__bar--green {
+      background: #10bd62;
+    }
+
+    /* Optimize mockup */
+    .cms-agent-platform__mock--optimize {
+      left: 0;
+      right: 14%;
+      bottom: 0;
+      height: 86%;
+      border-radius: 0 9px 0 0;
+      padding: 24px;
+    }
+
+    .cms-agent-platform__grade-all {
+      float: right;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      padding: 9px 14px;
+      border-radius: 7px;
+      background: #161616;
+      color: white;
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .cms-agent-platform__grader {
+      clear: both;
+      padding-top: 4px;
+    }
+
+    .cms-agent-platform__grader h4 {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+
+    .cms-agent-platform__grader-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 72px;
+      padding: 14px;
+      border-radius: 9px;
+      background: white;
+      margin-bottom: 12px;
+    }
+
+    .cms-agent-platform__grader-row span {
+      display: block;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .cms-agent-platform__grader-row small {
+      display: block;
+      margin-top: 8px;
+      color: rgba(0, 0, 0, 0.45);
+      font-size: 13px;
+    }
+
+    .cms-agent-platform__add {
+      flex: 0 0 auto;
+      padding: 9px 15px;
+      border-radius: 999px;
+      background: #151515;
+      color: white;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .cms-agent-platform__pass {
+      flex: 0 0 auto;
+      padding: 8px 16px;
+      border-radius: 999px;
+      color: #0a9f53;
+      background: rgba(24, 196, 108, 0.16);
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    @media (max-width: 980px) {
+      .cms-agent-platform__grid {
+        grid-template-columns: 1fr;
+      }
+
+      .cms-agent-platform__visual {
+        height: min(470px, 78vw);
+      }
+
+      .cms-agent-platform__caption p {
+        max-width: 720px;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .cms-agent-platform {
+        padding-inline: 14px;
+      }
+
+      .cms-agent-platform__actions {
+        gap: 12px;
+      }
+
+      .cms-agent-platform__button {
+        width: 100%;
+      }
+
+      .cms-agent-platform__visual {
+        height: 360px;
+      }
+
+      .cms-agent-platform__mock--build,
+      .cms-agent-platform__mock--deploy,
+      .cms-agent-platform__mock--optimize {
+        left: 8%;
+        right: -22%;
+        height: 84%;
+      }
+
+      .cms-agent-platform__flow {
+        transform: translateY(-50%) scale(0.82);
+        transform-origin: left center;
+      }
+
+      .cms-agent-platform__mock--deploy {
+        right: 8%;
+      }
+
+      .cms-agent-platform__mock--optimize {
+        left: -6%;
+        right: 8%;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cms-agent-platform__button {
+        transition: none;
+      }
+
+      .cms-agent-platform__button:hover {
+        transform: none;
+      }
+    }
+  </style>
+
+  <div class="cms-agent-platform__inner">
+    <div class="cms-agent-platform__hero">
+      <div class="cms-agent-platform__eyebrow">
+        <span class="cms-agent-platform__dot" aria-hidden="true"></span>
+        Agent Sam Platform
+      </div>
+
+      <h2 id="agent-platform-title">The all-in-one command center for intelligent agents</h2>
+
+      <p class="cms-agent-platform__subhead">
+        Build, deploy, and optimize production-ready AI workflows with connected tools,
+        live data, model routing, CMS components, and real execution proof.
+      </p>
+
+      <div class="cms-agent-platform__actions">
+        <a class="cms-agent-platform__button cms-agent-platform__button--primary" href="/dashboard/agent">
+          Explore Agent Sam
+        </a>
+        <a class="cms-agent-platform__button cms-agent-platform__button--ghost" href="/dashboard/analytics/overview">
+          View capabilities ↗
+        </a>
+      </div>
+    </div>
+
+    <div class="cms-agent-platform__grid">
+      <article class="cms-agent-platform__item">
+        <div class="cms-agent-platform__visual" aria-hidden="true">
+          <div class="cms-agent-platform__mock cms-agent-platform__mock--build">
+            <div class="cms-agent-platform__mock-title">Workflow Builder</div>
+
+            <div class="cms-agent-platform__flow">
+              <div class="cms-agent-platform__node">
+                <span class="cms-agent-platform__icon">▶</span>
+                Start
+              </div>
+
+              <span class="cms-agent-platform__wire"></span>
+
+              <div class="cms-agent-platform__node">
+                <span class="cms-agent-platform__icon cms-agent-platform__icon--orange">▣</span>
+                <span>
+                  D1 lookup
+                  <small>Connector</small>
+                </span>
+              </div>
+
+              <div class="cms-agent-platform__branch">
+                <div class="cms-agent-platform__node">
+                  <span class="cms-agent-platform__icon cms-agent-platform__icon--blue">⌁</span>
+                  Agent route
+                </div>
+                <div class="cms-agent-platform__node">
+                  <span class="cms-agent-platform__icon">✓</span>
+                  Tool proof
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cms-agent-platform__caption">
+          <h3>Build</h3>
+          <p>
+            Design agents, workflows, prompts, tools, commands, and CMS sections from a visual-first or code-first system.
+          </p>
+        </div>
+      </article>
+
+      <article class="cms-agent-platform__item">
+        <div class="cms-agent-platform__visual" aria-hidden="true">
+          <div class="cms-agent-platform__mock cms-agent-platform__mock--deploy">
+            <div class="cms-agent-platform__mock-title">Agent Runtime</div>
+
+            <div class="cms-agent-platform__chat-pill">run deployment audit</div>
+
+            <div class="cms-agent-platform__analysis">
+              <strong>Analyzed connected systems ›</strong>
+              Agent Sam checked Cloudflare, D1, R2, GitHub, Supabase, and CMS artifacts to find the next safest deploy path.
+            </div>
+
+            <div class="cms-agent-platform__mini-card">
+              <div class="cms-agent-platform__metric-label">workflow confidence</div>
+              <div class="cms-agent-platform__metric">94%</div>
+
+              <div class="cms-agent-platform__bars">
+                <div class="cms-agent-platform__bar-set">
+                  <span class="cms-agent-platform__bar" style="height: 28%;"></span>
+                  <span class="cms-agent-platform__bar cms-agent-platform__bar--green" style="height: 48%;"></span>
+                </div>
+                <div class="cms-agent-platform__bar-set">
+                  <span class="cms-agent-platform__bar" style="height: 42%;"></span>
+                  <span class="cms-agent-platform__bar cms-agent-platform__bar--green" style="height: 62%;"></span>
+                </div>
+                <div class="cms-agent-platform__bar-set">
+                  <span class="cms-agent-platform__bar" style="height: 54%;"></span>
+                  <span class="cms-agent-platform__bar cms-agent-platform__bar--green" style="height: 86%;"></span>
+                </div>
+                <div class="cms-agent-platform__bar-set">
+                  <span class="cms-agent-platform__bar" style="height: 50%;"></span>
+                  <span class="cms-agent-platform__bar cms-agent-platform__bar--green" style="height: 66%;"></span>
+                </div>
+                <div class="cms-agent-platform__bar-set">
+                  <span class="cms-agent-platform__bar" style="height: 34%;"></span>
+                  <span class="cms-agent-platform__bar cms-agent-platform__bar--green" style="height: 42%;"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cms-agent-platform__caption">
+          <h3>Deploy</h3>
+          <p>
+            Connect Agent Sam to real infrastructure: Cloudflare Workers, D1, R2, GitHub, Supabase, Gmail, Calendar, and public pages.
+          </p>
+        </div>
+      </article>
+
+      <article class="cms-agent-platform__item">
+        <div class="cms-agent-platform__visual" aria-hidden="true">
+          <div class="cms-agent-platform__mock cms-agent-platform__mock--optimize">
+            <div class="cms-agent-platform__grade-all">▶ Grade all</div>
+
+            <div class="cms-agent-platform__grader">
+              <h4>Create an eval</h4>
+
+              <div class="cms-agent-platform__grader-row">
+                <div>
+                  <span>Did the agent use the right tool?</span>
+                  <small>Gemini / OpenAI / Claude route</small>
+                </div>
+                <div class="cms-agent-platform__add">Add</div>
+              </div>
+
+              <h4>Your graders</h4>
+
+              <div class="cms-agent-platform__grader-row">
+                <div>
+                  <span>Workflow completed with proof</span>
+                  <small>Reasoning + trace</small>
+                </div>
+                <div class="cms-agent-platform__pass">Pass</div>
+              </div>
+
+              <div class="cms-agent-platform__grader-row">
+                <div>
+                  <span>Cost stayed inside budget</span>
+                  <small>Routing arm quality</small>
+                </div>
+                <div class="cms-agent-platform__pass">Pass</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cms-agent-platform__caption">
+          <h3>Optimize</h3>
+          <p>
+            Track evals, traces, model costs, routing quality, workflow success, and tool reliability from one analytics layer.
+          </p>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
