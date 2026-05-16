@@ -77,7 +77,15 @@ fi
 # R2: keys must be in .env.cloudflare (sourced above). Same vars as former prune script.
 if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
   echo "✗ R2 sync requires R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and CLOUDFLARE_ACCOUNT_ID in .env.cloudflare" >&2
+  echo "  Copy .env.cloudflare.example → .env.cloudflare (gitignored). Run: ./scripts/check-r2-s3-env.sh" >&2
   exit 1
+fi
+if [ "${SKIP_R2_WORKER_SECRET_CHECK:-0}" != "1" ]; then
+  "$REPO_ROOT/scripts/check-r2-s3-env.sh" || {
+    echo "✗ Worker R2 S3 secrets missing — unbound-bucket API fallback will fail in production." >&2
+    echo "  Set secrets, or SKIP_R2_WORKER_SECRET_CHECK=1 to deploy anyway." >&2
+    exit 1
+  }
 fi
 if ! command -v rclone >/dev/null 2>&1; then
   echo "✗ rclone is required for dashboard R2 sync (https://rclone.org/install/)" >&2

@@ -1,6 +1,7 @@
-# secrets
+# secrets (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY live in .env.cloudflare for local scripts only)
 .env
 .env.*
+.env.cloudflare
 !.env.example
 !.env.cloudflare.example
 .dev.vars

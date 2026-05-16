@@ -2,9 +2,35 @@
  * R2 S3-compatible client for Node scripts (aws4fetch — same SigV4 as @aws-sdk/client-s3).
  * Maps to PutObject, GetObject, HeadObject, ListObjectsV2, DeleteObject, DeleteObjects.
  *
- * Env: CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+ * Credentials (never commit):
+ *   - Local/CI: copy .env.cloudflare.example → .env.cloudflare (gitignored via .env.*)
+ *   - Run scripts: ./scripts/with-cloudflare-env.sh node your-script.mjs
+ *
+ * Production Worker S3 fallback (unbound buckets) needs the same keys as Worker secrets:
+ *   ./scripts/with-cloudflare-env.sh npx wrangler secret put R2_ACCESS_KEY_ID -c wrangler.production.toml
+ *   ./scripts/with-cloudflare-env.sh npx wrangler secret put R2_SECRET_ACCESS_KEY -c wrangler.production.toml
+ *   (CLOUDFLARE_ACCOUNT_ID is already in wrangler.production.toml [vars].)
+ *
+ * Preflight: ./scripts/check-r2-s3-env.sh
  */
 import { AwsClient } from 'aws4fetch';
+
+const R2_S3_ENV_KEYS = ['CLOUDFLARE_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'];
+
+/** Returns missing env key names (empty = OK for local S3 client). */
+export function missingR2S3EnvKeys(env = process.env) {
+  return R2_S3_ENV_KEYS.filter((k) => !String(env[k] || '').trim());
+}
+
+/** Throws with setup hints if R2 S3 env is incomplete. */
+export function assertR2S3Env(env = process.env) {
+  const missing = missingR2S3EnvKeys(env);
+  if (!missing.length) return;
+  throw new Error(
+    `Missing R2 S3 env: ${missing.join(', ')}. ` +
+      'Add them to gitignored .env.cloudflare (see .env.cloudflare.example) and run via ./scripts/with-cloudflare-env.sh',
+  );
+}
 
 export function encodeS3ObjectKey(key) {
   return String(key)
@@ -14,11 +40,15 @@ export function encodeS3ObjectKey(key) {
     .join('/');
 }
 
-export function createR2S3Client(env = process.env) {
+export function createR2S3Client(env = process.env, { required = false } = {}) {
+  const missing = missingR2S3EnvKeys(env);
+  if (missing.length) {
+    if (required) assertR2S3Env(env);
+    return null;
+  }
   const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const accessKeyId = env.R2_ACCESS_KEY_ID;
   const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
-  if (!accountId || !accessKeyId || !secretAccessKey) return null;
   const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
   const client = new AwsClient({
     accessKeyId,

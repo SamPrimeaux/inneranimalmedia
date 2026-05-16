@@ -9,7 +9,9 @@
 # Create .env.cloudflare from .env.cloudflare.example and add:
 #   CLOUDFLARE_ACCOUNT_ID=...
 #   CLOUDFLARE_API_TOKEN=...
+#   R2_ACCESS_KEY_ID=...  R2_SECRET_ACCESS_KEY=...  (scripts + deploy; mirror as Worker secrets)
 # .env.cloudflare is in .gitignore — never commit it.
+# Preflight R2: ./scripts/check-r2-s3-env.sh
 
 emulate -R zsh
 set -e
