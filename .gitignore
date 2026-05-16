@@ -111,3 +111,4 @@ __pycache__/
 scripts/generated-sites/
 .iam_cookie
 !.env.agentsam.example
+analytics/codebase-index/
