@@ -39,3 +39,13 @@ Every git command runs from /Users/samprimeaux/inneranimalmedia/
 
 CF Builds auto-deploys Worker on push to main. Does NOT upload R2 frontend bundle.
 Run deploy:full locally when dashboard changes need to be live immediately.
+
+## Dashboard health vs Worker health
+
+See `docs/agentsam_knowledge/dashboard_r2_asset_deploy_tactics.md`.
+
+- `/health` 200 only proves Worker/API is alive — not that the dashboard works.
+- Blank dashboard + JS bundle 404s (`/static/dashboard/app/*.js`) means R2 dashboard assets are missing or stale.
+- `git push main` / CF Builds may deploy Worker only; it does not sync `dashboard/dist` to R2.
+- Fix: `npm run deploy:frontend` (or `npm run deploy:full` for full releases). Do not recommend Worker rollback when the issue is missing Vite chunks in R2.
+- Deploy validation must check `/health` **and** that dashboard HTML-referenced asset URLs return 200 (future: `scripts/verify_dashboard_asset_integrity.py`).

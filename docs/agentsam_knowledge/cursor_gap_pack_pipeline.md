@@ -2,6 +2,25 @@
 
 Operational tooling to build a **clean, Cursor-parity knowledge pack** for Agent Sam: repo intelligence, embeddings, Vectorize upload, and Supabase observability ingest. This is **not** production Worker behavior; it is local/scripted batch work under `artifacts/agentsam_cursor_gap_pack_v2/` (gitignored).
 
+## Two ledgers (do not conflate)
+
+| Ledger | What it records | Primary stores |
+|--------|-----------------|----------------|
+| **Runtime compaction** | Live token/context compaction during agent chat (`tokens_before` → `tokens_after`, strategy, provider/model) | D1 `agentsam_compaction_events` only |
+| **Gap-pack evidence** | Plans, workflow trace, prompts, tools, codebase snapshots, embedded audit corpus, decisions | Supabase/D1 observability tables + Vectorize index metadata |
+
+`agentsam_compaction_events` was built for **runtime compaction**, not for every “compressed / chunked / embedded” batch job. A gap pack is chunked and embedded for retrieval, but that is **evidence and knowledge ingest**, not context-window compaction.
+
+**Gap-pack embedding and vector work belongs in:**
+
+- `agentsam_prompt_runs`, `agentsam_tool_call_events` — model/tool trace for the pack run
+- `codebase_snapshots`, `codebase_files` — repo evidence at a point in time
+- `documents` — chunked text tied to embed model and content hash
+- Vectorize index metadata (changeset / manifest receipts under the pack dir)
+- Plus plan/workflow tables: `agentsam_plans`, `agentsam_plan_tasks`, `agentsam_workflow_*`, `agent_context_snapshots`, `agent_decisions`
+
+**It does not belong in** `agentsam_compaction_events` unless a real compaction event occurred in production chat (Worker `scheduleCompactionEvent` path).
+
 ## Purpose
 
 The gap pack closes the loop between:
@@ -57,9 +76,9 @@ D1 remains canonical for operational plans; this ingest mirrors **observability 
 
 ## What this pipeline does **not** write
 
-**`agentsam_compaction_events`** (D1 and any Supabase mirror) is reserved for **real context compaction**: `tokens_before` → `tokens_after`, strategy, provider/model, optional `metadata_json`.
+**`agentsam_compaction_events`** is the **runtime compaction ledger** (D1 only; no Supabase mirror). Rows mean a real summarize/truncate/selective-compact of **live context**, not “we embedded an audit pack.”
 
-Gap-pack Vectorize/Supabase work is **not** compaction. Omitting compaction rows from gap-pack ingest is correct.
+Gap-pack Vectorize/Supabase ingest is the **plan/evidence/prompt/tool/codebase ledger**. Omitting compaction rows from gap-pack ingest is correct and intentional.
 
 Production compaction is wired via `scheduleCompactionEvent` in `src/core/agentsam-ops-ledger.js`, called from `scheduleCompactionFromAnthropicUsage` in `src/core/agent-costs.js` when Anthropic usage reports compaction. The table may stay at **zero rows** until:
 
@@ -103,6 +122,19 @@ Targets:
 Output: `artifacts/agentsam_p0_writer_hooks/` (HOOK_CANDIDATES.md, NEXT_CURSOR_PATCH.md).
 
 Then: read-before-edit enforcement, routing trace, and surgical patches per `docs/MEGAPROMPT_AGENT_SAM_CURSOR_PARITY.md`.
+
+## Next ops knowledge batch (curated)
+
+Do **not** rebuild the full ~3k-vector gap pack for small operational lessons. Embed these paths in a **dedicated ops batch** (separate from noisy full-repo audit NDJSON):
+
+```text
+docs/agentsam_knowledge/dashboard_r2_asset_deploy_tactics.md
+docs/agentsam_knowledge/cursor_gap_pack_pipeline.md
+artifacts/dashboard_overview_data_mapping/NEXT_PATCH.md
+artifacts/read_before_edit_enforcement/NEXT_PATCH.md
+```
+
+Run through the same clean pipeline (`refine` → `embed_*` → balanced Vectorize filter → optional Supabase `documents` ingest). Tag chunks with `source: ops_knowledge` so they stay retrievable without diluting code-index density.
 
 ## Script index
 
