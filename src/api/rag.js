@@ -7,6 +7,7 @@
 import { AwsClient } from 'aws4fetch';
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
+import { evaluateGuardrails } from '../core/guardrails.js';
 import {
   hyperdriveNativeQueryAvailable,
   isHyperdriveUsable,
@@ -812,7 +813,7 @@ export async function compactAgentChatsToR2(env) {
 /**
  * POST /api/rag/ingest | /api/rag/search | /api/rag/sync | /api/search (POST)
  */
-export async function handleRagApi(request, url, env, _ctx) {
+export async function handleRagApi(request, url, env, ctx) {
   const path = url.pathname.replace(/\/$/, '') || '/';
   const method = request.method;
 
@@ -822,13 +823,13 @@ export async function handleRagApi(request, url, env, _ctx) {
 
   try {
     if (path === '/api/search' && method === 'POST') {
-      return handleRagSearchRoute(request, env);
+      return handleRagSearchRoute(request, env, ctx);
     }
     if (path === '/api/rag/ingest' && method === 'POST') {
       return handleRagIngest(request, env);
     }
     if (path === '/api/rag/search' && method === 'POST') {
-      return handleRagSearchRoute(request, env);
+      return handleRagSearchRoute(request, env, ctx);
     }
     if (path === '/api/rag/sync' && method === 'POST') {
       return handleRagSync(request, env);
@@ -901,7 +902,7 @@ async function handleRagIngest(request, env) {
   }
 }
 
-async function handleRagSearchRoute(request, env) {
+async function handleRagSearchRoute(request, env, ctx) {
   const user = await getAuthUser(request, env);
   if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
 
@@ -917,6 +918,25 @@ async function handleRagSearchRoute(request, env) {
   if (!tenantId && user.id) {
     const fromDb = await fetchAuthUserTenantId(env, user.id);
     if (fromDb) tenantId = fromDb;
+  }
+  const workspaceId =
+    String(body.workspace_id || user.active_workspace_id || '').trim() || null;
+  const projectId =
+    String(body.project_id || ragDocumentsProjectId(env) || '').trim() || null;
+
+  const grRag = await evaluateGuardrails(env, ctx, {
+    applies_to: 'rag',
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    user_id: user.id ?? user.user_id ?? null,
+    session_id: user.session_id ?? null,
+    project_id: projectId,
+  });
+  if (grRag.blocked) {
+    return jsonResponse(
+      { error: grRag.decision?.reason || 'guardrail_blocked', guardrail: grRag.decision?.guardrail_key },
+      403,
+    );
   }
 
   const tSearch = Date.now();

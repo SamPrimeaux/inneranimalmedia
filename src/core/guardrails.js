@@ -49,7 +49,65 @@ function reportGuardrailAuditWriteFailure(env, workerCtx, err, opts) {
  * @property {unknown} [tool_input]
  * @property {string|null} [model_key]
  * @property {string|null} [route_path]
+ * @property {string|null} [project_id]
+ * @property {string|null} [resource]
+ * @property {string|null} [integration]
  */
+
+function guardrailCtxHasField(ctx, key) {
+  const k = String(key);
+  if (k === 'tenant_id') return !!(ctx.tenant_id != null && String(ctx.tenant_id).trim() !== '');
+  if (k === 'workspace_id') return !!(ctx.workspace_id != null && String(ctx.workspace_id).trim() !== '');
+  if (k === 'user_id') return !!(ctx.user_id != null && String(ctx.user_id).trim() !== '');
+  if (k === 'project_id') return !!(ctx.project_id != null && String(ctx.project_id).trim() !== '');
+  return false;
+}
+
+/**
+ * Production seed matchers: tenant/workspace pins + `requires` (unscoped detection).
+ * @param {Record<string, unknown>} m
+ * @param {GuardrailEvaluateOpts} ctx
+ */
+function matchWorkspaceGuardrailPolicy(m, ctx) {
+  if (m.tenant_id != null && String(m.tenant_id).trim() !== '') {
+    const got = ctx.tenant_id != null ? String(ctx.tenant_id).trim() : '';
+    if (got !== String(m.tenant_id).trim()) return false;
+  }
+  if (m.workspace_id != null && String(m.workspace_id).trim() !== '') {
+    const got = ctx.workspace_id != null ? String(ctx.workspace_id).trim() : '';
+    if (got !== String(m.workspace_id).trim()) return false;
+  }
+
+  const requiredKeys = Array.isArray(m.requires) ? m.requires.map((x) => String(x)) : [];
+  if (requiredKeys.length) {
+    const missing = requiredKeys.filter((k) => !guardrailCtxHasField(ctx, k));
+    if (missing.length) return true;
+  }
+
+  if (m.deny_if_mismatch === true) {
+    return !!(ctx.tenant_id && ctx.workspace_id);
+  }
+
+  if (m.membership_required === true) {
+    return false;
+  }
+
+  if (m.project_id != null && String(m.project_id).trim() !== '') {
+    const got = ctx.project_id != null ? String(ctx.project_id).trim() : '';
+    const want = String(m.project_id).trim();
+    if (!got) return requiredKeys.includes('project_id');
+    if (got !== want) return true;
+  }
+
+  if (m.resource != null && ctx.resource != null) {
+    return String(m.resource) === String(ctx.resource);
+  }
+  if (Array.isArray(m.integrations) && ctx.integration != null) {
+    return m.integrations.map(String).includes(String(ctx.integration));
+  }
+
+  return false;
+}
 
 /**
  * Returns true when the row's scope matches the request context.
@@ -107,6 +165,20 @@ export function matchGuardrail(g, ctx) {
   }
 
   if (m.match_all === true) return true;
+
+  const hasWorkspacePolicy =
+    m.tenant_id != null ||
+    m.workspace_id != null ||
+    m.project_id != null ||
+    Array.isArray(m.requires) ||
+    m.deny_if_mismatch === true ||
+    m.membership_required === true ||
+    m.resource != null ||
+    Array.isArray(m.integrations);
+
+  if (hasWorkspacePolicy) {
+    return matchWorkspaceGuardrailPolicy(m, ctx);
+  }
 
   if (want === 'mcp_tool') {
     const tn = ctx.tool_name != null ? String(ctx.tool_name) : '';
@@ -170,6 +242,7 @@ function decisionFromAction(action) {
   if (a === 'require_approval') return 'approval_required';
   if (a === 'warn') return 'warned';
   if (a === 'log_only') return 'logged';
+  if (a === 'allow') return 'allowed';
   return 'allowed';
 }
 

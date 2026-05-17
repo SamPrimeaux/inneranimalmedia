@@ -253,6 +253,19 @@ export async function loadFeatureFlags(env, userId, tenantId) {
   return out;
 }
 
+/** Bust per-user feature flag KV cache after override writes. */
+export async function invalidateFeatureFlagsCache(env, userId) {
+  const uid = userId != null ? String(userId).trim() : '';
+  if (!uid) return;
+  const kv = env.KV || env.SESSION_CACHE;
+  if (!kv?.delete) return;
+  try {
+    await kv.delete(`ff:${uid}`);
+  } catch {
+    /* non-fatal */
+  }
+}
+
 async function attachFeatureFlagsToSession(env, session) {
   if (!session?.user_id) return session;
   try {

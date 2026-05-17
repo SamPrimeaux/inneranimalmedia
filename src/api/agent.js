@@ -5181,6 +5181,25 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   // All PTY execution paths MUST have an authenticated userId
   if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
 
+  const grRoute = await evaluateGuardrails(env, ctx, {
+    applies_to: 'route',
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    user_id: userId,
+    session_id: sessionId,
+    conversation_id: sessionId,
+    route_path: '/api/agent/chat',
+    project_id:
+      body.project_id != null && String(body.project_id).trim() !== ''
+        ? String(body.project_id).trim()
+        : null,
+  });
+  if (grRoute.blocked) {
+    return jsonResponse(
+      { error: grRoute.decision?.reason || 'guardrail_blocked', guardrail: grRoute.decision?.guardrail_key },
+      403,
+    );
+  }
 
   // ── ASK FAST PATH — no tools; prompt + model from D1 / route table ─────
   if (requestedMode === 'ask') {

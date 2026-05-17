@@ -9,7 +9,9 @@ import {
   fetchAuthUserTenantId,
   fallbackSystemTenantId,
   authUserIsSuperadmin,
+  invalidateFeatureFlagsCache,
 } from '../core/auth.js';
+import { appendAgentsamSkillRevision } from '../core/skill-revision.js';
 import {
   resolveEffectiveWorkspaceId,
   resolveActiveBootstrap,
@@ -466,6 +468,72 @@ export async function handleSettingsRequest(request, env, ctx) {
       return jsonResponse({ ok: true });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  if (pathLower === '/api/settings/feature-flags' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ flags: [], overrides: [] });
+    const uid = String(authUser.id || '').trim();
+    try {
+      const [flagsRes, overridesRes] = await Promise.all([
+        env.DB.prepare(
+          `SELECT flag_key, description, enabled_globally, environment, rollout_pct, is_archived, updated_at
+           FROM agentsam_feature_flag
+           WHERE COALESCE(is_archived, 0) = 0
+           ORDER BY flag_key ASC`,
+        ).all(),
+        env.DB.prepare(
+          `SELECT flag_key, enabled, updated_at
+           FROM agentsam_user_feature_override
+           WHERE user_id = ?
+           ORDER BY flag_key ASC`,
+        )
+          .bind(uid)
+          .all(),
+      ]);
+      return jsonResponse({
+        flags: flagsRes.results || [],
+        overrides: overridesRes.results || [],
+      });
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  {
+    const ffMatch = pathLower.match(/^\/api\/settings\/feature-flags\/([^/]+)$/);
+    if (ffMatch && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const flagKey = decodeURIComponent(ffMatch[1] || '').trim();
+      if (!flagKey) return jsonResponse({ error: 'flag_key required' }, 400);
+      const uid = String(authUser.id || '').trim();
+      const body = await request.json().catch(() => ({}));
+      if (!Object.prototype.hasOwnProperty.call(body, 'enabled')) {
+        return jsonResponse({ error: 'enabled required (boolean)' }, 400);
+      }
+      const enabled =
+        body.enabled === true || body.enabled === 1 || body.enabled === '1' ? 1 : 0;
+      try {
+        const flagRow = await env.DB.prepare(
+          `SELECT flag_key FROM agentsam_feature_flag WHERE flag_key = ? LIMIT 1`,
+        )
+          .bind(flagKey)
+          .first();
+        if (!flagRow) return jsonResponse({ error: 'unknown flag_key' }, 404);
+        await env.DB.prepare(
+          `INSERT INTO agentsam_user_feature_override (user_id, flag_key, enabled, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(user_id, flag_key) DO UPDATE SET
+             enabled = excluded.enabled,
+             updated_at = datetime('now')`,
+        )
+          .bind(uid, flagKey, enabled)
+          .run();
+        await invalidateFeatureFlagsCache(env, uid);
+        return jsonResponse({ ok: true, flag_key: flagKey, enabled: enabled === 1 });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
     }
   }
 
@@ -2536,6 +2604,15 @@ export async function handleSettingsRequest(request, env, ctx) {
           is_active,
         )
         .run();
+      const rev = await appendAgentsamSkillRevision(env, {
+        skillId: id,
+        changedBy: String(storedUserId),
+        changeNote: typeof body.change_note === 'string' ? body.change_note : 'initial create',
+        contentMarkdown: content_markdown,
+      });
+      if (!rev.ok) {
+        return jsonResponse({ error: rev.error || 'skill_revision_failed' }, 500);
+      }
       return jsonResponse({ ok: true, id });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -2573,22 +2650,16 @@ export async function handleSettingsRequest(request, env, ctx) {
         .bind(...vals, id, String(storedUserId))
         .run();
       if (keys.includes('content_markdown')) {
-        const actingUserId = String(storedUserId || 'sam_primeaux').slice(0, 200);
-        const changeNote =
-          body.change_note != null && String(body.change_note).trim() !== ''
-            ? String(body.change_note).slice(0, 2000)
-            : null;
-        await env.DB
-          .prepare(
-            `INSERT INTO agentsam_skill_revision (id, skill_id, content_markdown, version, changed_by, change_note)
-             SELECT 'skillrev_'||lower(hex(randomblob(8))), id, content_markdown,
-                    COALESCE((SELECT MAX(version) FROM agentsam_skill_revision WHERE skill_id = agentsam_skill.id), 0) + 1,
-                    ?, ?
-             FROM agentsam_skill WHERE id = ?`,
-          )
-          .bind(actingUserId, changeNote, id)
-          .run()
-          .catch((e) => console.warn('[agentsam_skill_revision]', e?.message ?? e));
+        const rev = await appendAgentsamSkillRevision(env, {
+          skillId: id,
+          changedBy: String(storedUserId),
+          changeNote: body.change_note,
+          contentMarkdown:
+            typeof body.content_markdown === 'string' ? body.content_markdown : undefined,
+        });
+        if (!rev.ok) {
+          return jsonResponse({ error: rev.error || 'skill_revision_failed' }, 500);
+        }
       }
       return jsonResponse({ ok: true });
     }

@@ -700,7 +700,9 @@ async function getHooksStatus(env) {
   const compaction = await safeQueryAll(
     db,
     'agentsam_compaction_events',
-    `SELECT id, provider, model_key, tokens_before, tokens_after, compaction_strategy, compacted_at
+    `SELECT id, provider, model_key, tokens_before, tokens_after,
+            COALESCE(tokens_saved, tokens_before - tokens_after) AS tokens_saved,
+            compaction_strategy, compacted_at
      FROM agentsam_compaction_events ORDER BY compacted_at DESC LIMIT 20`,
     [],
     warnings,

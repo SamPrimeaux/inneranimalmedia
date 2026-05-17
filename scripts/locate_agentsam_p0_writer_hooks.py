@@ -73,10 +73,10 @@ SKIP_REL_PATHS = {
 CURATED_HOOKS: dict[str, list[dict[str, str]]] = {
     "agentsam_compaction_events": [
         {
-            "symbol": "scheduleCompactionEvent",
-            "file": "src/core/agentsam-ops-ledger.js",
+            "symbol": "scheduleCompactionFromAnthropicUsage",
+            "file": "src/core/agent-costs.js",
             "role": "writer_helper",
-            "note": "Dynamic INSERT via buildInsertParts; exported but has zero call sites in src/.",
+            "note": "Calls scheduleCompactionEvent after Anthropic compaction usage; wired from src/api/agent.js.",
         },
         {
             "symbol": "settings-sections compaction query",
