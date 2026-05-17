@@ -27,6 +27,17 @@ export async function isFeatureEnabled(env, flagKey, { userId, tenantId } = {}) 
 
     if (Number(row.enabled_globally) === 1) return true;
 
+    const uid = userId != null ? String(userId).trim() : '';
+    if (uid) {
+      const override = await env.DB.prepare(
+        `SELECT enabled FROM agentsam_user_feature_override WHERE user_id = ? AND flag_key = ? LIMIT 1`,
+      )
+        .bind(uid, flagKey)
+        .first()
+        .catch(() => null);
+      if (override != null) return Number(override.enabled) === 1;
+    }
+
     if (userId) {
       try {
         const users = JSON.parse(row.enabled_for_users || '[]');

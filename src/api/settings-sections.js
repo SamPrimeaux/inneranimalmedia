@@ -702,7 +702,8 @@ async function getHooksStatus(env) {
     'agentsam_compaction_events',
     `SELECT id, provider, model_key, tokens_before, tokens_after,
             COALESCE(tokens_saved, tokens_before - tokens_after) AS tokens_saved,
-            compaction_strategy, compacted_at
+            cost_saved_usd, compaction_strategy, summary_text, compacted_at,
+            agent_id, workspace_id, user_id, metadata_json
      FROM agentsam_compaction_events ORDER BY compacted_at DESC LIMIT 20`,
     [],
     warnings,

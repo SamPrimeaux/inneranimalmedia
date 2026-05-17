@@ -10,8 +10,12 @@ import {
   fallbackSystemTenantId,
   authUserIsSuperadmin,
   invalidateFeatureFlagsCache,
+  loadFeatureFlags,
 } from '../core/auth.js';
-import { appendAgentsamSkillRevision } from '../core/skill-revision.js';
+import {
+  appendAgentsamSkillRevision,
+  skillPatchKeysNeedRevision,
+} from '../core/skill-revision.js';
 import {
   resolveEffectiveWorkspaceId,
   resolveActiveBootstrap,
@@ -520,17 +524,32 @@ export async function handleSettingsRequest(request, env, ctx) {
           .bind(flagKey)
           .first();
         if (!flagRow) return jsonResponse({ error: 'unknown flag_key' }, 404);
+        const personUuid =
+          authUser.person_uuid != null && String(authUser.person_uuid).trim() !== ''
+            ? String(authUser.person_uuid).trim()
+            : null;
         await env.DB.prepare(
-          `INSERT INTO agentsam_user_feature_override (user_id, flag_key, enabled, updated_at)
-           VALUES (?, ?, ?, datetime('now'))
+          `INSERT INTO agentsam_user_feature_override (user_id, flag_key, enabled, person_uuid, updated_at)
+           VALUES (?, ?, ?, ?, datetime('now'))
            ON CONFLICT(user_id, flag_key) DO UPDATE SET
              enabled = excluded.enabled,
+             person_uuid = COALESCE(excluded.person_uuid, agentsam_user_feature_override.person_uuid),
              updated_at = datetime('now')`,
         )
-          .bind(uid, flagKey, enabled)
+          .bind(uid, flagKey, enabled, personUuid)
           .run();
         await invalidateFeatureFlagsCache(env, uid);
-        return jsonResponse({ ok: true, flag_key: flagKey, enabled: enabled === 1 });
+        const tenantId =
+          authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+            ? String(authUser.tenant_id).trim()
+            : (await fetchAuthUserTenantId(env, uid)) || null;
+        const feature_flags = await loadFeatureFlags(env, uid, tenantId);
+        return jsonResponse({
+          ok: true,
+          flag_key: flagKey,
+          enabled: enabled === 1,
+          feature_flags,
+        });
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
       }
@@ -2604,12 +2623,20 @@ export async function handleSettingsRequest(request, env, ctx) {
           is_active,
         )
         .run();
-      const rev = await appendAgentsamSkillRevision(env, {
-        skillId: id,
-        changedBy: String(storedUserId),
-        changeNote: typeof body.change_note === 'string' ? body.change_note : 'initial create',
-        contentMarkdown: content_markdown,
-      });
+      const tenantId =
+        authUser?.tenant_id != null ? String(authUser.tenant_id).trim() : null;
+      const rev = await appendAgentsamSkillRevision(
+        env,
+        {
+          skillId: id,
+          changedBy: String(storedUserId),
+          changeNote: typeof body.change_note === 'string' ? body.change_note : 'initial create',
+          contentMarkdown: content_markdown,
+          tenantId,
+          workspaceId: workspaceId != null ? String(workspaceId).trim() : null,
+        },
+        ctx,
+      );
       if (!rev.ok) {
         return jsonResponse({ error: rev.error || 'skill_revision_failed' }, 500);
       }
@@ -2649,14 +2676,30 @@ export async function handleSettingsRequest(request, env, ctx) {
       )
         .bind(...vals, id, String(storedUserId))
         .run();
-      if (keys.includes('content_markdown')) {
-        const rev = await appendAgentsamSkillRevision(env, {
-          skillId: id,
-          changedBy: String(storedUserId),
-          changeNote: body.change_note,
-          contentMarkdown:
-            typeof body.content_markdown === 'string' ? body.content_markdown : undefined,
-        });
+      if (skillPatchKeysNeedRevision(keys)) {
+        const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+        const tenantId =
+          authUser?.tenant_id != null ? String(authUser.tenant_id).trim() : null;
+        const fieldsNote = keys.filter((k) => k !== 'content_markdown').join(', ');
+        const changeNote =
+          body.change_note != null && String(body.change_note).trim() !== ''
+            ? String(body.change_note).slice(0, 2000)
+            : fieldsNote
+              ? `updated: ${fieldsNote}`
+              : null;
+        const rev = await appendAgentsamSkillRevision(
+          env,
+          {
+            skillId: id,
+            changedBy: String(storedUserId),
+            changeNote,
+            contentMarkdown:
+              typeof body.content_markdown === 'string' ? body.content_markdown : undefined,
+            tenantId,
+            workspaceId: workspaceId != null ? String(workspaceId).trim() : null,
+          },
+          ctx,
+        );
         if (!rev.ok) {
           return jsonResponse({ error: rev.error || 'skill_revision_failed' }, 500);
         }

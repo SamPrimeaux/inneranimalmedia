@@ -930,6 +930,8 @@ async function handleRagSearchRoute(request, env, ctx) {
     workspace_id: workspaceId,
     user_id: user.id ?? user.user_id ?? null,
     session_id: user.session_id ?? null,
+    request_id: user.session_id ?? null,
+    route_path: '/api/rag/search',
     project_id: projectId,
   });
   if (grRag.blocked) {

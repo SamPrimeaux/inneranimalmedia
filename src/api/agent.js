@@ -3114,6 +3114,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         user_id: userId,
         session_id: sessionId,
         conversation_id: sessionId,
+        request_id:
+          chatAgentRunId != null
+            ? String(chatAgentRunId)
+            : agentToolLedger?.runId != null
+              ? String(agentToolLedger.runId)
+              : sessionId,
+        run_group_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+        route_path: '/api/agent/chat',
         model_key: modelKey,
       });
       if (grModel.blocked) {
@@ -3651,8 +3659,19 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         user_id: userId,
         session_id: sessionId,
         conversation_id: sessionId,
+        request_id:
+          chatAgentRunId != null
+            ? String(chatAgentRunId)
+            : agentToolLedger?.runId != null
+              ? String(agentToolLedger.runId)
+              : toolChainRootId != null
+                ? String(toolChainRootId)
+                : sessionId,
+        run_group_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
+        route_path: '/api/agent/chat',
         tool_name: call.name,
         tool_input: call.input,
+        model_key: modelKey,
       });
       if (grTool.blocked) {
         scheduleRecordMcpToolExecution(env, ctx, {
@@ -5188,6 +5207,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     user_id: userId,
     session_id: sessionId,
     conversation_id: sessionId,
+    request_id: sessionId,
     route_path: '/api/agent/chat',
     project_id:
       body.project_id != null && String(body.project_id).trim() !== ''

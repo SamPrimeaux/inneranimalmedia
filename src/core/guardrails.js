@@ -17,9 +17,9 @@ function reportGuardrailAuditWriteFailure(env, workerCtx, err, opts) {
   }
   const tid = opts.tenant_id != null ? String(opts.tenant_id).trim() : '';
   const wid = opts.workspace_id != null ? String(opts.workspace_id).trim() : '';
-  if (env?.DB && tid && wid && workerCtx?.waitUntil) {
+  if (env?.DB && tid && workerCtx?.waitUntil) {
     scheduleAgentsamErrorLog(env, workerCtx, {
-      workspaceId: wid,
+      workspaceId: wid || tid,
       tenantId: tid,
       sessionId: opts.session_id != null ? String(opts.session_id).slice(0, 200) : null,
       errorCode: 'guardrail_audit_insert_failed',
@@ -45,6 +45,7 @@ function reportGuardrailAuditWriteFailure(env, workerCtx, err, opts) {
  * @property {string|null} [session_id]
  * @property {string|null} [conversation_id]
  * @property {string|null} [request_id]
+ * @property {string|null} [run_group_id]
  * @property {string|null} [tool_name]
  * @property {unknown} [tool_input]
  * @property {string|null} [model_key]
@@ -279,6 +280,9 @@ function scheduleGuardrailEvent(env, workerCtx, row, opts, decisionLabel, reason
     applies_to: opts.applies_to,
     guardrail_id: row.id,
     evaluated_at: new Date().toISOString(),
+    ...(opts.run_group_id != null && String(opts.run_group_id).trim() !== ''
+      ? { run_group_id: String(opts.run_group_id).trim() }
+      : {}),
   };
 
   const run = async () => {
