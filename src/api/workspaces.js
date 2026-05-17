@@ -567,7 +567,7 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
     const canView = await callerCanViewWorkspace(db, workspaceId, userId, tenantId ?? '', isSuper);
     if (!canView) return jsonResponse({ error: 'Forbidden' }, 403);
 
-    const wsRow = await db.prepare(`SELECT settings_json FROM workspaces WHERE id = ?`).bind(workspaceId).first();
+    const wsRow = await db.prepare(`SELECT settings_json, r2_prefix FROM workspaces WHERE id = ?`).bind(workspaceId).first();
     const sj = parseJsonSafe(wsRow?.settings_json, {});
     const terminalWs =
       sj.terminal_ws_url ||
@@ -581,7 +581,12 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
     const tR0 = Date.now();
     try {
       if (env.R2 && typeof env.R2.list === 'function') {
-        await env.R2.list({ limit: 1 });
+        const wsR2Prefix =
+          wsRow?.r2_prefix != null && String(wsRow.r2_prefix).trim() !== ''
+            ? String(wsRow.r2_prefix).trim().replace(/\/$/, '')
+            : '';
+        const probePrefix = wsR2Prefix ? `${wsR2Prefix}_probe/` : '_probe/';
+        await env.R2.list({ prefix: probePrefix, limit: 1 });
         r2Status = 'healthy';
       } else if (env.R2) {
         await env.R2.head(`health-check-probe-${Date.now()}`);

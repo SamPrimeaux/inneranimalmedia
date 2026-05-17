@@ -655,7 +655,7 @@ async function runProviderHealthCheck(env, authUser, provider) {
     if (provider === 'resend') return testJsonFetch('https://api.resend.com/emails?limit=1', env.RESEND_API_KEY, { headers: { Authorization: `Bearer ${env.RESEND_API_KEY || ''}` } });
     if (provider === 'cloudflare_r2') {
         if (!env.R2?.list) return { ok: false, status: 'error', error: 'R2 binding not configured' };
-        const list = await env.R2.list({ limit: 1 });
+        const list = await env.R2.list({ prefix: '_probe/', limit: 1 });
         return { ok: true, status: 'ok', account_info: { object_count_sample: list.objects?.length || 0 }, response_preview: JSON.stringify({ truncated: list.truncated, object_count_sample: list.objects?.length || 0 }) };
     }
     if (provider === 'mcp_servers') return testJsonFetch('https://mcp.inneranimalmedia.com/health', true, {});

@@ -31,7 +31,7 @@ import {
 } from '../core/r2-multipart.js';
 
 /** Primary dashboard asset bucket (logical name); bindings may alias legacy names to the same bucket. */
-function isDashboardMediaBucket(name) {
+export function isDashboardMediaBucket(name) {
   return name === 'inneranimalmedia';
 }
 

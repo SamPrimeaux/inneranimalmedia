@@ -2,6 +2,7 @@
  * MovieMode / media registry API — metadata only (no render in Worker).
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { isDashboardMediaBucket } from './r2-api.js';
 import {
   execOnPtyHost,
   resolveMoviemodeRepoRootForSession,
@@ -108,9 +109,13 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
     } catch {
       body = {};
     }
-    const bucket = String(body.bucket || '').trim();
+    const bucketName = body.bucket || body.bucketName;
+    if (!isDashboardMediaBucket(bucketName)) {
+      return jsonResponse({ error: 'Invalid or disallowed bucket' }, 403);
+    }
+    const bucket = String(bucketName || '').trim();
     const object_key = String(body.object_key || body.key || '').trim();
-    if (!bucket || !object_key) return jsonResponse({ error: 'bucket and object_key required' }, 400);
+    if (!object_key) return jsonResponse({ error: 'object_key required' }, 400);
     const id = `asset_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
     await env.DB.prepare(
       `INSERT INTO media_assets (id, tenant_id, workspace_id, project_id, bucket, object_key, filename, content_type, media_kind, size_bytes, etag, status)
