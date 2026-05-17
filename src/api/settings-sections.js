@@ -700,7 +700,8 @@ async function getHooksStatus(env) {
   const compaction = await safeQueryAll(
     db,
     'agentsam_compaction_events',
-    `SELECT id, kind, status, created_at FROM agentsam_compaction_events ORDER BY created_at DESC LIMIT 20`,
+    `SELECT id, provider, model_key, tokens_before, tokens_after, compaction_strategy, compacted_at
+     FROM agentsam_compaction_events ORDER BY compacted_at DESC LIMIT 20`,
     [],
     warnings,
     cache,
@@ -722,7 +723,7 @@ async function getHooksStatus(env) {
       recent_executions: executions.length,
       recent_failures: executions.filter((e) => Number(e.exit_code) !== 0 && e.exit_code != null).length,
       latest_cron_run: cronRuns[0]?.started_at || null,
-      latest_compaction: compaction[0]?.created_at || null,
+      latest_compaction: compaction[0]?.compacted_at || null,
     },
     rows: hooks,
     warnings,

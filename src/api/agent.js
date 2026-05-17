@@ -59,7 +59,12 @@ import {
   isSubagentToolName,
   collectAllowlistToolKeysForScope,
 } from '../core/agent-policy.js';
-import { aggregateAnthropicUsageTokens, scheduleInsertAgentCost } from '../core/agent-costs.js';
+import {
+  aggregateAnthropicUsageTokens,
+  extractCompactionFromAnthropicUsage,
+  scheduleCompactionFromAnthropicUsage,
+  scheduleInsertAgentCost,
+} from '../core/agent-costs.js';
 import { evaluateGuardrails } from '../core/guardrails.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { scheduleToolCallLog } from '../core/agentsam-ops-ledger.js';
@@ -3382,6 +3387,10 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         }
         if (chunk.type === 'content_block_start') {
           if (chunk.content_block?.type === 'thinking') emit('thinking_start', {});
+          if (chunk.content_block?.type === 'compaction') {
+            assistantContent.push({ ...chunk.content_block });
+            emit('compaction', { phase: 'block_start' });
+          }
           if (chunk.content_block?.type === 'tool_use') {
             pendingToolCalls.push({ id: chunk.content_block.id, name: chunk.content_block.name, _args: '', _server: false });
             assistantContent.push({ type: 'tool_use', id: chunk.content_block.id, name: chunk.content_block.name, input: {} });
@@ -3440,6 +3449,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           if (chunk.delta?.container?.id) containerId = chunk.delta.container.id;
         }
       };
+      const compactionMeta = {
+        tenantId,
+        workspaceId,
+        userId,
+        sessionId,
+        modelKey,
+        provider: 'anthropic',
+      };
       const mergeTurnUsage = () => {
         if (!turnUsage) return;
         const u = aggregateAnthropicUsageTokens(turnUsage);
@@ -3447,6 +3464,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         totalUsage.output_tokens += u.output_tokens;
         totalUsage.cache_read_input_tokens += u.cache_read_input_tokens;
         totalUsage.cache_creation_input_tokens += u.cache_creation_input_tokens;
+        if (scheduleCompactionFromAnthropicUsage(env, ctx, turnUsage, compactionMeta)) {
+          const compacted = extractCompactionFromAnthropicUsage(turnUsage);
+          emit('compaction', {
+            phase: 'recorded',
+            tokens_before: compacted?.tokens_before ?? null,
+            tokens_after: compacted?.tokens_after ?? null,
+          });
+        }
         turnUsage = null;
       };
       const drainAnthropicStream = async (s) => {
@@ -3515,6 +3540,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       totalUsage.output_tokens += u.output_tokens;
       totalUsage.cache_read_input_tokens += u.cache_read_input_tokens;
       totalUsage.cache_creation_input_tokens += u.cache_creation_input_tokens;
+      scheduleCompactionFromAnthropicUsage(env, ctx, turnUsage, {
+        tenantId,
+        workspaceId,
+        userId,
+        sessionId,
+        modelKey,
+        provider: 'anthropic',
+      });
     }
 
     conversationMessages.push({ role: 'assistant', content: assistantContent });

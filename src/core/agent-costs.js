@@ -2,6 +2,7 @@
  * agent_costs — cost rows bound to session + optional routing arm (fire-and-forget).
  */
 
+import { scheduleCompactionEvent } from './agentsam-ops-ledger.js';
 import { pragmaTableInfo } from './retention.js';
 
 /**
@@ -43,6 +44,57 @@ export function aggregateAnthropicUsageTokens(usage) {
     cache_read_input_tokens: Number(usage.cache_read_input_tokens) || 0,
     cache_creation_input_tokens: Number(usage.cache_creation_input_tokens) || 0,
   };
+}
+
+/**
+ * Anthropic compaction beta: usage.iterations includes type `compaction` then `message`.
+ * @param {any} usage
+ * @returns {{ tokens_before: number, tokens_after: number, compaction_output_tokens: number } | null}
+ */
+export function extractCompactionFromAnthropicUsage(usage) {
+  if (!usage || typeof usage !== 'object') return null;
+  const iterations = usage.iterations;
+  if (!Array.isArray(iterations) || !iterations.length) return null;
+  const compactionIter = iterations.find((i) => i && String(i.type) === 'compaction');
+  if (!compactionIter) return null;
+  const messageIter = iterations.find((i) => i && String(i.type) === 'message');
+  const tokensBefore = Math.max(0, Math.floor(Number(compactionIter.input_tokens) || 0));
+  const tokensAfter = messageIter
+    ? Math.max(0, Math.floor(Number(messageIter.input_tokens) || 0))
+    : Math.max(0, Math.floor(Number(usage.input_tokens) || 0));
+  return {
+    tokens_before: tokensBefore,
+    tokens_after: tokensAfter,
+    compaction_output_tokens: Math.max(0, Math.floor(Number(compactionIter.output_tokens) || 0)),
+  };
+}
+
+/**
+ * Fire-and-forget D1 row when Anthropic server-side compaction ran this turn.
+ * @returns {boolean} true when a compaction iteration was recorded
+ */
+export function scheduleCompactionFromAnthropicUsage(env, ctx, usage, meta = {}) {
+  const extracted = extractCompactionFromAnthropicUsage(usage);
+  if (!extracted) return false;
+  const tid = meta.tenantId ?? meta.tenant_id;
+  if (tid == null || String(tid).trim() === '') return false;
+  scheduleCompactionEvent(env, ctx, {
+    tenantId: tid,
+    workspaceId: meta.workspaceId ?? meta.workspace_id ?? null,
+    userId: meta.userId ?? meta.user_id ?? null,
+    sessionId: meta.sessionId ?? meta.session_id ?? null,
+    provider: meta.provider ?? 'anthropic',
+    modelKey: meta.modelKey ?? meta.model_key ?? 'unknown',
+    tokensBefore: extracted.tokens_before,
+    tokensAfter: extracted.tokens_after,
+    compactionStrategy: meta.compactionStrategy ?? meta.compaction_strategy ?? 'summarize',
+    metadata: {
+      source: 'agent_chat',
+      compaction_output_tokens: extracted.compaction_output_tokens,
+      ...(meta.metadata && typeof meta.metadata === 'object' ? meta.metadata : {}),
+    },
+  });
+  return true;
 }
 
 /**

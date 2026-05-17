@@ -123,7 +123,8 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
       if (typeof b === 'string' && b.trim()) betas.push(b.trim());
     }
   }
-  if (features.compaction) betas.push('compact-2026-01-12');
+  const compactionEnabled = features.compaction === true || features.compaction === 1;
+  if (compactionEnabled) betas.push('compact-2026-01-12');
 
   /** Betas Anthropic no longer accepts on current Sonnet / Haiku (400 extra inputs / retired headers). */
   const RETIRED_ANTHROPIC_BETAS = new Set(['context-1m-2025-08-07']);
@@ -192,6 +193,18 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   const c = options.container;
   if (c != null && c !== '') {
     streamParams.container = typeof c === 'string' ? c : c?.id;
+  }
+
+  if (compactionEnabled) {
+    const existing =
+      options.context_management && typeof options.context_management === 'object'
+        ? options.context_management
+        : {};
+    const edits = Array.isArray(existing.edits) ? [...existing.edits] : [];
+    if (!edits.some((e) => e && String(e.type) === 'compact_20260112')) {
+      edits.push({ type: 'compact_20260112' });
+    }
+    streamParams.context_management = { ...existing, edits };
   }
 
   // Route to beta endpoint when betas are required, standard endpoint otherwise
