@@ -2,6 +2,7 @@ import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { resolveOAuthAccessToken } from '../api/oauth.js';
 import { getIntegrationToken } from './tokens.js';
+import { getIntegrationOAuthRow } from '../core/user-oauth-token.js';
 
 /**
  * GitHub Service Integration.
@@ -143,19 +144,53 @@ async function getAppInstallationToken(env, owner) {
   return token;
 }
 
-// ─── Token Resolution (OAuth → App → PAT) ────────────────────────────────────
+// ─── Token resolution (user OAuth → App; admin PAT is separate) ─────────────
 
+/** Admin / internal tooling only — never use for user-facing repo listing. */
+export function getAdminGithubToken(env) {
+  const token = typeof env?.GITHUB_TOKEN === 'string' ? env.GITHUB_TOKEN.trim() : '';
+  if (!token) return null;
+  return { token, mode: 'pat' };
+}
+
+/**
+ * Per-user GitHub OAuth from `user_oauth_tokens` only (no env.GITHUB_TOKEN).
+ * @param {string} providerAccountId — `account_identifier` / `?account=` login for multi-account rows
+ */
+export async function getUserGithubToken(env, userId, providerAccountId = '') {
+  if (!env?.DB || !userId) return null;
+  const uid = String(userId).trim();
+  if (!uid) return null;
+  const row = await getIntegrationOAuthRow(env, uid, 'github', providerAccountId != null ? String(providerAccountId) : '');
+  if (!row) return null;
+  const token = row.access_token || (await resolveOAuthAccessToken(env, row));
+  if (!token) return null;
+  const accountId = row.account_identifier != null ? String(row.account_identifier) : '';
+  return { token, mode: 'oauth', account_identifier: accountId, provider_account_id: accountId };
+}
+
+export function githubReposCacheKey(userId, providerAccountId, workspaceId) {
+  const uid = String(userId || '').trim() || '_';
+  const acct = String(providerAccountId || '').trim() || '_';
+  const ws = String(workspaceId || '').trim() || '_';
+  return `github:repos:${uid}:${acct}:${ws}`;
+}
+
+function githubReposDebugEnabled(env) {
+  const envName = String(env?.ENVIRONMENT || env?.ENV || '').toLowerCase();
+  return envName === 'development' || envName === 'dev' || env?.GITHUB_REPOS_DEBUG === '1';
+}
+
+/** User OAuth → GitHub App installation token (no PAT). */
 export async function resolveGitHubToken(env, authUser, owner) {
-  // 1. User OAuth token from D1
   const uid = authUser?.user_id != null && String(authUser.user_id).trim() !== ''
-    ? String(authUser.user_id)
+    ? String(authUser.user_id).trim()
     : String(authUser?.id || '').trim();
   if (uid) {
-    const row = await getIntegrationToken(env, uid, 'github', '');
-    if (row?.access_token) return { token: row.access_token, mode: 'oauth' };
+    const userGh = await getUserGithubToken(env, uid, '');
+    if (userGh?.token) return { token: userGh.token, mode: userGh.mode };
   }
 
-  // 2. GitHub App installation token
   if (env.GITHUB_APP_ID && env.GITHUB_APP_PRIVATE_KEY) {
     try {
       const token = await getAppInstallationToken(env, owner);
@@ -165,10 +200,88 @@ export async function resolveGitHubToken(env, authUser, owner) {
     }
   }
 
-  // 3. PAT fallback
-  if (env.GITHUB_TOKEN) return { token: env.GITHUB_TOKEN, mode: 'pat' };
+  throw new Error('No GitHub auth resolved — connect GitHub OAuth or configure App credentials');
+}
 
-  throw new Error('No GitHub auth resolved — check OAuth token, App credentials, or GITHUB_TOKEN');
+/**
+ * GET /api/integrations/github/repos — session user token only; 401 when not connected.
+ */
+export async function handleGithubReposList(request, env, authUser, urlIn) {
+  const url = urlIn || new URL(request.url);
+  if (!authUser) return jsonResponse({ error: 'unauthorized' }, 401);
+
+  const userId = oauthTokenUserKey(authUser);
+  if (!userId) return jsonResponse({ error: 'unauthorized' }, 401);
+
+  const accountParam = url.searchParams.get('account') || '';
+  const workspaceId =
+    authUser.workspace_id != null && String(authUser.workspace_id).trim() !== ''
+      ? String(authUser.workspace_id).trim()
+      : (url.searchParams.get('workspace_id') || '');
+
+  const tokenResult = await getUserGithubToken(env, userId, accountParam);
+  if (!tokenResult?.token) {
+    return jsonResponse({ error: 'github_not_connected' }, 401);
+  }
+
+  const providerAccountId = tokenResult.provider_account_id || accountParam;
+  const cacheKey = githubReposCacheKey(userId, providerAccountId, workspaceId);
+
+  if (env?.SESSION_CACHE?.get) {
+    try {
+      const cached = await env.SESSION_CACHE.get(cacheKey, 'json');
+      if (Array.isArray(cached)) {
+        if (githubReposDebugEnabled(env)) {
+          console.log('[github/repos] cache_hit', {
+            user_id: userId,
+            provider_account_id: providerAccountId,
+            account_login: tokenResult.account_identifier || null,
+            repo_count: cached.length,
+          });
+        }
+        return jsonResponse(cached);
+      }
+    } catch (_) { /* non-fatal */ }
+  }
+
+  const res = await fetch(
+    'https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member',
+    {
+      headers: {
+        Authorization: `Bearer ${tokenResult.token}`,
+        'User-Agent': 'IAM-Platform',
+        Accept: 'application/vnd.github+json',
+      },
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    const status = res.status >= 400 && res.status < 500 ? res.status : 502;
+    return jsonResponse({ error: 'github_api_error', status: res.status, detail: detail.slice(0, 500) }, status);
+  }
+
+  const repos = await res.json();
+  const list = Array.isArray(repos) ? repos : [];
+
+  if (env?.SESSION_CACHE?.put) {
+    try {
+      await env.SESSION_CACHE.put(cacheKey, JSON.stringify(list), { expirationTtl: 120 });
+    } catch (_) { /* non-fatal */ }
+  }
+
+  if (githubReposDebugEnabled(env)) {
+    const accountLogin =
+      tokenResult.account_identifier ||
+      (list[0]?.owner?.login != null ? String(list[0].owner.login) : null);
+    console.log('[github/repos]', {
+      user_id: userId,
+      provider_account_id: providerAccountId,
+      account_login: accountLogin,
+      repo_count: list.length,
+    });
+  }
+
+  return jsonResponse(list);
 }
 
 // ─── Git Data API Helpers ─────────────────────────────────────────────────────
@@ -353,12 +466,9 @@ export async function handleGithubApi(request, env, authUser) {
     return jsonResponse({ content: await res.text() });
   }
 
+  // DEAD for production — /api/integrations/* is served by handleIntegrationsRequest (src/api/integrations.js).
   if (method === 'GET' && path === '/api/integrations/github/repos') {
-    const tokenRow = await getIntegrationToken(env, integrationUserId, 'github', githubAccount);
-    const ghBearer = await resolveOAuthAccessToken(env, tokenRow);
-    if (!ghBearer) return jsonResponse({ error: 'not_connected' }, 400);
-    const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${ghBearer}`, 'User-Agent': 'IAM-Platform' } });
-    return jsonResponse(await res.json());
+    return handleGithubReposList(request, env, authUser, url);
   }
 
   if (method === 'GET' && path === '/api/integrations/github/files') {

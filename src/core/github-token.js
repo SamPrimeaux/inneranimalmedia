@@ -1,24 +1,23 @@
 /**
- * Shared GitHub OAuth token resolution for Workers API routes.
+ * Shared GitHub OAuth token resolution for Workers API routes (user-scoped only).
+ */
+import { getUserGithubToken } from '../integrations/github.js';
+
+/**
  * @param {{ id: string, email?: string|null }} authUser
  * @param {any} env
+ * @param {string} [providerAccountId] — GitHub `account_identifier` / `?account=` login
  */
-export async function resolveGitHubToken(authUser, env) {
-  const row = await env.DB.prepare(
-    `SELECT access_token, expires_at FROM user_oauth_tokens
-     WHERE provider = 'github' AND (user_id = ? OR user_id = ?)
-     ORDER BY expires_at DESC LIMIT 1`,
-  )
-    .bind(authUser.id, authUser.email ?? '')
-    .first();
-
-  if (!row?.access_token) {
+export async function resolveGitHubToken(authUser, env, providerAccountId = '') {
+  const userId = authUser?.id != null && String(authUser.id).trim() !== '' ? String(authUser.id).trim() : '';
+  if (!userId || !env?.DB) {
     return { error: 'No GitHub token. Re-authenticate via GitHub OAuth.', status: 401 };
   }
 
-  if (row.expires_at && Math.floor(Date.now() / 1000) > row.expires_at) {
-    return { error: 'GitHub token expired. Re-authenticate via GitHub OAuth.', status: 401 };
+  const row = await getUserGithubToken(env, userId, providerAccountId);
+  if (!row?.token) {
+    return { error: 'No GitHub token. Re-authenticate via GitHub OAuth.', status: 401 };
   }
 
-  return { token: row.access_token };
+  return { token: row.token, account_identifier: row.account_identifier || '' };
 }

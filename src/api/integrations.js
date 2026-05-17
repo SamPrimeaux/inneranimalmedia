@@ -6,6 +6,7 @@
 import { getAuthUser, isSamOnlyUser, jsonResponse, fallbackSystemTenantId } from '../core/auth.js';
 import { ensureOauthTokenColumns, resolveOAuthAccessToken } from './oauth.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
+import { handleGithubReposList } from '../integrations/github.js';
 import { recordWorkerAnalyticsError } from './telemetry.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
 
@@ -826,12 +827,7 @@ async function handleLegacyProviderBrowser(request, env, authUser, url, pathLowe
         return new Response(res.body, { headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/octet-stream', 'Access-Control-Allow-Origin': '*' } });
     }
     if (method === 'GET' && pathLower === '/api/integrations/github/repos') {
-        const tokenRow = await getIntegrationToken(env, userId, 'github', githubAccount);
-        if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const ghToken = await resolveOAuthAccessToken(env, tokenRow);
-        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable — please reconnect' }, 401);
-        const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });
-        return jsonResponse(await res.json(), res.ok ? 200 : res.status);
+        return handleGithubReposList(request, env, authUser, url);
     }
     if (method === 'GET' && pathLower === '/api/integrations/github/files') {
         const repo = url.searchParams.get('repo');
