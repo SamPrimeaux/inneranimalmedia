@@ -5122,14 +5122,35 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     body.mode ?? body.agent_mode ?? body.runtime_intent_mode ?? body.execution_mode,
   );
 
+  const headerWorkspaceId = request.headers.get('x-iam-workspace-id');
   const resolvedWorkspaceId =
-    session?.workspace_id != null && String(session.workspace_id).trim() !== ''
+    (headerWorkspaceId != null && String(headerWorkspaceId).trim() !== ''
+      ? String(headerWorkspaceId).trim()
+      : null) ||
+    (session?.workspace_id != null && String(session.workspace_id).trim() !== ''
       ? String(session.workspace_id).trim()
-      : body.workspace_id != null && String(body.workspace_id).trim() !== ''
-        ? String(body.workspace_id).trim()
-        : null;
+      : null) ||
+    (body.workspace_id != null && String(body.workspace_id).trim() !== ''
+      ? String(body.workspace_id).trim()
+      : null);
 
-  const cmdResult = await resolveAgentCommand(env, {
+  let skipCommandResolution = false;
+  try {
+    const bcRaw = body.browserContext;
+    const bc =
+      typeof bcRaw === 'string' && bcRaw.trim()
+        ? JSON.parse(bcRaw)
+        : bcRaw && typeof bcRaw === 'object'
+          ? bcRaw
+          : null;
+    if (bc?.selected_element && typeof bc.selected_element === 'object') skipCommandResolution = true;
+  } catch {
+    /* ignore */
+  }
+
+  const cmdResult = skipCommandResolution
+    ? { resolved: false, blocked: false, blockReason: null, requiresConfirmation: false }
+    : await resolveAgentCommand(env, {
     message: body.message,
     userId: session?.user_id,
     workspaceId: resolvedWorkspaceId,
@@ -5189,6 +5210,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const wsCache = {};
   const bootstrapWorkspaceId = userId ? await resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, wsCache) : null;
   let workspaceId =
+    String(resolvedWorkspaceId || '').trim() ||
     String(session?.workspace_id || '').trim() ||
     String(body.workspace_id || '').trim() ||
     (actorCtx?.workspaceId != null && String(actorCtx.workspaceId).trim() !== ''

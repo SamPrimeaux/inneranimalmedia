@@ -1109,8 +1109,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       browserElementContext && typeof browserElementContext === 'object' ? browserElementContext : null;
     if (snap) {
       messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(snap, null, 2)}\n\`\`\`\n`;
-      setBrowserElementContext(null);
     }
+
+    const effectiveWsId = (() => {
+      const fromProp = workspaceId != null ? String(workspaceId).trim() : '';
+      if (fromProp && fromProp !== 'global') return fromProp;
+      if (typeof window === 'undefined') return '';
+      const w = String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim();
+      return w && w !== 'global' ? w : '';
+    })();
 
     const effectiveConvId = conversationId || (() => { const id = crypto.randomUUID(); setConversationId(id); try { localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id); } catch (_) {} return id; })();
     const form = new FormData();
@@ -1123,6 +1130,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     form.append('provider', selectedModelProvider);
     form.append('conversationId', effectiveConvId);
     form.append('contextMode', String(activeProject));
+    if (effectiveWsId) form.append('workspace_id', effectiveWsId);
     try {
       const browserCtxPayload: Record<string, unknown> = {
         ...(browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object' ? browserSurfaceRef.current : {}),
@@ -1144,9 +1152,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     try {
       const streamDebugId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `dbg_${Date.now()}`;
       initIamAgentStreamDebug(streamDebugId);
+      const chatHeaders: Record<string, string> = {};
+      if (effectiveWsId) chatHeaders['x-iam-workspace-id'] = effectiveWsId;
+
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
         body: form,
+        headers: chatHeaders,
         signal,
         credentials: 'same-origin',
       });
@@ -1160,7 +1172,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         patchIamAgentStreamDebug({
           error_at: Date.now(),
         });
-        applyAssistantError(formatHttpErrorMessage(response.status, response.statusText || ''));
+        const errBody = await response.text().catch(() => '');
+        applyAssistantError(formatHttpErrorMessage(response.status, errBody || response.statusText || ''));
         return;
       }
       if (!response.body) {
@@ -1763,10 +1776,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-[var(--text-heading)]">BrowserView · selected element</div>
                 <div className="text-[var(--dashboard-muted)] truncate font-mono mt-0.5">
-                  &lt;{String(browserElementContext.tag || '?')}
-                  {String(browserElementContext.selector || '').slice(0, 120)}
+                  &lt;{String(browserElementContext.tag || browserElementContext.tagName || '?')}
+                  {browserElementContext.id ? `#${String(browserElementContext.id)}` : ''}
+                  {browserElementContext.className
+                    ? `.${String(browserElementContext.className).split(/\s+/)[0]}`
+                    : ''}
                   &gt;
+                  {String(browserElementContext.selector || browserElementContext.path || '').slice(0, 80)
+                    ? ` · ${String(browserElementContext.selector || browserElementContext.path).slice(0, 80)}`
+                    : ''}
                 </div>
+                {browserElementContext.computed_styles &&
+                typeof browserElementContext.computed_styles === 'object' ? (
+                  <div className="text-[var(--dashboard-muted)] mt-1 opacity-80 line-clamp-2">
+                    {Object.entries(browserElementContext.computed_styles as Record<string, unknown>)
+                      .slice(0, 4)
+                      .map(([k, v]) => `${k}: ${String(v)}`)
+                      .join(' · ')}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"

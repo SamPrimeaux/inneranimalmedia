@@ -678,12 +678,21 @@ const DevToolsPanel: React.FC<{
 
 // ─── Iframe injection scripts ─────────────────────────────────────────────────
 
+const PICKER_CLEANUP_SCRIPT = `
+(function() {
+  if (window.__iamPickerTeardown) { window.__iamPickerTeardown(); return; }
+  window.__iamPickerActive = false;
+  document.getElementById('__iam-picker-overlay')?.remove();
+})();
+`;
+
 const PICKER_SCRIPT = `
 (function() {
   if (window.__iamPickerActive) return;
   window.__iamPickerActive = true;
   let lastEl = null;
   const overlay = document.createElement('div');
+  overlay.id = '__iam-picker-overlay';
   overlay.style.cssText = 'position:fixed;pointer-events:none;border:2px solid #3a9fe8;background:rgba(58,159,232,0.08);z-index:2147483647;transition:all 0.1s;border-radius:2px;';
   document.body.appendChild(overlay);
 
@@ -900,6 +909,7 @@ const BrowserPane: React.FC<PaneProps> = ({
         const el = e.data.element as InspectedElement;
         setInspectedEl(el);
         setInspectEpoch((n) => n + 1);
+        setMode('browse');
         setDevToolsOpen(true);
         setDevToolsTab('elements');
         window.dispatchEvent(new CustomEvent('iam-browser-set-inspector', { detail: el }));
@@ -969,11 +979,7 @@ const BrowserPane: React.FC<PaneProps> = ({
           }),
         );
         window.dispatchEvent(new CustomEvent('iam:agent-context-attach', { detail: { browser_element: payload } }));
-        window.dispatchEvent(new CustomEvent('iam-agent-external-send', {
-          detail: {
-            message: `Inspected element: \`${el.tag}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ')[0]}` : ''}\`\n\nPath: \`${el.path}\`\n\nKey styles:\n${Object.entries(el.styles || {}).slice(0, 8).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`,
-          },
-        }));
+        // Context is attached via iam:browser-selected-element — do not auto POST /api/agent/chat (403 noise).
       }
     };
     window.addEventListener('message', h);
@@ -995,9 +1001,7 @@ const BrowserPane: React.FC<PaneProps> = ({
     return () => window.removeEventListener('iam-browser-set-inspector', onExternal as EventListener);
   }, []);
 
-  // ── Inject picker script when mode = picker ─────────────────────────────────
-  useEffect(() => {
-    if (mode !== 'picker') return;
+  const injectPickerScript = useCallback(() => {
     try {
       const doc = iframeRef.current?.contentDocument;
       if (!doc) return;
@@ -1005,7 +1009,26 @@ const BrowserPane: React.FC<PaneProps> = ({
       s.textContent = PICKER_SCRIPT;
       doc.head?.appendChild(s);
     } catch { /* cross-origin — can't inject, CDT tools handle instead */ }
-  }, [mode, iframeUrl]);
+  }, []);
+
+  const teardownPickerScript = useCallback(() => {
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc) return;
+      const s = doc.createElement('script');
+      s.textContent = PICKER_CLEANUP_SCRIPT;
+      doc.head?.appendChild(s);
+    } catch { /* cross-origin */ }
+  }, []);
+
+  // ── Inject / tear down picker script when mode changes ──────────────────────
+  useEffect(() => {
+    if (mode === 'picker') {
+      injectPickerScript();
+      return () => teardownPickerScript();
+    }
+    teardownPickerScript();
+  }, [mode, iframeUrl, injectPickerScript, teardownPickerScript]);
 
   // ── Trust gate ──────────────────────────────────────────────────────────────
   const requestTrust = useCallback((url: string): Promise<TrustScope | null> =>
@@ -1373,7 +1396,9 @@ const BrowserPane: React.FC<PaneProps> = ({
                   sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals"
                   style={{ zoom: zoom !== 100 ? zoom / 100 : undefined }}
                   className={`w-full flex-1 min-h-0 border-0 bg-white transition-opacity duration-150 ${
-                    mode === 'browse' && !iframeBlocked ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    (mode === 'browse' || mode === 'picker' || mode === 'area') && !iframeBlocked
+                      ? 'opacity-100'
+                      : 'opacity-0 pointer-events-none'
                   }`}
                   onLoad={() => {
                     setLoading(false);
@@ -1384,6 +1409,7 @@ const BrowserPane: React.FC<PaneProps> = ({
                         setInputVal(u);
                       }
                     } catch { /* cross-origin */ }
+                    if (mode === 'picker') injectPickerScript();
                   }}
                   onError={() => { setLoading(false); setIframeBlocked(true); }}
                 />

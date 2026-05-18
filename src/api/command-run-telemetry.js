@@ -50,6 +50,9 @@ export async function resolveAgentCommand(env, opts) {
   const msg = String(opts?.message || '').trim();
   if (!msg) return unresolvedCommandResult();
 
+  // Slash commands only — free-text chat (browser element picks, questions) must not hit allowlist/patterns.
+  if (!msg.startsWith('/')) return unresolvedCommandResult();
+
   const ws =
     opts?.workspaceId != null && String(opts.workspaceId).trim() !== ''
       ? String(opts.workspaceId).trim()
