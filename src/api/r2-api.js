@@ -395,6 +395,30 @@ export async function handleR2Api(request, url, env) {
     return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
   }
 
+  if (pathLower === '/api/r2/buckets' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.clone().json();
+    } catch (_) {
+      body = {};
+    }
+    const rawName = body.name != null ? String(body.name).trim() : '';
+    if (!rawName) return jsonResponse({ error: 'name required' }, 400);
+    if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(rawName)) {
+      return jsonResponse(
+        { error: 'Invalid bucket name (3–63 chars, lowercase letters, numbers, hyphens)' },
+        400,
+      );
+    }
+    const s3Denied = await assertR2UnboundS3Auth(request, env, null);
+    if (s3Denied) return s3Denied;
+    const created = await createR2BucketViaS3(env, rawName);
+    if (!created.ok) {
+      return jsonResponse({ error: created.error || 'create_failed', status: created.status }, created.status || 400);
+    }
+    return jsonResponse({ ok: true, bucket: rawName });
+  }
+
   if (pathLower === '/api/r2/stats' && method === 'GET' && url.searchParams.get('bucket')) {
     const b = url.searchParams.get('bucket').trim();
     const { binding } = resolveR2Access(env, b);
@@ -1199,6 +1223,22 @@ async function presignR2GetObjectUrl(env, bucket, key, expiresSeconds = 3600) {
   const signature = await hmacHex(signingKey, stringToSign);
   
   return `https://${host}/${bucket}/${encodedKey}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+}
+
+/** S3 PutBucket — create a new R2 bucket in the account. */
+async function createR2BucketViaS3(env, bucketName) {
+  const signed = await signR2Request('PUT', bucketName, '', '', env);
+  if (!signed) return { ok: false, error: 'R2 S3 credentials missing', status: 400 };
+  const putResp = await fetch(signed.endpoint, { method: 'PUT', headers: signed.headers });
+  if (putResp.ok || putResp.status === 409) {
+    return { ok: true };
+  }
+  const errText = await putResp.text().catch(() => '');
+  return {
+    ok: false,
+    error: errText?.slice(0, 200) || `R2 create bucket failed (${putResp.status})`,
+    status: putResp.status,
+  };
 }
 
 /** S3 ListBuckets (account-wide) when R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY are set. */

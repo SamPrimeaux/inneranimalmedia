@@ -27,6 +27,14 @@ import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
 import { GoogleDriveExplorer } from './GoogleDriveExplorer';
 import { pickR2DisplayBuckets, type R2BucketsApiResponse } from '../src/lib/r2Buckets';
+import {
+    loadR2SavedBuckets,
+    partitionR2Listing,
+    saveR2SavedBuckets,
+    type R2ObjectRow,
+} from '../src/lib/r2Listing';
+
+const IAM_PALETTE_OPEN_R2 = 'iam-palette-open-r2';
 
 const NATIVE_WS_DB_NAME = 'iam-agent-native-workspace-v1';
 const NATIVE_WS_STORE = 'handles';
@@ -204,7 +212,16 @@ export const LocalExplorer: React.FC<{
     /** Bumps when Welcome (or parent) should open the native folder picker (showDirectoryPicker). */
     nativeFolderOpenSignal?: number;
     workspace_id?: string | null;
-}> = ({ onFileSelect, onWorkspaceRootChange, onOpenInEditor, onOpenMovieMode, nativeFolderOpenSignal = 0, workspace_id = null }) => {
+    user_id?: string | null;
+}> = ({
+    onFileSelect,
+    onWorkspaceRootChange,
+    onOpenInEditor,
+    onOpenMovieMode,
+    nativeFolderOpenSignal = 0,
+    workspace_id = null,
+    user_id = null,
+}) => {
     const [rootDir, setRootDir] = useState<FileNode | null>(null);
     /**
      * When the directory handle cannot be revalidated, show vscode.dev-style resume copy.
@@ -225,7 +242,12 @@ export const LocalExplorer: React.FC<{
     const [localTunnelVerifyWarning, setLocalTunnelVerifyWarning] = useState(false);
 
     const [r2Buckets, setR2Buckets] = useState<string[]>([]);
+    const [r2SavedBuckets, setR2SavedBuckets] = useState<string[]>(() => loadR2SavedBuckets(user_id));
     const [selectedR2Bucket, setSelectedR2Bucket] = useState<string>('');
+    const [r2AddOpen, setR2AddOpen] = useState(false);
+    const [r2AddMode, setR2AddMode] = useState<'connect' | 'create' | null>(null);
+    const [r2AddName, setR2AddName] = useState('');
+    const [r2AddBusy, setR2AddBusy] = useState(false);
     const [r2PrefixByBucket, setR2PrefixByBucket] = useState<Record<string, string>>({});
     const [r2PrefixesByBucket, setR2PrefixesByBucket] = useState<Record<string, string[]>>({});
     const [r2ObjectsByBucket, setR2ObjectsByBucket] = useState<Record<string, { key: string; size?: number }[]>>({});
@@ -247,7 +269,29 @@ export const LocalExplorer: React.FC<{
         }
     }, []);
 
-    const displayR2Buckets = r2Buckets;
+    const displayR2Buckets = useMemo(() => {
+        const merged: string[] = [];
+        const seen = new Set<string>();
+        for (const name of [...r2Buckets, ...r2SavedBuckets]) {
+            const n = name.trim();
+            if (!n || seen.has(n)) continue;
+            seen.add(n);
+            merged.push(n);
+        }
+        return merged.sort((a, b) => a.localeCompare(b));
+    }, [r2Buckets, r2SavedBuckets]);
+
+    const persistSavedR2Buckets = useCallback(
+        (next: string[]) => {
+            setR2SavedBuckets(next);
+            saveR2SavedBuckets(user_id, next);
+        },
+        [user_id],
+    );
+
+    useEffect(() => {
+        setR2SavedBuckets(loadR2SavedBuckets(user_id));
+    }, [user_id]);
 
     useEffect(() => {
         loadR2Buckets();
@@ -316,10 +360,11 @@ export const LocalExplorer: React.FC<{
                 setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: [] }));
                 return;
             }
-            const rows = Array.isArray(data.objects) ? data.objects : [];
+            const rows = (Array.isArray(data.objects) ? data.objects : []) as R2ObjectRow[];
             const prefs = Array.isArray(data.prefixes) ? data.prefixes : [];
-            setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: rows }));
-            setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: prefs }));
+            const { folders, files } = partitionR2Listing(rows, prefs, prefix);
+            setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: files }));
+            setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: folders }));
         } catch (e) {
             console.error('[LocalExplorer] R2 list fetch failed:', e);
             setR2Err(e instanceof Error ? e.message : 'R2 list failed');
@@ -331,9 +376,97 @@ export const LocalExplorer: React.FC<{
     }, [r2PrefixByBucket]);
 
     useEffect(() => {
-        if (!selectedR2Bucket) return;
+        if (!selectedR2Bucket || !expandedSections.r2) return;
         void loadR2List(selectedR2Bucket);
-    }, [selectedR2Bucket]);
+    }, [selectedR2Bucket, expandedSections.r2, loadR2List]);
+
+    useEffect(() => {
+        const onPaletteOpen = (e: Event) => {
+            const b = (e as CustomEvent<{ bucket?: string }>).detail?.bucket?.trim();
+            setExpandedSections((prev) => ({ ...prev, r2: true }));
+            if (b) {
+                persistSavedR2Buckets(
+                    r2SavedBuckets.includes(b) ? r2SavedBuckets : [...r2SavedBuckets, b],
+                );
+                setSelectedR2Bucket(b);
+            }
+        };
+        window.addEventListener(IAM_PALETTE_OPEN_R2, onPaletteOpen as EventListener);
+        return () => window.removeEventListener(IAM_PALETTE_OPEN_R2, onPaletteOpen as EventListener);
+    }, [persistSavedR2Buckets, r2SavedBuckets]);
+
+    const validateR2BucketExists = async (name: string): Promise<boolean> => {
+        const qs = new URLSearchParams({ bucket: name, prefix: '' });
+        const res = await fetch(`/api/r2/list?${qs}`, { credentials: 'same-origin' });
+        if (!res.ok) return false;
+        const data = await res.json().catch(() => ({}));
+        return !data.error;
+    };
+
+    const connectR2Bucket = async () => {
+        const name = r2AddName.trim();
+        if (!name) {
+            setR2Err('Enter a bucket name.');
+            return;
+        }
+        setR2AddBusy(true);
+        setR2Err(null);
+        try {
+            const ok = await validateR2BucketExists(name);
+            if (!ok) {
+                setR2Err(`Bucket "${name}" not found or not accessible.`);
+                return;
+            }
+            const next = r2SavedBuckets.includes(name) ? r2SavedBuckets : [...r2SavedBuckets, name];
+            persistSavedR2Buckets(next);
+            setSelectedR2Bucket(name);
+            setR2AddOpen(false);
+            setR2AddMode(null);
+            setR2AddName('');
+        } catch (e) {
+            setR2Err(e instanceof Error ? e.message : 'Bucket validation failed');
+        } finally {
+            setR2AddBusy(false);
+        }
+    };
+
+    const createR2Bucket = async () => {
+        const name = r2AddName.trim().toLowerCase();
+        if (!name) {
+            setR2Err('Enter a bucket name.');
+            return;
+        }
+        if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(name)) {
+            setR2Err('Name must be 3–63 chars: lowercase letters, numbers, hyphens.');
+            return;
+        }
+        setR2AddBusy(true);
+        setR2Err(null);
+        try {
+            const res = await fetch('/api/r2/buckets', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setR2Err(typeof data.error === 'string' ? data.error : `Create failed (${res.status})`);
+                return;
+            }
+            const next = r2SavedBuckets.includes(name) ? r2SavedBuckets : [...r2SavedBuckets, name];
+            persistSavedR2Buckets(next);
+            setSelectedR2Bucket(name);
+            setR2AddOpen(false);
+            setR2AddMode(null);
+            setR2AddName('');
+            void loadR2Buckets();
+        } catch (e) {
+            setR2Err(e instanceof Error ? e.message : 'Create bucket failed');
+        } finally {
+            setR2AddBusy(false);
+        }
+    };
 
     const setR2Prefix = (bucket: string, prefix: string) => {
         setR2PrefixByBucket((prev) => ({ ...prev, [bucket]: prefix }));
@@ -841,16 +974,92 @@ export const LocalExplorer: React.FC<{
 
             {/* Section 2: Cloudflare R2 */}
             <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1">
-                <div 
-                    onClick={() => toggleSection('r2')}
-                    className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
-                >
-                    {expandedSections.r2 ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
-                    <Cloud size={14} className="text-[var(--solar-orange)] group-hover:text-[var(--text-heading)]" />
-                    <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">Cloudflare R2</span>
+                <div className="flex items-center justify-between px-4 py-2 hover:bg-[var(--bg-hover)] group">
+                    <div
+                        className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                        onClick={() => toggleSection('r2')}
+                    >
+                        {expandedSections.r2 ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
+                        <Cloud size={14} className="text-[var(--solar-orange)] group-hover:text-[var(--text-heading)]" />
+                        <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">Cloudflare R2</span>
+                    </div>
+                    <button
+                        type="button"
+                        title="Add R2 bucket"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedSections((prev) => ({ ...prev, r2: true }));
+                            setR2AddOpen((v) => !v);
+                            setR2AddMode(null);
+                            setR2AddName('');
+                        }}
+                        className="p-1 hover:bg-[var(--bg-app)] rounded text-[var(--text-muted)] hover:text-white shrink-0"
+                    >
+                        <Plus size={12} />
+                    </button>
                 </div>
                 {expandedSections.r2 && (
                     <div className="px-4 py-2 text-[11px] text-[var(--text-muted)] flex flex-col gap-2 font-mono">
+                        {r2AddOpen && (
+                            <div className="rounded border border-[var(--border-subtle)]/50 bg-[var(--bg-app)]/80 p-2 flex flex-col gap-2 text-[10px]">
+                                {!r2AddMode ? (
+                                    <div className="flex flex-col gap-1">
+                                        <button
+                                            type="button"
+                                            className="text-left px-2 py-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                                            onClick={() => setR2AddMode('connect')}
+                                        >
+                                            Connect existing bucket
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="text-left px-2 py-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
+                                            onClick={() => setR2AddMode('create')}
+                                        >
+                                            Create new bucket
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <label className="text-[var(--text-muted)] uppercase text-[9px]">
+                                            {r2AddMode === 'connect' ? 'Bucket name' : 'New bucket name'}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={r2AddName}
+                                            onChange={(e) => setR2AddName(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    void (r2AddMode === 'connect' ? connectR2Bucket() : createR2Bucket());
+                                                }
+                                            }}
+                                            placeholder={r2AddMode === 'create' ? 'my-bucket-name' : 'inneranimalmedia'}
+                                            className="w-full bg-[var(--bg-panel)] border border-[var(--border-subtle)]/50 rounded px-2 py-1 text-[10px] text-[var(--text-main)] outline-none"
+                                        />
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={r2AddBusy}
+                                                className="flex-1 py-1 rounded border border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/10 disabled:opacity-50"
+                                                onClick={() => void (r2AddMode === 'connect' ? connectR2Bucket() : createR2Bucket())}
+                                            >
+                                                {r2AddBusy ? '…' : r2AddMode === 'connect' ? 'Connect' : 'Create'}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="px-2 py-1 rounded text-[var(--text-muted)] hover:text-white"
+                                                onClick={() => {
+                                                    setR2AddMode(null);
+                                                    setR2AddName('');
+                                                }}
+                                            >
+                                                Back
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                         {r2Err && (
                             <p className="text-[10px] text-[var(--solar-orange)] break-words">{r2Err}</p>
                         )}
@@ -865,6 +1074,7 @@ export const LocalExplorer: React.FC<{
                                     onChange={(e) => {
                                         const b = e.target.value;
                                         setSelectedR2Bucket(b);
+                                        setR2PrefixByBucket((prev) => ({ ...prev, [b]: prev[b] ?? '' }));
                                         setR2SearchMode((m) => ({ ...m, [b]: false }));
                                     }}
                                     className="flex-1 min-w-0 max-w-[220px] bg-[var(--bg-app)] border border-[var(--border-subtle)]/50 rounded px-1 py-0.5 text-[10px] text-[var(--text-main)]"
@@ -963,6 +1173,11 @@ export const LocalExplorer: React.FC<{
                                                   <div className="flex items-center gap-1 py-1 text-[10px]">
                                                       <Loader2 size={10} className="animate-spin" /> Loading…
                                                   </div>
+                                              )}
+                                              {!r2Loading && !searchOn && prefs.length === 0 && objs.length === 0 && (
+                                                  <span className="text-[10px] italic py-1 text-[var(--text-muted)]">
+                                                      No objects at this prefix.
+                                                  </span>
                                               )}
                                               {!searchOn &&
                                                   prefs.map((p) => (

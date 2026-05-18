@@ -9,7 +9,12 @@ import { useLocation, Routes, Route, Navigate, useNavigate } from "react-router-
 import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
 import { MCPPanel } from './components/MCPPanel';
-import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from './agentChatConstants';
+import {
+  CREATE_SKILL_SEED_MESSAGE,
+  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
+  IAM_AGENT_CHAT_NEW_THREAD,
+  LS_AGENT_CHAT_CONVERSATION_ID,
+} from './agentChatConstants';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import { XTermShell, XTermShellHandle } from './components/XTermShell';
 import { ExtensionsPanel } from './components/ExtensionsPanel';
@@ -25,7 +30,6 @@ import { GitHubExplorer } from './components/GitHubExplorer';
 import { KnowledgeSearchPanel } from './components/KnowledgeSearchPanel';
 // import { ProblemsDebugPanel } from './components/ProblemsDebugPanel';
 import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
-import { R2Explorer } from './components/R2Explorer';
 import { SourcePanel } from './components/SourcePanel';
 import { ProjectType, type ActiveFile } from './types';
 import { SHELL_VERSION } from './src/shellVersion';
@@ -334,7 +338,7 @@ const App: React.FC = () => {
 
   // IDE State
   type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'moviemode';
-  const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'drive' | 'database' | null>(null);
+  const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database' | null>(null);
   const LS_SIDEBAR_RAIL = 'iam_sidebar_expanded';
   /** User-chosen agent column side; survives reloads (not overwritten by workspace policy fetch). */
   const LS_AGENT_POSITION = 'iam_agent_position';
@@ -807,10 +811,23 @@ const App: React.FC = () => {
     setCmdHubOpen(false);
   }, []);
 
-  const handleSendMessage = useCallback((msg: string) => {
-    if (!msg.trim()) return;
-    window.dispatchEvent(new CustomEvent('iam-agent-external-send', { detail: { message: msg } }));
+  const focusAgentChat = useCallback(() => {
+    setAgentPosition((p) => (p === 'off' ? 'right' : p));
   }, []);
+
+  const runVerificationInAgent = useCallback(
+    (command: string) => {
+      const trimmed = command.trim();
+      if (!trimmed) return;
+      focusAgentChat();
+      window.dispatchEvent(
+        new CustomEvent('iam-agent-external-send', {
+          detail: { message: trimmed },
+        }),
+      );
+    },
+    [focusAgentChat],
+  );
 
   const persistActiveWorkspace = useCallback(async (id: string) => {
     setAuthWorkspaceId(id);
@@ -1255,6 +1272,50 @@ const App: React.FC = () => {
     }
   }, [agentChatTabs.length, workspaceDisplayLine]);
 
+  const pendingNewThreadMessageRef = useRef<string | null>(null);
+
+  const dispatchNewThreadMessage = useCallback((message: string) => {
+    requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent(IAM_AGENT_CHAT_NEW_THREAD, {
+          detail: { message },
+        }),
+      );
+    });
+  }, []);
+
+  const startAgentNewThreadWithMessage = useCallback(
+    (message: string) => {
+      const trimmed = message.trim();
+      if (!trimmed) return;
+
+      const openPanelAndSend = () => {
+        createNewAgentChatTab();
+        dispatchNewThreadMessage(trimmed);
+      };
+
+      if (agentPosition === 'off') {
+        pendingNewThreadMessageRef.current = trimmed;
+        setAgentPosition('right');
+        return;
+      }
+      openPanelAndSend();
+    },
+    [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage],
+  );
+
+  useEffect(() => {
+    const pending = pendingNewThreadMessageRef.current;
+    if (!pending || agentPosition === 'off') return;
+    pendingNewThreadMessageRef.current = null;
+    createNewAgentChatTab();
+    dispatchNewThreadMessage(pending);
+  }, [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage]);
+
+  const startCreateSkillFlow = useCallback(() => {
+    startAgentNewThreadWithMessage(CREATE_SKILL_SEED_MESSAGE);
+  }, [startAgentNewThreadWithMessage]);
+
   const selectAgentChatTab = useCallback(
     (tabId: string) => {
       setActiveAgentChatTabId(tabId);
@@ -1416,19 +1477,17 @@ const App: React.FC = () => {
     const handleOpenR2Palette = (e: Event) => {
       const r2BucketName = (e as CustomEvent<{ bucket?: string }>).detail?.bucket?.trim();
       revealMainWorkspaceIfNarrow();
-      setActiveActivity('remote');
+      if (location.pathname !== '/dashboard/agent' && location.pathname !== '/dashboard/meet') {
+        navigate('/dashboard/agent');
+      }
+      setActiveActivity('files');
       if (r2BucketName) {
-        try {
-          sessionStorage.setItem('iam-palette-r2-bucket', r2BucketName);
-        } catch {
-          /* ignore */
-        }
         window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket: r2BucketName } }));
       }
     };
     window.addEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);
     return () => window.removeEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);
-  }, [revealMainWorkspaceIfNarrow]);
+  }, [revealMainWorkspaceIfNarrow, location.pathname, navigate]);
 
   useEffect(() => {
     if (!activeFile) return;
@@ -1571,7 +1630,7 @@ const App: React.FC = () => {
   }, []);
 
   const toggleActivity = (
-    activity: 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'remote' | 'actions' | 'drive' | 'database',
+    activity: 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database',
   ) => {
     if (activity === 'files' && typeof window !== 'undefined') {
       const p = window.location.pathname;
@@ -1891,16 +1950,18 @@ const App: React.FC = () => {
       if (act === 'files' && location.pathname !== '/dashboard/agent' && location.pathname !== '/dashboard/meet') {
         navigate('/dashboard/agent');
       }
-      setActiveActivity(act as typeof activeActivity);
-      const paletteBucket = detail?.r2Bucket?.trim();
-      if (paletteBucket && act === 'remote') {
-        try {
-          sessionStorage.setItem('iam-palette-r2-bucket', paletteBucket);
-        } catch {
-          /* ignore */
+      if (act === 'remote') {
+        if (location.pathname !== '/dashboard/agent' && location.pathname !== '/dashboard/meet') {
+          navigate('/dashboard/agent');
         }
-        window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket: paletteBucket } }));
+        setActiveActivity('files');
+        const paletteBucket = detail?.r2Bucket?.trim();
+        if (paletteBucket) {
+          window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket: paletteBucket } }));
+        }
+        return;
       }
+      setActiveActivity(act as typeof activeActivity);
     };
     window.addEventListener('iam-sidebar-toggle', onSidebarToggle as EventListener);
     return () => window.removeEventListener('iam-sidebar-toggle', onSidebarToggle as EventListener);
@@ -2635,6 +2696,7 @@ const App: React.FC = () => {
                   ) : activeActivity === 'files' && location.pathname === '/dashboard/agent' ? (
                       <LocalExplorer
                           workspace_id={authWorkspaceId}
+                          user_id={sessionUserId}
                           nativeFolderOpenSignal={nativeFolderOpenSignal}
                           onWorkspaceRootChange={onExplorerWorkspaceRootChange}
                           onFileSelect={openInEditorFromExplorer}
@@ -2656,14 +2718,6 @@ const App: React.FC = () => {
                       />
                   ) : activeActivity === 'drive' ? (
                       <GoogleDriveExplorer
-                          onOpenInEditor={(file) => {
-                              setActiveFile(file);
-                              openTab('code');
-                              revealMainWorkspaceIfNarrow();
-                          }}
-                      />
-                  ) : activeActivity === 'remote' ? (
-                      <R2Explorer
                           onOpenInEditor={(file) => {
                               setActiveFile(file);
                               openTab('code');
@@ -2895,7 +2949,8 @@ const App: React.FC = () => {
                             workspaceRows={workspaceRows}
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
-                            onSendMessage={handleSendMessage}
+                            onCreateSkill={startCreateSkillFlow}
+                            onRunVerificationCommand={runVerificationInAgent}
                             onOpenEditor={focusCodeEditorFromChat}
                             workspacePlanTasks={Array.isArray(workspaceSamState?.next_tasks) ? (workspaceSamState!.next_tasks as unknown[]) : []}
                             activePlanId={(() => {
@@ -3199,7 +3254,6 @@ const App: React.FC = () => {
               <MobileMoreRow icon={Search} label="Search" onClick={() => { setMobileMoreOpen(false); toggleActivity('search'); }} />
               <MobileMoreRow icon={GitBranch} label="Source Control" onClick={() => { setMobileMoreOpen(false); toggleActivity('git'); }} />
               <MobileMoreRow icon={Bug} label="Run & Debug" onClick={() => { setMobileMoreOpen(false); toggleActivity('debug'); }} />
-              <MobileMoreRow icon={Network} label="Remote Explorers" onClick={() => { setMobileMoreOpen(false); toggleActivity('remote'); }} />
               <MobileMoreRow icon={Layers} label="Tools & MCP" onClick={() => { setMobileMoreOpen(false); toggleActivity('mcps'); }} />
               <MobileMoreRow icon={Cloud} label="Cloud Sync" onClick={() => { setMobileMoreOpen(false); toggleActivity('drive'); }} />
               <MobileMoreRow icon={Monitor} label="Engine View" onClick={() => { setMobileMoreOpen(false); navigate('/dashboard/designstudio'); }} />
