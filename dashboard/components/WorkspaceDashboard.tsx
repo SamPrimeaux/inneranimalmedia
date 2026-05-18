@@ -50,6 +50,21 @@ interface AIModel {
   description?: string;
 }
 
+const HOME_SUBLINE_OPTIONS = [
+  'What are we building today',
+  'Ready when you are',
+  'Your stack is standing by',
+  'Where do we start',
+  'All systems operational',
+  "Let's get to work",
+] as const;
+
+/** One random subline per mount — stable until the user reloads or leaves the home tab. */
+function pickHomeSubline(): string {
+  const i = Math.floor(Math.random() * HOME_SUBLINE_OPTIONS.length);
+  return HOME_SUBLINE_OPTIONS[i] ?? HOME_SUBLINE_OPTIONS[0];
+}
+
 /**
  * WorkspaceDashboard: A premium, centered 'Cursor-style' home screen for the IDE.
  * Replaces the legacy WelcomeScreen and WorkspaceLauncher modal.
@@ -88,7 +103,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   const displayPlanTasks: unknown[] = activePlanId ? (realtimePlanTasks as unknown[]) : workspacePlanTasks;
 
   const [chatInput, setChatInput] = useState('');
-  const [taglineIndex, setTaglineIndex] = useState(0);
+  const [subline] = useState(pickHomeSubline);
   const [models, setModels] = useState<AIModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -107,22 +122,6 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
     if (h < 17) return 'Good afternoon';
     return 'Good evening';
   };
-
-  const taglines = [
-    'What are we building today',
-    'Ready when you are',
-    'Your stack is standing by',
-    'Where do we start',
-    'All systems operational',
-    'Lets get to work',
-  ];
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setTaglineIndex(i => (i + 1) % taglines.length);
-    }, 8000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     fetch('/api/agent/models?show_in_picker=1')
@@ -190,8 +189,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         <h1 className="text-[22px] font-semibold tracking-tight text-[var(--dashboard-text)] mb-1">
           {getGreeting()}
         </h1>
-        <p className="text-[13px] text-[var(--dashboard-muted)] opacity-60 transition-all duration-700">
-          {taglines[taglineIndex]}
+        <p className="text-[13px] text-[var(--dashboard-muted)] opacity-60">
+          {subline}
         </p>
       </div>
 
@@ -376,21 +375,6 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
           </button>
         </div>
 
-        {/* ── IDE Shortcuts Hint (Adjusted) ── */}
-        <div className="mt-12 flex flex-wrap justify-center gap-10 text-[10px] text-[var(--dashboard-muted)] uppercase tracking-[0.2em] font-black opacity-20">
-          <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded border border-[var(--dashboard-border)]">P</span>
-            <span>Files</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded border border-[var(--dashboard-border)]">I</span>
-            <span>Refactor</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="px-2 py-0.5 rounded border border-[var(--dashboard-border)]">J</span>
-            <span>Terminal</span>
-          </div>
-        </div>
       </div>
 
       {(displayPlanTasks.length > 0 || activePlanId || workspaceActivity.length > 0 || workspaceVerificationCommands.length > 0 || activeAgentSlug) ? (
