@@ -560,14 +560,22 @@ export async function handleR2Api(request, url, env) {
         return { objects: allObjects, prefixes: [] };
       }
       const list = await binding.list({ prefix, delimiter: '/', limit: limitParam });
-      return {
-        objects: (list.objects || []).filter(o => !o.key.endsWith('/')).map(o => ({
-          key: o.key,
-          size: o.size ?? 0,
-          last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
-        })),
-        prefixes: list.rolledUpPrefixes || [],
-      };
+      let objects = (list.objects || []).filter((o) => !o.key.endsWith('/')).map((o) => ({
+        key: o.key,
+        size: o.size ?? 0,
+        last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+      }));
+      let prefixes = list.rolledUpPrefixes || [];
+      if (prefixes.length === 0 && objects.length === 0) {
+        const flat = await binding.list({ prefix, limit: limitParam });
+        const derived = deriveShallowR2ListingFromObjects(
+          (flat.objects || []).filter((o) => !o.key.endsWith('/')),
+          prefix,
+        );
+        objects = derived.objects;
+        prefixes = derived.prefixes;
+      }
+      return { objects, prefixes };
     };
 
     const bindingList = await listViaBinding();
@@ -1223,6 +1231,33 @@ async function presignR2GetObjectUrl(env, bucket, key, expiresSeconds = 3600) {
   const signature = await hmacHex(signingKey, stringToSign);
   
   return `https://${host}/${bucket}/${encodedKey}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+}
+
+/** When delimiter listing returns empty, derive folders/files from a flat page of keys. */
+function deriveShallowR2ListingFromObjects(rawObjects, currentPrefix) {
+  const p = String(currentPrefix || '').replace(/\/$/, '');
+  const pfx = p ? `${p}/` : '';
+  const folderSet = new Set();
+  const files = [];
+  for (const o of rawObjects) {
+    const k = String(o?.key || '');
+    if (!k.startsWith(pfx)) continue;
+    const rest = k.slice(pfx.length);
+    const slash = rest.indexOf('/');
+    if (slash < 0) {
+      files.push({
+        key: k,
+        size: o.size ?? 0,
+        last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+      });
+    } else {
+      folderSet.add(pfx + rest.slice(0, slash + 1));
+    }
+  }
+  return {
+    objects: files,
+    prefixes: [...folderSet].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 /** S3 PutBucket — create a new R2 bucket in the account. */
