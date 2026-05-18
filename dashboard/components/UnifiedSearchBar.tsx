@@ -415,6 +415,7 @@ export const UnifiedSearchBar: React.FC<{
   const [bucketMenuLoading, setBucketMenuLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const bucketMenuRef = useRef<HTMLDivElement>(null);
+  const paletteRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { mode, term } = useMemo(() => parseQueryMode(q), [q]);
@@ -963,6 +964,17 @@ export const UnifiedSearchBar: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [open, closePalette]);
 
+  /** Click-outside closes palette — no fullscreen blur scrim (Cursor-style anchored dropdown). */
+  useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (paletteRef.current?.contains(e.target as Node)) return;
+      closePalette();
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [open, closePalette]);
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -981,7 +993,7 @@ export const UnifiedSearchBar: React.FC<{
   let rowIndex = -1;
 
   return (
-    <div className="nav-search-container w-full max-w-lg min-w-0">
+    <div ref={paletteRef} className="nav-search-container w-full max-w-lg min-w-0">
       <div className="flex items-stretch w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--solar-cyan)]/40 transition-colors overflow-hidden">
         <div ref={bucketMenuRef} className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]">
           <button
@@ -1049,14 +1061,11 @@ export const UnifiedSearchBar: React.FC<{
       </div>
 
       {open && (
-        <>
-          <button
-            type="button"
-            aria-label="Close search"
-            className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px]"
-            onClick={closePalette}
-          />
-          <div className="nav-dropdown rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-xl shadow-2xl overflow-hidden flex flex-col max-h-[min(70vh,520px)] z-50">
+          <div
+            className="nav-dropdown rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-2xl overflow-hidden flex flex-col max-h-[min(70vh,520px)]"
+            role="dialog"
+            aria-label="Command palette"
+          >
             <div className="px-3 py-2.5 border-b border-[var(--border-subtle)] space-y-2">
               <div className="flex items-center gap-2">
                 <Search size={16} className="text-[var(--text-muted)] shrink-0" />
@@ -1167,7 +1176,6 @@ export const UnifiedSearchBar: React.FC<{
               <span>↵ to select</span>
             </div>
           </div>
-        </>
       )}
 
       {toast ? (

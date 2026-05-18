@@ -61,16 +61,18 @@ samp.font-mono {
 
 .nav-search-container {
   position: relative;
+  z-index: 120;
 }
 
+/* Anchored under top-bar search — not a fullscreen modal */
 .nav-dropdown {
   position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 0.5rem;
-  width: 100%;
-  max-width: 500px;
-  z-index: 50;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 1.5rem));
+  max-width: 520px;
+  z-index: 121;
 }
 
 /* Split Editor Layout */

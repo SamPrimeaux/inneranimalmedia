@@ -2299,7 +2299,7 @@ const App: React.FC = () => {
   return (
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
       {/* 1. TOP WINDOW BAR */}
-      <div className="h-10 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center justify-between px-3 shrink-0">
+      <div className="h-10 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center justify-between px-3 shrink-0 overflow-visible relative z-[110]">
           <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">
               {narrowNeedsBack && (
                 <button
@@ -2341,7 +2341,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Unified search (Cmd+K) + Knowledge panel (RAG / chats list) */}
-          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2">
+          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible">
               <UnifiedSearchBar
                 workspaceLabel={workspaceDisplayLine}
                 recentFiles={mappedRecentFiles}
