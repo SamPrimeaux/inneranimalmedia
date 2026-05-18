@@ -33,6 +33,7 @@ interface WorkspaceDashboardProps {
   onSwitchWorkspace: (id: string) => void;
   onSendMessage: (message: string) => void;
   onOpenEditor?: () => void;
+  onOpenRecent: (entry: RecentFileEntry) => void;
   /** From `agentsam_workspace_state.state_json.next_tasks` */
   workspacePlanTasks?: unknown[];
   /** When set, next tasks are loaded from Supabase Realtime (`agentsam_plan_tasks`) instead of workspace state. */
@@ -76,6 +77,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   onSwitchWorkspace,
   onSendMessage,
   onOpenEditor,
+  onOpenRecent,
   workspacePlanTasks = [],
   activePlanId = null,
   workspaceActivity = [],
@@ -494,7 +496,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
       <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
         <div className="flex items-center gap-2 mb-4 px-2">
             <HistoryIcon size={14} className="text-[var(--dashboard-muted)]" />
-            <h2 className="text-[11px] font-bold text-[var(--dashboard-muted)] uppercase tracking-widest">Recently Opened</h2>
+            <h2 className="text-[11px] font-bold text-[var(--dashboard-muted)] uppercase tracking-widest">Recent Files</h2>
         </div>
         
         <div className="bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl divide-y divide-[var(--dashboard-border)] overflow-hidden">
@@ -503,7 +505,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
               <div 
                 key={file.id}
                 className="group flex items-center justify-between p-4 hover:bg-[var(--dashboard-canvas)] transition-colors cursor-pointer"
-                onClick={() => { /* Handled via App.tsx */ }}
+                onClick={() => onOpenRecent(file)}
               >
                 <div className="flex items-center gap-4 min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors">

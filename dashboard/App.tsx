@@ -231,6 +231,41 @@ function getAgentPanelViewportMaxPx(opts: {
   return opts.viewportInnerWidth - reserved;
 }
 
+const IAM_RECENT_FILES_LS_KEY = 'iam_recent_files';
+const IAM_RECENT_FILES_LS_CAP = 10;
+
+function isRecentFileEntry(x: unknown): x is RecentFileEntry {
+  return (
+    !!x &&
+    typeof x === 'object' &&
+    typeof (x as RecentFileEntry).id === 'string' &&
+    typeof (x as RecentFileEntry).name === 'string' &&
+    typeof (x as RecentFileEntry).openedAt === 'number'
+  );
+}
+
+function readRecentFilesFromLocalStorage(): RecentFileEntry[] {
+  try {
+    const raw = localStorage.getItem(IAM_RECENT_FILES_LS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isRecentFileEntry).slice(0, IAM_RECENT_FILES_LS_CAP);
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentFileToLocalStorage(entry: RecentFileEntry): void {
+  try {
+    const prev = readRecentFilesFromLocalStorage();
+    const next = [entry, ...prev.filter((e) => e.id !== entry.id)].slice(0, IAM_RECENT_FILES_LS_CAP);
+    localStorage.setItem(IAM_RECENT_FILES_LS_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+}
+
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
   const location = useLocation();
@@ -332,6 +367,7 @@ const App: React.FC = () => {
 
   const [ideWorkspace, setIdeWorkspace] = useState<IdeWorkspaceSnapshot>(() => ({ source: 'none' }));
   const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
+  const [recentFilesLsTick, setRecentFilesLsTick] = useState(0);
   const [gitBranch, setGitBranch] = useState(() => '');
   const stableAgentChatTabId = useMemo(
     () =>
@@ -728,6 +764,13 @@ const App: React.FC = () => {
       label: f.label
     }));
   }, [recentFiles]);
+
+  const workspaceDashboardRecentFiles = useMemo(() => {
+    if (recentFiles.length > 0) return recentFiles;
+    const convId = activeAgentConversationId?.trim();
+    if (convId) return recentFiles;
+    return readRecentFilesFromLocalStorage();
+  }, [recentFiles, activeAgentConversationId, recentFilesLsTick]);
 
   // Tabs: Workspace matches default activeTab (welcome had no panel — stranded tab id removed from defaults).
   const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
@@ -1397,6 +1440,9 @@ const App: React.FC = () => {
 
   const openRecentEntry = useCallback(
     async (entry: RecentFileEntry) => {
+      persistRecentFileToLocalStorage({ ...entry, openedAt: Date.now() });
+      setRecentFilesLsTick((t) => t + 1);
+
       const applySnapshots = (msg?: string) => {
         const work = entry.snapshotWorking || '';
         const orig = entry.snapshotOriginal !== null ? entry.snapshotOriginal : work;
@@ -2844,7 +2890,8 @@ const App: React.FC = () => {
                               setSearchInitialQuery('clone ');
                               setSearchOpen(true);
                             }}
-                            recentFiles={recentFiles}
+                            recentFiles={workspaceDashboardRecentFiles}
+                            onOpenRecent={openRecentEntry}
                             workspaceRows={workspaceRows}
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
