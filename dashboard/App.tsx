@@ -762,9 +762,8 @@ const App: React.FC = () => {
 
   const handleSendMessage = useCallback((msg: string) => {
     if (!msg.trim()) return;
-    if (agentPosition === 'off') setAgentPosition('right');
     window.dispatchEvent(new CustomEvent('iam-agent-external-send', { detail: { message: msg } }));
-  }, [agentPosition]);
+  }, []);
 
   const persistActiveWorkspace = useCallback(async (id: string) => {
     setAuthWorkspaceId(id);
