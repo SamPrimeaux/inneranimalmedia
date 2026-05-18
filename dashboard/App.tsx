@@ -381,9 +381,13 @@ const App: React.FC = () => {
   const [activeCommandRunId, setActiveCommandRunId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
+  const [searchInitialQuery, setSearchInitialQuery] = useState('');
   const onUnifiedSearchOpenChange = useCallback((next: boolean) => {
     setSearchOpen(next);
-    if (!next) setSearchInitialFacets([]);
+    if (!next) {
+      setSearchInitialFacets([]);
+      setSearchInitialQuery('');
+    }
   }, []);
   /** Desktop: Draw / Search / History (Addendum A). */
   const [topChromeMoreOpen, setTopChromeMoreOpen] = useState(false);
@@ -2300,6 +2304,8 @@ const App: React.FC = () => {
                 controlledOpen={searchOpen}
                 onControlledOpenChange={onUnifiedSearchOpenChange}
                 initialFacets={searchInitialFacets}
+                initialQuery={searchInitialQuery}
+                onInitialQueryConsumed={() => setSearchInitialQuery('')}
               />
           </div>
 
@@ -2834,7 +2840,10 @@ const App: React.FC = () => {
                               setNativeFolderOpenSignal(n => n + 1);
                             }}
                             onConnectWorkspace={() => setWorkspaceLauncherOpen(true)}
-                            onGithubSync={() => setActiveActivity('actions')}
+                            onGithubSync={() => {
+                              setSearchInitialQuery('clone ');
+                              setSearchOpen(true);
+                            }}
                             recentFiles={recentFiles}
                             workspaceRows={workspaceRows}
                             authWorkspaceId={authWorkspaceId}

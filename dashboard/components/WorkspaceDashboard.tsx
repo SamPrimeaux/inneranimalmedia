@@ -486,7 +486,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
             <Github size={24} />
           </div>
           <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Clone Repository</h3>
-          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Import your projects directly from GitHub</p>
+          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Paste a GitHub URL to clone into your workspace</p>
         </button>
       </div>
 

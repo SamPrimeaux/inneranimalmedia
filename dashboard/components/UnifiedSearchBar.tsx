@@ -380,6 +380,8 @@ export const UnifiedSearchBar: React.FC<{
   controlledOpen?: boolean;
   onControlledOpenChange?: (open: boolean) => void;
   initialFacets?: string[];
+  initialQuery?: string;
+  onInitialQueryConsumed?: () => void;
 }> = ({
   workspaceLabel,
   recentFiles = [],
@@ -388,6 +390,8 @@ export const UnifiedSearchBar: React.FC<{
   controlledOpen,
   onControlledOpenChange,
   initialFacets,
+  initialQuery,
+  onInitialQueryConsumed,
 }) => {
   const navigate = useNavigate();
   const isControlled = controlledOpen !== undefined;
@@ -417,6 +421,10 @@ export const UnifiedSearchBar: React.FC<{
 
   useEffect(() => {
     if (!open) return;
+    if (initialQuery) {
+      setQ(initialQuery);
+      onInitialQueryConsumed?.();
+    }
     if (initialFacets?.length) {
       const map: Record<string, SourceChipId> = {
         d1: 'd1',
@@ -429,7 +437,7 @@ export const UnifiedSearchBar: React.FC<{
     }
     setActive(0);
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open, initialFacets]);
+  }, [open, initialFacets, initialQuery, onInitialQueryConsumed]);
 
   useEffect(() => {
     if (!toast) return;
