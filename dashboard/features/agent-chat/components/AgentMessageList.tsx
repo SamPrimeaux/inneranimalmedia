@@ -19,6 +19,7 @@ import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
+import { AgentPresenceLogo } from '../../agent-presence/AgentPresenceLogo';
 
 const getLangMeta = (lang: string) => {
   const map: Record<string, { ext: string; icon: React.ReactNode }> = {
@@ -388,9 +389,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
     >
       {showEmptyThreadPlaceholder ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6">
-          <div className="w-10 h-10 rounded-xl bg-[var(--solar-cyan)]/15 border border-[var(--solar-cyan)]/25 flex items-center justify-center">
-            <Bot size={18} className="text-[var(--solar-cyan)]" />
-          </div>
+          <AgentPresenceLogo motion="idle" sizePx={40} alt="Inner Animal Media" />
           <p className="text-[13px] font-semibold text-[var(--dashboard-text)]">What should we work on?</p>
           <p className="text-[11px] text-[var(--dashboard-muted)] text-center leading-relaxed">
             Type below to start a conversation with Agent Sam.

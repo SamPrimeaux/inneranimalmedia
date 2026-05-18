@@ -333,6 +333,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const handleNewChat = useCallback(() => {
     setMobileThreadTab('chat');
     setThreadTitle('New Chat');
+    setPythonDraftHint(null);
     if (onAgentChatShellNewTab) {
       onAgentChatShellNewTab();
       return;
@@ -1631,13 +1632,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           />
         )}
           {(() => {
-            const scriptDraftName =
-              (activeFileName && /\.py$/i.test(activeFileName) ? activeFileName : null) || pythonDraftHint;
-            if (!scriptDraftName || !/\.py$/i.test(scriptDraftName)) return null;
+            if (showEmptyThreadPlaceholder || !pythonDraftHint || !/\.py$/i.test(pythonDraftHint)) return null;
             return (
             <div className="px-3 sm:px-4 shrink-0">
               <ScriptDraftPanel
-                fileName={scriptDraftName}
+                fileName={pythonDraftHint}
                 workspacePath={activeFile?.workspacePath ?? null}
                 onFocusEditor={() => onOpenCodeTab?.()}
                 onSyntaxCheck={handleDraftSyntaxCheck}
