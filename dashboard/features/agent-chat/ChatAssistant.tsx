@@ -7,10 +7,14 @@
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Send,
+  ArrowUp,
   Loader2,
   ChevronRight,
   Paperclip,
+  Infinity,
+  ListTodo,
+  MessageCircle,
+  RefreshCw,
   Image as ImageIconLucide,
   AtSign,
   Slash,
@@ -63,6 +67,10 @@ import {
   COMPOSER_TEXTAREA_MAX_PX_WIDE,
   AgentMode,
   AGENT_MODES,
+  AUTO_MODEL_KEY,
+  LS_AGENT_CHAT_MODEL_KEY,
+  LS_AGENT_CHAT_MODE,
+  isAutoModelSelection,
 } from './types';
 import { buildMentionContext, isChatTextCodeFile, readFileAsText, getEditorDisplayPath, getEditorLightweightPath } from './mentionContext';
 import {
@@ -141,6 +149,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
+  const modelButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -151,7 +160,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [modelPickerStyle, setModelPickerStyle] = useState<React.CSSProperties | null>(null);
 
   const [modes] = useState(AGENT_MODES);
-  const [mode, setMode] = useState<AgentMode>('agent');
+  const [mode, setMode] = useState<AgentMode>(() => {
+    if (typeof localStorage === 'undefined') return 'agent';
+    try {
+      const stored = localStorage.getItem(LS_AGENT_CHAT_MODE);
+      if (stored && AGENT_MODES.some((m) => m.id === stored)) return stored as AgentMode;
+    } catch {
+      /* ignore */
+    }
+    return 'agent';
+  });
   const [isModeOpen, setIsModeOpen] = useState(false);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
@@ -495,7 +513,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   });
 
   const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
-  const [selectedModelKey, setSelectedModelKey] = useState<string>('');
+  const [selectedModelKey, setSelectedModelKey] = useState<string>(() => {
+    if (typeof localStorage === 'undefined') return AUTO_MODEL_KEY;
+    try {
+      const stored = localStorage.getItem(LS_AGENT_CHAT_MODEL_KEY);
+      if (stored != null && String(stored).trim() !== '') {
+        return isAutoModelSelection(stored) ? AUTO_MODEL_KEY : String(stored).trim();
+      }
+    } catch {
+      /* ignore */
+    }
+    return AUTO_MODEL_KEY;
+  });
 
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionItems, setMentionItems] = useState<PickerItem[]>([]);
@@ -517,11 +546,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, []);
 
   const measureModeMenu = useCallback(() => {
-    setModeMenuStyle(measureAboveAnchor(modeButtonRef.current, 120));
+    setModeMenuStyle(measureAboveAnchor(modeButtonRef.current, 200, 320));
   }, []);
 
   const measureModelPickerMenu = useCallback(() => {
-    setModelPickerStyle(measureAboveAnchor(modeButtonRef.current, 280, 360, 320));
+    setModelPickerStyle(measureAboveAnchor(modelButtonRef.current, 280, 360, 320));
   }, []);
 
   useLayoutEffect(() => {
@@ -588,11 +617,21 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     };
   }, [mentionOpen, slashOpen, input]);
 
-  // Fixed AGENT_MODES used instead of fetching.
   useEffect(() => {
-    const preferred = AGENT_MODES.find((row) => row.id === 'agent');
-    if (preferred) setMode(preferred.id);
-  }, []);
+    try {
+      localStorage.setItem(LS_AGENT_CHAT_MODE, mode);
+    } catch {
+      /* ignore */
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_AGENT_CHAT_MODEL_KEY, selectedModelKey);
+    } catch {
+      /* ignore */
+    }
+  }, [selectedModelKey]);
 
   useEffect(() => {
     fetch('/api/agent/models?show_in_picker=1', { credentials: 'same-origin' })
@@ -615,8 +654,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         }));
         setChatModels(rows);
         setSelectedModelKey((prev) => {
+          if (isAutoModelSelection(prev)) return AUTO_MODEL_KEY;
           if (prev && rows.some((m) => m.model_key === prev)) return prev;
-          return rows[0]?.model_key || '';
+          return AUTO_MODEL_KEY;
         });
       })
       .catch(() => {});
@@ -645,10 +685,28 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const modeLabel = modes.find((m) => m.id === mode)?.label ?? mode;
 
-  const selectedModelDisplayName = useMemo(() => {
+  const modelPickerLabel = useMemo(() => {
+    if (isAutoModelSelection(selectedModelKey)) return 'Auto';
     const row = chatModels.find((m) => m.model_key === selectedModelKey);
-    return row?.name || selectedModelKey || 'No model';
+    return row?.name || selectedModelKey || 'Auto';
   }, [chatModels, selectedModelKey]);
+
+  const modeIcon = useMemo(() => {
+    const sz = 12;
+    const cls = 'shrink-0 text-[var(--dashboard-muted)]';
+    switch (mode) {
+      case 'plan':
+        return <ListTodo size={sz} className={cls} />;
+      case 'debug':
+        return <Bug size={sz} className={cls} />;
+      case 'multitask':
+        return <RefreshCw size={sz} className={cls} />;
+      case 'ask':
+        return <MessageCircle size={sz} className={cls} />;
+      default:
+        return <Infinity size={sz} className={cls} />;
+    }
+  }, [mode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1089,22 +1147,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   async function handleSend(overrideMessage?: string, sendOpts?: { modelKey?: string }) {
     const text = overrideMessage ?? input;
-    let effectiveModelKey = (sendOpts?.modelKey?.trim() || selectedModelKey).trim();
-    if (!effectiveModelKey && chatModels[0]?.model_key) {
-      effectiveModelKey = chatModels[0].model_key;
-    }
+    const rawModelKey = (sendOpts?.modelKey?.trim() || selectedModelKey || AUTO_MODEL_KEY).trim();
+    const useAutoRouting = isAutoModelSelection(rawModelKey);
+    const effectiveModelKey = useAutoRouting
+      ? AUTO_MODEL_KEY
+      : rawModelKey || chatModels[0]?.model_key || AUTO_MODEL_KEY;
     if ((!text && attachments.length === 0) || (isLoading && !overrideMessage)) return;
     onAgentRunContext?.(null);
-    if (!effectiveModelKey) {
+    if (!useAutoRouting && !effectiveModelKey) {
       if (overrideMessage?.trim()) {
         setMessageQueue((prev) => (prev.includes(overrideMessage) ? prev : [...prev, overrideMessage]));
       }
       return;
     }
-    if (sendOpts?.modelKey?.trim() && sendOpts.modelKey.trim() !== selectedModelKey) {
-      setSelectedModelKey(sendOpts.modelKey.trim());
-    } else if (effectiveModelKey !== selectedModelKey) {
-      setSelectedModelKey(effectiveModelKey);
+    const nextStoredKey = useAutoRouting ? AUTO_MODEL_KEY : effectiveModelKey;
+    if (sendOpts?.modelKey?.trim()) {
+      const picked = isAutoModelSelection(sendOpts.modelKey) ? AUTO_MODEL_KEY : sendOpts.modelKey.trim();
+      if (picked !== selectedModelKey) setSelectedModelKey(picked);
+    } else if (nextStoredKey !== selectedModelKey) {
+      setSelectedModelKey(nextStoredKey);
     }
     setThinkingState(null);
     
@@ -1211,8 +1272,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     form.append('agent_mode', mode);
     form.append('runtime_intent_mode', mode);
     form.append('model', effectiveModelKey);
-    const selectedModelProvider = chatModels.find((m) => m.model_key === effectiveModelKey)?.provider || 'anthropic';
-    form.append('provider', selectedModelProvider);
+    if (!useAutoRouting) {
+      const selectedModelProvider =
+        chatModels.find((m) => m.model_key === effectiveModelKey)?.provider || 'anthropic';
+      form.append('provider', selectedModelProvider);
+    }
     form.append('conversationId', effectiveConvId);
     form.append('contextMode', String(activeProject));
     if (effectiveWsId) form.append('workspace_id', effectiveWsId);
@@ -1363,7 +1427,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   handleSendRef.current = handleSend;
 
   const canSend =
-    !!selectedModelKey &&
+    (isAutoModelSelection(selectedModelKey) || !!selectedModelKey) &&
     (input.trim().length > 0 || attachments.length > 0) &&
     !isLoading &&
     totalStagedBytes <= CHAT_ATTACH_MAX_TOTAL_BYTES;
@@ -1458,15 +1522,45 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     return order.map((g) => ({ group: g, models: byGroup.get(g)! }));
   }, [chatModels]);
 
+  const pickModelKey = useCallback((modelKey: string) => {
+    setSelectedModelKey(isAutoModelSelection(modelKey) ? AUTO_MODEL_KEY : modelKey);
+    setIsModelPickerOpen(false);
+    setAttachMenuOpen(false);
+  }, []);
+
+  const composerPillClass =
+    'flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 min-h-[28px] text-[11px] font-medium text-[var(--dashboard-text)] hover:bg-[var(--bg-hover)] border border-[var(--dashboard-border)] rounded-full transition-colors';
+
   const renderModelPickerList = useCallback(
-    (onPick: (modelKey: string) => void) =>
-      modelPickerGroups.map(({ group, models }) => (
+    (onPick: (modelKey: string) => void) => (
+      <>
+        <button
+          type="button"
+          className={`mx-1 mb-1 flex w-[min(100%,calc(100vw-3rem))] min-w-0 flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--dashboard-panel)] ${
+            isAutoModelSelection(selectedModelKey)
+              ? 'bg-[var(--dashboard-panel)]/80 text-[var(--solar-cyan)]'
+              : 'text-[var(--dashboard-text)]'
+          }`}
+          onClick={() => onPick(AUTO_MODEL_KEY)}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold tracking-tight">Auto</span>
+            {isAutoModelSelection(selectedModelKey) ? (
+              <Sparkles size={10} className="shrink-0 animate-pulse" />
+            ) : null}
+          </div>
+          <span className="text-[9px] text-[var(--dashboard-muted)] leading-tight">
+            Thompson routing · workspace policy
+          </span>
+        </button>
+        <div className="mx-2 mb-1 border-t border-[var(--dashboard-border)]" role="separator" />
+        {modelPickerGroups.map(({ group, models }) => (
         <div key={group} className="pb-1">
           <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[var(--dashboard-muted)] opacity-60">
             {group}
           </div>
           {models.map((m) => {
-            const isSession = selectedModelKey === m.model_key;
+            const isSession = !isAutoModelSelection(selectedModelKey) && selectedModelKey === m.model_key;
             const isDefault = defaultModelKey != null && defaultModelKey === m.model_key;
             const rateIn = m.input_rate_per_mtok;
             const rateOut = m.output_rate_per_mtok;
@@ -1504,7 +1598,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             );
           })}
         </div>
-      )),
+        ))}
+      </>
+    ),
     [modelPickerGroups, defaultModelKey, selectedModelKey],
   );
 
@@ -2021,21 +2117,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               addFilesFromList(e.dataTransfer.files, false);
             }}
           >
-            <div className="flex items-end gap-1.5 px-2 pt-2 pb-2">
-              <button
-                type="button"
-                ref={attachButtonRef}
-                className="flex-shrink-0 p-2 text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] rounded-lg transition-all"
-                title={`Attach — model: ${selectedModelDisplayName}`}
-                onClick={() => {
-                  setAttachMenuOpen((o) => !o);
-                  setIsModeOpen(false);
-                  setIsModelPickerOpen(false);
-                }}
-              >
-                <Paperclip size={16} strokeWidth={2} />
-              </button>
-              <textarea
+            <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
@@ -2044,7 +2126,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 onClick={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
                 placeholder="Message Agent Sam..."
                 rows={1}
-                className={`flex-1 min-w-0 bg-transparent px-1 py-2 focus:outline-none text-[var(--dashboard-text)] placeholder:text-[var(--text-placeholder-strong)] resize-none font-sans leading-relaxed rounded-lg ${
+                className={`w-full min-w-0 bg-transparent px-3 pt-2.5 pb-1 focus:outline-none text-[var(--dashboard-text)] placeholder:text-[var(--text-placeholder-strong)] resize-none font-sans leading-relaxed ${
                   isNarrow ? 'text-base' : 'text-[0.8125rem]'
                 }`}
                 style={{
@@ -2052,26 +2134,61 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   maxHeight: isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
                 }}
               />
-              <button
-                type="button"
-                ref={modeButtonRef}
-                onClick={() => {
-                  setIsModeOpen((o) => !o);
-                  setIsModelPickerOpen(false);
-                  setAttachMenuOpen(false);
-                }}
-                className="flex-shrink-0 flex flex-col items-end justify-center gap-0 px-2 py-1 min-w-[4.5rem] text-[0.6875rem] font-sans font-bold tracking-tight text-[var(--solar-cyan)] hover:brightness-110 transition-all uppercase border border-[var(--dashboard-border)] rounded-lg leading-tight"
-              >
-                <span className="flex items-center gap-0.5">
-                  {modeLabel} <ChevronDown size={8} />
-                </span>
-                {mode === 'agent' ? (
-                  <span className="text-[0.5625rem] font-medium normal-case text-[var(--dashboard-muted)] truncate max-w-[7rem]">
-                    {selectedModelDisplayName}
-                  </span>
-                ) : null}
-              </button>
-              <button
+            <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5 min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0 shrink">
+                <button
+                  type="button"
+                  ref={modeButtonRef}
+                  onClick={() => {
+                    setIsModeOpen((o) => !o);
+                    setIsModelPickerOpen(false);
+                    setAttachMenuOpen(false);
+                  }}
+                  className={`${composerPillClass} max-w-[9rem]`}
+                  title={`Conversation mode: ${modeLabel}`}
+                  aria-expanded={isModeOpen}
+                  aria-haspopup="listbox"
+                >
+                  {modeIcon}
+                  <span className="truncate">{modeLabel}</span>
+                  <ChevronDown size={12} className="shrink-0 opacity-60" />
+                </button>
+                <button
+                  type="button"
+                  ref={modelButtonRef}
+                  onClick={() => {
+                    setIsModelPickerOpen((o) => !o);
+                    setIsModeOpen(false);
+                    setAttachMenuOpen(false);
+                  }}
+                  className={`${composerPillClass} max-w-[10rem]`}
+                  title={
+                    isAutoModelSelection(selectedModelKey)
+                      ? 'Model: Auto (Thompson routing)'
+                      : `Model: ${modelPickerLabel}`
+                  }
+                  aria-expanded={isModelPickerOpen}
+                  aria-haspopup="listbox"
+                >
+                  <span className="truncate">{modelPickerLabel}</span>
+                  <ChevronDown size={12} className="shrink-0 opacity-60" />
+                </button>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  ref={attachButtonRef}
+                  className="flex-shrink-0 p-2 text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] rounded-lg transition-all"
+                  title="Attach files"
+                  onClick={() => {
+                    setAttachMenuOpen((o) => !o);
+                    setIsModeOpen(false);
+                    setIsModelPickerOpen(false);
+                  }}
+                >
+                  <Paperclip size={16} strokeWidth={2} />
+                </button>
+                <button
                 type="button"
                 onClick={() => {
                   if (isLoading) {
@@ -2083,12 +2200,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   }
                 }}
                 disabled={!isLoading && !canSend}
-                className={`flex-shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-[0.6875rem] font-bold transition-all relative ${
+                className={`flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full text-[0.6875rem] font-bold transition-all relative ${
                   canSend || isLoading
                     ? 'bg-[var(--solar-cyan)] text-[var(--solar-base03)] shadow-[0_0_16px_color-mix(in_srgb,var(--solar-cyan)_25%,transparent)] hover:brightness-110'
                     : 'text-[var(--text-chrome-muted)] bg-[var(--bg-disabled)] cursor-not-allowed'
                 } ${isLoading ? 'agent-send-pulse' : ''} ${
-                  pendingToolApproval && !isLoading ? 'agent-send-approval !border !border-[var(--solar-yellow)]/45' : ''
+                  pendingToolApproval && !isLoading ? 'agent-send-approval ring-1 ring-[var(--solar-yellow)]/45' : ''
                 }`}
                 title={
                   isLoading ? 'Stop' : pendingToolApproval ? 'Approval required — confirm below' : 'Send'
@@ -2106,9 +2223,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 ) : pendingToolApproval ? (
                   <ShieldCheck size={14} className="text-[var(--solar-base03)]" />
                 ) : (
-                  <Send size={12} />
+                  <ArrowUp size={14} strokeWidth={2.5} />
                 )}
               </button>
+              </div>
             </div>
           </div>
           {mobileAgentsThread && mobileThreadTab === 'chat' && (
@@ -2239,31 +2357,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             style={attachMenuStyle}
             role="menu"
           >
-            {[
-              { icon: FileText, label: 'Plan', slug: 'plan' },
-              { icon: Bug, label: 'Debug', slug: 'debug' },
-              { icon: Target, label: 'Ask', slug: 'ask' },
-              { icon: ImageIconLucide, label: 'Image', action: () => imageInputRef.current?.click() },
-              { icon: Zap, label: 'Skills', action: () => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } })) },
-              { icon: Layers, label: 'MCP Servers', action: () => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } })) },
-            ].map((item, i) => {
-              const Icon = item.icon || Paperclip;
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  className="flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] transition-colors"
-                  onClick={() => {
-                    setAttachMenuOpen(false);
-                    if ('action' in item) item.action?.();
-                  }}
-                >
-                  <Icon size={14} className="text-[var(--dashboard-muted)] shrink-0" />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-            <div className="border-t border-[var(--dashboard-border)] my-1 mx-2" role="separator" />
             <button
               type="button"
               className="flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] transition-colors"
@@ -2318,13 +2411,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               <span>Command</span>
             </button>
             <div className="border-t border-[var(--dashboard-border)] my-1 mx-2" role="separator" />
-            <div className="px-3 py-1 text-[0.6875rem] uppercase tracking-wider text-[var(--dashboard-muted)]">
-              Models
-            </div>
-            {renderModelPickerList((mk) => {
-              setSelectedModelKey(mk);
-              setAttachMenuOpen(false);
-            })}
+            <button
+              type="button"
+              className="flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] transition-colors"
+              onClick={() => {
+                setAttachMenuOpen(false);
+                imageInputRef.current?.click();
+              }}
+            >
+              <ImageIconLucide size={14} className="text-[var(--dashboard-muted)] shrink-0" />
+              <span>Image</span>
+            </button>
           </div>,
           document.body
         )}
@@ -2342,22 +2439,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             <div className="border-b border-[var(--dashboard-border)]/70 px-3 py-2 text-[9px] font-black uppercase tracking-[0.15em] text-[var(--dashboard-muted)]">
               Models — this chat only
             </div>
-            {renderModelPickerList((mk) => {
-              setSelectedModelKey(mk);
-              setIsModelPickerOpen(false);
-            })}
-            <div className="mt-1 border-t border-[var(--dashboard-border)] px-2 py-1.5">
-              <button
-                type="button"
-                className="w-full rounded-lg px-2 py-1.5 text-left text-[10px] text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)] hover:text-[var(--dashboard-text)]"
-                onClick={() => {
-                  setIsModelPickerOpen(false);
-                  setIsModeOpen(true);
-                }}
-              >
-                Change conversation mode…
-              </button>
-            </div>
+            {renderModelPickerList(pickModelKey)}
           </div>,
           document.body,
         )}
@@ -2370,26 +2452,44 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             className="bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl p-1 flex flex-col text-[0.6875rem] overflow-y-auto overflow-x-hidden min-w-0"
             style={modeMenuStyle}
           >
-            {modes.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                className={`px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] cursor-pointer rounded-lg transition-colors flex flex-col gap-0.5 ${
-                  mode === m.id ? 'bg-[var(--dashboard-panel)]' : ''
-                }`}
-                onClick={() => {
-                  setMode(m.id);
-                  setIsModeOpen(false);
-                }}
-              >
-                <div className={`text-[11px] font-bold ${mode === m.id ? 'text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)]'}`}>
-                  {m.label}
-                </div>
-                <div className="text-[9px] text-[var(--dashboard-muted)] leading-tight">
-                  {m.description}
-                </div>
-              </button>
-            ))}
+            {modes.map((m) => {
+              const MenuIcon =
+                m.id === 'plan'
+                  ? ListTodo
+                  : m.id === 'debug'
+                    ? Bug
+                    : m.id === 'multitask'
+                      ? RefreshCw
+                      : m.id === 'ask'
+                        ? MessageCircle
+                        : Infinity;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`mx-1 flex w-full min-w-0 items-start gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--dashboard-panel)] ${
+                    mode === m.id ? 'bg-[var(--dashboard-panel)]' : ''
+                  }`}
+                  onClick={() => {
+                    setMode(m.id);
+                    setIsModeOpen(false);
+                  }}
+                >
+                  <MenuIcon
+                    size={14}
+                    className={`mt-0.5 shrink-0 ${mode === m.id ? 'text-[var(--solar-cyan)]' : 'text-[var(--dashboard-muted)]'}`}
+                  />
+                  <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                    <div
+                      className={`text-[11px] font-bold ${mode === m.id ? 'text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)]'}`}
+                    >
+                      {m.label}
+                    </div>
+                    <div className="text-[9px] text-[var(--dashboard-muted)] leading-tight">{m.description}</div>
+                  </div>
+                </button>
+              );
+            })}
           </div>,
           document.body
         )}

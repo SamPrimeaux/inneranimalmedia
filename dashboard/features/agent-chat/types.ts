@@ -239,6 +239,18 @@ export const COMPOSER_TEXTAREA_MAX_PX_WIDE = 200;
 
 export const LS_GH_REPO = 'iam-chat-github-repo-context';
 
+/** Composer model picker: Thompson / resolveRoutingArm on the Worker when sent as `model`. */
+export const AUTO_MODEL_KEY = 'auto';
+
+export const LS_AGENT_CHAT_MODEL_KEY = 'iam-agent-chat-model-key';
+
+export const LS_AGENT_CHAT_MODE = 'iam-agent-chat-mode';
+
+export function isAutoModelSelection(modelKey: string | null | undefined): boolean {
+  const k = modelKey != null ? String(modelKey).trim().toLowerCase() : '';
+  return k === '' || k === AUTO_MODEL_KEY;
+}
+
 export type AgentMode = 'ask' | 'plan' | 'agent' | 'debug' | 'multitask';
 
 export const AGENT_MODES = [
