@@ -9,6 +9,7 @@ import { getAuthUser } from '../core/auth.js';
 import { jsonResponse } from '../core/responses.js';
 import { sendPlatformEmail, sendUserGmail } from '../lib/email.js';
 import { resolveOAuthAccessToken, resolveOAuthRefreshToken } from './oauth.js';
+import { upsertOauthToken } from '../core/oauth-token-store.js';
 
 const PAGE_SIZE = 50;
 const GMAIL_PROVIDER = 'google_gmail';
@@ -413,26 +414,27 @@ export async function handleMailApi(request, url, env, ctx) {
         return jsonResponse({ error: 'Token exchange failed', detail: tok }, 502);
       }
 
-      const exp = Math.floor(Date.now() / 1000) + Number(tok.expires_in || 3600);
       const scope = tok.scope ? String(tok.scope) : '';
       const idPayload = tok.id_token ? parseJwtPayload(tok.id_token) : null;
       const acct = idPayload?.email ? String(idPayload.email) : '';
       const account_identifier = acct || '';
 
-      await env.DB.prepare(
-        `INSERT INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
-         ON CONFLICT(user_id, provider, account_identifier)
-         DO UPDATE SET access_token=excluded.access_token, refresh_token=COALESCE(excluded.refresh_token, user_oauth_tokens.refresh_token), expires_at=excluded.expires_at, scope=excluded.scope, updated_at=unixepoch()`
-      ).bind(
-        userId,
-        GMAIL_PROVIDER,
-        account_identifier,
-        String(tok['access_token']),
-        tok['refresh_token'] ? String(tok['refresh_token']) : null,
-        exp,
+      await upsertOauthToken(env, {
+        user_id: userId,
+        tenant_id: authUser.tenant_id ?? authUser.active_tenant_id ?? null,
+        provider: GMAIL_PROVIDER,
+        access_token: String(tok.access_token),
+        refresh_token: tok.refresh_token ? String(tok.refresh_token) : null,
         scope,
-      ).run();
+        expires_at: tok.expires_in
+          ? Math.floor(Date.now() / 1000) + Number(tok.expires_in)
+          : null,
+        account_identifier,
+        account_email: acct || null,
+        account_display: null,
+        workspace_id: null,
+        metadata_json: null,
+      }, { skipRegistry: false });
 
       return Response.redirect(`${url.origin}/dashboard/mail?connected=1`, 302);
     }

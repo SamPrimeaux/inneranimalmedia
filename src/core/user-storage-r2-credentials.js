@@ -2,7 +2,7 @@
  * Per-user Cloudflare R2 S3 credentials in D1 user_storage_access_keys.
  * Secrets encrypted with VAULT_MASTER_KEY (same pattern as oauth token storage).
  */
-import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from './crypto-vault.js';
+import { encryptWithVault, decryptWithVault } from './oauth-token-store.js';
 import { authUserIsSuperadmin, fetchAuthUserTenantId } from './auth.js';
 
 const VAULT_SECRET_HASH_PLACEHOLDER = 'vault_encrypted';
@@ -12,16 +12,6 @@ async function pragmaColumns(DB, tableName) {
   const cols = new Set();
   for (const row of out.results || []) cols.add(String(row.name || '').toLowerCase());
   return cols;
-}
-
-async function encryptWithVault(env, plaintext) {
-  const key = await getAESKey(env, ['encrypt']);
-  return aesGcmEncryptToB64(plaintext, key);
-}
-
-async function decryptWithVault(env, encryptedB64) {
-  const key = await getAESKey(env, ['decrypt']);
-  return aesGcmDecryptFromB64(encryptedB64, key);
 }
 
 /** Last 6 characters for display / r2_access_key_id preview column. */

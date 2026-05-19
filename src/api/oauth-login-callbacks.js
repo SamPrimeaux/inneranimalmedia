@@ -266,13 +266,22 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     const ghLogin = (userInfo.login || '').toString() || 'github';
     if (tokens.access_token && env.DB) {
       try {
-        const expiresAtTs = tokens.expires_in ? Math.floor(Date.now() / 1000) + Number(tokens.expires_in) : null;
-        await env.DB.prepare(
-          `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope)
-           VALUES (?, 'github', ?, ?, ?, ?, ?)`,
-        )
-          .bind(ghUserId, ghLogin, tokens.access_token || '', tokens.refresh_token || null, expiresAtTs, (tokens.scope || '').toString())
-          .run();
+        await upsertOauthToken(env, {
+          user_id: ghUserId,
+          tenant_id: sessionUser.tenant_id ?? sessionUser.active_tenant_id ?? null,
+          provider: 'github',
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token ?? null,
+          scope: (tokens.scope || '').toString() || null,
+          expires_at: tokens.expires_in
+            ? Math.floor(Date.now() / 1000) + Number(tokens.expires_in)
+            : null,
+          account_identifier: ghLogin,
+          account_email: email ?? null,
+          account_display: name ?? null,
+          workspace_id: null,
+          metadata_json: null,
+        }, { skipRegistry: true });
       } catch (e) {
         console.error('[oauth/github/callback] user_oauth_tokens upsert failed:', e?.message ?? e);
       }
@@ -332,13 +341,22 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
   const ghLogin = (userInfo.login || '').toString() || 'github';
   if (tokens.access_token && env.DB) {
     try {
-      const expiresAtTs = tokens.expires_in ? Math.floor(Date.now() / 1000) + Number(tokens.expires_in) : null;
-      await env.DB.prepare(
-        `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope)
-         VALUES (?, 'github', ?, ?, ?, ?, ?)`,
-      )
-        .bind(userId, ghLogin, tokens.access_token || '', tokens.refresh_token || null, expiresAtTs, (tokens.scope || '').toString())
-        .run();
+      await upsertOauthToken(env, {
+        user_id: userId,
+        tenant_id: tidGh ?? null,
+        provider: 'github',
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token ?? null,
+        scope: (tokens.scope || '').toString() || null,
+        expires_at: tokens.expires_in
+          ? Math.floor(Date.now() / 1000) + Number(tokens.expires_in)
+          : null,
+        account_identifier: ghLogin,
+        account_email: oauthEmail ?? null,
+        account_display: name ?? null,
+        workspace_id: null,
+        metadata_json: null,
+      }, { skipRegistry: true });
     } catch (e) {
       console.error('[oauth/github/callback] user_oauth_tokens upsert failed:', e?.message ?? e);
     }

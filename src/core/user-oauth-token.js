@@ -2,7 +2,7 @@
  * Resolve OAuth tokens from D1 user_oauth_tokens with vault-id → encrypted → plaintext order,
  * optional Google refresh, and persistence after refresh.
  */
-import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from './crypto-vault.js';
+import { encryptWithVault, decryptWithVault } from './oauth-token-store.js';
 
 function nowSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -13,16 +13,6 @@ async function pragmaColumns(DB, tableName) {
   const cols = new Set();
   for (const row of out.results || []) cols.add(String(row.name || '').toLowerCase());
   return cols;
-}
-
-async function encryptWithVault(env, plaintext) {
-  const key = await getAESKey(env, ['encrypt']);
-  return aesGcmEncryptToB64(plaintext, key);
-}
-
-async function decryptWithVault(env, encryptedB64) {
-  const key = await getAESKey(env, ['decrypt']);
-  return aesGcmDecryptFromB64(encryptedB64, key);
 }
 
 /** Map API aliases to provider column values in user_oauth_tokens. */

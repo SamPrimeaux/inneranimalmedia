@@ -9,6 +9,7 @@ import {
   authUserIsSuperadmin,
 } from '../core/auth.js';
 import { getR2Binding, listBoundR2BucketNames, r2LiveBucketStats } from './r2-api.js';
+import { upsertUserCloudflareR2Keys } from '../core/user-storage-r2-credentials.js';
 
 const KNOWN_R2_BINDINGS = [
   { binding: 'ASSETS', storage_name: 'inneranimalmedia-assets', public: true },
@@ -140,13 +141,6 @@ function bindingIdentity(env, logicalName) {
   if (b === env.R2) return 'R2';
   if (b === env.DOCS_BUCKET) return 'DOCS_BUCKET';
   return logicalName;
-}
-
-async function sha256Hex(text) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf))
-    .map((x) => x.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 function randomSecret(len = 40) {
@@ -743,17 +737,18 @@ export async function handleStorageApi(request, url, env) {
 
     const accessKeyId = `iam_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
     const secretAccessKey = `sec_${randomSecret(40)}`;
-    const secret_hash = await sha256Hex(secretAccessKey);
-    const id = crypto.randomUUID();
     const created_at = Math.floor(Date.now() / 1000);
 
+    let stored;
     try {
-      await env.DB.prepare(
-        `INSERT INTO user_storage_access_keys (id, tenant_id, user_id, access_key_id, secret_hash, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'active', ?)`
-      )
-        .bind(id, tenantId, userId, accessKeyId, secret_hash, created_at)
-        .run();
+      stored = await upsertUserCloudflareR2Keys(env, {
+        userId,
+        tenantId,
+        cfAccountId: env.CLOUDFLARE_ACCOUNT_ID || '',
+        r2AccessKeyId: accessKeyId,
+        r2SecretAccessKey: secretAccessKey,
+        personUuid: authUser?.person_uuid ?? null,
+      });
     } catch (e) {
       console.error('[storage] access-keys insert', e);
       return jsonResponse(
@@ -769,6 +764,7 @@ export async function handleStorageApi(request, url, env) {
 
     return jsonResponse({
       ...baseMeta,
+      id: stored.id,
       accessKeyId,
       secretAccessKey,
       secret: secretAccessKey,

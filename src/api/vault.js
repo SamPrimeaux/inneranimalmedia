@@ -1,7 +1,7 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
 import { logSecretAudit } from '../core/security-scan.js';
-import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/crypto-vault.js';
+import { encryptWithVault, decryptWithVault } from '../core/oauth-token-store.js';
 
 const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
 const LLM_ALLOWED_NAMES = new Set(['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY']);
@@ -27,14 +27,8 @@ function vaultErr(message, status = 400) {
   return jsonResponse({ error: message }, status);
 }
 
-async function vaultEncrypt(env, plaintext) {
-  const key = await getAESKey(env, ['encrypt']);
-  return aesGcmEncryptToB64(plaintext, key);
-}
-
 export async function vaultDecrypt(env, encryptedB64) {
-  const key = await getAESKey(env, ['decrypt']);
-  return aesGcmDecryptFromB64(encryptedB64, key);
+  return decryptWithVault(env, encryptedB64);
 }
 
 function vaultLast4(str) {
@@ -62,7 +56,7 @@ async function vaultCreateSecret(request, env, authUser) {
   const body = await request.json();
   const { secret_name, secret_value, service_name, description, project_label, project_id, tags, scopes_json, expires_at } = body;
   if (!secret_name || !secret_value) return vaultErr('secret_name and secret_value are required');
-  const encrypted = await vaultEncrypt(env, secret_value);
+  const encrypted = await encryptWithVault(env, secret_value);
   const id = vaultNewId('sec');
   const last4val = vaultLast4(secret_value);
   const metadata = JSON.stringify({ last4: last4val });
@@ -152,7 +146,7 @@ async function vaultRotateSecret(id, request, env, authUser) {
     const oldPlain = await vaultDecrypt(env, existing.secret_value_encrypted);
     oldLast4 = vaultLast4(oldPlain);
   } catch { }
-  const newEncrypted = await vaultEncrypt(env, new_value);
+  const newEncrypted = await encryptWithVault(env, new_value);
   const newLast4 = vaultLast4(new_value);
   const newMeta = JSON.stringify({ ...JSON.parse(existing.metadata_json || '{}'), last4: newLast4 });
   await env.DB.prepare(`UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, updated_at = unixepoch() WHERE id = ?`).bind(newEncrypted, newMeta, id).run();
@@ -295,7 +289,7 @@ async function vaultStoreUserKey(request, env) {
   if (!LLM_ALLOWED_NAMES.has(keyName)) return vaultErr('key_name must be one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY', 400);
   const tenantId = await resolveUserTenantId(env, authUser);
   if (!tenantId) return vaultErr('Tenant could not be resolved', 403);
-  const encrypted = await vaultEncrypt(value, env.VAULT_MASTER_KEY);
+  const encrypted = await encryptWithVault(env, value);
   const last4val = vaultLast4(value);
   const metadata = JSON.stringify({ last4: last4val });
   const uid = String(authUser.id || '').trim();
