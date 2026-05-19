@@ -110,6 +110,8 @@ export interface ChatAssistantProps {
   onApprovalRequired?: (commandRunId: string) => void;
   /** Active agentsam_command_run id for approval queue scoping. */
   agentRunId?: string | null;
+  /** SSE `context.agent_run_id` (`agentsam_agent_run.id`) for run-spine linkage (e.g. BrowserView screenshots). */
+  onAgentRunContext?: (agentRunId: string | null) => void;
 }
 
 export type StagedAttachment = {

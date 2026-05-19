@@ -419,6 +419,8 @@ const App: React.FC = () => {
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [agentIsStreaming, setAgentIsStreaming] = useState(false);
   const [activeCommandRunId, setActiveCommandRunId] = useState<string | null>(null);
+  /** `agentsam_agent_run.id` from chat SSE context — separate from command_run approval id. */
+  const [activeAgentRunId, setActiveAgentRunId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
@@ -2661,6 +2663,7 @@ const App: React.FC = () => {
               onLoadingChange={setAgentIsStreaming}
               onApprovalRequired={setActiveCommandRunId}
               agentRunId={activeCommandRunId}
+              onAgentRunContext={setActiveAgentRunId}
                         syncedHostConversationId={activeAgentConversationId}
                         agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
                         activeAgentChatShellTabId={activeAgentChatTabId}
@@ -3007,6 +3010,7 @@ const App: React.FC = () => {
                             isActive={activeTab === 'browser'}
                             url={browserUrl}
                             addressDisplay={browserAddressDisplay}
+                            agentRunId={activeAgentRunId}
                           />
                       </div>
                   )}
@@ -3171,6 +3175,7 @@ const App: React.FC = () => {
                             activeAgentChatShellTabId={activeAgentChatTabId}
                             onAgentChatShellTabSelect={selectAgentChatTab}
                             onAgentChatShellNewTab={createNewAgentChatTab}
+                            onAgentRunContext={setActiveAgentRunId}
                          />
                     </div>
                 </div>

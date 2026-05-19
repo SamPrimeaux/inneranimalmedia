@@ -761,6 +761,8 @@ interface PaneProps {
   isSplit?:        boolean;
   autoFocus?:      boolean;
   agentActive?:    boolean;
+  /** `agentsam_agent_run.id` from chat SSE — stamped into full-page playwright screenshot metadata. */
+  agentRunId?:     string | null;
 }
 
 const BrowserPane: React.FC<PaneProps> = ({
@@ -772,6 +774,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   isSplit,
   autoFocus,
   agentActive = false,
+  agentRunId = null,
 }) => {
   const [iframeUrl,      setIframeUrl]      = useState(() => normalize(initialUrl || DEFAULT_URL));
   const [currentUrl,     setCurrentUrl]     = useState(() => normalize(initialUrl || DEFAULT_URL));
@@ -1077,7 +1080,10 @@ const BrowserPane: React.FC<PaneProps> = ({
       const endpoint = clip ? '/api/mcp/invoke' : '/api/playwright/screenshot';
       const body     = clip
         ? { tool_name: 'cdt_take_screenshot', params: { url: currentUrl, clip } }
-        : { url: currentUrl };
+        : {
+            url: currentUrl,
+            ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
+          };
       const res  = await fetch(endpoint, {
         method:      'POST',
         headers:     { 'Content-Type': 'application/json' },
@@ -1118,7 +1124,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       window.clearTimeout(to);
       setScreenshotLoad(false);
     }
-  }, [currentUrl]);
+  }, [currentUrl, agentRunId]);
 
   // ── Hard reload ─────────────────────────────────────────────────────────────
   const hardReload = useCallback(() => {
@@ -1528,12 +1534,15 @@ interface BrowserViewProps {
   addressDisplay?: string | null;
   /** When false, no collab HTTP probe or WebSocket (avoids IAM_COLLAB churn when panel is hidden). */
   isActive?:       boolean;
+  /** `agentsam_agent_run.id` from chat SSE — full-page screenshot POST only. */
+  agentRunId?:     string | null;
 }
 
 export const BrowserView: React.FC<BrowserViewProps> = ({
   url: urlFromParent,
   addressDisplay,
   isActive = false,
+  agentRunId = null,
 }) => {
   const [primaryUrl,    setPrimaryUrl]    = useState(urlFromParent || DEFAULT_URL);
   const [secondaryUrl,  setSecondaryUrl]  = useState<string | null>(null);
@@ -1732,6 +1741,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           isSplit={!!secondaryUrl}
           onSplit={url => setSecondaryUrl(url)}
           agentActive={agentActive}
+          agentRunId={agentRunId}
         />
       </div>
       {secondaryUrl && (
@@ -1743,6 +1753,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
             onClose={() => setSecondaryUrl(null)}
             autoFocus
             agentActive={agentActive}
+            agentRunId={agentRunId}
           />
         </div>
       )}

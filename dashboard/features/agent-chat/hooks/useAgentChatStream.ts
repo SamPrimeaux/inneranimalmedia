@@ -51,6 +51,8 @@ export type ConsumeAgentChatSseContext = {
   stripEmptyAssistantTail: (prev: Message[]) => Message[];
   loadSessions: () => void;
   onThinkingEvent?: (event: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string }) => void;
+  /** First SSE context payload — lifts `agentsam_agent_run.id` to host (BrowserView playwright metadata). */
+  onAgentRunContext?: (agentRunId: string | null) => void;
   onBrowserNavigate?: (event: { type: 'browser_navigate'; url: string }) => void;
   onR2FileUpdated?: (event: { type: 'r2_file_updated'; bucket: string; key: string }) => void;
   onFileSelect?: (file: { name: string; content: string; originalContent?: string }) => void;
@@ -85,6 +87,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     onFileSelect,
     onToolApprovalRequest,
     onThinkingEvent,
+    onAgentRunContext,
     mergeIntoLastAssistant = false,
     initialAssistantBuffer = '',
   } = ctx;
@@ -165,6 +168,13 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         const evType = (data as { type?: string }).type;
         if (evType === 'context' && data && typeof data === 'object') {
           const ctx = data as Record<string, unknown>;
+          const spineRunId =
+            typeof ctx.agent_run_id === 'string'
+              ? ctx.agent_run_id.trim()
+              : typeof ctx.agentRunId === 'string'
+                ? ctx.agentRunId.trim()
+                : '';
+          onAgentRunContext?.(spineRunId || null);
           patchIamAgentStreamDebug({
             context_event_at: Date.now(),
             context: { ...ctx },

@@ -104,6 +104,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onLoadingChange,
   onApprovalRequired,
   agentRunId = null,
+  onAgentRunContext,
   onOpenChatHistory,
   agentsamPolicy = null,
   workspaceId = null,
@@ -962,6 +963,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onBrowserNavigate,
           onR2FileUpdated,
           onThinkingEvent: handleThinkingEvent,
+          onAgentRunContext,
           onFileSelect: onFileSelect
             ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
             : undefined,
@@ -1058,6 +1060,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       effectiveModelKey = chatModels[0].model_key;
     }
     if ((!text && attachments.length === 0) || (isLoading && !overrideMessage)) return;
+    onAgentRunContext?.(null);
     if (!effectiveModelKey) {
       if (overrideMessage?.trim()) {
         setMessageQueue((prev) => (prev.includes(overrideMessage) ? prev : [...prev, overrideMessage]));
@@ -1272,6 +1275,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onBrowserNavigate,
         onR2FileUpdated,
         onThinkingEvent: handleThinkingEvent,
+        onAgentRunContext,
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
           : undefined,
