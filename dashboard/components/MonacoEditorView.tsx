@@ -439,7 +439,10 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
              <>
                <button
                  type="button"
-                 onClick={() => onSave?.(activeFile.content)}
+                 onClick={() => {
+                   onSave?.(activeFile.content);
+                   setShowDiff(false);
+                 }}
                  className="px-2 py-0.5 rounded border border-[var(--color-success)] bg-[var(--color-success)]/15 text-[var(--color-success)] font-bold transition-all hover:bg-[var(--color-success)]/25"
                  title="Accept changes"
                >
