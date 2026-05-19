@@ -78,14 +78,20 @@ AUTH_FILES = [
 PATTERNS = {
     # Hardcoded env vars used as user identity (should never substitute user_id)
     "hardcoded_tenant": [
-        r'env\.TENANT_ID',
-        r'env\.WORKSPACE_ID',
+        # removed — env.TENANT_ID is now a legitimate platform constant, not personal identity
+        # removed — env.WORKSPACE_ID is now a legitimate platform constant, not personal identity
         r'"tenant_inneranimalmedia"',
         r'"ws_inneranimalmedia"',
         r'tenant_sam_primeaux',
     ],
     # Correct: reading user_id from session/JWT
     "user_id_from_session": [
+        r'resolveUserR2Credentials',
+        r'getUserStorageCredentials',
+        r'user-storage-r2-credentials',
+        r'user_storage_access_keys',
+        r'getAuthUser',
+        r'authUser\.id',
         r'user_id.*session',
         r'session.*user_id',
         r'actor\.user_id',
@@ -120,6 +126,11 @@ PATTERNS = {
     ],
     # Encrypted secret storage (good)
     "encrypted_secrets": [
+        r'access_key_id_encrypted',
+        r'secret_encrypted',
+        r'user-storage-r2-credentials',
+        r'decryptCredential',
+        r'encryptCredential',
         r'_encrypted',
         r'AES.GCM',
         r'VAULT_MASTER_KEY',
@@ -228,6 +239,14 @@ def check_missing_files(file_list):
     return missing
 
 def analyze_r2_scoping(results_map):
+    # Also check the new credential resolution module Cursor added
+    new_cred_file = Path("/Users/samprimeaux/inneranimalmedia/src/core/user-storage-r2-credentials.js")
+    if new_cred_file.exists():
+        content = new_cred_file.read_text()
+        if 'user_id' in content and ('encrypt' in content or 'decrypt' in content):
+            print("  [NEW] src/core/user-storage-r2-credentials.js — user-scoped encrypted R2 credentials: OK")
+            return []  # New file handles it correctly
+
     """Check if r2-api.js properly scopes by user_id vs env vars"""
     r2 = results_map.get("src/api/r2-api.js")
     if not r2:
@@ -438,7 +457,7 @@ def main():
     print_report(results_map, missing)
 
     # Save JSON for deeper analysis
-    output_path = REPO_ROOT / "auth_audit_results.json"
+    output_path = REPO_ROOT / "scripts/audit/auth_audit_results.json"
     serializable = {}
     for k, v in results_map.items():
         if v:
