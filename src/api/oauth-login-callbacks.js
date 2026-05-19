@@ -257,7 +257,11 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     if (!sessionUser) {
       return Response.redirect(`${url.origin}/auth/login?error=session_required`, 302);
     }
-    const ghUserId = sessionUser.email || sessionUser.id;
+    /** Match `integrationUserId` / `oauthTokenUserKey`: rows keyed by `auth_users.id`, not email. */
+    const ghUserId =
+      sessionUser?.id != null && String(sessionUser.id).trim() !== ''
+        ? String(sessionUser.id).trim()
+        : String(sessionUser.email || '').trim();
     const ghLogin = (userInfo.login || '').toString() || 'github';
     if (tokens.access_token && env.DB) {
       try {
@@ -454,7 +458,11 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     if (!sessionUser) {
       return Response.redirect(`${oauthOrigin(url)}/auth/login?error=session_required`, 302);
     }
-    const driveUserId = sessionUser.email || sessionUser.id;
+    /** Match `integrationUserId` / `oauthTokenUserKey`: rows keyed by `auth_users.id`, not email. */
+    const driveUserId =
+      sessionUser?.id != null && String(sessionUser.id).trim() !== ''
+        ? String(sessionUser.id).trim()
+        : String(sessionUser.email || '').trim();
     await env.DB.prepare(
       `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope) VALUES (?, 'google_drive', '', ?, ?, ?, ?)`,
     )
