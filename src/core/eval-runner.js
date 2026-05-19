@@ -14,7 +14,8 @@ import { completeWithOpenAIResponsesNonStream } from '../integrations/openai.js'
 export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, modelKey, workspaceId }) {
   if (!env?.DB || !armId) return;
 
-  const EVAL_EVERY = 50; // run eval every 50 arm executions
+  const totalExec = Number(arm.total_executions);
+  const EVAL_EVERY = totalExec < 20 ? 5 : totalExec < 100 ? 10 : 50;
 
   try {
     const arm = await env.DB.prepare(
