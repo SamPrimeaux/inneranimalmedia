@@ -11,8 +11,8 @@ Run from repo root:
     python3 scripts/audit_plan_debt.py
 
 Requires:
-    WORKER_URL  (e.g. https://app.inneranimalmedia.com)
-    API_TOKEN   (your IAM bearer token)
+    WORKER_URL             (e.g. https://app.inneranimalmedia.com)
+    CLOUDFLARE_API_TOKEN  (bearer token used by the worker/API gateway)
 
 Output:
     scripts/audit_plan_debt_report.md
@@ -36,20 +36,20 @@ REPORT_PATH = REPO_ROOT / "scripts" / "audit_plan_debt_report.md"
 DATA_PATH = REPO_ROOT / "scripts" / "audit_plan_debt_data.json"
 
 WORKER_URL = os.environ.get("WORKER_URL", "https://app.inneranimalmedia.com").rstrip("/")
-API_TOKEN = os.environ.get("API_TOKEN", "")
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get("API_TOKEN", "")
 
 # Fallback: paste SQL/API output here when API is unavailable.
 EMBEDDED_PLANS: list[dict[str, Any]] = []
 
 
 def fetch_json(path: str) -> Any | None:
-    if not API_TOKEN:
+    if not CLOUDFLARE_API_TOKEN:
         return None
     try:
         req = urlreq.Request(
             f"{WORKER_URL}{path}",
             headers={
-                "Authorization": f"Bearer {API_TOKEN}",
+                "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
                 "Content-Type": "application/json",
             },
         )
@@ -247,7 +247,7 @@ def main() -> None:
     raw_plans = fetch_json("/api/plans") or EMBEDDED_PLANS
     plans = normalize_plans(raw_plans)
     if not plans:
-        print("[!] No plan data. Set WORKER_URL + API_TOKEN or populate EMBEDDED_PLANS.")
+        print("[!] No plan data. Set WORKER_URL + CLOUDFLARE_API_TOKEN or populate EMBEDDED_PLANS.")
         return
 
     active = [plan for plan in plans if plan.get("status") == "active"]
