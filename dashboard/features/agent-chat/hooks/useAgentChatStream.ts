@@ -217,16 +217,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           onThinkingEvent?.({ type: 'thinking', text: d.text || '' });
           continue;
         }
-        if (evType === 'tool_start') {
-          const d = data as { tool_name?: string; node_key?: string };
-          onThinkingEvent?.({ type: 'tool_start', tool_name: d.tool_name || d.node_key || '' });
-          continue;
-        }
-        if (evType === 'tool_done') {
-          const d = data as { tool_name?: string; node_key?: string; ok?: boolean; output_preview?: string };
-          onThinkingEvent?.({ type: 'tool_done', tool_name: d.tool_name || d.node_key || '', ok: d.ok !== false, output_preview: d.output_preview });
-          continue;
-        }
+        // tool_start / tool_done: handled below (trace rows + browser nav). Do not continue here or browser wiring never runs.
         if (evType === 'tool_error') {
           const d = data as { tool_name?: string; node_key?: string };
           onThinkingEvent?.({ type: 'tool_error', tool_name: d.tool_name || d.node_key || '' });
@@ -715,8 +706,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_start') {
-          const d = data as { type: 'tool_start'; tool_name?: string; input_preview?: string | null };
-          const tn = String(d.tool_name || '');
+          const d = data as {
+            type: 'tool_start';
+            tool_name?: string;
+            node_key?: string;
+            input_preview?: string | null;
+          };
+          const tn = String(d.tool_name || d.node_key || '');
+          onThinkingEvent?.({ type: 'tool_start', tool_name: tn });
           patchIamAgentStreamDebug({ last_tool_name: tn || null });
           pendingBrowserToolUrl = null;
           lastBrowserToolOutputChunk = null;
@@ -794,6 +791,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             ];
           });
           activeToolTraceId = null;
+          pendingBrowserToolUrl = null;
+          lastBrowserToolOutputChunk = null;
+          activeBrowserNavTool = false;
           assistantStreamBuf += `\n\n_Tool error (${String(d.tool || 'tool')}):_ ${msg}\n`;
           assistantContent = assistantStreamBuf;
           setMessages((prev) => {
@@ -833,7 +833,10 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const d = data as {
             type: 'tool_done';
             tool_name?: string;
+            node_key?: string;
             status?: string;
+            ok?: boolean;
+            output_preview?: string;
             duration_ms?: number;
             rows?: Record<string, unknown>[] | null;
             error?: string;
@@ -841,6 +844,20 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             artifact_id?: string;
             public_url?: string | null;
           };
+          const doneToolName = String(d.tool_name || d.node_key || '');
+          const doneOk =
+            d.status != null ? d.status !== 'error' : d.ok !== false;
+          onThinkingEvent?.({
+            type: 'tool_done',
+            tool_name: doneToolName,
+            ok: doneOk,
+            output_preview:
+              typeof d.output_preview === 'string'
+                ? d.output_preview
+                : d.error
+                  ? String(d.error).slice(0, 120)
+                  : undefined,
+          });
           if (
             d.status !== 'error' &&
             d.tool_name === 'excalidraw_plan_map_create' &&
@@ -865,10 +882,10 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             );
           }
           if (
-            d.status !== 'error' &&
-            (d.tool_name === 'browser_open_url' ||
-              d.tool_name === 'cdt_navigate_page' ||
-              d.tool_name === 'browser_navigate')
+            doneOk &&
+            (doneToolName === 'browser_open_url' ||
+              doneToolName === 'cdt_navigate_page' ||
+              doneToolName === 'browser_navigate')
           ) {
             let navUrl = pendingBrowserToolUrl || '';
             if (!navUrl && lastBrowserToolOutputChunk) {
@@ -890,6 +907,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             if (navUrl) {
               onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
             }
+            pendingBrowserToolUrl = null;
+            lastBrowserToolOutputChunk = null;
+            activeBrowserNavTool = false;
+          } else if (
+            doneToolName === 'browser_open_url' ||
+            doneToolName === 'cdt_navigate_page' ||
+            doneToolName === 'browser_navigate'
+          ) {
             pendingBrowserToolUrl = null;
             lastBrowserToolOutputChunk = null;
             activeBrowserNavTool = false;
