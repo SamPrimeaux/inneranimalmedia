@@ -132,7 +132,11 @@ export const GoogleDriveExplorer: React.FC<{
   }, []);
 
   const handleConnect = () => {
-    window.location.href = '/api/oauth/google/start?return_to=/dashboard/agent&connect=drive';
+    window.open(
+      '/api/oauth/google/start?connectDrive=1&return_to=/dashboard/agent',
+      'google_oauth',
+      'width=600,height=700,scrollbars=yes',
+    );
   };
 
   const isFolder = (mime: string | undefined) => mime === 'application/vnd.google-apps.folder';
