@@ -10,8 +10,14 @@ import { fetchAuthUserTenantId } from './auth.js';
 import { executeCommand, completeCommand } from '../api/command-run-telemetry.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
 import { pragmaTableInfo } from './retention.js';
+import { normalizeR2ObjectKey } from './r2-keys.js';
+import { r2PutViaBindingOrS3 } from './r2.js';
+import { getR2Binding } from '../api/r2-api.js';
+import { runBuiltinTool } from '../tools/ai-dispatch.js';
 import { insertPlanExecutionStep, resolvePlanTaskCapabilityType } from './agentsam-planner.js';
 import { scheduleMirrorAgentChatPlanToSupabase, scheduleMirrorAgentsamPlanToSupabasePublic } from './agentsam-plan-supabase-public-sync.js';
+
+const PLAN_ARTIFACT_R2_BUCKET = 'inneranimalmedia';
 
 const TASK_AGENT_SYSTEM = `You are Agent Sam executing a specific task. Complete it thoroughly and concisely. Return your result as plain text.`;
 
@@ -494,6 +500,147 @@ async function patchPlanExecutionStep(env, task, status, extra = {}) {
     .catch(() => {});
 }
 
+/**
+ * D1 agentsam_capability_aliases → tool_key rows for an abstract capability (monaco_edit, browser_capture).
+ * @param {any} env
+ * @param {string} abstractCapability
+ */
+async function resolveCapabilityAliasToolKeys(env, abstractCapability) {
+  if (!env?.DB) return [];
+  const cap = String(abstractCapability || '').trim().toLowerCase();
+  if (!cap) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT match_kind, match_value, priority, requires_approval, is_mutation
+       FROM agentsam_capability_aliases
+       WHERE abstract_capability = ? AND is_active = 1
+       ORDER BY priority ASC`,
+    )
+      .bind(cap)
+      .all();
+    return results || [];
+  } catch {
+    return [];
+  }
+}
+
+/** @param {string} workspaceId @param {string} planId @param {string} filePath */
+function planArtifactObjectKey(workspaceId, planId, filePath) {
+  const base = String(filePath || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+    ?.trim();
+  const safe = (base || 'file.txt').replace(/[^a-zA-Z0-9._-]+/g, '_');
+  return `workspaces/${String(workspaceId).trim()}/plans/${String(planId).trim()}/${safe}`;
+}
+
+function contentTypeForPlanFile(filePath) {
+  const p = String(filePath || '').toLowerCase();
+  if (p.endsWith('.html') || p.endsWith('.htm')) return 'text/html; charset=utf-8';
+  if (p.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (p.endsWith('.js') || p.endsWith('.mjs')) return 'application/javascript; charset=utf-8';
+  if (p.endsWith('.json')) return 'application/json; charset=utf-8';
+  if (p.endsWith('.svg')) return 'image/svg+xml';
+  if (p.endsWith('.md')) return 'text/markdown; charset=utf-8';
+  return 'text/plain; charset=utf-8';
+}
+
+function iamOrigin(env) {
+  return String(env?.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
+}
+
+/** @param {any} env @param {string} bucket @param {string} key */
+function planArtifactPreviewUrl(env, bucket, key) {
+  return `${iamOrigin(env)}/api/r2/file?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}`;
+}
+
+function isAbsoluteHttpUrl(url) {
+  const u = String(url || '').trim();
+  return u.startsWith('http://') || u.startsWith('https://');
+}
+
+/** True when URL is the product homepage — not a plan artifact preview target. */
+function isHomepagePreviewUrl(url, env) {
+  if (!isAbsoluteHttpUrl(url)) return false;
+  try {
+    const u = new URL(url);
+    const home = new URL(`${iamOrigin(env)}/`);
+    if (u.origin !== home.origin) return false;
+    const path = u.pathname.replace(/\/+$/, '') || '/';
+    return path === '/' || path === '';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write plan deliverable bytes to workspace R2 (DASHBOARD binding).
+ * @returns {Promise<{ ok: boolean, bucket: string, key: string, error?: string }>}
+ */
+async function writePlanFileToWorkspaceR2(env, { workspaceId, planId, filePath, content }) {
+  const ws = String(workspaceId || '').trim();
+  const pid = String(planId || '').trim();
+  if (!ws || !pid) return { ok: false, bucket: PLAN_ARTIFACT_R2_BUCKET, key: '', error: 'missing_workspace_or_plan' };
+  const keyNorm = normalizeR2ObjectKey(planArtifactObjectKey(ws, pid, filePath), { workspaceId: ws });
+  if (!keyNorm.ok || !keyNorm.key) {
+    return { ok: false, bucket: PLAN_ARTIFACT_R2_BUCKET, key: '', error: keyNorm.error || 'invalid_key' };
+  }
+  const body = String(content ?? '');
+  if (!body.length) return { ok: false, bucket: PLAN_ARTIFACT_R2_BUCKET, key: keyNorm.key, error: 'empty_content' };
+  const binding = getR2Binding(env, PLAN_ARTIFACT_R2_BUCKET) || env.DASHBOARD;
+  if (!binding?.put) {
+    return { ok: false, bucket: PLAN_ARTIFACT_R2_BUCKET, key: keyNorm.key, error: 'r2_binding_unavailable' };
+  }
+  const ct = contentTypeForPlanFile(filePath);
+  const ok = await r2PutViaBindingOrS3(env, binding, PLAN_ARTIFACT_R2_BUCKET, keyNorm.key, body, ct);
+  if (!ok) return { ok: false, bucket: PLAN_ARTIFACT_R2_BUCKET, key: keyNorm.key, error: 'r2_put_failed' };
+  return { ok: true, bucket: PLAN_ARTIFACT_R2_BUCKET, key: keyNorm.key };
+}
+
+/**
+ * @typedef {{ path: string, bucket: string, key: string, previewUrl: string }} PlanWrittenArtifact
+ */
+
+async function markPlanTaskSkipped(env, task, message, emit, cap) {
+  const msg = String(message || 'skipped').slice(0, 4000);
+  await env.DB.prepare(
+    `UPDATE agentsam_plan_tasks SET status='skipped', completed_at=unixepoch(), output_summary=? WHERE id=?`,
+  )
+    .bind(msg, task.id)
+    .run();
+  emit('task_complete', {
+    task_id: task.id,
+    title: task.title,
+    status: 'skipped',
+    output: msg,
+    order_index: task.order_index,
+  });
+  await patchPlanExecutionStep(env, task, 'success', {
+    outputJson: JSON.stringify({ capability_type: cap, skipped: true, message: msg }),
+  });
+}
+
+async function markPlanTaskFailed(env, task, message, emit, cap) {
+  const msg = String(message || 'failed').slice(0, 4000);
+  await env.DB.prepare(
+    `UPDATE agentsam_plan_tasks SET status='blocked', completed_at=unixepoch(), output_summary=?, error_trace=? WHERE id=?`,
+  )
+    .bind(msg, msg, task.id)
+    .run();
+  emit('task_complete', {
+    task_id: task.id,
+    title: task.title,
+    status: 'failed',
+    error: msg,
+    order_index: task.order_index,
+  });
+  await patchPlanExecutionStep(env, task, 'failed', {
+    outputJson: JSON.stringify({ capability_type: cap, error: msg }),
+    errorJson: JSON.stringify({ error: msg }),
+  });
+}
+
 export async function executePlan(
   env,
   {
@@ -563,6 +710,8 @@ export async function executePlan(
   let completed = 0;
   let failed = 0;
   let skipped = 0;
+  /** @type {PlanWrittenArtifact[]} */
+  const planWrittenArtifacts = [];
 
   for (const task of tasks || []) {
     const capForStart = resolvePlanTaskCapabilityType(task);
@@ -594,43 +743,61 @@ export async function executePlan(
 
     try {
       if (cap === 'browser_capture') {
-        const base = String(env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
-        let routes = [];
-        try {
-          routes = JSON.parse(String(task.routes_involved || '[]'));
-        } catch {
-          routes = [];
-        }
-        const r0 = Array.isArray(routes) && routes[0] ? String(routes[0]).trim() : '';
-        const urlMatch = String(task.description || '').match(/https?:\/\/[^\s"'<>)]+/i);
-        const explicit = urlMatch ? urlMatch[0].replace(/[.,;]+$/, '') : '';
-        const url =
-          explicit || (r0.startsWith('http') ? r0 : r0 ? `${base}${r0.startsWith('/') ? '' : '/'}${r0}` : '');
-        if (!url || !wfRun) {
-          const msg =
-            '[browser_capture] Missing target URL or workflow run id. Add routes_involved (e.g. ["/dashboard/agent"]) or an https URL in the task description.';
-          await env.DB
-            .prepare(
-              `UPDATE agentsam_plan_tasks SET status='blocked', error_trace=?, completed_at=unixepoch() WHERE id=?`,
-            )
-            .bind(msg.slice(0, 2000), task.id)
-            .run();
-          failed++;
-          emit('task_complete', {
-            task_id: task.id,
-            title: task.title,
-            status: 'failed',
-            error: msg,
-            order_index: task.order_index,
-          });
-          await patchPlanExecutionStep(env, task, 'failed', {
-            outputJson: JSON.stringify({ capability_type: cap, error: msg }),
-            errorJson: JSON.stringify({ error: msg }),
-          });
+        if (!planWrittenArtifacts.length) {
+          skipped++;
+          await markPlanTaskSkipped(
+            env,
+            task,
+            'No deployable preview URL — files not written. Open files in the code editor.',
+            emit,
+            cap,
+          );
           continue;
         }
-        emit('surface_open', { surface: 'browser', reason: 'plan_task_browser_capture' });
-        emit('agent_surface_open', { surface: 'browser', reason: 'plan_task_browser_capture' });
+
+        const urlMatch = String(task.description || '').match(/https?:\/\/[^\s"'<>)]+/i);
+        let previewUrl = urlMatch ? urlMatch[0].replace(/[.,;]+$/, '') : '';
+        if (!isAbsoluteHttpUrl(previewUrl)) {
+          const htmlArt =
+            planWrittenArtifacts.find((a) => /\.html?$/i.test(a.path)) || planWrittenArtifacts[0];
+          previewUrl = htmlArt?.previewUrl || '';
+        }
+        if (!isAbsoluteHttpUrl(previewUrl)) {
+          skipped++;
+          await markPlanTaskSkipped(
+            env,
+            task,
+            'No deployable preview URL — files not written. Open files in the code editor.',
+            emit,
+            cap,
+          );
+          continue;
+        }
+        if (isHomepagePreviewUrl(previewUrl, env)) {
+          skipped++;
+          await markPlanTaskSkipped(
+            env,
+            task,
+            'Preview skipped — homepage is not a valid artifact target. Open files in the code editor.',
+            emit,
+            cap,
+          );
+          continue;
+        }
+        if (!wfRun) {
+          skipped++;
+          await markPlanTaskSkipped(
+            env,
+            task,
+            'No deployable preview URL — workflow run missing. Open files in the code editor.',
+            emit,
+            cap,
+          );
+          continue;
+        }
+
+        emit('surface_open', { surface: 'browser', reason: 'plan_task_browser_capture', url: previewUrl });
+        emit('agent_surface_open', { surface: 'browser', reason: 'plan_task_browser_capture', url: previewUrl });
         const { runBrowserCapabilityAction } = await import('./workspace-capability-actions/browser.js');
         const br = await runBrowserCapabilityAction({
           env,
@@ -639,7 +806,7 @@ export async function executePlan(
           workspaceId: workspaceId || '',
           userId: userId || '',
           message: `${task.title}\n${task.description || ''}`,
-          browserContext: { url },
+          browserContext: { url: previewUrl },
           emit,
         });
         const bout = br?.output && typeof br.output === 'object' ? br.output : {};
@@ -661,7 +828,7 @@ export async function executePlan(
             ? bout.console
             : [];
         const summaryText = br?.ok
-          ? `[browser_capture] ${url}\nScreenshot: ${screenshotUrl || 'n/a'}\nDOM excerpt length: ${domSummary ? domSummary.length : 0}`
+          ? `[browser_capture] ${previewUrl}\nScreenshot: ${screenshotUrl || 'n/a'}\nDOM excerpt length: ${domSummary ? domSummary.length : 0}`
           : `[browser_capture] failed: ${String(br?.error || 'unknown')}`;
         await env.DB
           .prepare(
@@ -685,7 +852,7 @@ export async function executePlan(
               dom_summary: domSummary,
               console_errors: consoleErrors,
               artifact_pointer: screenshotUrl,
-              url,
+              url: previewUrl,
             }),
             latencyMs: null,
           });
@@ -781,74 +948,177 @@ export async function executePlan(
       ) {
         emit('surface_open', { surface: 'code', reason: 'plan_task_monaco_edit' });
         emit('agent_surface_open', { surface: 'code', reason: 'plan_task_monaco_edit' });
-        const filesJson = String(task.files_involved || '[]');
-        const monacoSys = `You are Agent Sam producing a safe Monaco / file-edit PLAN only (no writes).
-Return ONLY valid JSON:
-{"patch_summary":"one paragraph","unified_diff_preview":"optional short unified diff or empty","files_touched":["path"],"notes":"preview-only; apply requires approval-backed path"}`;
-        const result = await dispatchComplete(env, {
-          modelKey: 'gpt-5.4-mini',
-          taskType: 'code',
-          mode: 'agent',
-          systemPrompt: monacoSys,
-          messages: [
-            {
-              role: 'user',
-              content: `Task: ${task.title}\nFiles context (JSON): ${filesJson.slice(0, 6000)}\n\n${task.description || ''}`,
-            },
-          ],
-          options: { reasoningEffort: 'medium', verbosity: 'low' },
-        });
-        const raw = result?.text || result?.output_text || '';
-        let parsedMonaco = null;
-        try {
-          const clean = raw.replace(/```json|```/g, '').trim();
-          parsedMonaco = JSON.parse(clean);
-        } catch {
-          parsedMonaco = { patch_summary: raw.slice(0, 4000), unified_diff_preview: '', files_touched: [] };
-        }
-        const filesTouched = Array.isArray(parsedMonaco?.files_touched)
-          ? parsedMonaco.files_touched.map((x) => String(x)).filter(Boolean)
-          : [];
-        const mergedFiles = filesTouched.length ? filesTouched : [];
+
+        const aliasRows = await resolveCapabilityAliasToolKeys(env, 'monaco_edit');
+        const writeAlias =
+          aliasRows.find((r) => Number(r.is_mutation) === 1 && String(r.match_kind || '') === 'tool_key') ||
+          aliasRows.find((r) => String(r.match_value || '') === 'r2_write') ||
+          null;
+        const writeToolKey = writeAlias ? String(writeAlias.match_value || 'r2_write').trim() : 'r2_write';
+
+        let mergedFiles = [];
         try {
           const existing = JSON.parse(String(task.files_involved || '[]'));
-          if (Array.isArray(existing) && existing.length) {
-            for (const f of existing) {
-              const s = String(f).trim();
-              if (s && !mergedFiles.includes(s)) mergedFiles.push(s);
-            }
+          if (Array.isArray(existing)) {
+            mergedFiles = existing.map((x) => String(x).trim()).filter(Boolean);
           }
         } catch {
           /* ignore */
         }
-        if (mergedFiles.length) {
-          await env.DB
-            .prepare(`UPDATE agentsam_plan_tasks SET files_involved = ? WHERE id = ?`)
-            .bind(JSON.stringify(mergedFiles), task.id)
-            .run()
-            .catch(() => {});
+        if (!mergedFiles.length) {
+          failed++;
+          await markPlanTaskFailed(env, task, 'monaco_edit: no files_involved paths to write', emit, cap);
+          continue;
         }
-        output = raw;
+
+        const fileGenSys = `You are Agent Sam implementing files for a plan task.
+Return ONLY valid JSON (no markdown fences):
+{"patch_summary":"one short paragraph","files":[{"path":"relative/path.ext","content":"full file body as a string"}]}
+Rules:
+- Include every path listed in files_involved with complete, production-ready content.
+- path must be a simple filename or relative path (no .. segments).
+- content must be the entire file (not a diff).`;
+        const genResult = await dispatchComplete(env, {
+          modelKey: 'gpt-5.4-mini',
+          taskType: 'code',
+          mode: 'agent',
+          systemPrompt: fileGenSys,
+          messages: [
+            {
+              role: 'user',
+              content: `Task: ${task.title}\nfiles_involved: ${JSON.stringify(mergedFiles)}\n\n${task.description || ''}`,
+            },
+          ],
+          options: { reasoningEffort: 'medium', verbosity: 'low' },
+        });
+        const genRaw = genResult?.text || genResult?.output_text || '';
+        let parsedGen = null;
+        try {
+          parsedGen = JSON.parse(genRaw.replace(/```json|```/g, '').trim());
+        } catch {
+          parsedGen = { patch_summary: genRaw.slice(0, 2000), files: [] };
+        }
+        const generatedByPath = new Map();
+        if (Array.isArray(parsedGen?.files)) {
+          for (const f of parsedGen.files) {
+            const p = f?.path != null ? String(f.path).trim() : '';
+            const c = f?.content != null ? String(f.content) : '';
+            if (p && c) generatedByPath.set(p, c);
+          }
+        }
+
+        const uidCanon = userId ? await resolveCanonicalUserId(String(userId), env).catch(() => userId) : null;
+        const writeSession = {
+          user_id: uidCanon,
+          workspace_id: workspaceId,
+          session: { user_id: uidCanon, workspace_id: workspaceId },
+        };
+        const written = [];
+        for (const relPath of mergedFiles) {
+          const content =
+            generatedByPath.get(relPath) ||
+            generatedByPath.get(relPath.split('/').pop() || '') ||
+            '';
+          if (!content) {
+            failed++;
+            await markPlanTaskFailed(env, task, `File write failed: ${relPath} (no generated content)`, emit, cap);
+            written.length = 0;
+            break;
+          }
+
+          let writeOk = false;
+          let bucket = PLAN_ARTIFACT_R2_BUCKET;
+          let key = '';
+          const direct = await writePlanFileToWorkspaceR2(env, {
+            workspaceId,
+            planId,
+            filePath: relPath,
+            content,
+          });
+          if (direct.ok) {
+            writeOk = true;
+            bucket = direct.bucket;
+            key = direct.key;
+          } else if (writeToolKey === 'r2_write') {
+            const toolRes = await runBuiltinTool(env, 'r2_write', {
+              ...writeSession,
+              path: planArtifactObjectKey(workspaceId, planId, relPath),
+              key: planArtifactObjectKey(workspaceId, planId, relPath),
+              bucket,
+              content,
+            });
+            if (toolRes && !toolRes.error) {
+              writeOk = true;
+              key =
+                typeof toolRes.key === 'string'
+                  ? toolRes.key
+                  : planArtifactObjectKey(workspaceId, planId, relPath);
+            }
+          }
+
+          if (!writeOk) {
+            failed++;
+            await markPlanTaskFailed(
+              env,
+              task,
+              `File write failed: ${relPath}${direct.error ? ` (${direct.error})` : ''}`,
+              emit,
+              cap,
+            );
+            written.length = 0;
+            break;
+          }
+
+          const previewUrl = planArtifactPreviewUrl(env, bucket, key);
+          written.push({ path: relPath, bucket, key, previewUrl });
+          emit('r2_file_updated', { type: 'r2_file_updated', bucket, key });
+          emit('surface_open', {
+            surface: 'code',
+            reason: 'plan_task_monaco_edit_written',
+            path: relPath,
+            r2_key: key,
+          });
+        }
+
+        if (!written.length) {
+          continue;
+        }
+
+        for (const w of written) {
+          planWrittenArtifacts.push(w);
+        }
+        await env.DB
+          .prepare(`UPDATE agentsam_plan_tasks SET files_involved = ? WHERE id = ?`)
+          .bind(JSON.stringify(mergedFiles), task.id)
+          .run()
+          .catch(() => {});
+
+        const summary = String(parsedGen?.patch_summary || `Wrote ${written.length} file(s) via ${writeToolKey}.`).slice(
+          0,
+          4000,
+        );
+        output = summary;
         await env.DB
           .prepare(
             `UPDATE agentsam_plan_tasks SET status='done', completed_at=unixepoch(), output_summary=? WHERE id=?`,
           )
-          .bind(String(parsedMonaco?.patch_summary || raw).slice(0, 4000), task.id)
+          .bind(summary, task.id)
           .run();
         completed++;
         emit('task_complete', {
           task_id: task.id,
           title: task.title,
           status: 'done',
-          output: String(parsedMonaco?.patch_summary || raw).slice(0, 2000),
+          output: summary.slice(0, 2000),
           order_index: task.order_index,
         });
         await patchPlanExecutionStep(env, task, 'success', {
           outputJson: JSON.stringify({
             capability_type: cap,
-            patch_intent: parsedMonaco,
-            files_involved: mergedFiles,
-            apply_policy: 'preview_only',
+            write_tool: writeToolKey,
+            capability_aliases: aliasRows.map((r) => r.match_value),
+            files_written: written,
+            patch_summary: summary,
           }),
         });
         continue;
