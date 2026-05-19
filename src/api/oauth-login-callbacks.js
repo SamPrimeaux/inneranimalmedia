@@ -7,7 +7,7 @@
 import { getAuthUser, resolveTenantAtLogin, createLoginSession } from '../core/auth.js';
 import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
-import { upsertOauthToken } from './oauth.js';
+import { upsertOauthToken } from '../core/oauth-token-store.js';
 
 function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
