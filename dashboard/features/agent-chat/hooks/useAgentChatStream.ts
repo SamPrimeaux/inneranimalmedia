@@ -443,8 +443,55 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             }),
           );
           if (d.surface === 'browser' && typeof d.url === 'string' && d.url.trim()) {
-            onBrowserNavigate?.({ type: 'browser_navigate', url: d.url.trim() });
+            const navUrl = d.url.trim();
+            if (!/\/api\/r2\/file\b/i.test(navUrl)) {
+              onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
+            }
           }
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          ((data as { type?: string }).type === 'monaco_files_generated' ||
+            (data as { type?: string }).type === 'monaco_file_generated')
+        ) {
+          const batch =
+            (data as { type?: string }).type === 'monaco_files_generated'
+              ? ((data as { files?: unknown[] }).files || [])
+              : [data];
+          for (const raw of batch) {
+            if (!raw || typeof raw !== 'object') continue;
+            const f = raw as {
+              filename?: string;
+              path?: string;
+              language?: string;
+              content?: string;
+            };
+            const content = typeof f.content === 'string' ? f.content : '';
+            const path = typeof f.path === 'string' ? f.path.trim() : '';
+            const filename =
+              (typeof f.filename === 'string' && f.filename.trim()) ||
+              path.split('/').pop() ||
+              'untitled';
+            if (!content) continue;
+            try {
+              onFileSelect?.({
+                name: filename,
+                workspacePath: path || filename,
+                content,
+                originalContent: '',
+              });
+            } catch (e) {
+              console.warn('[ChatAssistant] onFileSelect failed for monaco_file_generated', e);
+            }
+          }
+          window.dispatchEvent(
+            new CustomEvent('iam:agent-open-surface', {
+              detail: { surface: 'code', reason: 'monaco_file_generated' },
+            }),
+          );
+          fileEchoSuppress = true;
           continue;
         }
         if (evType === 'code_diff') {
@@ -878,7 +925,10 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           (data as { type?: string }).type === 'browser_navigate' &&
           typeof (data as { url?: string }).url === 'string'
         ) {
-          onBrowserNavigate?.(data as { type: 'browser_navigate'; url: string });
+          const navUrl = String((data as { url: string }).url).trim();
+          if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
+            onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
+          }
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_start') {
@@ -1102,7 +1152,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 /* ignore */
               }
             }
-            if (navUrl) {
+            if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
               onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
             }
             pendingBrowserToolUrl = null;

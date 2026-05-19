@@ -13,7 +13,6 @@ import { pragmaTableInfo } from './retention.js';
 import { normalizeR2ObjectKey } from './r2-keys.js';
 import { r2PutViaBindingOrS3 } from './r2.js';
 import { getR2Binding } from '../api/r2-api.js';
-import { runBuiltinTool } from '../tools/ai-dispatch.js';
 import { insertPlanExecutionStep, resolvePlanTaskCapabilityType } from './agentsam-planner.js';
 import { scheduleMirrorAgentChatPlanToSupabase, scheduleMirrorAgentsamPlanToSupabasePublic } from './agentsam-plan-supabase-public-sync.js';
 
@@ -546,6 +545,28 @@ function contentTypeForPlanFile(filePath) {
   return 'text/plain; charset=utf-8';
 }
 
+function languageForPlanFile(filePath) {
+  const p = String(filePath || '').toLowerCase();
+  if (p.endsWith('.html') || p.endsWith('.htm')) return 'html';
+  if (p.endsWith('.css')) return 'css';
+  if (p.endsWith('.js') || p.endsWith('.mjs') || p.endsWith('.cjs')) return 'javascript';
+  if (p.endsWith('.ts') || p.endsWith('.tsx')) return 'typescript';
+  if (p.endsWith('.json')) return 'json';
+  if (p.endsWith('.md')) return 'markdown';
+  if (p.endsWith('.svg')) return 'xml';
+  return 'plaintext';
+}
+
+/** R2 file API URLs are not valid BrowserView targets until published/saved. */
+function isR2ApiPreviewUrl(url) {
+  if (!isAbsoluteHttpUrl(url)) return false;
+  try {
+    return new URL(url).pathname.includes('/api/r2/file');
+  } catch {
+    return false;
+  }
+}
+
 function iamOrigin(env) {
   return String(env?.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
 }
@@ -599,7 +620,7 @@ async function writePlanFileToWorkspaceR2(env, { workspaceId, planId, filePath, 
 }
 
 /**
- * @typedef {{ path: string, bucket: string, key: string, previewUrl: string }} PlanWrittenArtifact
+ * @typedef {{ path: string, bucket?: string, key?: string, previewUrl?: string, content?: string, language?: string, draft?: boolean }} PlanWrittenArtifact
  */
 
 async function markPlanTaskSkipped(env, task, message, emit, cap) {
@@ -748,7 +769,7 @@ export async function executePlan(
           await markPlanTaskSkipped(
             env,
             task,
-            'No deployable preview URL — files not written. Open files in the code editor.',
+            'Generated files are ready in the code editor. Browser preview was skipped because no saved preview URL exists yet.',
             emit,
             cap,
           );
@@ -767,7 +788,18 @@ export async function executePlan(
           await markPlanTaskSkipped(
             env,
             task,
-            'No deployable preview URL — files not written. Open files in the code editor.',
+            'Generated files are ready in the code editor. Browser preview was skipped because no saved preview URL exists yet.',
+            emit,
+            cap,
+          );
+          continue;
+        }
+        if (isR2ApiPreviewUrl(previewUrl)) {
+          skipped++;
+          await markPlanTaskSkipped(
+            env,
+            task,
+            'Generated files are ready in the code editor. Browser preview was skipped — save or publish for a preview URL.',
             emit,
             cap,
           );
@@ -949,13 +981,6 @@ export async function executePlan(
         emit('surface_open', { surface: 'code', reason: 'plan_task_monaco_edit' });
         emit('agent_surface_open', { surface: 'code', reason: 'plan_task_monaco_edit' });
 
-        const aliasRows = await resolveCapabilityAliasToolKeys(env, 'monaco_edit');
-        const writeAlias =
-          aliasRows.find((r) => Number(r.is_mutation) === 1 && String(r.match_kind || '') === 'tool_key') ||
-          aliasRows.find((r) => String(r.match_value || '') === 'r2_write') ||
-          null;
-        const writeToolKey = writeAlias ? String(writeAlias.match_value || 'r2_write').trim() : 'r2_write';
-
         let mergedFiles = [];
         try {
           const existing = JSON.parse(String(task.files_involved || '[]'));
@@ -1007,13 +1032,7 @@ Rules:
           }
         }
 
-        const uidCanon = userId ? await resolveCanonicalUserId(String(userId), env).catch(() => userId) : null;
-        const writeSession = {
-          user_id: uidCanon,
-          workspace_id: workspaceId,
-          session: { user_id: uidCanon, workspace_id: workspaceId },
-        };
-        const written = [];
+        const editorFiles = [];
         for (const relPath of mergedFiles) {
           const content =
             generatedByPath.get(relPath) ||
@@ -1021,71 +1040,53 @@ Rules:
             '';
           if (!content) {
             failed++;
-            await markPlanTaskFailed(env, task, `File write failed: ${relPath} (no generated content)`, emit, cap);
-            written.length = 0;
+            await markPlanTaskFailed(env, task, `Generation failed: ${relPath} (no generated content)`, emit, cap);
+            editorFiles.length = 0;
             break;
           }
-
-          let writeOk = false;
-          let bucket = PLAN_ARTIFACT_R2_BUCKET;
-          let key = '';
-          const direct = await writePlanFileToWorkspaceR2(env, {
-            workspaceId,
-            planId,
-            filePath: relPath,
-            content,
-          });
-          if (direct.ok) {
-            writeOk = true;
-            bucket = direct.bucket;
-            key = direct.key;
-          } else if (writeToolKey === 'r2_write') {
-            const toolRes = await runBuiltinTool(env, 'r2_write', {
-              ...writeSession,
-              path: planArtifactObjectKey(workspaceId, planId, relPath),
-              key: planArtifactObjectKey(workspaceId, planId, relPath),
-              bucket,
-              content,
-            });
-            if (toolRes && !toolRes.error) {
-              writeOk = true;
-              key =
-                typeof toolRes.key === 'string'
-                  ? toolRes.key
-                  : planArtifactObjectKey(workspaceId, planId, relPath);
-            }
-          }
-
-          if (!writeOk) {
-            failed++;
-            await markPlanTaskFailed(
-              env,
-              task,
-              `File write failed: ${relPath}${direct.error ? ` (${direct.error})` : ''}`,
-              emit,
-              cap,
-            );
-            written.length = 0;
-            break;
-          }
-
-          const previewUrl = planArtifactPreviewUrl(env, bucket, key);
-          written.push({ path: relPath, bucket, key, previewUrl });
-          emit('r2_file_updated', { type: 'r2_file_updated', bucket, key });
-          emit('surface_open', {
-            surface: 'code',
-            reason: 'plan_task_monaco_edit_written',
+          const filename = relPath.split('/').pop() || relPath;
+          editorFiles.push({
+            filename,
             path: relPath,
-            r2_key: key,
+            language: languageForPlanFile(relPath),
+            content,
           });
         }
 
-        if (!written.length) {
+        if (!editorFiles.length) {
           continue;
         }
 
-        for (const w of written) {
-          planWrittenArtifacts.push(w);
+        const monacoPayload = {
+          type: 'monaco_files_generated',
+          surface: 'monaco',
+          plan_id: planId,
+          task_id: task.id,
+          workflow_run_id: wfRun || null,
+          files: editorFiles,
+        };
+        emit('monaco_files_generated', monacoPayload);
+        for (const f of editorFiles) {
+          emit('monaco_file_generated', {
+            type: 'monaco_file_generated',
+            surface: 'monaco',
+            filename: f.filename,
+            path: f.path,
+            language: f.language,
+            content: f.content,
+            plan_id: planId,
+            task_id: task.id,
+            workflow_run_id: wfRun || null,
+          });
+        }
+
+        for (const f of editorFiles) {
+          planWrittenArtifacts.push({
+            path: f.path,
+            content: f.content,
+            language: f.language,
+            draft: true,
+          });
         }
         await env.DB
           .prepare(`UPDATE agentsam_plan_tasks SET files_involved = ? WHERE id = ?`)
@@ -1093,10 +1094,10 @@ Rules:
           .run()
           .catch(() => {});
 
-        const summary = String(parsedGen?.patch_summary || `Wrote ${written.length} file(s) via ${writeToolKey}.`).slice(
-          0,
-          4000,
-        );
+        const summary = String(
+          parsedGen?.patch_summary ||
+            `Generated ${editorFiles.length} file(s) in the code editor (unsaved draft).`,
+        ).slice(0, 4000);
         output = summary;
         await env.DB
           .prepare(
@@ -1115,9 +1116,12 @@ Rules:
         await patchPlanExecutionStep(env, task, 'success', {
           outputJson: JSON.stringify({
             capability_type: cap,
-            write_tool: writeToolKey,
-            capability_aliases: aliasRows.map((r) => r.match_value),
-            files_written: written,
+            storage: 'editor_draft',
+            files_generated: editorFiles.map((f) => ({
+              path: f.path,
+              language: f.language,
+              bytes: f.content.length,
+            })),
             patch_summary: summary,
           }),
         });

@@ -2042,6 +2042,9 @@ const App: React.FC = () => {
     (event: { type: 'browser_navigate'; url: string }) => {
       if (event.type !== 'browser_navigate' || !event.url?.trim()) return;
       const url = event.url.trim();
+      if (/\/api\/r2\/file\b/i.test(url)) {
+        return;
+      }
       window.dispatchEvent(
         new CustomEvent('iam:agent-open-surface', {
           detail: { surface: 'browser', url },
