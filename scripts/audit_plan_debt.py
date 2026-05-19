@@ -36,7 +36,7 @@ REPORT_PATH = REPO_ROOT / "scripts" / "audit_plan_debt_report.md"
 DATA_PATH = REPO_ROOT / "scripts" / "audit_plan_debt_data.json"
 
 WORKER_URL = os.environ.get("WORKER_URL", "https://inneranimalmedia.com").rstrip("/")
-CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get("API_TOKEN", "")
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 
 # Fallback: paste SQL/API output here when API is unavailable.
 EMBEDDED_PLANS: list[dict[str, Any]] = []
