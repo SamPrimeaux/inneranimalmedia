@@ -95,12 +95,14 @@ export async function ensureAppUser(env, identity, options = {}) {
       .replace(/^_+|_+$/g, '')
       .slice(0, 32);
     const tenantId = 'tenant_' + (localPart || crypto.randomUUID().slice(0, 8));
+    const userKey = localPart || crypto.randomUUID().slice(0, 8);
+    const workspaceId = 'ws_' + userKey;
 
     await env.DB.prepare(
-      `INSERT INTO auth_users (id, email, name, password_hash, salt, supabase_user_id, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      `INSERT INTO auth_users (id, email, name, password_hash, salt, supabase_user_id, tenant_id, user_key, default_workspace_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     )
-      .bind(id, email, name, passwordHash, salt, supabaseUserId || null, tenantId)
+      .bind(id, email, name, passwordHash, salt, supabaseUserId || null, tenantId, userKey, workspaceId)
       .run();
 
     const row = await env.DB.prepare(

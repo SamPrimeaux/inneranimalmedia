@@ -11,13 +11,33 @@ import { provisionUserWorkspace } from '../api/provisioning.js';
 export async function provisionNewUser(env, { email, name, authUserId }) {
   if (!env.DB || !email) return null;
 
-  const localPart = email.split('@')[0].toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 32);
-  const user_key = localPart || 'user_' + crypto.randomUUID().slice(0, 8);
-  const tenantId = 'tenant_' + (localPart || crypto.randomUUID().slice(0, 8));
-  const workspace_id = 'ws_' + user_key;
+  let user_key;
+  let workspace_id;
+
+  if (authUserId) {
+    const authRow = await env.DB.prepare(
+      `SELECT user_key, default_workspace_id FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(authUserId)
+      .first();
+    if (authRow?.user_key) {
+      user_key = String(authRow.user_key).trim();
+      workspace_id =
+        authRow.default_workspace_id != null && String(authRow.default_workspace_id).trim()
+          ? String(authRow.default_workspace_id).trim()
+          : 'ws_' + user_key;
+    }
+  }
+
+  if (!user_key) {
+    const localPart = email.split('@')[0].toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 32);
+    user_key = localPart || 'user_' + crypto.randomUUID().slice(0, 8);
+    workspace_id = 'ws_' + user_key;
+  }
+
   const displayName = name || email.split('@')[0];
 
   try {
