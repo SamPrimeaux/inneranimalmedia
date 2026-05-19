@@ -545,6 +545,28 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
           costUsdIns = 0;
         }
       }
+      const commandsExecutedForRun = Array.isArray(p.commandsExecuted) ? p.commandsExecuted : [];
+      const intentCategoryForRun = sanitizeIntentCategoryForCommandRun(p.intentCategory);
+      const hasSelectedCommandForRun = Boolean(p.selectedCommandId || p.selectedCommandSlug);
+      const hasExecutableIntentForRun = ['deploy', 'debug', 'db', 'r2', 'git', 'worker', 'search', 'file'].includes(
+        String(intentCategoryForRun || '').toLowerCase(),
+      );
+      const approvalStatusForRun = String(p.approvalStatus || 'not_required').toLowerCase();
+      const hasApprovalNeedForRun = approvalStatusForRun !== 'not_required';
+      const riskLevelForRun = String(p.riskLevel || 'low').toLowerCase();
+      const hasRiskForRun = ['medium', 'high', 'critical'].includes(riskLevelForRun);
+      const shouldCreateCommandRun =
+        commandsExecutedForRun.length > 0 ||
+        hasSelectedCommandForRun ||
+        hasExecutableIntentForRun ||
+        hasApprovalNeedForRun ||
+        hasRiskForRun ||
+        Boolean(p.requiresConfirmation);
+
+      if (!shouldCreateCommandRun) {
+        return;
+      }
+
       try {
         const ins = await env.DB.prepare(
           `INSERT INTO agentsam_command_run
@@ -567,9 +589,9 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
             p.conversationId ?? null,
             p.userInput ?? '',
             p.normalizedIntent ?? null,
-            sanitizeIntentCategoryForCommandRun(p.intentCategory),
+            intentCategoryForRun,
             modelIdForRow,
-            JSON.stringify(p.commandsExecuted ?? []),
+            JSON.stringify(commandsExecutedForRun),
             JSON.stringify(resultMerged),
             p.outputText != null ? String(p.outputText).slice(0, 50000) : null,
             p.confidenceScore ?? null,
