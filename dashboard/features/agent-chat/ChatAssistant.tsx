@@ -80,6 +80,7 @@ import type { ThinkingCardState } from '../../src/components/ThinkingCard';
 import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
 import '../agent-presence/presenceMotion.css';
 import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
+import { derivePresenceState } from '../agent-presence/iamDerivePresenceState';
 
 
 export { IAM_AGENT_CHAT_CONVERSATION_CHANGE, IAM_AGENT_CHAT_NEW_THREAD } from '../../agentChatConstants';
@@ -123,6 +124,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   useEffect(() => { onLoadingChange?.(isLoading); }, [isLoading, onLoadingChange]);
   const [thinkingState, setThinkingState] =
     useState<ThinkingCardState | null>(null);
+  const [presenceState, setPresenceState] = useState<string>('idle');
   const thinkingStartRef = useRef<number>(0);
 
   const [input, setInput] = useState('');
@@ -882,6 +884,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, []);
 
   const handleThinkingEvent = useCallback((ev: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string; approval_id?: string; plan_id?: string }) => {
+    setPresenceState(derivePresenceState(ev));
     if (ev.type === 'thinking_start') {
       setThinkingState({ steps: [], thinkingText: '', status: 'thinking', startedAt: Date.now() });
     } else if (ev.type === 'thinking') {
@@ -1523,7 +1526,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {isNarrow && (
           <header className="grid grid-cols-[auto_1fr_auto] items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)] shrink-0 bg-[var(--dashboard-panel)] z-10">
-            <AgentPresenceLogo motion={logoMotion} sizePx={24} />
+            <AgentPresenceLogo motion={logoMotion} presenceState={presenceState} sizePx={24} />
             <nav className="flex items-center justify-center gap-2 sm:gap-3 min-w-0 max-w-full overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
               {(['agents', 'automations', 'dashboard'] as const).map((tab) => (
                 <button
@@ -1611,7 +1614,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {!isNarrow && (
           <div className="flex-shrink-0 flex items-start gap-2.5 px-3 py-2 border-b border-[var(--dashboard-border)]">
-            <AgentPresenceLogo motion={logoMotion} sizePx={28} className="mt-0.5" />
+            <AgentPresenceLogo motion={logoMotion} presenceState={presenceState} sizePx={28} className="mt-0.5" />
             <div className="flex-1 min-w-0 flex flex-col gap-1">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="flex-1 text-[13px] font-semibold text-[var(--dashboard-text)] truncate min-w-0">
