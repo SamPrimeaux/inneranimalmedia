@@ -3051,8 +3051,8 @@ export async function handleSettingsRequest(request, env, ctx) {
     const storedUserId = canonicalAuthId || sessionUserId;
     const { results } = await env.DB.prepare(
       `SELECT id, provider, ip_address, user_agent, last_active_at, expires_at, created_at
-       FROM sessions
-       WHERE user_id = ? AND revoked_at IS NULL
+       FROM auth_sessions
+       WHERE user_id = ? AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')
        ORDER BY COALESCE(last_active_at, created_at) DESC`,
     )
       .bind(String(storedUserId))
@@ -3141,11 +3141,16 @@ export async function handleSettingsRequest(request, env, ctx) {
       if (!id) return jsonResponse({ error: 'id required' }, 400);
       const storedUserId = canonicalAuthId || sessionUserId;
       await env.DB.prepare(
-        `UPDATE sessions SET revoked_at = unixepoch() * 1000, revoke_reason = 'user_revoked'
+        `UPDATE auth_sessions SET revoked_at = datetime('now'), revoke_reason = 'user_revoked'
          WHERE id = ? AND user_id = ?`,
       )
         .bind(id, String(storedUserId))
         .run();
+      if (env.SESSION_CACHE) {
+        try {
+          await env.SESSION_CACHE.delete(`iam_sess_v1:${id}`);
+        } catch (_) {}
+      }
       return jsonResponse({ ok: true });
     }
   }

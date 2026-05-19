@@ -74,7 +74,7 @@ function googleClientSecret(env) {
 /**
  * Best-effort time tracking + analytics after OAuth login. Never throws.
  * @param {*} db — env.DB (D1)
- * @param {string} browserSessionId — `sessions.id` from createLoginSession (cookie session UUID)
+ * @param {string} browserSessionId — `auth_sessions.id` from createLoginSession (cookie session UUID)
  * @param {string} userId — auth_users.id
  */
 async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {
@@ -110,7 +110,7 @@ async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {
 
     await db
       .prepare(
-        `UPDATE sessions SET workspace_id = ?, work_session_id = ?
+        `UPDATE auth_sessions SET workspace_id = ?, work_session_id = ?
          WHERE id = ?`,
       )
       .bind(activeWs ?? null, wsSessionId, browserSessionId)

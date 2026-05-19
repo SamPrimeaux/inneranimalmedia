@@ -17,6 +17,7 @@ import {
   resolveUserEnrichment,
   establishIamSession,
   createLoginSession,
+  revokeAuthSession,
   verifyAgentSessionMintSecret,
   DEFAULT_AGENT_SESSION_TTL_SECONDS,
   MIN_AGENT_SESSION_TTL_SECONDS,
@@ -573,17 +574,7 @@ async function handleLogout(request, url, env) {
   const sessionId = match ? match[1] : null;
 
   if (sessionId && env.DB) {
-    await env.DB.prepare('DELETE FROM auth_sessions WHERE id = ?').bind(sessionId).run();
-    // Revoke sessions row (fire-and-forget)
-    try {
-      env.DB.prepare(
-        `UPDATE sessions SET revoked_at = ?, revoke_reason = 'logout'
-         WHERE id = ? AND revoked_at IS NULL`
-      ).bind(Date.now(), sessionId).run().catch(() => {});
-    } catch (_) {}
-    if (env.SESSION_CACHE) {
-      await env.SESSION_CACHE.delete(`iam_sess_v1:${sessionId}`);
-    }
+    await revokeAuthSession(env, sessionId, 'logout');
   }
 
   const responseBody = JSON.stringify({ ok: true });

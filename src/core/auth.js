@@ -422,9 +422,11 @@ export async function getSession(env, request) {
     for (const sessionId of sessionCandidates) {
       try {
         const row = await env.DB.prepare(
-          `SELECT id, user_id, expires_at, tenant_id FROM auth_sessions 
-           WHERE id = ? AND datetime(expires_at) > datetime('now') 
-           LIMIT 1`
+          `SELECT id, user_id, expires_at, tenant_id FROM auth_sessions
+           WHERE id = ?
+             AND datetime(expires_at) > datetime('now')
+             AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')
+           LIMIT 1`,
         ).bind(sessionId).first();
 
         if (row) {
@@ -515,6 +517,41 @@ export async function getAuthUser(request, env) {
   };
 }
 
+/**
+ * Insert canonical browser session row (auth_sessions only).
+ * @param {*} env
+ * @param {object} row
+ */
+async function insertAuthSessionRow(env, row) {
+  const email = String(row.email || '').trim();
+  if (!email) throw new Error('auth_sessions.email required');
+
+  await env.DB.prepare(
+    `INSERT INTO auth_sessions (
+      id, user_id, tenant_id, person_uuid, email, provider, provider_subject,
+      display_name, avatar_url, workspace_id,
+      expires_at, created_at, ip_address, user_agent, last_active_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)`,
+  )
+    .bind(
+      row.sessionId,
+      row.userId,
+      row.tenantId ?? null,
+      row.personUuid ?? null,
+      email,
+      row.provider || 'email',
+      row.providerSubject ?? null,
+      row.displayName ?? null,
+      row.avatarUrl ?? null,
+      row.workspaceId ?? null,
+      row.expiresAtIso,
+      row.ip || '',
+      row.ua || '',
+      row.lastActiveAtMs ?? Date.now(),
+    )
+    .run();
+}
+
 export async function establishIamSession(request, env, userId, bodyObj = { ok: true }, sessionProvider = 'iam') {
   if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 500);
   const sessionId = crypto.randomUUID();
@@ -522,55 +559,40 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
   const expiresAtIso = new Date(expiresTs).toISOString();
   const ip = request.headers.get('cf-connecting-ip') || '';
   const ua = request.headers.get('user-agent') || '';
-  
-  // Resolve tenant
-  let tid = null;
+
   let userRow = null;
   try {
     userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
-    tid = userRow?.tenant_id || null;
   } catch (_) {}
 
-  await env.DB.prepare(
-    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`
-  ).bind(sessionId, userId, expiresAtIso, ip, ua, tid).run();
-
-  if (userRow) {
-    try {
-      const expiresAtMs = new Date(expiresAtIso).getTime();
-      await env.DB.prepare(`
-        INSERT INTO sessions (
-          id, user_id, tenant_id, person_uuid, email, provider,
-          display_name, ip_address, user_agent,
-          last_active_at, expires_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
-      `).bind(
-        sessionId,
-        userId,
-        tid,
-        userRow.person_uuid,
-        userRow.email,
-        sessionProvider,
-        userRow.name || 'User',
-        ip,
-        ua,
-        Date.now(),
-        expiresAtMs,
-      ).run();
-    } catch (e) {
-      console.warn('[establishIamSession sessions dual-write]', e?.message ?? e);
-    }
+  if (!userRow?.email) {
+    return jsonResponse({ error: 'User not found' }, 404);
   }
-  
+
+  const tid = userRow.tenant_id || null;
+  await insertAuthSessionRow(env, {
+    sessionId,
+    userId,
+    tenantId: tid,
+    personUuid: userRow.person_uuid,
+    email: userRow.email,
+    provider: sessionProvider,
+    displayName: userRow.name || 'User',
+    avatarUrl: userRow.avatar_url ?? null,
+    ip,
+    ua,
+    expiresAtIso,
+  });
+
   await writeIamSessionToKv(env, sessionId, userId, tid, expiresAtIso);
-  
+
   const response = jsonResponse(bodyObj);
   response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`);
   return response;
 }
 
 /**
- * Creates auth_sessions + legacy sessions + KV (used by email login, OAuth login, signup).
+ * Creates auth_sessions + KV (email / OAuth / signup login).
  * @returns {Promise<string>} session id
  */
 export async function createLoginSession(request, env, userId, sessionProvider = 'email', opts = {}) {
@@ -600,48 +622,53 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     console.warn('[createLoginSession] auth_users lookup failed', e.message);
   }
 
-  if (!userRow) {
+  if (!userRow?.email) {
     throw new Error('User not found in auth_users during login finalization');
   }
 
-  const tenantId = userRow.tenant_id;
-  const personUuid = userRow.person_uuid;
+  await insertAuthSessionRow(env, {
+    sessionId,
+    userId,
+    tenantId: userRow.tenant_id,
+    personUuid: userRow.person_uuid,
+    email: userRow.email,
+    provider: sessionProvider,
+    providerSubject: opts.providerSubject ?? null,
+    displayName: userRow.name || 'User',
+    avatarUrl: userRow.avatar_url ?? null,
+    workspaceId: opts.workspaceId ?? userRow.active_workspace_id ?? null,
+    ip,
+    ua,
+    expiresAtIso,
+  });
 
-  await env.DB.prepare(
-    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`,
-  )
-    .bind(sessionId, userId, expiresAtIso, ip, ua, tenantId)
-    .run();
-
-  try {
-    const expiresAtMs = new Date(expiresAtIso).getTime();
-
-    await env.DB.prepare(`
-      INSERT INTO sessions (
-        id, user_id, tenant_id, person_uuid, email, provider,
-        display_name, ip_address, user_agent,
-        last_active_at, expires_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
-    `).bind(
-      sessionId,
-      userId,
-      tenantId,
-      personUuid,
-      userRow.email,
-      sessionProvider,
-      userRow.name || 'User',
-      ip,
-      ua,
-      Date.now(),
-      expiresAtMs,
-    ).run();
-  } catch (e) {
-    console.warn('[sessions dual-write]', e?.message ?? e);
-  }
-
-  await writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso);
+  await writeIamSessionToKv(env, sessionId, userId, userRow.tenant_id, expiresAtIso);
 
   return sessionId;
+}
+
+/**
+ * Revoke a browser session (soft-delete). Clears KV cache for that session id.
+ */
+export async function revokeAuthSession(env, sessionId, reason = 'logout') {
+  const id = String(sessionId || '').trim();
+  if (!id || !env?.DB) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE auth_sessions
+       SET revoked_at = datetime('now'), revoke_reason = ?
+       WHERE id = ? AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')`,
+    )
+      .bind(reason, id)
+      .run();
+  } catch (e) {
+    console.warn('[revokeAuthSession]', e?.message ?? e);
+  }
+  if (env.SESSION_CACHE) {
+    try {
+      await env.SESSION_CACHE.delete(IAM_KV_SESSION_KEY_PREFIX + id);
+    } catch (_) {}
+  }
 }
 
 export function isIngestSecretAuthorized(request, env) {
