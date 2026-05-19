@@ -467,18 +467,28 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               path?: string;
               language?: string;
               content?: string;
+              plan_id?: string;
             };
+            const batchPlanId =
+              typeof (data as { plan_id?: string }).plan_id === 'string'
+                ? (data as { plan_id: string }).plan_id.trim()
+                : '';
             const content = typeof f.content === 'string' ? f.content : '';
             const path = typeof f.path === 'string' ? f.path.trim() : '';
             const filename =
               (typeof f.filename === 'string' && f.filename.trim()) ||
               path.split('/').pop() ||
               'untitled';
+            const planId =
+              (typeof f.plan_id === 'string' && f.plan_id.trim()) || batchPlanId || '';
             if (!content) continue;
             try {
+              const workspacePath = planId
+                ? `agent-draft:${planId}:${path || filename}`
+                : path || filename;
               onFileSelect?.({
                 name: filename,
-                workspacePath: path || filename,
+                workspacePath,
                 content,
                 originalContent: '',
               });

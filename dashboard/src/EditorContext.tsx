@@ -41,22 +41,30 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if (existing) {
         return prev.map((t) => {
           if (t.id !== id) return t;
+          const savedBaseline =
+            file.originalContent !== undefined
+              ? file.originalContent
+              : isMedia
+                ? t.lastSavedContent
+                : file.content;
           const merged: EditorTab = {
             ...t,
             ...file,
             id,
-            isDirty: isMedia ? false : file.content !== t.lastSavedContent,
-            lastSavedContent: isMedia ? t.lastSavedContent : file.content,
+            isDirty: isMedia ? false : file.content !== savedBaseline,
+            lastSavedContent: isMedia ? t.lastSavedContent : savedBaseline,
           };
           return merged;
         });
       }
 
+      const savedBaseline =
+        file.originalContent !== undefined ? file.originalContent : isMedia ? '' : file.content;
       const newTab: EditorTab = {
         ...file,
         id,
-        isDirty: false,
-        lastSavedContent: isMedia ? '' : file.content,
+        isDirty: isMedia ? false : file.content !== savedBaseline,
+        lastSavedContent: savedBaseline,
       };
       return [...prev, newTab];
     });

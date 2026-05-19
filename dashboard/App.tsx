@@ -743,11 +743,30 @@ const App: React.FC = () => {
       setIdeWorkspace(b.ideWorkspace);
       setGitBranch(b.gitBranch);
       setRecentFiles(b.recentFiles);
+      const buffers = b.recentFiles.filter(
+        (e) =>
+          e.source === 'buffer' &&
+          typeof e.snapshotWorking === 'string' &&
+          e.snapshotWorking.length > 0 &&
+          /\.(html?|css|mjs|cjs|js|tsx?|md|json|svg)$/i.test(e.name),
+      );
+      for (const e of buffers.slice(0, 8)) {
+        openFile({
+          name: e.name,
+          workspacePath: e.workspacePath || e.name,
+          content: e.snapshotWorking,
+          originalContent: e.snapshotOriginal ?? '',
+        });
+      }
+      if (buffers.length) {
+        setOpenTabs((prev) => (prev.includes('code') ? prev : [...prev, 'code']));
+        setActiveTab('code');
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [activeAgentConversationId]);
+  }, [activeAgentConversationId, openFile]);
 
   useEffect(() => {
     const id = activeAgentConversationId?.trim();
@@ -1359,10 +1378,11 @@ const App: React.FC = () => {
 
   const openInMonacoFromChat = useCallback(
     (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => {
-      setActiveFile({
+      const opened: ActiveFile = {
         name: file.name,
         content: file.content,
         originalContent: file.originalContent !== undefined ? file.originalContent : file.content ?? '',
+        workspacePath: file.workspacePath || file.name,
         fileKind: file.fileKind,
         isImage: file.isImage,
         isBinary: file.isBinary,
@@ -1375,7 +1395,9 @@ const App: React.FC = () => {
         githubSha: file.githubSha,
         r2Key: file.r2Key,
         r2Bucket: file.r2Bucket,
-      });
+      };
+      setActiveFile(opened);
+      setRecentFiles((prev) => mergeRecentFromActiveFile(prev, opened));
       revealMainWorkspaceIfNarrow();
       setOpenTabs((prev) => (prev.includes('code') ? prev : [...prev, 'code']));
       setActiveTab('code');
@@ -1383,7 +1405,7 @@ const App: React.FC = () => {
         setToastMsg('Opened in code editor. Tap Chat (bottom) to return to Agent Sam.');
       }
     },
-    [revealMainWorkspaceIfNarrow, isNarrowViewport],
+    [revealMainWorkspaceIfNarrow, isNarrowViewport, mergeRecentFromActiveFile],
   );
 
   const focusCodeEditorFromChat = useCallback(() => {
@@ -1443,7 +1465,11 @@ const App: React.FC = () => {
         if (load || aid) {
           window.dispatchEvent(
             new CustomEvent('iam:excalidraw_load_document', {
-              detail: { load_url: load || null, artifact_id: aid || null },
+              detail: {
+                load_url: load || null,
+                artifact_id: aid || null,
+                replace_workspace: true,
+              },
             }),
           );
         }

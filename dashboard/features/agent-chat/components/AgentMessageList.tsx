@@ -318,6 +318,16 @@ function openImplementationPlanMap(visualMap: ImplementationPlanVisualMap) {
         load_url: loadUrl,
         artifact_id: aid || null,
         artifact_type: 'excalidraw',
+        replace_workspace: true,
+      },
+    }),
+  );
+  window.dispatchEvent(
+    new CustomEvent('iam:excalidraw_load_document', {
+      detail: {
+        load_url: loadUrl,
+        artifact_id: aid || null,
+        replace_workspace: true,
       },
     }),
   );
@@ -450,20 +460,6 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                   {msg.implementationPlan &&
                   (msg.implementationPlan.visual_map || msg.implementationPlan.plan_markdown) ? (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {msg.implementationPlan.visual_map ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const p = msg.implementationPlan;
-                            if (p?.visual_map) openImplementationPlanMap(p.visual_map);
-                          }}
-                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
-                          title="Open plan map in Draw"
-                        >
-                          <PlanMapGlyph className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
-                          <span>View implementation plan</span>
-                        </button>
-                      ) : null}
                       {msg.implementationPlan.plan_markdown ? (
                         <button
                           type="button"
@@ -473,10 +469,37 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                               openImplementationPlanMarkdown(p.plan_markdown, p.plan_id, onFileSelect);
                           }}
                           className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
-                          title="Fetch canonical plan.md and open in Monaco"
+                          title="Open plan.md in the code editor"
                         >
                           <FileText size={15} className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
-                          <span>Open plan (.md)</span>
+                          <span>View implementation plan</span>
+                        </button>
+                      ) : msg.implementationPlan.visual_map ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const p = msg.implementationPlan;
+                            if (p?.visual_map) openImplementationPlanMap(p.visual_map);
+                          }}
+                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
+                          title="Open plan map in Draw (no markdown artifact)"
+                        >
+                          <PlanMapGlyph className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
+                          <span>View implementation plan</span>
+                        </button>
+                      ) : null}
+                      {msg.implementationPlan.visual_map && msg.implementationPlan.plan_markdown ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const p = msg.implementationPlan;
+                            if (p?.visual_map) openImplementationPlanMap(p.visual_map);
+                          }}
+                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
+                          title="Open Excalidraw plan map (optional)"
+                        >
+                          <PlanMapGlyph className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
+                          <span>Open plan map (Draw)</span>
                         </button>
                       ) : null}
                     </div>
