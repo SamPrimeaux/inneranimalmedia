@@ -5,6 +5,7 @@
  * scheduleRoutingArmQualityUpdate to close the Thompson feedback loop.
  */
 import { scheduleRoutingArmQualityUpdate } from './routing.js';
+import { completeWithOpenAIResponsesNonStream } from '../integrations/openai.js';
 
 /**
  * Trigger eval suite for a given arm after milestone execution count.
@@ -53,24 +54,57 @@ export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, m
       let outputTokens = 0;
       let passed = 0;
       let scoreQuality = 0.5;
+      let graderOutputText = '';
 
       try {
-        // Use cheapest model for eval grading (haiku/nano)
-        const graderModel = 'claude-haiku-4-5-20251001';
-        const graderPrompt = [
-          `You are an eval grader. Score this response 0.0–1.0.`,
-          `CRITERIA: ${c.grading_criteria ?? 'general quality and accuracy'}`,
-          `EXPECTED: ${c.expected_output ?? 'n/a'}`,
-          `INPUT PROMPT: ${c.input_prompt}`,
-          `Respond ONLY with a JSON object: {"score": 0.0-1.0, "passed": true/false, "notes": "brief reason"}`,
-        ].join('\n');
+        // Resolve cheapest capable grader model from catalog (prefer gpt-5.4-nano → gpt-5.4-mini)
+        const graderRow = await env.DB?.prepare(
+          `SELECT model_key, api_platform
+           FROM agentsam_model_catalog
+           WHERE model_key IN ('gpt-5.4-nano', 'gpt-5.4-mini')
+             AND is_active = 1 AND is_degraded = 0 AND budget_exhausted = 0
+           ORDER BY cost_per_1k_out ASC LIMIT 1`
+        ).first().catch(() => null);
 
-        // Call the model being evaluated (use env.AI or fetch to anthropic)
-        // For now, score based on whether output is non-empty and non-error
-        // Full LLM-as-judge wiring happens in phase 2
-        scoreQuality = 0.75; // default until LLM grader is wired
-        passed = 1;
+        if (graderRow?.model_key) {
+          const graderPrompt = [
+            `You are an eval grader. Score this AI response 0.0–1.0.`,
+            `CRITERIA: ${c.grading_criteria ?? 'general quality and accuracy'}`,
+            `EXPECTED OUTPUT: ${c.expected_output ?? 'n/a'}`,
+            `INPUT PROMPT: ${c.input_prompt}`,
+            `ACTUAL RESPONSE: ${outputText?.slice(0, 2000) ?? '(no output)'}`,
+            `Respond ONLY with a JSON object: {"score": 0.0-1.0, "passed": true/false, "notes": "brief reason"}`,
+          ].join('\n');
 
+          const graderResult = await completeWithOpenAIResponsesNonStream(env, {
+            modelKey: graderRow.model_key,
+            messages: [{ role: 'user', content: graderPrompt }],
+            systemPrompt: 'You are a precise eval grader. Respond only with valid JSON.',
+            tools: [],
+            options: { response_format: { type: 'json_object' } },
+          });
+
+          const rawText = graderResult?.content?.[0]?.text
+            ?? graderResult?.text
+            ?? graderResult?.output?.[0]?.content?.[0]?.text
+            ?? '';
+
+          try {
+            const clean = rawText.replace(/```json|```/g, '').trim();
+            const parsed = JSON.parse(clean);
+            scoreQuality = Math.min(1, Math.max(0, Number(parsed.score ?? 0.5)));
+            passed = parsed.passed === true ? 1 : 0;
+            graderOutputText = String(parsed.notes ?? '').slice(0, 500);
+          } catch {
+            // JSON parse failed — use neutral score
+            scoreQuality = 0.5;
+            passed = 0;
+          }
+        } else {
+          // No grader model available — skip with neutral score
+          scoreQuality = 0.5;
+          passed = 0;
+        }
       } catch (e) {
         scoreQuality = 0.0;
         passed = 0;
