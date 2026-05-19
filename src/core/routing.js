@@ -779,11 +779,12 @@ export async function resolveRoutingArm(env, { taskType, intentSlug, mode, works
       routeKey: routeKey ?? null,
     });
     if (intent) {
-      arms = arms.filter(
-        (a) =>
-          String(a.task_type ?? '').trim() === tt ||
-          (a.intent_slug != null && String(a.intent_slug).trim().toLowerCase() === intent),
-      );
+      arms = arms.filter((a) => {
+        if (String(a.task_type ?? '').trim() === tt) return true;
+        const armIntent = a.intent_slug != null ? String(a.intent_slug).trim().toLowerCase() : '';
+        if (!armIntent) return false;
+        return armIntent === intent || armIntent.startsWith(`${intent}_`);
+      });
     }
     if (!arms.length) return null;
 

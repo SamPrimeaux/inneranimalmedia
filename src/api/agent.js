@@ -1467,6 +1467,20 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     const deny = new Set(policy.denyTools);
     rows = rows.filter((r) => !deny.has(String(r.tool_name)));
   }
+  const preferredKeys = Array.isArray(opts.preferredToolKeys)
+    ? opts.preferredToolKeys.map((k) => String(k || '').trim()).filter(Boolean)
+    : [];
+  if (preferredKeys.length && rows.length) {
+    const prefSet = new Set(preferredKeys);
+    const preferred = [];
+    const rest = [];
+    for (const r of rows) {
+      const name = String(r.tool_name || '').trim();
+      if (prefSet.has(name)) preferred.push(r);
+      else rest.push(r);
+    }
+    rows = [...preferred, ...rest];
+  }
   const tools = rows.map((r) => ({
     name: String(r.tool_name),
     description: String(r.description || ''),
@@ -2049,12 +2063,85 @@ function normalizeGateParseFailure(originalMessage) {
   return { intent: 'auto', rewritten_query: originalMessage, confidence: 0.75 };
 }
 
-async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
-  // Gate LLM call removed — was adding 10-20s latency on every turn.
-  // inferIntentHeuristically (called by classifyIntent below) provides
-  // equivalent classification at zero cost. If you need LLM-based rewriting
-  // for a specific mode, add it as an opt-in feature flag, not a mandatory gate.
-  return normalizeGateParseFailure(message);
+/** Map heuristic taskType + mode → routing arm intent_slug prefix (e.g. code_agent). */
+function intentSlugFromHeuristic(taskType, mode, modeConfig) {
+  const tt = String(taskType || 'chat').trim().toLowerCase() || 'chat';
+  const md =
+    String(mode || modeConfig?.slug || modeConfig?.mode || 'agent').trim().toLowerCase() || 'agent';
+  return `${tt}_${md}`;
+}
+
+async function gateRewriteAndClassify(_env, modeConfig, message, _tenantId) {
+  const { taskType, mode } = inferIntentHeuristically(message);
+  const intentSlug = intentSlugFromHeuristic(taskType, mode, modeConfig);
+  return {
+    intent: intentSlug,
+    rewritten_query: message,
+    confidence: 0.85,
+    taskType,
+    mode,
+  };
+}
+
+/**
+ * D1 agentsam_capability_aliases → preferred tool_key names for a classified taskType.
+ * @param {any} env
+ * @param {string} taskType
+ * @returns {Promise<string[]>}
+ */
+async function loadCapabilityAliasToolKeysForTask(env, taskType) {
+  if (!env?.DB) return [];
+  const tt = String(taskType || '').trim().toLowerCase();
+  if (!tt) return [];
+  try {
+    const dotted = tt.replace(/_/g, '.');
+    const { results } = await env.DB.prepare(
+      `SELECT match_value
+       FROM agentsam_capability_aliases
+       WHERE is_active = 1
+         AND lower(trim(match_kind)) = 'tool_key'
+         AND (
+           lower(trim(abstract_capability)) = ?
+           OR lower(trim(abstract_capability)) = ?
+           OR lower(trim(abstract_capability)) LIKE ? || '.%'
+           OR lower(replace(trim(abstract_capability), '.', '_')) = ?
+         )
+       ORDER BY priority ASC
+       LIMIT 24`,
+    )
+      .bind(tt, dotted, dotted, tt)
+      .all();
+    const keys = [];
+    for (const row of results || []) {
+      const v = String(row.match_value || '').trim();
+      if (v) keys.push(v);
+    }
+    return [...new Set(keys)];
+  } catch (e) {
+    console.warn('[agent] capability_alias_tools', e?.message ?? e);
+    return [];
+  }
+}
+
+/**
+ * Global skills with always_apply=1 (tenant/workspace agnostic).
+ * @param {any} env
+ */
+async function loadGlobalAlwaysApplySkills(env) {
+  if (!env?.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, content_markdown
+       FROM agentsam_skill
+       WHERE is_active = 1 AND always_apply = 1
+       ORDER BY sort_order ASC
+       LIMIT 8`,
+    ).all();
+    return results || [];
+  } catch (e) {
+    console.warn('[agent] always_apply_skills', e?.message ?? e);
+    return [];
+  }
 }
 
 async function recordArmOutcome(env, ctx, armId, success, routingInfo) {
@@ -5447,6 +5534,38 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     console.error('[agent] classifyIntent_invalid', { message: String(message || '').slice(0, 240) });
   }
 
+  let capabilityAliasToolKeys = [];
+  let globalAlwaysApplySkills = [];
+  if (env?.DB && intentResult?.taskType) {
+    try {
+      [capabilityAliasToolKeys, globalAlwaysApplySkills] = await Promise.all([
+        loadCapabilityAliasToolKeysForTask(env, intentResult.taskType),
+        loadGlobalAlwaysApplySkills(env),
+      ]);
+    } catch (_) {
+      /* non-fatal */
+    }
+    if (ctx?.waitUntil && globalAlwaysApplySkills.length && userId && workspaceId) {
+      const uid = String(userId).trim();
+      const ws = String(workspaceId).trim();
+      const conv = sessionId != null ? String(sessionId) : null;
+      ctx.waitUntil(
+        Promise.all(
+          globalAlwaysApplySkills.map((row) =>
+            env.DB.prepare(
+              `INSERT INTO agentsam_skill_invocation
+               (skill_id, user_id, workspace_id, conversation_id, trigger_method, success, tenant_id)
+               VALUES (?, ?, ?, ?, 'always_apply', 1, ?)`,
+            )
+              .bind(String(row.id), uid, ws, conv, tenantId ?? null)
+              .run()
+              .catch((e) => console.warn('[agentsam_skill_invocation]', e?.message ?? e)),
+          ),
+        ).catch(() => {}),
+      );
+    }
+  }
+
   // ── Thompson arm selection ────────────────────────────────────────────────
   let _autoModelResult = null;
   let _selectedArmId   = null;
@@ -5840,6 +5959,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
         ? Number(promptRouteRow.max_tools)
         : null,
+    preferredToolKeys: capabilityAliasToolKeys,
   });
   const tcList = parseJsonSafe(promptRouteRow?.tool_categories, null);
   let dbTools = dbToolsRaw;
@@ -6317,7 +6437,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   if (!minimalAskChat) {
     try {
-      const skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
+      let skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
+      if (globalAlwaysApplySkills.length) {
+        const seen = new Set(skillRows.map((s) => String(s.id)));
+        for (const row of globalAlwaysApplySkills) {
+          if (!seen.has(String(row.id))) {
+            skillRows.unshift(row);
+            seen.add(String(row.id));
+          }
+        }
+      }
       if (isSkillCreatorIntakeMessage(message)) {
         const creator = await loadSkillCreatorSkillRow(env);
         if (creator?.content_markdown && !skillRows.some((s) => s.id === creator.id)) {

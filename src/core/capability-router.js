@@ -4,8 +4,8 @@
  */
 import { resolveModelApiKey } from '../integrations/tokens.js';
 
-/** P3: nano id + direct /v1/responses; align with agentsam_model_catalog + dispatch when refactoring. */
-const NANO_MODEL = 'gpt-5.4-nano';
+/** Cheap classifier — same family as routing arms default (gemini-2.5-flash-lite). */
+const GEMINI_CLASSIFIER_MODEL = 'gemini-2.5-flash-lite';
 
 const DEFAULT_DECISION = {
   intent: 'general_chat',
@@ -149,7 +149,10 @@ export async function classifyWorkspaceCapabilities(env, opts) {
 
   if (!message && !browserContext) return normalizeDecision(DEFAULT_DECISION);
 
-  const apiKey = await resolveModelApiKey(env, 'openai', NANO_MODEL, userId);
+  const apiKey =
+    (env?.GEMINI_API_KEY && String(env.GEMINI_API_KEY).trim()) ||
+    (env?.GOOGLE_AI_API_KEY && String(env.GOOGLE_AI_API_KEY).trim()) ||
+    (await resolveModelApiKey(env, 'google', GEMINI_CLASSIFIER_MODEL, userId));
   if (!apiKey) {
     return normalizeDecision(heuristicDecision(message, browserContext));
   }
@@ -180,32 +183,27 @@ Output shape:
   );
 
   try {
-    const res = await fetch('https://api.openai.com/v1/responses', {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_CLASSIFIER_MODEL}` +
+      `:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: NANO_MODEL,
-        input: [
-          { role: 'system', content: sys },
-          { role: 'user', content: user },
-        ],
-        reasoning: { effort: 'none' },
-        text: { verbosity: 'low' },
-        max_output_tokens: 512,
+        system_instruction: { parts: [{ text: sys }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 200 },
       }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
-      console.warn('[capability-router] openai', res.status, JSON.stringify(data || {}).slice(0, 400));
+      console.warn('[capability-router] gemini', res.status, JSON.stringify(data || {}).slice(0, 400));
       return normalizeDecision(heuristicDecision(message, browserContext));
     }
     let text = '';
-    if (data?.output_text) text = data.output_text;
-    else if (Array.isArray(data?.output)) {
-      for (const item of data.output) {
-        for (const c of item?.content || []) {
-          if (typeof c?.text === 'string') text += c.text;
-        }
+    for (const c of data?.candidates || []) {
+      for (const p of c?.content?.parts || []) {
+        if (typeof p?.text === 'string') text += p.text;
       }
     }
     const parsed = extractJsonObject(text);
@@ -221,7 +219,7 @@ export function capabilityRouterPromptBlock(decision) {
   const d = decision && typeof decision === 'object' ? decision : DEFAULT_DECISION;
   return [
     '## Workspace capability routing',
-    'The following JSON was produced by a cheap classifier (gpt-5.4-nano or heuristic). It does NOT auto-run tools.',
+    'The following JSON was produced by a cheap classifier (gemini-2.5-flash-lite or heuristic). It does NOT auto-run tools.',
     'Use it to choose tools intentionally:',
     '- Browser: when should_use_browser is true, prefer browser_navigate → browser_content or playwright_screenshot (and cdt_* for interaction). Respect trusted origins (agentsam_browser_trusted_origin).',
     '- Monaco/files: when should_use_monaco is true, emit concrete file content; the dashboard may open the editor from tool results or code blocks.',
