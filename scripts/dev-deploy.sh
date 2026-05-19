@@ -21,7 +21,7 @@ MODE="${1:-auto}"
 
 if [ "$MODE" = "--full" ]; then
   log "Full safe deploy..."
-  npm run deploy:full:safe
+  npm run deploy:full
   exit 0
 fi
 
@@ -62,5 +62,5 @@ elif [ "$FRONT_CHANGED" = true ] && [ "$WORKER_CHANGED" = false ]; then
   log "Done."
 else
   log "Both changed — running full:safe..."
-  npm run deploy:full:safe
+  npm run deploy:full
 fi
