@@ -247,7 +247,7 @@ async function searchDocumentsVector(env, query, limit, opts = {}) {
     rows = await hyperdriveQuery(
       env,
       `SELECT id, source, title,
-            COALESCE(content_preview, LEFT(content, 280)) AS content_preview,
+            LEFT(content, 280) AS content_preview,
             metadata,
             1 - (embedding <=> $1::vector(1024)) AS similarity
      FROM public.documents

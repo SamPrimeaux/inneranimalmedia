@@ -3168,11 +3168,11 @@ const App: React.FC = () => {
           </>
               )}
 
-              {/* Global persistent terminal drawer — mounted once, resizable, survives navigation */}
-              {/* display:none preserves PTY WebSocket — never use conditional rendering here */}
+              {/* Global terminal drawer — non-agent routes only (/dashboard/agent uses in-layout XTermShell) */}
+              {location.pathname !== '/dashboard/agent' && (
               <div
                 style={{
-                  display: isTerminalOpen && location.pathname !== '/dashboard/agent' ? 'flex' : 'none',
+                  display: isTerminalOpen ? 'flex' : 'none',
                   flexDirection: 'column',
                   height: `${terminalDrawerH}px`,
                   flexShrink: 0,
@@ -3216,6 +3216,7 @@ const App: React.FC = () => {
                   />
                 </div>
               </div>
+              )}
           </main>
           </div>
 

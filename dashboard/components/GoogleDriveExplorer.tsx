@@ -57,20 +57,33 @@ export const GoogleDriveExplorer: React.FC<{
   const [folderStack, setFolderStack] = useState<DriveFolderFrame[]>([{ id: 'root', name: 'My Drive' }]);
 
   const currentFolderId = folderStack[folderStack.length - 1]?.id === 'root' ? 'root' : folderStack[folderStack.length - 1].id;
+  const integrationReadyRef = useRef(false);
+  const oauthHandledRef = useRef(false);
 
-  const fetchFiles = useCallback(async () => {
-    setIsLoading(true);
-    setActionMsg(null);
+  const fetchIntegrationStatus = useCallback(async (): Promise<boolean> => {
     try {
       const st = await fetch('/api/integrations/status', { credentials: 'same-origin' });
       const status = st.ok ? await st.json().catch(() => ({})) : {};
       if (st.ok && status && status.google === false) {
         setIsAuthenticated(false);
         setFiles([]);
-        return;
+        return false;
       }
+      setIsAuthenticated(true);
+      return true;
+    } catch {
+      setIsAuthenticated(false);
+      setFiles([]);
+      return false;
+    }
+  }, []);
+
+  const fetchDriveFiles = useCallback(async (folderId: string) => {
+    setIsLoading(true);
+    setActionMsg(null);
+    try {
       const res = await fetch(
-        `/api/integrations/gdrive/files?folderId=${encodeURIComponent(currentFolderId)}`,
+        `/api/integrations/gdrive/files?folderId=${encodeURIComponent(folderId)}`,
         { credentials: 'same-origin' },
       );
       if (res.status === 401 || res.status === 400) {
@@ -97,11 +110,7 @@ export const GoogleDriveExplorer: React.FC<{
     } finally {
       setIsLoading(false);
     }
-  }, [currentFolderId]);
-
-  useEffect(() => {
-    void fetchFiles();
-  }, [fetchFiles]);
+  }, []);
 
   /** OAuth return: worker redirects with ?connected=google&success=true (see oauth callback). */
   useEffect(() => {
@@ -109,27 +118,44 @@ export const GoogleDriveExplorer: React.FC<{
       const params = new URLSearchParams(window.location.search);
       if (params.get('connected') !== 'google' || params.get('success') !== 'true') return;
 
+      oauthHandledRef.current = true;
       const url = new URL(window.location.href);
       url.searchParams.delete('connected');
       url.searchParams.delete('success');
       const qs = url.searchParams.toString();
       window.history.replaceState({}, '', `${url.pathname}${qs ? `?${qs}` : ''}${url.hash}`);
 
-      setIsAuthenticated(true);
       void (async () => {
         try {
           await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
         } catch {
           /* non-fatal */
         }
-        await fetchFiles();
+        integrationReadyRef.current = await fetchIntegrationStatus();
+        if (integrationReadyRef.current) await fetchDriveFiles(currentFolderId);
       })();
     } catch {
       /* ignore */
     }
-    // One-shot handling for full-page return from Google OAuth; fetchFiles matches mount folder.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (oauthHandledRef.current) {
+      oauthHandledRef.current = false;
+      return;
+    }
+    void (async () => {
+      integrationReadyRef.current = await fetchIntegrationStatus();
+      if (integrationReadyRef.current) await fetchDriveFiles(currentFolderId);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!integrationReadyRef.current) return;
+    void fetchDriveFiles(currentFolderId);
+  }, [currentFolderId, fetchDriveFiles]);
 
   const handleConnect = () => {
     window.open(
@@ -205,7 +231,7 @@ export const GoogleDriveExplorer: React.FC<{
       }
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
-    void fetchFiles();
+    void fetchDriveFiles(currentFolderId);
   };
 
   const createFolder = async () => {
@@ -225,7 +251,7 @@ export const GoogleDriveExplorer: React.FC<{
       setActionMsg(typeof data.error === 'string' ? data.error : JSON.stringify(data));
       return;
     }
-    void fetchFiles();
+    void fetchDriveFiles(currentFolderId);
   };
 
   const deleteDriveItem = async (id: string, label: string) => {
@@ -241,7 +267,7 @@ export const GoogleDriveExplorer: React.FC<{
       setActionMsg(typeof data.error === 'string' ? data.error : 'Delete failed');
       return;
     }
-    void fetchFiles();
+    void fetchDriveFiles(currentFolderId);
   };
 
   const openDriveFile = async (f: { id: string; name: string; mimeType?: string }) => {
@@ -336,7 +362,7 @@ export const GoogleDriveExplorer: React.FC<{
           <div className="flex gap-1">
             <button
               type="button"
-              onClick={() => void fetchFiles()}
+              onClick={() => void fetchDriveFiles(currentFolderId)}
               className="p-1 hover:bg-[var(--bg-hover)] rounded"
               title="Refresh"
             >
@@ -381,7 +407,7 @@ export const GoogleDriveExplorer: React.FC<{
               onClick={() => {
                 setSearchHits(null);
                 setSearchQ('');
-                void fetchFiles();
+                void fetchDriveFiles(currentFolderId);
               }}
               className="text-[10px] px-2 py-1 rounded text-[var(--solar-cyan)]"
             >
