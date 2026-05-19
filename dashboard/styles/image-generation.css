@@ -1,0 +1,212 @@
+/* Progressive image generation card — cinematic minimal */
+
+.iam-image-gen-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border) 85%, transparent);
+  background:
+    radial-gradient(120% 80% at 10% 0%, color-mix(in srgb, var(--solar-cyan) 12%, transparent), transparent 55%),
+    radial-gradient(90% 70% at 90% 100%, color-mix(in srgb, #6366f1 10%, transparent), transparent 50%),
+    color-mix(in srgb, var(--scene-bg) 92%, #0a0c12);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset,
+    0 24px 48px -32px rgba(0, 0, 0, 0.65);
+}
+
+.iam-image-gen-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+
+.iam-image-gen-card__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dashboard-muted);
+}
+
+.iam-image-gen-card__badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border) 90%, transparent);
+  color: var(--dashboard-muted);
+  background: color-mix(in srgb, var(--scene-bg) 70%, transparent);
+}
+
+.iam-image-gen-card__status {
+  padding: 6px 14px 10px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--dashboard-text) 88%, var(--dashboard-muted));
+  min-height: 1.25rem;
+}
+
+.iam-image-gen-preview {
+  position: relative;
+  margin: 0 12px 12px;
+  aspect-ratio: 16 / 10;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #0b0d14;
+}
+
+.iam-image-gen-preview__ambient {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--solar-cyan) 18%, transparent) 1px, transparent 0);
+  background-size: 18px 18px;
+  opacity: 0.35;
+  animation: iam-image-gen-dots 4s ease-in-out infinite;
+}
+
+.iam-image-gen-preview__shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    color-mix(in srgb, #fff 8%, transparent) 50%,
+    transparent 65%
+  );
+  transform: translateX(-120%);
+  animation: iam-image-gen-shimmer 2.8s ease-in-out infinite;
+}
+
+.iam-image-gen-preview__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition:
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.55s ease,
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.iam-image-gen-preview__img--placeholder {
+  opacity: 0;
+}
+
+.iam-image-gen-preview__pulse {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--solar-cyan) 4%, #0b0d14);
+  animation: iam-image-gen-breathe 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.iam-image-gen-timeline {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.iam-image-gen-timeline::-webkit-scrollbar {
+  display: none;
+}
+
+.iam-image-gen-timeline__thumb {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  opacity: 0.55;
+  cursor: pointer;
+  transition:
+    opacity 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.iam-image-gen-timeline__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(4px);
+}
+
+.iam-image-gen-timeline__thumb--active {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--solar-cyan) 55%, transparent);
+  transform: scale(1.04);
+}
+
+.iam-image-gen-timeline__thumb--active img {
+  filter: blur(0);
+}
+
+.iam-image-gen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.iam-image-gen-card:hover .iam-image-gen-actions,
+.iam-image-gen-card--complete .iam-image-gen-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.iam-image-gen-actions button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border) 90%, transparent);
+  background: color-mix(in srgb, var(--scene-bg) 75%, transparent);
+  color: var(--dashboard-muted);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.iam-image-gen-actions button:hover {
+  color: var(--dashboard-text);
+  border-color: color-mix(in srgb, var(--solar-cyan) 40%, transparent);
+  background: color-mix(in srgb, var(--solar-cyan) 8%, transparent);
+}
+
+@keyframes iam-image-gen-shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes iam-image-gen-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.12;
+  }
+}
+
+@keyframes iam-image-gen-dots {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}

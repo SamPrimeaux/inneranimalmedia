@@ -92,6 +92,7 @@ import { notifySam }                                    from '../core/notificati
 import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
 import { runBuiltinTool, normalizeToolName } from '../tools/ai-dispatch.js';
+import { isImageGenerationTool, streamImageGenerationSse } from '../tools/image_generation.js';
 import {
   resolveRoutingArm,
   scheduleRoutingArmBanditUpdate,
@@ -3922,22 +3923,33 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       let toolRows = null;
       const toolBudgetMs = resolveToolExecutionBudgetMs(call.name, call.input);
       try {
-        const execResult = await dispatchToolCallWithBudget(
-          env,
-          call.name,
-          call.input,
-          {
-            sessionId,
+        let execResult;
+        if (isImageGenerationTool(call.name)) {
+          execResult = await streamImageGenerationSse(emit, env, call.name, call.input || {}, {
+            authUser: { id: userId },
+            workspaceId,
             tenantId,
             userId,
-            workspaceId,
-            personUuid: mcpCtx.personUuid,
-            isSuperadmin: mcpCtx.isSuperadmin,
-            request,
-            ...runSpineIds,
-          },
-          toolBudgetMs,
-        );
+            origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
+          });
+        } else {
+          execResult = await dispatchToolCallWithBudget(
+            env,
+            call.name,
+            call.input,
+            {
+              sessionId,
+              tenantId,
+              userId,
+              workspaceId,
+              personUuid: mcpCtx.personUuid,
+              isSuperadmin: mcpCtx.isSuperadmin,
+              request,
+              ...runSpineIds,
+            },
+            toolBudgetMs,
+          );
+        }
         if (execResult && typeof execResult === 'object') {
           if (Array.isArray(execResult.rows)) toolRows = execResult.rows;
           else if (Array.isArray(execResult.results)) toolRows = execResult.results;
@@ -4041,17 +4053,19 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           const parsed = JSON.parse(String(toolOutput || 'null'));
           if (parsed && typeof parsed === 'object') {
             const url =
-              typeof parsed.screenshot_url === 'string' && parsed.screenshot_url.trim()
-                ? parsed.screenshot_url.trim()
-                : typeof parsed.result_url === 'string' && parsed.result_url.trim()
-                  ? parsed.result_url.trim()
-                  : typeof parsed.image_url === 'string'
-                    ? parsed.image_url
-                    : typeof parsed.public_url === 'string'
-                      ? parsed.public_url
-                      : typeof parsed.url === 'string' && /^(https?:|data:)/i.test(parsed.url)
-                        ? parsed.url
-                        : null;
+              isImageGenerationTool(call.name)
+                ? null
+                : typeof parsed.screenshot_url === 'string' && parsed.screenshot_url.trim()
+                  ? parsed.screenshot_url.trim()
+                  : typeof parsed.result_url === 'string' && parsed.result_url.trim()
+                    ? parsed.result_url.trim()
+                    : typeof parsed.image_url === 'string'
+                      ? parsed.image_url
+                      : typeof parsed.public_url === 'string'
+                        ? parsed.public_url
+                        : typeof parsed.url === 'string' && /^(https?:|data:)/i.test(parsed.url)
+                          ? parsed.url
+                          : null;
             if (url && url.length < 8000) {
               emit('preview_artifact', {
                 artifact: {

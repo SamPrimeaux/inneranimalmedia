@@ -3,6 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { ImageGenerationPhase, ImageGenerationState } from './types';
+
+export const IMAGE_GENERATION_SSE_TYPES = new Set([
+  'image_generation_started',
+  'image_generation_progress',
+  'image_generation_preview',
+  'image_generation_complete',
+]);
+
 /** Block chat UI leaks that look like OpenAI streaming chunks (never append). */
 export function looksLikeRawProviderLeak(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
@@ -36,7 +45,15 @@ export function normalizeAssistantSseText(parsed: unknown): string {
   if (!parsed || typeof parsed !== 'object') return '';
   const p = parsed as Record<string, unknown>;
   const pt = p.type;
-  if (pt === 'done' || pt === 'error' || pt === 'tool_approval_request' || pt === 'approval_required') return '';
+  if (
+    pt === 'done' ||
+    pt === 'error' ||
+    pt === 'tool_approval_request' ||
+    pt === 'approval_required' ||
+    (typeof pt === 'string' && IMAGE_GENERATION_SSE_TYPES.has(pt))
+  ) {
+    return '';
+  }
 
   const direct =
     (typeof p.text === 'string' ? p.text : '') ||
@@ -246,4 +263,99 @@ export function formatHttpErrorMessage(status: number, bodyText: string): string
     /* use body */
   }
   return bodyText.trim() || `HTTP ${status}`;
+}
+
+function phaseFromProgress(progress: number, failed?: boolean): ImageGenerationPhase {
+  if (failed) return 'failed';
+  if (progress >= 100) return 'completed';
+  if (progress >= 70) return 'refining';
+  if (progress >= 15) return 'generating';
+  return 'initializing';
+}
+
+/**
+ * Normalize Worker `image_generation_*` SSE payloads for the generation card.
+ */
+export function normalizeImageGenerationEvent(
+  data: unknown,
+): { eventType: string; patch: Partial<ImageGenerationState> } | null {
+  if (!data || typeof data !== 'object') return null;
+  const o = data as Record<string, unknown>;
+  const eventType = typeof o.type === 'string' ? o.type : '';
+  if (!IMAGE_GENERATION_SSE_TYPES.has(eventType)) return null;
+
+  const generationId = typeof o.generation_id === 'string' ? o.generation_id.trim() : '';
+  if (!generationId) return null;
+
+  if (eventType === 'image_generation_started') {
+    return {
+      eventType,
+      patch: {
+        generationId,
+        phase: 'initializing',
+        provider: typeof o.provider === 'string' ? o.provider : undefined,
+        model: typeof o.model === 'string' ? o.model : undefined,
+        prompt: typeof o.prompt === 'string' ? o.prompt : undefined,
+        width: typeof o.width === 'number' ? o.width : undefined,
+        height: typeof o.height === 'number' ? o.height : undefined,
+        progress: 0,
+        message: 'Creating image…',
+        previewFrames: [],
+        activeFrameIndex: 0,
+        failed: false,
+      },
+    };
+  }
+
+  if (eventType === 'image_generation_progress') {
+    const progress = typeof o.progress === 'number' ? Math.max(0, Math.min(100, o.progress)) : 0;
+    const failed = o.failed === true || o.stage === 'failed';
+    return {
+      eventType,
+      patch: {
+        generationId,
+        phase: phaseFromProgress(progress, failed),
+        progress,
+        stage: typeof o.stage === 'string' ? o.stage : undefined,
+        message: typeof o.message === 'string' ? o.message : 'Working…',
+        failed,
+      },
+    };
+  }
+
+  if (eventType === 'image_generation_preview') {
+    const previewUrl = typeof o.preview_url === 'string' ? o.preview_url.trim() : '';
+    const frameIndex = typeof o.frame_index === 'number' ? o.frame_index : 0;
+    if (!previewUrl) return null;
+    return {
+      eventType,
+      patch: {
+        generationId,
+        phase: 'generating',
+        previewFrames: [{ frameIndex, previewUrl }],
+        activeFrameIndex: frameIndex,
+      },
+    };
+  }
+
+  if (eventType === 'image_generation_complete') {
+    const imageUrl = typeof o.image_url === 'string' ? o.image_url.trim() : '';
+    return {
+      eventType,
+      patch: {
+        generationId,
+        phase: 'completed',
+        progress: 100,
+        message: '',
+        imageUrl: imageUrl || undefined,
+        r2Key: typeof o.r2_key === 'string' ? o.r2_key : undefined,
+        artifactId: typeof o.artifact_id === 'string' ? o.artifact_id : undefined,
+        provider: typeof o.provider === 'string' ? o.provider : undefined,
+        model: typeof o.model === 'string' ? o.model : undefined,
+        failed: false,
+      },
+    };
+  }
+
+  return null;
 }

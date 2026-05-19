@@ -21,6 +21,7 @@ import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
 import { AgentPresenceLogo } from '../../agent-presence/AgentPresenceLogo';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
+import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 
 const getLangMeta = (lang: string) => {
   const map: Record<string, { ext: string; icon: React.ReactNode }> = {
@@ -419,9 +420,21 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
               </div>
               {msg.role === 'assistant' ? (
                 <div className="flex flex-col min-w-0 flex-1 gap-0">
-                  {msg.previewArtifacts && msg.previewArtifacts.length > 0 ? (
+                  {msg.imageGenerationState ? (
+                    <div className="mb-3">
+                      <AgentImageGenerationCard
+                        state={msg.imageGenerationState}
+                        onImagePreview={onImagePreview}
+                      />
+                    </div>
+                  ) : null}
+                  {msg.previewArtifacts &&
+                  msg.previewArtifacts.filter((a) => !(msg.imageGenerationState && a.kind === 'image')).length >
+                    0 ? (
                     <AssistantPreviewArtifactsBar
-                      artifacts={msg.previewArtifacts}
+                      artifacts={msg.previewArtifacts.filter(
+                        (a) => !(msg.imageGenerationState && a.kind === 'image'),
+                      )}
                       onFileSelect={onFileSelect}
                       onImagePreview={onImagePreview}
                     />

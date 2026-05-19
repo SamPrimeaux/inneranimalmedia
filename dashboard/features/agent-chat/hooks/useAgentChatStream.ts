@@ -15,6 +15,7 @@ import type {
   AgentPreviewArtifactKind,
   ExecutionPlanState,
   ExecutionPlanTask,
+  ImageGenerationState,
 } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import {
@@ -24,6 +25,7 @@ import {
   looksLikeRawProviderLeak,
   normalizeAssistantSseText,
   normalizeBrowserToolErrorMessage,
+  normalizeImageGenerationEvent,
   ssePayloadLooksReasoningOnly,
   isStreamErrorPayload,
 } from '../streamParsing';
@@ -61,6 +63,64 @@ function planStatusFromSummary(status: string | undefined, failed: number): Exec
   if (s === 'partial') return 'partial';
   if (s === 'failed') return 'failed';
   return failed > 0 ? 'partial' : 'complete';
+}
+
+function mergeImageGenerationState(
+  prev: ImageGenerationState | null | undefined,
+  patch: Partial<ImageGenerationState>,
+  eventType: string,
+): ImageGenerationState {
+  const generationId = patch.generationId || prev?.generationId || '';
+  const base: ImageGenerationState = prev ?? {
+    generationId,
+    phase: 'initializing',
+    progress: 0,
+    message: 'Creating image…',
+    previewFrames: [],
+    activeFrameIndex: 0,
+    failed: false,
+  };
+
+  let previewFrames = base.previewFrames;
+  if (eventType === 'image_generation_preview' && patch.previewFrames?.length) {
+    const next = [...base.previewFrames];
+    for (const frame of patch.previewFrames) {
+      const idx = next.findIndex((f) => f.frameIndex === frame.frameIndex);
+      if (idx >= 0) next[idx] = frame;
+      else next.push(frame);
+    }
+    next.sort((a, b) => a.frameIndex - b.frameIndex);
+    previewFrames = next;
+  }
+
+  const activeFrameIndex =
+    patch.activeFrameIndex != null ? patch.activeFrameIndex : base.activeFrameIndex;
+
+  return {
+    ...base,
+    ...patch,
+    generationId,
+    previewFrames,
+    activeFrameIndex,
+    imageUrl: patch.imageUrl ?? base.imageUrl,
+    message: patch.message !== undefined ? patch.message : base.message,
+  };
+}
+
+function patchAssistantImageGeneration(
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  assistantContent: string,
+  patch: Partial<ImageGenerationState>,
+  eventType: string,
+) {
+  setMessages((prev) => {
+    const next = [...prev];
+    const idx = next.length - 1;
+    if (idx < 0 || next[idx].role !== 'assistant') return prev;
+    const merged = mergeImageGenerationState(next[idx].imageGenerationState, patch, eventType);
+    next[idx] = { ...next[idx], content: assistantContent, imageGenerationState: merged };
+    return next;
+  });
 }
 
 function parseScreenshotUrlFromToolPayload(raw: string | null | undefined): string | null {
@@ -295,6 +355,23 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (evType === 'thinking') {
           const d = data as { text?: string };
           onThinkingEvent?.({ type: 'thinking', text: d.text || '' });
+          continue;
+        }
+        if (
+          evType === 'image_generation_started' ||
+          evType === 'image_generation_progress' ||
+          evType === 'image_generation_preview' ||
+          evType === 'image_generation_complete'
+        ) {
+          const normalized = normalizeImageGenerationEvent(data);
+          if (normalized) {
+            patchAssistantImageGeneration(
+              setMessages,
+              assistantContent,
+              normalized.patch,
+              normalized.eventType,
+            );
+          }
           continue;
         }
         // tool_start / tool_done: handled below (trace rows + browser nav). Do not continue here or browser wiring never runs.
@@ -895,6 +972,24 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             ];
           });
           onThinkingEvent?.({ type: 'tool_error', tool_name: toolLabel });
+          setMessages((prev) => {
+            const next = [...prev];
+            const idx = next.length - 1;
+            if (idx < 0 || next[idx].role !== 'assistant') return prev;
+            const ig = next[idx].imageGenerationState;
+            if (!ig || ig.phase === 'completed') return prev;
+            next[idx] = {
+              ...next[idx],
+              imageGenerationState: {
+                ...ig,
+                phase: 'failed',
+                failed: true,
+                progress: ig.progress,
+                message: 'Image generation failed',
+              },
+            };
+            return next;
+          });
           activeToolTraceId = null;
           pendingBrowserToolUrl = null;
           lastBrowserToolOutputChunk = null;

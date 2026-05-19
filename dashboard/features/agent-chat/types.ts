@@ -82,6 +82,39 @@ export type AgentPreviewArtifact = {
   path?: string;
 };
 
+export type ImageGenerationPhase =
+  | 'idle'
+  | 'initializing'
+  | 'generating'
+  | 'refining'
+  | 'completed'
+  | 'failed';
+
+export type ImageGenerationPreviewFrame = {
+  frameIndex: number;
+  previewUrl: string;
+};
+
+/** Progressive image generation card state (SSE `image_generation_*`). */
+export type ImageGenerationState = {
+  generationId: string;
+  phase: ImageGenerationPhase;
+  provider?: string;
+  model?: string;
+  prompt?: string;
+  width?: number;
+  height?: number;
+  progress: number;
+  stage?: string;
+  message: string;
+  previewFrames: ImageGenerationPreviewFrame[];
+  activeFrameIndex: number;
+  imageUrl?: string;
+  r2Key?: string;
+  artifactId?: string;
+  failed?: boolean;
+};
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -93,6 +126,8 @@ export interface Message {
   executionPlan?: ExecutionPlanState | null;
   /** Reserved for structured previews from the Worker (optional; fences use `AgentCodeFencePreview` today). */
   previewArtifacts?: AgentPreviewArtifact[];
+  /** Cinematic progressive image generation (SSE `image_generation_*`). */
+  imageGenerationState?: ImageGenerationState | null;
 }
 
 /** Host-managed chat tab strip (e.g. App.tsx multi-session). */

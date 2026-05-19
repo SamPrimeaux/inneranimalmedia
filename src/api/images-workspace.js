@@ -14,6 +14,7 @@ import {
   resolveMediaListPrefixes,
   resolvePrimaryUploadPrefix,
 } from '../core/media-r2-access.js';
+import { runImageGenerationForTool } from '../tools/image_generation.js';
 
 const BUCKET = 'inneranimalmedia';
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
@@ -258,6 +259,54 @@ export async function handleImagesWorkspaceApi(request, url, env, authUser, iden
       meta: {},
     };
     return jsonResponse({ ok: true, image: img, source: 'r2' });
+  }
+
+  // ── POST /api/images/generate ─────────────────────────────────────────────
+  if (pathLower === '/api/images/generate' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const prompt = String(body.prompt || body.description || '').trim();
+    if (!prompt) return jsonResponse({ error: 'prompt required', source: 'image_gen' }, 400);
+    const ctx = {
+      authUser,
+      workspaceId: wsHint || identity?.workspaceId || null,
+      tenantId: identity?.tenantId || null,
+      userId: authUser?.id || identity?.userId || null,
+      origin: url.origin,
+    };
+    try {
+      const out = await runImageGenerationForTool(env, 'imgx_generate_image', body, ctx);
+      return jsonResponse({ ok: true, ...out, source: 'image_gen' });
+    } catch (e) {
+      return jsonResponse(
+        { error: e?.message != null ? String(e.message) : 'generate failed', source: 'image_gen' },
+        500,
+      );
+    }
+  }
+
+  // ── POST /api/images/edit ─────────────────────────────────────────────────
+  if (pathLower === '/api/images/edit' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const prompt = String(body.prompt || '').trim();
+    const imageUrl = String(body.image_url || body.image || '').trim();
+    if (!prompt) return jsonResponse({ error: 'prompt required', source: 'image_gen' }, 400);
+    if (!imageUrl) return jsonResponse({ error: 'image_url required', source: 'image_gen' }, 400);
+    const ctx = {
+      authUser,
+      workspaceId: wsHint || identity?.workspaceId || null,
+      tenantId: identity?.tenantId || null,
+      userId: authUser?.id || identity?.userId || null,
+      origin: url.origin,
+    };
+    try {
+      const out = await runImageGenerationForTool(env, 'imgx_edit_image', body, ctx);
+      return jsonResponse({ ok: true, ...out, source: 'image_gen' });
+    } catch (e) {
+      return jsonResponse(
+        { error: e?.message != null ? String(e.message) : 'edit failed', source: 'image_gen' },
+        500,
+      );
+    }
   }
 
   const metaMatch = path.match(/^\/api\/images\/([^/]+)\/meta$/i);
