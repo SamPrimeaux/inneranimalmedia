@@ -21,19 +21,6 @@ export async function provisionNewUser(env, { email, name, authUserId }) {
   const displayName = name || email.split('@')[0];
 
   try {
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO users
-         (id, user_key, email, display_name, role, default_workspace_id, auth_id, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'user', ?, ?, ?, datetime('now'), datetime('now'))`
-    ).bind(
-      authUserId || ('usr_' + user_key),
-      user_key,
-      email,
-      displayName,
-      workspace_id,
-      authUserId || null,
-      tenantId
-    ).run();
 
     await env.DB.prepare(
       `INSERT OR IGNORE INTO workspaces

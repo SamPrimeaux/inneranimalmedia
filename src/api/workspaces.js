@@ -48,7 +48,7 @@ function parseJsonSafe(str, fallback = {}) {
 async function fetchUserDisplayName(db, userId) {
   if (!db || !userId) return null;
   try {
-    const row = await db.prepare(`SELECT display_name, name FROM users WHERE id = ? LIMIT 1`).bind(userId).first();
+    const row = await db.prepare(`SELECT display_name, name FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
     const dn = row?.display_name ?? row?.name;
     return dn != null && String(dn).trim() ? String(dn).trim() : null;
   } catch {

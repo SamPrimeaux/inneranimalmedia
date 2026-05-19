@@ -157,14 +157,6 @@ async function provisionInviteUser(env, { email, name, authUserId }) {
   const workspace_id = `ws_${user_key}`;
   const displayName = name || email.split('@')[0];
   try {
-    await env.DB
-      .prepare(
-        `INSERT OR IGNORE INTO users
-         (id, user_key, email, display_name, role, default_workspace_id, auth_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'user', ?, ?, datetime('now'), datetime('now'))`,
-      )
-      .bind(authUserId, user_key, email, displayName, workspace_id, authUserId)
-      .run();
 
     await env.DB
       .prepare(
@@ -199,7 +191,7 @@ async function provisionInviteUser(env, { email, name, authUserId }) {
 }
 
 async function resolvePlatformUserId(env, email) {
-  const row = await env.DB.prepare(`SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`).bind(email).first();
+  const row = await env.DB.prepare(`SELECT id FROM auth_users WHERE LOWER(email) = LOWER(?) LIMIT 1`).bind(email).first();
   return row?.id || null;
 }
 
@@ -336,7 +328,7 @@ async function runIntakeD1SideEffects(env, ctx) {
   });
 
   const urow = await env.DB
-    .prepare(`SELECT default_workspace_id FROM users WHERE id = ? LIMIT 1`)
+    .prepare(`SELECT active_workspace_id FROM auth_users WHERE id = ? LIMIT 1`)
     .bind(platformUserId)
     .first();
   const workspaceId =

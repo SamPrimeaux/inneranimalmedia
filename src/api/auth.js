@@ -2055,7 +2055,7 @@ export async function resolveCanonicalUserId(userId, env) {
   if (s.startsWith('usr_')) {
     if (!env?.DB) return s;
     try {
-      const row = await env.DB.prepare(`SELECT auth_id FROM users WHERE id = ? LIMIT 1`).bind(s).first();
+      const row = await env.DB.prepare(`SELECT id FROM auth_users WHERE id = ? LIMIT 1`).bind(s).first();
       const aid = row?.auth_id != null ? String(row.auth_id).trim() : '';
       return aid || s;
     } catch {

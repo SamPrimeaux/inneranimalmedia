@@ -126,7 +126,7 @@ async function resolveRequestWorkspaceId(env, authUser, url) {
   }
   try {
     const row = await env.DB.prepare(
-      `SELECT default_workspace_id FROM users WHERE id = ? LIMIT 1`,
+      `SELECT active_workspace_id FROM auth_users WHERE id = ? LIMIT 1`,
     )
       .bind(uid)
       .first();

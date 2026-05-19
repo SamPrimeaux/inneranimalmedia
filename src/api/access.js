@@ -117,7 +117,7 @@ async function resolveTenantFromEmail(db, email) {
   if (authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== '') return String(authUser.tenant_id).trim();
 
   const user = await db
-    .prepare(`SELECT tenant_id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
+    .prepare(`SELECT tenant_id FROM auth_users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
     .bind(em)
     .first()
     .catch(() => null);
