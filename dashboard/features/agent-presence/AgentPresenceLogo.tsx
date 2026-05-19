@@ -11,6 +11,7 @@ const DEFAULT_LOGO =
 
 export type AgentPresenceLogoProps = {
   motion: AgentLogoMotion;
+  presenceState?: string;
   sizePx?: number;
   className?: string;
   src?: string;
@@ -19,12 +20,17 @@ export type AgentPresenceLogoProps = {
 
 export const AgentPresenceLogo: React.FC<AgentPresenceLogoProps> = ({
   motion,
+  presenceState,
   sizePx = 24,
   className = '',
   src = DEFAULT_LOGO,
   alt = 'Agent Sam',
 }) => (
-  <span className={`agent-sam-logo-wrap ${className}`} aria-hidden={alt === ''}>
+  <span
+    className={`agent-sam-logo-wrap ${className}`}
+    aria-hidden={alt === ''}
+    {...(presenceState ? { 'data-state': presenceState } : {})}
+  >
     <img
       src={src}
       alt={alt}

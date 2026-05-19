@@ -881,7 +881,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     return toolName;
   }, []);
 
-  const handleThinkingEvent = useCallback((ev: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string }) => {
+  const handleThinkingEvent = useCallback((ev: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string; approval_id?: string; plan_id?: string }) => {
     if (ev.type === 'thinking_start') {
       setThinkingState({ steps: [], thinkingText: '', status: 'thinking', startedAt: Date.now() });
     } else if (ev.type === 'thinking') {

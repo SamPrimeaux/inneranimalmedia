@@ -22,10 +22,12 @@ export const ExcalidrawView: React.FC = () => {
     const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
     const isLocalChangeRef = useRef(false);
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const artifactLoadedRef = useRef(false);
 
     // Load persisted canvas when mount or IAM workspace id changes (via event from App.tsx).
     useEffect(() => {
         const load = () => {
+            if (artifactLoadedRef.current) { setInitialDataLoaded(true); return; }
             const ws = getIamWorkspaceId();
             fetch(`/api/collab/canvas/state?workspace_id=${encodeURIComponent(ws)}`, { credentials: 'same-origin' })
                 .then((r) => (r.ok ? r.json() : null))
@@ -75,6 +77,7 @@ export const ExcalidrawView: React.FC = () => {
                     })
                     .catch(() => {});
             };
+            artifactLoadedRef.current = true;
             tryApply();
         };
         window.addEventListener('iam:excalidraw_load_document', onLoad as EventListener);

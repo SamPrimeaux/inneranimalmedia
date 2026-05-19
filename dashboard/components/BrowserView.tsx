@@ -68,8 +68,8 @@ function originOf(url: string): string {
 
 /** Poll job list until screenshot completes (modular worker exposes GET /api/playwright). */
 async function pollPlaywrightScreenshotJob(jobId: string, signal: AbortSignal): Promise<string | null> {
-  const deadline = Date.now() + 28000;
-  while (Date.now() < deadline) {
+  const MAX_ATTEMPTS = 28;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (signal.aborted) return null;
     await new Promise((r) => setTimeout(r, 1000));
     try {
@@ -77,6 +77,7 @@ async function pollPlaywrightScreenshotJob(jobId: string, signal: AbortSignal): 
       const j = await r.json().catch(() => ({})) as { jobs?: Array<{ id?: string; status?: string; result_url?: string; error?: string }> };
       const jobs = Array.isArray(j.jobs) ? j.jobs : [];
       const row = jobs.find((x) => String(x.id) === jobId);
+      if (!row) return null; // job not found — stale, bail out
       if (row?.status === 'completed' && row.result_url) return String(row.result_url);
       if (row?.status === 'error') throw new Error(row.error || 'Screenshot job failed');
     } catch (e) {
@@ -1608,7 +1609,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       if (!cancelled) setJobsPollErr(lastErr);
     };
     void pollJobs();
-    const interval = window.setInterval(() => void pollJobs(), 60000);
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void pollJobs(); }, 60000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);

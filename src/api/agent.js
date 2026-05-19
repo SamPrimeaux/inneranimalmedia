@@ -1087,7 +1087,10 @@ function filterAgentToolsForRequest(env, tools, message, intentResult, capabilit
     });
   }
 
-  if (!out.length) out = tools;
+  if (!out.length) {
+    out = tools.filter((t) => agentToolFamily(t) === 'general');
+    if (!out.length) out = tools;
+  }
 
   if (agentToolDebugEnabled(env)) {
     console.log('[agent-tools] request_scope', JSON.stringify({
@@ -1204,14 +1207,18 @@ async function pragmaAgentsamWorkflowRunColumnSet(db) {
 }
 
 async function createAgentChatToolLedgerRun(env, p) {
-  const { tenantId, workspaceId, userId, sessionId, modelKey, stepsTotal } = p;
+  const { tenantId, workspaceId, userId, sessionId, modelKey, stepsTotal, chatAgentRunId } = p;
   const wfId = await resolveWorkspaceCapabilityShellWorkflowId(env);
   if (!wfId || !tenantId || !workspaceId) return null;
   const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const cols = await pragmaAgentsamWorkflowRunColumnSet(env.DB);
   const hbFrag = cols.has('heartbeat_at') ? ', heartbeat_at' : '';
   const hbVal = cols.has('heartbeat_at') ? ', unixepoch()' : '';
+  const runGroupFrag = cols.has('run_group_id') ? ', run_group_id' : '';
+  const runGroupVal = cols.has('run_group_id') ? ', ?' : '';
   const startedSec = Math.floor(Date.now() / 1000);
+  const runGroupBind =
+    cols.has('run_group_id') && chatAgentRunId != null ? String(chatAgentRunId).trim() : null;
   await env.DB.prepare(
     `INSERT INTO agentsam_workflow_runs (
       id, workflow_id, workflow_key, display_name, tenant_id, workspace_id,
@@ -1219,14 +1226,14 @@ async function createAgentChatToolLedgerRun(env, p) {
       input_json, output_json, step_results_json, steps_total, steps_completed,
       input_tokens, output_tokens, cost_usd, supabase_sync_status,
       model_used, started_at, created_at, updated_at
-      ${hbFrag}
+      ${hbFrag}${runGroupFrag}
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
       ?, ?, 'agent', 'running',
       ?, '{}', '[]', ?, 0,
       0, 0, 0, 'pending',
       ?, unixepoch(), datetime('now'), datetime('now')
-      ${hbVal}
+      ${hbVal}${runGroupVal}
     )`,
   )
     .bind(
@@ -1241,6 +1248,7 @@ async function createAgentChatToolLedgerRun(env, p) {
       JSON.stringify({ model_key: modelKey, session_id: sessionId }),
       Math.max(1, Number(stepsTotal) || 1),
       modelKey != null ? String(modelKey) : null,
+      ...(cols.has('run_group_id') ? [runGroupBind] : []),
     )
     .run();
 
@@ -1266,6 +1274,9 @@ async function createAgentChatToolLedgerRun(env, p) {
     tenantId: String(tenantId).trim(),
     workspaceId: String(workspaceId).trim(),
     modelKey: modelKey != null ? String(modelKey) : null,
+    sessionId: sessionId != null ? String(sessionId) : null,
+    conversationId: sessionId != null ? String(sessionId) : null,
+    chatAgentRunId: chatAgentRunId != null ? String(chatAgentRunId).trim() : null,
     executionParentId: executionParentId ?? null,
     executionStepCols: stepCols,
     executionExeCols: execCols,
@@ -1294,6 +1305,37 @@ async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
   sql += ' WHERE id = ?';
   binds.push(ledger.runId);
   await env.DB.prepare(sql).bind(...binds).run();
+
+  const sessionId = ledger.sessionId ?? null;
+  const conversationId = ledger.conversationId ?? sessionId ?? null;
+  const agentRunIdForLog = ledger.chatAgentRunId ?? null;
+  try {
+    await env.DB.prepare(`
+      INSERT INTO agentsam_tool_call_log (
+        tenant_id, workspace_id, session_id,
+        tool_name, status, duration_ms,
+        input_json, output_json, input_summary, output_summary,
+        agent_run_id, conversation_id, tool_category, cost_usd
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).bind(
+      ledger.tenantId,
+      ledger.workspaceId,
+      sessionId,
+      stepEntry.tool_name,
+      stepEntry.ok ? 'success' : 'error',
+      Math.max(0, Math.floor(stepEntry.duration_ms || 0)),
+      JSON.stringify(stepEntry.input_json || {}).slice(0, 8000),
+      JSON.stringify({ ok: stepEntry.ok, preview: stepEntry.output_preview }).slice(0, 8000),
+      String(stepEntry.tool_name).slice(0, 500),
+      String(stepEntry.output_preview || '').slice(0, 500),
+      agentRunIdForLog,
+      conversationId,
+      stepEntry.tool_category ?? 'builtin',
+      stepEntry.cost_usd ?? 0,
+    ).run();
+  } catch (e) {
+    console.warn('[agent] tool_call_log insert', e?.message);
+  }
 
   let executionStepId = null;
   if (ledger.executionStepCols?.size) {
@@ -2499,8 +2541,9 @@ async function createApprovalRequest(env, ctx, opts) {
     await env.DB.prepare(
       `INSERT INTO agentsam_approval_queue
        (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,
-        risk_level, input_json, expires_at, status, approval_type, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        risk_level, input_json, expires_at, status, approval_type, created_at,
+        agent_run_id, conversation_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       proposalId,
       tenantId,
@@ -2515,6 +2558,8 @@ async function createApprovalRequest(env, ctx, opts) {
       'pending',
       'tool',
       now,
+      approvalSpine.agent_run_id,
+      approvalSpine.conversation_id,
     ).run();
     scheduleRecordMcpToolExecution(env, ctx, {
       tenant_id: tenantId,
@@ -2549,6 +2594,28 @@ async function createApprovalRequest(env, ctx, opts) {
     });
   } catch (e) { console.warn('[agent] createApprovalRequest:', e?.message); }
   return proposalId;
+}
+
+/** Poll agentsam_approval_queue until approved, denied/expired, or timeout. */
+async function pollApprovalQueue(env, approvalId, maxSeconds = 180) {
+  if (!env?.DB || !approvalId) return false;
+  const deadline = Date.now() + Math.max(1, Number(maxSeconds) || 180) * 1000;
+  while (Date.now() < deadline) {
+    const row = await env.DB.prepare(
+      `SELECT status, expires_at FROM agentsam_approval_queue WHERE id = ? LIMIT 1`,
+    )
+      .bind(approvalId)
+      .first()
+      .catch(() => null);
+    if (!row) return false;
+    const st = String(row.status || '').toLowerCase();
+    if (st === 'approved') return true;
+    if (st === 'denied' || st === 'expired') return false;
+    const exp = Number(row.expires_at);
+    if (Number.isFinite(exp) && exp > 0 && exp <= Math.floor(Date.now() / 1000)) return false;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
 }
 
 /** Pending row in agentsam_approval_queue blocks duplicate execution until approved/denied. */
@@ -3893,6 +3960,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             sessionId,
             modelKey,
             stepsTotal: effectiveMaxToolCalls,
+            chatAgentRunId,
           });
           if (agentToolLedger) {
             emit('workflow_start', {
@@ -5624,6 +5692,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     const uid2 = actor?.id ?? actor?.user_id ?? userId ?? null;
     let tid2 = actor?.tenant_id ?? tenantId ?? null;
     if (!tid2 && uid2) tid2 = await fetchAuthUserTenantId(env, uid2);
+    const planChatAgentRunId =
+      env.DB && uid2 && workspaceId ? newChatAgentRunId() : null;
+    const conversationId = sessionId != null ? String(sessionId) : null;
 
     const encoder2 = new TextEncoder();
     const { readable: planReadable, writable: planWritable } = new TransformStream();
@@ -5696,17 +5767,57 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         });
 
         if (requestedMode !== 'plan') {
-          const { executePlan } = await import('../core/agentsam-task-executor.js');
-          await executePlan(env, {
-            planId: plan.plan_id,
-            userId: uid2,
+          const planId = plan.plan_id;
+          const planTasks = plan.tasks || [];
+          const planTitle = plan.plan_title || 'Plan';
+          const approvalId = `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+          await env.DB.prepare(`
+            INSERT INTO agentsam_approval_queue (
+              id, tenant_id, workspace_id, user_id, session_id,
+              plan_id, tool_name, action_summary, input_json,
+              approval_type, risk_level, status,
+              agent_run_id, conversation_id, expires_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch()+180)
+          `).bind(
+            approvalId,
+            tid2,
             workspaceId,
-            tenantId: tid2,
-            emit: emitPlan,
-            ctx,
-            sessionId: sessionId || null,
-            workflowRunId: wfBoot.workflowRunId,
+            uid2,
+            sessionId || null,
+            planId,
+            'execute_plan',
+            `Execute ${planTasks.length}-step plan: ${planTitle}`,
+            JSON.stringify({ plan_id: planId, task_count: planTasks.length }),
+            'workflow',
+            'medium',
+            'pending',
+            planChatAgentRunId ?? null,
+            conversationId,
+          ).run();
+
+          emitPlan('plan_confirmation_required', {
+            approval_id: approvalId,
+            plan_id: planId,
+            summary: `${planTasks.length}-step plan ready. Confirm to execute.`,
+            tasks: planTasks.map((t) => ({ title: t.title, order_index: t.order_index })),
           });
+
+          const approved = await pollApprovalQueue(env, approvalId, 180);
+          if (!approved) {
+            emitPlan('plan_cancelled', { reason: 'Denied or timed out.' });
+          } else {
+            const { executePlan } = await import('../core/agentsam-task-executor.js');
+            await executePlan(env, {
+              planId,
+              userId: uid2,
+              workspaceId,
+              tenantId: tid2,
+              emit: emitPlan,
+              ctx,
+              sessionId: sessionId || null,
+              workflowRunId: wfBoot.workflowRunId,
+            });
+          }
         } else {
           emitPlan('text', {
             text: '_Plan mode: tasks stay as **todo**. Switch to **Agent** or **Multitask** to execute._',
@@ -8819,6 +8930,48 @@ export async function handleAgentApi(request, url, env, ctx) {
       200,
       { 'Cache-Control': 'no-store' },
     );
+  }
+
+  const approvalApprovePost = path.match(/^\/api\/agent\/approval\/([^/]+)\/approve$/);
+  if (approvalApprovePost && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const apId = approvalApprovePost[1];
+    const row = await env.DB
+      .prepare(`SELECT id FROM agentsam_approval_queue WHERE id = ?`)
+      .bind(apId)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    const approver = String(authUser.id || authUser.email || '').slice(0, 200);
+    await env.DB
+      .prepare(
+        `UPDATE agentsam_approval_queue SET status='approved', approved_by=?, decided_at=unixepoch() WHERE id=?`,
+      )
+      .bind(approver, apId)
+      .run();
+    return jsonResponse({ ok: true, approval_id: apId });
+  }
+
+  const approvalDenyPost = path.match(/^\/api\/agent\/approval\/([^/]+)\/deny$/);
+  if (approvalDenyPost && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const apId = approvalDenyPost[1];
+    const row = await env.DB
+      .prepare(`SELECT id FROM agentsam_approval_queue WHERE id = ?`)
+      .bind(apId)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    const denier = String(authUser.id || authUser.email || '').slice(0, 200);
+    await env.DB
+      .prepare(
+        `UPDATE agentsam_approval_queue SET status='denied', approved_by=?, decided_at=unixepoch() WHERE id=?`,
+      )
+      .bind(denier, apId)
+      .run();
+    return jsonResponse({ ok: true, approval_id: apId });
   }
 
   // ── PATCH /api/agent/approval/:id ─────────────────────────────────────────

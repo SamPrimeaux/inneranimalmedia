@@ -77,10 +77,26 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan }) 
             <span className="mt-0.5">{statusIcon(task.status)}</span>
             <span className="min-w-0 flex-1 leading-snug break-words [overflow-wrap:anywhere]">
               {task.title}
+              {task.status === 'running' && (
+                <span
+                  className="block text-[10px] mt-0.5 text-[var(--solar-cyan)]"
+                  style={{ animation: 'agent-sam-plan-shimmer 2.8s ease-in-out infinite' }}
+                >
+                  {task.detail ? String(task.detail).slice(0, 100) : 'Working…'}
+                </span>
+              )}
             </span>
           </li>
         ))}
       </ul>
+      {plan.status === 'running' && sorted.every((t) => t.status !== 'running') && (
+        <div
+          className="px-4 pb-2 text-[11px] text-[var(--dashboard-muted)]"
+          style={{ animation: 'agent-sam-plan-shimmer 2.8s ease-in-out infinite' }}
+        >
+          Planning next moves…
+        </div>
+      )}
       {hasTrace ? (
         <div className="border-t border-[var(--dashboard-border)]/60">
           <button
@@ -89,39 +105,22 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan }) 
             className="w-full flex items-center gap-1.5 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors"
           >
             {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            {expanded ? 'Hide details' : 'Show details'}
+            {expanded ? 'Hide trace' : 'Show trace'}
           </button>
           {expanded ? (
-            <div className="px-3 pb-3 space-y-2 text-[10px] font-mono text-[var(--dashboard-muted)] break-all">
-              {plan.workflow_run_id ? (
-                <p>
-                  <span className="text-[var(--text-muted)]">workflow_run_id</span> {plan.workflow_run_id}
-                </p>
-              ) : null}
-              {plan.plan_id ? (
-                <p>
-                  <span className="text-[var(--text-muted)]">plan_id</span> {plan.plan_id}
-                </p>
-              ) : null}
-              {sorted.map((task) => {
-                const bits: string[] = [];
-                if (task.trace?.execution_step_id) bits.push(`step ${task.trace.execution_step_id}`);
-                if (task.trace?.command_run_id) bits.push(`cmd ${task.trace.command_run_id}`);
-                if (task.trace?.capability_type) bits.push(task.trace.capability_type);
-                if (task.trace?.files_involved?.length) {
-                  bits.push(`files: ${task.trace.files_involved.join(', ')}`);
-                }
-                if (!task.detail && !bits.length) return null;
-                return (
-                  <div key={`trace-${task.id}`} className="rounded border border-[var(--dashboard-border)]/50 p-2">
-                    <p className="text-[11px] font-sans font-medium text-[var(--dashboard-text)] mb-1">
-                      #{task.order_index + 1} {task.title}
-                    </p>
-                    {bits.length ? <p>{bits.join(' · ')}</p> : null}
-                    {task.detail ? <p className="mt-1 whitespace-pre-wrap">{task.detail}</p> : null}
+            <div className="px-3 pb-3 space-y-2">
+              {sorted
+                .filter((t) => t.detail && t.status !== 'todo')
+                .map((task) => (
+                  <div key={`trace-${task.id}`} className="text-[11px] text-[var(--dashboard-muted)] leading-relaxed">
+                    <span className="font-medium text-[var(--dashboard-text)]">{task.title}</span>
+                    {' — '}
+                    {String(task.detail).slice(0, 300)}
                   </div>
-                );
-              })}
+                ))}
+              {sorted.filter((t) => t.detail && t.status !== 'todo').length === 0 && (
+                <p className="text-[11px] text-[var(--dashboard-muted)]">No trace yet.</p>
+              )}
             </div>
           ) : null}
         </div>

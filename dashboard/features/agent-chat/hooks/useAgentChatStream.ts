@@ -165,7 +165,7 @@ export type ConsumeAgentChatSseContext = {
   setConversationId: React.Dispatch<React.SetStateAction<string>>;
   stripEmptyAssistantTail: (prev: Message[]) => Message[];
   loadSessions: () => void;
-  onThinkingEvent?: (event: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string }) => void;
+  onThinkingEvent?: (event: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string; approval_id?: string; plan_id?: string }) => void;
   /** First SSE context payload — lifts `agentsam_agent_run.id` to host (BrowserView playwright metadata). */
   onAgentRunContext?: (agentRunId: string | null) => void;
   onBrowserNavigate?: (event: { type: 'browser_navigate'; url: string }) => void;
@@ -736,6 +736,22 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           });
           continue;
         }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_confirmation_required') {
+          const d = data as {
+            type: string;
+            approval_id?: string;
+            plan_id?: string;
+            summary?: string;
+            tasks?: Array<{ title: string; order_index: number }>;
+          };
+          onThinkingEvent?.({
+            type: 'plan_confirmation_required',
+            approval_id: d.approval_id ?? '',
+            plan_id: d.plan_id ?? '',
+            text: d.summary ?? 'Review the plan and confirm to continue.',
+          });
+          continue;
+        }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'task_start') {
           const d = data as {
             type: string;
@@ -760,7 +776,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             pushExecutionPlan(executionPlan);
             onThinkingEvent?.({
               type: 'plan_progress',
-              text: `Running task ${idx + 1} of ${total}…`,
+              text: d.title || `Running task ${idx + 1} of ${total}…`,
             });
           }
           continue;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Check, X, AlertTriangle, Lock, Loader2, ChevronDown } from 'lucide-react';
+import { AgentPresenceLogo } from '../../features/agent-presence/AgentPresenceLogo';
 
 export type ThinkingStepStatus = 'running' | 'done' | 'error' | 'blocked';
 
@@ -93,12 +94,14 @@ export function ThinkingCard({
   const elapsedStr = (elapsed / 1000).toFixed(1) + 's';
 
   const headerLabel = isError
-    ? `Stopped · ${elapsedStr} · ${steps.length} step${steps.length !== 1 ? 's' : ''}`
+    ? 'Stopped — something needs attention.'
     : isBlocked
-    ? `Waiting for approval · ${elapsedStr}`
+    ? 'Waiting for your approval.'
     : isDone
-    ? `Thought for ${elapsedStr} · ${steps.length} step${steps.length !== 1 ? 's' : ''}`
-    : `Working · ${elapsedStr} · ${steps.length} step${steps.length !== 1 ? 's' : ''}`;
+    ? 'Done.'
+    : thinkingText
+      ? (thinkingText.length > 90 ? thinkingText.slice(0, 87) + '…' : thinkingText)
+      : 'Working…';
 
   const headerColor = isError
     ? 'var(--error, #f87171)'
@@ -140,21 +143,18 @@ export function ThinkingCard({
         ) : isBlocked ? (
           <Lock size={13} style={{ color: 'var(--warning, #fbbf24)', flexShrink: 0 }} />
         ) : isDone ? (
-          <span
-            style={{
-              width: 7, height: 7, borderRadius: '50%',
-              background: 'var(--success, #34d399)',
-              flexShrink: 0, display: 'inline-block',
-            }}
+          <AgentPresenceLogo
+            motion="idle"
+            sizePx={16}
+            alt=""
+            className="shrink-0"
           />
         ) : (
-          <span
-            className="iam-tc-pulse"
-            style={{
-              width: 7, height: 7, borderRadius: '50%',
-              background: 'var(--info, #60a5fa)',
-              flexShrink: 0, display: 'inline-block',
-            }}
+          <AgentPresenceLogo
+            motion="thinking"
+            sizePx={16}
+            alt=""
+            className="shrink-0"
           />
         )}
 
@@ -168,6 +168,11 @@ export function ThinkingCard({
         >
           {headerLabel}
         </span>
+        {isActive && (
+          <span style={{ fontSize: 10, color: 'var(--text-tertiary, #4e4e62)', marginLeft: 4, flexShrink: 0 }}>
+            {elapsedStr}
+          </span>
+        )}
 
         <ChevronDown
           size={13}
