@@ -2,6 +2,8 @@
  * Request-scoped tool menu (Layer B): narrow global catalog tools by capability + message intent.
  */
 
+import { hasImageGenerationIntent, IMAGE_CAPABILITY_TOOL_NAMES } from '../tools/image_generation.js';
+
 function parseJsonSafe(value, fallback = null) {
   if (value == null || value === '') return fallback;
   if (typeof value === 'object') return value;
@@ -149,6 +151,37 @@ function isAgentSamAgentToolName(name) {
   return n === 'agentsam_get_agent' || n === 'agentsam_list_agents' || n === 'agentsam_run_agent';
 }
 
+function isImageCapabilityToolName(name) {
+  return IMAGE_CAPABILITY_TOOL_NAMES.includes(String(name || ''));
+}
+
+/** Re-attach imgx tools after D1/browser/github narrowing when the user also asked for images. */
+async function mergeImageCapabilityTools(env, narrowed, originalTools, userMessage) {
+  if (!hasImageGenerationIntent(userMessage)) return narrowed;
+  const byName = Object.fromEntries(
+    [...narrowed, ...originalTools]
+      .filter((t) => t && isImageCapabilityToolName(t.name))
+      .map((t) => [String(t.name), t]),
+  );
+  const missing = IMAGE_CAPABILITY_TOOL_NAMES.filter((n) => !byName[n]);
+  if (missing.length) {
+    const fetched = await narrowToToolNames(env, originalTools, missing);
+    for (const t of fetched) byName[String(t.name)] = t;
+  }
+  const imgTools = IMAGE_CAPABILITY_TOOL_NAMES.map((n) => byName[n]).filter(Boolean);
+  if (!imgTools.length) return narrowed;
+  const seen = new Set(narrowed.map((t) => String(t?.name || '')));
+  const merged = [...narrowed];
+  for (const t of imgTools) {
+    const nm = String(t.name);
+    if (!seen.has(nm)) {
+      merged.push(t);
+      seen.add(nm);
+    }
+  }
+  return merged;
+}
+
 /**
  * Final tool list for the model: minimal relevant subset per capability decision + message.
  *
@@ -195,6 +228,8 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
   } else if (wantsAgentMgmt) {
     next = tools.filter((t) => isAgentSamAgentToolName(t.name));
   }
+
+  next = await mergeImageCapabilityTools(env, next, tools, msg);
 
   const after = next.map((t) => String(t?.name || '')).filter(Boolean);
   const debug =

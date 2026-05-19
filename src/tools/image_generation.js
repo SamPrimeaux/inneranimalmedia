@@ -25,9 +25,13 @@ export const IMAGE_PROGRESS_TICKS = [
 ];
 
 const IMAGE_NOUN_RE =
-  /\b(images?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|logo\s+concepts?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art)\b/i;
+  /\b(images?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|logo\s+concepts?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art|mockups?|mock[- ]?ups?|favicons?|og\s+images?|social\s+cards?|app\s+icons?|splash\s+screens?|ui\s+assets?)\b/i;
 const IMAGE_CREATE_VERB_RE =
-  /\b(generate|create|make|design|render|draw|paint|produce|craft|build)\b/i;
+  /\b(generate|create|make|design|render|draw|paint|produce|craft|build|illustrate|visualize)\b/i;
+
+/** User is doing substantial non-image work in the same message — use tool path, not image-only fast path. */
+const COMBINED_WORK_RE =
+  /\b(fix|debug|refactor|implement|deploy|migrate|sql|d1_query|terminal|wrangler|github|pull request|test suite|unit test|eslint|typescript error|bug in)\b/i;
 
 /**
  * User explicitly wants planning/strategy — not an immediate single-image render.
@@ -50,13 +54,38 @@ export function isExplicitImagePlanningIntent(message) {
 }
 
 /**
- * Natural-language request to render a single image now (bypass long-work plan pipeline).
+ * Broader image signal — primary render now OR secondary "also generate a logo" while coding.
  * @param {string} message
  */
-export function isDirectImageGenerationIntent(message) {
+export function hasImageGenerationIntent(message) {
   const m = String(message || '').trim();
   if (!m || isExplicitImagePlanningIntent(m)) return false;
 
+  if (matchesCoreImageGenerationPatterns(m)) return true;
+
+  if (
+    /\b(also|and then|plus|as well|while you'?re at it|when done)\b[\s\S]{0,48}\b(generate|create|make|design|render|draw)\b[\s\S]{0,32}\b(image|logo|icon|banner|thumbnail|mockup|hero|illustration|artwork|graphic)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(need|want|could you|can you)\b[\s\S]{0,24}\b(a |an )?(hero|banner|logo|icon|thumbnail|og image|app icon|mockup|illustration|cover image|feature graphic)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(imgx_|dall[- ]?e|imagen|gpt-image|image gen)/i.test(m)) return true;
+  if (/\b(visual asset|marketing asset|brand asset|social preview)\b/i.test(m)) return true;
+  return false;
+}
+
+/**
+ * @param {string} m
+ */
+function matchesCoreImageGenerationPatterns(m) {
   if (/^(what|how|why|when|where|explain|describe|define)\b/i.test(m) && !IMAGE_CREATE_VERB_RE.test(m)) {
     return false;
   }
@@ -74,11 +103,34 @@ export function isDirectImageGenerationIntent(message) {
   if (/\b(sci[- ]?fi|cyberpunk|futuristic|cinematic|neon)\b/i.test(m) && IMAGE_NOUN_RE.test(m)) {
     return true;
   }
-  if (/\b(poster|wallpaper|banner|thumbnail|illustration|concept\s+art)\b/i.test(m) && m.split(/\s+/).length >= 3) {
+  if (/\b(poster|wallpaper|banner|thumbnail|illustration|concept\s+art|app icon|favicon)\b/i.test(m) && m.split(/\s+/).length >= 3) {
     return true;
   }
   return false;
 }
+
+/**
+ * True when image work is the main ask (mode-agnostic fast path — any Agent Sam mode).
+ * @param {string} message
+ */
+export function isPrimaryImageGenerationIntent(message) {
+  const m = String(message || '').trim();
+  if (!hasImageGenerationIntent(m)) return false;
+  if (COMBINED_WORK_RE.test(m) && m.split(/\s+/).filter(Boolean).length > 14) return false;
+  return matchesCoreImageGenerationPatterns(m);
+}
+
+/**
+ * Natural-language request to render a single image now (bypass long-work plan pipeline).
+ * Alias for {@link isPrimaryImageGenerationIntent}.
+ * @param {string} message
+ */
+export function isDirectImageGenerationIntent(message) {
+  return isPrimaryImageGenerationIntent(message);
+}
+
+/** Tool names injected when {@link hasImageGenerationIntent} is true. */
+export const IMAGE_CAPABILITY_TOOL_NAMES = ['imgx_generate_image', 'imgx_edit_image'];
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',

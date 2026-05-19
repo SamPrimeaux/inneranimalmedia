@@ -637,6 +637,7 @@ const INTENT_SLUG_TO_ROUTING_TASK = {
   sql: 'sql_d1_generation',
   summarize: 'summary',
   rag: 'rag_query',
+  image_generation: 'image_generation',
 };
 
 /**
