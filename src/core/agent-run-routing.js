@@ -135,6 +135,7 @@ export function newChatAgentRunId() {
  *   planId?: string | null,
  *   taskId?: string | null,
  *   sourceTool?: string | null,
+ *   trigger?: string | null,
  *   metadata?: Record<string, unknown>,
  * }} p
  */
@@ -169,7 +170,10 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
       add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
       add('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
       add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
-      add('trigger', 'chat_sse');
+      add(
+        'trigger',
+        p.trigger != null && String(p.trigger).trim() !== '' ? String(p.trigger).slice(0, 80) : 'chat_sse',
+      );
       add('status', 'running');
       add('ai_model_ref', p.modelKey != null ? String(p.modelKey).slice(0, 200) : null);
       add('model_id', p.modelKey != null ? String(p.modelKey).slice(0, 200) : null);

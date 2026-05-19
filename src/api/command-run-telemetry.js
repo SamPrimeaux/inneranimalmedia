@@ -9,6 +9,14 @@ import { estimateCostUsdFromCatalog, resolveModelKeyFromProviderId } from '../co
 
 import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
 import { recordSpan } from '../core/tracer.js';
+import {
+  newChatAgentRunId,
+  scheduleAgentsamChatAgentRunInsert,
+  scheduleAgentsamChatAgentRunStart,
+} from '../core/agent-run-routing.js';
+import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { scheduleToolCallLog } from '../core/agentsam-ops-ledger.js';
+import { pickRunSpineIds } from '../core/run-spine-ids.js';
 
 /** Must match CHECK on agentsam_command_run.intent_category (or NULL). */
 const VALID_INTENT_CATEGORIES = [
@@ -207,6 +215,8 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     toolInputJson = null,
     workflowRunId = null,
     executionStepId = null,
+    commandRunId = null,
+    command_run_id = null,
     agentRunId = null,
     agent_run_id = null,
     conversationId = null,
@@ -250,6 +260,14 @@ export async function fireForgetAgentToolChainRow(env, opts) {
   if (tcCols.has('conversation_id')) {
     scopeMid += ', conversation_id';
     scopeMidBinds.push(convId);
+  }
+  const cmdRunId =
+    (commandRunId ?? command_run_id) != null && String(commandRunId ?? command_run_id).trim() !== ''
+      ? String(commandRunId ?? command_run_id).trim()
+      : null;
+  if (tcCols.has('command_run_id')) {
+    scopeMid += ', command_run_id';
+    scopeMidBinds.push(cmdRunId);
   }
   const completedAt = Math.floor(Date.now() / 1000);
   const durSec = Math.max(0, Math.ceil((Number(durationMs) || 0) / 1000));
@@ -788,6 +806,189 @@ export async function registerExecutionDependency(env, chainId, planId, todoId, 
   }
 }
 
+function mintCommandRunId() {
+  return `run_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
+
+/**
+ * @param {Record<string, unknown>} o
+ */
+function resolveCommandPipelineSpine(o) {
+  const spine = pickRunSpineIds(o);
+  const agentRunId =
+    spine.agent_run_id ||
+    (o.agentRunId != null && String(o.agentRunId).trim() !== '' ? String(o.agentRunId).trim() : null) ||
+    newChatAgentRunId();
+  const conversationId =
+    spine.conversation_id ||
+    (o.sessionId != null && String(o.sessionId).trim() !== '' ? String(o.sessionId).trim() : null);
+  const commandRunId =
+    o.commandRunId != null && String(o.commandRunId).trim() !== ''
+      ? String(o.commandRunId).trim()
+      : o.command_run_id != null && String(o.command_run_id).trim() !== ''
+        ? String(o.command_run_id).trim()
+        : mintCommandRunId();
+  return { agentRunId, commandRunId, conversationId };
+}
+
+/**
+ * Start agentsam_agent_run for slash / command pipeline paths.
+ */
+function scheduleCommandPipelineAgentRunStart(env, ctx, p) {
+  if (!ctx?.waitUntil) return;
+  scheduleAgentsamChatAgentRunStart(env, ctx, {
+    runId: p.agentRunId,
+    userId: p.userId,
+    tenantId: p.tenantId,
+    workspaceId: p.workspaceId,
+    conversationId: p.conversationId,
+    routingArmId: p.routingArmId ?? null,
+    modelKey: p.modelKey ?? null,
+    taskType: p.taskType ?? 'tool_use',
+    commandId: p.commandId ?? null,
+    trigger: 'slash_command',
+    sourceTool: 'execute_command',
+  });
+}
+
+/**
+ * PRAGMA-safe INSERT into agentsam_command_run (optional agent_run_id column).
+ */
+async function insertAgentsamCommandRunRow(env, fields) {
+  if (!env?.DB) return false;
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_command_run');
+  if (!cols.size) return false;
+
+  const valuesByCol = {
+    id: fields.id,
+    tenant_id: fields.tenant_id,
+    workspace_id: fields.workspace_id,
+    user_id: fields.user_id,
+    session_id: fields.session_id ?? null,
+    conversation_id: fields.conversation_id ?? null,
+    user_input: fields.user_input ?? '',
+    normalized_intent: fields.normalized_intent ?? null,
+    intent_category: fields.intent_category ?? null,
+    model_id: fields.model_id ?? null,
+    commands_json: fields.commands_json ?? '[]',
+    result_json: fields.result_json ?? '{}',
+    output_text: fields.output_text ?? null,
+    confidence_score: fields.confidence_score ?? null,
+    success: fields.success != null ? Number(fields.success) : 0,
+    exit_code: fields.exit_code ?? null,
+    duration_ms: fields.duration_ms ?? null,
+    input_tokens: fields.input_tokens ?? 0,
+    output_tokens: fields.output_tokens ?? 0,
+    cost_usd: fields.cost_usd ?? 0,
+    error_message: fields.error_message ?? null,
+    selected_command_id: fields.selected_command_id ?? null,
+    selected_command_slug: fields.selected_command_slug ?? null,
+    risk_level: fields.risk_level ?? 'low',
+    requires_confirmation: fields.requires_confirmation ?? 0,
+    approval_status: fields.approval_status ?? 'not_required',
+    agent_run_id: fields.agent_run_id ?? null,
+  };
+
+  const parts = [];
+  const binds = [];
+  for (const colName of cols) {
+    if (!Object.prototype.hasOwnProperty.call(valuesByCol, colName)) continue;
+    const v = valuesByCol[colName];
+    if (v === undefined) continue;
+    parts.push(colName);
+    binds.push(v);
+  }
+  if (parts.length < 2) return false;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_command_run (${parts.join(', ')}) VALUES (${parts.map(() => '?').join(', ')})`,
+    )
+      .bind(...binds)
+      .run();
+    return true;
+  } catch (e) {
+    console.warn('[insertAgentsamCommandRunRow]', e?.message ?? e);
+    return false;
+  }
+}
+
+/**
+ * Insert a running agentsam_tool_chain row for executeCommand (replaces hardcoded INSERTs).
+ * @returns {Promise<string|null>}
+ */
+export async function insertCommandToolChainRunning(env, opts) {
+  if (!env?.DB) return null;
+  const ws =
+    opts?.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : '';
+  if (!ws) return null;
+
+  const tcCols = await pragmaTableInfo(env.DB, 'agentsam_tool_chain');
+  const chainId =
+    opts.chainId != null && String(opts.chainId).trim() !== ''
+      ? String(opts.chainId).trim()
+      : `atc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+  let uid =
+    opts.userId != null && String(opts.userId).trim() !== '' ? String(opts.userId).trim() : null;
+  if (uid) uid = await resolveCanonicalUserId(uid, env);
+
+  const spine = pickRunSpineIds(opts);
+  const valuesByCol = {
+    id: chainId,
+    plan_id: opts.planId ?? opts.plan_id ?? null,
+    todo_id: opts.todoId ?? opts.todo_id ?? null,
+    workspace_id: ws,
+    tenant_id: opts.tenantId ?? opts.tenant_id ?? null,
+    user_id: uid,
+    agent_session_id: opts.sessionId ?? opts.agent_session_id ?? null,
+    tool_name: String(opts.toolName ?? opts.tool_name ?? 'unknown'),
+    tool_id: opts.toolId ?? opts.tool_id ?? null,
+    tool_status: 'running',
+    input_json:
+      opts.inputJson != null
+        ? typeof opts.inputJson === 'string'
+          ? opts.inputJson
+          : JSON.stringify(opts.inputJson)
+        : '{}',
+    started_at: Math.floor(Date.now() / 1000),
+    requires_approval: opts.requiresApproval ? 1 : 0,
+    depth: opts.depth != null ? Math.floor(Number(opts.depth)) : 0,
+    command_run_id: opts.commandRunId ?? opts.command_run_id ?? null,
+    agent_run_id: spine.agent_run_id,
+    conversation_id: spine.conversation_id,
+    workflow_run_id: opts.workflowRunId ?? opts.workflow_run_id ?? null,
+    execution_step_id: opts.executionStepId ?? opts.execution_step_id ?? null,
+  };
+
+  const parts = [];
+  const binds = [];
+  for (const colName of tcCols) {
+    if (!Object.prototype.hasOwnProperty.call(valuesByCol, colName)) continue;
+    let v = valuesByCol[colName];
+    if (v === undefined) continue;
+    if (colName === 'tool_name' && (v === null || v === '')) v = 'unknown';
+    if (colName === 'input_json' && (v === null || v === '')) v = '{}';
+    parts.push(colName);
+    binds.push(v);
+  }
+  if (parts.length < 2) return null;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_tool_chain (${parts.join(', ')}) VALUES (${parts.map(() => '?').join(', ')})`,
+    )
+      .bind(...binds)
+      .run();
+    return chainId;
+  } catch (e) {
+    console.warn('[insertCommandToolChainRunning]', e?.message ?? e);
+    return null;
+  }
+}
+
 /**
  * Full command execution pipeline: approval queue, Thompson model, tool_chain, Supabase event.
  * @param {any} env
@@ -841,65 +1042,51 @@ export async function executeCommand(env, ctx, o) {
       ? await resolveCanonicalUserId(String(userId).trim(), env)
       : null;
 
-  if (needsApproval) {
-    const approvalId = 'appr_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-    const commandRunId = 'run_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-    const tidForRun =
-      tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : (env?.TENANT_ID || '');
-    const userInput = String(cmd.display_name || cmd.slug || 'command').slice(0, 2000);
-    const commandsExecuted = [
-      {
-        catalog_command_id: String(commandId),
-        mapped_command: cmd.mapped_command != null ? String(cmd.mapped_command) : '',
-        args,
-      },
-    ];
-    let commandRunOk = false;
-    try {
-      const insRun = await env.DB
-        .prepare(
-          `INSERT INTO agentsam_command_run
-            (id, tenant_id, workspace_id, user_id, session_id, conversation_id,
-             user_input, normalized_intent, intent_category, model_id,
-             commands_json, result_json, output_text, confidence_score,
-             success, exit_code, duration_ms, input_tokens, output_tokens, cost_usd, error_message,
-             selected_command_id, selected_command_slug, risk_level, requires_confirmation, approval_status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        )
-        .bind(
-          commandRunId,
-          tidForRun,
-          resolvedWorkspace,
-          canonicalCmdUser ?? userId,
-          sessionId || null,
-          null,
-          userInput,
-          null,
-          sanitizeIntentCategoryForCommandRun(cmd.category),
-          null,
-          JSON.stringify(commandsExecuted),
-          '{}',
-          null,
-          null,
-          0,
-          null,
-          null,
-          0,
-          0,
-          0,
-          null,
-          String(commandId),
-          cmd.slug != null ? String(cmd.slug) : null,
-          cmd.risk_level != null ? String(cmd.risk_level) : 'low',
-          Number(cmd.requires_confirmation) === 1 ? 1 : 0,
-          'pending_approval',
-        )
-        .run();
-      commandRunOk = !!insRun?.success;
-    } catch (e) {
-      console.warn('[executeCommand] stub command_run insert failed', e?.message ?? e);
-    }
+  const tidForRun =
+    tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : (env?.TENANT_ID || '');
+  const { agentRunId, commandRunId, conversationId } = resolveCommandPipelineSpine({
+    ...o,
+    sessionId,
+  });
+  const userInput = String(cmd.display_name || cmd.slug || 'command').slice(0, 2000);
+  const commandsExecuted = [
+    {
+      catalog_command_id: String(commandId),
+      mapped_command: cmd.mapped_command != null ? String(cmd.mapped_command) : '',
+      args,
+    },
+  ];
 
+  if (needsApproval) {
+    scheduleCommandPipelineAgentRunStart(env, ctx, {
+      agentRunId,
+      userId: canonicalCmdUser ?? userId,
+      tenantId: tidForRun,
+      workspaceId: resolvedWorkspace,
+      conversationId,
+      commandId: String(commandId),
+      taskType: taskType || cmd.task_type || 'tool_use',
+    });
+
+    const commandRunOk = await insertAgentsamCommandRunRow(env, {
+      id: commandRunId,
+      tenant_id: tidForRun,
+      workspace_id: resolvedWorkspace,
+      user_id: canonicalCmdUser ?? userId,
+      session_id: sessionId || null,
+      conversation_id: conversationId,
+      user_input: userInput,
+      intent_category: sanitizeIntentCategoryForCommandRun(cmd.category),
+      commands_json: JSON.stringify(commandsExecuted),
+      selected_command_id: String(commandId),
+      selected_command_slug: cmd.slug != null ? String(cmd.slug) : null,
+      risk_level: cmd.risk_level != null ? String(cmd.risk_level) : 'low',
+      requires_confirmation: Number(cmd.requires_confirmation) === 1 ? 1 : 0,
+      approval_status: 'pending_approval',
+      agent_run_id: agentRunId,
+    });
+
+    const approvalId = 'appr_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
     await env.DB
       .prepare(
         `INSERT INTO agentsam_approval_queue
@@ -920,11 +1107,36 @@ export async function executeCommand(env, ctx, o) {
         cmd.risk_level,
         JSON.stringify(args),
       )
-      .run();
+      .run()
+      .catch((e) => console.warn('[executeCommand] approval_queue insert', e?.message ?? e));
+
+    const apprCols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+    if (apprCols.has('agent_run_id') || apprCols.has('conversation_id')) {
+      const sets = [];
+      const binds = [];
+      if (apprCols.has('agent_run_id')) {
+        sets.push('agent_run_id = ?');
+        binds.push(agentRunId);
+      }
+      if (apprCols.has('conversation_id')) {
+        sets.push('conversation_id = ?');
+        binds.push(conversationId);
+      }
+      if (sets.length) {
+        binds.push(approvalId);
+        await env.DB
+          .prepare(`UPDATE agentsam_approval_queue SET ${sets.join(', ')} WHERE id = ?`)
+          .bind(...binds)
+          .run()
+          .catch(() => {});
+      }
+    }
+
     return {
       ok: true,
       status: 'pending_approval',
       approval_id: approvalId,
+      agent_run_id: agentRunId,
       command_run_id: commandRunOk ? commandRunId : null,
       command_preview: cmd.mapped_command != null ? String(cmd.mapped_command).slice(0, 2000) : null,
     };
@@ -938,10 +1150,37 @@ export async function executeCommand(env, ctx, o) {
   const modelKey = arm?.model_key || 'gpt-5.4-mini';
   const provider = arm?.provider || 'openai';
 
-  const chainId = 'atc_' + crypto.randomUUID().slice(0, 16);
+  scheduleCommandPipelineAgentRunStart(env, ctx, {
+    agentRunId,
+    userId: canonicalCmdUser ?? userId,
+    tenantId: tidForRun,
+    workspaceId: resolvedWorkspace,
+    conversationId,
+    routingArmId: arm?.id ?? null,
+    modelKey,
+    commandId: String(commandId),
+    taskType: effectiveTaskType,
+  });
 
-  const tidIns =
-    tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
+  await insertAgentsamCommandRunRow(env, {
+    id: commandRunId,
+    tenant_id: tidForRun,
+    workspace_id: resolvedWorkspace,
+    user_id: canonicalCmdUser ?? userId,
+    session_id: sessionId || null,
+    conversation_id: conversationId,
+    user_input: userInput,
+    intent_category: sanitizeIntentCategoryForCommandRun(cmd.category),
+    commands_json: JSON.stringify(commandsExecuted),
+    model_id: modelKey,
+    selected_command_id: String(commandId),
+    selected_command_slug: cmd.slug != null ? String(cmd.slug) : null,
+    risk_level: cmd.risk_level != null ? String(cmd.risk_level) : 'low',
+    requires_confirmation: Number(cmd.requires_confirmation) === 1 ? 1 : 0,
+    approval_status: 'not_required',
+    agent_run_id: agentRunId,
+  });
+
   const inputPayload =
     canonicalCmdUser == null
       ? {
@@ -950,53 +1189,22 @@ export async function executeCommand(env, ctx, o) {
         }
       : args;
 
-  const insRunning = await env.DB
-    .prepare(
-      `INSERT INTO agentsam_tool_chain
-      (id, plan_id, todo_id, workspace_id, tenant_id, user_id, agent_session_id, tool_name, tool_id,
-       tool_status, input_json, started_at, requires_approval, depth)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?, unixepoch(), ?, ?)`,
-    )
-    .bind(
-      chainId,
-      planId,
-      todoId,
-      resolvedWorkspace,
-      tidIns,
-      canonicalCmdUser,
-      sessionId || null,
-      cmd.mapped_command,
-      null,
-      'running',
-      JSON.stringify(inputPayload),
-      0,
-      0,
-    )
-    .run()
-    .catch(() => null);
-
-  if (!insRunning?.success) {
-    await env.DB
-      .prepare(
-        `INSERT INTO agentsam_tool_chain
-      (id, plan_id, todo_id, workspace_id, agent_session_id, tool_name, tool_id,
-       tool_status, input_json, started_at, requires_approval, depth)
-      VALUES (?,?,?,?,?,?,?,?,?, unixepoch(), ?, ?)`,
-      )
-      .bind(
-        chainId,
-        planId,
-        todoId,
-        resolvedWorkspace,
-        sessionId || null,
-        cmd.mapped_command,
-        null,
-        'running',
-        JSON.stringify(inputPayload),
-        0,
-        0,
-      )
-      .run();
+  const chainId = await insertCommandToolChainRunning(env, {
+    workspaceId: resolvedWorkspace,
+    tenantId: tidForRun,
+    userId: canonicalCmdUser ?? userId,
+    sessionId,
+    planId,
+    todoId,
+    toolName: cmd.mapped_command,
+    inputJson: inputPayload,
+    commandRunId,
+    agentRunId,
+    conversationId,
+    requiresApproval: false,
+  });
+  if (!chainId) {
+    return { ok: false, error: 'tool_chain_insert_failed' };
   }
 
   if (planId && todoId) {
@@ -1049,6 +1257,8 @@ export async function executeCommand(env, ctx, o) {
     ok: true,
     status: 'running',
     chain_id: chainId,
+    agent_run_id: agentRunId,
+    command_run_id: commandRunId,
     model_key: modelKey,
     provider,
     task_type: effectiveTaskType,
@@ -1079,22 +1289,31 @@ export async function completeCommand(env, ctx, o) {
   if (!env?.DB || !chainId) return;
 
   let traceTenantWorkspace = null;
+  let chainRow = null;
   try {
-    const crow = await env.DB
+    chainRow = await env.DB
       .prepare(
-        `SELECT tc.workspace_id AS workspace_id, w.tenant_id AS tenant_id
+        `SELECT tc.id, tc.workspace_id, tc.tenant_id, tc.user_id, tc.agent_session_id, tc.tool_name,
+                tc.agent_run_id, tc.conversation_id, tc.command_run_id,
+                w.tenant_id AS workspace_tenant_id
          FROM agentsam_tool_chain tc
-         INNER JOIN workspaces w ON w.id = tc.workspace_id
+         LEFT JOIN workspaces w ON w.id = tc.workspace_id
          WHERE tc.id = ?
          LIMIT 1`,
       )
       .bind(chainId)
       .first();
-    const tw = crow?.workspace_id != null ? String(crow.workspace_id).trim() : '';
-    const tt = crow?.tenant_id != null ? String(crow.tenant_id).trim() : '';
+    const tw = chainRow?.workspace_id != null ? String(chainRow.workspace_id).trim() : '';
+    const tt =
+      chainRow?.tenant_id != null && String(chainRow.tenant_id).trim() !== ''
+        ? String(chainRow.tenant_id).trim()
+        : chainRow?.workspace_tenant_id != null
+          ? String(chainRow.workspace_tenant_id).trim()
+          : '';
     if (tw && tt) traceTenantWorkspace = { tenant_id: tt, workspace_id: tw };
   } catch {
     traceTenantWorkspace = null;
+    chainRow = null;
   }
 
   const status = success ? 'completed' : 'failed';
@@ -1127,6 +1346,109 @@ export async function completeCommand(env, ctx, o) {
     )
     .run()
     .catch(() => {});
+
+  const agentRunId =
+    o.agentRunId != null && String(o.agentRunId).trim() !== ''
+      ? String(o.agentRunId).trim()
+      : chainRow?.agent_run_id != null && String(chainRow.agent_run_id).trim() !== ''
+        ? String(chainRow.agent_run_id).trim()
+        : null;
+  const conversationId =
+    chainRow?.conversation_id != null && String(chainRow.conversation_id).trim() !== ''
+      ? String(chainRow.conversation_id).trim()
+      : chainRow?.agent_session_id != null
+        ? String(chainRow.agent_session_id).trim()
+        : null;
+  const commandRunId =
+    chainRow?.command_run_id != null && String(chainRow.command_run_id).trim() !== ''
+      ? String(chainRow.command_run_id).trim()
+      : null;
+  const toolName =
+    chainRow?.tool_name != null ? String(chainRow.tool_name) : 'slash_command';
+  const spineUserId = chainRow?.user_id != null ? String(chainRow.user_id) : null;
+
+  if (agentRunId && traceTenantWorkspace && spineUserId && ctx?.waitUntil) {
+    scheduleAgentsamChatAgentRunInsert(env, ctx, {
+      runId: agentRunId,
+      userId: spineUserId,
+      tenantId: traceTenantWorkspace.tenant_id,
+      workspaceId: traceTenantWorkspace.workspace_id,
+      conversationId,
+      routingArmId: null,
+      modelKey: modelKey != null ? String(modelKey) : null,
+      taskType: taskType || 'tool_use',
+      success: !!success,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      durationMs,
+      errorMessage: success ? null : errorMessage,
+      chainRootId: chainId,
+    });
+  }
+
+  if (traceTenantWorkspace) {
+    const spine = { agent_run_id: agentRunId, conversation_id: conversationId };
+    scheduleRecordMcpToolExecution(env, ctx, {
+      tenant_id: traceTenantWorkspace.tenant_id,
+      workspace_id: traceTenantWorkspace.workspace_id,
+      user_id: spineUserId,
+      session_id: chainRow?.agent_session_id ?? null,
+      tool_name: toolName,
+      input_json: JSON.stringify({ chain_id: chainId, command_id: commandId ?? null }),
+      output_json: outputSummary != null ? JSON.stringify({ summary: outputSummary }) : null,
+      success: !!success,
+      error_message: success ? null : errorMessage,
+      duration_ms: Math.max(0, Math.floor(Number(durationMs) || 0)),
+      invoked_by: spineUserId || 'execute_command',
+      status: success ? 'completed' : 'error',
+      ...spine,
+    });
+    scheduleToolCallLog(env, ctx, {
+      tenantId: traceTenantWorkspace.tenant_id,
+      workspaceId: traceTenantWorkspace.workspace_id,
+      sessionId: chainRow?.agent_session_id ?? null,
+      userId: spineUserId,
+      toolName,
+      status: success ? 'success' : 'error',
+      durationMs: Math.max(0, Math.floor(Number(durationMs) || 0)),
+      costUsd,
+      inputTokens,
+      outputTokens,
+      errorMessage: success ? null : errorMessage,
+      inputSummary: outputSummary != null ? String(outputSummary).slice(0, 200) : '',
+      ...spine,
+    });
+  }
+
+  if (commandRunId && env.DB) {
+    const crCols = await pragmaTableInfo(env.DB, 'agentsam_command_run');
+    const sets = ['success = ?', 'duration_ms = ?', 'cost_usd = ?', 'input_tokens = ?', 'output_tokens = ?'];
+    const binds = [
+      success ? 1 : 0,
+      Math.max(0, Math.floor(Number(durationMs) || 0)),
+      Number(costUsd) || 0,
+      Math.max(0, Math.floor(Number(inputTokens) || 0)),
+      Math.max(0, Math.floor(Number(outputTokens) || 0)),
+    ];
+    if (crCols.has('output_text')) {
+      sets.push('output_text = ?');
+      binds.push(outputSummary != null ? String(outputSummary).slice(0, 50000) : null);
+    }
+    if (crCols.has('error_message')) {
+      sets.push('error_message = ?');
+      binds.push(success ? null : errorMessage != null ? String(errorMessage).slice(0, 8000) : null);
+    }
+    if (crCols.has('approval_status')) {
+      sets.push("approval_status = 'completed'");
+    }
+    binds.push(commandRunId);
+    await env.DB
+      .prepare(`UPDATE agentsam_command_run SET ${sets.join(', ')} WHERE id = ?`)
+      .bind(...binds)
+      .run()
+      .catch(() => {});
+  }
 
   if (commandId) {
     ctx.waitUntil(
@@ -1274,6 +1596,16 @@ export async function handleAgentApprovalDecision(env, ctx, opts) {
     return { ok: true, decision: 'approved', rerun: 'skipped_no_command' };
   }
 
+  let approvalAgentRunId = null;
+  try {
+    const apprCols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+    if (apprCols.has('agent_run_id') && row.agent_run_id) {
+      approvalAgentRunId = String(row.agent_run_id).trim();
+    }
+  } catch {
+    approvalAgentRunId = null;
+  }
+
   const execOut = await executeCommand(env, ctx, {
     commandId: cmd.id,
     userId: row.user_id,
@@ -1283,6 +1615,8 @@ export async function handleAgentApprovalDecision(env, ctx, opts) {
     args,
     taskType: 'tool_use',
     skipApprovalGate: true,
+    agentRunId: approvalAgentRunId || undefined,
+    commandRunId: row.command_run_id != null ? String(row.command_run_id) : undefined,
   });
 
   return { ok: true, decision: 'approved', execute: execOut };

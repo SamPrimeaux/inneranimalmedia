@@ -451,6 +451,8 @@ async function authorizePlanTerminalExecution(env, ctx, p) {
     allowed: true,
     via: 'executeCommand',
     chain_id: execOut.chain_id ?? null,
+    agent_run_id: execOut.agent_run_id ?? null,
+    command_run_id: execOut.command_run_id ?? null,
     commandId,
     modelKey: execOut.model_key ?? null,
     provider: execOut.provider ?? null,
@@ -1038,6 +1040,7 @@ Return ONLY valid JSON:
           await completeCommand(env, stubCtx, {
             chainId: authz.chain_id,
             commandId: authz.commandId,
+            agentRunId: authz.agent_run_id ?? null,
             success: !!http?.ok,
             durationMs,
             outputSummary: http?.ok ? String(http.text || '').slice(0, 8000) : null,
