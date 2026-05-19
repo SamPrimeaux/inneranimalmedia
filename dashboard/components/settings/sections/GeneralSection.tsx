@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Check, ExternalLink, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Toggle } from '../settingsUi';
 
@@ -12,6 +12,47 @@ const PREF_KEYS = {
 
 type PrefApiKey = keyof typeof PREF_KEYS;
 
+const TIMEZONE_OPTIONS = [
+  'America/Chicago',
+  'America/New_York',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Phoenix',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+  'UTC',
+  'Europe/London',
+  'Europe/Paris',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+];
+
+const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'en', label: 'English' },
+  { value: 'es', label: 'Spanish' },
+  { value: 'fr', label: 'French' },
+  { value: 'de', label: 'German' },
+  { value: 'pt', label: 'Portuguese' },
+  { value: 'ja', label: 'Japanese' },
+  { value: 'zh', label: 'Chinese' },
+];
+
+const fieldClass =
+  'w-full px-3 py-2 rounded-xl bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] text-[12px] text-[var(--dashboard-text)] focus:outline-none focus:border-[var(--solar-cyan)]/50';
+
+type ProfilePayload = {
+  display_name?: string;
+  full_name?: string;
+  avatar_url?: string | null;
+  primary_email?: string;
+  backup_email?: string;
+  phone?: string;
+  bio?: string;
+  timezone?: string;
+  language?: string;
+  primary_email_verified?: number | boolean;
+};
+
 function readStoredBool(storageKey: string, defaultOn: boolean) {
   try {
     const v = localStorage.getItem(storageKey);
@@ -22,19 +63,75 @@ function readStoredBool(storageKey: string, defaultOn: boolean) {
   }
 }
 
+function initialsFromName(name: string, email: string) {
+  const n = name.trim();
+  if (n) {
+    const parts = n.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return n.slice(0, 2).toUpperCase();
+  }
+  const local = email.split('@')[0] || '?';
+  return local.slice(0, 2).toUpperCase();
+}
+
 export function GeneralSection({ workspaceId }: { workspaceId?: string | null }) {
   const navigate = useNavigate();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveOk, setSaveOk] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+
+  const [displayName, setDisplayName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [primaryEmail, setPrimaryEmail] = useState('');
+  const [primaryEmailVerified, setPrimaryEmailVerified] = useState(false);
+  const [backupEmail, setBackupEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [bio, setBio] = useState('');
+  const [timezone, setTimezone] = useState('America/Chicago');
+  const [language, setLanguage] = useState('en');
+
   const [syncLayouts, setSyncLayouts] = useState(true);
   const [showStatusBar, setShowStatusBar] = useState(true);
   const [autohideEditor, setAutohideEditor] = useState(false);
   const [autoinjectCode, setAutoinjectCode] = useState(true);
 
+  const loadProfile = useCallback(async () => {
+    setProfileLoading(true);
+    setProfileError(null);
+    try {
+      const r = await fetch('/api/settings/profile', { credentials: 'same-origin' });
+      const d = (await r.json().catch(() => ({}))) as ProfilePayload & { error?: string };
+      if (!r.ok) throw new Error(typeof d.error === 'string' ? d.error : `Load failed (${r.status})`);
+      setDisplayName(String(d.display_name ?? '').trim());
+      setFullName(String(d.full_name ?? '').trim());
+      setAvatarUrl(d.avatar_url ? String(d.avatar_url).trim() : null);
+      setPrimaryEmail(String(d.primary_email ?? '').trim());
+      setPrimaryEmailVerified(!!d.primary_email_verified);
+      setBackupEmail(String(d.backup_email ?? '').trim());
+      setPhone(String(d.phone ?? '').trim());
+      setBio(String(d.bio ?? '').trim());
+      setTimezone(String(d.timezone ?? '').trim() || 'America/Chicago');
+      setLanguage(String(d.language ?? '').trim() || 'en');
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : 'Failed to load profile');
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
+    void loadProfile();
     setSyncLayouts(readStoredBool(PREF_KEYS.sync_layouts, true));
     setShowStatusBar(readStoredBool(PREF_KEYS.show_status_bar, true));
     setAutohideEditor(readStoredBool(PREF_KEYS.autohide_editor, false));
     setAutoinjectCode(readStoredBool(PREF_KEYS.autoinject_code, true));
-  }, []);
+  }, [loadProfile]);
 
   const patchUserPolicyFireAndForget = (body: Record<string, unknown>) => {
     try {
@@ -59,6 +156,64 @@ export function GeneralSection({ workspaceId }: { workspaceId?: string | null })
       /* ignore */
     }
     patchUserPolicyFireAndForget({ [apiKey]: value ? 1 : 0 });
+  };
+
+  const onAvatarPick = async (file: File | null) => {
+    if (!file || !file.type.startsWith('image/')) {
+      setSaveError('Please choose an image file');
+      return;
+    }
+    setAvatarUploading(true);
+    setSaveError(null);
+    setSaveOk(false);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch('/api/settings/profile/avatar', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof d.error === 'string' ? d.error : 'Avatar upload failed');
+      if (d.avatar_url) setAvatarUrl(String(d.avatar_url));
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Avatar upload failed');
+    } finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
+  const onSaveProfile = async () => {
+    setSaving(true);
+    setSaveError(null);
+    setSaveOk(false);
+    try {
+      const r = await fetch('/api/settings/profile', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          display_name: displayName,
+          full_name: fullName,
+          avatar_url: avatarUrl,
+          backup_email: backupEmail,
+          phone,
+          bio,
+          timezone,
+          language,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof d.error === 'string' ? d.error : `Save failed (${r.status})`);
+      setSaveOk(true);
+      setTimeout(() => setSaveOk(false), 2500);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const rows: Array<{
@@ -103,9 +258,182 @@ export function GeneralSection({ workspaceId }: { workspaceId?: string | null })
     },
   ];
 
+  const avatarLabel = displayName || fullName || primaryEmail;
+
   return (
     <div className="flex flex-col gap-5 max-w-xl">
       <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">General</h2>
+
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
+        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          Profile
+        </div>
+
+        {profileLoading ? (
+          <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)] py-4">
+            <Loader2 size={14} className="animate-spin" />
+            Loading profile…
+          </div>
+        ) : profileError ? (
+          <div className="text-[11px] text-red-400 py-2">{profileError}</div>
+        ) : (
+          <>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+                className="relative w-16 h-16 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)] overflow-hidden shrink-0 hover:border-[var(--solar-cyan)]/50 transition-colors disabled:opacity-60"
+                title="Upload avatar"
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="flex items-center justify-center w-full h-full text-[13px] font-bold text-[var(--solar-cyan)]">
+                    {initialsFromName(avatarLabel, primaryEmail)}
+                  </span>
+                )}
+                {avatarUploading ? (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/50">
+                    <Loader2 size={18} className="animate-spin text-white" />
+                  </span>
+                ) : null}
+              </button>
+              <div className="min-w-0">
+                <div className="text-[12px] font-semibold text-[var(--text-main)]">Avatar</div>
+                <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Click to upload via Cloudflare Images</div>
+              </div>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void onAvatarPick(e.target.files?.[0] ?? null)}
+              />
+            </div>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Display name</span>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className={fieldClass}
+                autoComplete="nickname"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Full name</span>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className={fieldClass}
+                autoComplete="name"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Primary email</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  value={primaryEmail}
+                  readOnly
+                  className={`${fieldClass} opacity-80 cursor-not-allowed`}
+                />
+                {primaryEmailVerified ? (
+                  <span
+                    className="shrink-0 flex items-center gap-1 text-[10px] text-emerald-400"
+                    title="Verified"
+                  >
+                    <Check size={14} />
+                  </span>
+                ) : null}
+              </div>
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Backup email</span>
+              <input
+                type="email"
+                value={backupEmail}
+                onChange={(e) => setBackupEmail(e.target.value)}
+                className={fieldClass}
+                autoComplete="email"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Phone</span>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className={fieldClass}
+                autoComplete="tel"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Bio</span>
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                rows={3}
+                className={`${fieldClass} resize-y min-h-[72px]`}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Timezone</span>
+              <select
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                className={fieldClass}
+              >
+                {TIMEZONE_OPTIONS.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-[var(--text-muted)]">Language</span>
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className={fieldClass}
+              >
+                {LANGUAGE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => void onSaveProfile()}
+                disabled={saving}
+                className="px-4 py-2 rounded-xl bg-[var(--solar-cyan)] text-black text-[12px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              {saveOk ? (
+                <span className="text-[11px] text-emerald-400">Profile saved</span>
+              ) : null}
+              {saveError ? <span className="text-[11px] text-red-400">{saveError}</span> : null}
+            </div>
+          </>
+        )}
+      </div>
+
       {rows.map((row) => (
         <div
           key={row.label}
