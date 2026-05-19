@@ -1,8 +1,8 @@
-import { handlers as fsHandlers } from './fs.js';
 import { handlers as dbHandlers } from './db.js';
 import { handlers as termHandlers } from './terminal.js';
 
 // Builtin Imports
+import { handlers as builtinFsHandlers } from './builtin/fs.js';
 import { handlers as webHandlers } from './builtin/web.js';
 import { handlers as mediaHandlers } from './builtin/media.js';
 import { handlers as contextHandlers } from './builtin/context.js';
@@ -52,6 +52,13 @@ export function normalizeToolName(toolName) {
         agentsam_complete: 'ai_complete',
         agentsam_compare: 'ai_compare',
         agentsam_embed: 'ai_embed',
+
+        save_file: 'write_file',
+        put_file: 'write_file',
+        fs_write_file: 'write_file',
+        fs_edit_file: 'write_file',
+        fs_read_file: 'read_file',
+        fs_list_files: 'list_files',
     };
     return aliases[n] || n;
 }
@@ -130,6 +137,15 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName.startsWith('gdrive_'):
         case toolName.startsWith('cloudconvert_'):
             return await integrationsHandlers[toolName]?.(params, env) || await imessageTools[toolName]?.({ env, session: params.session }, params);
+
+        // ── CATEGORY: filesystem (read + staged writes) ───────────────────
+        case toolName === 'write_file':
+        case toolName === 'read_file':
+        case toolName === 'list_dir':
+        case toolName === 'list_files':
+        case toolName === 'apply_change_set':
+        case toolName.startsWith('fs_'):
+            return await builtinFsHandlers[toolName]?.(params, env, runContext);
 
         // ── CATEGORY: storage (9 Tools) ──────────────────────────────────
         case toolName.startsWith('r2_'):
