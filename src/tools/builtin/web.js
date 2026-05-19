@@ -5,10 +5,17 @@
 
 import { assertFetchDomainAllowed } from '../../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../../core/agentsam-ops-ledger.js';
+import { runPlaywrightScreenshotJob } from '../../integrations/playwright.js';
+
+const SCREENSHOT_TOOL_NAMES = new Set([
+    'cdt_take_screenshot',
+    'playwright_screenshot',
+    'browser_screenshot',
+]);
 
 /**
- * Common fetch bridge for all browser-related operations.
- * Proxies to the worker's browser runner via internal dashboard API.
+ * Common fetch bridge for browser-related operations.
+ * Screenshots use the same Playwright job path as POST /api/playwright/screenshot (not /api/browser/invoke).
  */
 async function invokeBrowserOp(env, toolName, params) {
     const targetOriginInput =
@@ -27,18 +34,38 @@ async function invokeBrowserOp(env, toolName, params) {
             return { error: e.message, blocked: true };
         }
     }
+
+    const tool = String(toolName || '').trim();
+    if (SCREENSHOT_TOOL_NAMES.has(tool)) {
+        const url = String(targetOriginInput || '').trim();
+        if (!url) return { error: 'url required for screenshot' };
+        if (!uid) return { error: 'user_id required for screenshot' };
+        const agentRunId =
+            params.agent_run_id ??
+            params.agentRunId ??
+            params.session?.agent_run_id ??
+            null;
+        return runPlaywrightScreenshotJob(env, {
+            url,
+            userId: String(uid),
+            workspaceId: ws != null ? String(ws) : null,
+            agentRunId: agentRunId != null ? String(agentRunId) : null,
+            source: `agent_tool:${tool}`,
+        });
+    }
+
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
     try {
-        const res = await fetch(`${origin}/api/browser/invoke`, {
+        const res = await fetch(`${origin}/api/mcp/invoke`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tool: toolName, params }),
+            body: JSON.stringify({ tool_name: tool, params }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Browser Operation Failed');
         return data;
     } catch (e) {
-        return { error: `Browser Error [${toolName}]: ${e.message}` };
+        return { error: `Browser Error [${tool}]: ${e.message}` };
     }
 }
 

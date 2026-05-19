@@ -4,6 +4,100 @@ import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
 
 /**
+ * Shared screenshot job runner (POST /api/playwright/screenshot and agent builtin tools).
+ * @param {any} env
+ * @param {{ url: string, userId: string, workspaceId?: string|null, agentRunId?: string|null, source?: string }} opts
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runPlaywrightScreenshotJob(env, opts) {
+    if (!env.MYBROWSER) {
+        return {
+            error: 'MYBROWSER binding not configured',
+            hint: 'Enable Browser Rendering on the Worker',
+        };
+    }
+    if (!env.DB) return { error: 'DB not configured' };
+
+    const targetUrl = String(opts?.url || '').trim();
+    const userId = String(opts?.userId || '').trim();
+    if (!targetUrl) return { error: 'url required' };
+    if (!userId) return { error: 'user_id required' };
+
+    const workspaceId =
+        opts.workspaceId != null && String(opts.workspaceId).trim()
+            ? String(opts.workspaceId).trim()
+            : null;
+    const source = opts.source != null ? String(opts.source).trim() : 'agent_tool';
+    const agentRunId =
+        opts.agentRunId != null && String(opts.agentRunId).trim()
+            ? String(opts.agentRunId).trim()
+            : null;
+
+    const jobId = crypto.randomUUID();
+
+    try {
+        await env.DB.prepare(
+            `INSERT INTO playwright_jobs (id, job_type, url, status, metadata, user_id, workspace_id, created_at)
+             VALUES (?, 'screenshot', ?, 'pending', ?, ?, ?, datetime('now'))`,
+        )
+            .bind(
+                jobId,
+                targetUrl,
+                JSON.stringify({
+                    source,
+                    ...(agentRunId ? { agent_run_id: agentRunId } : {}),
+                }),
+                userId,
+                workspaceId,
+            )
+            .run();
+    } catch (e) {
+        const msg = String(e?.message || e);
+        if (msg.includes('user_id') || msg.includes('workspace_id')) {
+            return {
+                error: 'playwright_jobs schema missing user_id',
+                detail: msg,
+                hint: 'Apply migrations/281_playwright_jobs_user_workspace.sql to D1 (remote)',
+            };
+        }
+        return { error: 'Failed to create browser job', detail: msg };
+    }
+
+    await handlePlaywrightQueueJob(env, { jobId, job_type: 'screenshot', url: targetUrl });
+
+    let row = null;
+    try {
+        row = await env.DB.prepare(
+            `SELECT id, url, status, result_url, error, created_at, completed_at FROM playwright_jobs WHERE id = ? LIMIT 1`,
+        )
+            .bind(jobId)
+            .first();
+    } catch {
+        row = null;
+    }
+
+    const st = row?.status ? String(row.status) : 'unknown';
+    const resultUrl = row?.result_url != null ? String(row.result_url) : '';
+    if (st === 'completed' && resultUrl) {
+        return {
+            id: jobId,
+            status: 'completed',
+            result_url: resultUrl,
+            screenshot_url: resultUrl,
+            url: targetUrl,
+        };
+    }
+    if (st === 'failed') {
+        return {
+            id: jobId,
+            status: 'error',
+            error: row?.error != null ? String(row.error) : 'screenshot failed',
+        };
+    }
+    return { id: jobId, status: 'pending', result_url: null, screenshot_url: null, url: targetUrl };
+}
+
+/**
  * Playwright Service Integration.
  * Handles browser rendering, screenshots, and job tracking via @cloudflare/playwright.
  */
@@ -107,73 +201,37 @@ export async function handlePlaywrightJobApi(request, env, url) {
             return jsonResponse({ error: String(e?.message || e) }, 403);
         }
 
-        const jobId = crypto.randomUUID();
         const workspaceId =
             body.workspace_id != null && String(body.workspace_id).trim()
                 ? String(body.workspace_id).trim()
                 : null;
 
-        try {
-            await env.DB.prepare(
-                `INSERT INTO playwright_jobs (id, job_type, url, status, metadata, user_id, workspace_id, created_at)
-                 VALUES (?, 'screenshot', ?, 'pending', ?, ?, ?, datetime('now'))`,
-            )
-                .bind(
-                    jobId,
-                    targetUrl,
-                    JSON.stringify({
-                        source: 'dashboard_browser_tab',
-                        ...(body.agent_run_id ? { agent_run_id: String(body.agent_run_id) } : {}),
-                    }),
-                    authUser.id,
-                    workspaceId,
-                )
-                .run();
-        } catch (e) {
-            const msg = String(e?.message || e);
-            if (msg.includes('user_id') || msg.includes('workspace_id')) {
-                return jsonResponse(
-                    {
-                        error: 'playwright_jobs schema missing user_id',
-                        detail: msg,
-                        hint: 'Apply migrations/281_playwright_jobs_user_workspace.sql to D1 (remote)',
-                    },
-                    503,
-                );
-            }
-            return jsonResponse({ error: 'Failed to create browser job', detail: msg }, 500);
+        const out = await runPlaywrightScreenshotJob(env, {
+            url: targetUrl,
+            userId: String(authUser.id),
+            workspaceId,
+            agentRunId: body.agent_run_id ? String(body.agent_run_id) : null,
+            source: 'dashboard_browser_tab',
+        });
+        if (out.error) {
+            const status = String(out.hint || '').includes('schema') ? 503 : 500;
+            return jsonResponse(out, status);
         }
-
-        await handlePlaywrightQueueJob(env, { jobId, job_type: 'screenshot', url: targetUrl });
-
-        let row = null;
-        try {
-            row = await env.DB.prepare(
-                `SELECT id, url, status, result_url, error, created_at, completed_at FROM playwright_jobs WHERE id = ? LIMIT 1`,
-            )
-                .bind(jobId)
-                .first();
-        } catch {
-            row = null;
-        }
-
-        const st = row?.status ? String(row.status) : 'unknown';
-        const resultUrl = row?.result_url != null ? String(row.result_url) : '';
-        if (st === 'completed' && resultUrl) {
+        if (out.status === 'completed' && out.screenshot_url) {
             return jsonResponse({
-                id: jobId,
+                id: out.id,
                 status: 'completed',
-                result_url: resultUrl,
-                screenshot_url: resultUrl,
+                result_url: out.result_url,
+                screenshot_url: out.screenshot_url,
             });
         }
-        if (st === 'failed') {
+        if (out.status === 'error') {
             return jsonResponse(
-                { id: jobId, status: 'error', error: row?.error != null ? String(row.error) : 'screenshot failed' },
+                { id: out.id, status: 'error', error: out.error != null ? String(out.error) : 'screenshot failed' },
                 500,
             );
         }
-        return jsonResponse({ id: jobId, status: 'pending', result_url: null });
+        return jsonResponse({ id: out.id, status: 'pending', result_url: null });
     }
 
     // ── GET /api/playwright (job list for BrowserView polling) ──────────────

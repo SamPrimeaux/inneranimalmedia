@@ -35,6 +35,38 @@ function extForStreamOutput(lang: string): string {
   return map[lang] || lang || 'txt';
 }
 
+function isBrowserScreenshotToolName(name: string): boolean {
+  const n = String(name || '').trim().toLowerCase();
+  return n === 'cdt_take_screenshot' || n === 'playwright_screenshot' || n === 'browser_screenshot';
+}
+
+function parseScreenshotUrlFromToolPayload(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const candidates = [
+      parsed.screenshot_url,
+      parsed.result_url,
+      parsed.screenshotUrl,
+      parsed.image_url,
+      parsed.public_url,
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.trim() && /^https?:/i.test(c.trim())) return c.trim();
+    }
+    const nested = parsed.result;
+    if (nested && typeof nested === 'object') {
+      const r = nested as Record<string, unknown>;
+      for (const c of [r.screenshot_url, r.result_url, r.url]) {
+        if (typeof c === 'string' && c.trim() && /^https?:/i.test(c.trim())) return c.trim();
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export type ConsumeAgentChatSseContext = {
   signal: AbortSignal;
   reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -112,6 +144,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   /** Last `tool_output` chunk for the active browser navigation tool. */
   let lastBrowserToolOutputChunk: string | null = null;
   let activeBrowserNavTool = false;
+  /** Last `tool_output` chunk for the active browser screenshot tool. */
+  let lastBrowserScreenshotOutputChunk: string | null = null;
+  let activeBrowserScreenshotTool = false;
 
   if (!mergeIntoLastAssistant) {
     activeToolTraceId = null;
@@ -727,8 +762,11 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           patchIamAgentStreamDebug({ last_tool_name: tn || null });
           pendingBrowserToolUrl = null;
           lastBrowserToolOutputChunk = null;
+          lastBrowserScreenshotOutputChunk = null;
+          activeBrowserScreenshotTool = isBrowserScreenshotToolName(tn);
           activeBrowserNavTool =
-            tn === 'browser_open_url' || tn === 'cdt_navigate_page' || tn === 'browser_navigate';
+            !activeBrowserScreenshotTool &&
+            (tn === 'browser_open_url' || tn === 'cdt_navigate_page' || tn === 'browser_navigate');
           if (activeBrowserNavTool) {
             try {
               const inp = JSON.parse(String(d.input_preview || '{}')) as Record<string, unknown>;
@@ -803,7 +841,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           activeToolTraceId = null;
           pendingBrowserToolUrl = null;
           lastBrowserToolOutputChunk = null;
+          lastBrowserScreenshotOutputChunk = null;
           activeBrowserNavTool = false;
+          activeBrowserScreenshotTool = false;
           assistantStreamBuf += `\n\n_Tool error (${String(d.tool || 'tool')}):_ ${msg}\n`;
           assistantContent = assistantStreamBuf;
           setMessages((prev) => {
@@ -822,6 +862,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const d = data as { type: 'tool_output'; chunk: string };
           if (activeBrowserNavTool) {
             lastBrowserToolOutputChunk = d.chunk;
+          }
+          if (activeBrowserScreenshotTool) {
+            lastBrowserScreenshotOutputChunk = d.chunk;
           }
           setToolTraceRows?.((prev) => {
             if (activeToolTraceId) {
@@ -928,6 +971,28 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             pendingBrowserToolUrl = null;
             lastBrowserToolOutputChunk = null;
             activeBrowserNavTool = false;
+          }
+          if (doneOk && isBrowserScreenshotToolName(doneToolName)) {
+            const shotUrl =
+              parseScreenshotUrlFromToolPayload(
+                typeof d.output_preview === 'string' ? d.output_preview : null,
+              ) ||
+              parseScreenshotUrlFromToolPayload(lastBrowserScreenshotOutputChunk) ||
+              (typeof d.public_url === 'string' && /^https?:/i.test(d.public_url.trim())
+                ? d.public_url.trim()
+                : null);
+            if (shotUrl && typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('iam-browser-screenshot', {
+                  detail: { screenshot_url: shotUrl, tool_name: doneToolName },
+                }),
+              );
+            }
+            lastBrowserScreenshotOutputChunk = null;
+            activeBrowserScreenshotTool = false;
+          } else if (isBrowserScreenshotToolName(doneToolName)) {
+            lastBrowserScreenshotOutputChunk = null;
+            activeBrowserScreenshotTool = false;
           }
           setToolTraceRows?.((prev) => {
             if (!activeToolTraceId || !prev.some((r) => r.id === activeToolTraceId)) return prev;

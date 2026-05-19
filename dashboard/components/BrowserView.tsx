@@ -1004,6 +1004,20 @@ const BrowserPane: React.FC<PaneProps> = ({
     return () => window.removeEventListener('iam-browser-set-inspector', onExternal as EventListener);
   }, []);
 
+  /** Agent chat `tool_done` → same screenshot overlay as the Take Screenshot button. */
+  useEffect(() => {
+    const onAgentScreenshot = (e: Event) => {
+      const url = (e as CustomEvent<{ screenshot_url?: string }>).detail?.screenshot_url;
+      if (!url?.trim()) return;
+      setMode('screenshot');
+      setScreenshotLoad(false);
+      setScreenshotErr(null);
+      setScreenshotUrl(url.trim());
+    };
+    window.addEventListener('iam-browser-screenshot', onAgentScreenshot as EventListener);
+    return () => window.removeEventListener('iam-browser-screenshot', onAgentScreenshot as EventListener);
+  }, []);
+
   const injectPickerScript = useCallback(() => {
     try {
       const doc = iframeRef.current?.contentDocument;

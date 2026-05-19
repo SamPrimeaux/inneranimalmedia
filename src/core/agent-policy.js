@@ -43,6 +43,7 @@ export const AGENT_CHAT_ESSENTIAL_TOOL_KEYS = new Set([
   'terminal_run',
   'r2_read',
   'r2_write',
+  'cdt_take_screenshot',
 ]);
 
 export const DEFAULT_USER_POLICY = {

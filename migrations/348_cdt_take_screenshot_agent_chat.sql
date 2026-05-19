@@ -1,0 +1,78 @@
+-- 348: Register cdt_take_screenshot for agent chat minimum tools + branded MCP catalog.
+-- Apply: ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --file=./migrations/348_cdt_take_screenshot_agent_chat.sql
+
+INSERT OR REPLACE INTO agentsam_tools (
+  id,
+  tool_name,
+  display_name,
+  tool_category,
+  handler_type,
+  description,
+  input_schema,
+  risk_level,
+  requires_approval,
+  is_active,
+  workspace_scope,
+  modes_json,
+  intent_tags,
+  updated_at
+) VALUES (
+  'ast_cdt_take_screenshot_global',
+  'cdt_take_screenshot',
+  'Take Screenshot',
+  'browser',
+  'builtin',
+  'Capture a full-page screenshot of a URL via Playwright (same path as the Browser tab Take Screenshot button). Requires a trusted origin.',
+  '{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"Page URL to capture"},"workspace_id":{"type":"string"},"agent_run_id":{"type":"string","description":"Optional agentsam_agent_run.id for run spine linkage"}}}',
+  'low',
+  0,
+  1,
+  '["*"]',
+  '["auto","build","chat","agent"]',
+  '["browser","screenshot","inspect"]',
+  unixepoch()
+);
+
+INSERT OR REPLACE INTO agentsam_mcp_tools (
+  id,
+  user_id,
+  person_uuid,
+  tool_key,
+  tool_name,
+  display_name,
+  tool_category,
+  handler_type,
+  description,
+  input_schema,
+  requires_approval,
+  risk_level,
+  is_active,
+  enabled,
+  workspace_scope,
+  modes_json,
+  intent_tags,
+  agentsam_tools_id,
+  created_at,
+  updated_at
+) VALUES (
+  'mcp_cdt_take_screenshot_global',
+  '',
+  NULL,
+  'cdt_take_screenshot',
+  'cdt_take_screenshot',
+  'Take Screenshot',
+  'browser',
+  'builtin',
+  'Capture a full-page screenshot of a URL via Playwright (same path as the Browser tab Take Screenshot button).',
+  '{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"Page URL to capture"},"workspace_id":{"type":"string"},"agent_run_id":{"type":"string"}}}',
+  0,
+  'low',
+  1,
+  1,
+  '["*"]',
+  '["auto","build","chat","agent"]',
+  '["browser","screenshot","inspect"]',
+  'ast_cdt_take_screenshot_global',
+  datetime('now'),
+  datetime('now')
+);

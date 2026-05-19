@@ -86,6 +86,8 @@ const CAPABILITY_GROUPS = (() => {
     g(['schema.inspect', 'schema_inspect'], ['d1_schema_introspect', 'ss_schema_inspect']),
     g(['browser.inspect', 'browser_inspect'], [
       'browser_screenshot',
+      'cdt_take_screenshot',
+      'playwright_screenshot',
       'browser_navigate',
       'browser_content',
       'browser_scrape',

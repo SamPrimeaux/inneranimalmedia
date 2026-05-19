@@ -1105,6 +1105,7 @@ const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
   'terminal_run',
   'r2_read',
   'r2_write',
+  'cdt_take_screenshot',
 ];
 const TOOL_OUTPUT_SSE_MAX = 12000;
 
@@ -4040,13 +4041,17 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           const parsed = JSON.parse(String(toolOutput || 'null'));
           if (parsed && typeof parsed === 'object') {
             const url =
-              typeof parsed.image_url === 'string'
-                ? parsed.image_url
-                : typeof parsed.public_url === 'string'
-                  ? parsed.public_url
-                  : typeof parsed.url === 'string' && /^(https?:|data:)/i.test(parsed.url)
-                    ? parsed.url
-                    : null;
+              typeof parsed.screenshot_url === 'string' && parsed.screenshot_url.trim()
+                ? parsed.screenshot_url.trim()
+                : typeof parsed.result_url === 'string' && parsed.result_url.trim()
+                  ? parsed.result_url.trim()
+                  : typeof parsed.image_url === 'string'
+                    ? parsed.image_url
+                    : typeof parsed.public_url === 'string'
+                      ? parsed.public_url
+                      : typeof parsed.url === 'string' && /^(https?:|data:)/i.test(parsed.url)
+                        ? parsed.url
+                        : null;
             if (url && url.length < 8000) {
               emit('preview_artifact', {
                 artifact: {
