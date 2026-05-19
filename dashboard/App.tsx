@@ -2681,16 +2681,6 @@ const App: React.FC = () => {
                   onClick={() => navigate('/dashboard/designstudio')}
               />
               <ActivityRailItem
-                  icon={HardDrive}
-                  label="Storage"
-                  expanded={sidebarRailExpanded}
-                  active={
-                    location.pathname === '/dashboard/settings/storage' ||
-                    location.pathname === '/dashboard/storage'
-                  }
-                  onClick={() => navigate('/dashboard/settings/storage')}
-              />
-              <ActivityRailItem
                   icon={Wrench}
                   label="Integrations"
                   expanded={sidebarRailExpanded}
