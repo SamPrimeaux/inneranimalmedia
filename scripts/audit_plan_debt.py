@@ -11,7 +11,7 @@ Run from repo root:
     python3 scripts/audit_plan_debt.py
 
 Requires:
-    WORKER_URL             (e.g. https://app.inneranimalmedia.com)
+    WORKER_URL             (e.g. https://inneranimalmedia.com)
     CLOUDFLARE_API_TOKEN  (bearer token used by the worker/API gateway)
 
 Output:
@@ -35,7 +35,7 @@ REPO_ROOT = Path(os.getcwd())
 REPORT_PATH = REPO_ROOT / "scripts" / "audit_plan_debt_report.md"
 DATA_PATH = REPO_ROOT / "scripts" / "audit_plan_debt_data.json"
 
-WORKER_URL = os.environ.get("WORKER_URL", "https://app.inneranimalmedia.com").rstrip("/")
+WORKER_URL = os.environ.get("WORKER_URL", "https://inneranimalmedia.com").rstrip("/")
 CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get("API_TOKEN", "")
 
 # Fallback: paste SQL/API output here when API is unavailable.
