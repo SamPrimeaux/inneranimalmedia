@@ -94,6 +94,8 @@ import {
 } from '../tools/image_generation.js';
 import {
   resolveRoutingArm,
+  resolveRoutingArmByModelKey,
+  validateModelAgainstRouteRequirements,
   scheduleRoutingArmBanditUpdate,
   scheduleRoutingArmQualityUpdate,
   applyRoutingArmUsageFeedback,
@@ -3008,30 +3010,18 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     doneGuard.emitted = true;
     emit('done', payload);
   };
-  // Resolve arm from DB when caller doesn't supply one
-  const _resolvedArmId = (routingArmIdParam == null || String(routingArmIdParam).trim() === '') && env?.DB
-    ? await (async () => {
-        try {
-          const mk  = String(modelKey || '');
-          const tt  = String(routingTaskType || 'chat');
-          const md  = String(mode || 'agent');
-          const ws  = routingWs || env.WORKSPACE_ID || '';
-          // workspace-scoped arm first, then global fallback
-          const arm = await env.DB.prepare(
-            `SELECT id FROM agentsam_routing_arms
-             WHERE model_key=? AND task_type=? AND mode=? AND workspace_id=?
-               AND is_active=1 AND is_eligible=1 LIMIT 1`
-          ).bind(mk, tt, md, ws).first()
-          ?? await env.DB.prepare(
-            `SELECT id FROM agentsam_routing_arms
-             WHERE model_key=? AND task_type=? AND mode=?
-               AND (workspace_id IS NULL OR workspace_id='')
-               AND is_active=1 AND is_eligible=1 LIMIT 1`
-          ).bind(mk, tt, md).first();
-          return arm?.id ?? null;
-        } catch { return null; }
-      })()
-    : routingArmIdParam;
+  // Resolve arm from DB when caller doesn't supply one (shared with chat request spine).
+  const _resolvedArmId =
+    routingArmIdParam == null || String(routingArmIdParam).trim() === ''
+      ? (
+          await resolveRoutingArmByModelKey(env, {
+            modelKey: String(modelKey || ''),
+            taskType: String(routingTaskType || 'chat'),
+            mode: String(mode || 'agent'),
+            workspaceId: routingWs || env.WORKSPACE_ID || '',
+          })
+        )?.armId ?? null
+      : routingArmIdParam;
   const routingArmIdStr = _resolvedArmId != null ? String(_resolvedArmId).trim() : '';
   const thompsonMkStr = thompsonModelKeyParam != null ? String(thompsonModelKeyParam).trim() : '';
   const runSpineIds = {
@@ -5974,13 +5964,51 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     resolvedRoutingTaskType = (tt === 'question' ? 'chat' : tt) || resolvedRoutingTaskType;
   }
 
+  const routeKeyForRun = (() => {
+    const fromRoute = promptRouteRow?.route_key != null ? String(promptRouteRow.route_key).trim() : '';
+    if (fromRoute) return fromRoute;
+    const fromBody = body?.route_key != null ? String(body.route_key).trim() : '';
+    return fromBody || null;
+  })();
+
+  let explicitRoutingArmId = null;
+  if (explicitRow?.model_key && workspaceId) {
+    const armLookup = await resolveRoutingArmByModelKey(env, {
+      modelKey: explicitRow.model_key,
+      taskType: resolvedRoutingTaskType,
+      mode: requestedMode,
+      workspaceId: String(workspaceId).trim(),
+    });
+    explicitRoutingArmId = armLookup?.armId ?? null;
+
+    if (explicitModelFromRequest && routeKeyForRun) {
+      const routeCheck = await validateModelAgainstRouteRequirements(env, {
+        routeKey: routeKeyForRun,
+        aiRow: explicitRow,
+        armRow: armLookup?.arm ?? null,
+      });
+      if (!routeCheck.ok) {
+        return jsonResponse(
+          {
+            error: routeCheck.message,
+            code: routeCheck.code,
+            route_key: routeKeyForRun,
+            model_key: explicitRow.model_key,
+            hint: 'Use Auto routing or pick a different model.',
+          },
+          422,
+        );
+      }
+    }
+  }
+
   const routingPick = !explicitRow
     ? await resolveRoutingArm(env, {
         taskType: resolvedRoutingTaskType,
         intentSlug,
         mode: requestedMode,
         workspaceId: workspaceId || '',
-        routeKey: promptRouteRow?.route_key ?? body.route_key ?? null,
+        routeKey: routeKeyForRun,
         userId,
         tenantId,
         toolRequired: requireTools,
@@ -6012,7 +6040,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     mode: requestedMode,
     excludeModelKeys: reservedForFallback,
     requireTools,
-    routeKey: promptRouteRow?.route_key ?? null,
+    routeKey: routeKeyForRun,
   });
   let poolRows = dedupeModelsByKey(
     [
@@ -6094,21 +6122,28 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     return jsonResponse({ error: 'All providers exhausted', tried: [] }, 503);
   }
 
+  const routingArmIdForRun = (() => {
+    const fromAuto = routingPick?.armId != null ? String(routingPick.armId).trim() : '';
+    if (fromAuto) return fromAuto;
+    return explicitRoutingArmId;
+  })();
+
   console.log(
     '[agent] routing_model',
     JSON.stringify({
       requested_model: rawRequestedKey || rawRequestedId || null,
       resolved_requested: explicitRow?.model_key ?? null,
       is_auto: isAutoModel,
+      route_key: routeKeyForRun,
+      routing_arm_id: routingArmIdForRun,
+      explicit_routing_arm_id: explicitRoutingArmId,
+      routing_source: routingPick?.source ?? (explicitRoutingArmId ? 'explicit_arm' : null),
       chain: chainRows.map((r) => r.model_key),
       tool_required: requireTools,
       blocked_granite_auto: isAutoModel && externalNonGraniteExists,
       blocked_tools_for_requested: blockedToolsForRequested,
     }),
   );
-
-  const routingArmIdForRun =
-    routingPick?.armId ? String(routingPick.armId) : null;
 
   const includeRag         = Number(promptRouteRow?.include_rag          ?? 1) === 1;
   const includeActivePlan  = Number(promptRouteRow?.include_active_plan  ?? 1) === 1;
@@ -6669,8 +6704,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           ...(succeeded ? {} : { stream_failed: true, provider_error: !!explicitProviderFailure }),
         });
       }
-      if (routingPick?.armId) {
-        await recordArmOutcome(env, ctx, routingPick.armId, succeeded, {
+      if (routingArmIdForRun) {
+        await recordArmOutcome(env, ctx, routingArmIdForRun, succeeded, {
           taskType: resolvedRoutingTaskType ?? 'chat',
           mode: requestedMode ?? 'auto',
           modelKey: modelKey ?? lastLoopStats?.modelKey ?? fallbackModelKeys[0],
@@ -6686,8 +6721,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               session_id: conversationId ?? null,
               model: modelKey ?? null,
               model_key: modelKey ?? null,
-              provider: routingPick?.provider ?? null,
-              routing_arm_id: routingPick?.armId ?? null,
+              provider: routingPick?.provider ?? chainRows[0]?.provider ?? null,
+              routing_arm_id: routingArmIdForRun,
               plan_id: body?.planId ?? body?.plan_id ?? null,
               event_type: 'agent_run_complete',
               reason: resolvedRoutingTaskType ?? 'chat',
@@ -6705,7 +6740,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               workspace_id: workspaceId,
               run_id: chatAgentRunId ?? null,
               model_key: modelKey ?? null,
-              arm_id: routingPick?.armId ?? null,
+              arm_id: routingArmIdForRun,
               succeeded,
               task_type: resolvedRoutingTaskType ?? 'chat',
               mode: requestedMode ?? 'auto',
@@ -6728,12 +6763,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         });
       }
 
-      const usageRoutingArmId =
-        routingArmIdForRun &&
-        thompsonRow?.model_key &&
-        lastLoopStats?.modelKey === thompsonRow.model_key
-          ? routingArmIdForRun
-          : null;
+      const usageRoutingArmId = (() => {
+        if (!routingArmIdForRun) return null;
+        const ranKey = String(lastLoopStats?.modelKey || fallbackModelKeys[0] || '').trim();
+        if (!ranKey) return null;
+        if (explicitRow?.model_key && String(explicitRow.model_key) !== ranKey) return null;
+        if (isAutoModel && thompsonRow?.model_key && String(thompsonRow.model_key) !== ranKey) {
+          return null;
+        }
+        return routingArmIdForRun;
+      })();
 
       scheduleAgentsamCommandRunInsert(env, ctx, {
         tenantId,
@@ -6843,8 +6882,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId,
           tenantId,
           sessionId: sessionId ? String(sessionId) : null,
-          routingArmId:
-            routingPick?.armId ? String(routingPick.armId) : null,
+          routingArmId: routingArmIdForRun,
           modelUsed: lastLoopStats?.modelKey || fallbackModelKeys[0] || 'unknown',
           tokensIn: lastLoopStats?.totalUsage?.input_tokens ?? 0,
           tokensOut: lastLoopStats?.totalUsage?.output_tokens ?? 0,
@@ -6881,8 +6919,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       if (!doneGuard.emitted) {
         safeDoneChat({ stream_failed: true, fatal: true });
       }
-      if (routingPick?.armId && !routingArmOutcomeLogged) {
-        await recordArmOutcome(env, ctx, routingPick.armId, false, {
+      if (routingArmIdForRun && !routingArmOutcomeLogged) {
+        await recordArmOutcome(env, ctx, routingArmIdForRun, false, {
           taskType: resolvedRoutingTaskType ?? 'chat',
           mode: requestedMode ?? 'auto',
           modelKey: fallbackModelKeys[0],
@@ -6962,8 +7000,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId,
           tenantId,
           sessionId: sessionId ? String(sessionId) : null,
-          routingArmId:
-            routingPick?.armId ? String(routingPick.armId) : null,
+          routingArmId: routingArmIdForRun,
           modelUsed: fallbackModelKeys[0] || 'unknown',
           tokensIn: 0,
           tokensOut: 0,

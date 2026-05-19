@@ -397,7 +397,7 @@ function parseBlockedProviders(raw) {
   }
 }
 
-function armMatchesRouteRequirements(arm, req) {
+export function armMatchesRouteRequirements(arm, req) {
   if (!req) return true;
   if (Number(req.requires_tools) === 1 && Number(arm.supports_tools) !== 1) return false;
   if (Number(req.requires_vision) === 1) {
@@ -445,6 +445,115 @@ export async function filterArmsForRouteKey(env, routeKey, arms) {
   const req = await loadRouteRequirementsRow(env, routeKey);
   if (!req || !arms?.length) return arms || [];
   return arms.filter((a) => armMatchesRouteRequirements(a, req));
+}
+
+function buildRouteRejectMessage(req, modelKey, routeKey) {
+  const mk = modelKey != null ? String(modelKey).trim() : 'model';
+  const rk = routeKey != null ? String(routeKey).trim() : 'route';
+  const parts = [`"${mk}" does not meet policy for route "${rk}".`];
+  if (Number(req?.requires_tools) === 1) parts.push('This route requires a tool-capable model.');
+  if (Number(req?.requires_vision) === 1) parts.push('This route requires vision support.');
+  if (Number(req?.requires_json_mode) === 1) parts.push('This route requires structured JSON output support.');
+  const blocked = parseBlockedProviders(req?.blocked_providers);
+  if (blocked.length) parts.push(`Blocked providers for this route: ${blocked.join(', ')}.`);
+  const minQ = Number(req?.min_quality_score);
+  if (Number.isFinite(minQ) && minQ > 0) {
+    parts.push(`Minimum quality score ${minQ} not met.`);
+  }
+  const maxLat = Number(req?.max_latency_p50_ms);
+  if (Number.isFinite(maxLat) && maxLat > 0) {
+    parts.push(`Latency must be at or below ${maxLat}ms (p50).`);
+  }
+  parts.push('Use Auto routing or choose another model.');
+  return parts.join(' ');
+}
+
+/**
+ * Merge agentsam_ai picker row with agentsam_routing_arms telemetry for route SLA checks.
+ * @param {Record<string, unknown> | null | undefined} aiRow
+ * @param {Record<string, unknown> | null | undefined} armRow
+ */
+export function mergeAiRowWithRoutingArmForPolicy(aiRow, armRow) {
+  const ai = aiRow && typeof aiRow === 'object' ? aiRow : {};
+  const arm = armRow && typeof armRow === 'object' ? armRow : {};
+  return {
+    ...arm,
+    model_key: arm.model_key ?? ai.model_key,
+    supports_tools: arm.supports_tools ?? ai.supports_tools,
+    supports_vision: arm.supports_vision ?? ai.supports_vision,
+    supports_structured_output: arm.supports_structured_output ?? ai.supports_structured_output,
+    provider: arm.provider ?? ai.provider,
+    avg_quality_score: arm.avg_quality_score,
+    latency_mean: arm.latency_mean,
+    max_cost_per_call_usd: arm.max_cost_per_call_usd,
+    preferred_tier: arm.preferred_tier,
+  };
+}
+
+/**
+ * Cursor-style explicit pick gate: reject when model cannot satisfy agentsam_route_requirements.
+ * @returns {Promise<{ ok: true } | { ok: false, code: string, message: string }>}
+ */
+export async function validateModelAgainstRouteRequirements(env, { routeKey, aiRow, armRow }) {
+  const rk = routeKey != null ? String(routeKey).trim() : '';
+  if (!rk) return { ok: true };
+  const req = await loadRouteRequirementsRow(env, rk);
+  if (!req) return { ok: true };
+  const policyRow = mergeAiRowWithRoutingArmForPolicy(aiRow, armRow);
+  if (armMatchesRouteRequirements(policyRow, req)) return { ok: true };
+  const mk = policyRow.model_key != null ? String(policyRow.model_key) : 'model';
+  return {
+    ok: false,
+    code: 'route_model_requirements_not_met',
+    message: buildRouteRejectMessage(req, mk, rk),
+  };
+}
+
+/**
+ * Resolve the bandit arm for an explicit model_key (workspace arm first, then global).
+ * @returns {Promise<{ armId: string, arm: Record<string, unknown> } | null>}
+ */
+export async function resolveRoutingArmByModelKey(
+  env,
+  { modelKey, taskType, mode, workspaceId } = {},
+) {
+  const mk = modelKey != null ? String(modelKey).trim() : '';
+  const tt = taskType != null && String(taskType).trim() !== '' ? String(taskType).trim() : 'chat';
+  const md = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!env?.DB || !mk) return null;
+  try {
+    let arm = null;
+    if (ws) {
+      arm = await env.DB.prepare(
+        `SELECT * FROM ${TABLE}
+         WHERE model_key = ? AND task_type = ? AND mode = ?
+           AND workspace_id = ?
+           AND is_active = 1 AND is_eligible = 1 AND is_paused = 0
+         LIMIT 1`,
+      )
+        .bind(mk, tt, md, ws)
+        .first();
+    }
+    if (!arm?.id) {
+      arm = await env.DB.prepare(
+        `SELECT * FROM ${TABLE}
+         WHERE model_key = ? AND task_type = ? AND mode = ?
+           AND COALESCE(TRIM(workspace_id), '') = ''
+           AND is_active = 1 AND is_eligible = 1 AND is_paused = 0
+         LIMIT 1`,
+      )
+        .bind(mk, tt, md)
+        .first();
+    }
+    if (!arm?.id) return null;
+    const armId = arm.id != null ? String(arm.id).trim() : '';
+    if (!armId) return null;
+    return { armId, arm };
+  } catch (e) {
+    console.warn('[routing] resolveRoutingArmByModelKey', e?.message ?? e);
+    return null;
+  }
 }
 
 /**
@@ -655,53 +764,63 @@ export async function getDefaultModelForTask(env, ctx = {}) {
  *                     armId: string, taskType: string } | null>}
  */
 export async function resolveRoutingArm(env, { taskType, intentSlug, mode, workspaceId, routeKey, userId, tenantId, toolRequired } = {}) {
-  void routeKey;
-  void toolRequired;
   if (!env?.DB || !taskType || !workspaceId) return null;
+  const tt = String(taskType).trim();
+  const md = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
+  const ws = String(workspaceId).trim();
+  const intent = String(intentSlug || '').trim().toLowerCase();
   try {
-    const sql = `
-      SELECT ra.*,
-             mc.is_active AS catalog_active, mc.tier, mc.is_degraded,
-             ai.id        AS ai_model_id,    ai.api_platform,
-             mrm.success_rate, mrm.avg_latency_ms, mrm.sample_n
-      FROM   agentsam_routing_arms ra
-      JOIN   agentsam_model_catalog mc  ON mc.model_key  = ra.model_key AND mc.is_active = 1
-      JOIN   agentsam_ai            ai  ON ai.model_key  = ra.model_key
-                                       AND ai.mode       = 'model'
-                                       AND ai.status     = 'active'
-      LEFT JOIN agentsam_model_routing_memory mrm
-             ON mrm.model_key    = ra.model_key
-            AND mrm.workspace_id = ra.workspace_id
-            AND mrm.task_type    = ra.task_type
-      WHERE  (ra.task_type = ? OR (COALESCE(TRIM(ra.intent_slug),'') != '' AND ra.intent_slug = ?))
-        AND  ra.mode             = ?
-        AND  (ra.workspace_id    = ? OR COALESCE(TRIM(ra.workspace_id),'') = '')
-        AND  ra.is_active        = 1
-        AND  ra.is_eligible      = 1
-        AND  ra.is_paused        = 0
-        AND  ra.budget_exhausted = 0
-        AND  mc.is_degraded      = 0
-      ORDER BY ra.workspace_id DESC, ra.decayed_score DESC, ra.priority DESC
-      LIMIT 40
-    `;
-    const { results: arms } = await env.DB.prepare(sql).bind(taskType, String(intentSlug || '').trim().toLowerCase(), mode || 'agent', workspaceId).all();
-    if (!arms?.length) return null;
+    let arms = await queryRoutingArmsCandidates(env, {
+      taskType: tt,
+      mode: md,
+      workspaceId: ws,
+      toolRequired: !!toolRequired,
+      routeKey: routeKey ?? null,
+    });
+    if (intent) {
+      arms = arms.filter(
+        (a) =>
+          String(a.task_type ?? '').trim() === tt ||
+          (a.intent_slug != null && String(a.intent_slug).trim().toLowerCase() === intent),
+      );
+    }
+    if (!arms.length) return null;
+
+    arms = await filterArmsForRouteKey(env, routeKey ?? null, arms);
+    if (!arms.length) return null;
+
+    arms = await mergeModelRoutingMemoryPriors(env, ws, tt, arms);
 
     const useThompson = await isThompsonRoutingSamplingEnabled(env, { userId, tenantId });
-
     const arm = useThompson ? pickRoutingArmByThompson(arms) : (arms[0] ?? null);
-    if (!arm) return null;
+    if (!arm?.model_key) return null;
 
-    const modelIdRaw = arm.ai_model_id != null ? String(arm.ai_model_id).trim() : '';
+    const mk = String(arm.model_key).trim();
+    const aiRow = await env.DB.prepare(
+      `SELECT id, api_platform, provider FROM agentsam_ai
+       WHERE model_key = ? AND mode = 'model' AND status = 'active' LIMIT 1`,
+    )
+      .bind(mk)
+      .first()
+      .catch(() => null);
+    const modelIdRaw = aiRow?.id != null ? String(aiRow.id).trim() : '';
     if (!modelIdRaw) return null;
 
+    const armId = arm.id != null ? String(arm.id).trim() : '';
     return {
       source: 'thompson',
       modelId: modelIdRaw,
-      modelKey: String(arm.model_key),
-      provider: arm.api_platform != null ? String(arm.api_platform) : null,
-      armId: arm.id != null ? String(arm.id) : '',
-      taskType,
+      modelKey: mk,
+      provider:
+        aiRow?.api_platform != null
+          ? String(aiRow.api_platform)
+          : aiRow?.provider != null
+            ? String(aiRow.provider)
+            : arm.provider != null
+              ? String(arm.provider)
+              : null,
+      armId,
+      taskType: tt,
     };
   } catch (e) {
     console.warn('[resolveRoutingArm]', e?.message ?? e);
