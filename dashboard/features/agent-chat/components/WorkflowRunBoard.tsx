@@ -18,6 +18,12 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string {
+  if (typeof d.agent_run_id === 'string' && d.agent_run_id.trim()) return d.agent_run_id.trim();
+  if (typeof d.run_id === 'string' && d.run_id.trim()) return d.run_id.trim();
+  return '';
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type WorkflowRow = {
@@ -460,9 +466,10 @@ export function useWorkflowRunner(opts: {
             if (t === 'done') break sseLoop;
 
             if (t === 'workflow_start') {
+              const spineRunId = sseSpineRunId(d);
               setRunState((p) => ({
                 ...p,
-                runId: String(d.run_id ?? p.runId ?? ''),
+                runId: spineRunId || p.runId || '',
                 stepsTotal: Number(d.steps_total ?? p.stepsTotal),
                 status: 'running',
               }));
@@ -481,7 +488,7 @@ export function useWorkflowRunner(opts: {
                 else steps.push(stepState);
                 return {
                   ...p,
-                  runId: String(d.run_id ?? p.runId ?? ''),
+                  runId: sseSpineRunId(d) || p.runId || '',
                   stepsCompleted: Number(d.steps_completed ?? p.stepsCompleted),
                   stepsTotal: Number(d.steps_total ?? p.stepsTotal),
                   currentNodeKey: nodeKey,
@@ -492,14 +499,14 @@ export function useWorkflowRunner(opts: {
             } else if (t === 'workflow_complete') {
               setRunState((p) => ({
                 ...p,
-                runId: String(d.run_id ?? p.runId ?? ''),
+                runId: sseSpineRunId(d) || p.runId || '',
                 status: 'completed',
               }));
               break sseLoop;
             } else if (t === 'workflow_approval_required') {
               setRunState((p) => ({
                 ...p,
-                runId: String(d.run_id ?? p.runId ?? ''),
+                runId: sseSpineRunId(d) || p.runId || '',
                 approvalId: String(d.approval_id ?? ''),
                 status: 'awaiting_approval',
               }));
@@ -507,7 +514,7 @@ export function useWorkflowRunner(opts: {
             } else if (t === 'workflow_error') {
               setRunState((p) => ({
                 ...p,
-                runId: String(d.run_id ?? p.runId ?? ''),
+                runId: sseSpineRunId(d) || p.runId || '',
                 status: 'error',
                 errorMessage: String(d.message ?? 'workflow error'),
               }));

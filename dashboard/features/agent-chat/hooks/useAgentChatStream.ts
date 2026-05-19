@@ -31,6 +31,13 @@ import {
 } from '../streamParsing';
 import { markStreamParserError, patchIamAgentStreamDebug } from '../streamDebug';
 
+/** Prefer agentsam_agent_run.id over legacy wrun_* when both appear on SSE payloads. */
+function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string {
+  if (typeof d.agent_run_id === 'string' && d.agent_run_id.trim()) return d.agent_run_id.trim();
+  if (typeof d.run_id === 'string' && d.run_id.trim()) return d.run_id.trim();
+  return '';
+}
+
 function extForStreamOutput(lang: string): string {
   const map: Record<string, string> = {
     tsx: 'tsx',
@@ -858,15 +865,19 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const w = data as {
             type: string;
             run_id?: string;
+            agent_run_id?: string;
             steps_total?: number | null;
             workflow_key?: string;
+            ledger_kind?: string;
           };
-          if (typeof w.workflow_key === 'string' && w.workflow_key.trim()) {
+          const isChatToolSession = w.ledger_kind === 'chat_tool_session';
+          if (typeof w.workflow_key === 'string' && w.workflow_key.trim() && !isChatToolSession) {
             onThinkingEvent?.({ type: 'plan_progress', text: 'Running workflow…' });
           }
+          const spineRunId = sseSpineRunId(w);
           setWorkflowLedger((prev) => ({
             ...prev,
-            runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
+            runId: spineRunId || prev.runId,
             stepsTotal: w.steps_total != null ? Number(w.steps_total) : prev.stepsTotal,
             lastError: null,
           }));
@@ -876,6 +887,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const w = data as {
             type: string;
             run_id?: string;
+            agent_run_id?: string;
             node_key?: string;
             current_node_key?: string;
             steps_completed?: number;
@@ -885,6 +897,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             output_tokens?: number;
             ok?: boolean;
           };
+          const spineRunId = sseSpineRunId(w);
           const nk =
             (typeof w.current_node_key === 'string' && w.current_node_key) ||
             (typeof w.node_key === 'string' && w.node_key) ||
@@ -898,7 +911,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           }
           setWorkflowLedger((prev) => ({
             ...prev,
-            runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
+            runId: spineRunId || prev.runId,
             currentNodeKey:
               (typeof w.current_node_key === 'string' && w.current_node_key) ||
               (typeof w.node_key === 'string' && w.node_key) ||
@@ -918,10 +931,17 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             (data as { type?: string }).type === 'workflow_error' ||
             (data as { type?: string }).type === 'workflow_approval_required')
         ) {
-          const w = data as { type: string; run_id?: string; message?: string; status?: string };
+          const w = data as {
+            type: string;
+            run_id?: string;
+            agent_run_id?: string;
+            message?: string;
+            status?: string;
+          };
+          const spineRunId = sseSpineRunId(w);
           setWorkflowLedger((prev) => ({
             ...prev,
-            runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
+            runId: spineRunId || prev.runId,
             lastError: w.type === 'workflow_error' ? String(w.message || 'workflow_error') : null,
           }));
           if (w.type === 'workflow_complete') {

@@ -80,12 +80,6 @@ import {
   scheduleAgentsamChatAgentRunInsert,
   scheduleAgentsamChatAgentRunStart,
 } from '../core/agent-run-routing.js';
-import {
-  finalizeChatToolSessionParentExecution,
-  insertChatToolSessionExecutionStep,
-  insertChatToolSessionParentExecution,
-  loadAgentChatExecutionLedgerPragma,
-} from '../core/agent-chat-tool-execution-ledger.js';
 import { pragmaTableInfo } from '../core/retention.js';
 import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
@@ -1107,7 +1101,9 @@ function filterAgentToolsForRequest(env, tools, message, intentResult, capabilit
 }
 
 
-const AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY = 'agent_chat_tool_session';
+/** Legacy workflow_key for historical rows only — chat tools no longer INSERT agentsam_workflow_runs. */
+const CHAT_TOOL_SESSION_LEDGER_KIND = 'chat_tool_session';
+
 const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
   'd1_query',
   'github_file',
@@ -1159,8 +1155,21 @@ async function fetchAgentsamToolRowsByName(env, names) {
   }
 }
 
+function chatModeUsesToolLoop(mode) {
+  const m = String(mode || '').toLowerCase();
+  return m === 'agent' || m === 'debug' || m === 'multitask' || m === 'ask';
+}
+
+function shouldOpenChatToolSessionLedger({ chatAgentRunId, mode, tools, chatToolLedger }) {
+  if (!chatAgentRunId || chatToolLedger) return false;
+  const m = String(mode || '').toLowerCase();
+  if (m === 'plan') return false;
+  if (!chatModeUsesToolLoop(mode)) return false;
+  return Array.isArray(tools) && tools.length > 0;
+}
+
 async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTools) {
-  if (String(mode || '').toLowerCase() !== 'agent' || !env?.DB) return tools;
+  if (!chatModeUsesToolLoop(mode) || !env?.DB) return tools;
   const nameSet = new Set(tools.map((t) => String(t.name)));
   const fetchNames = [...new Set([...nameSet, ...AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS])];
   const rows = await fetchAgentsamToolRowsByName(env, fetchNames);
@@ -1197,209 +1206,82 @@ async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTool
   return out;
 }
 
-async function pragmaAgentsamWorkflowRunColumnSet(db) {
-  try {
-    const { results } = await db.prepare(`PRAGMA table_info(agentsam_workflow_runs)`).all();
-    return new Set((results || []).map((r) => String(r.name || '').toLowerCase()));
-  } catch {
-    return new Set();
-  }
+function chatToolSessionSseBase(ledger) {
+  const runId = ledger?.runId != null ? String(ledger.runId).trim() : '';
+  return {
+    run_id: runId,
+    agent_run_id: runId,
+    spine: 'agent_run',
+    ledger_kind: CHAT_TOOL_SESSION_LEDGER_KIND,
+    requested_mode: ledger?.requestedMode != null ? String(ledger.requestedMode) : null,
+  };
 }
 
-async function createAgentChatToolLedgerRun(env, p) {
-  const { tenantId, workspaceId, userId, sessionId, modelKey, stepsTotal, chatAgentRunId } = p;
-  const wfId = await resolveWorkspaceCapabilityShellWorkflowId(env);
-  if (!wfId || !tenantId || !workspaceId) return null;
-  const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const cols = await pragmaAgentsamWorkflowRunColumnSet(env.DB);
-  const hbFrag = cols.has('heartbeat_at') ? ', heartbeat_at' : '';
-  const hbVal = cols.has('heartbeat_at') ? ', unixepoch()' : '';
-  const runGroupFrag = cols.has('run_group_id') ? ', run_group_id' : '';
-  const runGroupVal = cols.has('run_group_id') ? ', ?' : '';
-  const startedSec = Math.floor(Date.now() / 1000);
-  const runGroupBind =
-    cols.has('run_group_id') && chatAgentRunId != null ? String(chatAgentRunId).trim() : null;
-  await env.DB.prepare(
-    `INSERT INTO agentsam_workflow_runs (
-      id, workflow_id, workflow_key, display_name, tenant_id, workspace_id,
-      user_id, session_id, trigger_type, status,
-      input_json, output_json, step_results_json, steps_total, steps_completed,
-      input_tokens, output_tokens, cost_usd, supabase_sync_status,
-      model_used, started_at, created_at, updated_at
-      ${hbFrag}${runGroupFrag}
-    ) VALUES (
-      ?, ?, ?, ?, ?, ?,
-      ?, ?, 'agent', 'running',
-      ?, '{}', '[]', ?, 0,
-      0, 0, 0, 'pending',
-      ?, unixepoch(), datetime('now'), datetime('now')
-      ${hbVal}${runGroupVal}
-    )`,
-  )
-    .bind(
-      runId,
-      wfId,
-      AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY,
-      'Agent chat · tool session',
-      String(tenantId).trim(),
-      String(workspaceId).trim(),
-      userId != null ? String(userId) : null,
-      sessionId != null ? String(sessionId) : null,
-      JSON.stringify({ model_key: modelKey, session_id: sessionId }),
-      Math.max(1, Number(stepsTotal) || 1),
-      modelKey != null ? String(modelKey) : null,
-      ...(cols.has('run_group_id') ? [runGroupBind] : []),
-    )
-    .run();
-
-  const { execCols, stepCols } = await loadAgentChatExecutionLedgerPragma(env);
-  const executionParentId = await insertChatToolSessionParentExecution(env, execCols, {
-    tenantId: String(tenantId).trim(),
-    workspaceId: String(workspaceId).trim(),
+/** In-memory tool-session ledger keyed on agentsam_agent_run.id (no agentsam_workflow_runs row). */
+function createChatToolSessionLedger(p) {
+  const {
+    tenantId,
+    workspaceId,
     userId,
-    workflowRunId: runId,
-    workflowKey: AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY,
-    modelKey: modelKey != null ? String(modelKey) : null,
-    sessionId: sessionId != null ? String(sessionId) : null,
-  });
+    sessionId,
+    modelKey,
+    stepsTotal,
+    chatAgentRunId,
+    requestedMode,
+  } = p;
+  const runId = chatAgentRunId != null ? String(chatAgentRunId).trim() : '';
+  if (!runId || !tenantId || !workspaceId) return null;
 
   return {
     runId,
-    workflowId: wfId,
     steps: [],
     startedAt: Date.now(),
-    startedSec,
     stepsTotal: Math.max(1, Number(stepsTotal) || 1),
-    hasHeartbeat: cols.has('heartbeat_at'),
     tenantId: String(tenantId).trim(),
     workspaceId: String(workspaceId).trim(),
     modelKey: modelKey != null ? String(modelKey) : null,
     sessionId: sessionId != null ? String(sessionId) : null,
     conversationId: sessionId != null ? String(sessionId) : null,
-    chatAgentRunId: chatAgentRunId != null ? String(chatAgentRunId).trim() : null,
-    executionParentId: executionParentId ?? null,
-    executionStepCols: stepCols,
-    executionExeCols: execCols,
+    chatAgentRunId: runId,
+    requestedMode: requestedMode != null ? String(requestedMode) : 'agent',
   };
 }
 
-/** @returns {Promise<string | null>} execution_step id when written */
-async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
-  if (!ledger?.runId || !env?.DB) return null;
+/** @returns {Promise<null>} execution_step id (unused; tool rows via scheduleAgentsamToolCallLog). */
+async function appendChatToolSessionLedgerStep(_env, emit, ledger, stepEntry) {
+  if (!ledger?.runId) return null;
   ledger.steps.push(stepEntry);
-  const stepJson = JSON.stringify(ledger.steps);
-  const outSummary = {
-    last_tool: stepEntry.tool_name,
-    last_ok: stepEntry.ok,
-    steps_completed: ledger.steps.length,
-  };
-  let sql = `UPDATE agentsam_workflow_runs SET
-    step_results_json = ?,
-    steps_completed = ?,
-    output_json = ?,
-    updated_at = datetime('now')`;
-  const binds = [stepJson, ledger.steps.length, JSON.stringify(outSummary)];
-  if (ledger.hasHeartbeat) {
-    sql += ', heartbeat_at = unixepoch()';
-  }
-  sql += ' WHERE id = ?';
-  binds.push(ledger.runId);
-  await env.DB.prepare(sql).bind(...binds).run();
-
-  let executionStepId = null;
-  if (ledger.executionStepCols?.size) {
-    try {
-      executionStepId = await insertChatToolSessionExecutionStep(env, ledger.executionStepCols, {
-        executionParentId: ledger.executionParentId ?? null,
-        workflowRunId: ledger.runId,
-        stepEntry,
-      });
-    } catch (e) {
-      console.warn('[agent] agent_chat_execution_step', e?.message ?? e);
-    }
-  }
-
   emit('workflow_step', {
-    run_id: ledger.runId,
+    ...chatToolSessionSseBase(ledger),
     node_key: stepEntry.tool_name,
     current_node_key: stepEntry.tool_name,
+    tool_name: stepEntry.tool_name,
     steps_completed: ledger.steps.length,
     steps_total: ledger.stepsTotal,
     ok: stepEntry.ok,
     output_preview: String(stepEntry.output_preview || '').slice(0, 4000),
-    ...(executionStepId ? { execution_step_id: executionStepId } : {}),
   });
-  return executionStepId;
+  return null;
 }
 
-async function finalizeAgentChatToolLedger(env, ctx, emit, ledger, { ok, errorMessage, usage = {} }) {
-  if (!ledger?.runId || !env?.DB) return;
-  const duration = Math.max(0, Date.now() - ledger.startedAt);
-  const err = ok ? null : String(errorMessage || 'agent_tool_session_failed').slice(0, 4000);
-  let sql = `UPDATE agentsam_workflow_runs SET
-    status = ?,
-    duration_ms = ?,
-    completed_at = unixepoch(),
-    error_message = ?,
-    updated_at = datetime('now')`;
-  const binds = [ok ? 'completed' : 'failed', duration, err];
-  if (ledger.hasHeartbeat) {
-    sql += ', heartbeat_at = unixepoch()';
-  }
-  sql += ' WHERE id = ?';
-  binds.push(ledger.runId);
-  await env.DB.prepare(sql).bind(...binds).run();
-
-  if (ledger.executionExeCols?.size && ledger.executionParentId) {
-    try {
-      await finalizeChatToolSessionParentExecution(env, ledger.executionExeCols, {
-        executionParentId: ledger.executionParentId,
-        ok,
-        durationMs: duration,
-        errorMessage: err,
-        stepsCount: ledger.steps.length,
-        lastToolName: ledger.steps.length ? ledger.steps[ledger.steps.length - 1].tool_name : null,
-        modelKey: ledger.modelKey ?? null,
-      });
-    } catch (e) {
-      console.warn('[agent] agent_chat_execution_parent_finalize', e?.message ?? e);
-    }
-  }
-
+async function finalizeChatToolSessionLedger(_env, _ctx, emit, ledger, { ok, errorMessage } = {}) {
+  if (!ledger?.runId) return;
+  const err = ok ? null : String(errorMessage || 'chat_tool_session_failed').slice(0, 4000);
+  const base = chatToolSessionSseBase(ledger);
   if (ok) {
     emit('workflow_complete', {
-      run_id: ledger.runId,
+      ...base,
       status: 'completed',
       message: `Executed ${ledger.steps.length} tool call(s).`,
+      steps_completed: ledger.steps.length,
     });
   } else {
     emit('workflow_error', {
-      run_id: ledger.runId,
+      ...base,
       status: 'failed',
       message: err || 'failed',
     });
   }
-  const runForSb = {
-    id: ledger.runId,
-    workflow_key: AGENT_CHAT_TOOL_LEDGER_WORKFLOW_KEY,
-    display_name: 'Agent chat · tool session',
-    tenant_id: ledger.tenantId,
-    workspace_id: ledger.workspaceId,
-    status: ok ? 'completed' : 'failed',
-    started_at: ledger.startedSec,
-    completed_at: Math.floor(Date.now() / 1000),
-    duration_ms: duration,
-    cost_usd: usage?.cost_usd ?? 0,
-    input_tokens: usage?.input_tokens ?? 0,
-    output_tokens: usage?.output_tokens ?? 0,
-    error_message: err,
-    step_results_json: JSON.stringify(ledger.steps),
-  };
-  // Supabase RPC is best-effort for UX; D1 row is updated inside syncWorkflowRunToSupabase via
-  // patchD1WorkflowRunSupabaseMirrorState (synced / failed, optional supabase_run_id).
-  const p = syncWorkflowRunToSupabase(env, runForSb);
-  if (ctx?.waitUntil) ctx.waitUntil(p);
-  else await p;
 }
 
 async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
@@ -3210,7 +3092,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
   const executedToolNames = [];
   let totalUsage    = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   let turnCount     = 0;
-  let agentToolLedger = null;
+  let chatToolLedger = null;
   let toolChainRootId = null;
   let ledgerLoopThrew = false;
   let ledgerErrorMsg = null;
@@ -3229,7 +3111,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         modelKey,
         turnCount,
         timedOut: true,
-        workflowRunId: agentToolLedger?.runId ?? null,
+        workflowRunId: null,
+        agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
         chainRootId: toolChainRootId,
       };
     }
@@ -3245,11 +3128,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         session_id: sessionId,
         conversation_id: sessionId,
         request_id:
-          chatAgentRunId != null
-            ? String(chatAgentRunId)
-            : agentToolLedger?.runId != null
-              ? String(agentToolLedger.runId)
-              : sessionId,
+          chatAgentRunId != null ? String(chatAgentRunId) : sessionId,
         run_group_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
         route_path: '/api/agent/chat',
         model_key: modelKey,
@@ -3795,11 +3674,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         request_id:
           chatAgentRunId != null
             ? String(chatAgentRunId)
-            : agentToolLedger?.runId != null
-              ? String(agentToolLedger.runId)
-              : toolChainRootId != null
-                ? String(toolChainRootId)
-                : sessionId,
+            : toolChainRootId != null
+              ? String(toolChainRootId)
+              : sessionId,
         run_group_id: chatAgentRunId != null ? String(chatAgentRunId) : null,
         route_path: '/api/agent/chat',
         tool_name: call.name,
@@ -3920,9 +3797,16 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Awaiting approval (proposal_id: ${proposalId}).` });
         continue;
       }
-      if (String(mode || '').toLowerCase() === 'agent' && env?.DB && !agentToolLedger) {
+      if (
+        shouldOpenChatToolSessionLedger({
+          chatAgentRunId,
+          mode,
+          tools,
+          chatToolLedger,
+        })
+      ) {
         try {
-          agentToolLedger = await createAgentChatToolLedgerRun(env, {
+          chatToolLedger = createChatToolSessionLedger({
             tenantId,
             workspaceId,
             userId,
@@ -3930,15 +3814,16 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             modelKey,
             stepsTotal: effectiveMaxToolCalls,
             chatAgentRunId,
+            requestedMode: mode,
           });
-          if (agentToolLedger) {
+          if (chatToolLedger) {
             emit('workflow_start', {
-              run_id: agentToolLedger.runId,
-              steps_total: agentToolLedger.stepsTotal,
+              ...chatToolSessionSseBase(chatToolLedger),
+              steps_total: chatToolLedger.stepsTotal,
             });
           }
         } catch (e) {
-          console.warn('[agent] agent_tool_ledger_create', e?.message ?? e);
+          console.warn('[agent] chat_tool_session_ledger_create', e?.message ?? e);
         }
       }
       toolCallsUsed++;
@@ -4124,10 +4009,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           /* not JSON — skip preview */
         }
       }
-      let chatToolExecutionStepId = null;
-      if (agentToolLedger) {
+      if (chatToolLedger) {
         try {
-          chatToolExecutionStepId = await appendAgentChatToolLedgerStep(env, emit, agentToolLedger, {
+          await appendChatToolSessionLedgerStep(env, emit, chatToolLedger, {
             tool_name: call.name,
             ok: !execErr,
             duration_ms: toolDurMs,
@@ -4141,7 +4025,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
                   : {},
           });
         } catch (e) {
-          console.warn('[agent] agent_tool_ledger_step', e?.message ?? e);
+          console.warn('[agent] chat_tool_session_ledger_step', e?.message ?? e);
         }
       }
       scheduleAgentsamToolCallLog(env, ctx, {
@@ -4197,8 +4081,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         tenantId,
         parentChainId: previousToolChainId,
         toolInputJson: JSON.stringify(call.input || {}),
-        workflowRunId: agentToolLedger?.runId ?? null,
-        executionStepId: chatToolExecutionStepId,
+        workflowRunId: null,
+        executionStepId: null,
         ...runSpineIds,
         ctx,
       });
@@ -4227,7 +4111,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           modelKey,
           turnCount,
           timedOut: true,
-          workflowRunId: agentToolLedger?.runId ?? null,
+          workflowRunId: null,
+          agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
           chainRootId: toolChainRootId,
         };
       }
@@ -4264,15 +4149,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     ledgerErrorMsg = e?.message != null ? String(e.message) : String(e);
     throw e;
   } finally {
-    if (agentToolLedger?.runId) {
+    if (chatToolLedger?.runId) {
       try {
-        await finalizeAgentChatToolLedger(env, ctx, emit, agentToolLedger, {
+        await finalizeChatToolSessionLedger(env, ctx, emit, chatToolLedger, {
           ok: !ledgerLoopThrew,
           errorMessage: ledgerErrorMsg,
-          usage: totalUsage,
         });
       } catch (fe) {
-        console.warn('[agent] agent_tool_ledger_finalize', fe?.message ?? fe);
+        console.warn('[agent] chat_tool_session_ledger_finalize', fe?.message ?? fe);
       }
     }
   }
@@ -4321,7 +4205,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     modelKey,
     turnCount,
     timedOut: false,
-    workflowRunId: agentToolLedger?.runId ?? null,
+    workflowRunId: null,
+    agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
     chainRootId: toolChainRootId,
   };
 }
