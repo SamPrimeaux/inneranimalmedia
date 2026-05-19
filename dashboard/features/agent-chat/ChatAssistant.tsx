@@ -64,7 +64,7 @@ import {
   AgentMode,
   AGENT_MODES,
 } from './types';
-import { buildMentionContext, isChatTextCodeFile, readFileAsText, getEditorDisplayPath } from './mentionContext';
+import { buildMentionContext, isChatTextCodeFile, readFileAsText, getEditorDisplayPath, getEditorLightweightPath } from './mentionContext';
 import {
   measureAboveAnchor,
   syncComposerTextareaHeight,
@@ -1191,6 +1191,28 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       /* ignore */
     }
     attachments.forEach((a) => form.append('files', a.file));
+
+    if (activeFile) {
+      const activePath = getEditorLightweightPath(activeFile) || activeFile.name || '';
+      if (activePath) form.append('active_file_path', activePath);
+      const activeSource = activeFile.githubRepo
+        ? 'github'
+        : activeFile.r2Key
+          ? 'r2'
+          : activeFile.driveFileId
+            ? 'drive'
+            : activeFile.workspacePath || activeFile.handle
+              ? 'local'
+              : 'buffer';
+      form.append('active_file_source', activeSource);
+      form.append('active_file_r2_bucket', activeFile.r2Bucket ?? '');
+      form.append('active_file_r2_key', activeFile.r2Key ?? '');
+      form.append('active_file_github_repo', activeFile.githubRepo ?? '');
+      form.append('active_file_github_path', activeFile.githubPath ?? '');
+      form.append('active_file_github_branch', activeFile.githubBranch ?? '');
+      form.append('active_file_drive_id', activeFile.driveFileId ?? '');
+      form.append('active_file_workspace_path', activeFile.workspacePath ?? '');
+    }
 
     const applyAssistantError = (msg: string) => {
       setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);

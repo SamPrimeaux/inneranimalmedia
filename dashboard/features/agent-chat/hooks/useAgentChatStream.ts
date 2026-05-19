@@ -104,6 +104,11 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
   /** Active SSE tool row id for tool_output / tool_done / tool_error pairing. */
   let activeToolTraceId: string | null = null;
+  /** URL from browser tool `tool_start` input_preview — used on `tool_done`. */
+  let pendingBrowserToolUrl: string | null = null;
+  /** Last `tool_output` chunk for the active browser navigation tool. */
+  let lastBrowserToolOutputChunk: string | null = null;
+  let activeBrowserNavTool = false;
 
   if (!mergeIntoLastAssistant) {
     activeToolTraceId = null;
@@ -713,6 +718,24 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const d = data as { type: 'tool_start'; tool_name?: string; input_preview?: string | null };
           const tn = String(d.tool_name || '');
           patchIamAgentStreamDebug({ last_tool_name: tn || null });
+          pendingBrowserToolUrl = null;
+          lastBrowserToolOutputChunk = null;
+          activeBrowserNavTool =
+            tn === 'browser_open_url' || tn === 'cdt_navigate_page' || tn === 'browser_navigate';
+          if (activeBrowserNavTool) {
+            try {
+              const inp = JSON.parse(String(d.input_preview || '{}')) as Record<string, unknown>;
+              const u =
+                (typeof inp.url === 'string' && inp.url.trim()) ||
+                (typeof inp.href === 'string' && inp.href.trim()) ||
+                (typeof inp.target_url === 'string' && inp.target_url.trim()) ||
+                (typeof inp.page_url === 'string' && inp.page_url.trim()) ||
+                '';
+              if (u) pendingBrowserToolUrl = u;
+            } catch {
+              /* ignore */
+            }
+          }
           if (
             typeof window !== 'undefined' &&
             (tn.startsWith('cdt_') || tn.startsWith('browser_') || tn === 'playwright_screenshot')
@@ -787,6 +810,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           typeof (data as { chunk?: unknown }).chunk === 'string'
         ) {
           const d = data as { type: 'tool_output'; chunk: string };
+          if (activeBrowserNavTool) {
+            lastBrowserToolOutputChunk = d.chunk;
+          }
           setToolTraceRows?.((prev) => {
             if (activeToolTraceId) {
               return prev.map((r) =>
@@ -837,6 +863,36 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 },
               }),
             );
+          }
+          if (
+            d.status !== 'error' &&
+            (d.tool_name === 'browser_open_url' ||
+              d.tool_name === 'cdt_navigate_page' ||
+              d.tool_name === 'browser_navigate')
+          ) {
+            let navUrl = pendingBrowserToolUrl || '';
+            if (!navUrl && lastBrowserToolOutputChunk) {
+              try {
+                const parsed = JSON.parse(lastBrowserToolOutputChunk) as Record<string, unknown>;
+                const u =
+                  (typeof parsed.url === 'string' && parsed.url.trim()) ||
+                  (typeof parsed.result === 'object' &&
+                  parsed.result !== null &&
+                  typeof (parsed.result as Record<string, unknown>).url === 'string'
+                    ? String((parsed.result as Record<string, unknown>).url).trim()
+                    : '') ||
+                  '';
+                if (u) navUrl = u;
+              } catch {
+                /* ignore */
+              }
+            }
+            if (navUrl) {
+              onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
+            }
+            pendingBrowserToolUrl = null;
+            lastBrowserToolOutputChunk = null;
+            activeBrowserNavTool = false;
           }
           setToolTraceRows?.((prev) => {
             if (!activeToolTraceId || !prev.some((r) => r.id === activeToolTraceId)) return prev;

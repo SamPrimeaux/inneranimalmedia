@@ -435,6 +435,29 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
                Diff
              </button>
            )}
+           {hasDiffData && showDiff && activeFile && (
+             <>
+               <button
+                 type="button"
+                 onClick={() => onSave?.(activeFile.content)}
+                 className="px-2 py-0.5 rounded border border-[var(--color-success)] bg-[var(--color-success)]/15 text-[var(--color-success)] font-bold transition-all hover:bg-[var(--color-success)]/25"
+                 title="Accept changes"
+               >
+                 Accept
+               </button>
+               <button
+                 type="button"
+                 onClick={() => {
+                   onSave?.(activeFile.originalContent ?? '');
+                   setShowDiff(false);
+                 }}
+                 className="px-2 py-0.5 rounded border border-[var(--color-danger)] bg-[var(--color-danger)]/15 text-[var(--color-danger)] font-bold transition-all hover:bg-[var(--color-danger)]/25"
+                 title="Reject changes"
+               >
+                 Reject
+               </button>
+             </>
+           )}
            {isDirty && (
              <button 
                 onClick={() => onSave?.(activeFile.content)}

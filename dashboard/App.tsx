@@ -2039,10 +2039,21 @@ const App: React.FC = () => {
   const handleBrowserNavigateFromAgent = useCallback(
     (event: { type: 'browser_navigate'; url: string }) => {
       if (event.type !== 'browser_navigate' || !event.url?.trim()) return;
+      const url = event.url.trim();
+      window.dispatchEvent(
+        new CustomEvent('iam:agent-open-surface', {
+          detail: { surface: 'browser', url },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent('iam-browser-navigate', {
+          detail: { url },
+        }),
+      );
       revealMainWorkspaceIfNarrow();
       setBrowserAddressDisplay(null);
       setBrowserTabTitle(null);
-      setBrowserUrl(event.url.trim());
+      setBrowserUrl(url);
       setOpenTabs((prev) => (prev.includes('browser') ? prev : [...prev, 'browser']));
       setActiveTab('browser');
       if (isNarrowViewport) {
