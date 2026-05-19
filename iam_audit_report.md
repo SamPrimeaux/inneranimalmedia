@@ -1,0 +1,10266 @@
+# Inner Animal Media — Agent Sam Codebase Audit
+Generated: 2026-05-16 09:58  |  Repo: /Users/samprimeaux/inneranimalmedia  |  Files scanned: 3226
+
+---
+
+## 🐛 KNOWN BUG ZONES — PRIORITY FLAGS
+
+### [HARDCODED_R2] Hardcoded / legacy R2 bucket name (inneranimalmedia-assets)
+**Status:** 🔴 1 HIGH  🟡 55 MED  ⚪ 6 LOW
+**Files:**
+  - `src/api/r2-api.js` [HIGH] — patterns: inneranimalmedia-assets
+  - `snapshot-after.json` [MED] — patterns: inneranimalmedia-assets
+  - `snapshot-before.json` [MED] — patterns: inneranimalmedia-assets
+  - `migrations/155_mcp_services_inneranimalmedia_fields_and_health.sql` [MED] — patterns: inneranimalmedia-assets
+  - `migrations/239_storage_dashboard_d1_backfill.sql` [MED] — patterns: inneranimalmedia-assets
+  - `migrations/210_r2_bucket_bindings_and_list_cidi.sql` [MED] — patterns: inneranimalmedia-assets
+  - `artifacts/agentsam-execution-fabric-report.json` [MED] — patterns: inneranimalmedia-assets
+  - `artifacts/agentsam-planner-challenge-report.json` [MED] — patterns: inneranimalmedia-assets
+
+### [GITHUB_REAUTH_LOOP] GitHub OAuth re-auth / repo-click cycle — missing token refresh or invalid state reset
+**Status:** 🔴 14 HIGH  🟡 137 MED  ⚪ 64 LOW
+**Files:**
+  - `artifacts/key_hygiene_audit/chunks/key_usage_auth_webhooks.md` [HIGH] — patterns: GITHUB_TOKEN
+  - `artifacts/key_hygiene_audit/chunks/key_usage_github.md` [HIGH] — patterns: github.*oauth, GITHUB_TOKEN, github.*repos
+  - `docs/oauth-callback-parity-map.md` [HIGH] — patterns: github.*oauth
+  - `docs/auth/AUTH_E2E_TEST_PLAN.md` [HIGH] — patterns: github.*oauth
+  - `dashboard/auth-signin.html` [HIGH] — patterns: github.*oauth
+  - `dashboard/components/GitHubExplorer.tsx` [HIGH] — patterns: github.*oauth, reconnect.*github, github.*repos
+  - `dashboard/components/settings/sections/GitHubSection.tsx` [HIGH] — patterns: github.*repos
+  - `dashboard/components/auth/AuthSignInPage.tsx` [HIGH] — patterns: github.*oauth
+
+### [GOOGLE_DRIVE_OAUTH_LOOP] Google Drive OAuth connect loop — permissions accepted but still shows 'Connect' button
+**Status:** 🔴 19 HIGH  🟡 200 MED  ⚪ 52 LOW
+**Files:**
+  - `google_model_matrix.js` [HIGH] — patterns: google.*token
+  - `migrations/123_user_oauth_tokens.sql` [HIGH] — patterns: google.*drive
+  - `migrations/144_user_oauth_tokens_multi_github.sql` [HIGH] — patterns: google.*drive
+  - `artifacts/key_hygiene_audit/chunks/key_usage_auth_webhooks.md` [HIGH] — patterns: google.*oauth, GOOGLE_CLIENT
+  - `artifacts/key_hygiene_audit/chunks/key_usage_google_gemini.md` [HIGH] — patterns: google.*oauth, GOOGLE_CLIENT, google.*token
+  - `docs/OAUTH_AND_AGENT_INTEGRATION_APPLIED.md` [HIGH] — patterns: google.*oauth, GOOGLE_CLIENT
+  - `docs/PRODUCTION_CONFIG_OAUTH_CHECKLIST.md` [HIGH] — patterns: google.*oauth, GOOGLE_CLIENT
+  - `docs/OAUTH_DEBUG.md` [HIGH] — patterns: google.*oauth, GOOGLE_CLIENT, google.*token
+
+### [MOVIEMODE_BROKEN] MovieMode not fully functional — MediaLibrary scan loop, glitchy video viewer
+**Status:** 🔴 12 HIGH  🟡 32 MED  ⚪ 4 LOW
+**Files:**
+  - `migrations/341_moviemode_media_backend.sql` [HIGH] — patterns: MovieMode
+  - `docs/MOVIEMODE.md` [HIGH] — patterns: MovieMode
+  - `dashboard/features/moviemode/MovieModeStudio.tsx` [HIGH] — patterns: MovieMode
+  - `dashboard/features/moviemode/types.ts` [HIGH] — patterns: MovieMode, MediaLibrary
+  - `dashboard/features/moviemode/PreviewComposition.tsx` [HIGH] — patterns: MovieMode
+  - `dashboard/features/moviemode/MediaLibrary.tsx` [HIGH] — patterns: MovieMode, MediaLibrary, api/media/assets
+  - `dashboard/features/moviemode/createEmptyTimeline.ts` [HIGH] — patterns: MovieMode, MediaLibrary
+  - `dashboard/features/moviemode/TimelineRail.tsx` [HIGH] — patterns: MovieMode
+
+### [EXPLORER_TABS_OPEN] Explorer tabs all open on entry — should default to collapsed
+**Status:** 🔴 2 HIGH  🟡 22 MED  ⚪ 5 LOW
+**Files:**
+  - `dashboard/components/LocalExplorer.tsx` [HIGH] — patterns: isOpen.*true
+  - `dashboard/components/GoogleDriveExplorer.tsx` [HIGH] — patterns: expanded.*true
+  - `captures/inneranimalmedia/raw-playwright-report/index.html` [MED] — patterns: expanded.*true
+  - `captures/inneranimalmedia/raw-playwright-report/trace/assets/defaultSettingsView-CJSZINFr.js` [MED] — patterns: expanded.*true
+  - `captures/inneranimalmedia/raw-playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js` [MED] — patterns: expanded.*true
+  - `captures/inneranimalmedia/raw-quality-report/index.html` [MED] — patterns: expanded.*true
+  - `captures/inneranimalmedia/raw-quality-report/trace/assets/defaultSettingsView-CJSZINFr.js` [MED] — patterns: expanded.*true
+  - `captures/inneranimalmedia/raw-quality-report/trace/assets/codeMirrorModule-a5XoALAZ.js` [MED] — patterns: expanded.*true
+
+### [EXPLORER_ALIGNMENT] Explorer stays left when chat assistant is moved right — should mirror opposite side
+**Status:** 🔴 1 HIGH  🟡 11 MED  ⚪ 347 LOW
+**Files:**
+  - `dashboard/App.tsx` [HIGH] — patterns: agentSide
+  - `captures/inneranimalmedia/raw-playwright-report/trace/defaultSettingsView.7ch9cixO.css` [MED] — patterns: left.*explorer, explorer.*left, flex.*row.*explorer
+  - `captures/inneranimalmedia/raw-quality-report/trace/defaultSettingsView.7ch9cixO.css` [MED] — patterns: left.*explorer, explorer.*left, flex.*row.*explorer
+  - `artifacts/projects_remaster/projects_remaster_model_prompt.md` [MED] — patterns: agentSide
+  - `artifacts/services_route_audit/services_route_audit.json` [MED] — patterns: left.*explorer
+  - `artifacts/services_route_audit/SERVICES_ROUTE_AUDIT.md` [MED] — patterns: left.*explorer
+  - `artifacts/cleanup_hold_20260515/SAMS_TODO_05-15-2026.md` [MED] — patterns: left.*explorer, explorer.*left
+  - `artifacts/key_hygiene_audit/key_hygiene_audit.json` [MED] — patterns: left.*explorer, explorer.*left, flex.*row.*explorer
+
+### [TOPBAR_POPUP] Topbar nav R2 picker is a popup/modal — should be an inline dropdown
+**Status:** 🔴 0 HIGH  🟡 9 MED  ⚪ 10 LOW
+**Files:**
+  - `captures/inneranimalmedia/raw-playwright-report/index.html` [MED] — patterns: modal.*r2, dialog.*r2
+  - `captures/inneranimalmedia/raw-quality-report/index.html` [MED] — patterns: modal.*r2, dialog.*r2
+  - `artifacts/cleanup_hold_20260515/SAMS_TODO_05-15-2026.md` [MED] — patterns: modal.*r2
+  - `artifacts/key_hygiene_audit/key_hygiene_audit.json` [MED] — patterns: modal.*r2, r2.*modal
+  - `artifacts/services_header_audit/SERVICES_HEADER_AUDIT.md` [MED] — patterns: modal.*r2
+  - `artifacts/services_header_audit/services_header_audit.json` [MED] — patterns: modal.*r2
+  - `dashboard/Finance.js` [MED] — patterns: r2.*modal
+  - `scripts/iam_codebase_audit.py` [MED] — patterns: modal.*r2, r2.*modal, CommandPalette
+
+---
+
+## 📡 ALL API ROUTES DETECTED
+
+  - `/api/(cms|themes|pages|sections)|cms_`
+  - `/api/*`
+  - `/api/...`
+  - `/api/[a-zA-Z0-9_./-]+`
+  - `/api/\`
+  - `/api/` in fetch`
+  - `/api/admin/archive-conversations`
+  - `/api/admin/cleanup/stuck-runs`
+  - `/api/admin/db-health`
+  - `/api/admin/overnight/start`
+  - `/api/admin/overnight/validate`
+  - `/api/admin/rag-backfill`
+  - `/api/admin/reindex-codebase`
+  - `/api/admin/retention`
+  - `/api/admin/run-retention`
+  - `/api/admin/trigger-workflow`
+  - `/api/admin/vectorize-kb`
+  - `/api/agent`
+  - `/api/agent-sam/`
+  - `/api/agent-sam/agent-runs`
+  - `/api/agent-sam/deployments`
+  - `/api/agent...`
+  - `/api/agent/`
+  - `/api/agent/*`
+  - `/api/agent/* , /api/r2/* , \u2026\`
+  - `/api/agent/* , /api/r2/* , …`
+  - `/api/agent/...`
+  - `/api/agent/...\`
+  - `/api/agent/[a-zA-Z0-9_./-]+`
+  - `/api/agent/alignment-sync`
+  - `/api/agent/allowlist`
+  - `/api/agent/apply-change-set`
+  - `/api/agent/approval/${approval!.id}`
+  - `/api/agent/approval/pending`
+  - `/api/agent/approval/pending?workspace_id=${encodeURIComponent(ws)}${runQ}`
+  - `/api/agent/approve`
+  - `/api/agent/approve, /api/agent/mcp, /api/agent/workflow/approve, `
+  - `/api/agent/artifact`
+  - `/api/agent/artifact-filters`
+  - `/api/agent/artifacts`
+  - `/api/agent/artifacts${qs(params)}`
+  - `/api/agent/artifacts/${encodeURIComponent(id)}`
+  - `/api/agent/artifacts?${qs.toString()}`
+  - `/api/agent/audit-log`
+  - `/api/agent/boot`
+  - `/api/agent/bootstrap`
+  - `/api/agent/browse`
+  - `/api/agent/change-set`
+  - `/api/agent/chat`
+  - `/api/agent/chat/execute-approved-tool`
+  - `/api/agent/chat/execute-approved-tool\`
+  - `/api/agent/chat/execute-approved-tool\\\`
+  - `/api/agent/chat\`
+  - `/api/agent/chat\\\`
+  - `/api/agent/cicd`
+  - `/api/agent/commands`
+  - `/api/agent/commands/execute`
+  - `/api/agent/context-picker/catalog`
+  - `/api/agent/context-picker/catalog\`
+  - `/api/agent/context-picker/catalog\\\`
+  - `/api/agent/context-refs`
+  - `/api/agent/context/bootstrap`
+  - `/api/agent/conversations`
+  - `/api/agent/conversations/`
+  - `/api/agent/conversations/search`
+  - `/api/agent/db/query-history`
+  - `/api/agent/db/snippets`
+  - `/api/agent/db/tables`
+  - `/api/agent/do-history`
+  - `/api/agent/exec`
+  - `/api/agent/exec`
+
+### `artifacts/key_hygiene_audit/chunks/06_declared_found_but_not_used_in_scanned_code.md`
+#### asset_serving
+- L16: `- `AGENTSAM_R2_EVIDENCE_PREFIX` — inneranimalmedia:.env.agentsam.local:41, inneranimalmedia:.env.agentsam.example:38`
+- L17: `- `AGENTSAM_R2_PREFIX` — inneranimalmedia:.env.agentsam.local:39, inneranimalmedia:.env.agentsam.example:36`
+- L18: `- `AGENTSAM_R2_QUALITY_PREFIX` — inneranimalmedia:.env.agentsam.local:45, inneranimalmedia:.env.agentsam.example:42`
+- L19: `- `AGENTSAM_R2_RAW_REPORT_PREFIX` — inneranimalmedia:.env.agentsam.local:44, inneranimalmedia:.env.agentsam.example:41`
+- L20: `- `AGENTSAM_R2_REPORT_PREFIX` — inneranimalmedia:.env.agentsam.local:43, inneranimalmedia:.env.agentsam.example:40`
+- L21: `- `AGENTSAM_R2_SCREENSHOTS_PREFIX` — inneranimalmedia:.env.agentsam.local:42, inneranimalmedia:.env.agentsam.example:39`
+
+### `artifacts/key_hygiene_audit/chunks/07_key_usage_map.md`
+#### html_response
+- L388: `| `inneranimalmedia` | `docs/AUDIT-PUBLIC-ROUTING-R2-AUTH.md` | 42 | `if (obj) return respondWithR2Object(obj, `
+  - `/api/agent/exec`
+- L692: `| `iam-pty` | `worker.js` | 981 | `if (gatewayModel && gatewayModel.startsWith(`
+  - `/api/agent/execute`
+  - `/api/agent/git/branches`
+  - `/api/agent/git/repos`
+  - `/api/agent/git/status`
+  - `/api/agent/git/sync`
+  - `/api/agent/github`
+  - `/api/agent/github/file`
+  - `/api/agent/github/repos`
+  - `/api/agent/health`
+  - `/api/agent/intake`
+  - `/api/agent/intake/answer`
+  - `/api/agent/intake/start`
+  - `/api/agent/keyboard-shortcuts`
+  - `/api/agent/mcp`
+  - `/api/agent/memory/list`
+  - `/api/agent/memory/search`
+  - `/api/agent/memory/sync`
+  - `/api/agent/memory/upsert`
+  - `/api/agent/models`
+  - `/api/agent/models?provider=`
+  - `/api/agent/models?show_in_picker=1`
+  - `/api/agent/models\`
+  - `/api/agent/models\\\`
+  - `/api/agent/modes`
+  - `/api/agent/notifications`
+  - `/api/agent/notifications/${encodeURIComponent(id)}/read`
+  - `/api/agent/plan-task/resume`
+  - `/api/agent/plan/approve`
+  - `/api/agent/plan/reject`
+  - `/api/agent/playwright`
+  - `/api/agent/playwright/jobs`
+  - `/api/agent/playwright/jobs/`
+  - `/api/agent/preview?change_set_id=`
+  - `/api/agent/problems`
+  - `/api/agent/proposals/${encodeURIComponent(approval_id)}/approve`
+  - `/api/agent/proposals/${encodeURIComponent(tool.plan_terminal.approval_id)}/deny`
+  - `/api/agent/proposals/:id/approve`
+  - `/api/agent/proposals/:id/deny`
+  - `/api/agent/proposals/pending`
+  - `/api/agent/propose`
+  - `/api/agent/queue`
+  - `/api/agent/queue/status`
+  - `/api/agent/r2-save`
+  - `/api/agent/rag/compact-chats`
+  - `/api/agent/rag/index-memory`
+  - `/api/agent/rag/query`
+  - `/api/agent/rag/query\`
+  - `/api/agent/rag/status`
+  - `/api/agent/reindex-codebase`
+  - `/api/agent/rules`
+  - `/api/agent/run`
+  - `/api/agent/save-draft`
+  - `/api/agent/session/mode`
+  - `/api/agent/session/ws`
+  - `/api/agent/sessions`
+  - `/api/agent/sessions/${encodeURIComponent(id)}/messages`
+  - `/api/agent/sessions/:id`
+  - `/api/agent/sessions?limit=5`
+  - `/api/agent/sessions?t=`
+  - `/api/agent/subagent-profiles`
+  - `/api/agent/telemetry`
+  - `/api/agent/terminal/complete`
+  - `/api/agent/terminal/config-status`
+  - `/api/agent/terminal/exec`
+  - `/api/agent/terminal/exec\`
+  - `/api/agent/terminal/run`
+  - `/api/agent/terminal/socket-url`
+  - `/api/agent/terminal/status`
+  - `/api/agent/terminal/ws`
+  - `/api/agent/today-todo`
+  - `/api/agent/todo`
+  - `/api/agent/tool-smoke`
+  - `/api/agent/tools`
+  - `/api/agent/upload-attachment`
+  - `/api/agent/vertex-test`
+  - `/api/agent/workers-ai/image`
+  - `/api/agent/workers-ai/stt`
+  - `/api/agent/workers-ai/tts`
+  - `/api/agent/workflow/approve`
+  - `/api/agent/workflow/start`
+  - `/api/agent/workflows/trigger`
+  - `/api/agent/workspace/${encodeURIComponent(id)}`
+  - `/api/agent/workspace/${encodeURIComponent(ws)}`
+  - `/api/agent/workspace/:id`
+  - `/api/agent\`
+  - `/api/agent`
+- L32: `| **HIGH** | `unscoped-sensitive-query` | `inneranimalmedia:analytics/codebase-index/ws_inneranimalmedia/index-priority-files.json:1` | Sensitive table query appears to have no WHERE: agentsam_memory — Verify tenant/workspace/user scoping before this can run in production. | `rc/core/memory.js`
+  - `/api/agents`
+  - `/api/agentsam`
+  - `/api/agentsam/`
+  - `/api/agentsam/*`
+  - `/api/agentsam/agent-chat-plan-trace`
+  - `/api/agentsam/ai`
+  - `/api/agentsam/autorag/files`
+  - `/api/agentsam/autorag/search`
+  - `/api/agentsam/autorag/stats`
+  - `/api/agentsam/autorag/sync`
+  - `/api/agentsam/autorag/upload`
+  - `/api/agentsam/browser/trust`
+  - `/api/agentsam/browser/trust?origin=${encodeURIComponent(origin)}`
+  - `/api/agentsam/cmd-allowlist`
+  - `/api/agentsam/command-allowlist`
+  - `/api/agentsam/commands`
+  - `/api/agentsam/config`
+  - `/api/agentsam/feature-flags`
+  - `/api/agentsam/fetch-allowlist`
+  - `/api/agentsam/fetch-domains`
+  - `/api/agentsam/hooks`
+  - `/api/agentsam/ignore-patterns`
+  - `/api/agentsam/ignore-patterns/reorder`
+  - `/api/agentsam/index-status`
+  - `/api/agentsam/indexing-summary`
+  - `/api/agentsam/invocations`
+  - `/api/agentsam/mcp-allowlist`
+  - `/api/agentsam/plans`
+  - `/api/agentsam/prompts`
+  - `/api/agentsam/rules`
+  - `/api/agentsam/runs`
+  - `/api/agentsam/skills`
+  - `/api/agentsam/subagents`
+  - `/api/agentsam/time`
+  - `/api/agentsam/todos\`
+  - `/api/agentsam/tools-registry`
+  - `/api/agentsam/trusted-origins`
+  - `/api/agentsam/user-policy`
+  - `/api/agentsam/workflow-runs/${encodeURIComponent(runId)}/approve`
+  - `/api/agentsam/workflow-runs/:id`
+  - `/api/agentsam/workflows`
+  - `/api/agentsam/workflows/${encodeURIComponent(workflow.id)}/run`
+  - `/api/agentsam/workflows/:id`
+  - `/api/agentsam/workflows/:id/run`
+  - `/api/agentsam/workflows/:workflowId/graph\`
+  - `/api/agentsam/workflows\`
+  - `/api/agentsam`** inside the function for the full list.`
+  - `/api/agentsam`** inside the function for the full list.
+
+## `handleAgentApi` / agent chat
+
+- **`POST /api/agent/chat`:** compiles system prompt, optional **pre-prompt RAG** (~7410–7451), `fetchContextIndex`, `ai_compiled_context_cache`, then model call or **`runToolLoop`** (~7839, ~8020).
+- **`runToolLoop`:** ~4918+ — multi-round tool execution; loads tools from **`mcp_registered_tools`** when `useTools`.
+
+## API categories (non-exhaustive)
+
+- **MCP:** `/api/mcp/*` — `handleMcpApi`
+- **Images, draw, terminal, playwright** — see grep `pathLower === `
+  - `/api/agentsam`** inside the function for the full list.\`
+  - `/api/agentsam`** inside the function for the full list.`
+- L54: `- **Images, draw, terminal, playwright** — see grep `pathLower === `
+  - `/api/agentsam`** inside the function for the full list.` | `- **Gate:** `chatMode === `
+  - `/api/agent|agentsam_|mcp`
+  - `/api/ai`
+  - `/api/ai/guardrails`
+  - `/api/ai/integrations`
+  - `/api/ai/models`
+  - `/api/ai/providers`
+  - `/api/ai/routing-rules`
+  - `/api/ai/smoke-test`
+  - `/api/ai/test-runs`
+  - `/api/analytics/`
+  - `/api/analytics/advisors`
+  - `/api/analytics/advisors/guardrails`
+  - `/api/analytics/advisors/guardrails?range=${range}`
+  - `/api/analytics/advisors?range=${range}`
+  - `/api/analytics/agent/dependencies`
+  - `/api/analytics/agent/dependencies?range=${range}`
+  - `/api/analytics/agent/graph`
+  - `/api/analytics/agent/graph?range=${range}`
+  - `/api/analytics/agent/runs`
+  - `/api/analytics/agent/runs?range=${range}&limit=50`
+  - `/api/analytics/agent/runs?range=${range}&run_id=${encodeURIComponent(selectedRunId)}`
+  - `/api/analytics/agent/stream-events`
+  - `/api/analytics/codebase`
+  - `/api/analytics/codebase/chunks`
+  - `/api/analytics/codebase/overview`
+  - `/api/analytics/codebase/symbols`
+  - `/api/analytics/codebase?range=7d`
+  - `/api/analytics/costs`
+  - `/api/analytics/costs/forecasts`
+  - `/api/analytics/data-health`
+  - `/api/analytics/deploys/build-events`
+  - `/api/analytics/errors/d1-log`
+  - `/api/analytics/errors/d1-log?${p.toString()}`
+  - `/api/analytics/errors/events`
+  - `/api/analytics/layout`
+  - `/api/analytics/layout?route=${encodeURIComponent(route)}`
+  - `/api/analytics/mcp/tools`
+  - `/api/analytics/mcp/tools?range=${range}`
+  - `/api/analytics/models/drift`
+  - `/api/analytics/models/drift?${q}`
+  - `/api/analytics/models/evals`
+  - `/api/analytics/models/evals?${q}`
+  - `/api/analytics/models/leaderboard`
+  - `/api/analytics/models/leaderboard?${q}`
+  - `/api/analytics/models/performance-snapshots`
+  - `/api/analytics/models/prompt-cache`
+  - `/api/analytics/models/prompt-cache?${q}`
+  - `/api/analytics/models/routing-arms`
+  - `/api/analytics/models/routing-arms?${q}`
+  - `/api/analytics/models/routing-decisions`
+  - `/api/analytics/models/routing-decisions?${q}`
+  - `/api/analytics/overview`
+  - `/api/analytics/overview?${q.toString()}`
+  - `/api/analytics/overview\`
+  - `/api/analytics/prompts/runs`
+  - `/api/analytics/rag`
+  - `/api/analytics/rag/documents`
+  - `/api/analytics/rag/search-log`
+  - `/api/analytics/rag?range=7d`
+  - `/api/analytics/source-health`
+  - `/api/analytics/source-health?range=30d`
+  - `/api/analytics/tools/events`
+  - `/api/analytics/workers/dashboard-versions`
+  - `/api/analytics/workers/dashboard-versions?${q}`
+  - `/api/analytics/workers/r2`
+  - `/api/analytics/workers/r2?${q}`
+  - `/api/analytics/workers/r2?${q}\`
+  - `/api/analytics/workers/r2\`
+  - `/api/analytics/workers/summary`
+  - `/api/analytics/workers/summary?${q}`
+  - `/api/app-icons`
+  - `/api/artifacts`
+  - `/api/artifacts/${encodeURIComponent(aid)}/content`
+  - `/api/artifacts/${encodeURIComponent(d.artifact_id.trim())}/content`
+  - `/api/artifacts/${encodeURIComponent(det.artifact_id.trim())}/content`
+  - `/api/artifacts/art_8dafc8b641779896/content`
+  - `/api/artifacts/{out[`
+  - `/api/artifacts\`
+  - `/api/artifacts\\\`
+  - `/api/auth`
+  - `/api/auth-hooks/`
+  - `/api/auth-hooks/before-user-created`
+  - `/api/auth-hooks/custom-access-token`
+  - `/api/auth-hooks/send-email`
+  - `/api/auth/agent-session/mint`
+  - `/api/auth/backup-code`
+  - `/api/auth/cloudflare/start`
+  - `/api/auth/email-change/request`
+  - `/api/auth/email-change/request\`
+  - `/api/auth/forgot-password`
+  - `/api/auth/github/start`
+  - `/api/auth/google/start`
+  - `/api/auth/identities`
+  - `/api/auth/login`
+  - `/api/auth/login, /api/billing/checkout, /api/d1/query.`
+  - `/api/auth/logout`
+  - `/api/auth/logout\`
+  - `/api/auth/me`
+  - `/api/auth/oauth/consent`
+  - `/api/auth/oauth/consent/approve`
+  - `/api/auth/oauth/consent/deny`
+  - `/api/auth/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`
+  - `/api/auth/oauth/consent\`
+  - `/api/auth/password-change`
+  - `/api/auth/password-reset/confirm`
+  - `/api/auth/password-reset/request`
+  - `/api/auth/password-reset/request\`
+  - `/api/auth/reset-password`
+  - `/api/auth/session`
+  - `/api/auth/signup`
+  - `/api/auth/signup\`
+  - `/api/auth/supabase/callback`
+  - `/api/auth/supabase/start`
+  - `/api/auth/verify-email`
+  - `/api/billing`
+  - `/api/billing/checkout`
+  - `/api/billing/invoices`
+  - `/api/billing/plans`
+  - `/api/billing/portal`
+  - `/api/billing/subscription`
+  - `/api/billing/summary`
+  - `/api/browser`
+  - `/api/browser/`
+  - `/api/browser/health`
+  - `/api/browser/metrics`
+  - `/api/browser/screenshot`
+  - `/api/cad`
+  - `/api/cad/`
+  - `/api/cad/blender/script`
+  - `/api/cad/jobs`
+  - `/api/cad/meshy/generate`
+  - `/api/cad/openscad/generate`
+  - `/api/calendar`
+  - `/api/calendar/events`
+  - `/api/calendar/events/`
+  - `/api/calendar/view/`
+  - `/api/canvas/theme`
+  - `/api/catalog/integrations`
+  - `/api/chat`
+  - `/api/cicd`
+  - `/api/cicd/current`
+  - `/api/cicd/run`
+  - `/api/cicd/runs`
+  - `/api/clients`
+  - `/api/clients?id=`
+  - `/api/cloud/r2/buckets/agent-sam/objects?prefix=dashboard-uploads/`
+  - `/api/cloud/r2/buckets/agent-sam/objects?prefix=dashboard-uploads/\`
+  - `/api/cloudflare/workers/list`
+  - `/api/cms`
+  - `/api/cms/*`
+  - `/api/cms/assets`
+  - `/api/cms/assets/iam`
+  - `/api/cms/assets/iam?limit=48`
+  - `/api/cms/assets?limit=24`
+  - `/api/cms/collections`
+  - `/api/cms/components`
+  - `/api/cms/deploy-page`
+  - `/api/cms/deployments`
+  - `/api/cms/deployments/`
+  - `/api/cms/pages`
+  - `/api/cms/pages/`
+  - `/api/cms/sections`
+  - `/api/cms/settings`
+  - `/api/cms/templates`
+  - `/api/cms/tenants`
+  - `/api/cms/themes`
+  - `/api/cms/themes/apply`
+  - `/api/collab/`
+  - `/api/collab/canvas`
+  - `/api/collab/canvas/elements?workspace_id=${encodeURIComponent(ws)}`
+  - `/api/collab/canvas/state?workspace_id=${encodeURIComponent(ws)}`
+  - `/api/collab/canvas\`
+  - `/api/collab/room/{room}`
+  - `/api/colors/all`
+  - `/api/commands`
+  - `/api/commands/`
+  - `/api/commands/custom`
+  - `/api/context/attached-content`
+  - `/api/context/chunk`
+  - `/api/context/extract`
+  - `/api/context/knowledge-search`
+  - `/api/context/memory/add`
+  - `/api/context/memory/list`
+  - `/api/context/optimize`
+  - `/api/context/progressive`
+  - `/api/context/progressive-search`
+  - `/api/context/rag-search`
+  - `/api/context/summarize-code`
+  - `/api/convert/create`
+  - `/api/convert/status?id=${params.id}`
+  - `/api/cursor/`
+  - `/api/cursor/agent/${agentId}/stream`
+  - `/api/cursor/agent/spawn`
+  - `/api/cursor/agents`
+  - `/api/d1`
+  - `/api/d1/query`
+  - `/api/d1/query\`
+  - `/api/d1/table`
+  - `/api/d1/tables`
+  - `/api/dashboard/d1/query`
+  - `/api/dashboard/d1/tables`
+  - `/api/dashboard/status-bundle`
+  - `/api/dashboard/time-track`
+  - `/api/dashboard/time-track/end`
+  - `/api/dashboard/time-track/heartbeat`
+  - `/api/dashboard/time-track/manual`
+  - `/api/dashboard/time-track/start`
+  - `/api/dashboard/time-track?action=heartbeat`
+  - `/api/database/*`
+  - `/api/database/execute`
+  - `/api/database/query-history`
+  - `/api/database/snippets`
+  - `/api/db/connections`
+  - `/api/db/connections/test`
+  - `/api/deploy/rollback`
+  - `/api/deployments`
+  - `/api/deployments/log`
+  - `/api/deployments/recent`
+  - `/api/designstudio/`
+  - `/api/designstudio/blueprints`
+  - `/api/designstudio/runs`
+  - `/api/draw`
+  - `/api/draw/`
+  - `/api/draw/clear`
+  - `/api/draw/connections`
+  - `/api/draw/download/`
+  - `/api/draw/elements`
+  - `/api/draw/export`
+  - `/api/draw/libraries`
+  - `/api/draw/library`
+  - `/api/draw/list`
+  - `/api/draw/load`
+  - `/api/draw/save`
+  - `/api/drive/delete`
+  - `/api/drive/file`
+  - `/api/drive/folder`
+  - `/api/drive/get`
+  - `/api/drive/list`
+  - `/api/drive/search`
+  - `/api/drive/sync`
+  - `/api/drive/upload`
+  - `/api/email/broadcast`
+  - `/api/email/domains`
+  - `/api/email/inbound`
+  - `/api/email/keys`
+  - `/api/email/send`
+  - `/api/embed`
+  - `/api/embed returned no vector: {str(data)[:400]}`
+  - `/api/embeddings`
+  - `/api/embeddings returned no vector: {str(data)[:400]}`
+  - `/api/env/`
+  - `/api/env/audit`
+  - `/api/env/secrets`
+  - `/api/env/secrets/reveal`
+  - `/api/env/spend`
+  - `/api/finance`
+  - `/api/finance/`
+  - `/api/finance/ai-spend?scope=agent`
+  - `/api/finance/import-csv`
+  - `/api/finance/summary`
+  - `/api/finance/transactions`
+  - `/api/finance/transactions?limit=200`
+  - `/api/founder/log`
+  - `/api/games`
+  - `/api/games/pieces`
+  - `/api/games/rooms`
+  - `/api/games/rooms/`
+  - `/api/games/ws/`
+  - `/api/gdrive/fetch`
+  - `/api/gdrive/list`
+  - `/api/generate`
+  - `/api/github/repos`
+  - `/api/github/status`
+  - `/api/health`
+  - `/api/health → $health`
+  - `/api/health → 200`
+  - `/api/health/`
+  - `/api/health/*`
+  - `/api/health/advisors`
+  - `/api/health/agent`
+  - `/api/health/agentsam-d1`
+  - `/api/health/deployments`
+  - `/api/health/hyperdrive`
+  - `/api/health/mcp`
+  - `/api/health/mcp/check`
+  - `/api/health/models`
+  - `/api/health/summary`
+  - `/api/health/workers`
+  - `/api/health\`
+  - `/api/hello`
+  - `/api/hooks/cursor`
+  - `/api/hooks/executions`
+  - `/api/hooks/github`
+  - `/api/hooks/health`
+  - `/api/hooks/internal`
+  - `/api/hooks/openai`
+  - `/api/hooks/stripe`
+  - `/api/hooks/subscriptions`
+  - `/api/hooks/subscriptions/reorder`
+  - `/api/hooks/supabase`
+  - `/api/hub`
+  - `/api/hub/`
+  - `/api/hub/roadmap?plan_id=plan_iam_dashboard_v1`
+  - `/api/hub/stats`
+  - `/api/hub/tasks`
+  - `/api/hub/tasks/`
+  - `/api/hub/terminal`
+  - `/api/hyperdrive`
+  - `/api/hyperdrive/health`
+  - `/api/hyperdrive/query`
+  - `/api/hyperdrive/status`
+  - `/api/hyperdrive/table`
+  - `/api/hyperdrive/tables`
+  - `/api/images`
+  - `/api/images — locate in deploy`
+  - `/api/images*`
+  - `/api/images/`
+  - `/api/images/cf/delete`
+  - `/api/images/cf/list`
+  - `/api/images/cf/upload`
+  - `/api/images/edit`
+  - `/api/images/generate`
+  - `/api/images?page=`
+  - `/api/integrations`
+  - `/api/integrations/api-keys`
+  - `/api/integrations/bluebubbles/webhook`
+  - `/api/integrations/drive/list`
+  - `/api/integrations/events`
+  - `/api/integrations/gdrive/file`
+  - `/api/integrations/gdrive/files`
+  - `/api/integrations/gdrive/raw`
+  - `/api/integrations/github/connect`
+  - `/api/integrations/github/file`
+  - `/api/integrations/github/files`
+  - `/api/integrations/github/list`
+  - `/api/integrations/github/raw`
+  - `/api/integrations/github/repos`
+  - `/api/integrations/mcp-tools`
+  - `/api/integrations/resend/webhook`
+  - `/api/integrations/status`
+  - `/api/integrations/summary`
+  - `/api/integrations/supabase`
+  - `/api/integrations/webhooks`
+  - `/api/internal/`
+  - `/api/internal/cicd-event`
+  - `/api/internal/deploy-complete`
+  - `/api/internal/designstudio/`
+  - `/api/internal/designstudio/sync-run`
+  - `/api/internal/git-status`
+  - `/api/internal/notify`
+  - `/api/internal/post-deploy`
+  - `/api/internal/record-deploy`
+  - `/api/internal/trigger-workers-build`
+  - `/api/kanban/boards`
+  - `/api/kanban/boards/`
+  - `/api/kanban/tasks`
+  - `/api/kanban/tasks/`
+  - `/api/knowledge`
+  - `/api/knowledge/crawl`
+  - `/api/learn`
+  - `/api/learn/*`
+  - `/api/learn/dashboard`
+  - `/api/learn/dashboard\`
+  - `/api/learn/progress`
+  - `/api/learn/progress\`
+  - `/api/learn/submit`
+  - `/api/learn/submit\`
+  - `/api/loading-states`
+  - `/api/mail`
+  - `/api/mail/`
+  - `/api/mail/archived`
+  - `/api/mail/attachment/`
+  - `/api/mail/draft`
+  - `/api/mail/email/`
+  - `/api/mail/gmail/callback`
+  - `/api/mail/gmail/start`
+  - `/api/mail/gmail/status`
+  - `/api/mail/identities`
+  - `/api/mail/inbox`
+  - `/api/mail/label`
+  - `/api/mail/labels`
+  - `/api/mail/send`
+  - `/api/mail/senders`
+  - `/api/mail/sent`
+  - `/api/mail/starred`
+  - `/api/mail/stats`
+  - `/api/mail/templates`
+  - `/api/mcp`
+  - `/api/mcp/*`
+  - `/api/mcp/a11y`
+  - `/api/mcp/agent/:slug/chat`
+  - `/api/mcp/agent/:slug/workflows`
+  - `/api/mcp/agent/session/start`
+  - `/api/mcp/agents`
+  - `/api/mcp/agents/dispatch`
+  - `/api/mcp/agents/reset`
+  - `/api/mcp/agents/reset-all`
+  - `/api/mcp/agents/status`
+  - `/api/mcp/audit`
+  - `/api/mcp/commands`
+  - `/api/mcp/credentials`
+  - `/api/mcp/dispatch`
+  - `/api/mcp/imgx`
+  - `/api/mcp/invoke`
+  - `/api/mcp/invoke\n/api/agent chat`
+  - `/api/mcp/server-allowlist`
+  - `/api/mcp/servers`
+  - `/api/mcp/services`
+  - `/api/mcp/services/health`
+  - `/api/mcp/stats`
+  - `/api/mcp/status`
+  - `/api/mcp/stream`
+  - `/api/mcp/token/create`
+  - `/api/mcp/token/revoke`
+  - `/api/mcp/tool-calls`
+  - `/api/mcp/tools`
+  - `/api/mcp/tools/catalog`
+  - `/api/mcp/tools?agent_id=`
+  - `/api/mcp/workflows`
+  - `/api/media/assets`
+  - `/api/media/assets/register`
+  - `/api/meet`
+  - `/api/meet/recording/save`
+  - `/api/meet/rooms`
+  - `/api/meet/schedule`
+  - `/api/meshy/image-to-3d`
+  - `/api/meshy/latest`
+  - `/api/meshy/text-to-3d`
+  - `/api/monaco/complete`
+  - `/api/moviemode/`
+  - `/api/moviemode/projects`
+  - `/api/moviemode/render-jobs`
+  - `/api/moviemode/timelines`
+  - `/api/notifications/email`
+  - `/api/notify/deploy-complete`
+  - `/api/oauth/`
+  - `/api/oauth/* after modular 404\`
+  - `/api/oauth/authorize`
+  - `/api/oauth/cloudflare/start`
+  - `/api/oauth/cloudflare/start?return_to=`
+  - `/api/oauth/github/callback`
+  - `/api/oauth/github/callback login path\`
+  - `/api/oauth/github/start`
+  - `/api/oauth/github/start returns 302 to GitHub with no X-IAM-Legacy header`
+  - `/api/oauth/github/start returns 302 to GitHub with no X-IAM-Legacy header`
+
+#### iam_header_component
+- L4525: ``
+  - `/api/oauth/github/start returns 302 to GitHub with no X-IAM-Legacy headers\`
+  - `/api/oauth/github/start?next=`
+  - `/api/oauth/github/start?next=/dashboard/overview`
+  - `/api/oauth/github/start?return_to=`
+  - `/api/oauth/github/start?return_to=/dashboard/agent`
+  - `/api/oauth/gmail/callback`
+  - `/api/oauth/gmail/start`
+  - `/api/oauth/google/callback`
+  - `/api/oauth/google/callback, /auth/callback/google, /api/oauth/github/callback, /auth/callback/github`
+  - `/api/oauth/google/start`
+  - `/api/oauth/google/start returns 302 to Google with no X-IAM-Legacy headers\`
+  - `/api/oauth/google/start returns 302 to Google with no X-IAM-Legacy headers\\\`
+  - `/api/oauth/google/start?connect=drive&return_to=/dashboard/agent`
+  - `/api/oauth/google/start?return_to=`
+  - `/api/oauth/google/start?return_to=/dashboard/agent&connect=drive`
+  - `/api/oauth/google/start?return_to=/dashboard/overview`
+  - `/api/oauth/supabase/callback`
+  - `/api/oauth/supabase/start?return_to=`
+  - `/api/oauth/token`
+  - `/api/oauth/userinfo`
+  - `/api/onboarding`
+  - `/api/onboarding/intake`
+  - `/api/onboarding/profile-setup`
+  - `/api/onboarding/recovery-codes`
+  - `/api/onboarding/send-invite`
+  - `/api/onboarding/status`
+  - `/api/openai/diagnostics`
+  - `/api/openai/test`
+  - `/api/overview`
+  - `/api/overview/*`
+  - `/api/overview/activity-strip`
+  - `/api/overview/activity-strip\`
+  - `/api/overview/activity-strip\\\`
+  - `/api/overview/agent-activity`
+  - `/api/overview/agent-activity\`
+  - `/api/overview/agent-activity\\\`
+  - `/api/overview/checkpoints`
+  - `/api/overview/commands-workflows`
+  - `/api/overview/commands-workflows\`
+  - `/api/overview/commands-workflows\\\`
+  - `/api/overview/dashboard-bundle`
+  - `/api/overview/dashboard-bundle\`
+  - `/api/overview/dashboard-bundle\\\`
+  - `/api/overview/deployments`
+  - `/api/overview/deployments?limit=5`
+  - `/api/overview/deployments\`
+  - `/api/overview/deployments\\\`
+  - `/api/overview/finance-charts`
+  - `/api/overview/goals-launch`
+  - `/api/overview/kpi-strip`
+  - `/api/overview/kpi-strip\`
+  - `/api/overview/kpi-strip\\\`
+  - `/api/overview/mcp-health`
+  - `/api/overview/recent-activity`
+  - `/api/overview/recent-activity?hours=48`
+  - `/api/overview/stats`
+  - `/api/overview/time-founder`
+  - `/api/overview\`
+  - `/api/overview\\\`
+  - `/api/pipelines`
+  - `/api/pipelines/`
+  - `/api/pipelines/streams/metrics`
+  - `/api/pipelines/streams/send`
+  - `/api/placeholder`
+  - `/api/platform/a11y/audit`
+  - `/api/platform/a11y/summary`
+  - `/api/platform/clients`
+  - `/api/platform/d1-health`
+  - `/api/platform/info`
+  - `/api/platform/kv-health`
+  - `/api/platform/kv/flush`
+  - `/api/playwright`
+  - `/api/playwright/screenshot`
+  - `/api/projects`
+  - `/api/projects/`
+  - `/api/projects/overview`
+  - `/api/project…
+    output_summary                     : Shipped in repo commit 6c043da; production deploy pending user run deploy:full.
+    tokens_used                        : 0
+    cost_usd                           : 0
+    requires_approval                  : 0
+    created_at_unix                    : 1778795955
+
+  Row 2:
+    id                                 : todo_agent_cursor_quality_capability_surfaces
+    tenant_id                          : tenant_sam_primeaux
+    workspace_id                       : ws_inneranimalmedia
+    title                              : Validate Agent Sam Cursor-quality capability surfaces after trace spine deploy
+    description                        : After the deploy proves the core trace spine arun_* → wrun_* → exec_* → estep_* → atc_* is valid, va…
+    status                             : open
+    priority                           : high
+    category                           : agent-capabilities
+    tags                               : [`
+  - `/api/project… | Shipped in repo commit 6c043da; production deploy pending user run deploy:full. | 0 | 0 | 0 | 1778795955 |  |  |  |
+| todo_agent_cursor_quality_capability_surfaces | tenant_sam_primeaux | ws_inneranimalmedia | Validate Agent Sam Cursor-quality capability surfaces after trace spine deploy | After the deploy proves the core trace spine arun_* → wrun_* → exec_* → estep_* → atc_* is valid, va… | open | high | agent-capabilities | [`
+  - `/api/provider-colors`
+  - `/api/r2...`
+  - `/api/r2/`
+  - `/api/r2/\`
+  - `/api/r2/\\\`
+  - `/api/r2/buckets`
+  - `/api/r2/buckets/`
+  - `/api/r2/buckets/bulk-action`
+  - `/api/r2/copy`
+  - `/api/r2/delete`
+  - `/api/r2/delete-batch`
+  - `/api/r2/delete?bucket=`
+  - `/api/r2/file`
+  - `/api/r2/get`
+  - `/api/r2/head`
+  - `/api/r2/list`
+  - `/api/r2/list?bucket=`
+  - `/api/r2/list?buckets=true`
+  - `/api/r2/list?buckets=true&all=true`
+  - `/api/r2/move`
+  - `/api/r2/multipart/abort`
+  - `/api/r2/multipart/complete`
+  - `/api/r2/multipart/create`
+  - `/api/r2/multipart/part`
+  - `/api/r2/put`
+  - `/api/r2/search`
+  - `/api/r2/stats`
+  - `/api/r2/stream`
+  - `/api/r2/sync`
+  - `/api/r2/upload`
+  - `/api/r2/upload?bucket=`
+  - `/api/r2/url`
+  - `/api/r2/url?bucket=`
+  - `/api/rag/feedback`
+  - `/api/rag/ingest`
+  - `/api/rag/ingest-batch`
+  - `/api/rag/query`
+  - `/api/rag/search`
+  - `/api/rag/status`
+  - `/api/rag/sync`
+  - `/api/schedule-morning-email`
+  - `/api/screensh``
+  - `/api/screensh`
+
+## GET /api/screenshots/asset
+
+- **Handler:** handleAgentApi (lines 16841-19412)
+- **Line:** ~19073
+- **Auth:** usually session (see handler)
+- **Description:** Matched in worker.js branch.
+- **Bindings (typical):** DB
+- **Code:** `if (pathLower === `
+  - `/api/screensh`
+
+## GET /api/telemetry/summary
+
+- **Handler:** handleAgentApi (lines 16841-19412)
+- **Line:** ~16913
+- **Auth:** usually session (see handler)
+- **Description:** Matched in worker.js branch.
+- **Bindings (typical):** DB
+- **Code:** `if (pathLower === `
+  - `/api/screensh`
+
+## GET /api/terminal/agents
+
+- **Handler:** handleAgentApi (lines 16841-19412)
+- **Line:** ~17917
+- **Auth:** usually session (see handler)
+- **Description:** Matched in worker.js branch.
+- **Bindings (typical):** AI, DB, HYPERDRIVE
+- **Code:** `if (pathLower === `
+  - `/api/screensh`
+
+## POST /api/monaco/complete
+
+- **Handler:** handleAgentApi (lines 16841-19412)
+- **Line:** ~17956
+- **Auth:** usually session (see handler)
+- **Description:** Matched in worker.js branch.
+- **Bindings (typical):** DB
+- **Code:** `if (pathLower === `
+  - `/api/screensh`
+
+## POST /api/playwright/screenshot
+
+- **Handler:** handleAgentApi (lines 16841-19412)
+- **Line:** ~18145
+- **Auth:** usually session (see handler)
+- **Description:** Matched in worker.js branch.
+- **Bindings (typical):** DB, MYBROWSER
+- **Code:** `if (pathLower === `
+  - `/api/screensh`
+
+## prefix /api/agent-sam/*
+
+- **Handler:** runDeploymentsWeeklyRollup (lines 3003-6949)
+- **Line:** ~3273
+- **Auth:** usually session (see handler)
+- **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
+- **Bindings (typical):** AI, DB, HYPERDRIVE
+- **Code:** `if (pathLower.startsWith(`
+  - `/api/screensh`
+
+## prefix /api/cicd/*
+
+- **Handler:** runDeploymentsWeeklyRollup (lines 3003-6949)
+- **Line:** ~4534
+- **Auth:** usually session (see handler)
+- **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
+- **Bindings (typical):** DB
+- **Code:** `if (pathLower.startsWith(`
+  - `/api/screensh`
+
+## prefix /api/images/*
+
+- **Handler:** handleAgentApi (lines 16841-19412)
+- **Line:** ~19194
+- **Auth:** usually session (see handler)
+- **Description:** Path prefix. Sub-routes resolved inside handleAgentApi.
+- **Bindings (typical):** DB
+- **Code:** `if (pathLower.startsWith(`
+  - `/api/screensh`
+
+## prefix /api/mcp/*
+
+- **Handler:** runDeploymentsWeeklyRollup (lines 3003-6949)
+- **Line:** ~4530
+- **Auth:** usually session (see handler)
+- **Description:** Path prefix. Sub-routes resolved inside runDeploymentsWeeklyRollup.
+- **Bindings (typical):** DB, KV
+- **Code:** `if (pathLower.startsWith(`
+  - `/api/screenshots`
+  - `/api/screenshots?key=`
+  - `/api/search`
+  - `/api/search/debug`
+  - `/api/search/docs`
+  - `/api/search/docs/index`
+  - `/api/search/docs/status`
+  - `/api/search/federated`
+  - `/api/seed`
+  - `/api/seed\`
+  - `/api/settings`
+  - `/api/settings/*`
+  - `/api/settings/* (+ themes, integrations)`
+  - `/api/settings/agent-config`
+  - `/api/settings/agents`
+  - `/api/settings/agents/commands`
+  - `/api/settings/agents/domains`
+  - `/api/settings/agents/mcp`
+  - `/api/settings/agents/policy`
+  - `/api/settings/ai-models`
+  - `/api/settings/ai-models/keys`
+  - `/api/settings/ai-models/usage`
+  - `/api/settings/api-keys`
+  - `/api/settings/api-keys/audit`
+  - `/api/settings/appearance`
+  - `/api/settings/avatar`
+  - `/api/settings/billing/status`
+  - `/api/settings/cicd`
+  - `/api/settings/commands`
+  - `/api/settings/default-model`
+  - `/api/settings/deploy-context`
+  - `/api/settings/docs`
+  - `/api/settings/docs-providers`
+  - `/api/settings/emails`
+  - `/api/settings/emails/`
+  - `/api/settings/github`
+  - `/api/settings/hooks`
+  - `/api/settings/hooks/status`
+  - `/api/settings/integrations`
+  - `/api/settings/integrations/connected`
+  - `/api/settings/integrations/custom`
+  - `/api/settings/integrations/custom-mcp`
+  - `/api/settings/integrations/status`
+  - `/api/settings/marketplace-catalog`
+  - `/api/settings/mcp`
+  - `/api/settings/mcp/status`
+  - `/api/settings/model-preference`
+  - `/api/settings/models`
+  - `/api/settings/network`
+  - `/api/settings/notifications`
+  - `/api/settings/preferences`
+  - `/api/settings/profile`
+  - `/api/settings/profile/avatar`
+  - `/api/settings/retention-policies`
+  - `/api/settings/routing`
+  - `/api/settings/routing/`
+  - `/api/settings/rules`
+  - `/api/settings/security/backup-codes/generate`
+  - `/api/settings/security/change-password`
+  - `/api/settings/security/findings`
+  - `/api/settings/security/sessions`
+  - `/api/settings/sessions`
+  - `/api/settings/sessions/`
+  - `/api/settings/sessions/all`
+  - `/api/settings/skills`
+  - `/api/settings/storage-preferences`
+  - `/api/settings/storage/status`
+  - `/api/settings/subagents`
+  - `/api/settings/teams`
+  - `/api/settings/theme`
+  - `/api/settings/theme?slug=`
+  - `/api/settings/theme\`
+  - `/api/settings/themes/status`
+  - `/api/settings/tools/status`
+  - `/api/settings/usage`
+  - `/api/settings/user-policy`
+  - `/api/settings/workspace`
+  - `/api/settings/workspace/`
+  - `/api/settings/workspace/default`
+  - `/api/settings/workspace/members`
+  - `/api/settings/workspace/members/invite`
+  - `/api/settings/workspace/modules`
+  - `/api/settings/workspace/reindex`
+  - `/api/settings/workspaces`
+  - `/api/settings/workspaces/active`
+  - `/api/spend`
+  - `/api/spend/summary`
+  - `/api/spend/unified`
+  - `/api/storage`
+  - `/api/storage/*`
+  - `/api/storage/access-keys`
+  - `/api/storage/activity`
+  - `/api/storage/analytics`
+  - `/api/storage/buckets`
+  - `/api/storage/jobs/`
+  - `/api/storage/jobs/rollup-bucket-summary`
+  - `/api/storage/jobs/rollup-worker-analytics`
+  - `/api/storage/jobs/sync-project-storage`
+  - `/api/storage/policies`
+  - `/api/storage/preferences`
+  - `/api/storage/r2/list`
+  - `/api/storage/r2/read`
+  - `/api/storage/r2/search`
+  - `/api/storage/r2/summary`
+  - `/api/storage/r2/url`
+  - `/api/storage/r2/write`
+  - `/api/storage/s3`
+  - `/api/storage/s3-config`
+  - `/api/storage/s3/keys`
+  - `/api/storage/settings`
+  - `/api/storage/vectors`
+  - `/api/studio`
+  - `/api/studio/`
+  - `/api/system/health`
+  - `/api/tags`
+  - `/api/telemetry/otlp/v1/logs`
+  - `/api/telemetry/tools`
+  - `/api/telemetry/v1/traces`
+  - `/api/tenant`
+  - `/api/tenant/branding`
+  - `/api/tenant/onboarding`
+  - `/api/terminal`
+  - `/api/terminal...`
+  - `/api/terminal/`
+  - `/api/terminal/assist`
+  - `/api/terminal/commands`
+  - `/api/terminal/session`
+  - `/api/terminal/session/register`
+  - `/api/terminal/session/register\`
+  - `/api/terminal/session/resume`
+  - `/api/terminal/session/validate`
+  - `/api/terminal/session/verify`
+  - `/api/terminal/sessions`
+  - `/api/terminal/ws`
+  - `/api/test/code-execution-e2e`
+  - `/api/themes`
+  - `/api/themes/active`
+  - `/api/themes/active\`
+  - `/api/themes/apply`
+  - `/api/themes/apply\`
+  - `/api/themes/create`
+  - `/api/themes/create\`
+  - `/api/themes/package`
+  - `/api/themes/package\`
+  - `/api/themes\`
+  - `/api/timers/start`
+  - `/api/tools`
+  - `/api/tools-proxy/`
+  - `/api/tools/image/generate`
+  - `/api/tools/status`
+  - `/api/tunnel/restart`
+  - `/api/tunnel/status`
+  - `/api/unified-search`
+  - `/api/unified-search/recent`
+  - `/api/unified-search/track`
+  - `/api/user/preferences`
+  - `/api/vault`
+  - `/api/vault/audit`
+  - `/api/vault/llm-keys`
+  - `/api/vault/projects`
+  - `/api/vault/registry`
+  - `/api/vault/secrets`
+  - `/api/vault/secrets/`
+  - `/api/vault/store`
+  - `/api/vectorize/search`
+  - `/api/version`
+  - `/api/voxel/generate`
+  - `/api/voxel/spawn`
+  - `/api/webhooks/anthropic`
+  - `/api/webhooks/cloudflare`
+  - `/api/webhooks/cursor`
+  - `/api/webhooks/github`
+  - `/api/webhooks/health`
+  - `/api/webhooks/internal`
+  - `/api/webhooks/internal X-IAM-Signature HMAC`
+  - `/api/webhooks/openai`
+  - `/api/webhooks/resend`
+  - `/api/webhooks/stripe`
+  - `/api/webhooks/supabase`
+  - `/api/workers`
+  - `/api/workflow/plan`
+  - `/api/workflow/run`
+  - `/api/workflow/summary`
+  - `/api/workflows`
+  - `/api/workflows\`
+  - `/api/workflows\\\`
+  - `/api/workspace`
+  - `/api/workspace/create`
+  - `/api/workspace/list`
+  - `/api/workspace/settings`
+  - `/api/workspaces`
+  - `/api/workspaces/current/shell`
+  - `/api/workspaces/list`
+
+## 🗄️ ALL D1 TABLE REFERENCES DETECTED
+
+  - `AGENTSAM_ANTHROPIC_ESCALATION_ONLY`
+  - `AGENTSAM_BRIDGE_KEY`
+  - `AGENTSAM_BRIDGE_KEY_SHINSHU`
+  - `AGENTSAM_DEFAULT_CHEAP_MODEL`
+  - `AGENTSAM_DEFAULT_CHEAP_PROVIDER`
+  - `AGENTSAM_DETERMINISTIC_ROUTING`
+  - `AGENTSAM_DISABLE_DEFAULT_ANTHROPIC`
+  - `AGENTSAM_E2E_MODE`
+  - `AGENTSAM_E2E_MODEL`
+  - `AGENTSAM_E2E_NO_LLM_BY_DEFAULT`
+  - `AGENTSAM_ENV_FILE`
+  - `AGENTSAM_IGNORE_AND_RULES`
+  - `AGENTSAM_LOCAL_MODEL_ENABLED`
+  - `AGENTSAM_MCP_WORKFLOWS`
+  - `AGENTSAM_OPENAI_API_KEY`
+  - `AGENTSAM_OPENAI_MODEL`
+  - `AGENTSAM_POLICY_COLS`
+  - `AGENTSAM_PROMPT_ROUTES`
+  - `AGENTSAM_R2_ANALYTICS_PREFIX`
+  - `AGENTSAM_R2_BUCKET`
+  - `AGENTSAM_R2_EVIDENCE_PREFIX`
+  - `AGENTSAM_R2_PREFIX`
+  - `AGENTSAM_R2_QUALITY_PREFIX`
+  - `AGENTSAM_R2_RAW_REPORT_PREFIX`
+  - `AGENTSAM_R2_REPORT_PREFIX`
+  - `AGENTSAM_R2_RESULTS_PREFIX`
+  - `AGENTSAM_R2_SCREENSHOTS_PREFIX`
+  - `AGENTSAM_REMASTER_MAX_OUTPUT_TOKENS`
+  - `AGENTSAM_SMOKE_ENVIRONMENT`
+  - `AGENTSAM_SMOKE_MAX_COST_USD`
+  - `AGENTSAM_SMOKE_MODE`
+  - `AGENTSAM_SMOKE_PROVIDER`
+  - `AGENTSAM_SMOKE_RUN_PREFIX`
+  - `AGENTSAM_SMOKE_WRITE_D1`
+  - `AGENTSAM_SUPABASE_ENABLED`
+  - `AGENTSAM_SUPABASE_OBSERVABILITY_ENABLED`
+  - `AGENTSAM_SUPABASE_OPTIONAL_TABLES`
+  - `AGENTSAM_SUPABASE_REQUIRED_TABLES`
+  - `AGENTSAM_SUPABASE_STRICT`
+  - `AGENTSAM_TABLES`
+  - `AGENTSAM_TABLES_EXPECTED`
+  - `AGENTSAM_TABLE_MISSING_TENANT_ID`
+  - `AGENTSAM_TABLE_MISSING_WORKSPACE_ID`
+  - `AGENTSAM_TENANT_ID`
+  - `AGENTSAM_THOMPSON_SAMPLING`
+  - `AGENTSAM_TOOLS`
+  - `AGENTSAM_TOOL_DEBUG`
+  - `AGENTSAM_WORKFLOW_ACTIVE_SQL`
+  - `AGENTSAM_WORKFLOW_RUNS_TABLE`
+  - `AGENTSAM_WORKSPACE_ID`
+  - `ALL`
+  - `API`
+  - `ASSETS`
+  - `Access`
+  - `Address`
+  - `Agent`
+  - `AgentDashboard`
+  - `AgentSam_Telemetry`
+  - `Anthropic`
+  - `App`
+  - `AutoRAG`
+  - `Benchmark`
+  - `Beta`
+  - `BlueBubbles`
+  - `Brooklyn`
+  - `Browser`
+  - `BrowserView`
+  - `CDN`
+  - `CMS`
+  - `CREATE`
+  - `CSS`
+  - `Chat`
+  - `Chats`
+  - `Cloudflare`
+  - `Connor`
+  - `Cursor`
+  - `DASHBOARD`
+  - `DDL`
+  - `DOCS_BUCKET`
+  - `Dashboard`
+  - `Dependabot`
+  - `Design`
+  - `DevTools`
+  - `Downloads`
+  - `Drive`
+  - `Editor`
+  - `EditorContext`
+  - `FKs`
+  - `FloatingPreviewPanel`
+  - `GCP`
+  - `GDrive`
+  - `GET`
+  - `Gemini`
+  - `GitHub`
+  - `Google`
+  - `HTML`
+  - `HTTP`
+  - `INTEGER`
+  - `Inner`
+  - `InnerAnimalMedia`
+  - `Integrations`
+  - `JSON`
+  - `Lab`
+  - `Liquid`
+  - `MCP`
+  - `Mac`
+  - `MeauxCAD`
+  - `MeauxCloud`
+  - `Media`
+  - `Meshy`
+  - `Monaco`
+  - `Next`
+  - `OAuth`
+  - `OVERVIEW_DASHBOARD_DB_AUDIT`
+  - `Ollama`
+  - `OpenAI`
+  - `Overview`
+  - `PDF`
+  - `POST`
+  - `PRAGMA`
+  - `PTY`
+  - `PUBLIC`
+  - `Path`
+  - `RAG`
+  - `React`
+  - `Request`
+  - `Resend`
+  - `SAM`
+  - `SESSIONS`
+  - `SESSION_COOKIE`
+  - `SKILL`
+  - `SQL`
+  - `SSE`
+  - `SSO`
+  - `Secret`
+  - `Sessions`
+  - `Settings`
+  - `Shopify`
+  - `Step`
+  - `Stripe`
+  - `Supabase`
+  - `TERMINAL_WS_URL`
+  - `TEXT`
+  - `TOMORROW`
+  - `TOOLS`
+  - `URL`
+  - `User`
+  - `VECTORIZE_INDEX`
+  - `Vectorize`
+  - `Vite`
+  - `WAF`
+  - `WebSocket`
+  - `Welcome`
+  - `Worker`
+  - `Workers`
+  - `Wrangler`
+  - `__future__`
+  - `_new`
+  - `above`
+  - `account`
+  - `active`
+  - `active_timers`
+  - `activity_signals`
+  - `actual`
+  - `address`
+  - `adjacent`
+  - `admin`
+  - `admin_user`
+  - `admin_user_candidates`
+  - `advisors`
+  - `agen`
+  - `agent`
+  - `agent_ai_executable_limits`
+  - `agent_ai_sam`
+  - `agent_c`
+  - `agent_capabilities`
+  - `agent_command_audit_log`
+  - `agent_command_conversations`
+  - `agent_command_executions`
+  - `agent_command_integrations`
+  - `agent_command_proposals`
+  - `agent_commands`
+  - `agent_configs`
+  - `agent_conversations`
+  - `agent_cost_ledger`
+  - `agent_costs`
+  - `agent_db_query_history`
+  - `agent_db_snippets`
+  - `agent_decisions`
+  - `agent_execution_plans`
+  - `agent_id`
+  - `agent_intent_execution_log`
+  - `agent_intent_patterns`
+  - `agent_memory`
+  - `agent_memory_index`
+  - `agent_memory_vectors`
+  - `agent_messages`
+  - `agent_mode_configs`
+  - `agent_model_registry`
+  - `agent_notifications`
+  - `agent_platform_context`
+  - `agent_policy_templates`
+  - `agent_prompt_provider_profiles`
+  - `agent_prompts`
+  - `agent_question_templates`
+  - `agent_recipe_prompts`
+  - `agent_request_queue`
+  - `agent_roles`
+  - `agent_rules`
+  - `agent_run`
+  - `agent_runtime_configs`
+  - `agent_scopes`
+  - `agent_sessions`
+  - `agent_system_prompt_versions`
+  - `agent_telemetry`
+  - `agent_tools`
+  - `agent_workspace_state`
+  - `agents`
+  - `agentsam`
+  - `agentsam_`
+  - `agentsam_2026`
+  - `agentsam_20260510_025149_`
+  - `agentsam_20260510_025149_338314`
+  - `agentsam_20260510_025149_338314_report`
+  - `agentsam_SUGGESTIONS_`
+  - `agentsam_SUGGESTIONS_20260508T061622Z`
+  - `agentsam_a`
+  - `agentsam_ag`
+  - `agentsam_agent_run`
+  - `agentsam_agent_run_1`
+  - `agentsam_agent_run_id`
+  - `agentsam_ai`
+  - `agentsam_ai_1`
+  - `agentsam_ai_api_platform`
+  - `agentsam_ai_compaction_feature`
+  - `agentsam_ai_id`
+  - `agentsam_ai_max_tool_loop`
+  - `agentsam_ai_model_key`
+  - `agentsam_ai_models`
+  - `agentsam_ai_provider`
+  - `agentsam_ai_provider_model_key`
+  - `agentsam_ai_row`
+  - `agentsam_ai_split_brain`
+  - `agentsam_ai_status`
+  - `agentsam_analytics`
+  - `agentsam_analytics_1`
+  - `agentsam_analytics_2`
+  - `agentsam_analytics__new`
+  - `agentsam_analytics_migrate`
+  - `agentsam_analytics_new`
+  - `agentsam_analytics_tenant_backup`
+  - `agentsam_analytics_unique_workspace`
+  - `agentsam_analytics_v2`
+  - `agentsam_api_keys`
+  - `agentsam_app`
+  - `agentsam_approval_overview`
+  - `agentsam_approval_queue`
+  - `agentsam_approval_queue_1`
+  - `agentsam_approval_queue_columns`
+  - `agentsam_approval_queue_expiry_sweep`
+  - `agentsam_approval_queue_new`
+  - `agentsam_artifac`
+  - `agentsam_artifact`
+  - `agentsam_artifact_skills`
+  - `agentsam_artifact_skills_1`
+  - `agentsam_artifacts`
+  - `agentsam_artifacts_1`
+  - `agentsam_artifacts_backup_`
+  - `agentsam_artifacts_backup_YYYYMMDD_HHMMSS`
+  - `agentsam_artifacts_columns`
+  - `agentsam_artifacts_export_`
+  - `agentsam_artifacts_rebuild_all_`
+  - `agentsam_audit`
+  - `agentsam_audit_`
+  - `agentsam_audit_20260508T061622Z`
+  - `agentsam_audit_20260513T211935`
+  - `agentsam_audit_20260514T040915`
+  - `agentsam_audit_snapshots`
+  - `agentsam_audit_snapshots_pkey`
+  - `agentsam_benchmark_flood`
+  - `agentsam_benchmark_flood_v2`
+  - `agentsam_benchmark_v3`
+  - `agentsam_bootstrap`
+  - `agentsam_bootstrap_1`
+  - `agentsam_bridge_key_workers`
+  - `agentsam_browser_trusted_origin`
+  - `agentsam_browser_trusted_origin_1`
+  - `agentsam_browser_trusted_origin_person`
+  - `agentsam_browser_trusted_origin_workspace`
+  - `agentsam_c`
+  - `agentsam_cad_export_log`
+  - `agentsam_cad_jobs`
+  - `agentsam_cad_jobs_1`
+  - `agentsam_can_execute_and_mirror_workflow`
+  - `agentsam_capability_alias_patch_and_dedup_view`
+  - `agentsam_capability_aliases`
+  - `agentsam_capability_aliases_key`
+  - `agentsam_capability_index`
+  - `agentsam_capability_index_1`
+  - `agentsam_capability_index_2`
+  - `agentsam_capability_index_capability`
+  - `agentsam_capability_index_domain`
+  - `agentsam_capability_index_risk`
+  - `agentsam_capability_index_route`
+  - `agentsam_capability_index_source`
+  - `agentsam_capability_index_tool_key`
+  - `agentsam_chat_e2e`
+  - `agentsam_chat_messages`
+  - `agentsam_checklist`
+  - `agentsam_cli_browser_dry_run`
+  - `agentsam_cli_contract_v1`
+  - `agentsam_cli_inspect_latest_run`
+  - `agentsam_cli_inspect_scripts`
+  - `agentsam_cli_inspect_workflows`
+  - `agentsam_cli_master`
+  - `agentsam_cli_master_v1`
+  - `agentsam_cli_playwright_propose`
+  - `agentsam_cli_run_e2e`
+  - `agentsam_cli_sync_supabase`
+  - `agentsam_cli_verify_approvals`
+  - `agentsam_cli_verify_plan`
+  - `agentsam_cli_verify_spine`
+  - `agentsam_cmd_allow_user`
+  - `agentsam_cmd_pattern_workspace`
+  - `agentsam_cms_3_theme_matrix`
+  - `agentsam_cms_audit_plan`
+  - `agentsam_cms_d1_table_audit`
+  - `agentsam_cms_editor_p1_20260515`
+  - `agentsam_cms_editor_wire_validate_20260513`
+  - `agentsam_cms_live_editor_dev_app`
+  - `agentsam_cms_overnight_build`
+  - `agentsam_cms_plan_`
+  - `agentsam_cms_plan_20260513T033812Z`
+  - `agentsam_cms_plan_20260513T033820Z`
+  - `agentsam_cms_plan_20260513T035443Z`
+  - `agentsam_cms_tables_`
+  - `agentsam_cms_tables_20260514T160627Z`
+  - `agentsam_cms_wire_db_validate`
+  - `agentsam_code_index_job`
+  - `agentsam_code_index_job_1`
+  - `agentsam_code_index_job_2`
+  - `agentsam_code_index_job_iam_tools`
+  - `agentsam_command_allowlist`
+  - `agentsam_command_allowlist_1`
+  - `agentsam_command_allowlist_2`
+  - `agentsam_command_pattern`
+  - `agentsam_command_pattern_1`
+  - `agentsam_command_pattern_2`
+  - `agentsam_command_run`
+  - `agentsam_command_run_1`
+  - `agentsam_command_run_created`
+  - `agentsam_command_run_exists`
+  - `agentsam_command_run_selected_command`
+  - `agentsam_command_run_workspace`
+  - `agentsam_command_run_workspace_created`
+  - `agentsam_command_runs`
+  - `agentsam_command_runs_exists`
+  - `agentsam_commands`
+  - `agentsam_commands_1`
+  - `agentsam_commands_2`
+  - `agentsam_commands_active`
+  - `agentsam_commands_catalog`
+  - `agentsam_commands_category`
+  - `agentsam_commands_for_scripts`
+  - `agentsam_commands_internal_seo`
+  - `agentsam_commands_new`
+  - `agentsam_commands_raw`
+  - `agentsam_commands_router`
+  - `agentsam_commands_slug`
+  - `agentsam_commands_summary`
+  - `agentsam_commands_tool_key`
+  - `agentsam_commands_workflow_key`
+  - `agentsam_communication_hooks`
+  - `agentsam_compaction_events`
+  - `agentsam_compaction_events_1`
+  - `agentsam_compaction_events_scope`
+  - `agentsam_compare`
+  - `agentsam_complete`
+  - `agentsam_connor`
+  - `agentsam_context_ask`
+  - `agentsam_context_digest`
+  - `agentsam_context_digest_1`
+  - `agentsam_context_digest_2`
+  - `agentsam_context_e2e`
+  - `agentsam_cron_rollup_multitenant`
+  - `agentsam_cron_rollup_multitenant_20260506`
+  - `agentsam_cron_runs`
+  - `agentsam_cron_runs_1`
+  - `agentsam_cron_runs_job_started`
+  - `agentsam_cron_runs_scope_started`
+  - `agentsam_cron_runs_status_started`
+  - `agentsam_cron_runs_stuck`
+  - `agentsam_cron_runs_stuck_sweep`
+  - `agentsam_cursor_parity`
+  - `agentsam_cursor_replacement_cli_master_20260512`
+  - `agentsam_d1_and_codebase`
+  - `agentsam_d1_codebase_audit`
+  - `agentsam_d1_codebase_audit_`
+  - `agentsam_d1_codebase_audit_20260515T011657Z`
+  - `agentsam_d1_context`
+  - `agentsam_d1_query_required_schema`
+  - `agentsam_dashboard_agent_e2e_pinstest`
+  - `agentsam_dashboard_agent_self_debug`
+  - `agentsam_dashboard_tester_rls`
+  - `agentsam_db_deep_audit`
+  - `agentsam_db_governance`
+  - `agentsam_db_query_history`
+  - `agentsam_db_snippets`
+  - `agentsam_db_studio`
+  - `agentsam_debug_context_to_snapshot`
+  - `agentsam_debug_context_to_tool`
+  - `agentsam_debug_mirror`
+  - `agentsam_debug_mirror_e2e`
+  - `agentsam_debug_mirror_seed`
+  - `agentsam_debug_quality_to_finalize`
+  - `agentsam_debug_snapshot_to_quality`
+  - `agentsam_debug_snapshots`
+  - `agentsam_debug_snapshots_key_created`
+  - `agentsam_debug_snapshots_pkey`
+  - `agentsam_debug_snapshots_run_created`
+  - `agentsam_debug_snapshots_run_id_fkey`
+  - `agentsam_debug_start_to_context`
+  - `agentsam_debug_tool_to_snapshot`
+  - `agentsam_deployment_health`
+  - `agentsam_deployment_health_1`
+  - `agentsam_deployment_health_deployment`
+  - `agentsam_deployment_health_scope`
+  - `agentsam_deployment_health_status`
+  - `agentsam_deployment_health_workspace`
+  - `agentsam_deployments`
+  - `agentsam_design_blueprint_versions`
+  - `agentsam_design_intent_templates`
+  - `agentsam_design_runs`
+  - `agentsam_designstudio_sessions`
+  - `agentsam_e2e_`
+  - `agentsam_e2e_20260512065824`
+  - `agentsam_e2e_20260512070007`
+  - `agentsam_e2e_build_deploy`
+  - `agentsam_e2e_v2`
+  - `agentsam_edg_chain`
+  - `agentsam_edg_depends`
+  - `agentsam_edg_plan`
+  - `agentsam_edg_run_group`
+  - `agentsam_edg_status`
+  - `agentsam_edg_tenant_workspace`
+  - `agentsam_edg_workflow_run`
+  - `agentsam_embed`
+  - `agentsam_embeddings`
+  - `agentsam_epm_command_date`
+  - `agentsam_epm_model_date`
+  - `agentsam_epm_task_date`
+  - `agentsam_epm_tenant_date`
+  - `agentsam_epm_tool_date`
+  - `agentsam_epm_workflow_date`
+  - `agentsam_epm_workspace_date`
+  - `agentsam_err`
+  - `agentsam_error`
+  - `agentsam_error_events`
+  - `agentsam_error_events_created`
+  - `agentsam_error_events_d1_created`
+  - `agentsam_error_events_identity_created`
+  - `agentsam_error_events_identity_profile_id_fkey`
+  - `agentsam_error_events_model`
+  - `agentsam_error_events_pkey`
+  - `agentsam_error_events_request`
+  - `agentsam_error_events_source`
+  - `agentsam_error_events_tenant_created`
+  - `agentsam_error_events_user_created`
+  - `agentsam_error_events_workspace_created`
+  - `agentsam_error_log`
+  - `agentsam_error_log_1`
+  - `agentsam_escalation`
+  - `agentsam_escalation_1`
+  - `agentsam_escalation_error_event`
+  - `agentsam_escalation_execution_step`
+  - `agentsam_escalation_new`
+  - `agentsam_escalation_run_group`
+  - `agentsam_escalation_scope_created`
+  - `agentsam_escalation_workflow_run`
+  - `agentsam_escalation_workspace`
+  - `agentsam_eval_`
+  - `agentsam_eval_cases`
+  - `agentsam_eval_cases_1`
+  - `agentsam_eval_cases_new`
+  - `agentsam_eval_runner`
+  - `agentsam_eval_runs`
+  - `agentsam_eval_runs_1`
+  - `agentsam_eval_runs_group`
+  - `agentsam_eval_runs_human_score_architecture_check`
+  - `agentsam_eval_runs_human_score_cost_check`
+  - `agentsam_eval_runs_human_score_quality_check`
+  - `agentsam_eval_runs_human_score_speed_check`
+  - `agentsam_eval_runs_identity_created`
+  - `agentsam_eval_runs_identity_profile_id_fkey`
+  - `agentsam_eval_runs_model`
+  - `agentsam_eval_runs_new`
+  - `agentsam_eval_runs_pkey`
+  - `agentsam_eval_runs_suite_id_fkey`
+  - `agentsam_eval_runs_tenant_created`
+  - `agentsam_eval_runs_user_created`
+  - `agentsam_eval_runs_workspace_created`
+  - `agentsam_eval_suites`
+  - `agentsam_eval_suites_1`
+  - `agentsam_eval_suites_created_by_identity_profile_id_fkey`
+  - `agentsam_eval_suites_new`
+  - `agentsam_eval_suites_pkey`
+  - `agentsam_eval_suites_suite_key_key`
+  - `agentsam_everything`
+  - `agentsam_execution`
+  - `agentsam_execution_analytics_layer`
+  - `agentsam_execution_context`
+  - `agentsam_execution_context_1`
+  - `agentsam_execution_context_new`
+  - `agentsam_execution_depen`
+  - `agentsam_execution_dependency_graph`
+  - `agentsam_execution_dependency_graph_1`
+  - `agentsam_execution_dependency_graph_2`
+  - `agentsam_execution_performance_met`
+  - `agentsam_execution_performance_metr`
+  - `agentsam_execution_performance_metrics`
+  - `agentsam_execution_performance_metrics_1`
+  - `agentsam_execution_performance_metrics_2`
+  - `agentsam_execution_performance_metrics_doc`
+  - `agentsam_execution_steps`
+  - `agentsam_execution_steps_1`
+  - `agentsam_execution_steps_columns`
+  - `agentsam_execution_steps_cost`
+  - `agentsam_execution_steps_execution_status`
+  - `agentsam_execution_steps_node`
+  - `agentsam_execution_steps_run_status`
+  - `agentsam_executions`
+  - `agentsam_executions_1`
+  - `agentsam_executions_backup_20260509_014549`
+  - `agentsam_executions_created`
+  - `agentsam_executions_execution_step`
+  - `agentsam_executions_model_provider`
+  - `agentsam_executions_new`
+  - `agentsam_executions_run`
+  - `agentsam_executions_scope_created`
+  - `agentsam_executions_task`
+  - `agentsam_executions_workflow`
+  - `agentsam_executions_workflow_run`
+  - `agentsam_executions_workspace`
+  - `agentsam_expected_missing`
+  - `agentsam_feature_flag`
+  - `agentsam_feature_flag_1`
+  - `agentsam_fetch_domain_allowlist`
+  - `agentsam_fetch_domain_allowlist_1`
+  - `agentsam_fetch_domain_allowlist_2`
+  - `agentsam_fetch_domain_user`
+  - `agentsam_foo`
+  - `agentsam_frontend_backend_gap_checklist`
+  - `agentsam_full`
+  - `agentsam_full_mirrored_eval_series`
+  - `agentsam_get_agent`
+  - `agentsam_gpt54mini_routing_defaults`
+  - `agentsam_guardrail_events`
+  - `agentsam_guardrail_events_1`
+  - `agentsam_guardrail_events_decision_created`
+  - `agentsam_guardrail_events_guardrail_id`
+  - `agentsam_guardrail_events_guardrail_key_created`
+  - `agentsam_guardrail_events_key`
+  - `agentsam_guardrail_events_request`
+  - `agentsam_guardrail_events_ruleset_id`
+  - `agentsam_guardrail_events_session_created`
+  - `agentsam_guardrail_events_target`
+  - `agentsam_guardrail_events_tenant_ws_created`
+  - `agentsam_guardrail_events_workspace`
+  - `agentsam_guardrail_rulesets`
+  - `agentsam_guardrail_rulesets_1`
+  - `agentsam_guardrail_rulesets_2`
+  - `agentsam_guardrail_rulesets_key`
+  - `agentsam_guardrail_rulesets_scope`
+  - `agentsam_guardrail_rulesets_scope_enabled`
+  - `agentsam_guardrail_rulesets_scope_tenant_ws`
+  - `agentsam_guardrails`
+  - `agentsam_guardrails_1`
+  - `agentsam_guardrails_applies`
+  - `agentsam_guardrails_category`
+  - `agentsam_guardrails_guardrail_key`
+  - `agentsam_guardrails_key`
+  - `agentsam_guardrails_key_enabled`
+  - `agentsam_guardrails_scope_enabled`
+  - `agentsam_guardrails_scope_lookup`
+  - `agentsam_guardrails_scope_tenant_ws`
+  - `agentsam_health_daily`
+  - `agentsam_health_daily_1`
+  - `agentsam_health_daily_2`
+  - `agentsam_health_daily_missing_snapshot_fallback_columns`
+  - `agentsam_homepage_section`
+  - `agentsam_hook`
+  - `agentsam_hook_1`
+  - `agentsam_hook_ai_routing`
+  - `agentsam_hook_execution`
+  - `agentsam_hook_execution_1`
+  - `agentsam_hook_execution__new`
+  - `agentsam_hook_execution_created_at`
+  - `agentsam_hook_execution_extend`
+  - `agentsam_hook_execution_hook_ran`
+  - `agentsam_hook_execution_hook_status`
+  - `agentsam_hook_execution_new`
+  - `agentsam_hook_execution_tenant`
+  - `agentsam_hook_execution_user`
+  - `agentsam_hook_execution_ws_ran`
+  - `agentsam_hook_external_provider`
+  - `agentsam_hook_id`
+  - `agentsam_hook_new`
+  - `agentsam_hook_query_indexes`
+  - `agentsam_hook_tenant_ws_trigger`
+  - `agentsam_hook_user_ws`
+  - `agentsam_hooks`
+  - `agentsam_identity_defaults`
+  - `agentsam_identity_diagnostics_matrix_v1`
+  - `agentsam_ignore_pattern`
+  - `agentsam_ignore_pattern_1`
+  - `agentsam_ignore_rules`
+  - `agentsam_ignore_user`
+  - `agentsam_ignore_ws`
+  - `agentsam_inspection`
+  - `agentsam_inventory`
+  - `agentsam_joins`
+  - `agentsam_judge_runs`
+  - `agentsam_knowledge`
+  - `agentsam_latency`
+  - `agentsam_latency_report_contract`
+  - `agentsam_latency_smoke_contract_snapshot`
+  - `agentsam_liquid`
+  - `agentsam_liquid_manifest`
+  - `agentsam_list_agents`
+  - `agentsam_mc`
+  - `agentsam_mcp_`
+  - `agentsam_mcp_allow_user`
+  - `agentsam_mcp_allowlist`
+  - `agentsam_mcp_allowlist_1`
+  - `agentsam_mcp_allowlist_unique`
+  - `agentsam_mcp_allowlist_user`
+  - `agentsam_mcp_allowlist_workspace`
+  - `agentsam_mcp_branding_org_20260513`
+  - `agentsam_mcp_health_checked`
+  - `agentsam_mcp_health_tool`
+  - `agentsam_mcp_health_workflow`
+  - `agentsam_mcp_servers`
+  - `agentsam_mcp_servers_1`
+  - `agentsam_mcp_servers_2`
+  - `agentsam_mcp_sessions`
+  - `agentsam_mcp_tool_e`
+  - `agentsam_mcp_tool_e2e_sprint`
+  - `agentsam_mcp_tool_execution`
+  - `agentsam_mcp_tool_execution_1`
+  - `agentsam_mcp_tool_execution_missing_tool_name`
+  - `agentsam_mcp_tool_execution_new`
+  - `agentsam_mcp_tool_sprint_`
+  - `agentsam_mcp_tool_sprint_20260513T0`
+  - `agentsam_mcp_tool_sprint_20260513T022422Z`
+  - `agentsam_mcp_tool_sprint_20260513T024441Z`
+  - `agentsam_mcp_tool_sprint_20260513T025137Z`
+  - `agentsam_mcp_tools`
+  - `agentsam_mcp_tools_1`
+  - `agentsam_mcp_tools_2`
+  - `agentsam_mcp_tools_branded`
+  - `agentsam_mcp_tools_canonical`
+  - `agentsam_mcp_tools_id`
+  - `agentsam_mcp_tools_multitenant_routing`
+  - `agentsam_mcp_tools_new`
+  - `agentsam_mcp_tools_tenant_workspace`
+  - `agentsam_mcp_workflo`
+  - `agentsam_mcp_workflow_graph_mode_normalize`
+  - `agentsam_mcp_workflows`
+  - `agentsam_mcp_workflows_1`
+  - `agentsam_mcp_workflows_2`
+  - `agentsam_mcp_workflows_active_category`
+  - `agentsam_mcp_workflows_new`
+  - `agentsam_mcp_workflows_parent`
+  - `agentsam_mcp_workflows_subagent`
+  - `agentsam_mcp_workflows_task_type`
+  - `agentsam_mcp_workflows_tenant_workspace_status`
+  - `agentsam_mcp_workflows_trigger`
+  - `agentsam_mcp_workflows_updated`
+  - `agentsam_mcpwf_global_key`
+  - `agentsam_mcpwf_tenant_key`
+  - `agentsam_me`
+  - `agentsam_memor`
+  - `agentsam_memory`
+  - `agentsam_memory_1`
+  - `agentsam_memory_2`
+  - `agentsam_memory_agent`
+  - `agentsam_memory_checkpoint`
+  - `agentsam_memory_decay`
+  - `agentsam_memory_expires`
+  - `agentsam_memory_lookup`
+  - `agentsam_memory_new`
+  - `agentsam_memory_type`
+  - `agentsam_microinteraction_quality_audit`
+  - `agentsam_mo`
+  - `agentsam_model_catalog`
+  - `agentsam_model_catalog_1`
+  - `agentsam_model_catalog_2`
+  - `agentsam_model_catalog_api_platform`
+  - `agentsam_model_catalog_focus`
+  - `agentsam_model_catalog_sync_from_ai`
+  - `agentsam_model_catalog_workers_ai_openai_gaps`
+  - `agentsam_model_cost_snapshots`
+  - `agentsam_model_cost_snapshots_pkey`
+  - `agentsam_model_cost_snapshots_provider_model_key_effective__key`
+  - `agentsam_model_dr`
+  - `agentsam_model_drift_signals`
+  - `agentsam_model_drift_signals_1`
+  - `agentsam_model_routing_memory`
+  - `agentsam_model_routing_memory_1`
+  - `agentsam_model_routing_memory_2`
+  - `agentsam_model_routing_memory_lookup`
+  - `agentsam_model_routing_memory_rollup`
+  - `agentsam_model_routing_rules`
+  - `agentsam_model_tier`
+  - `agentsam_model_tier_1`
+  - `agentsam_model_tier_2`
+  - `agentsam_model_tier_override`
+  - `agentsam_model_tier_v2`
+  - `agentsam_multitask_routing_arms`
+  - `agentsam_ollama_embed_pipeline_workflows`
+  - `agentsam_ollama_local_workflow_batch_pinstest`
+  - `agentsam_ollama_local_workflow_pinstest_v2`
+  - `agentsam_only_d1_and_codebase`
+  - `agentsam_openai_graph_e2e_latest`
+  - `agentsam_operator`
+  - `agentsam_ops_audit`
+  - `agentsam_ops_ledger`
+  - `agentsam_ops_smoke`
+  - `agentsam_ops_tables`
+  - `agentsam_ops_validate`
+  - `agentsam_parallel_cms_workers_20260515`
+  - `agentsam_patterns`
+  - `agentsam_pla`
+  - `agentsam_plan`
+  - `agentsam_plan_create`
+  - `agentsam_plan_task_dependencies`
+  - `agentsam_plan_tasks`
+  - `agentsam_plan_tasks_1`
+  - `agentsam_plan_tasks_backup_20260510_004427`
+  - `agentsam_plan_tasks_category_check`
+  - `agentsam_plan_tasks_columns`
+  - `agentsam_plan_tasks_create`
+  - `agentsam_plan_tasks_new`
+  - `agentsam_plan_tasks_pkey`
+  - `agentsam_plan_tasks_plan`
+  - `agentsam_plan_tasks_plan_id`
+  - `agentsam_plan_tasks_plan_id_fkey`
+  - `agentsam_plan_tasks_priority_check`
+  - `agentsam_plan_tasks_status`
+  - `agentsam_plan_tasks_status_check`
+  - `agentsam_plan_tasks_todo_id`
+  - `agentsam_plan_tasks_workflow_run_id`
+  - `agentsam_plan_tasks_workspace_plan`
+  - `agentsam_plan_visualization_excalidraw`
+  - `agentsam_planning_ask`
+  - `agentsam_plans`
+  - `agentsam_plans_1`
+  - `agentsam_plans_agent`
+  - `agentsam_plans_carry_over_from_fkey`
+  - `agentsam_plans_date`
+  - `agentsam_plans_new`
+  - `agentsam_plans_old`
+  - `agentsam_plans_old_1`
+  - `agentsam_plans_old_fk_shim`
+  - `agentsam_plans_pkey`
+  - `agentsam_plans_scope_status`
+  - `agentsam_plans_status_check`
+  - `agentsam_plans_workflow`
+  - `agentsam_platform_services`
+  - `agentsam_platform_services_source`
+  - `agentsam_policy_subagent_visibility`
+  - `agentsam_post_deploy_finish_strong`
+  - `agentsam_post_deploy_finish_strong_20260506`
+  - `agentsam_pr`
+  - `agentsam_pro`
+  - `agentsam_project_c`
+  - `agentsam_project_context`
+  - `agentsam_project_context_1`
+  - `agentsam_project_context_add_last_cursor_session`
+  - `agentsam_project_context_iam_tools`
+  - `agentsam_project_context_id`
+  - `agentsam_project_context_new`
+  - `agentsam_projects_remaster`
+  - `agentsam_prom`
+  - `agentsam_prompt`
+  - `agentsam_prompt_ca`
+  - `agentsam_prompt_cache`
+  - `agentsam_prompt_cache_keys`
+  - `agentsam_prompt_cache_keys_1`
+  - `agentsam_prompt_cache_keys_route`
+  - `agentsam_prompt_cache_keys_source`
+  - `agentsam_prompt_cache_keys_unique`
+  - `agentsam_prompt_compose`
+  - `agentsam_prompt_registry`
+  - `agentsam_prompt_registry_experimentation`
+  - `agentsam_prompt_routes`
+  - `agentsam_prompt_routes_1`
+  - `agentsam_prompt_routes_2`
+  - `agentsam_prompt_routes_duplicate_priorities`
+  - `agentsam_prompt_routes_missing_requirements`
+  - `agentsam_prompt_runs`
+  - `agentsam_prompt_runs_identity_created`
+  - `agentsam_prompt_runs_identity_profile_id_fkey`
+  - `agentsam_prompt_runs_pkey`
+  - `agentsam_prompt_runs_plan_id_fkey`
+  - `agentsam_prompt_runs_profile`
+  - `agentsam_prompt_runs_request`
+  - `agentsam_prompt_runs_task_id_fkey`
+  - `agentsam_prompt_runs_tenant_created`
+  - `agentsam_prompt_versions`
+  - `agentsam_prompt_versions_1`
+  - `agentsam_prompt_versions_2`
+  - `agentsam_prompt_versions_3`
+  - `agentsam_py_quality_gate`
+  - `agentsam_python_architect`
+  - `agentsam_quality`
+  - `agentsam_recent_errors`
+  - `agentsam_recent_routing_decisions`
+  - `agentsam_recent_tool_failures`
+  - `agentsam_registration`
+  - `agentsam_report`
+  - `agentsam_route_capability_tool_matches`
+  - `agentsam_route_capability_tool_matches_deduped`
+  - `agentsam_route_requirements`
+  - `agentsam_route_requirements_1`
+  - `agentsam_route_requirements_2`
+  - `agentsam_route_requirements_gaps`
+  - `agentsam_route_requirements_key`
+  - `agentsam_route_requirements_specialized_routes`
+  - `agentsam_route_requirements_tool_routing`
+  - `agentsam_route_requirements_tool_routing_setup`
+  - `agentsam_route_requirements_unconfigured`
+  - `agentsam_route_tool_alignment_e2e`
+  - `agentsam_route_tool_matrix`
+  - `agentsam_route_tool_policy_and_branded_view`
+  - `agentsam_route_tool_routing_priority_alignment`
+  - `agentsam_routing`
+  - `agentsam_routing_arm`
+  - `agentsam_routing_arm_sp`
+  - `agentsam_routing_arm_spec`
+  - `agentsam_routing_arms`
+  - `agentsam_routing_arms_1`
+  - `agentsam_routing_arms_2`
+  - `agentsam_routing_arms_controller`
+  - `agentsam_routing_arms_new`
+  - `agentsam_routing_decisions`
+  - `agentsam_routing_decisions_created`
+  - `agentsam_routing_decisions_d1_created`
+  - `agentsam_routing_decisions_identity_created`
+  - `agentsam_routing_decisions_identity_profile_id_fkey`
+  - `agentsam_routing_decisions_intent`
+  - `agentsam_routing_decisions_model`
+  - `agentsam_routing_decisions_pkey`
+  - `agentsam_routing_decisions_plan_id_fkey`
+  - `agentsam_routing_decisions_request`
+  - `agentsam_routing_decisions_task_id_fkey`
+  - `agentsam_routing_decisions_tenant_created`
+  - `agentsam_routing_decisions_user_created`
+  - `agentsam_routing_decisions_workspace_created`
+  - `agentsam_routing_engine_tables`
+  - `agentsam_routing_overview`
+  - `agentsam_routing_prompt_skills_flags`
+  - `agentsam_routing_repair`
+  - `agentsam_routing_study`
+  - `agentsam_rule`
+  - `agentsam_rules`
+  - `agentsam_rules_docum`
+  - `agentsam_rules_document`
+  - `agentsam_rules_document_1`
+  - `agentsam_rules_document_extend`
+  - `agentsam_rules_document_scoping_audit`
+  - `agentsam_rules_rev_doc`
+  - `agentsam_rules_revision`
+  - `agentsam_rules_tenant_ws_active`
+  - `agentsam_rules_user_active_updated`
+  - `agentsam_rules_ws_active`
+  - `agentsam_rules_ws_active_updated`
+  - `agentsam_run_agent`
+  - `agentsam_run_agent_522_parse_20260506`
+  - `agentsam_run_conversation`
+  - `agentsam_run_idempotency`
+  - `agentsam_run_user_created`
+  - `agentsam_runtime_identity_rollups`
+  - `agentsam_safety`
+  - `agentsam_safety_e2e`
+  - `agentsam_schema`
+  - `agentsam_schema_audit`
+  - `agentsam_schema_audit_20260510_025150_0973f3`
+  - `agentsam_schema_chunks`
+  - `agentsam_schema_index`
+  - `agentsam_schema_inventory`
+  - `agentsam_schema_pragmas`
+  - `agentsam_script_id`
+  - `agentsam_script_run`
+  - `agentsam_script_run_id`
+  - `agentsam_script_runs`
+  - `agentsam_script_runs_1`
+  - `agentsam_script_runs_cicd`
+  - `agentsam_script_runs_git_sha`
+  - `agentsam_script_runs_new`
+  - `agentsam_script_runs_script_started`
+  - `agentsam_script_runs_status_started`
+  - `agentsam_script_runs_trigger_source`
+  - `agentsam_script_runs_workspace_started`
+  - `agentsam_scripts`
+  - `agentsam_scripts_1`
+  - `agentsam_scripts_new`
+  - `agentsam_scripts_register_e2e_workflow`
+  - `agentsam_scripts_registry`
+  - `agentsam_scripts_workspace_path`
+  - `agentsam_section`
+  - `agentsam_seed_parallel_cms_plan`
+  - `agentsam_seed_visualizer_todos`
+  - `agentsam_self_evolving`
+  - `agentsam_session_override`
+  - `agentsam_settings_tables`
+  - `agentsam_shadow_runs`
+  - `agentsam_skill`
+  - `agentsam_skill_1`
+  - `agentsam_skill_iam_pipeline`
+  - `agentsam_skill_invocation`
+  - `agentsam_skill_invocation_1`
+  - `agentsam_skill_parity`
+  - `agentsam_skill_python_architect`
+  - `agentsam_skill_revision`
+  - `agentsam_skill_revision_1`
+  - `agentsam_skill_scope_name`
+  - `agentsam_skill_task_types_remaining`
+  - `agentsam_skill_user_name`
+  - `agentsam_skill_workspace`
+  - `agentsam_slash_commands`
+  - `agentsam_slash_commands_1`
+  - `agentsam_slash_commands_2`
+  - `agentsam_smoke`
+  - `agentsam_sota_registries`
+  - `agentsam_spawn`
+  - `agentsam_sql_no_transaction`
+  - `agentsam_start`
+  - `agentsam_stop`
+  - `agentsam_stream_events`
+  - `agentsam_stream_events_created`
+  - `agentsam_stream_events_d1_created`
+  - `agentsam_stream_events_identity_created`
+  - `agentsam_stream_events_identity_profile_id_fkey`
+  - `agentsam_stream_events_model`
+  - `agentsam_stream_events_pkey`
+  - `agentsam_stream_events_request`
+  - `agentsam_stream_events_session`
+  - `agentsam_stream_events_tenant_created`
+  - `agentsam_stream_events_type`
+  - `agentsam_stream_events_user_created`
+  - `agentsam_stream_events_workspace_created`
+  - `agentsam_stream_run_summary`
+  - `agentsam_strip_iam_hardcoded_defaults`
+  - `agentsam_structure_audit`
+  - `agentsam_structure_audit_`
+  - `agentsam_structure_audit_20260513T030633Z`
+  - `agentsam_structured_results`
+  - `agentsam_structured_summary`
+  - `agentsam_studio_moviemode`
+  - `agentsam_studio_video_draft`
+  - `agentsam_subagent_profile`
+  - `agentsam_subagent_profile_1`
+  - `agentsam_subagent_profile_2`
+  - `agentsam_subagent_profiles`
+  - `agentsam_subagent_user`
+  - `agentsam_subscription_registry`
+  - `agentsam_subscription_registry_1`
+  - `agentsam_supabase_memory_cursor_replacement`
+  - `agentsam_supabase_repair`
+  - `agentsam_table_count`
+  - `agentsam_table_mentions`
+  - `agentsam_table_name`
+  - `agentsam_tables`
+  - `agentsam_tables_inventory`
+  - `agentsam_tables_inventory_project_context`
+  - `agentsam_task_slos`
+  - `agentsam_task_slos_1`
+  - `agentsam_telemetry_after_deploy`
+  - `agentsam_todo`
+  - `agentsam_todo_1`
+  - `agentsam_todo_audit`
+  - `agentsam_todo_create`
+  - `agentsam_todo_id`
+  - `agentsam_todo_linked_table`
+  - `agentsam_todo_new`
+  - `agentsam_todo_pkey`
+  - `agentsam_todo_priority`
+  - `agentsam_todo_safe_close_candidates`
+  - `agentsam_todo_update`
+  - `agentsam_tool_c`
+  - `agentsam_tool_cache`
+  - `agentsam_tool_cache_1`
+  - `agentsam_tool_cache_2`
+  - `agentsam_tool_cache_lookup`
+  - `agentsam_tool_call_`
+  - `agentsam_tool_call_events`
+  - `agentsam_tool_call_events_eval_run_id_fkey`
+  - `agentsam_tool_call_events_identity_profile_id_fkey`
+  - `agentsam_tool_call_events_pkey`
+  - `agentsam_tool_call_events_plan_id_fkey`
+  - `agentsam_tool_call_events_task_id_fkey`
+  - `agentsam_tool_call_log`
+  - `agentsam_tool_call_log_1`
+  - `agentsam_tool_call_log_workspace_created`
+  - `agentsam_tool_call_log_workspace_tool_status`
+  - `agentsam_tool_calls_created`
+  - `agentsam_tool_calls_name`
+  - `agentsam_tool_calls_run`
+  - `agentsam_tool_calls_tenant_status`
+  - `agentsam_tool_calls_workflow`
+  - `agentsam_tool_chain`
+  - `agentsam_tool_chain_1`
+  - `agentsam_tool_chain_execution_step_status`
+  - `agentsam_tool_chain_new`
+  - `agentsam_tool_events_d1_created`
+  - `agentsam_tool_events_identity_created`
+  - `agentsam_tool_events_request`
+  - `agentsam_tool_events_tenant_created`
+  - `agentsam_tool_events_tool`
+  - `agentsam_tool_events_user_created`
+  - `agentsam_tool_events_workspace_created`
+  - `agentsam_tool_execution_overview`
+  - `agentsam_tool_lane`
+  - `agentsam_tool_read_e2e`
+  - `agentsam_tool_stats_`
+  - `agentsam_tool_stats_compacted`
+  - `agentsam_tool_stats_compacted_1`
+  - `agentsam_tool_stats_compacted_2`
+  - `agentsam_tool_stats_compacted__new`
+  - `agentsam_tool_stats_compacted_at`
+  - `agentsam_tool_stats_compacted_new`
+  - `agentsam_tool_stats_compacted_schema_unexpected`
+  - `agentsam_tool_stats_scope_tool`
+  - `agentsam_tools`
+  - `agentsam_tools_1`
+  - `agentsam_tools_2`
+  - `agentsam_tools_active`
+  - `agentsam_tools_audit`
+  - `agentsam_tools_audit_`
+  - `agentsam_tools_audit_20260512T235223Z`
+  - `agentsam_tools_audit_20260512T235411Z`
+  - `agentsam_tools_audit_20260512T235450Z`
+  - `agentsam_tools_audit_20260513T000020Z`
+  - `agentsam_tools_audit_20260513T000158Z`
+  - `agentsam_tools_backfill_suggested_`
+  - `agentsam_tools_backfill_suggested_20260512T235223Z`
+  - `agentsam_tools_backfill_suggested_20260512T235411Z`
+  - `agentsam_tools_backfill_suggested_20260512T235450Z`
+  - `agentsam_tools_backfill_suggested_20260512T235450Z_cloudflare_fixed`
+  - `agentsam_tools_backfill_suggested_20260512T235450Z_cloudflare_fixed_no_tx`
+  - `agentsam_tools_backfill_suggested_20260513T000020Z`
+  - `agentsam_tools_backfill_suggested_20260513T000158Z`
+  - `agentsam_tools_bridge_key_auth_test`
+  - `agentsam_tools_bulletproof_todo_`
+  - `agentsam_tools_bulletproof_todo_20260512T235450Z`
+  - `agentsam_tools_bulletproof_todo_20260513T000020Z`
+  - `agentsam_tools_bulletproof_todo_20260513T000158Z`
+  - `agentsam_tools_capability_key`
+  - `agentsam_tools_catalog_verify_runtime`
+  - `agentsam_tools_domain`
+  - `agentsam_tools_e2e`
+  - `agentsam_tools_id`
+  - `agentsam_tools_input_schema_backup`
+  - `agentsam_tools_input_schema_backup_1`
+  - `agentsam_tools_input_schema_json_schema`
+  - `agentsam_tools_new`
+  - `agentsam_tools_ollama_prompt_`
+  - `agentsam_tools_ollama_prompt_20260512T235223Z`
+  - `agentsam_tools_ollama_prompt_20260512T235411Z`
+  - `agentsam_tools_ollama_prompt_20260512T235450Z`
+  - `agentsam_tools_ollama_prompt_20260513T000020Z`
+  - `agentsam_tools_ollama_prompt_20260513T000158Z`
+  - `agentsam_tools_raw_`
+  - `agentsam_tools_raw_20260512T235223Z`
+  - `agentsam_tools_raw_20260512T235411Z`
+  - `agentsam_tools_raw_20260512T235450Z`
+  - `agentsam_tools_raw_20260513T000020Z`
+  - `agentsam_tools_raw_20260513T000158Z`
+  - `agentsam_tools_route`
+  - `agentsam_tools_sprint`
+  - `agentsam_tools_tool_key`
+  - `agentsam_tools_with_ollama`
+  - `agentsam_tracking`
+  - `agentsam_ui_mockups`
+  - `agentsam_universal_autonomous_runtime`
+  - `agentsam_universal_runtime_20260510`
+  - `agentsam_updated_at`
+  - `agentsam_upsert_patterns`
+  - `agentsam_usage_events`
+  - `agentsam_usage_events_1`
+  - `agentsam_usage_events_2`
+  - `agentsam_usage_events_backup`
+  - `agentsam_usage_events_created`
+  - `agentsam_usage_events_missing_created_at`
+  - `agentsam_usage_events_model`
+  - `agentsam_usage_events_run`
+  - `agentsam_usage_events_telemetry_columns`
+  - `agentsam_usage_events_workflow`
+  - `agentsam_usage_events_workspace`
+  - `agentsam_usage_ro`
+  - `agentsam_usage_rollups_daily`
+  - `agentsam_usage_rollups_daily_1`
+  - `agentsam_user_feature_override`
+  - `agentsam_user_feature_override_1`
+  - `agentsam_user_id`
+  - `agentsam_user_policy`
+  - `agentsam_user_policy_1`
+  - `agentsam_user_policy_user`
+  - `agentsam_verify`
+  - `agentsam_visualizer_workflow_p`
+  - `agentsam_visualizer_workflow_pump`
+  - `agentsam_w`
+  - `agentsam_webhook_events`
+  - `agentsam_webhook_events_1`
+  - `agentsam_webhook_events_created_at`
+  - `agentsam_webhook_events_headers_json`
+  - `agentsam_webhook_events_new`
+  - `agentsam_webhook_events_provider`
+  - `agentsam_webhook_events_provider_event`
+  - `agentsam_webhook_events_received`
+  - `agentsam_webhook_events_status`
+  - `agentsam_webhook_ui`
+  - `agentsam_webhook_weekly`
+  - `agentsam_webhook_weekly_1`
+  - `agentsam_webhook_weekly_2`
+  - `agentsam_webhook_weekly__new`
+  - `agentsam_webhook_weekly_rolled_up`
+  - `agentsam_webhook_weekly_scope`
+  - `agentsam_wf_global_key`
+  - `agentsam_wf_tenant_key`
+  - `agentsam_workbench_workflows`
+  - `agentsam_worker_analytics_layer`
+  - `agentsam_workflow_`
+  - `agentsam_workflow_audit_report`
+  - `agentsam_workflow_catalog`
+  - `agentsam_workflow_chatgpt_mcp`
+  - `agentsam_workflow_cms_theme_pipeline`
+  - `agentsam_workflow_debug_service_role_grants`
+  - `agentsam_workflow_debug_spine`
+  - `agentsam_workflow_e2e`
+  - `agentsam_workflow_edges`
+  - `agentsam_workflow_edges_1`
+  - `agentsam_workflow_edges_2`
+  - `agentsam_workflow_edges_agent_chat_plan`
+  - `agentsam_workflow_edges_new`
+  - `agentsam_workflow_events`
+  - `agentsam_workflow_events_pkey`
+  - `agentsam_workflow_events_plan_id_fkey`
+  - `agentsam_workflow_events_run_created`
+  - `agentsam_workflow_events_run_id_fkey`
+  - `agentsam_workflow_events_step_id_fkey`
+  - `agentsam_workflow_events_task_id_fkey`
+  - `agentsam_workflow_events_type_created`
+  - `agentsam_workflow_governance`
+  - `agentsam_workflow_nodes`
+  - `agentsam_workflow_nodes_1`
+  - `agentsam_workflow_nodes_2`
+  - `agentsam_workflow_nodes_agent_chat_plan`
+  - `agentsam_workflow_nodes_new`
+  - `agentsam_workflow_observability`
+  - `agentsam_workflow_overview`
+  - `agentsam_workflow_runs`
+  - `agentsam_workflow_runs_1`
+  - `agentsam_workflow_runs_d1`
+  - `agentsam_workflow_runs_d1_run_id_key`
+  - `agentsam_workflow_runs_pkey`
+  - `agentsam_workflow_runs_plan_id_fkey`
+  - `agentsam_workflow_runs_run_group`
+  - `agentsam_workflow_runs_scope_status`
+  - `agentsam_workflow_runs_session`
+  - `agentsam_workflow_runs_status`
+  - `agentsam_workflow_runs_supabase_sync`
+  - `agentsam_workflow_runs_sync_status`
+  - `agentsam_workflow_runs_table`
+  - `agentsam_workflow_runs_task_id_fkey`
+  - `agentsam_workflow_runs_tenant`
+  - `agentsam_workflow_runs_tenant_created`
+  - `agentsam_workflow_runs_updated_at`
+  - `agentsam_workflow_runs_user`
+  - `agentsam_workflow_runs_workflow`
+  - `agentsam_workflow_runs_workflow_key`
+  - `agentsam_workflow_runs_workspace`
+  - `agentsam_workflow_runs_workspace_created`
+  - `agentsam_workflow_steps`
+  - `agentsam_workflow_steps_pkey`
+  - `agentsam_workflow_steps_plan_id_fkey`
+  - `agentsam_workflow_steps_run_id_fkey`
+  - `agentsam_workflow_steps_run_index`
+  - `agentsam_workflow_steps_status`
+  - `agentsam_workflow_steps_task_id_fkey`
+  - `agentsam_workflow_steps_tool_key`
+  - `agentsam_workflow_steps_updated_at`
+  - `agentsam_workflows`
+  - `agentsam_workflows_1`
+  - `agentsam_workflows_2`
+  - `agentsam_workflows_active`
+  - `agentsam_workflows_active_type`
+  - `agentsam_workflows_agent_chat_plan`
+  - `agentsam_workflows_d1_workflow_id_key`
+  - `agentsam_workflows_frontend_runtime_20260512`
+  - `agentsam_workflows_key`
+  - `agentsam_workflows_nodes_edges`
+  - `agentsam_workflows_pkey`
+  - `agentsam_workflows_status`
+  - `agentsam_workflows_tenant_id_workspace_id_workflow_key_key`
+  - `agentsam_workflows_tenant_workspace_key`
+  - `agentsam_workflows_updated_at`
+  - `agentsam_workflows_workspace_key`
+  - `agentsam_workspace`
+  - `agentsam_workspace_1`
+  - `agentsam_workspace_2`
+  - `agentsam_workspace_full_sync`
+  - `agentsam_workspace_iam_defaults`
+  - `agentsam_workspace_new`
+  - `agentsam_workspace_scoped_rollup_uniques`
+  - `agentsam_workspace_scripts`
+  - `agentsam_workspace_slug`
+  - `agentsam_workspace_state`
+  - `agentsam_workspace_state_1`
+  - `agentsam_workspace_state_add_state_json`
+  - `agentsam_workspace_state_conv`
+  - `agentsam_workspace_state_workspace`
+  - `agentsam_workspace_state_ws`
+  - `agentsam_workspace_table`
+  - `agentsam_workspace_tokens`
+  - `agg`
+  - `aggregates`
+  - `ai_api_test_runs`
+  - `ai_compiled_context_cache`
+  - `ai_context_versions`
+  - `ai_generation_logs`
+  - `ai_integrations`
+  - `ai_knowledge_base`
+  - `ai_knowledge_chunks`
+  - `ai_models`
+  - `ai_provider_usage`
+  - `ai_query_history`
+  - `ai_query_snippets`
+  - `ai_rag_search_history`
+  - `ai_routing_rules`
+  - `ai_search_analytics`
+  - `ai_usage_log`
+  - `ai_workflow_executions`
+  - `ai_workflow_pipelines`
+  - `alias_matches`
+  - `allowlist`
+  - `analytics`
+  - `anon`
+  - `another`
+  - `any`
+  - `anywhere`
+  - `apiVariables`
+  - `app`
+  - `application`
+  - `apply`
+  - `applyShellTheme`
+  - `approval_required`
+  - `archive`
+  - `arm`
+  - `arriving`
+  - `asset`
+  - `assistant`
+  - `audit`
+  - `auth`
+  - `auth_event_log`
+  - `auth_sessions`
+  - `auth_user_identities`
+  - `auth_users`
+  - `authenticated`
+  - `autonomous`
+  - `autorag`
+  - `available`
+  - `background`
+  - `backup`
+  - `backups`
+  - `bar`
+  - `base`
+  - `being`
+  - `benchmark`
+  - `billing`
+  - `billing_accounts`
+  - `billing_coupons`
+  - `billing_customers`
+  - `billing_plans`
+  - `billing_subscriptions`
+  - `binding`
+  - `bleeding`
+  - `blender`
+  - `blind`
+  - `blueprint`
+  - `boards`
+  - `body`
+  - `boot`
+  - `bootstrap`
+  - `both`
+  - `brainstorming`
+  - `brands`
+  - `browser`
+  - `bucket`
+  - `buckets`
+  - `build_deploy_events`
+  - `building`
+  - `builds`
+  - `business`
+  - `by_content_type`
+  - `cache`
+  - `cached`
+  - `calendar_events`
+  - `callers`
+  - `canStreamAnthropic`
+  - `canonical`
+  - `catalog`
+  - `causing`
+  - `change`
+  - `change_set_items`
+  - `change_sets`
+  - `channels`
+  - `character`
+  - `chat`
+  - `chat_sse`
+  - `checklist`
+  - `children`
+  - `chunk`
+  - `ci_di_workflow_runs`
+  - `cicd`
+  - `cicd_events`
+  - `cicd_github_runs`
+  - `cicd_pipeline_runs`
+  - `cicd_run_steps`
+  - `cicd_runs`
+  - `cidi`
+  - `cidi_activity_log`
+  - `cidi_pipeline_runs`
+  - `cidi_run_results`
+  - `classifyIntent`
+  - `clicked`
+  - `client`
+  - `clients`
+  - `cloud`
+  - `cloudflare_deployments`
+  - `cms`
+  - `cms_3d_assets`
+  - `cms_activity_log`
+  - `cms_assets`
+  - `cms_collection_assets`
+  - `cms_collections`
+  - `cms_component_templates`
+  - `cms_content`
+  - `cms_conversion_jobs`
+  - `cms_conversions`
+  - `cms_folders`
+  - `cms_global_settings`
+  - `cms_liquid_imports`
+  - `cms_liquid_imports_old`
+  - `cms_liquid_sections`
+  - `cms_liquid_sections_old_fkfix`
+  - `cms_liquid_sections_rebuild_backup`
+  - `cms_live_edit_sessions`
+  - `cms_live_rollbacks`
+  - `cms_navigation_menus`
+  - `cms_override_versions`
+  - `cms_page_drafts`
+  - `cms_page_overrides`
+  - `cms_page_sections`
+  - `cms_pages`
+  - `cms_section_components`
+  - `cms_site_pages`
+  - `cms_tenants`
+  - `cms_theme_preferences`
+  - `cms_themes`
+  - `cms_video_projects`
+  - `code`
+  - `codebase`
+  - `codebase_files`
+  - `collapsing`
+  - `collections`
+  - `column`
+  - `compiled`
+  - `completed`
+  - `concept`
+  - `concurrent`
+  - `conditional`
+  - `config`
+  - `connection`
+  - `consulting`
+  - `content`
+  - `context`
+  - `context_index`
+  - `context_search_log`
+  - `conversation`
+  - `conversation_members`
+  - `conversations`
+  - `converted`
+  - `converted_properties`
+  - `core`
+  - `cost_forecasts`
+  - `course`
+  - `course_assignments`
+  - `course_exports`
+  - `course_grades`
+  - `course_lessons`
+  - `course_modules`
+  - `course_progress`
+  - `course_reviews`
+  - `course_roles`
+  - `course_submissions`
+  - `course_users`
+  - `courses`
+  - `create`
+  - `createLoginSession`
+  - `cron`
+  - `css_vars_json`
+  - `curl`
+  - `current`
+  - `cursor`
+  - `cursor_`
+  - `cursor_tasks`
+  - `cwd`
+  - `d1_migrations`
+  - `dashboard`
+  - `dashboard_assets`
+  - `dashboard_versions`
+  - `data`
+  - `data_retention_policies`
+  - `database`
+  - `dataclasses`
+  - `datetime`
+  - `day`
+  - `dedup`
+  - `default`
+  - `defaults`
+  - `deploy`
+  - `deploym`
+  - `deployment_changes`
+  - `deployment_health`
+  - `deployment_health_checks`
+  - `deployment_notifications`
+  - `deployment_tracking`
+  - `deployments`
+  - `deployments_weekly_rollup`
+  - `designstudio_asset_metrics`
+  - `designstudio_design_blueprints`
+  - `designstudio_event_outbox`
+  - `designstudio_runs_analytics`
+  - `desired`
+  - `device`
+  - `diff`
+  - `different`
+  - `difflib`
+  - `disk`
+  - `dispatchStream`
+  - `display`
+  - `displayed`
+  - `dist`
+  - `doc`
+  - `docs`
+  - `docs_index_log`
+  - `documentation`
+  - `documents`
+  - `domain`
+  - `draw_libraries`
+  - `dream`
+  - `each`
+  - `earlier`
+  - `elsewhere`
+  - `email_attachments`
+  - `email_labels`
+  - `email_logs`
+  - `email_templates`
+  - `email_verification_tokens`
+  - `empty`
+  - `enrollments`
+  - `enterprise`
+  - `entity_a`
+  - `env`
+  - `env_audit_log`
+  - `env_secrets`
+  - `environment`
+  - `eval`
+  - `exc`
+  - `executed`
+  - `executing`
+  - `execution_dependency_graph`
+  - `executions`
+  - `existing`
+  - `explicit`
+  - `exposed`
+  - `extension`
+  - `external`
+  - `fetch`
+  - `file`
+  - `filename`
+  - `files`
+  - `finance_categories`
+  - `finance_transactions`
+  - `financial_accounts`
+  - `financial_transactions`
+  - `first`
+  - `five`
+  - `fk_cols`
+  - `for`
+  - `founder_metrics`
+  - `friendly_name`
+  - `fuchsia`
+  - `full`
+  - `fullText`
+  - `functional`
+  - `functioning`
+  - `game_moves`
+  - `game_rooms`
+  - `games`
+  - `generated`
+  - `generating`
+  - `generic`
+  - `get`
+  - `getAuthUser`
+  - `getIntegrationToken`
+  - `git`
+  - `github_repositories`
+  - `goals`
+  - `gorilla_xp`
+  - `governance_capabilities`
+  - `governance_roles`
+  - `grep`
+  - `guardrail_rulesets`
+  - `hardcoded`
+  - `header`
+  - `headers`
+  - `here`
+  - `heuristic`
+  - `high`
+  - `historical`
+  - `home`
+  - `hook`
+  - `hook_executions`
+  - `hook_subscriptions`
+  - `hostname`
+  - `html`
+  - `http`
+  - `https`
+  - `human`
+  - `iMessage`
+  - `iPhone`
+  - `iam`
+  - `iam_agent_sam_prompts`
+  - `iam_deploy_log`
+  - `iam_system_health`
+  - `iam_user_onboarding_step`
+  - `idea`
+  - `identity_profiles`
+  - `image`
+  - `image_generation_jobs`
+  - `image_generation_variants`
+  - `image_metadata`
+  - `images`
+  - `imported`
+  - `incident`
+  - `index`
+  - `indexed`
+  - `indexes`
+  - `indexing`
+  - `information_schema`
+  - `inneranimalmedia`
+  - `inspection`
+  - `intake`
+  - `integration_audit_log`
+  - `integration_catalog`
+  - `integration_connections`
+  - `integration_events`
+  - `integration_health_checks`
+  - `integration_registry`
+  - `integration_resources`
+  - `intent`
+  - `internal`
+  - `invoices`
+  - `invokeMcpToolFromChat`
+  - `items`
+  - `its`
+  - `jobs`
+  - `json_each`
+  - `json_extract`
+  - `kanban_boards`
+  - `kanban_boards_new`
+  - `kanban_columns`
+  - `kanban_columns_new`
+  - `kanban_tasks`
+  - `kanban_tasks_new`
+  - `keyboard_shortcuts`
+  - `keys`
+  - `knowledge`
+  - `knowledge_edges`
+  - `large`
+  - `last`
+  - `latest`
+  - `launch_milestones`
+  - `legacy`
+  - `lesson_assets`
+  - `lesson_progress`
+  - `lesson_versions`
+  - `lessons`
+  - `liquid`
+  - `list`
+  - `listed`
+  - `live`
+  - `local`
+  - `localStorage`
+  - `local_ollama_eval`
+  - `login`
+  - `logs`
+  - `lookup`
+  - `main`
+  - `march1st`
+  - `may`
+  - `mcp_agent_sessions`
+  - `mcp_audit_log`
+  - `mcp_command_suggestions`
+  - `mcp_entitlements`
+  - `mcp_registered_tools`
+  - `mcp_server_allowlist`
+  - `mcp_service_credentials`
+  - `mcp_services`
+  - `mcp_tool_call_stats`
+  - `mcp_tool_calls`
+  - `mcp_tool_usage`
+  - `mcp_usage_log`
+  - `mcp_workflow_runs`
+  - `mcp_workflows`
+  - `mcp_workspace_tokens`
+  - `meaux`
+  - `media_assets`
+  - `media_scenes`
+  - `meet_messages`
+  - `meet_participants`
+  - `meet_rooms`
+  - `meet_scheduled`
+  - `memory`
+  - `mention`
+  - `mermaid`
+  - `message`
+  - `messages`
+  - `metadata`
+  - `middleware`
+  - `migration`
+  - `migrations`
+  - `missing`
+  - `mode`
+  - `model`
+  - `model_catalog`
+  - `model_key`
+  - `model_routing_memory`
+  - `model_routing_rules`
+  - `moviemode_exports`
+  - `moviemode_projects`
+  - `moviemode_render_jobs`
+  - `moviemode_timelines`
+  - `multiple`
+  - `nano`
+  - `nightly`
+  - `nodes`
+  - `normal`
+  - `normalizeSourceFilters`
+  - `normalized`
+  - `notification_outbox`
+  - `notifications`
+  - `oauth_state_nonces`
+  - `observed`
+  - `old`
+  - `older`
+  - `onboarding_state`
+  - `one`
+  - `openai`
+  - `ops`
+  - `options`
+  - `ordered`
+  - `org_users`
+  - `origin`
+  - `other`
+  - `otlp_traces`
+  - `our`
+  - `output`
+  - `outside`
+  - `overview`
+  - `page`
+  - `page_monitors`
+  - `params`
+  - `parent`
+  - `parsed`
+  - `password_resets`
+  - `pathlib`
+  - `pathname`
+  - `payload`
+  - `performance`
+  - `pg_class`
+  - `pg_constraint`
+  - `pg_extension`
+  - `pg_index`
+  - `pg_indexes`
+  - `pg_namespace`
+  - `pg_policies`
+  - `pg_proc`
+  - `pg_stat_statements`
+  - `pg_stat_statements_info`
+  - `pg_tables`
+  - `picker`
+  - `pipeline_runs`
+  - `pipelines`
+  - `plan_steps`
+  - `planner`
+  - `plans`
+  - `platform`
+  - `playwright`
+  - `playwright_jobs`
+  - `playwright_jobs_v2`
+  - `post`
+  - `post_sandbox`
+  - `pragma_table_info`
+  - `pre`
+  - `previous`
+  - `pricing`
+  - `prior`
+  - `private`
+  - `prod`
+  - `production`
+  - `products_catalog`
+  - `project`
+  - `project_assets`
+  - `project_draws`
+  - `project_files`
+  - `project_goals`
+  - `project_issues`
+  - `project_memory`
+  - `project_quality_summary`
+  - `project_storage`
+  - `project_time_entries`
+  - `projects`
+  - `prompt`
+  - `promptRouteRow`
+  - `prop_schema`
+  - `property_root`
+  - `property_schema`
+  - `protot`
+  - `prototypes`
+  - `provider`
+  - `provider_colors`
+  - `provider_prompt_fragments`
+  - `publi`
+  - `public`
+  - `public_config`
+  - `published`
+  - `pull`
+  - `pulled`
+  - `quality_checks`
+  - `quality_checks_new`
+  - `quality_results`
+  - `quality_runs`
+  - `queries`
+  - `query`
+  - `queue`
+  - `quoted`
+  - `r2_bucket_bindings`
+  - `r2_bucket_class_daily`
+  - `r2_bucket_daily`
+  - `r2_bucket_largest`
+  - `r2_bucket_list`
+  - `r2_bucket_summary`
+  - `r2_buckets`
+  - `r2_deploy_manifest_objects`
+  - `r2_deploy_manifests`
+  - `r2_intended_paths`
+  - `r2_object_inventory`
+  - `r2_object_media`
+  - `r2_objects`
+  - `rag_chunk_vectors`
+  - `rag_ingest_log`
+  - `rag_query_log`
+  - `ranked`
+  - `raw`
+  - `reading`
+  - `real`
+  - `received_emails`
+  - `recent`
+  - `recordArmOutcome`
+  - `references`
+  - `reinventing`
+  - `relative`
+  - `remote`
+  - `rendered`
+  - `rendering`
+  - `repo`
+  - `repo_inventory`
+  - `request`
+  - `required`
+  - `resend_emails`
+  - `resolveIdentity`
+  - `resolved`
+  - `response`
+  - `retention`
+  - `returnTo`
+  - `reusable`
+  - `rich`
+  - `right`
+  - `roadmap`
+  - `roadmap_plans`
+  - `roadmap_steps`
+  - `role_capabilities`
+  - `rollups`
+  - `root`
+  - `route`
+  - `route_caps`
+  - `router`
+  - `routing`
+  - `routing_arms`
+  - `routing_decisions`
+  - `row`
+  - `run`
+  - `runTerminalCommand`
+  - `runToolLoop`
+  - `running`
+  - `runs`
+  - `safest`
+  - `same`
+  - `samples`
+  - `sandbox`
+  - `schema`
+  - `scratch`
+  - `screenshots`
+  - `script`
+  - `scripts`
+  - `secret_audit_log`
+  - `secret_audit_log__new`
+  - `secret_audit_log_old`
+  - `section_data_seed`
+  - `security_findings`
+  - `security_shield_rules`
+  - `selected`
+  - `server`
+  - `service`
+  - `session`
+  - `session_messages`
+  - `session_rag_cache`
+  - `session_summaries`
+  - `sessions`
+  - `set`
+  - `settings`
+  - `several`
+  - `shell`
+  - `shorthand_root`
+  - `shutil`
+  - `sidebar`
+  - `sitemap`
+  - `skip`
+  - `slipping`
+  - `slug`
+  - `source`
+  - `spawn`
+  - `spend_ledger`
+  - `spend_ledger_monthly_rollup`
+  - `spilling`
+  - `sprint_snapshots`
+  - `sql`
+  - `sqlite_master`
+  - `src`
+  - `start`
+  - `startCronRun`
+  - `startup`
+  - `state`
+  - `static`
+  - `stats`
+  - `stdout`
+  - `step`
+  - `storage_policies`
+  - `stored`
+  - `strategy`
+  - `stream`
+  - `streamParams`
+  - `streamed`
+  - `string`
+  - `structured`
+  - `supabase_migrations`
+  - `supabase_retention_policies`
+  - `superadmin_identity`
+  - `sync`
+  - `system_health_snapshots`
+  - `table`
+  - `tags`
+  - `task`
+  - `taskType`
+  - `task_velocity`
+  - `telemetry`
+  - `templates`
+  - `ten`
+  - `tenant`
+  - `tenant_activation_status`
+  - `tenant_branding`
+  - `tenant_context`
+  - `tenant_memberships`
+  - `tenant_modules`
+  - `tenant_workspaces`
+  - `tenants`
+  - `terminal`
+  - `terminal_connections`
+  - `terminal_history`
+  - `terminal_sessions`
+  - `test`
+  - `text`
+  - `textwrap`
+  - `that`
+  - `the`
+  - `theme`
+  - `themes`
+  - `there`
+  - `this`
+  - `those`
+  - `time`
+  - `time_entries`
+  - `timesheets`
+  - `timestamp`
+  - `timestamp_audit`
+  - `tmp`
+  - `token`
+  - `tokens`
+  - `tokens_json`
+  - `toml`
+  - `tool`
+  - `tool_call_log`
+  - `tool_chain`
+  - `tool_name`
+  - `tool_result`
+  - `tools`
+  - `tracking_metrics`
+  - `tunnel_sessions`
+  - `typing`
+  - `typography`
+  - `ui_loading_states`
+  - `underdefined`
+  - `unix`
+  - `unnest`
+  - `updated`
+  - `urllib`
+  - `usage`
+  - `usage_events`
+  - `user`
+  - `user_api_keys`
+  - `user_backup_codes`
+  - `user_browser_trusted_origins`
+  - `user_connections`
+  - `user_goals`
+  - `user_governance_roles`
+  - `user_intake_profiles`
+  - `user_integrations`
+  - `user_oauth_tokens`
+  - `user_oauth_tokens_new`
+  - `user_policy`
+  - `user_preferences`
+  - `user_secrets`
+  - `user_settings`
+  - `user_storage_access_keys`
+  - `user_storage_preferences`
+  - `user_storage_provider_preferences`
+  - `user_workspace_settings`
+  - `users`
+  - `usr_sam_iam`
+  - `v_agentsam_mcp_tools_branded`
+  - `v_agentsam_mcp_tools_canonical`
+  - `v_agentsam_route_capability_tool_matches`
+  - `v_mcp_tool_drift`
+  - `validateToolCall`
+  - `values`
+  - `various`
+  - `vars`
+  - `vectorize_index_registry`
+  - `vectorize_indexed_docs`
+  - `verified`
+  - `video`
+  - `views`
+  - `visualizer`
+  - `waitUntil`
+  - `watch`
+  - `web`
+  - `webhook_endpoints`
+  - `webhook_events`
+  - `webhook_secrets`
+  - `what`
+  - `with`
+  - `within`
+  - `without`
+  - `words`
+  - `work_sessions`
+  - `worker`
+  - `worker_analytics`
+  - `worker_analytics_daily`
+  - `worker_analytics_errors`
+  - `worker_analytics_events`
+  - `worker_analytics_hourly`
+  - `worker_env`
+  - `worker_registry`
+  - `worker_services`
+  - `workflow`
+  - `workflow_artifacts`
+  - `workflow_checkpoints`
+  - `workflow_nodes`
+  - `workflow_runs`
+  - `workflow_steps`
+  - `workflows`
+  - `workspace`
+  - `workspace_audit_log`
+  - `workspace_connectivity_status`
+  - `workspace_domains`
+  - `workspace_limits`
+  - `workspace_members`
+  - `workspace_members_new`
+  - `workspace_memberships`
+  - `workspace_notes`
+  - `workspace_projects`
+  - `workspace_settings`
+  - `workspace_usage_metrics`
+  - `workspaces`
+  - `wrangler`
+  - `wrong`
+  - `www`
+  - `your`
+  - `zsh`
+
+## 🪣 ALL R2 BINDING / BUCKET NAMES DETECTED
+
+  - `
+          },
+          {
+            `
+  - `
+  },
+  {
+    `
+  - ` tick={{ fill: `
+  - ` wrangler*.toml`
+  - ` wrangler*.toml
+grep -R `
+  - ` }, 400);
+
+      let actionsArr = body.actions;
+      if (typeof actionsArr === `
+  - `${b}`
+  - `) !== currentCategory) return false;
+                    return true;
+                });
+                if (sort === `
+  - `).bind(name).all();`
+  - `).bind(name).all();
+    return jsonResponse({ objects: results || [] });
+  }
+
+  const objectKeyMatch = path.match(/^\/api\/r2\/buckets\/([^/]+)\/object\/(.+)$/i);
+  if (objectKeyMatch) {
+    const name = decodeURIComponent(objectKeyMatch[1]);
+    const key = decodeURIComponent(objectKeyMatch[2]);
+    const { bucketName, binding } = resolveR2Access(env, name);
+
+    if (method === `
+  - `).localeCompare(b.name || b.bucket_name || `
+  - `).toLowerCase();
+                    if (q && name.indexOf(q) === -1) return false;
+                    if (currentCategory !== `
+  - `).trim())
+        .filter(Boolean);
+    }
+  }
+
+  const merged: string[] = [...bound];
+  for (const n of account) {
+    if (!boundSet.has(n)) merged.push(n);
+  }
+
+  const withCounts = await Promise.all(
+    merged.slice(0, 80).map(async (name) => {
+      const stats = await fetchJson<{ object_count?: number }>(
+        `/api/r2/stats?bucket=${encodeURIComponent(name)}`,
+      );
+      return {
+        name,
+        bound: boundSet.has(name),
+        object_count: typeof stats?.object_count === `
+  - `,
+    `
+  - `,
+      `
+  - `,
+          `
+  - `, `
+  - `: `
+  - `: \`
+  - `;
+      if (!bucket_name) return jsonResponse({ error: `
+  - `AGENT_SESSION`
+  - `ASSETS`
+  - `AUTORAG_BUCKET`
+  - `CHESS_SESSION`
+  - `CMS`
+  - `DASHBOARD`
+  - `DOCS`
+  - `DOCS_BUCKET`
+  - `EMAIL`
+  - `IAM_COLLAB`
+  - `IAM_PLATFORM`
+  - `KV`
+  - `MCP_TOKENS`
+  - `MYBROWSER`
+  - `OAUTH_KV`
+  - `R2`
+  - `RD`
+  - `SESSION_CACHE`
+  - `TOOLS`
+  - `VECTORIZE_DOCS`
+  - `\`
+  - `agent-sam`
+  - `agent-sam-analytics-dashboard`
+  - `agent-sam-apply`
+  - `agent-sam-at-popover`
+  - `agent-sam-attached`
+  - `agent-sam-attached-name`
+  - `agent-sam-attached-pill`
+  - `agent-sam-avatar`
+  - `agent-sam-bubble`
+  - `agent-sam-budget-label`
+  - `agent-sam-budget-pie`
+  - `agent-sam-budget-pie-inner`
+  - `agent-sam-budget-wrap`
+  - `agent-sam-chat-zone`
+  - `agent-sam-code-panel`
+  - `agent-sam-code-toolbar`
+  - `agent-sam-deploy`
+  - `agent-sam-drag-over`
+  - `agent-sam-empty`
+  - `agent-sam-file-card`
+  - `agent-sam-footer`
+  - `agent-sam-input-actions`
+  - `agent-sam-input-row`
+  - `agent-sam-input-wrap`
+  - `agent-sam-logo`
+  - `agent-sam-logo-ring`
+  - `agent-sam-logs-panel`
+  - `agent-sam-logs-table-wrap`
+  - `agent-sam-logs-toolbar`
+  - `agent-sam-main`
+  - `agent-sam-messages`
+  - `agent-sam-models-badge`
+  - `agent-sam-models-dropdown`
+  - `agent-sam-models-dropdown-inner`
+  - `agent-sam-models-hint`
+  - `agent-sam-models-list-popup`
+  - `agent-sam-models-popup-close`
+  - `agent-sam-models-provider-tabs`
+  - `agent-sam-models-tab`
+  - `agent-sam-msg`
+  - `agent-sam-preview-drawer`
+  - `agent-sam-preview-hint`
+  - `agent-sam-preview-panel`
+  - `agent-sam-preview-toolbar`
+  - `agent-sam-primary`
+  - `agent-sam-provider-dropdown`
+  - `agent-sam-resizer`
+  - `agent-sam-root`
+  - `agent-sam-run`
+  - `agent-sam-sandbox-cicd`
+  - `agent-sam-sandbox-cidi`
+  - `agent-sam-send`
+  - `agent-sam-send-stop`
+  - `agent-sam-stage`
+  - `agent-sam-tab`
+  - `agent-sam-tab-code-toggle`
+  - `agent-sam-usage-btn`
+  - `agent-sam-usage-empty`
+  - `agent-sam-usage-heading`
+  - `agent-sam-usage-panel`
+  - `agent-sam-usage-table`
+  - `agent-sam-usage-table-wrap`
+  - `agent-sam-usage-wrap`
+  - `agent-sam-worker`
+  - `agent-sam-workstation`
+  - `agent-sam-workstation-content`
+  - `agent-sam-workstation-pane`
+  - `agent-sam-workstation-tabs`
+  - `ai-engineering-agent-sam-routing`
+  - `ai-search-inneranimalmedia-aisearch`
+  - `ai-search-inneranimalmedia-autorag`
+  - `allow`
+  - `archived`
+  - `auto`
+  - `autorag`
+  - `autorag-meauxbility-chatbot`
+  - `cmd-iam-permissions`
+  - `cmd-iam-users-create`
+  - `cmd-iam-users-list`
+  - `cmd-r2-download`
+  - `cmd-r2-list`
+  - `cmd-r2-read`
+  - `cmd-r2-search`
+  - `cmd-r2-upload`
+  - `cmd-r2-write`
+  - `cmd-wrangler-r2-bucket-list`
+  - `cmd-wrangler-r2-object-delete`
+  - `cmd-wrangler-r2-object-get`
+  - `cmd-wrangler-r2-object-list`
+  - `cmd-wrangler-r2-object-put`
+  - `cms`
+  - `data-iam-header`
+  - `data-storage-d1-r2-hyperdrive-supabase`
+  - `db-autorag`
+  - `deploy`
+  - `ede6590ac0d2fb7daf155b35653457b2`
+  - `expected`
+  - `iam-`
+  - `iam-agent-chat-conversation-change`
+  - `iam-agent-chat-conversation-id`
+  - `iam-agent-external-send`
+  - `iam-agent-native-workspace-v1`
+  - `iam-antiocean`
+  - `iam-antiocean-full`
+  - `iam-antiocean-full-monaco`
+  - `iam-antiocean-monaco`
+  - `iam-api-gateway`
+  - `iam-approval`
+  - `iam-arctic-command`
+  - `iam-arctic-command-monaco`
+  - `iam-assets-grid`
+  - `iam-assets-load`
+  - `iam-assets-pane`
+  - `iam-aurora`
+  - `iam-aurora-monaco`
+  - `iam-autorag`
+  - `iam-browser`
+  - `iam-browser-monaco`
+  - `iam-browser-navigate`
+  - `iam-browser-navigate-secondary`
+  - `iam-browser-screenshot`
+  - `iam-browser-set-inspector`
+  - `iam-browser-surface-context`
+  - `iam-build-meauxcad-aitestsuite-chatlog-6b18e70`
+  - `iam-chat-github-repo-context`
+  - `iam-chat-mode`
+  - `iam-cidi`
+  - `iam-classy`
+  - `iam-clay`
+  - `iam-cloud-navy`
+  - `iam-cloud-navy-monaco`
+  - `iam-code-dark`
+  - `iam-code-dark-monaco`
+  - `iam-command`
+  - `iam-command-monaco`
+  - `iam-context`
+  - `iam-context-reindex`
+  - `iam-crimson-deep`
+  - `iam-crimson-deep-monaco`
+  - `iam-crimson-night`
+  - `iam-crimson-night-monaco`
+  - `iam-current-workspace`
+  - `iam-cyber-pulse`
+  - `iam-cyber-pulse-monaco`
+  - `iam-dark`
+  - `iam-dashboard-sprint`
+  - `iam-deploy-pipeline`
+  - `iam-desert-field`
+  - `iam-desert-field-monaco`
+  - `iam-desert-ops`
+  - `iam-desert-ops-monaco`
+  - `iam-design`
+  - `iam-docs`
+  - `iam-docs-in`
+  - `iam-editor`
+  - `iam-element-selected`
+  - `iam-ember-terminal`
+  - `iam-ember-terminal-monaco`
+  - `iam-engineer-blue`
+  - `iam-engineer-blue-monaco`
+  - `iam-exec`
+  - `iam-explorer`
+  - `iam-file-input`
+  - `iam-footer`
+  - `iam-footer-canvas`
+  - `iam-forest-classic`
+  - `iam-forest-classic-monaco`
+  - `iam-forest-recon`
+  - `iam-forest-recon-`
+  - `iam-forest-recon-monaco`
+  - `iam-forge`
+  - `iam-format-document`
+  - `iam-ghost-classic`
+  - `iam-ghost-classic-monaco`
+  - `iam-ghost-tactical`
+  - `iam-ghost-tactical-monaco`
+  - `iam-glass-black`
+  - `iam-glass-black-monaco`
+  - `iam-graphite`
+  - `iam-green-terminal`
+  - `iam-green-terminal-monaco`
+  - `iam-hacker-green`
+  - `iam-hamburger`
+  - `iam-header`
+  - `iam-header--light-bg`
+  - `iam-header-inner`
+  - `iam-header-right`
+  - `iam-launcher-black`
+  - `iam-legacy-gold`
+  - `iam-legacy-gold-monaco`
+  - `iam-lib-btn`
+  - `iam-lib-select`
+  - `iam-light`
+  - `iam-light-header`
+  - `iam-logo-dark`
+  - `iam-logo-light`
+  - `iam-logo-wrap`
+  - `iam-matrix-rain`
+  - `iam-midnight`
+  - `iam-midnight-v1`
+  - `iam-mocha-orbit`
+  - `iam-mocha-orbit-monaco`
+  - `iam-model-test`
+  - `iam-mono`
+  - `iam-moon-glass`
+  - `iam-moon-glass-monaco`
+  - `iam-music`
+  - `iam-nav`
+  - `iam-navigation`
+  - `iam-neon`
+  - `iam-neon-city`
+  - `iam-night-strike`
+  - `iam-night-strike-monaco`
+  - `iam-overlay`
+  - `iam-palette-db-target`
+  - `iam-palette-open-r2`
+  - `iam-palette-r2-bucket`
+  - `iam-permissions`
+  - `iam-platform`
+  - `iam-platform-sprint-may2026`
+  - `iam-playwright`
+  - `iam-prefix`
+  - `iam-pty`
+  - `iam-rose-circuit`
+  - `iam-rose-circuit-monaco`
+  - `iam-run-command`
+  - `iam-sandbox-stabilization`
+  - `iam-savanna-scout`
+  - `iam-savanna-scout-monaco`
+  - `iam-searchlight`
+  - `iam-searchlight-monaco`
+  - `iam-sidebar-toggle`
+  - `iam-sidenav`
+  - `iam-sidenav-cta`
+  - `iam-signup-btn`
+  - `iam-slate-ice`
+  - `iam-slate-ice-monaco`
+  - `iam-spatial-black`
+  - `iam-starfield`
+  - `iam-starfield-monaco`
+  - `iam-storm`
+  - `iam-storm-gray`
+  - `iam-storm-white`
+  - `iam-storm-white-monaco`
+  - `iam-synthwave`
+  - `iam-tc-pulse`
+  - `iam-tc-spin`
+  - `iam-terminal`
+  - `iam-terminal-session-pepper`
+  - `iam-terminal-toggle`
+  - `iam-test-reports`
+  - `iam-tide-dark`
+  - `iam-tide-dark-monaco`
+  - `iam-tide-light`
+  - `iam-tide-light-monaco`
+  - `iam-tokyo-night`
+  - `iam-tools`
+  - `iam-tools-index`
+  - `iam-tools-public-origin`
+  - `iam-upload-path`
+  - `iam-upload-zone`
+  - `iam-users-create`
+  - `iam-users-list`
+  - `iam-vault-v1`
+  - `iam-violet-nocturne`
+  - `iam-violet-nocturne-monaco`
+  - `iam-void-clay`
+  - `iam-void-clay-monaco`
+  - `iam-void-simple`
+  - `iam-whiteglass`
+  - `iam-whiteglass-monaco`
+  - `iam-winter-ops`
+  - `iam-workflow`
+  - `iam-workspace-shell`
+  - `iam-workspace-slug`
+  - `iam-workspace-tokens`
+  - `inneranimalmedia`
+  - `inneranimalmedia-1778192367499-upps8f4fr`
+  - `inneranimalmedia-1778192367647-8ar6ulg1h`
+  - `inneranimalmedia-1778204187554-4jibvddfy`
+  - `inneranimalmedia-1778204187711-ui3l8om8v`
+  - `inneranimalmedia-agentsam-dashboard`
+  - `inneranimalmedia-aisearch`
+  - `inneranimalmedia-assets` ⚠️ LEGACY
+  - `inneranimalmedia-autorag`
+  - `inneranimalmedia-autorag\`
+  - `inneranimalmedia-business`
+  - `inneranimalmedia-business-supabase`
+  - `inneranimalmedia-chessgame`
+  - `inneranimalmedia-cms-editor`
+  - `inneranimalmedia-dashboard`
+  - `inneranimalmedia-dev`
+  - `inneranimalmedia-email-archive`
+  - `inneranimalmedia-email-archive\`
+  - `inneranimalmedia-home`
+  - `inneranimalmedia-main`
+  - `inneranimalmedia-mcp`
+  - `inneranimalmedia-mcp-server`
+  - `inneranimalmedia-platform`
+  - `inneranimalmedia-primary`
+  - `inneranimalmedia-sandbox-cicd`
+  - `inneranimalmedia-sandbox-cidi`
+  - `inneranimalmedia-selfhosted`
+  - `inneranimalmedia-tenant`
+  - `inneranimalmedia-trash`
+  - `inneranimalmedia\`
+  - `kb-iam-d1-canonical-keys-20260322`
+  - `kb-iam-d1-canonical-keys-20260322-c0`
+  - `leadership-legacy`
+  - `march1st-inneranimalmedia`
+  - `now`
+  - `org-inneranimalmedia`
+  - `pte-2026-03-23-autorag-session`
+  - `r2-assets-grid`
+  - `r2-assets-load`
+  - `r2-assets-pane`
+  - `r2-bu`
+  - `r2-bucket-create`
+  - `r2-bucket-delete`
+  - `r2-bucket-info`
+  - `r2-bucket-list`
+  - `r2-cms-builds`
+  - `r2-download`
+  - `r2-list`
+  - `r2-object-delete`
+  - `r2-object-get`
+  - `r2-object-list`
+  - `r2-object-put`
+  - `r2-production`
+  - `r2-resources`
+  - `r2-s3`
+  - `r2-skip`
+  - `r2-upload`
+  - `r2_agent_sam`
+  - `r2_bucket`
+  - `r2inv`
+  - `r2skip`
+  - `r2sum`
+  - `reviewed`
+  - `storage-muted`
+  - `storage-row-actions`
+  - `string`
+  - `sync-session-autorag`
+  - `theme-iam-antiocean-full`
+  - `theme-iam-cloud-navy`
+  - `theme-iam-moon-glass`
+  - `theme-iam-slate-ice`
+  - `theme-iam-storm-white`
+  - `tip-r2`
+  - `tools`
+  - `tools-inneranimalmedia-com`
+  - `upload-r2`
+  - `wai-tier2-limited`
+  - `wrangler-r2-bucket-list`
+  - `wrangler-r2-object-delete`
+  - `wrangler-r2-object-get`
+  - `wrangler-r2-object-list`
+  - `wrangler-r2-object-put`
+  - `wrangler2`
+  - `x-iam-debug-id`
+  - `x-iam-workspace-id`
+  - `{}`
+  - `},`
+  - `},\`
+  - `},\\\`
+  - `—`
+
+---
+
+## 📁 FILE MAP — BY SECTION
+
+### WORKER_CORE  (28 files)
+
+- **`docs/worker-function-index.json`**  (5512 lines, 109.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `MCP`, `Workers`, `agent_memory_index`, `agent_sessions`, `agentsam_fetch_domain_allowlist`, `ai_models`
+  - R2: `inneranimalmedia`
+- **`src/index.js`**  (841 lines, 34.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/admin/run-retention`, `/api/agent/approve`, `/api/agent/execute`, `/api/agent/workflow/start`, `/api/auth-hooks/`, `/api/auth/cloudflare/start`
+  - D1 tables: `ASSETS`, `agentsam_webhook_events`, `fetch`, `mcp_workspace_tokens`, `provider_colors`, `router`
+  - R2: `ASSETS`, `IAM_COLLAB`
+- **`docs/modularization/WORKER_EXTRACTION_AUDIT_2026-05-01.md`**  (299 lines, 14.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agent`, `agentsam_webhook_weekly`, `grep`, `what`
+- **`migrations/228_ai_models_pricing_unit_and_workers_ai_neurons.sql`**  (261 lines, 11.0 KB)
+  - D1 tables: `ai_models`
+- **`dashboard/components/analytics/tabs/WorkersTab.tsx`**  (188 lines, 8.1 KB)
+  - Components: `WorkersTab`
+  - D1 tables: `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_webhook_events`
+- **`migrations/316_agentsam_model_catalog_workers_ai_openai_gaps.sql`**  (191 lines, 6.8 KB)
+  - D1 tables: `agentsam_model_catalog`
+- **`docs/worker-modularization-status-2026-05-02.md`**  (123 lines, 6.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `legacy`, `repo`
+- **`docs/autorag-knowledge/architecture/worker-routing.md`**  (104 lines, 5.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `sessions`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.worker_events.md`**  (89 lines, 4.9 KB)
+- **`src/tools/builtin/github-worker.js`**  (128 lines, 4.6 KB)  🐛 GITHUB_REAUTH_LOOP
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.worker_daily_rollups.md`**  (83 lines, 4.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.worker_errors.md`**  (82 lines, 4.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.worker_hourly_rollups.md`**  (80 lines, 4.3 KB)
+- **`learn/software-engineering-builder-os/lessons/006_cloudflare-workers-runtime.md`**  (141 lines, 4.3 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_commands`, `agentsam_guardrails`, `request`
+  - R2: ` wrangler*.toml
+grep -R `
+- **`docs/iam-docs/platform/worker-routing.md`**  (72 lines, 4.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/agentsam`** inside the function for the full list.
+
+## `handleAgentApi` / agent chat
+
+- **`POST /api/agent/chat`:** compiles system prompt, optional **pre-prompt RAG** (~7410–7451), `fetchContextIndex`, `ai_compiled_context_cache`, then model call or **`runToolLoop`** (~7839, ~8020).
+- **`runToolLoop`:** ~4918+ — multi-round tool execution; loads tools from **`mcp_registered_tools`** when `useTools`.
+
+## API categories (non-exhaustive)
+
+- **MCP:** `/api/mcp/*` — `handleMcpApi`
+- **Images, draw, terminal, playwright** — see grep `pathLower === `
+  - D1 tables: `large`
+- **`migrations/206_ws_aitestsandbox_aitesting_worker.sql`**  (187 lines, 3.7 KB)
+- **`docs/WORKER_ROUTING_REFERENCE.md`**  (85 lines, 3.3 KB)  🐛 HARDCODED_R2
+  - Routes: `/api/health`
+  - D1 tables: `that`, `this`
+  - R2: `ASSETS`, `DASHBOARD`, `inneranimalmedia`
+- **`docs/specs/WORKER_PRODUCTION_SURFACE_REFERENCE.md`**  (69 lines, 3.0 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `sessions`
+- **`scripts/d1-roadmap-inner-cli-worker-api-20260402.sql`**  (83 lines, 2.8 KB)
+  - D1 tables: `roadmap_plans`, `roadmap_steps`
+- **`docs/iam-docs/agents/workers-ai.md`**  (54 lines, 2.5 KB)
+- **`src/core/workers-deploy-hook.js`**  (65 lines, 1.7 KB)
+- **`docs/SANDBOX_WORKERS_BUILDS.md`**  (30 lines, 1.5 KB)
+- **`src/api/trigger-workers-build.js`**  (38 lines, 1.2 KB)
+- **`src/core/legacy-worker-annotate.js`**  (24 lines, 0.9 KB)
+- **`migrations/167_worker_analytics_errors.sql`**  (14 lines, 0.7 KB)
+  - D1 tables: `worker`, `worker_analytics_errors`
+- **`src/core/embed-workers-ai.js`**  (21 lines, 0.7 KB)
+- **`.deploy-worker-stats.json`**  (16 lines, 0.6 KB)  🐛 MOVIEMODE_BROKEN
+- **`src/integrations/workers-ai.js`**  (1 lines, 0.0 KB)
+
+### API_ENDPOINTS  (98 files)
+
+- **`src/api/agent.js`**  (9024 lines, 352.4 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `THRESHOLD`
+  - Routes: `/api/agent/alignment-sync`, `/api/agent/allowlist`, `/api/agent/approval/pending`, `/api/agent/boot`, `/api/agent/bootstrap`, `/api/agent/chat`
+  - D1 tables: `AGENTSAM_TOOLS`, `AGENTSAM_TOOL_DEBUG`, `OpenAI`, `agent_conversations`, `agent_db_query_history`, `agent_db_snippets`
+  - R2: `AGENT_SESSION`, `R2`, `SESSION_CACHE`, `inneranimalmedia`
+- **`src/api/settings.js`**  (3188 lines, 125.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/ai/models`, `/api/settings/agents`, `/api/settings/agents/commands`, `/api/settings/agents/domains`, `/api/settings/agents/mcp`, `/api/settings/agents/policy`
+  - D1 tables: `AGENTSAM_POLICY_COLS`, `agentsam_ai`, `agentsam_bootstrap`, `agentsam_code_index_job`, `agentsam_command_allowlist`, `agentsam_fetch_domain_allowlist`
+  - R2: `, `
+- **`src/api/auth.js`**  (2076 lines, 71.6 KB)
+  - Routes: `/api/auth/agent-session/mint`, `/api/auth/backup-code`, `/api/auth/email-change/request`, `/api/auth/identities`, `/api/auth/login`, `/api/auth/logout`
+  - D1 tables: `auth_sessions`, `auth_user_identities`, `auth_users`, `email_verification_tokens`, `password_resets`, `session`
+  - R2: `SESSION_CACHE`
+- **`src/api/oauth.js`**  (1592 lines, 58.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `PROVIDERS`
+  - Routes: `/api/auth/supabase/callback`, `/api/oauth/authorize`, `/api/oauth/gmail/callback`, `/api/oauth/gmail/start`, `/api/oauth/token`, `/api/oauth/userinfo`
+  - D1 tables: `auth_users`, `integration_events`, `integration_registry`, `login`, `mcp_workspace_tokens`, `oauth_state_nonces`
+  - R2: `SESSION_CACHE`
+- **`src/api/integrations.js`**  (1035 lines, 57.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/email/inbound`, `/api/integrations`, `/api/integrations/api-keys`, `/api/integrations/bluebubbles/webhook`, `/api/integrations/events`, `/api/integrations/gdrive/file`
+  - D1 tables: `BlueBubbles`, `OAuth`, `Resend`, `agent_messages`, `agentsam_hook`, `agentsam_hooks`
+  - R2: `KV`, `R2`
+- **`src/api/r2-api.js`**  (1241 lines, 48.8 KB)  🐛 HARDCODED_R2, MOVIEMODE_BROKEN
+  - Routes: `/api/r2/buckets`, `/api/r2/copy`, `/api/r2/delete`, `/api/r2/delete-batch`, `/api/r2/file`, `/api/r2/head`
+  - D1 tables: `legacy`, `media_assets`, `query`, `r2_object_inventory`
+  - R2: `).bind(name).all();
+    return jsonResponse({ objects: results || [] });
+  }
+
+  const objectKeyMatch = path.match(/^\/api\/r2\/buckets\/([^/]+)\/object\/(.+)$/i);
+  if (objectKeyMatch) {
+    const name = decodeURIComponent(objectKeyMatch[1]);
+    const key = decodeURIComponent(objectKeyMatch[2]);
+    const { bucketName, binding } = resolveR2Access(env, name);
+
+    if (method === `, `autorag`, `iam-docs`, `iam-platform`, `inneranimalmedia`
+- **`src/api/mail.js`**  (1135 lines, 44.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/mail/archived`, `/api/mail/attachment/`, `/api/mail/draft`, `/api/mail/email/`, `/api/mail/gmail/callback`, `/api/mail/gmail/start`
+  - D1 tables: `email_attachments`, `email_labels`, `email_logs`, `email_templates`, `received_emails`, `resend_emails`
+  - R2: `SESSION_CACHE`
+- **`src/api/rag.js`**  (1274 lines, 43.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/rag/ingest`, `/api/rag/search`, `/api/rag/sync`, `/api/search`
+  - D1 tables: `Sessions`, `agent_messages`, `public`, `rag_ingest_log`, `session_summaries`, `sessions`
+  - R2: `agent-sam`
+- **`src/api/mcp.js`**  (1105 lines, 42.0 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/mcp/agent/session/start`, `/api/mcp/agents`, `/api/mcp/agents/dispatch`, `/api/mcp/agents/reset`, `/api/mcp/agents/reset-all`, `/api/mcp/agents/status`
+  - D1 tables: `AGENTSAM_MCP_WORKFLOWS`, `AGENTSAM_WORKFLOW_RUNS_TABLE`, `agent_intent_patterns`, `agentsam_ai`, `agentsam_command_pattern`, `agentsam_mcp_allowlist`
+  - R2: `wai-tier2-limited`
+- **`src/api/onboarding.js`**  (1106 lines, 41.8 KB)
+  - Routes: `/api/onboarding/intake`, `/api/onboarding/profile-setup`, `/api/onboarding/recovery-codes`, `/api/onboarding/send-invite`, `/api/onboarding/status`
+  - D1 tables: `POST`, `agentsam_bootstrap`, `agentsam_project_context`, `agentsam_subagent_profile`, `agentsam_user_policy`, `auth_users`
+  - R2: `EMAIL`, `org-inneranimalmedia`
+- **`src/api/analytics/overview.js`**  (1260 lines, 41.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/analytics/codebase`, `/api/analytics/rag`, `/api/analytics/source-health`
+  - D1 tables: `agentsam_error_events`, `agentsam_error_log`, `agentsam_eval_runs`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_executions`
+- **`src/api/command-run-telemetry.js`**  (1245 lines, 39.3 KB)
+  - D1 tables: `agent_sessions`, `agentsam_approval_queue`, `agentsam_command_allowlist`, `agentsam_command_pattern`, `agentsam_command_run`, `agentsam_commands`
+- **`src/api/settings-sections.js`**  (1211 lines, 37.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `PROVIDERS`
+  - Routes: `/api/settings/billing/status`, `/api/settings/cicd`, `/api/settings/docs`, `/api/settings/github`, `/api/settings/hooks/status`, `/api/settings/integrations/status`
+  - D1 tables: `agentsam_approval_queue`, `agentsam_browser_trusted_origin`, `agentsam_code_index_job`, `agentsam_command_allowlist`, `agentsam_compaction_events`, `agentsam_cron_runs`
+- **`src/api/storage.js`**  (862 lines, 36.8 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/storage/access-keys`, `/api/storage/activity`, `/api/storage/analytics`, `/api/storage/buckets`, `/api/storage/jobs/`, `/api/storage/jobs/rollup-bucket-summary`
+  - D1 tables: `project_storage`, `r2_bucket_summary`, `r2_objects`, `storage_policies`, `superadmin_identity`, `user_storage_access_keys`
+  - R2: ` }, 400);
+
+      let actionsArr = body.actions;
+      if (typeof actionsArr === `, `;
+      if (!bucket_name) return jsonResponse({ error: `, `SESSION_CACHE`, `allow`, `autorag`
+- **`src/api/learn.js`**  (1026 lines, 34.0 KB)
+  - Routes: `/api/learn/dashboard`, `/api/learn/progress`, `/api/learn/submit`
+  - D1 tables: `auth_users`, `course_assignments`, `course_exports`, `course_grades`, `course_lessons`, `course_modules`
+- **`src/api/billing.js`**  (935 lines, 32.7 KB)
+  - Routes: `/api/billing`, `/api/billing/checkout`, `/api/billing/invoices`, `/api/billing/plans`, `/api/billing/portal`, `/api/billing/subscription`
+  - D1 tables: `agentsam_webhook_events`, `billing_accounts`, `billing_coupons`, `billing_customers`, `billing_plans`, `billing_subscriptions`
+- **`src/api/analytics/boards.js`**  (1064 lines, 32.6 KB)
+  - D1 tables: `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`, `agentsam_eval_runs`, `agentsam_execution_performance_metrics`, `agentsam_guardrail_events`
+  - R2: `r2inv`, `r2sum`
+- **`src/api/workspaces.js`**  (945 lines, 32.5 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/workspaces`, `/api/workspaces/list`
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_workspace`, `other`, `users`, `workspace_audit_log`, `workspace_connectivity_status`
+  - R2: `R2`
+- **`src/api/overview-bundle.js`**  (862 lines, 32.3 KB)
+  - Components: `TW`
+  - D1 tables: `agentsam_agent_run`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`, `agentsam_eval_runs`, `agentsam_execution_steps`
+- **`src/api/themes.js`**  (879 lines, 30.7 KB)
+  - Routes: `/api/themes`, `/api/themes/active`, `/api/themes/apply`, `/api/themes/create`, `/api/themes/package`
+  - D1 tables: `auth_users`, `cms_themes`, `user_settings`, `workspaces`
+  - R2: `inneranimalmedia`
+- **`src/api/dashboard.js`**  (587 lines, 30.0 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `BATCH`
+  - Routes: `/api/agent/boot`, `/api/agent/git/branches`, `/api/agent/git/status`, `/api/agent/github`, `/api/agent/notifications`, `/api/agent/terminal/complete`
+  - D1 tables: `agent_sessions`, `agentsam_ai`, `agentsam_command_run`, `deployments`, `mcp_services`, `notifications`
+  - R2: `AGENT_SESSION`, `inneranimalmedia`
+- **`src/api/settings-api-keys.js`**  (860 lines, 29.9 KB)
+  - Components: `PROVIDERS`
+  - Routes: `/api/settings/api-keys`, `/api/settings/api-keys/audit`
+  - D1 tables: `secret_audit_log`, `sqlite_master`, `user_api_keys`, `user_secrets`
+  - R2: `x-iam-workspace-id`
+- **`src/api/agentsam.js`**  (686 lines, 26.1 KB)
+  - Routes: `/api/agentsam/agent-chat-plan-trace`, `/api/agentsam/ai`, `/api/agentsam/config`, `/api/agentsam/invocations`, `/api/agentsam/plans`, `/api/agentsam/prompts`
+  - D1 tables: `agentsam_ai`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`src/api/projects.js`**  (735 lines, 25.7 KB)
+  - Routes: `/api/projects`, `/api/projects/`, `/api/projects/overview`
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_usage_events`, `dashboard`, `project_goals`, `project_issues`
+- **`src/api/settings-workspace.js`**  (711 lines, 25.7 KB)
+  - Routes: `/api/settings/workspace`, `/api/settings/workspace/`, `/api/settings/workspace/members`, `/api/settings/workspace/members/invite`, `/api/settings/workspace/modules`
+  - D1 tables: `auth_users`, `sqlite_master`, `tenant_modules`, `workspace_audit_log`, `workspace_limits`, `workspace_members`
+  - R2: `x-iam-workspace-id`
+- **`src/api/test/code-execution-e2e.js`**  (812 lines, 25.6 KB)
+  - D1 tables: `agentsam_bootstrap`, `agentsam_command_run`, `agentsam_model_catalog`, `agentsam_tool_chain`, `agentsam_usage_events`
+  - R2: `agent-sam`
+- **`src/api/meet.js`**  (677 lines, 24.4 KB)
+  - Routes: `/api/meet`
+  - D1 tables: `calendar_events`, `channels`, `meet_messages`, `meet_participants`, `meet_rooms`, `meet_scheduled`
+  - R2: `DASHBOARD`
+- **`src/api/unified-search.js`**  (729 lines, 23.0 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/unified-search`, `/api/unified-search/recent`, `/api/unified-search/track`
+  - D1 tables: `agentsam_command_run`, `agentsam_mcp_tools`, `agentsam_plans`, `agentsam_todo`, `ai_search_analytics`, `github_repositories`
+  - R2: `inneranimalmedia`
+- **`src/api/designstudio/index.js`**  (558 lines, 23.0 KB)
+  - Components: `BLUEPRINTS`
+  - Routes: `/api/designstudio/blueprints`, `/api/designstudio/runs`, `/api/internal/designstudio/sync-run`
+  - D1 tables: `agentsam_mcp_workflows`, `agentsam_workflow_runs`, `agentsam_workspace`
+  - R2: `AGENT_SESSION`, `autorag`
+- **`src/api/vault.js`**  (471 lines, 22.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/vault/audit`, `/api/vault/llm-keys`, `/api/vault/projects`, `/api/vault/registry`, `/api/vault/secrets`, `/api/vault/store`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `secret_audit_log`, `user_secrets`
+- **`src/api/draw.js`**  (475 lines, 20.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/canvas/theme`, `/api/draw/`, `/api/draw/connections`, `/api/draw/download/`, `/api/draw/export`, `/api/draw/libraries`
+  - D1 tables: `draw_libraries`, `project_draws`, `user_workspace_settings`
+  - R2: `DASHBOARD`
+- **`src/api/provisioning.js`**  (611 lines, 20.6 KB)
+  - Routes: `/api/terminal/session/verify`
+  - D1 tables: `agentsam_ai`, `agentsam_workspace`, `auth_users`, `billing_plans`, `billing_subscriptions`, `enrollments`
+- **`src/api/oauth-login-callbacks.js`**  (540 lines, 19.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_analytics`, `agentsam_subagent_profile`, `auth_users`, `createLoginSession`, `sessions`, `time_entries`
+  - R2: `SESSION_CACHE`, `agent-sam`, `inneranimalmedia`
+- **`src/api/agent-artifacts.js`**  (489 lines, 18.1 KB)
+  - Components: `PATCHABLE`
+  - Routes: `/api/agent/artifact`, `/api/agent/artifact-filters`, `/api/agent/artifacts`
+  - D1 tables: `URL`, `agentsam_artifact_skills`, `agentsam_artifacts`, `agentsam_skill`
+- **`src/api/analytics/agent.js`**  (565 lines, 16.5 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_execution_dependency_graph`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`
+- **`src/api/cicd-event.js`**  (379 lines, 16.0 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_execution`, `deployment_changes`, `deployment_health_checks`, `hook_subscriptions`, `payload`
+  - R2: `KV`, `inneranimalmedia`, `r2-production`
+- **`src/api/overview.js`**  (392 lines, 15.1 KB)
+  - Routes: `/api/overview/activity-strip`, `/api/overview/agent-activity`, `/api/overview/commands-workflows`, `/api/overview/dashboard-bundle`, `/api/overview/deployments`, `/api/overview/goals-launch`
+  - D1 tables: `agentsam_command_run`, `agentsam_mcp_tool_execution`, `agentsam_usage_events`, `cicd_pipeline_runs`, `deployments`, `goals`
+- **`src/api/finance.js`**  (270 lines, 14.1 KB)
+  - Routes: `/api/billing/summary`, `/api/clients`, `/api/finance`, `/api/finance/`, `/api/projects`
+  - D1 tables: `clients`, `finance_categories`, `finance_transactions`, `financial_accounts`, `financial_transactions`, `invoices`
+- **`src/api/analytics/codebase.js`**  (406 lines, 14.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `information_schema`, `public`
+- **`src/api/settings-integrations.js`**  (382 lines, 13.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, MOVIEMODE_BROKEN
+  - Routes: `/api/settings/integrations`, `/api/settings/integrations/connected`, `/api/settings/integrations/custom`, `/api/settings/integrations/custom-mcp`
+  - D1 tables: `integration_registry`, `mcp_services`, `user_api_keys`, `user_integrations`, `user_oauth_tokens`
+- **`src/api/integrations/connect.js`**  (386 lines, 13.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `integration_catalog`, `integration_health_checks`, `integration_registry`, `user_api_keys`, `user_integrations`, `user_oauth_tokens`
+- **`src/api/designstudio/sync.js`**  (395 lines, 13.5 KB)
+  - D1 tables: `AGENTSAM_WORKFLOW_RUNS_TABLE`, `agentsam_workflow_runs`
+  - R2: `AGENT_SESSION`
+- **`src/api/telemetry.js`**  (365 lines, 13.4 KB)
+  - D1 tables: `agentsam_usage_events`, `ai_context_versions`, `ai_provider_usage`, `legacy`, `spend_ledger`, `worker_analytics_errors`
+  - R2: `agent-sam`, `inneranimalmedia`
+- **`src/api/health/queries.js`**  (378 lines, 12.7 KB)
+  - Components: `LIMIT`
+  - D1 tables: `agentsam_deployment_health`, `agentsam_error_events`, `agentsam_model_cost_snapshots`, `agentsam_routing_decisions`, `agentsam_stream_events`, `agentsam_tool_call_events`
+- **`src/api/intake.js`**  (336 lines, 12.1 KB)
+  - Routes: `/api/agent/intake/answer`, `/api/agent/intake/start`
+  - D1 tables: `agentsam_plans`, `agentsam_todo`
+- **`src/api/health/d1Telemetry.js`**  (313 lines, 11.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_analytics`, `agentsam_command_run`, `agentsam_commands`, `agentsam_deployment_health`, `agentsam_execution_performance_metrics`
+- **`src/api/cms.js`**  (332 lines, 11.8 KB)
+  - Routes: `/api/cms/pages`
+  - D1 tables: `cms_pages`
+  - R2: `iam-docs`, `inneranimalmedia`
+- **`src/api/images-workspace.js`**  (314 lines, 11.8 KB)
+  - Components: `BUCKET`
+  - Routes: `/api/images`
+  - R2: `inneranimalmedia`
+- **`src/api/cad.js`**  (284 lines, 11.3 KB)
+  - Routes: `/api/cad/blender/script`, `/api/cad/jobs`, `/api/cad/meshy/generate`, `/api/cad/openscad/generate`
+  - D1 tables: `agentsam_cad_jobs`
+- **`src/api/d1-dashboard.js`**  (280 lines, 11.2 KB)
+  - Routes: `/api/d1/query`, `/api/d1/tables`
+  - D1 tables: `sqlite_master`
+- **`src/api/terminal.js`**  (286 lines, 11.0 KB)
+  - Routes: `/api/terminal/assist`, `/api/terminal/session/register`, `/api/terminal/session/validate`, `/api/terminal/session/verify`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agent_mode_configs`, `sessions`, `terminal`, `terminal_sessions`, `various`
+  - R2: `KV`
+- **`src/api/auth-hooks.js`**  (290 lines, 9.6 KB)
+  - Routes: `/api/auth-hooks/before-user-created`, `/api/auth-hooks/custom-access-token`, `/api/auth-hooks/send-email`
+  - D1 tables: `auth_users`, `billing_subscriptions`, `workspace_members`
+  - R2: `inneranimalmedia`
+- **`src/api/calendar.js`**  (273 lines, 9.5 KB)
+  - Routes: `/api/calendar`
+  - D1 tables: `calendar_events`, `clients`, `messages`
+- **`src/api/analytics/rag.js`**  (287 lines, 9.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `information_schema`, `knowledge_edges`, `public`, `session_summaries`, `tenant_context`
+- **`src/api/analytics/layout.js`**  (332 lines, 9.2 KB)
+  - D1 tables: `cms_page_sections`, `cms_pages`, `cms_section_components`
+- **`src/api/workspace.js`**  (192 lines, 9.1 KB)
+  - Routes: `/api/workspace/create`, `/api/workspace/list`, `/api/workspace/settings`, `/api/workspaces/current/shell`
+  - D1 tables: `agentsam_workspace`, `agentsam_workspace_state`, `legacy`, `tenant_workspaces`, `workspace_settings`
+- **`src/api/cursor-agent.js`**  (254 lines, 8.9 KB)
+  - Routes: `/api/cursor/agent/spawn`, `/api/cursor/agents`
+  - D1 tables: `Cursor`, `agentsam_agent_run`, `agentsam_plans`, `agentsam_todo`
+- **`src/api/cicd.js`**  (217 lines, 8.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/cicd/current`, `/api/cicd/run`, `/api/cicd/runs`
+  - D1 tables: `cicd_pipeline_runs`, `cicd_run_steps`, `cicd_runs`, `deployments`, `legacy`
+- **`src/api/workflow/summary.js`**  (190 lines, 8.7 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_mcp_tool_execution`, `agentsam_routing_arms`, `agentsam_tool_call_log`, `agentsam_usage_events`, `deployment_tracking`
+  - R2: `ASSETS`
+- **`src/api/email.js`**  (245 lines, 8.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `required`
+  - R2: `KV`
+- **`src/api/studio-session.js`**  (221 lines, 8.2 KB)
+  - Routes: `/api/artifacts`
+  - D1 tables: `agentsam_artifacts`, `agentsam_cad_jobs`, `agentsam_plans`, `agentsam_todo`
+- **`src/api/moviemode-api.js`**  (229 lines, 8.0 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/media/assets`, `/api/media/assets/register`, `/api/moviemode/projects`, `/api/moviemode/render-jobs`, `/api/moviemode/timelines`
+  - D1 tables: `media_assets`, `moviemode_projects`, `moviemode_render_jobs`, `moviemode_timelines`
+- **`src/api/integrity.js`**  (131 lines, 7.6 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_routing_arms`, `agentsam_tool_stats_compacted`, `agentsam_usage_events`, `provider_prompt_fragments`, `routing_decisions`
+- **`src/api/access.js`**  (209 lines, 7.1 KB)
+  - D1 tables: `auth_users`, `mcp_entitlements`, `users`
+- **`src/api/webhooks/github.js`**  (196 lines, 6.8 KB)
+  - D1 tables: `agentsam_webhook_events`
+- **`src/api/analytics/index.js`**  (188 lines, 6.6 KB)
+  - Routes: `/api/analytics/advisors`, `/api/analytics/advisors/guardrails`, `/api/analytics/agent/dependencies`, `/api/analytics/agent/graph`, `/api/analytics/agent/runs`, `/api/analytics/codebase`
+- **`src/api/health/supabaseRest.js`**  (217 lines, 5.9 KB)
+- **`src/api/health/index.js`**  (170 lines, 5.7 KB)
+  - Routes: `/api/health/advisors`, `/api/health/agent`, `/api/health/agentsam-d1`, `/api/health/deployments`, `/api/health/hyperdrive`, `/api/health/mcp`
+  - R2: `inneranimalmedia`
+- **`src/api/analytics/source-health.js`**  (153 lines, 5.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_deployment_health`, `agentsam_error_events`, `agentsam_error_log`, `agentsam_eval_runs`, `agentsam_execution_performance_metrics`, `agentsam_mcp_tool_execution`
+- **`src/api/post-deploy.js`**  (133 lines, 4.9 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_hook`, `agentsam_hook_execution`
+  - R2: `KV`
+- **`src/api/deployments.js`**  (113 lines, 4.7 KB)
+  - Routes: `/api/deployments/recent`, `/api/internal/git-status`, `/api/internal/record-deploy`
+  - D1 tables: `cicd_events`, `cicd_pipeline_runs`, `deployments`, `legacy`
+  - R2: `inneranimalmedia`
+- **`src/api/analytics.js`**  (140 lines, 4.6 KB)
+  - D1 tables: `agentsam_model_cost_snapshots`, `agentsam_routing_decisions`, `agentsam_usage_events`, `billing_plans`, `billing_subscriptions`, `financial_transactions`
+- **`src/api/hub.js`**  (106 lines, 4.5 KB)
+  - Routes: `/api/hub/`
+  - D1 tables: `agentsam_todo`, `agentsam_usage_events`, `legacy`, `project_time_entries`, `roadmap_steps`, `spend_ledger`
+- **`src/api/webhooks/supabase.js`**  (123 lines, 4.0 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_execution`, `agentsam_routing_arms`, `agentsam_routing_decisions`, `agentsam_webhook_events`, `webhook_endpoints`
+- **`src/api/search.js`**  (128 lines, 3.9 KB)
+  - Routes: `/api/search`
+- **`dashboard/api/projects.ts`**  (136 lines, 3.6 KB)
+  - Routes: `/api/projects`
+- **`src/api/notify-deploy.js`**  (85 lines, 3.6 KB)
+- **`src/api/git-status.js`**  (120 lines, 3.6 KB)
+- **`src/api/analytics/sources/supabase.js`**  (118 lines, 3.6 KB)
+  - D1 tables: `information_schema`, `public`
+- **`dashboard/api/artifacts.ts`**  (114 lines, 3.3 KB)
+  - Routes: `/api/agent/artifact-filters`
+- **`src/api/status-bundle.js`**  (111 lines, 3.3 KB)
+  - D1 tables: `agent_notifications`, `agentsam_workspace`, `pipeline_runs`, `sessions`, `terminal_sessions`, `worker_analytics_errors`
+- **`src/api/integrations/model-sync.js`**  (81 lines, 3.1 KB)
+  - D1 tables: `agentsam_ai`
+- **`src/api/auth-me.js`**  (105 lines, 3.0 KB)
+  - D1 tables: `getAuthUser`, `user_oauth_tokens`, `workspace_members`
+- **`src/api/webhooks/anthropic.js`**  (91 lines, 3.0 KB)
+  - D1 tables: `agentsam_webhook_events`
+- **`src/api/browser-trust.js`**  (86 lines, 2.9 KB)
+  - D1 tables: `agentsam_browser_trusted_origin`
+  - R2: `x-iam-workspace-id`
+- **`src/api/games.js`**  (72 lines, 2.8 KB)
+  - Routes: `/api/games/pieces`, `/api/games/rooms`, `/api/games/rooms/`, `/api/games/ws/`
+  - D1 tables: `cms_assets`, `game_moves`, `game_rooms`, `games`
+  - R2: `CHESS_SESSION`
+- **`src/api/health/mcpChecks.js`**  (94 lines, 2.8 KB)
+  - D1 tables: `agentsam_tool_call_events`
+- **`src/api/commands.js`**  (76 lines, 2.6 KB)
+  - D1 tables: `agentsam_commands`
+- **`src/api/health/advisors.js`**  (66 lines, 2.0 KB)
+  - D1 tables: `agentsam_error_events`, `telemetry`
+- **`src/api/analytics/sources/d1.js`**  (69 lines, 2.0 KB)
+- **`src/api/analytics/sources/normalize.js`**  (62 lines, 1.9 KB)
+- **`src/api/mcp-calls.js`**  (46 lines, 1.8 KB)
+  - Routes: `/api/mcp/tool-calls`
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_mcp_tools`
+- **`src/api/health/hyperdrive-health.js`**  (65 lines, 1.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`src/api/dashboard-api-identity.js`**  (41 lines, 1.6 KB)
+  - D1 tables: `body`, `session`
+- **`src/api/kanban-scope.js`**  (32 lines, 1.3 KB)
+  - D1 tables: `resolveIdentity`, `the`
+- **`src/api/notifications/email.js`**  (30 lines, 1.0 KB)
+- **`src/api/catalog.js`**  (27 lines, 0.8 KB)
+  - D1 tables: `integration_catalog`
+- **`src/api/health/scoring.js`**  (21 lines, 0.5 KB)
+
+### AGENT_SYSTEM  (757 files)
+
+- **`artifacts/agentsam_audit/agentsam_d1_codebase_audit_20260515T011657Z.json`**  (32178 lines, 1340.5 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `TokensChart`
+  - Routes: `/api/agent/approval/pending`, `/api/auth-hooks/custom-access-token`, `/api/placeholder`
+  - D1 tables: `AGENTSAM_IGNORE_AND_RULES`, `AGENTSAM_POLICY_COLS`, `AGENTSAM_PROMPT_ROUTES`, `AGENTSAM_SMOKE_MAX_COST_USD`, `AGENTSAM_TOOLS`, `CSS`
+  - R2: `agent-sam`, `agent-sam-primary`, `iam-classy`, `iam-platform`, `iam-storm-white`
+- **`artifacts/agentsam_audit/latest_agentsam_d1_codebase_audit.json`**  (32178 lines, 1340.5 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `TokensChart`
+  - Routes: `/api/agent/approval/pending`, `/api/auth-hooks/custom-access-token`, `/api/placeholder`
+  - D1 tables: `AGENTSAM_IGNORE_AND_RULES`, `AGENTSAM_POLICY_COLS`, `AGENTSAM_PROMPT_ROUTES`, `AGENTSAM_SMOKE_MAX_COST_USD`, `AGENTSAM_TOOLS`, `CSS`
+  - R2: `agent-sam`, `agent-sam-primary`, `iam-classy`, `iam-platform`, `iam-storm-white`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033820Z/agentsam_cms_audit_plan.json`**  (26264 lines, 1208.1 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `AgentCodeFencePreview`
+  - D1 tables: `TEXT`, `agentsam_cms_audit_plan`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_mcp_tool_e2e_sprint`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-mcp`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T035443Z/agentsam_cms_audit_plan.json`**  (26248 lines, 1207.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `AgentCodeFencePreview`
+  - D1 tables: `TEXT`, `agentsam_cms_audit_plan`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_cms_plan_20260513T033820Z`, `agentsam_get_agent`, `agentsam_list_agents`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-mcp`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033812Z/agentsam_cms_audit_plan.json`**  (26240 lines, 1206.9 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `AgentCodeFencePreview`
+  - D1 tables: `TEXT`, `agentsam_cms_audit_plan`, `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_mcp_tool_e2e_sprint`, `agentsam_mcp_tool_execution`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-mcp`
+- **`artifacts/cms_agentsam_structure_audit_20260513T030633Z/raw_audit.json`**  (34051 lines, 1020.8 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/artifacts/art_8dafc8b641779896/content`
+  - D1 tables: `AGENTSAM_POLICY_COLS`, `INTEGER`, `TEXT`, `agent_configs`, `agentsam_20260510_025149_338314`, `agentsam_20260510_025149_338314_report`
+  - R2: `agent-sam`, `iam-antiocean-full`, `iam-dark`, `iam-desert-field`, `iam-light`
+- **`artifacts/agentsam-command-workflow-design-report.json`**  (29984 lines, 922.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `TABLE`
+  - Routes: `/api/agent/execute`, `/api/agent/rag/query\`, `/api/agent/terminal/complete`, `/api/agent/terminal/config-status`, `/api/agent/terminal/exec`, `/api/agent/terminal/exec\`
+  - D1 tables: `AGENTSAM_MCP_WORKFLOWS`, `AGENTSAM_WORKFLOW_ACTIVE_SQL`, `AGENTSAM_WORKFLOW_RUNS_TABLE`, `Sessions`, `active`, `agentsam_agent_run`
+  - R2: `agent-sam`, `cmd-iam-permissions`, `cmd-iam-users-create`, `cmd-iam-users-list`, `cmd-r2-download`
+- **`artifacts/agentsam-execution-fabric-report.json`**  (23862 lines, 774.3 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/agent/execute`, `/api/agent/terminal/complete`, `/api/agent/terminal/run`, `/api/terminal`, `/api/terminal/assist`
+  - D1 tables: `AGENTSAM_WORKFLOW_RUNS_TABLE`, `ASSETS`, `HTML`, `Sessions`, `agent_model_registry`, `agentsam_agent_run`
+  - R2: `ASSETS`, `agent-sam`, `agent-sam-sandbox-cidi`, `iam-terminal-session-pepper`, `inneranimalmedia-assets`
+- **`artifacts/agentsam-capability-fabric-report.json`**  (27099 lines, 649.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/(cms|themes|pages|sections)|cms_`, `/api/*`, `/api/...`, `/api/admin/overnight/start`, `/api/admin/overnight/validate`, `/api/admin/run-retention`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `Request`, `agentsam_ai`, `agentsam_ai_split_brain`, `agentsam_analytics`, `agentsam_analytics_unique_workspace`
+  - R2: `agent-sam`, `agent-sam-analytics-dashboard`, `iam-model-test`, `inneranimalmedia-business`
+- **`docs/db/agentsam-d1-context/2026-05-07_agentsam-schema.json`**  (19446 lines, 550.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `INTEGER`, `TEXT`, `agentsam_agent_run`, `agentsam_agent_run_1`, `agentsam_ai`, `agentsam_ai_1`
+  - R2: `agent-sam`, `inneranimalmedia-business`
+- **`docs/db/agentsam-d1-context/2026-05-07_agentsam-schema.autorag.md`**  (17232 lines, 397.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `INTEGER`, `TEXT`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`
+  - R2: `agent-sam`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/raw/quality_hits.json`**  (9802 lines, 375.0 KB)
+  - D1 tables: `AGENTSAM_WORKFLOW_RUNS_TABLE`, `Sessions`, `agentsam`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_commands`
+- **`analytics/agentsam/commands/agentsam_commands.json`**  (11534 lines, 333.6 KB)
+  - D1 tables: `Sessions`, `agentsam_ai`, `agentsam_memory`, `device`, `file`, `sessions`
+  - R2: `iam-starfield`, `iam-tide-dark`
+- **`docs/audits/agentsam/agentsam_audit_20260508T061622Z.json`**  (15152 lines, 316.1 KB)
+  - D1 tables: `agent`, `agent_run`, `agentsam_agent_run`, `agentsam_agent_run_1`, `agentsam_ai`, `agentsam_ai_1`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/raw/quality_hits.json`**  (9431 lines, 298.7 KB)
+  - D1 tables: `AGENTSAM_WORKFLOW_RUNS_TABLE`, `Sessions`, `agentsam`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_commands`
+- **`artifacts/agentsam_todo_audit.json`**  (7362 lines, 276.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/agent/chat`, `/api/agent/workspace/:id`, `/api/agentsam/commands`, `/api/agentsam/todos\`, `/api/agentsam/workflows/:workflowId/graph\`, `/api/agentsam/workflows\`
+  - D1 tables: `ASSETS`, `Cursor`, `GET`, `MCP`, `Worker`, `agent_messages`
+  - R2: `iam-dashboard-sprint`, `iam-deploy-pipeline`, `iam-platform-sprint-may2026`, `iam-sandbox-stabilization`, `inneranimalmedia`
+- **`docs/db/agentsam-d1-context/2026-05-07_agentsam-schema.context.md`**  (6045 lines, 273.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `INTEGER`, `TEXT`, `agentsam_agent_run`, `agentsam_agent_run_1`, `agentsam_ai`, `agentsam_ai_1`
+  - R2: `agent-sam`
+- **`artifacts/cms_agentsam_structure_audit_20260513T030633Z/compact_schema_map.json`**  (10485 lines, 273.1 KB)
+  - Routes: `/api/themes`, `/api/themes/active`
+  - D1 tables: `GET`, `agentsam_agent_run`, `agentsam_agent_run_1`, `agentsam_agent_run_id`, `agentsam_ai`, `agentsam_ai_1`
+  - R2: `inneranimalmedia-mcp`
+- **`artifacts/agentsam-command-approval-design-report.json`**  (8972 lines, 268.8 KB)
+  - Routes: `/api/agent/execute`, `/api/agent/rag/query\`, `/api/agent/terminal/exec`, `/api/agent/terminal/exec\`, `/api/d1/query\`
+  - D1 tables: `agentsam_agent_run`, `agentsam_approval_queue`, `agentsam_approval_queue_columns`, `agentsam_approval_queue_expiry_sweep`, `agentsam_artifacts`, `agentsam_audit`
+  - R2: `KV`, `inneranimalmedia-business`
+- **`artifacts/agentsam-planner-challenge-report.json`**  (8742 lines, 240.7 KB)  🐛 HARDCODED_R2
+  - Routes: `/api/agent/execute`, `/api/agent/terminal/complete`, `/api/agent/terminal/run`, `/api/terminal/assist`, `/api/test/code-execution-e2e`
+  - D1 tables: `AGENTSAM_E2E_MODEL`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_pattern`
+  - R2: `agent-sam`, `inneranimalmedia-business`
+- **`scripts/agentsam_schema_audit.json`**  (8193 lines, 238.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `AGENTSAM_PROMPT_ROUTES`, `INTEGER`, `TEXT`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`
+  - R2: `agent-sam`
+- **`artifacts/cms_agentsam_structure_audit_20260513T030633Z/ai_prompt_pack.md`**  (9488 lines, 208.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/report.json`**  (5213 lines, 189.1 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `AgentCodeFencePreview`
+  - D1 tables: `TEXT`, `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_mcp_tool_execution`, `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-mcp`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/report.json`**  (5213 lines, 189.0 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `AgentCodeFencePreview`
+  - D1 tables: `TEXT`, `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_mcp_tool_execution`, `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-mcp`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/03_quality_hits.md`**  (1052 lines, 179.3 KB)
+  - D1 tables: `Sessions`, `agentsam`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_commands`, `agentsam_commands_catalog`
+  - R2: `iam-forest-recon`
+- **`artifacts/d1_audits/agentsam_cms_tables_20260514T160627Z.json`**  (3216 lines, 178.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `TEXT`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`
+  - R2: `agent-sam`, `inneranimalmedia-business`
+- **`tmp/agentsam/agentsam_commands_raw.json`**  (4489 lines, 152.9 KB)
+  - D1 tables: `Sessions`, `agentsam_memory`, `sessions`
+- **`analytics/agentsam/commands/agentsam_commands_catalog.md`**  (3925 lines, 143.4 KB)
+  - D1 tables: `Sessions`, `agentsam_ai`, `agentsam_memory`, `device`, `file`, `sessions`
+- **`artifacts/agentsam-workflows-frontend-runtime-report.json`**  (4572 lines, 139.7 KB)
+  - Routes: `/api/agent/*`, `/api/agent/plan-task/resume`, `/api/agent/proposals/:id/approve`, `/api/agent/proposals/:id/deny`, `/api/agentsam/agent-chat-plan-trace`, `/api/agentsam/workflow-runs/:id`
+  - D1 tables: `ASSETS`, `BrowserView`, `Sessions`, `active`, `agentsam_approval_queue`, `agentsam_artifacts`
+- **`artifacts/agentsam-cursor-capability-connect-report.json`**  (4813 lines, 135.2 KB)
+  - Routes: `/api/agent/chat/execute-approved-tool`, `/api/agent/plan-task/resume`
+  - D1 tables: `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_browser_trusted_origin`, `agentsam_command_run`, `agentsam_commands`, `agentsam_debug_snapshots`
+  - R2: `DASHBOARD`, `DOCS_BUCKET`, `R2`, `iam-element-selected`, `iam-exec`
+- **`docs/db/agentsam-d1-context/agentsam_commands.json`**  (4466 lines, 135.0 KB)
+  - D1 tables: `Sessions`, `agentsam_memory`, `sessions`
+- **`tmp/agentsam/agentsam_commands.pretty.json`**  (4466 lines, 135.0 KB)
+  - D1 tables: `Sessions`, `agentsam_memory`, `sessions`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/03_quality_hits.md`**  (1052 lines, 129.1 KB)
+  - D1 tables: `Sessions`, `agentsam`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_commands`, `agentsam_commands_catalog`
+  - R2: `iam-forest-recon`
+- **`artifacts/agentsam_scripts_register_e2e_workflow.sql`**  (2857 lines, 103.7 KB)
+  - D1 tables: `__future__`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_snapshots`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/raw/risk_hits.json`**  (2942 lines, 102.6 KB)  🐛 EXPLORER_TABS_OPEN
+  - D1 tables: `agentsam_ai`, `agentsam_command_run`, `agentsam_commands`, `agentsam_execution_steps`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_workflows`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/raw/risk_hits.json`**  (2942 lines, 102.6 KB)  🐛 EXPLORER_TABS_OPEN
+  - D1 tables: `agentsam_ai`, `agentsam_command_run`, `agentsam_commands`, `agentsam_execution_steps`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_workflows`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_raw_20260513T000158Z.json`**  (1980 lines, 88.8 KB)
+  - Routes: `/api/terminal/session/register\`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `Cloudflare`, `GitHub`, `agentsam_commands`, `agentsam_plan_create`, `agentsam_plans`
+- **`artifacts/agentsam_py_quality_gate/20260516_025509/summary.json`**  (3669 lines, 87.7 KB)
+  - D1 tables: `agentsam_analytics_migrate`, `agentsam_artifacts`, `agentsam_audit`, `agentsam_benchmark_flood`, `agentsam_benchmark_flood_v2`, `agentsam_benchmark_v3`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/report.json`**  (2218 lines, 86.1 KB)
+  - Components: `AgentCodeFencePreview`
+  - D1 tables: `TEXT`, `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_mcp_tool_e2e_sprint`, `agentsam_mcp_tool_execution`, `agentsam_mcp_tools_branded`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-mcp`
+- **`artifacts/agentsam-agent-chat-plan-workflow-report.json`**  (3691 lines, 84.4 KB)
+  - D1 tables: `Sessions`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_mirror_e2e`, `agentsam_debug_mirror_seed`, `agentsam_execution_performance_metrics`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_raw_20260513T000020Z.json`**  (1980 lines, 83.3 KB)
+  - Routes: `/api/terminal/session/register\`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `Cloudflare`, `GitHub`, `agentsam_commands`, `agentsam_plan_create`, `agentsam_plans`
+- **`artifacts/cms_agentsam_structure_audit_20260513T030633Z/report.md`**  (1659 lines, 80.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_overview`, `agentsam_approval_queue`, `agentsam_artifact_skills`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_branded_tools_unknown_rows.json`**  (2625 lines, 80.1 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_branded_tools_unknown_rows.json`**  (2625 lines, 80.1 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`docs/db/agentsam-d1-context/2026-05-07_agentsam-schema-create-tables.sql`**  (1914 lines, 77.7 KB)
+  - D1 tables: `INTEGER`, `TEXT`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`
+  - R2: `agent-sam`
+- **`migrations/323_agentsam_ollama_embed_pipeline_workflows.sql`**  (1107 lines, 76.4 KB)
+  - D1 tables: `agentsam_chat_messages`, `agentsam_compaction_events`, `agentsam_cron_runs`, `agentsam_embeddings`, `agentsam_ollama_embed_pipeline_workflows`, `agentsam_usage_events`
+- **`artifacts/agentsam-e2e-workflow-runner-report.json`**  (3185 lines, 75.4 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_snapshots`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_plan_tasks`
+  - R2: `inneranimalmedia-business`, `inneranimalmedia-business-supabase`
+- **`artifacts/agentsam_todo_audit.md`**  (969 lines, 74.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_agent_run`, `agentsam_app`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_audit_snapshots`, `agentsam_bootstrap`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_raw_20260512T235223Z.json`**  (1980 lines, 74.0 KB)
+  - Routes: `/api/terminal/session/register\`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `Cloudflare`, `GitHub`, `agentsam_commands`, `agentsam_plan_create`, `agentsam_plans`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_raw_20260512T235411Z.json`**  (1980 lines, 74.0 KB)
+  - Routes: `/api/terminal/session/register\`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `Cloudflare`, `GitHub`, `agentsam_commands`, `agentsam_plan_create`, `agentsam_plans`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_raw_20260512T235450Z.json`**  (1980 lines, 74.0 KB)
+  - Routes: `/api/terminal/session/register\`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `Cloudflare`, `GitHub`, `agentsam_commands`, `agentsam_plan_create`, `agentsam_plans`
+- **`scripts/audits/iam_agentsam_audit.py`**  (1480 lines, 71.1 KB)
+  - D1 tables: `agent`, `agent_run`, `agentsam_SUGGESTIONS_`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`
+- **`docs/db-audit/agentsam_audit_20260514T040915.md`**  (1873 lines, 68.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`artifacts/agentsam_audit/latest_agentsam_d1_codebase_audit.md`**  (2016 lines, 67.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_approval_queue_expiry_sweep`, `agentsam_artifact_skills`
+- **`artifacts/agentsam_audit/agentsam_d1_codebase_audit_20260515T011657Z.md`**  (2016 lines, 67.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_approval_queue_expiry_sweep`, `agentsam_artifact_skills`
+- **`docs/db-audit/agentsam_audit_20260513T211935.md`**  (1840 lines, 66.6 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`artifacts/agentsam_inspection/CHATGPT_AUDIT_PACKET.md`**  (1231 lines, 61.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`docs/db/live-inspection/agentsam_mcp_workflows.sample.json`**  (1150 lines, 60.4 KB)
+  - D1 tables: `GitHub`, `agent_memory_index`, `agent_telemetry`, `agentsam_ai`, `agentsam_tool_call_log`, `agentsam_usage_rollups_daily`
+  - R2: `r2_agent_sam`, `},\`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_audit_20260512T235411Z.json`**  (1723 lines, 57.8 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_audit_20260512T235223Z.json`**  (1723 lines, 57.8 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_audit_20260512T235450Z.json`**  (1723 lines, 57.8 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`
+  - R2: `inneranimalmedia-business`
+- **`analytics/agentsam/commands/agentsam_commands_summary.json`**  (2382 lines, 55.3 KB)
+- **`artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260512T235411Z.md`**  (1730 lines, 54.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260512T235450Z.md`**  (1730 lines, 54.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260512T235223Z.md`**  (1730 lines, 54.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`
+  - R2: `inneranimalmedia-business`
+- **`docs/audits/agentsam/agentsam_SUGGESTIONS_20260508T061622Z.md`**  (2190 lines, 52.6 KB)
+  - D1 tables: `agent`, `agent_run`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`
+- **`scripts/agentsam_benchmark_v3.py`**  (1007 lines, 51.3 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_benchmark_v3`, `agentsam_plans`, `agentsam_routing_arms`, `ai_api_test_runs`, `datetime`
+  - R2: `inneranimalmedia-business`
+- **`scripts/agentsam-execution-fabric-designer.py`**  (1186 lines, 50.0 KB)
+  - D1 tables: `__future__`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_command_pattern`, `agentsam_command_run`, `agentsam_commands`
+  - R2: `inneranimalmedia-business`
+- **`docs/db/agentsam-d1-context/agentsam_commands.md`**  (509 lines, 49.9 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_commands`, `agentsam_memory`, `remote`, `sessions`
+- **`tmp/agentsam/agentsam_commands.md`**  (494 lines, 49.6 KB)
+  - D1 tables: `agentsam_memory`, `sessions`
+- **`scripts/smoke/agentsam_full_mirrored_eval_series.py`**  (1361 lines, 48.7 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_full_mirrored_eval_series`, `agentsam_model_catalog`, `datetime`
+  - R2: `inneranimalmedia-business`
+- **`src/core/agentsam-task-executor.js`**  (1322 lines, 48.1 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_commands`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`docs/db/live-inspection/agentsam_workflow_runs.sample.json`**  (739 lines, 45.5 KB)
+  - D1 tables: `AGENTSAM_POLICY_COLS`, `agentsam_bootstrap`, `agentsam_compaction_events`, `agentsam_cron_runs`, `agentsam_error_log`, `agentsam_guardrail_events`
+- **`docs/db/live-inspection/agentsam_execution_performance_metrics.sample.json`**  (1425 lines, 43.9 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_list_agents`, `agentsam_run_agent`, `agentsam_tool_call_log`
+- **`scripts/agentsam-command-workflow-designer.py`**  (1131 lines, 43.0 KB)
+  - D1 tables: `__future__`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_command_pattern`, `agentsam_command_runs`, `agentsam_commands`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/cms_agentsam_structure_audit_20260513T030633Z/static_scan.json`**  (347 lines, 42.5 KB)
+  - Routes: `/api/themes`, `/api/themes/active`
+  - D1 tables: `GET`, `agentsam_agent_run`, `agentsam_agent_run_id`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_approval_queue_expiry_sweep`
+  - R2: `inneranimalmedia-mcp`
+- **`scripts/agentsam-true-e2e-workflow-runner.py`**  (1171 lines, 42.1 KB)
+  - D1 tables: `__future__`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_snapshots`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`
+  - R2: `inneranimalmedia-business`
+- **`scripts/agentsam_benchmark_flood_v2.py`**  (824 lines, 41.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `SSE`, `agentsam_analytics`, `agentsam_benchmark_flood_v2`, `agentsam_routing_arms`, `ai_api_test_runs`, `datetime`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audit/agentsam_mcp_tool_e2e_sprint.py`**  (1068 lines, 40.9 KB)
+  - Routes: `/api/agent/git/status`, `/api/health`, `/api/tools`, `/api/workspace`
+  - D1 tables: `__future__`, `agentsam_mcp_tool_e2e_sprint`, `agentsam_mcp_tool_execution`, `agentsam_mcp_tool_sprint_`, `agentsam_mcp_tools_branded`, `agentsam_mcp_tools_id`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam-true-e2e-workflow-runner-report.json`**  (420 lines, 40.3 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+  - R2: `inneranimalmedia-business`
+- **`scripts/sql/seed-real-agentsam-workflows.sql`**  (81 lines, 40.2 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_artifact`, `agentsam_artifacts`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `agentsam_workflows`
+  - R2: `inneranimalmedia-assets`
+- **`scripts/agentsam-e2e-workflow-runner.py`**  (1058 lines, 39.2 KB)
+  - D1 tables: `MCP`, `__future__`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_snapshots`, `agentsam_e2e_`
+  - R2: `inneranimalmedia-business`, `inneranimalmedia-business-supabase`
+- **`tmp/openai-smoke/openai_agentsam_structured_results.json`**  (1154 lines, 39.0 KB)
+  - D1 tables: `agentsam_model_catalog`, `agentsam_routing_arm`, `agentsam_routing_arm_sp`, `agentsam_routing_arm_spec`, `agentsam_routing_arms`, `agentsam_routing_arms_controller`
+- **`src/core/workflow-executor.js`**  (1194 lines, 39.0 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_mcp_tools`, `agentsam_mcp_workflows`, `agentsam_model_catalog`
+- **`scripts/agentsam-planner-challenge.py`**  (1088 lines, 38.8 KB)
+  - D1 tables: `__future__`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_command_pattern`, `agentsam_commands`, `agentsam_mcp_tools`
+  - R2: `inneranimalmedia-business`
+- **`migrations/333_agentsam_route_tool_routing_priority_alignment.sql`**  (968 lines, 36.2 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `agentsam_prompt_routes`, `agentsam_route_requirements`, `agentsam_route_requirements_specialized_routes`, `agentsam_route_tool_alignment_e2e`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_audit_20260513T000020Z.json`**  (1217 lines, 36.2 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audit/agentsam_route_tool_alignment_e2e.py`**  (925 lines, 35.9 KB)
+  - D1 tables: `__future__`, `agentsam_mcp_tool_e2e_sprint`, `agentsam_mcp_tool_execution`, `agentsam_mcp_tools_branded`, `agentsam_prompt_routes`, `agentsam_route_requirements`
+  - R2: `inneranimalmedia-business`
+- **`migrations/_wip_generated_agentsam_route_requirements_specialized_routes.sql`**  (965 lines, 35.6 KB)
+  - D1 tables: `agentsam_prompt_routes`, `agentsam_route_requirements`, `agentsam_route_tool_alignment_e2e`, `agentsam_route_tool_routing_priority_alignment`
+- **`scripts/smoke_agentsam_latency.py`**  (1014 lines, 35.3 KB)
+  - D1 tables: `__future__`, `agentsam_latency`, `agentsam_prompt_routes`, `agentsam_prompt_versions`, `datetime`, `http`
+  - R2: `inneranimalmedia-business`, `x-iam-debug-id`, `x-iam-workspace-id`
+- **`scripts/fix_agentsam_audit.py`**  (785 lines, 35.2 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_audit`, `agentsam_eval_cases`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_execution_steps`
+- **`docs/db/live-inspection/agentsam_routing_arms.sample.json`**  (1025 lines, 34.9 KB)
+- **`sql/agentsam/register_connor_workspace_scripts.sql`**  (1472 lines, 34.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/ai/providers`, `/api/github/status`, `/api/health`, `/api/openai/diagnostics`, `/api/openai/test`, `/api/r2/list`
+  - D1 tables: `agentsam_connor`, `agentsam_scripts`, `agentsam_workspace`, `agentsam_workspace_scripts`, `repo`, `sessions`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_audit_20260513T000158Z.json`**  (1154 lines, 34.4 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/04_risk_hits.md`**  (259 lines, 34.3 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_command_run`, `agentsam_commands`, `agentsam_execution_steps`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_workflows`
+  - R2: `iam-forest-recon`, `iam-forest-recon-monaco`, `inneranimalmedia-agentsam-dashboard`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/04_risk_hits.md`**  (259 lines, 34.3 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_command_run`, `agentsam_commands`, `agentsam_execution_steps`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_workflows`
+  - R2: `iam-forest-recon`, `iam-forest-recon-monaco`, `inneranimalmedia-agentsam-dashboard`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260513T000020Z.md`**  (1224 lines, 34.0 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audit/iam_cms_agentsam_structure_audit.py`**  (937 lines, 32.6 KB)
+  - Routes: `/api/(cms|themes|pages|sections)|cms_`, `/api/agent|agentsam_|mcp`, `/api/generate`
+  - D1 tables: `__future__`, `agentsam_health_daily`, `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `agentsam_prompt_routes`, `agentsam_prompt_routes_duplicate_priorities`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260513T000158Z.md`**  (1161 lines, 32.4 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`
+  - R2: `inneranimalmedia-business`
+- **`scripts/agentsam-workflows-frontend-runtime-planner.py`**  (833 lines, 32.3 KB)
+  - Routes: `/api/agent/*`, `/api/agent/plan-task/resume`, `/api/agent/proposals/:id/approve`, `/api/agent/proposals/:id/deny`, `/api/agentsam/agent-chat-plan-trace`, `/api/agentsam/workflow-runs/:id`
+  - D1 tables: `AGENTSAM_TENANT_ID`, `AGENTSAM_WORKSPACE_ID`, `__future__`, `active`, `agentsam_approval_queue`, `agentsam_artifacts`
+  - R2: `inneranimalmedia-business`
+- **`scripts/agentsam-capability-fabric-planner.py`**  (792 lines, 32.0 KB)
+  - D1 tables: `AGENTSAM_TABLES`, `__future__`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_pattern`
+  - R2: `agent-sam-analytics-dashboard`, `inneranimalmedia-business`
+- **`scripts/agentsam-agent-chat-plan-workflow.py`**  (879 lines, 30.9 KB)
+  - D1 tables: `__future__`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_plan_tasks`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audit_agentsam_full.py`**  (650 lines, 30.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_compaction_events`, `agentsam_escalation`, `agentsam_eval_runs`, `agentsam_execution_context`
+- **`scripts/agentsam_microinteraction_quality_audit.py`**  (927 lines, 29.7 KB)
+  - D1 tables: `Mac`, `__future__`, `agentsam_microinteraction_quality_audit`, `being`, `cwd`, `dataclasses`
+- **`scripts/install_workflow_canvas.py`**  (608 lines, 29.3 KB)
+  - Components: `NW`, `NH`, `WorkflowCanvas`
+  - Routes: `/api/agentsam/workflows`
+  - D1 tables: `Request`, `agentsam_workflows`, `cms_themes`, `pathlib`, `repo`
+- **`scripts/agentsam_projects_remaster.py`**  (985 lines, 28.4 KB)
+  - Routes: `/api/projects`, `/api/projects/overview`
+  - D1 tables: `AGENTSAM_OPENAI_API_KEY`, `AGENTSAM_OPENAI_MODEL`, `AGENTSAM_REMASTER_MAX_OUTPUT_TOKENS`, `__future__`, `agentsam_plan_tasks`, `agentsam_plans`
+  - R2: `inneranimalmedia-business`
+- **`sql/agentsam/seed_platform_remaster_plans.sql`**  (706 lines, 27.9 KB)  🐛 HARDCODED_R2
+  - Routes: `/api/agent/db/query-history`, `/api/agent/db/snippets`, `/api/agent/sessions/:id`, `/api/database/*`, `/api/hyperdrive/query`, `/api/learn/*`
+  - D1 tables: `Sessions`, `active`, `agentsam_agent_run`, `agentsam_command_allowlist`, `agentsam_command_pattern`, `agentsam_command_run`
+  - R2: `agent-sam`, `iam-docs`, `inneranimalmedia-assets`
+- **`artifacts/d1_audits/agentsam_cms_tables_20260514T160627Z.md`**  (699 lines, 27.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`artifacts/agentsam-workflows-frontend-runtime-plan.sql`**  (470 lines, 26.6 KB)
+  - Routes: `/api/agent/*`, `/api/agent/plan-task/resume`, `/api/agent/proposals/:id/approve`, `/api/agent/proposals/:id/deny`, `/api/agentsam/agent-chat-plan-trace`, `/api/agentsam/workflow-runs/:id`
+  - D1 tables: `active`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_snapshots`, `agentsam_execution_steps`, `agentsam_executions`
+- **`scripts/audit_agentsam_d1_and_codebase.py`**  (821 lines, 26.4 KB)
+  - Routes: `/api/agent/models?show_in_picker=1`, `/api/settings/workspace`
+  - D1 tables: `__future__`, `agentsam_audit`, `agentsam_capability_aliases`, `agentsam_command_pattern`, `agentsam_command_run`, `agentsam_commands`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audit_agentsam_only_d1_and_codebase.py`**  (821 lines, 26.4 KB)
+  - Routes: `/api/agent/models?show_in_picker=1`, `/api/settings/workspace`
+  - D1 tables: `__future__`, `agentsam_audit`, `agentsam_capability_aliases`, `agentsam_command_pattern`, `agentsam_command_run`, `agentsam_commands`
+  - R2: `inneranimalmedia-business`
+- **`docs/db/live-inspection/agentsam_hook_execution.sample.json`**  (700 lines, 25.9 KB)
+  - D1 tables: `deployments`, `the`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/seed_liquid/seed_home_agentsam_liquid.sql`**  (753 lines, 25.8 KB)
+  - D1 tables: `agentsam_liquid`, `agentsam_platform_services`, `cms_liquid_sections`, `cms_page_sections`, `cms_pages`, `one`
+  - R2: `inneranimalmedia`
+- **`scripts/agentsam_benchmark_flood.py`**  (589 lines, 25.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_analytics`, `agentsam_benchmark_flood`, `agentsam_routing_arms`, `ai_api_test_runs`, `datetime`, `each`
+  - R2: `inneranimalmedia-business`
+- **`src/core/agentsam-planner.js`**  (761 lines, 25.6 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_runs`
+- **`scripts/agentsam-supabase-direct-sync.py`**  (735 lines, 25.3 KB)
+  - D1 tables: `__future__`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_snapshots`, `agentsam_execution_steps`, `agentsam_plan_tasks`
+  - R2: `inneranimalmedia-business`
+- **`scripts/smoke_agentsam_everything.py`**  (786 lines, 25.2 KB)
+  - Routes: `/api/agent/notifications`, `/api/overview/deployments`
+  - D1 tables: `__future__`, `agentsam_agent_run`, `agentsam_error_log`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_everything`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/gemini-agentsam-deploy-fix-report.json`**  (928 lines, 25.1 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`, `agentsam_commands`, `agentsam_cursor_replacement_cli_master_20260512`
+- **`scripts/agentsam_db_deep_audit.py`**  (554 lines, 25.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_approval_queue`, `agentsam_audit_`, `agentsam_command_run`, `agentsam_cron_runs`, `agentsam_db_deep_audit`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/raw/agentsam_ai.raw.md`**  (506 lines, 24.4 KB)
+  - D1 tables: `agentsam_ai`
+- **`artifacts/cms_agentsam_structure_audit_20260513T030633Z/ai_synthesis.md`**  (714 lines, 23.8 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_overview`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`scripts/agentsam-cursor-capability-connector.py`**  (654 lines, 23.8 KB)
+  - D1 tables: `__future__`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`, `agentsam_command_runs`, `agentsam_execution_steps`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam-supabase-direct-sync-payload.json`**  (575 lines, 23.6 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_debug_snapshots`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_events`
+  - R2: `inneranimalmedia-business`
+- **`audits/agentsam-routing/table-schemas.sql`**  (625 lines, 23.6 KB)
+  - D1 tables: `TEXT`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_commands`, `agentsam_eval_cases`
+- **`scripts/register_connor_agentsam_workspace_scripts.py`**  (681 lines, 23.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/ai/providers`, `/api/github/status`, `/api/health`, `/api/openai/diagnostics`, `/api/openai/test`, `/api/r2/list`
+  - D1 tables: `agentsam_connor`, `agentsam_scripts`, `agentsam_workspace`, `agentsam_workspace_scripts`, `pathlib`, `repo`
+- **`scripts/generated-sites/agent-sam-site-1778454417077/index.html`**  (434 lines, 23.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `executed`, `external`, `stored`
+- **`scripts/seed_rules_and_workflows.py`**  (456 lines, 23.2 KB)
+  - D1 tables: `agentsam_mcp_workflows`, `agentsam_rules_document`, `agentsam_scripts`, `agentsam_task_slos`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_backfill_suggested_20260512T235450Z_cloudflare_fixed_no_tx.sql`**  (567 lines, 22.8 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`, `agentsam_tools_with_ollama`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_backfill_suggested_20260512T235450Z_cloudflare_fixed.sql`**  (570 lines, 22.8 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`, `agentsam_tools_with_ollama`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_backfill_suggested_20260512T235411Z.sql`**  (570 lines, 22.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`, `agentsam_tools_with_ollama`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_backfill_suggested_20260513T000158Z.sql`**  (570 lines, 22.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`, `agentsam_tools_with_ollama`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_backfill_suggested_20260512T235450Z.sql`**  (570 lines, 22.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`, `agentsam_tools_with_ollama`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_backfill_suggested_20260513T000020Z.sql`**  (570 lines, 22.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`, `agentsam_tools_with_ollama`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_backfill_suggested_20260512T235223Z.sql`**  (570 lines, 22.7 KB)
+  - D1 tables: `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`, `agentsam_tools_with_ollama`
+- **`docs/audits/agentsam-chatassistant-workflow-readiness.md`**  (559 lines, 22.5 KB)
+  - Routes: `/api/agent/chat`
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_ai_models`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`
+- **`dashboard/pages/workflows/WorkflowCanvas.tsx`**  (475 lines, 22.5 KB)
+  - Components: `NW`, `NH`, `WorkflowCanvas`
+  - Routes: `/api/agentsam/workflows`
+  - D1 tables: `Request`, `agentsam_workflows`, `cms_themes`
+- **`scripts/audit/audit_agentsam_tools_with_ollama.py`**  (603 lines, 22.3 KB)
+  - D1 tables: `AGENTSAM_TOOLS`, `__future__`, `agentsam_capability_index`, `agentsam_execution_steps`, `agentsam_mcp_tool_execution`, `agentsam_plan_create`
+  - R2: `inneranimalmedia-business`
+- **`scripts/agentsam_routing_study.py`**  (510 lines, 22.0 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_analytics_tenant_backup`, `agentsam_analytics_v2`, `agentsam_capability_aliases`, `agentsam_escalation`, `agentsam_eval_cases`
+  - R2: `inneranimalmedia-business`
+- **`scripts/smoke/agentsam_seed_visualizer_todos.py`**  (601 lines, 22.0 KB)
+  - D1 tables: `__future__`, `agentsam_command_run`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_mcp_workflows`, `agentsam_plan_tasks`
+- **`scripts/generated-sites/agent-sam-site-1778454586229/index.html`**  (345 lines, 21.4 KB)
+- **`scripts/export_agentsam_d1_context.py`**  (590 lines, 21.2 KB)
+  - D1 tables: `__future__`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_commands`
+  - R2: `inneranimalmedia-business`
+- **`prototypes/inneranimalmedia-cms-editor/agentsam_cms_audit_plan.py`**  (587 lines, 21.1 KB)
+  - D1 tables: `AGENTSAM_TABLES_EXPECTED`, `__future__`, `agentsam_artifacts`, `agentsam_cms_audit_plan`, `agentsam_cms_plan_`, `agentsam_execution_steps`
+  - R2: `inneranimalmedia-business`, `inneranimalmedia-cms-editor`
+- **`artifacts/agentsam_py_quality_gate/20260516_025509/INDEX.md`**  (355 lines, 21.0 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_audit`, `agentsam_benchmark_v3`, `agentsam_d1_and_codebase`, `agentsam_d1_context`, `agentsam_db_deep_audit`
+- **`docs/db/live-inspection/agentsam_model_routing_memory.sample.json`**  (646 lines, 20.7 KB)
+- **`scripts/e2e_agentsam_eval_runner.py`**  (665 lines, 20.7 KB)
+  - D1 tables: `__future__`, `agentsam_agent_run`, `agentsam_command_run`, `agentsam_error_log`, `agentsam_eval_cases`, `agentsam_eval_runs`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/cms_agentsam_structure_audit_20260513T030633Z/events.json`**  (741 lines, 20.3 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`scripts/agentsam_cms_overnight_build.py`**  (460 lines, 20.3 KB)
+  - Routes: `/api/analytics/overview`, `/api/cms/assets`, `/api/cms/collections`, `/api/cms/components`, `/api/cms/pages`, `/api/cms/sections`
+  - D1 tables: `CDN`, `agentsam_agent_run`, `agentsam_cms_overnight_build`, `agentsam_health_daily`, `agentsam_usage_rollups_daily`, `cms_assets`
+  - R2: `CMS`, `agent-sam`, `cms`, `inneranimalmedia-business`, `inneranimalmedia-cms-editor`
+- **`dashboard/features/agent-chat/components/WorkflowRunBoard.tsx`**  (563 lines, 19.8 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/agentsam/workflows`
+  - D1 tables: `agentsam_workflows`
+- **`artifacts/agentsam-true-e2e-workflow-runner-supabase.sql`**  (284 lines, 19.5 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_debug_snapshots`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_events`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_inspection/manifest.json`**  (758 lines, 19.4 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`src/core/agentsam-plan-supabase-public-sync.js`**  (573 lines, 19.3 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_snapshots`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`scripts/agentsam-command-approval-designer.py`**  (475 lines, 19.1 KB)
+  - D1 tables: `__future__`, `agentsam_approval_queue`, `agentsam_command_pattern`, `agentsam_command_run`, `agentsam_command_runs`, `agentsam_commands`
+  - R2: `inneranimalmedia-business`
+- **`tmp/multitenant-audit/agentsam_identity_defaults.raw.json`**  (81 lines, 19.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_ai`, `agentsam_compaction_events`, `agentsam_deployment_health`, `agentsam_feature_flag`, `agentsam_health_daily`, `agentsam_mcp_tool_execution`
+  - R2: `agent-sam`
+- **`tmp/multitenant-audit/agentsam_identity_defaults.json`**  (81 lines, 19.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_ai`, `agentsam_compaction_events`, `agentsam_deployment_health`, `agentsam_feature_flag`, `agentsam_health_daily`, `agentsam_mcp_tool_execution`
+  - R2: `agent-sam`
+- **`scripts/smoke/agentsam_workflow_e2e.py`**  (656 lines, 18.9 KB)
+  - D1 tables: `__future__`, `agentsam_can_execute_and_mirror_workflow`, `agentsam_debug_mirror_e2e`, `agentsam_debug_snapshots`, `agentsam_workflow_e2e`, `agentsam_workflow_events`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`docs/db/live-inspection/agentsam_workflow_nodes.sample.json`**  (465 lines, 18.5 KB)
+  - D1 tables: `agentsam_commands`
+- **`tmp/agentsam-command-script-study/cmd_script_study_20260509062525_5ddd9949/command-script-study.json`**  (181 lines, 18.4 KB)
+  - D1 tables: `agentsam_joins`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/00_agentsam_platform_services_source.html`**  (681 lines, 18.3 KB)
+  - D1 tables: `one`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/r2_verify_agentsam_platform_services.html`**  (681 lines, 18.3 KB)
+  - D1 tables: `one`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/agentsam_platform_services.html`**  (681 lines, 18.3 KB)
+  - D1 tables: `one`
+- **`cms/sections/homepage/agentsam_platform_services.html`**  (681 lines, 18.3 KB)
+  - D1 tables: `one`
+- **`artifacts/agentsam-capability-fabric-plan.md`**  (219 lines, 18.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`, `agentsam_commands`, `agentsam_execution_steps`, `agentsam_executions`
+- **`artifacts/agentsam-execution-fabric.md`**  (354 lines, 18.0 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_command_pattern`, `agentsam_command_run`, `agentsam_commands`, `agentsam_execution_context`
+- **`artifacts/agentsam-agent-chat-plan-workflow.sql`**  (41 lines, 17.9 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`
+- **`docs/db/live-inspection/agentsam_prompt_routes.sample.json`**  (475 lines, 17.9 KB)
+- **`scripts/agentsam_routing_repair.py`**  (393 lines, 17.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_cron_runs`, `agentsam_mcp_tool_execution`, `agentsam_model_catalog`, `agentsam_model_tier`, `agentsam_routing_arms`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_capability_coverage.json`**  (625 lines, 17.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_capability_coverage.json`**  (625 lines, 17.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`src/core/agentsam-ops-ledger.js`**  (478 lines, 17.2 KB)
+  - D1 tables: `agentsam`, `agentsam_bootstrap`, `agentsam_browser_trusted_origin`, `agentsam_compaction_events`, `agentsam_cron_runs`, `agentsam_deployment_health`
+  - R2: `inneranimalmedia`
+- **`migrations/311_agentsam_routing_prompt_skills_flags.sql`**  (341 lines, 17.0 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_route_requirements`, `agentsam_routing_arms`, `agentsam_routing_prompt_skills_flags`
+- **`src/core/resolveModel.js`**  (416 lines, 17.0 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `agentsam_agent_run`, `agentsam_executions`, `agentsam_model_catalog`, `agentsam_routing_arms`, `agentsam_workflow_nodes`, `user`
+- **`scripts/agentsam_analytics_migrate.py`**  (450 lines, 16.7 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_analytics_migrate`, `agentsam_analytics_tenant_backup`, `agentsam_benchmark_flood_v2`, `agentsam_model_routing_memory`, `agentsam_usage_events`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam-command-workflow-proposed.sql`**  (73 lines, 16.5 KB)
+  - D1 tables: `agentsam_command_pattern`, `agentsam_commands`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_slash_commands`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_recent_tool_call_log.json`**  (480 lines, 16.4 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+  - R2: `inneranimalmedia`, `inneranimalmedia-mcp`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_recent_tool_call_log.json`**  (480 lines, 16.4 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+  - R2: `inneranimalmedia`, `inneranimalmedia-mcp`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_recent_tool_call_log.json`**  (480 lines, 16.4 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+  - R2: `inneranimalmedia`, `inneranimalmedia-mcp`
+- **`prototypes/inneranimalmedia-cms-editor/agentsam_cms_wire_db_validate.py`**  (510 lines, 16.0 KB)
+  - Routes: `/api/cms/*`, `/api/cms/pages`, `/api/cms/themes`
+  - D1 tables: `agentsam_cms_editor_wire_validate_20260513`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_tracking`, `agentsam_verify`, `datetime`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`agentsam_route_requirements_tool_routing_setup.py`**  (433 lines, 15.9 KB)
+  - D1 tables: `__future__`, `agentsam_route_requirements`, `agentsam_route_requirements_tool_routing`, `agentsam_route_requirements_tool_routing_setup`, `pathlib`, `textwrap`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_inspection/raw/agentsam_tools.raw.md`**  (246 lines, 15.7 KB)
+  - Routes: `/api/terminal/session/register`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_tools`
+- **`scripts/smoke/smoke_register_workflow.py`**  (329 lines, 15.6 KB)
+  - D1 tables: `actual`, `agentsam_cron_runs`, `agentsam_eval_cases`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_plans`
+  - R2: `agent-sam`
+- **`migrations/163_agentsam_cursor_parity.sql`**  (343 lines, 15.4 KB)
+  - D1 tables: `AGENTSAM_IGNORE_AND_RULES`, `agentsam_agent_run`, `agentsam_browser_trusted_origin`, `agentsam_cmd_allow_user`, `agentsam_code_index_job`, `agentsam_command_allowlist`
+- **`scripts/agentsam_supabase_repair.py`**  (357 lines, 15.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `Supabase`, `agentsam_benchmark_v3`, `agentsam_eval_runs`, `agentsam_routing_decisions`, `agentsam_supabase_repair`, `agentsam_tool_call_events`
+- **`scripts/audit_agentsam_todo.py`**  (524 lines, 15.3 KB)
+  - D1 tables: `__future__`, `agentsam_todo`, `agentsam_todo_audit`, `datetime`, `pathlib`, `typing`
+  - R2: `inneranimalmedia-business`
+- **`tmp/agentsam-todo/cms_live_editor_graph_todos.json`**  (399 lines, 15.1 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_browser_trusted_origin`, `agentsam_execution_steps`, `agentsam_scripts`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`
+  - R2: `iam-platform-sprint-may2026`
+- **`scripts/agentsam-gemini-deploy-fix-brief.py`**  (451 lines, 15.0 KB)
+  - D1 tables: `AGENTSAM_TABLES`, `__future__`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`
+  - R2: `inneranimalmedia-business`
+- **`scripts/smoke/smoke_workflow_runs.py`**  (354 lines, 15.0 KB)
+  - D1 tables: `agentsam_workflow_runs`, `datetime`
+- **`scripts/audit_agentsam_schema.py`**  (365 lines, 14.8 KB)
+  - D1 tables: `AGENTSAM_TABLES`, `DDL`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`
+- **`scripts/build-real-workflows-seed.py`**  (210 lines, 14.8 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_artifact`, `agentsam_artifacts`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `agentsam_workflows`
+  - R2: `inneranimalmedia-assets`
+- **`scripts/cms_12_seed_home_agentsam_liquid.py`**  (473 lines, 14.7 KB)
+  - D1 tables: `agentsam_liquid`, `agentsam_liquid_manifest`, `agentsam_platform_services`, `cms_liquid_sections`, `cms_page_sections`, `cms_pages`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`sql/agentsam/seed_learning_os_scripts_skills_memory.sql`**  (541 lines, 14.4 KB)
+  - D1 tables: `admin_user`, `admin_user_candidates`, `agentsam_memory`, `agentsam_scripts`, `agentsam_skill`, `auth_users`
+- **`migrations/325_agentsam_strip_iam_hardcoded_defaults.sql`**  (381 lines, 14.3 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_mcp_tool_execution_new`, `agentsam_mcp_tools`, `agentsam_mcp_tools_new`, `agentsam_script_runs`, `agentsam_script_runs_cicd`
+- **`artifacts/agentsam_inspection/raw/agentsam_mcp_workflows.raw.md`**  (246 lines, 14.2 KB)
+  - D1 tables: `agentsam_eval_runs`, `agentsam_mcp_workflows`, `agentsam_tool_call_`, `agentsam_workflow_runs`
+- **`scripts/rebuild_all_agentsam_artifacts.py`**  (431 lines, 14.0 KB)
+  - Routes: `/api/artifacts/{out[`
+  - D1 tables: `__future__`, `agentsam_artifacts`, `agentsam_artifacts_backup_`, `agentsam_artifacts_backup_YYYYMMDD_HHMMSS`, `agentsam_artifacts_export_`, `agentsam_artifacts_rebuild_all_`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_inspection/raw/agentsam_bootstrap.raw.md`**  (241 lines, 13.5 KB)
+  - D1 tables: `agentsam_bootstrap`, `agentsam_operator`
+  - R2: `autorag`
+- **`scripts/chunk_agentsam_inspection.py`**  (460 lines, 13.5 KB)
+  - D1 tables: `__future__`, `agentsam_inspection`, `agentsam_table_name`, `pathlib`
+- **`tmp/seed_dashboard_agent_pinstest_workflows_d1.sql`**  (444 lines, 13.5 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_dashboard_agent_e2e_pinstest`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_guardrail_rulesets`, `agentsam_plan_tasks`
+- **`src/core/agentsam-route-tool-resolver.js`**  (363 lines, 13.5 KB)
+  - Components: `LANES`
+  - D1 tables: `agentsam_prompt_routes`, `agentsam_route_requirements`, `migration`
+- **`docs/platform/2026-05-07_r2_dashboard_workflow_cms_map.md`**  (282 lines, 13.4 KB)  🐛 HARDCODED_R2
+  - D1 tables: `agent`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_eval_`, `agentsam_execution_steps`, `agentsam_executions`
+- **`docs/db/live-inspection/agentsam_route_requirements.sample.json`**  (439 lines, 13.4 KB)
+- **`artifacts/agentsam_inspection/raw/agentsam_user_policy.raw.md`**  (267 lines, 13.0 KB)
+  - D1 tables: `agentsam_user_policy`
+- **`artifacts/agentsam-true-e2e-workflow-runner-d1-statements.sql`**  (34 lines, 12.8 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/agentsam_inspection/raw/agentsam_mcp_tools.raw.md`**  (259 lines, 12.8 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_tools_id`
+- **`artifacts/agentsam_inspection/raw/agentsam_analytics.raw.md`**  (258 lines, 12.7 KB)
+  - D1 tables: `agentsam_analytics`
+- **`scripts/sql/recategorize-existing-agentsam-tools.sql`**  (316 lines, 12.7 KB)
+  - D1 tables: `GitHub`, `agentsam_plan_create`, `agentsam_plans`, `agentsam_todo_create`, `agentsam_todo_update`, `agentsam_tools`
+- **`artifacts/agentsam_inspection/raw/agentsam_todo.raw.md`**  (216 lines, 12.6 KB)
+  - Routes: `/api/analytics/overview`, `/api/projects/overview`, `/api/project…
+    output_summary                     : Shipped in repo commit 6c043da; production deploy pending user run deploy:full.
+    tokens_used                        : 0
+    cost_usd                           : 0
+    requires_approval                  : 0
+    created_at_unix                    : 1778795955
+
+  Row 2:
+    id                                 : todo_agent_cursor_quality_capability_surfaces
+    tenant_id                          : tenant_sam_primeaux
+    workspace_id                       : ws_inneranimalmedia
+    title                              : Validate Agent Sam Cursor-quality capability surfaces after trace spine deploy
+    description                        : After the deploy proves the core trace spine arun_* → wrun_* → exec_* → estep_* → atc_* is valid, va…
+    status                             : open
+    priority                           : high
+    category                           : agent-capabilities
+    tags                               : [`
+  - D1 tables: `agentsam_agent_run`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_todo`, `agentsam_w`
+- **`artifacts/agentsam_inspection/raw/agentsam_execution_performance_metrics.raw.md`**  (267 lines, 12.5 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_execution_performance_metrics`
+- **`artifacts/agentsam_inspection/raw/agentsam_subagent_profile.raw.md`**  (222 lines, 12.3 KB)
+  - D1 tables: `agentsam_subagent_profile`
+- **`artifacts/cleanup_hold_20260515/audit_agentsam_db_refine.py`**  (326 lines, 12.2 KB)
+  - D1 tables: `AGENTSAM_TABLE_MISSING_TENANT_ID`, `AGENTSAM_TABLE_MISSING_WORKSPACE_ID`, `difflib`, `pathlib`, `sessions`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`docs/db/agentsam-d1-context/2026-05-07_agentsam-index.md`**  (158 lines, 12.2 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_bootstrap`
+- **`scripts/sql/recategorize-agentsam-tools.sql`**  (301 lines, 12.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_artifacts`, `agentsam_scripts`, `agentsam_tools`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_recent_mcp_tool_execution.json`**  (421 lines, 12.1 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_recent_mcp_tool_execution.json`**  (421 lines, 12.1 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_recent_mcp_tool_execution.json`**  (421 lines, 12.1 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`artifacts/agentsam_inspection/raw/agentsam_commands.raw.md`**  (242 lines, 11.9 KB)
+  - D1 tables: `agentsam_cli_inspect_scripts`, `agentsam_cli_inspect_workflows`, `agentsam_cli_verify_approvals`, `agentsam_cli_verify_plan`, `agentsam_cli_verify_spine`, `agentsam_commands`
+- **`src/core/agentsam-workflow-debug-store.js`**  (277 lines, 11.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_workflow_events`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `public`
+- **`artifacts/agentsam_inspection/raw/agentsam_routing_arms.raw.md`**  (226 lines, 11.5 KB)
+  - D1 tables: `agentsam_routing_arms`
+- **`artifacts/agentsam_inspection/raw/agentsam_plans.raw.md`**  (205 lines, 11.5 KB)
+  - D1 tables: `TEXT`, `agentsam_cms_editor_p1_20260515`, `agentsam_parallel_cms_workers_20260515`, `agentsam_plans`, `agentsam_quality`, `agentsam_scripts`
+  - R2: `iam-deploy-pipeline`, `iam-platform-sprint-may2026`, `r2-cms-builds`
+- **`scripts/cms_08_replace_selected_work_with_agentsam.py`**  (349 lines, 11.4 KB)
+  - D1 tables: `Downloads`, `agentsam_platform_services`, `agentsam_platform_services_source`, `html`, `pathlib`
+- **`src/core/agentsam-plan-insert.js`**  (271 lines, 11.4 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/agentsam-workflows-frontend-runtime-plan.md`**  (366 lines, 11.2 KB)
+  - D1 tables: `active`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_debug_mirror_e2e`, `agentsam_debug_snapshots`, `agentsam_execution_steps`
+- **`src/core/agentsam-supabase-sync.js`**  (328 lines, 11.1 KB)
+  - D1 tables: `AGENTSAM_WORKFLOW_RUNS_TABLE`, `agentsam_workflow_runs`, `env`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_workflow_runs.md`**  (131 lines, 10.9 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_runs`, `agentsam_workflow_runs_d1`, `agentsam_workflow_runs_d1_run_id_key`, `agentsam_workflow_runs_pkey`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_eval_runs.md`**  (145 lines, 10.8 KB)
+  - D1 tables: `agentsam_eval_runs`, `agentsam_eval_runs_group`, `agentsam_eval_runs_human_score_architecture_check`, `agentsam_eval_runs_human_score_cost_check`, `agentsam_eval_runs_human_score_quality_check`, `agentsam_eval_runs_human_score_speed_check`
+- **`artifacts/agentsam_inspection/raw/agentsam_skill.raw.md`**  (210 lines, 10.8 KB)
+  - D1 tables: `agentsam_python_architect`, `agentsam_skill`
+- **`artifacts/agentsam_inspection/raw/agentsam_workflow_runs.raw.md`**  (196 lines, 10.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_workflow_runs`
+- **`docs/db/live-inspection/agentsam_workflows.sample.json`**  (245 lines, 10.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`scripts/agentsam_e2e_build_deploy.py`**  (305 lines, 10.7 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_e2e_build_deploy`, `agentsam_plan_tasks`, `agentsam_routing_arms`, `agentsam_scripts`, `datetime`
+  - R2: `inneranimalmedia-business`
+- **`src/core/workflows.js`**  (366 lines, 10.7 KB)
+  - D1 tables: `agentsam_commands`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_mcp_workflows`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`
+- **`migrations/334_agentsam_capability_aliases.sql`**  (219 lines, 10.6 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_capability_aliases`, `agentsam_capability_aliases_key`, `agentsam_mcp_tools_branded`, `agentsam_route_capability_tool_matches`, `agentsam_route_requirements`, `alias_matches`
+- **`docs/db/live-inspection/agentsam_workflow_edges.sample.json`**  (325 lines, 10.4 KB)
+- **`docs/db/live-inspection/agentsam_hook.sample.json`**  (291 lines, 10.4 KB)
+  - D1 tables: `cicd_runs`, `deployments`, `project_memory`, `the`
+  - R2: `inneranimalmedia`
+- **`migrations/328_seed_agentsam_workbench_workflows.sql`**  (292 lines, 10.0 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `Request`, `agentsam_plan`, `agentsam_plan_create`, `agentsam_plan_tasks`, `agentsam_plan_tasks_create`, `agentsam_plans`
+- **`scripts/agentsam_audit.py`**  (272 lines, 10.0 KB)
+  - D1 tables: `agentsam_audit`, `agentsam_eval_runs`, `agentsam_model_routing_rules`, `agentsam_prompt_cache_keys`, `agentsam_prompt_routes`, `agentsam_prompt_versions`
+  - R2: `inneranimalmedia-business`
+- **`docs/agentsam/cron-rollup-v1-contract.md`**  (235 lines, 9.8 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_cron_runs`, `agentsam_tool_stats_compacted`, `agentsam_usage_rollups_daily`, `agentsam_webhook_weekly`, `raw`
+- **`artifacts/agentsam_inspection/raw/agentsam_tool_chain.raw.md`**  (183 lines, 9.7 KB)
+  - D1 tables: `agentsam_tool_chain`
+- **`artifacts/agentsam_inspection/raw/agentsam_guardrails.raw.md`**  (158 lines, 9.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_guardrails`
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/fk_fix_seed/fix_fk_and_seed_agentsam.sql`**  (237 lines, 9.5 KB)
+  - D1 tables: `agentsam_platform_services`, `cms_liquid_imports`, `cms_liquid_sections`, `cms_liquid_sections_old_fkfix`, `cms_page_sections`, `cms_pages`
+  - R2: `inneranimalmedia`, `inneranimalmedia-home`
+- **`scripts/agentsam_seed_parallel_cms_plan.py`**  (290 lines, 9.5 KB)
+  - D1 tables: `__future__`, `agentsam_agent_run`, `agentsam_cms_overnight_build`, `agentsam_parallel_cms_workers_20260515`, `agentsam_plan_tasks`, `agentsam_plans`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`artifacts/agentsam_inspection/agentsam_ai.md`**  (114 lines, 9.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_ai`
+- **`scripts/sql/fix_agentsam_tools_input_schema_json_schema.sql`**  (342 lines, 9.3 KB)
+  - D1 tables: `agentsam_tools`, `agentsam_tools_input_schema_backup`, `converted`, `converted_properties`, `prop_schema`, `property_root`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_routing_decisions.md`**  (116 lines, 9.2 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_routing_decisions`, `agentsam_routing_decisions_created`, `agentsam_routing_decisions_d1_created`, `agentsam_routing_decisions_identity_created`
+- **`src/core/agentsam-excalidraw-plan.js`**  (325 lines, 9.2 KB)
+  - Components: `SOURCE`, `TOP`
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_stream_events.md`**  (117 lines, 9.1 KB)
+  - Routes: `/api/agent/chat`
+  - D1 tables: `agentsam_stream_events`, `agentsam_stream_events_created`, `agentsam_stream_events_d1_created`, `agentsam_stream_events_identity_created`, `agentsam_stream_events_identity_profile_id_fkey`, `agentsam_stream_events_model`
+- **`artifacts/agentsam_inspection/raw/agentsam_eval_runs.raw.md`**  (175 lines, 9.1 KB)
+  - D1 tables: `agentsam_context_ask`, `agentsam_eval_runs`, `agentsam_everything`, `agentsam_planning_ask`, `agentsam_safety`, `agentsam_tool_lane`
+- **`scripts/smoke_agentsam_e2e_v2.py`**  (291 lines, 9.1 KB)
+  - D1 tables: `agentsam_e2e_v2`, `agentsam_mcp_tools`, `datetime`
+  - R2: `inneranimalmedia`
+- **`docs/db/live-inspection/agentsam_execution_performance_metrics.schema.json`**  (457 lines, 9.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_tool_call_events.md`**  (116 lines, 8.9 KB)
+  - D1 tables: `agentsam_eval_runs`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_tool_call_events`, `agentsam_tool_call_events_eval_run_id_fkey`, `agentsam_tool_call_events_identity_profile_id_fkey`
+- **`artifacts/agentsam_inspection/raw/agentsam_artifacts.raw.md`**  (149 lines, 8.7 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_visualizer_workflow_pump`
+- **`artifacts/agentsam_inspection/raw/agentsam_mcp_tool_execution.raw.md`**  (167 lines, 8.6 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_tools_id`
+- **`artifacts/agentsam_inspection/agentsam_tools.md`**  (63 lines, 8.5 KB)
+  - Routes: `/api/terminal/session/register`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_tools`
+- **`scripts/may14_wire_workflow_handlers.py`**  (217 lines, 8.5 KB)
+  - D1 tables: `analytics`, `pathlib`, `repo`
+- **`scripts/agentsam_py_quality_gate.py`**  (279 lines, 8.5 KB)
+  - D1 tables: `__future__`, `agentsam_py_quality_gate`, `pathlib`, `typing`
+- **`artifacts/agentsam_inspection/raw/agentsam_model_catalog.raw.md`**  (176 lines, 8.4 KB)
+  - D1 tables: `agentsam_model_catalog`
+- **`artifacts/agentsam_inspection/raw/agentsam_scripts.raw.md`**  (148 lines, 8.4 KB)
+  - D1 tables: `__future__`, `agentsam_cms_overnight_build`, `agentsam_e2e_build_deploy`, `agentsam_scripts`
+- **`scripts/generated-sites/agent-sam-site-1778454417077/assets/styles.css`**  (1 lines, 8.4 KB)
+- **`artifacts/agentsam_inspection/raw/agentsam_command_run.raw.md`**  (164 lines, 8.3 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_usage_events`
+- **`artifacts/agentsam_inspection/raw/agentsam_workflows.raw.md`**  (144 lines, 8.3 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `Request`, `agentsam_plan`, `agentsam_plan_tasks`, `agentsam_workflows`
+- **`artifacts/agentsam_inspection/raw/agentsam_plan_tasks.raw.md`**  (166 lines, 8.3 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_hook`, `agentsam_plan_tasks`
+- **`docs/agentsam-terminal.md`**  (271 lines, 8.3 KB)
+- **`artifacts/agentsam_skill_python_architect.sql`**  (238 lines, 8.2 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`, `agentsam_command_runs`, `agentsam_debug_snapshots`, `agentsam_execution_steps`
+- **`artifacts/agentsam_inspection/inspection.md`**  (137 lines, 8.2 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_approval_queue_expiry_sweep`, `agentsam_artifact_skills`
+- **`docs/db/live-inspection/agentsam_workflow_runs.schema.json`**  (417 lines, 8.2 KB)
+- **`tmp/cms-live-editor-wire/schemas/agentsam_workflow_runs.schema.json`**  (417 lines, 8.2 KB)
+- **`artifacts/agentsam_inspection/raw/agentsam_tool_call_log.raw.md`**  (167 lines, 8.1 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tool_call_log`, `agentsam_tools_id`
+- **`scripts/sql/upsert-agentsam-project-context-universal-runtime.sql`**  (232 lines, 8.1 KB)  🐛 HARDCODED_R2
+  - Routes: `/api/agent/chat`, `/api/agent/chat/execute-approved-tool`, `/api/agent/context-picker/catalog`, `/api/agent/models`, `/api/artifacts`, `/api/overview`
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`, `agentsam_commands`
+  - R2: `agent-sam`, `iam-docs`, `iam-platform`, `inneranimalmedia-assets`
+- **`scripts/sql/seed-agentsam-browser-tools-verified.sql`**  (274 lines, 8.1 KB)
+  - D1 tables: `agentsam_tools`
+- **`migrations/332_agentsam_route_requirements_tool_routing.sql`**  (210 lines, 7.9 KB)
+  - D1 tables: `agentsam_prompt_routes`, `agentsam_route_requirements`
+- **`artifacts/agentsam-e2e-workflow-runner-d1.sql`**  (101 lines, 7.9 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_inspection/raw/agentsam_route_requirements.raw.md`**  (151 lines, 7.9 KB)
+  - D1 tables: `agentsam_route_requirements`
+- **`audits/d1/agentsam_schema_pragmas.sql`**  (259 lines, 7.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`scripts/d1-seed-agentsam-profiles-rules.sql`**  (185 lines, 7.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_rules_document`, `agentsam_subagent_profile`, `sandbox`, `sessions`, `worker`
+- **`scripts/generated-sites/agent-sam-site-1778454417077/assets/app.js`**  (171 lines, 7.9 KB)
+- **`artifacts/agentsam_inspection/raw/agentsam_usage_events.raw.md`**  (157 lines, 7.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_usage_events`
+  - R2: `agent-sam`
+- **`artifacts/backups/agentsam_e2e_20260512065824/d1_agentsam_workflow_nodes_agent_chat_plan.json`**  (165 lines, 7.7 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/backups/agentsam_e2e_20260512070007/d1_agentsam_workflow_nodes_agent_chat_plan.json`**  (165 lines, 7.7 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/backups/agent_chat_plan_20260512T065409Z/agentsam_workflow_nodes_agent_chat_plan.json`**  (165 lines, 7.7 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`scripts/audit-agentsam-workflows.sh`**  (262 lines, 7.7 KB)
+  - D1 tables: `agentsam_mcp_workflows`, `agentsam_workflow_audit_report`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_error_events.md`**  (106 lines, 7.6 KB)
+  - D1 tables: `agentsam_error_events`, `agentsam_error_events_created`, `agentsam_error_events_d1_created`, `agentsam_error_events_identity_created`, `agentsam_error_events_identity_profile_id_fkey`, `agentsam_error_events_model`
+- **`audits/d1/agentsam_tables.json`**  (369 lines, 7.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`migrations/189_workflows_iam_autonomous_pipeline.sql`**  (108 lines, 7.4 KB)
+  - Routes: `/api/settings/theme`
+  - D1 tables: `screenshots`, `workflow_artifacts`, `workflows`
+  - R2: `IAM_COLLAB`, `MYBROWSER`, `TOOLS`
+- **`artifacts/agentsam_inspection/raw/agentsam_approval_queue.raw.md`**  (133 lines, 7.4 KB)
+  - D1 tables: `agentsam_approval_queue`
+- **`docs/db/live-inspection/agentsam_mcp_workflows.schema.json`**  (369 lines, 7.4 KB)
+- **`scripts/cms_09_stage_agentsam_section.py`**  (212 lines, 7.4 KB)  🐛 HARDCODED_R2
+  - D1 tables: `agentsam_platform_services`, `cms_page_sections`, `cms_pages`, `one`, `pathlib`, `section_data_seed`
+  - R2: `inneranimalmedia-assets`
+- **`scripts/agentsam_cms_d1_table_audit.py`**  (278 lines, 7.4 KB)
+  - D1 tables: `__future__`, `agentsam_cms_tables_`, `agentsam_tables`, `anywhere`, `pathlib`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_inspection/raw/agentsam_agent_run.raw.md`**  (145 lines, 7.3 KB)
+  - D1 tables: `agentsam_agent_run`
+- **`scripts/agentsam_checklist.py`**  (174 lines, 7.3 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_capability_aliases`, `agentsam_checklist`, `agentsam_commands`, `agentsam_compaction_events`
+- **`scripts/load-agentsam-env.sh`**  (168 lines, 7.3 KB)
+  - D1 tables: `AGENTSAM_ANTHROPIC_ESCALATION_ONLY`, `AGENTSAM_DEFAULT_CHEAP_MODEL`, `AGENTSAM_DEFAULT_CHEAP_PROVIDER`, `AGENTSAM_DISABLE_DEFAULT_ANTHROPIC`, `AGENTSAM_E2E_MODE`, `AGENTSAM_E2E_NO_LLM_BY_DEFAULT`
+- **`scripts/generated-sites/agent-sam-site-1778454586229/assets/styles.css`**  (1 lines, 7.2 KB)
+- **`tmp/agentsam-command-script-study/schema/agentsam_commands.schema.json`**  (369 lines, 7.2 KB)
+- **`artifacts/agentsam_inspection/raw/agentsam_prompt_routes.raw.md`**  (143 lines, 7.1 KB)
+  - D1 tables: `agentsam_prompt_routes`
+- **`artifacts/agentsam_inspection/raw/agentsam_execution_dependency_graph.raw.md`**  (119 lines, 7.1 KB)
+  - D1 tables: `agentsam_execution_dependency_graph`
+- **`scripts/agentsam-supabase-memory-checkpoint.py`**  (217 lines, 7.1 KB)
+  - D1 tables: `AGENTSAM_TENANT_ID`, `AGENTSAM_WORKSPACE_ID`, `__future__`, `agentsam_debug_snapshots`, `agentsam_memory_checkpoint`, `agentsam_supabase_memory_cursor_replacement`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_inspection/agentsam_mcp_workflows.md`**  (63 lines, 7.0 KB)
+  - D1 tables: `agentsam_eval_runs`, `agentsam_mcp_workflows`, `agentsam_tool_call_`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_inspection/raw/agentsam_execution_steps.raw.md`**  (126 lines, 7.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`docs/audits/agentsam-workspace-capability-map.md`**  (122 lines, 7.0 KB)
+  - D1 tables: `SSE`, `agentsam_mcp_tools`, `agentsam_tools`, `agentsam_workflow_runs`
+- **`tmp/cms-live-editor-wire/schemas/agentsam_tool_chain.schema.json`**  (361 lines, 7.0 KB)
+- **`migrations/294_agentsam_guardrails.sql`**  (237 lines, 6.9 KB)
+  - D1 tables: `agentsam_guardrail_events`, `agentsam_guardrail_events_decision_created`, `agentsam_guardrail_events_guardrail_id`, `agentsam_guardrail_events_guardrail_key_created`, `agentsam_guardrail_events_request`, `agentsam_guardrail_events_ruleset_id`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_prompt_runs.md`**  (104 lines, 6.9 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_prompt_runs`, `agentsam_prompt_runs_identity_created`, `agentsam_prompt_runs_identity_profile_id_fkey`, `agentsam_prompt_runs_pkey`
+- **`artifacts/agentsam_inspection/raw/agentsam_hook_execution.raw.md`**  (133 lines, 6.9 KB)
+  - D1 tables: `agentsam_hook_execution`, `deployments`, `the`
+- **`docs/autorag-knowledge/architecture/agent-sam-capabilities.md`**  (139 lines, 6.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - R2: `iam-autorag`
+- **`artifacts/agentsam_inspection/agentsam_bootstrap.md`**  (62 lines, 6.8 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_bootstrap`, `agentsam_operator`
+  - R2: `autorag`
+- **`migrations/197_agentsam_skill_iam_pipeline.sql`**  (168 lines, 6.7 KB)
+  - D1 tables: `VECTORIZE_INDEX`, `agentsam_code_index_job`, `agentsam_project_context`, `agentsam_skill`, `agentsam_skill_iam_pipeline`
+  - R2: `iam-approval`, `iam-cidi`, `iam-context`, `iam-playwright`, `iam-tools`
+- **`artifacts/agentsam-cursor-capability-connect-plan.md`**  (132 lines, 6.6 KB)
+- **`artifacts/agentsam_inspection/raw/agentsam_workflow_nodes.raw.md`**  (130 lines, 6.6 KB)
+  - D1 tables: `agentsam_workflow_nodes`
+- **`src/core/agentsam-plan-excalidraw-artifact.js`**  (200 lines, 6.6 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_plan`, `agentsam_plan_tasks`, `agentsam_plans`
+  - R2: `DASHBOARD`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_prompt_routes_priority_ladder.json`**  (265 lines, 6.4 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_prompt_routes_priority_ladder.json`**  (265 lines, 6.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_workflow_steps.md`**  (99 lines, 6.4 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `agentsam_workflow_steps_pkey`, `agentsam_workflow_steps_plan_id_fkey`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/raw/file_checks.json`**  (297 lines, 6.4 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/raw/file_checks.json`**  (297 lines, 6.4 KB)
+- **`docs/db/live-inspection/agentsam_routing_arms.schema.json`**  (329 lines, 6.4 KB)
+- **`sql/agentsam/seed_agentsam_tables_inventory_project_context.sql`**  (214 lines, 6.4 KB)  🐛 HARDCODED_R2
+  - Routes: `/api/agent/boot`, `/api/agent/chat`, `/api/agent/sessions`, `/api/analytics/overview`, `/api/mcp/agent/:slug/chat`, `/api/mcp/agent/:slug/workflows`
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_bootstrap`
+  - R2: `agent-sam`, `iam-docs`, `inneranimalmedia-assets`
+- **`migrations/340_agentsam_db_governance.sql`**  (162 lines, 6.3 KB)
+  - D1 tables: `agentsam_db_governance`, `agentsam_mcp_workflows`, `agentsam_mcpwf_global_key`, `agentsam_mcpwf_tenant_key`, `agentsam_skill`, `agentsam_skill_scope_name`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_prompt_routes_priority_ladder.json`**  (259 lines, 6.2 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_tool_call_log_columns.json`**  (321 lines, 6.2 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_tool_call_log_columns.json`**  (321 lines, 6.2 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_tool_call_log_columns.json`**  (321 lines, 6.2 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tools_id`
+- **`artifacts/key_hygiene_audit/chunks/04_agentsam_rules_document_scoping_audit.md`**  (21 lines, 6.2 KB)
+  - Routes: `/api/settings/rules`
+  - D1 tables: `agentsam_rules_docum`, `agentsam_rules_document`, `cms_pages`
+- **`artifacts/agentsam_inspection/agentsam_todo.md`**  (60 lines, 6.2 KB)
+  - Routes: `/api/analytics/overview`, `/api/projects/overview`, `/api/project… | Shipped in repo commit 6c043da; production deploy pending user run deploy:full. | 0 | 0 | 0 | 1778795955 |  |  |  |
+| todo_agent_cursor_quality_capability_surfaces | tenant_sam_primeaux | ws_inneranimalmedia | Validate Agent Sam Cursor-quality capability surfaces after trace spine deploy | After the deploy proves the core trace spine arun_* → wrun_* → exec_* → estep_* → atc_* is valid, va… | open | high | agent-capabilities | [`
+  - D1 tables: `agentsam_agent_run`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_todo`, `agentsam_w`
+- **`artifacts/agentsam_inspection/raw/agentsam_executions.raw.md`**  (134 lines, 6.2 KB)
+  - D1 tables: `agentsam_executions`
+- **`artifacts/agentsam_inspection/raw/agentsam_project_context.raw.md`**  (118 lines, 6.2 KB)
+  - D1 tables: `agentsam_project_context`
+- **`artifacts/agentsam_inspection/raw/agentsam_model_routing_memory.raw.md`**  (133 lines, 6.2 KB)
+  - D1 tables: `agentsam_model_routing_memory`
+- **`tmp/cms-live-editor-wire/schemas/agentsam_project_context.schema.json`**  (321 lines, 6.2 KB)
+- **`migrations/327_agentsam_dashboard_agent_self_debug.sql`**  (158 lines, 6.1 KB)
+  - D1 tables: `agentsam_dashboard_agent_self_debug`, `agentsam_latency`, `agentsam_run_agent`, `agentsam_skill`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`artifacts/agentsam_inspection/agentsam_subagent_profile.md`**  (56 lines, 6.1 KB)
+  - D1 tables: `agentsam_subagent_profile`
+- **`artifacts/agentsam_inspection/INDEX.md`**  (93 lines, 6.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_artifacts`
+- **`artifacts/agentsam_inspection/raw/agentsam_webhook_events.raw.md`**  (116 lines, 6.1 KB)
+  - D1 tables: `agentsam_webhook_events`
+  - R2: `inneranimalmedia`
+- **`scripts/cms_10_seed_agentsam_homepage_section.py`**  (173 lines, 6.0 KB)
+  - D1 tables: `agentsam_section`, `cms_page_sections`, `cms_pages`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.workflow_runs.md`**  (101 lines, 5.9 KB)
+- **`artifacts/agentsam_inspection/raw/agentsam_usage_rollups_daily.raw.md`**  (132 lines, 5.9 KB)
+  - D1 tables: `agentsam_usage_rollups_daily`
+- **`scripts/smoke/run-agentsam-debug-mirror-e2e.sh`**  (243 lines, 5.9 KB)
+  - D1 tables: `agentsam_debug_mirror_e2e`, `agentsam_debug_mirror_seed`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_inspection/agentsam_user_policy.md`**  (69 lines, 5.8 KB)
+  - D1 tables: `agentsam_user_policy`
+- **`artifacts/agentsam_inspection/raw/agentsam_memory.raw.md`**  (110 lines, 5.8 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_quality`
+- **`artifacts/agentsam_inspection/raw/agentsam_script_runs.raw.md`**  (116 lines, 5.8 KB)
+  - D1 tables: `agentsam_script_runs`
+- **`dashboard/components/overview/panels/WorkflowPanel.tsx`**  (159 lines, 5.8 KB)
+  - Components: `WorkflowPanel`
+- **`artifacts/agentsam-supabase-direct-sync-report.json`**  (116 lines, 5.6 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_workflow_events`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `agentsam_workflows`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.tool_calls.md`**  (96 lines, 5.6 KB)
+  - D1 tables: `agentsam_tool_calls_created`, `agentsam_tool_calls_name`, `agentsam_tool_calls_run`, `agentsam_tool_calls_tenant_status`, `agentsam_tool_calls_workflow`
+- **`artifacts/agentsam_inspection/agentsam_plans.md`**  (58 lines, 5.6 KB)
+  - D1 tables: `agentsam_cms_editor_p1_20260515`, `agentsam_parallel_cms_workers_20260515`, `agentsam_plans`, `agentsam_quality`, `agentsam_scripts`, `agentsam_usage_events`
+  - R2: `iam-deploy-pipeline`, `iam-platform-sprint-may2026`, `r2-cms-builds`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.workflow_step_events.md`**  (93 lines, 5.5 KB)
+- **`docs/AGENTSAM_IGNORE_AND_RULES.md`**  (132 lines, 5.5 KB)
+  - D1 tables: `Agent`, `Cursor`, `agentsam_agent_run`, `agentsam_ignore_pattern`, `agentsam_ignore_rules`, `agentsam_rules_document`
+- **`scripts/smoke/verify-migration-323-ollama-workflows.sh`**  (191 lines, 5.5 KB)
+  - D1 tables: `agentsam_ollama_embed_pipeline_workflows`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`src/core/agentsam-capability-aliases.js`**  (151 lines, 5.5 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `agentsam_route_requirements`, `token`
+- **`artifacts/agentsam_inspection/raw/agentsam_model_tier.raw.md`**  (117 lines, 5.4 KB)
+  - D1 tables: `agentsam_model_tier`
+- **`docs/agentsam-sessions-log.md`**  (134 lines, 5.3 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_cursor_parity`, `agentsam_user_policy`, `sessions`, `worker`, `wrangler`
+- **`migrations/265_agentsam_analytics_unique_workspace.sql`**  (209 lines, 5.2 KB)
+  - D1 tables: `INTEGER`, `agentsam_analytics`, `agentsam_analytics__new`, `agentsam_analytics_unique_workspace`, `dedup`, `normalized`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_eval_suites.md`**  (89 lines, 5.2 KB)
+  - D1 tables: `agentsam_eval_suites`, `agentsam_eval_suites_created_by_identity_profile_id_fkey`, `agentsam_eval_suites_pkey`, `agentsam_eval_suites_suite_key_key`, `identity_profiles`
+- **`artifacts/agentsam_inspection/raw/agentsam_tool_stats_compacted.raw.md`**  (116 lines, 5.2 KB)
+  - D1 tables: `agentsam_tool_stats_compacted`
+- **`docs/agentsam/model-routing-v1.md`**  (93 lines, 5.2 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_routing_arms`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_plan_tasks.md`**  (87 lines, 5.1 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plan_tasks_category_check`, `agentsam_plan_tasks_pkey`, `agentsam_plan_tasks_plan`, `agentsam_plan_tasks_plan_id_fkey`, `agentsam_plan_tasks_priority_check`
+- **`artifacts/agentsam_inspection/agentsam_mcp_tools.md`**  (70 lines, 5.1 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_tools_id`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033812Z/agentsam_cms_audit_plan.md`**  (110 lines, 5.1 KB)
+  - D1 tables: `agentsam_cms_audit_plan`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_tool_sprint_20260513T024441Z`, `agentsam_mcp_tool_sprint_20260513T025137Z`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_route_requirements_columns.json`**  (249 lines, 5.0 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_route_requirements_columns.json`**  (249 lines, 5.0 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_route_requirements_columns.json`**  (249 lines, 5.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.executions.md`**  (90 lines, 5.0 KB)
+  - D1 tables: `agentsam_executions_created`, `agentsam_executions_run`, `agentsam_executions_task`, `agentsam_executions_workflow`, `agentsam_executions_workspace`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.usage_events.md`**  (89 lines, 5.0 KB)
+  - D1 tables: `agentsam_usage_events_created`, `agentsam_usage_events_model`, `agentsam_usage_events_run`, `agentsam_usage_events_workflow`, `agentsam_usage_events_workspace`
+  - R2: `agent-sam`
+- **`artifacts/agentsam_inspection/ACTIVE_TABLES.md`**  (69 lines, 5.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_bootstrap`
+- **`artifacts/agentsam_inspection/agentsam_analytics.md`**  (59 lines, 5.0 KB)
+  - D1 tables: `agentsam_analytics`
+- **`docs/db/agentsam-d1-context/2026-05-07_agentsam-frontend-gaps.md`**  (203 lines, 5.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_bootstrap`
+- **`docs/db/live-inspection/agentsam_eval_runs.schema.json`**  (257 lines, 5.0 KB)
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T035443Z/agentsam_cms_audit_plan.md`**  (110 lines, 5.0 KB)
+  - D1 tables: `agentsam_cms_audit_plan`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_tool_sprint_20260513T024441Z`, `agentsam_mcp_tool_sprint_20260513T025137Z`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033820Z/agentsam_cms_audit_plan.md`**  (110 lines, 5.0 KB)
+  - D1 tables: `agentsam_cms_audit_plan`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_tool_sprint_20260513T024441Z`, `agentsam_mcp_tool_sprint_20260513T025137Z`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`migrations/332_agentsam_route_tool_policy_and_branded_view.sql`**  (103 lines, 4.9 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `agentsam_route_requirements`, `agentsam_route_tool_policy_and_branded_view`, `agentsam_tools_id`
+- **`artifacts/agentsam-e2e-workflow-runner-report.md`**  (201 lines, 4.9 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_execution_steps`, `agentsam_workflow_events`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `agentsam_workflows`
+- **`artifacts/agentsam_inspection/raw/agentsam_hook.raw.md`**  (99 lines, 4.9 KB)
+  - D1 tables: `agentsam_error`, `agentsam_hook`, `agentsam_start`, `agentsam_stop`
+- **`migrations/263_agentsam_workspace_scoped_rollup_uniques.sql`**  (165 lines, 4.8 KB)
+  - D1 tables: `agentsam_tool_stats_compacted`, `agentsam_tool_stats_compacted__new`, `agentsam_tool_stats_compacted_at`, `agentsam_tool_stats_scope_tool`, `agentsam_webhook_weekly`, `agentsam_webhook_weekly__new`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_workflow_events.md`**  (82 lines, 4.8 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_events`, `agentsam_workflow_events_pkey`, `agentsam_workflow_events_plan_id_fkey`, `agentsam_workflow_events_run_created`
+- **`artifacts/agentsam_inspection/agentsam_execution_performance_metrics.md`**  (73 lines, 4.8 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_execution_performance_metrics`
+- **`artifacts/agentsam_inspection/agentsam_skill.md`**  (48 lines, 4.8 KB)
+  - D1 tables: `agentsam_skill`
+- **`artifacts/agentsam_inspection/agentsam_commands.md`**  (63 lines, 4.8 KB)
+  - D1 tables: `agentsam_cli_inspect_scripts`, `agentsam_cli_inspect_workflows`, `agentsam_cli_verify_approvals`, `agentsam_cli_verify_plan`, `agentsam_cli_verify_spine`, `agentsam_commands`
+- **`artifacts/agentsam_inspection/agentsam_guardrails.md`**  (42 lines, 4.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_guardrails`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/raw/agentsam_slash_commands.raw.md`**  (100 lines, 4.8 KB)
+  - D1 tables: `agentsam_slash_commands`
+- **`artifacts/agentsam_inspection/raw/agentsam_deployment_health.raw.md`**  (89 lines, 4.8 KB)
+  - D1 tables: `agentsam_deployment_health`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/raw/agentsam_skill_invocation.raw.md`**  (99 lines, 4.8 KB)
+  - D1 tables: `agentsam_ops_ledger`, `agentsam_skill_invocation`, `agentsam_telemetry_after_deploy`
+- **`docs/agent-sam-sandbox-cicd/README.md`**  (85 lines, 4.8 KB)
+  - D1 tables: `the`
+- **`scripts/generated-sites/agent-sam-site-1778454586229/assets/app.js`**  (8 lines, 4.8 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_workflows.md`**  (84 lines, 4.7 KB)
+  - D1 tables: `agentsam_workflows`, `agentsam_workflows_d1_workflow_id_key`, `agentsam_workflows_pkey`, `agentsam_workflows_status`, `agentsam_workflows_tenant_id_workspace_id_workflow_key_key`, `agentsam_workflows_tenant_workspace_key`
+- **`artifacts/agentsam_inspection/agentsam_tool_chain.md`**  (64 lines, 4.7 KB)
+  - D1 tables: `agentsam_tool_chain`
+- **`artifacts/agentsam_inspection/raw/agentsam_eval_suites.raw.md`**  (96 lines, 4.7 KB)
+  - D1 tables: `agentsam_context_ask`, `agentsam_eval_suites`, `agentsam_everything`, `agentsam_planning_ask`, `agentsam_safety`, `agentsam_tool_lane`
+- **`artifacts/agentsam_inspection/raw/agentsam_error_log.raw.md`**  (87 lines, 4.7 KB)
+  - D1 tables: `agentsam_error_log`
+- **`artifacts/agentsam_inspection/raw/agentsam_mcp_allowlist.raw.md`**  (94 lines, 4.7 KB)
+  - D1 tables: `agentsam_mcp_allowlist`, `agentsam_tools_id`
+- **`scripts/agentsam-supabase-memory-snapshot.py`**  (133 lines, 4.7 KB)
+  - D1 tables: `__future__`, `agentsam_cursor_replacement_cli_master_20260512`, `agentsam_debug_snapshots`, `agentsam_memory_checkpoint`, `agentsam_supabase_memory_cursor_replacement`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`src/core/agentsam-plan-markdown.js`**  (144 lines, 4.7 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.webhook_events.md`**  (84 lines, 4.6 KB)
+  - D1 tables: `agentsam_webhook_events_provider`, `agentsam_webhook_events_provider_event`, `agentsam_webhook_events_received`, `agentsam_webhook_events_status`
+- **`artifacts/agentsam_inspection/agentsam_workflow_runs.md`**  (14 lines, 4.6 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_inspection/raw/agentsam_workspace.raw.md`**  (94 lines, 4.6 KB)
+  - D1 tables: `agentsam_connor`, `agentsam_workspace`
+- **`artifacts/agentsam_inspection/raw/agentsam_prompt_versions.raw.md`**  (95 lines, 4.6 KB)
+  - D1 tables: `agentsam_prompt_versions`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_branded_tools_summary.json`**  (193 lines, 4.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_mcp_workspace_tokens_columns.json`**  (233 lines, 4.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_mcp_workspace_tokens_columns.json`**  (233 lines, 4.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_mcp_workspace_tokens_columns.json`**  (233 lines, 4.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.workflow_daily_rollups.md`**  (82 lines, 4.5 KB)
+- **`artifacts/agentsam_inspection/agentsam_artifacts.md`**  (55 lines, 4.5 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_visualizer_workflow_pump`
+- **`artifacts/agentsam_inspection/raw/agentsam_eval_cases.raw.md`**  (84 lines, 4.5 KB)
+  - D1 tables: `agentsam_chat_e2e`, `agentsam_context_e2e`, `agentsam_eval_cases`, `agentsam_eval_runs`, `agentsam_safety_e2e`, `agentsam_tool_read_e2e`
+- **`learn/software-engineering-builder-os/lessons/008_ai-engineering-agent-sam-routing.md`**  (140 lines, 4.5 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_analytics`, `agentsam_commands`, `agentsam_routing_arms`, `agentsam_tool_call_log`, `agentsam_usage_events`
+- **`docs/db/agentsam_upsert_patterns.sql`**  (128 lines, 4.5 KB)
+  - D1 tables: `agentsam_db_governance`, `agentsam_mcp_workflows`, `agentsam_skill`, `agentsam_tools`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`src/core/agentsam-script-runs.js`**  (142 lines, 4.5 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_execution`, `agentsam_script_id`, `agentsam_script_runs`, `agentsam_scripts`, `deploy`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/report.md`**  (69 lines, 4.4 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_mcp_tool_sprint_20260513T022422Z`, `agentsam_mcp_tools_branded`, `agentsam_prompt_routes`, `agentsam_route_requirements`, `agentsam_tool_call_log`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_bulletproof_todo_20260513T000020Z.md`**  (139 lines, 4.4 KB)
+  - D1 tables: `agentsam_capability_index`, `agentsam_execution_steps`, `agentsam_mcp_tool_execution`, `agentsam_tool_call_log`, `agentsam_tools`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_bulletproof_todo_20260512T235450Z.md`**  (139 lines, 4.4 KB)
+  - D1 tables: `agentsam_capability_index`, `agentsam_execution_steps`, `agentsam_mcp_tool_execution`, `agentsam_tool_call_log`, `agentsam_tools`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/agentsam_tools_audit/agentsam_tools_bulletproof_todo_20260513T000158Z.md`**  (139 lines, 4.4 KB)
+  - D1 tables: `agentsam_capability_index`, `agentsam_execution_steps`, `agentsam_mcp_tool_execution`, `agentsam_tool_call_log`, `agentsam_tools`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_debug_snapshots.md`**  (80 lines, 4.4 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_debug_snapshots_key_created`, `agentsam_debug_snapshots_pkey`, `agentsam_debug_snapshots_run_created`, `agentsam_debug_snapshots_run_id_fkey`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_inspection/raw/agentsam_subscription_registry.raw.md`**  (84 lines, 4.4 KB)
+  - D1 tables: `agentsam_subscription_registry`
+- **`docs/db/live-inspection/agentsam_model_routing_memory.schema.json`**  (225 lines, 4.4 KB)
+- **`migrations/177_agentsam_skill_parity.sql`**  (78 lines, 4.3 KB)
+  - D1 tables: `agentsam_rules_revision`, `agentsam_skill`, `agentsam_skill_invocation`, `agentsam_skill_parity`, `agentsam_skill_revision`
+- **`migrations/219_r2_write_explicit_bucket_skills_workflows.sql`**  (74 lines, 4.3 KB)
+  - D1 tables: `agentsam_skill`, `mcp_workflows`, `worker_analytics_events`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/report.md`**  (68 lines, 4.3 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_mcp_tool_sprint_20260513T025137Z`, `agentsam_mcp_tools_branded`, `agentsam_prompt_routes`, `agentsam_route_requirements`, `agentsam_tool_call_log`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/report.md`**  (68 lines, 4.3 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_mcp_tool_sprint_20260513T024441Z`, `agentsam_mcp_tools_branded`, `agentsam_prompt_routes`, `agentsam_route_requirements`, `agentsam_tool_call_log`
+- **`artifacts/agentsam_inspection/agentsam_scripts.md`**  (41 lines, 4.3 KB)
+  - D1 tables: `agentsam_cms_overnight_build`, `agentsam_e2e_build_deploy`, `agentsam_scripts`
+- **`artifacts/agentsam_inspection/agentsam_routing_arms.md`**  (57 lines, 4.3 KB)
+  - D1 tables: `agentsam_routing_arms`
+- **`artifacts/agentsam_inspection/agentsam_workflows.md`**  (40 lines, 4.3 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `Request`, `agentsam_plan`, `agentsam_plan_tasks`, `agentsam_workflows`
+- **`artifacts/agentsam_inspection/raw/agentsam_feature_flag.raw.md`**  (95 lines, 4.3 KB)
+  - D1 tables: `agentsam_feature_flag`
+- **`learn/software-engineering-builder-os/lessons/003_ide-workflow-monaco-cursor.md`**  (140 lines, 4.3 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_project_context`, `agentsam_workspace_state`
+- **`docs/db/live-inspection/agentsam_hook_execution.schema.json`**  (225 lines, 4.3 KB)
+- **`artifacts/agentsam-command-workflow-design.md`**  (94 lines, 4.2 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_command_pattern`, `agentsam_command_runs`, `agentsam_commands`, `agentsam_mcp_tools`, `agentsam_mcp_workflows`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_plans.md`**  (82 lines, 4.2 KB)
+  - D1 tables: `agentsam_plans`, `agentsam_plans_carry_over_from_fkey`, `agentsam_plans_date`, `agentsam_plans_pkey`, `agentsam_plans_status_check`
+- **`artifacts/agentsam_inspection/agentsam_eval_runs.md`**  (49 lines, 4.2 KB)
+  - D1 tables: `agentsam_context_ask`, `agentsam_eval_runs`, `agentsam_everything`, `agentsam_planning_ask`, `agentsam_safety`, `agentsam_tool_lane`
+- **`artifacts/agentsam_inspection/raw/agentsam_context_digest.raw.md`**  (82 lines, 4.2 KB)
+  - D1 tables: `agentsam_20260510_025149_`, `agentsam_20260510_025149_338314`, `agentsam_context_digest`
+- **`artifacts/agentsam_inspection/raw/agentsam_command_pattern.raw.md`**  (92 lines, 4.2 KB)
+  - D1 tables: `agentsam_command_pattern`
+- **`scripts/triage-agentsam-workflows.sh`**  (144 lines, 4.2 KB)
+  - D1 tables: `agentsam_mcp_workflows`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`tmp/cms-live-editor-wire/schemas/agentsam_prompt_cache_keys.schema.json`**  (217 lines, 4.2 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.mcp_health_checks.md`**  (78 lines, 4.1 KB)
+  - D1 tables: `agentsam_mcp_health_checked`, `agentsam_mcp_health_tool`, `agentsam_mcp_health_workflow`
+- **`artifacts/agentsam_inspection/raw/agentsam_escalation.raw.md`**  (90 lines, 4.1 KB)
+  - D1 tables: `agentsam_escalation`
+- **`docs/db/live-inspection/agentsam_prompt_routes.schema.json`**  (209 lines, 4.1 KB)
+- **`tmp/cms-live-editor-wire/schemas/agentsam_prompt_routes.schema.json`**  (209 lines, 4.1 KB)
+- **`migrations/328_agentsam_plan_visualization_excalidraw.sql`**  (96 lines, 4.0 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_mcp_tools`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_prompt_routes`, `agentsam_prompt_versions`
+- **`artifacts/agentsam-true-e2e-workflow-runner-report.md`**  (128 lines, 4.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_model_cost_snapshots.md`**  (76 lines, 4.0 KB)
+  - D1 tables: `agentsam_model_cost_snapshots`, `agentsam_model_cost_snapshots_pkey`, `agentsam_model_cost_snapshots_provider_model_key_effective__key`
+- **`artifacts/agentsam_inspection/agentsam_mcp_tool_execution.md`**  (60 lines, 4.0 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_tools_id`
+- **`artifacts/agentsam_inspection/raw/agentsam_model_drift_signals.raw.md`**  (79 lines, 4.0 KB)
+  - D1 tables: `agentsam_model_drift_signals`
+- **`artifacts/agentsam_inspection/raw/agentsam_fetch_domain_allowlist.raw.md`**  (84 lines, 4.0 KB)
+  - D1 tables: `agentsam_fetch_domain_allowlist`
+- **`scripts/verify-agentsam-telemetry-after-deploy.sh`**  (63 lines, 4.0 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_error_log`, `agentsam_executions`, `agentsam_model_catalog`, `agentsam_tool_chain`, `agentsam_usage_events`
+- **`src/core/agentsam-hook-script-bridge.js`**  (129 lines, 4.0 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_execution`, `agentsam_script_id`, `agentsam_script_run`, `agentsam_script_run_id`, `agentsam_script_runs`
+- **`migrations/278_agentsam_workspace_full_sync.sql`**  (33 lines, 3.9 KB)
+  - D1 tables: `agentsam_workspace`, `tenants`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.agentsam_todo.md`**  (79 lines, 3.9 KB)
+  - D1 tables: `agentsam_smoke`, `agentsam_todo`, `agentsam_todo_linked_table`, `agentsam_todo_pkey`, `agentsam_todo_priority`
+- **`artifacts/agentsam_inspection/agentsam_execution_dependency_graph.md`**  (38 lines, 3.9 KB)
+  - D1 tables: `agentsam_execution_dependency_graph`
+- **`artifacts/agentsam_inspection/raw/agentsam_workflow_edges.raw.md`**  (84 lines, 3.9 KB)
+  - D1 tables: `agentsam_workflow_edges`
+- **`artifacts/agentsam_inspection/raw/agentsam_cron_runs.raw.md`**  (87 lines, 3.9 KB)
+  - D1 tables: `agentsam_approval_queue_expiry_sweep`, `agentsam_cron_runs`, `agentsam_cron_runs_stuck_sweep`
+- **`artifacts/agentsam_inspection/raw/agentsam_capability_aliases.raw.md`**  (85 lines, 3.9 KB)
+  - D1 tables: `agentsam_capability_aliases`
+- **`tmp/agentsam-command-script-study/schema/agentsam_scripts.schema.json`**  (201 lines, 3.9 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.workflow_quality_snapshots.md`**  (75 lines, 3.8 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.workflow_events.md`**  (77 lines, 3.8 KB)
+- **`artifacts/agentsam_inspection/agentsam_route_requirements.md`**  (47 lines, 3.8 KB)
+  - D1 tables: `agentsam_route_requirements`
+- **`artifacts/agentsam_inspection/raw/agentsam_health_daily.raw.md`**  (85 lines, 3.8 KB)
+  - D1 tables: `agentsam_health_daily`
+- **`docs/db/live-inspection/agentsam_route_requirements.schema.json`**  (193 lines, 3.8 KB)
+- **`artifacts/agentsam_inspection/agentsam_command_run.md`**  (48 lines, 3.7 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_usage_events`
+- **`artifacts/agentsam_inspection/agentsam_approval_queue.md`**  (46 lines, 3.7 KB)
+  - D1 tables: `agentsam_approval_queue`
+- **`scripts/d1-bootstrap-sandbox-workflow-20260322.sql`**  (68 lines, 3.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `github_repositories`, `r2_buckets`, `repo`, `roadmap_steps`, `worker_registry`
+  - R2: `inneranimalmedia`, `inneranimalmedia-sandbox-cidi`, `march1st-inneranimalmedia`, `r2_agent_sam`, `},`
+- **`scripts/smoke/audit_agentsam_tables.py`**  (117 lines, 3.7 KB)
+  - D1 tables: `agentsam_tables`, `sqlite_master`
+- **`migrations/268_mcp_workflows_strip_hardcoded_defaults.sql`**  (80 lines, 3.6 KB)
+  - D1 tables: `agentsam_mcp_workflows`, `agentsam_mcp_workflows_active_category`, `agentsam_mcp_workflows_new`, `agentsam_mcp_workflows_parent`, `agentsam_mcp_workflows_subagent`, `agentsam_mcp_workflows_task_type`
+- **`artifacts/agentsam_inspection/agentsam_plan_tasks.md`**  (57 lines, 3.6 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_hook`, `agentsam_plan_tasks`
+- **`artifacts/agentsam_inspection/agentsam_model_catalog.md`**  (55 lines, 3.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_model_catalog`
+- **`artifacts/backups/agentsam_e2e_20260512065824/d1_agentsam_workflow_edges_agent_chat_plan.json`**  (109 lines, 3.6 KB)
+- **`artifacts/backups/agentsam_e2e_20260512070007/d1_agentsam_workflow_edges_agent_chat_plan.json`**  (109 lines, 3.6 KB)
+- **`artifacts/backups/agent_chat_plan_20260512T065409Z/agentsam_workflow_edges_agent_chat_plan.json`**  (109 lines, 3.6 KB)
+- **`docs/db/live-inspection/agentsam_model_drift_signals.schema.json`**  (185 lines, 3.6 KB)
+- **`docs/db/live-inspection/agentsam_workflows.schema.json`**  (185 lines, 3.6 KB)
+- **`docs/db/live-inspection/agentsam_execution_steps.schema.json`**  (185 lines, 3.6 KB)
+- **`src/core/agentsam-workflows.js`**  (118 lines, 3.6 KB)
+  - D1 tables: `AGENTSAM_MCP_WORKFLOWS`, `AGENTSAM_WORKFLOW_ACTIVE_SQL`, `agentsam_mcp_workflows`
+- **`migrations/227_provision_agentsam_sota_registries.sql`**  (47 lines, 3.5 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_skill`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_parent_routes_missing_requirements.json`**  (145 lines, 3.5 KB)
+- **`artifacts/agentsam_inspection/agentsam_tool_call_log.md`**  (61 lines, 3.5 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tool_call_log`, `agentsam_tools_id`
+- **`artifacts/agentsam_inspection/agentsam_execution_steps.md`**  (42 lines, 3.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_inspection/raw/agentsam_guardrail_rulesets.raw.md`**  (61 lines, 3.5 KB)
+  - D1 tables: `agentsam_guardrail_rulesets`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/raw/agentsam_rules_document.raw.md`**  (78 lines, 3.5 KB)
+  - D1 tables: `agentsam_rules_document`
+- **`docs/knowledge/workflows/IAM_DEPLOY_PROMOTE_AND_SESSION_LOG_RAG.md`**  (73 lines, 3.5 KB)
+  - D1 tables: `repo`, `sandbox`
+- **`db/seed_core_workflows.sql`**  (46 lines, 3.5 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`src/core/agentsam-mcp-tools.js`**  (113 lines, 3.5 KB)
+  - D1 tables: `agentsam_mcp_tools`
+- **`artifacts/agentsam-capability-wire-audit.sh`**  (65 lines, 3.4 KB)
+  - D1 tables: `agentsam_execution_steps`
+- **`artifacts/agentsam_inspection/agentsam_hook_execution.md`**  (52 lines, 3.4 KB)
+  - D1 tables: `agentsam_hook_execution`, `deployments`, `the`
+- **`artifacts/agentsam_inspection/raw/agentsam_workspace_state.raw.md`**  (72 lines, 3.4 KB)
+  - D1 tables: `agentsam_workspace_state`
+- **`artifacts/agentsam_inspection/raw/agentsam_mcp_servers.raw.md`**  (72 lines, 3.4 KB)
+  - D1 tables: `agentsam_mcp_servers`
+- **`docs/db/live-inspection/agentsam_model_drift_signals.sample.json`**  (91 lines, 3.4 KB)
+  - D1 tables: `nightly`
+- **`docs/db/live-inspection/agentsam_execution_dependency_graph.schema.json`**  (177 lines, 3.4 KB)
+- **`docs/db/live-inspection/agentsam_workflow_nodes.schema.json`**  (169 lines, 3.4 KB)
+- **`tmp/agentsam-command-script-study/latest_result.json`**  (124 lines, 3.4 KB)
+  - D1 tables: `agentsam_scripts`, `your`
+  - R2: `inneranimalmedia`
+- **`tmp/cms-live-editor-wire/schemas/agentsam_prompt_versions.schema.json`**  (177 lines, 3.4 KB)
+- **`tmp/cms-live-editor-wire/schemas/agentsam_execution_dependency_graph.schema.json`**  (177 lines, 3.4 KB)
+- **`migrations/336_rebuild_agentsam_capability_index.sql`**  (119 lines, 3.3 KB)
+  - D1 tables: `agentsam_capability_index`, `agentsam_capability_index_capability`, `agentsam_capability_index_domain`, `agentsam_capability_index_risk`, `agentsam_capability_index_route`, `agentsam_capability_index_source`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_schema_v_agentsam_mcp_tools_branded.json`**  (30 lines, 3.3 KB)
+  - D1 tables: `agentsam_mcp_tools_branded`, `agentsam_mcp_tools_canonical`, `v_agentsam_mcp_tools_canonical`
+- **`artifacts/agentsam_inspection/raw/agentsam_prompt_cache_keys.raw.md`**  (65 lines, 3.3 KB)
+  - D1 tables: `agentsam_prompt_cache_keys`
+- **`scripts/inneranimalmedia/export_agentsam_commands.py`**  (115 lines, 3.3 KB)
+  - D1 tables: `agentsam_commands`, `agentsam_commands_catalog`, `agentsam_commands_summary`, `collections`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`migrations/322_agentsam_gpt54mini_routing_defaults.sql`**  (72 lines, 3.2 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_gpt54mini_routing_defaults`, `agentsam_model_catalog`, `agentsam_routing_arms`
+- **`artifacts/agentsam_inspection/agentsam_agent_run.md`**  (49 lines, 3.2 KB)
+  - D1 tables: `agentsam_agent_run`
+- **`artifacts/agentsam_inspection/agentsam_project_context.md`**  (54 lines, 3.2 KB)
+  - D1 tables: `agentsam_project_context`
+- **`scripts/d1-dev-workflows-insert-platform-setup.sql`**  (50 lines, 3.2 KB)
+  - D1 tables: `repo`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-sandbox-cicd`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/agentsam.agentsam_audit_snapshots.md`**  (69 lines, 3.1 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_audit_snapshots_pkey`
+- **`artifacts/agentsam_inspection/agentsam_usage_events.md`**  (51 lines, 3.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_usage_events`
+  - R2: `agent-sam`
+- **`artifacts/agentsam_inspection/agentsam_webhook_events.md`**  (48 lines, 3.1 KB)
+  - D1 tables: `agentsam_webhook_events`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/agentsam_prompt_routes.md`**  (42 lines, 3.1 KB)
+  - D1 tables: `agentsam_prompt_routes`
+- **`artifacts/agentsam_inspection/raw/agentsam_code_index_job.raw.md`**  (58 lines, 3.1 KB)
+  - D1 tables: `agentsam_code_index_job`
+- **`tmp/ollama_expansive/run_10_workflow.json`**  (1 lines, 3.1 KB)
+  - D1 tables: `the`
+- **`artifacts/agentsam_inspection/agentsam_workflow_nodes.md`**  (38 lines, 3.0 KB)
+  - D1 tables: `agentsam_workflow_nodes`
+- **`artifacts/agentsam_inspection/raw/agentsam_execution_context.raw.md`**  (68 lines, 3.0 KB)
+  - D1 tables: `agentsam_execution_context`, `agentsam_usage_events`
+- **`docs/db/live-inspection/agentsam_hook.schema.json`**  (161 lines, 3.0 KB)
+- **`scripts/inneranimalmedia/inspect_workflow_dags.py`**  (106 lines, 3.0 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflows`, `collections`
+  - R2: `inneranimalmedia-business`
+- **`migrations/220_rename_cursor_cloud_agent_tools_to_agentsam.sql`**  (38 lines, 2.9 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_mcp_allowlist`, `agentsam_run_agent`, `agentsam_skill`, `cursor_`
+- **`artifacts/agentsam_inspection/raw/agentsam_ignore_pattern.raw.md`**  (68 lines, 2.9 KB)
+  - D1 tables: `agentsam_ignore_pattern`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_recent_routing_decisions.md`**  (65 lines, 2.8 KB)
+  - D1 tables: `agentsam_recent_routing_decisions`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/d1_seed_agentsam_direct.sql`**  (55 lines, 2.8 KB)
+  - D1 tables: `agentsam_platform_services`, `cms_page_sections`, `one`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/agentsam_memory.md`**  (40 lines, 2.8 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_quality`
+- **`src/core/agentsam-workflow-governance.js`**  (72 lines, 2.8 KB)
+  - D1 tables: `agentsam_db_governance`, `agentsam_upsert_patterns`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_stream_run_summary.md`**  (65 lines, 2.7 KB)
+  - D1 tables: `agentsam_stream_run_summary`
+- **`migrations/286_agentsam_workflow_cms_theme_pipeline.sql`**  (64 lines, 2.6 KB)
+  - D1 tables: `agentsam_workflow_cms_theme_pipeline`, `agentsam_workflows`, `user`
+  - R2: `inneranimalmedia`
+- **`migrations/196_agentsam_project_context_iam_tools.sql`**  (56 lines, 2.6 KB)
+  - D1 tables: `agentsam_code_index_job`, `agentsam_project_context`, `agentsam_project_context_iam_tools`, `shell`
+  - R2: `agent-sam`, `inneranimalmedia`, `inneranimalmedia-mcp-server`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_branded_tools_summary.json`**  (116 lines, 2.6 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_schema_agentsam_route_requirements.json`**  (30 lines, 2.6 KB)
+  - D1 tables: `agentsam_prompt_routes`, `agentsam_route_requirements`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_branded_tools_summary.json`**  (116 lines, 2.6 KB)
+- **`artifacts/agentsam_inspection/agentsam_script_runs.md`**  (37 lines, 2.6 KB)
+  - D1 tables: `agentsam_script_runs`
+- **`artifacts/agentsam_inspection/agentsam_model_routing_memory.md`**  (44 lines, 2.6 KB)
+  - D1 tables: `agentsam_model_routing_memory`
+- **`artifacts/agentsam_inspection/agentsam_executions.md`**  (52 lines, 2.6 KB)
+  - D1 tables: `agentsam_executions`
+- **`artifacts/agentsam_inspection/raw/agentsam_tool_cache.raw.md`**  (48 lines, 2.6 KB)
+  - D1 tables: `agentsam_model_catalog`, `agentsam_tool_cache`
+- **`migrations/335_agentsam_capability_alias_patch_and_dedup_view.sql`**  (79 lines, 2.5 KB)
+  - D1 tables: `agentsam_capability_aliases`, `agentsam_route_capability_tool_matches`, `agentsam_route_capability_tool_matches_deduped`, `ranked`, `v_agentsam_route_capability_tool_matches`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_schema_agentsam_route_requirements.json`**  (30 lines, 2.5 KB)
+  - D1 tables: `agentsam_prompt_routes`, `agentsam_route_requirements`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_schema_agentsam_route_requirements.json`**  (30 lines, 2.5 KB)
+  - D1 tables: `agentsam_prompt_routes`, `agentsam_route_requirements`
+- **`artifacts/agentsam_inspection/agentsam_deployment_health.md`**  (35 lines, 2.5 KB)
+  - D1 tables: `agentsam_deployment_health`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/raw/agentsam_browser_trusted_origin.raw.md`**  (56 lines, 2.5 KB)
+  - D1 tables: `agentsam_browser_trusted_origin`
+- **`docs/agentsam-ollama-workflows-323.md`**  (50 lines, 2.5 KB)
+  - D1 tables: `agentsam_ollama_embed_pipeline_workflows`, `agentsam_workflow_runs`
+- **`scripts/validate_agentsam_ops_ledger.sh`**  (58 lines, 2.5 KB)
+  - D1 tables: `agentsam_bootstrap`, `agentsam_browser_trusted_origin`, `agentsam_compaction_events`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`
+- **`artifacts/agentsam_todo_safe_close_candidates.md`**  (27 lines, 2.4 KB)
+  - D1 tables: `agentsam_cron_rollup_multitenant_20260506`, `agentsam_run_agent`, `agentsam_run_agent_522_parse_20260506`
+- **`artifacts/agentsam-cursor-capability-connect-validation.sh`**  (38 lines, 2.4 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_command_runs`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_plan_tasks`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_schema_v_agentsam_mcp_tools_branded.json`**  (30 lines, 2.4 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_schema_v_agentsam_mcp_tools_branded.json`**  (30 lines, 2.4 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `agentsam_tools_id`
+- **`artifacts/agentsam_inspection/agentsam_error_log.md`**  (32 lines, 2.4 KB)
+  - D1 tables: `agentsam_error_log`
+- **`artifacts/agentsam_inspection/agentsam_eval_cases.md`**  (30 lines, 2.4 KB)
+  - D1 tables: `agentsam_chat_e2e`, `agentsam_context_e2e`, `agentsam_eval_cases`, `agentsam_eval_runs`, `agentsam_safety_e2e`, `agentsam_tool_read_e2e`
+- **`artifacts/agentsam_inspection/agentsam_workspace.md`**  (38 lines, 2.4 KB)
+  - D1 tables: `agentsam_connor`, `agentsam_workspace`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/01_expected_files.md`**  (23 lines, 2.4 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/01_expected_files.md`**  (23 lines, 2.4 KB)
+- **`src/core/agentsam-error-log.js`**  (72 lines, 2.4 KB)
+  - D1 tables: `agentsam_error_log`
+- **`migrations/337_agentsam_multitask_routing_arms.sql`**  (46 lines, 2.3 KB)
+  - D1 tables: `agentsam_multitask_routing_arms`, `agentsam_routing_arms`
+- **`migrations/312_agentsam_skill_task_types_remaining.sql`**  (66 lines, 2.3 KB)
+  - D1 tables: `agentsam_project_context`, `agentsam_skill`
+- **`artifacts/agentsam-agent-chat-plan-workflow-report.md`**  (81 lines, 2.3 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/d1_seed_agentsam_section.sql`**  (24 lines, 2.3 KB)
+  - D1 tables: `agentsam_platform_services`, `cms_page_sections`, `cms_pages`, `one`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/agentsam_model_tier.md`**  (38 lines, 2.3 KB)
+  - D1 tables: `agentsam_model_tier`
+- **`artifacts/agentsam_inspection/agentsam_hook.md`**  (37 lines, 2.3 KB)
+  - D1 tables: `agentsam_error`, `agentsam_hook`, `agentsam_start`, `agentsam_stop`
+- **`artifacts/agentsam_inspection/agentsam_context_digest.md`**  (32 lines, 2.3 KB)
+  - D1 tables: `agentsam_20260510_025149_338314`, `agentsam_context_digest`
+- **`artifacts/agentsam_inspection/raw/agentsam_task_slos.raw.md`**  (51 lines, 2.3 KB)
+  - D1 tables: `agentsam_task_slos`
+- **`dashboard/pages/workflows/WorkflowsPage.tsx`**  (56 lines, 2.3 KB)
+  - D1 tables: `agentsam_workflows`
+- **`migrations/320_agentsam_model_catalog_api_platform.sql`**  (62 lines, 2.2 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`
+- **`migrations/295_agentsam_script_runs.sql`**  (50 lines, 2.2 KB)
+  - D1 tables: `agentsam_script_runs`, `agentsam_script_runs_cicd`, `agentsam_script_runs_git_sha`, `agentsam_script_runs_script_started`, `agentsam_script_runs_status_started`, `agentsam_script_runs_trigger_source`
+- **`artifacts/agentsam_inspection/agentsam_mcp_allowlist.md`**  (35 lines, 2.2 KB)
+  - D1 tables: `agentsam_mcp_allowlist`, `agentsam_tools_id`
+- **`artifacts/agentsam_inspection/agentsam_usage_rollups_daily.md`**  (38 lines, 2.2 KB)
+  - D1 tables: `agentsam_usage_rollups_daily`
+- **`artifacts/agentsam_inspection/agentsam_prompt_versions.md`**  (38 lines, 2.2 KB)
+  - D1 tables: `agentsam_prompt_versions`
+- **`artifacts/agentsam_inspection/agentsam_skill_invocation.md`**  (40 lines, 2.2 KB)
+  - D1 tables: `agentsam_ops_ledger`, `agentsam_skill_invocation`, `agentsam_telemetry_after_deploy`
+- **`artifacts/agentsam_inspection/raw/agentsam_command_allowlist.raw.md`**  (55 lines, 2.2 KB)
+  - D1 tables: `agentsam_command_allowlist`
+- **`dashboard/components/overview/panels/WorkflowRunsChart.tsx`**  (53 lines, 2.2 KB)
+  - Components: `WorkflowRunsChart`
+- **`scripts/sql/verify_model_catalog_agentsam_ai_split_brain.sql`**  (62 lines, 2.2 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_ai_api_platform`, `agentsam_ai_id`, `agentsam_ai_model_key`, `agentsam_ai_provider`, `agentsam_ai_status`
+- **`migrations/228_provision_agentsam_prompt_registry_experimentation.sql`**  (50 lines, 2.1 KB)
+  - D1 tables: `agentsam_prompt`, `agentsam_prompt_registry_experimentation`, `src`
+- **`artifacts/agentsam_inspection/agentsam_code_index_job.md`**  (40 lines, 2.1 KB)
+  - D1 tables: `agentsam_code_index_job`
+- **`artifacts/agentsam_inspection/agentsam_subscription_registry.md`**  (30 lines, 2.1 KB)
+  - D1 tables: `agentsam_subscription_registry`
+- **`artifacts/agentsam_inspection/agentsam_guardrail_rulesets.md`**  (33 lines, 2.1 KB)
+  - D1 tables: `agentsam_guardrail_rulesets`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/agentsam_eval_suites.md`**  (33 lines, 2.1 KB)
+  - D1 tables: `agentsam_context_ask`, `agentsam_eval_suites`, `agentsam_everything`, `agentsam_planning_ask`, `agentsam_safety`, `agentsam_tool_lane`
+- **`artifacts/agentsam_inspection/agentsam_model_drift_signals.md`**  (37 lines, 2.1 KB)
+  - D1 tables: `agentsam_model_drift_signals`
+- **`artifacts/agentsam_inspection/agentsam_tool_stats_compacted.md`**  (37 lines, 2.1 KB)
+  - D1 tables: `agentsam_tool_stats_compacted`
+- **`artifacts/agentsam_inspection/agentsam_slash_commands.md`**  (36 lines, 2.1 KB)
+  - D1 tables: `agentsam_slash_commands`
+- **`scripts/set-agentsam-env-key.sh`**  (97 lines, 2.1 KB)
+  - D1 tables: `AGENTSAM_ENV_FILE`, `AGENTSAM_LOCAL_MODEL_ENABLED`, `AGENTSAM_SUPABASE_STRICT`, `pathlib`
+- **`artifacts/agentsam-command-approval-design.md`**  (54 lines, 2.0 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_pattern`, `agentsam_command_run`, `agentsam_command_runs`, `agentsam_commands`, `agentsam_execution_steps`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_recent_tool_failures.md`**  (58 lines, 2.0 KB)
+  - D1 tables: `agentsam_recent_tool_failures`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agentsam_recent_errors.md`**  (60 lines, 2.0 KB)
+  - D1 tables: `agentsam_recent_errors`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/05_next_slice_plan.md`**  (66 lines, 2.0 KB)
+  - D1 tables: `being`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/05_next_slice_plan.md`**  (66 lines, 2.0 KB)
+  - D1 tables: `being`
+- **`docs/db/live-inspection/agentsam_workflow_edges.schema.json`**  (105 lines, 2.0 KB)
+- **`tmp/openai-smoke/openai_agentsam_structured_summary.json`**  (122 lines, 2.0 KB)
+- **`migrations/291_agentsam_routing_engine_tables.sql`**  (52 lines, 1.9 KB)
+  - D1 tables: `agentsam_model_catalog`, `agentsam_model_routing_memory`, `agentsam_model_routing_memory_lookup`, `agentsam_route_requirements`, `agentsam_route_requirements_key`
+- **`artifacts/agentsam_inspection/agentsam_prompt_cache_keys.md`**  (40 lines, 1.9 KB)
+  - D1 tables: `agentsam_prompt_cache_keys`
+- **`agentsam_checklist.md`**  (40 lines, 1.8 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_capability_aliases`, `agentsam_compaction_events`, `agentsam_context_digest`, `agentsam_eval_runs`
+- **`migrations/251_agentsam_hook_execution_extend.sql`**  (66 lines, 1.8 KB)
+  - D1 tables: `agentsam_hook_execution`, `agentsam_hook_execution__new`, `agentsam_hook_execution_created_at`, `agentsam_hook_execution_extend`, `agentsam_hook_execution_hook_ran`, `agentsam_hook_execution_tenant`
+- **`migrations/d1/20260501120000_migrate_tool_chain_to_agentsam.sql`**  (43 lines, 1.8 KB)
+  - D1 tables: `agentsam_plans`, `agentsam_tool_chain`, `agentsam_tools`
+- **`artifacts/agentsam_supabase_memory_cursor_replacement.json`**  (48 lines, 1.8 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_cli_master`, `agentsam_command_run`, `agentsam_cursor_replacement_cli_master_20260512`, `agentsam_debug_snapshots`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_schema_agentsam_prompt_routes.json`**  (30 lines, 1.8 KB)
+  - D1 tables: `agentsam_prompt_routes`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_schema_agentsam_prompt_routes.json`**  (30 lines, 1.8 KB)
+  - D1 tables: `agentsam_prompt_routes`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_schema_agentsam_prompt_routes.json`**  (30 lines, 1.8 KB)
+  - D1 tables: `agentsam_prompt_routes`
+- **`artifacts/agentsam_inspection/agentsam_fetch_domain_allowlist.md`**  (30 lines, 1.8 KB)
+  - D1 tables: `agentsam_fetch_domain_allowlist`
+- **`artifacts/agentsam_inspection/agentsam_workspace_state.md`**  (37 lines, 1.8 KB)
+  - D1 tables: `agentsam_workspace_state`
+- **`artifacts/agentsam_inspection/agentsam_feature_flag.md`**  (34 lines, 1.8 KB)
+  - D1 tables: `agentsam_feature_flag`
+- **`artifacts/agentsam_inspection/agentsam_health_daily.md`**  (36 lines, 1.8 KB)
+  - D1 tables: `agentsam_health_daily`
+- **`artifacts/agentsam_inspection/agentsam_command_pattern.md`**  (33 lines, 1.8 KB)
+  - D1 tables: `agentsam_command_pattern`
+- **`artifacts/agentsam_inspection/agentsam_workflow_edges.md`**  (30 lines, 1.8 KB)
+  - D1 tables: `agentsam_workflow_edges`
+- **`artifacts/agentsam_inspection/agentsam_escalation.md`**  (33 lines, 1.8 KB)
+  - D1 tables: `agentsam_escalation`
+- **`artifacts/agentsam_inspection/raw/agentsam_webhook_weekly.raw.md`**  (38 lines, 1.8 KB)
+  - D1 tables: `agentsam_webhook_weekly`
+- **`migrations/159_mcp_workflows_tables.sql`**  (45 lines, 1.7 KB)
+  - D1 tables: `mcp_workflow_runs`, `mcp_workflows`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_schema_agentsam_tool_call_log.json`**  (30 lines, 1.7 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tool_call_log`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_schema_agentsam_tool_call_log.json`**  (30 lines, 1.7 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tool_call_log`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_schema_agentsam_tool_call_log.json`**  (30 lines, 1.7 KB)
+  - D1 tables: `agentsam_mcp_tools_id`, `agentsam_tool_call_log`, `agentsam_tools_id`
+- **`artifacts/agentsam_inspection/agentsam_capability_aliases.md`**  (31 lines, 1.7 KB)
+  - D1 tables: `agentsam_capability_aliases`
+- **`artifacts/agentsam_inspection/agentsam_rules_document.md`**  (28 lines, 1.7 KB)
+  - D1 tables: `agentsam_rules_document`
+- **`artifacts/agentsam_inspection/agentsam_tool_cache.md`**  (38 lines, 1.7 KB)
+  - D1 tables: `agentsam_model_catalog`, `agentsam_tool_cache`
+- **`artifacts/agentsam_inspection/agentsam_mcp_servers.md`**  (34 lines, 1.7 KB)
+  - D1 tables: `agentsam_mcp_servers`
+- **`artifacts/agentsam_inspection/agentsam_cron_runs.md`**  (33 lines, 1.7 KB)
+  - D1 tables: `agentsam_approval_queue_expiry_sweep`, `agentsam_cron_runs`, `agentsam_cron_runs_stuck_sweep`
+- **`artifacts/agentsam_inspection/raw/agentsam_guardrail_events.raw.md`**  (36 lines, 1.7 KB)
+  - D1 tables: `agentsam_guardrail_events`
+- **`artifacts/agentsam_inspection/raw/agentsam_cad_jobs.raw.md`**  (41 lines, 1.7 KB)
+  - D1 tables: `agentsam_cad_jobs`
+- **`artifacts/backups/agentsam_e2e_20260512065824/d1_agentsam_workflows_agent_chat_plan.json`**  (47 lines, 1.7 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`artifacts/backups/true_e2e_20260512070654/agent_chat_plan_workflow.json`**  (47 lines, 1.7 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`artifacts/backups/true_e2e_20260512070513/agent_chat_plan_workflow.json`**  (47 lines, 1.7 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`artifacts/backups/agentsam_e2e_20260512070007/d1_agentsam_workflows_agent_chat_plan.json`**  (47 lines, 1.7 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`artifacts/backups/true_e2e_20260512070944/agent_chat_plan_workflow.json`**  (47 lines, 1.7 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`artifacts/backups/agent_chat_plan_20260512T065409Z/agentsam_workflows_agent_chat_plan.json`**  (47 lines, 1.7 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_workflow_runs`
+- **`scripts/d1-roadmap-sandbox-agent-workflow-20260322.sql`**  (33 lines, 1.7 KB)
+- **`scripts/generated-sites/agent-sam-site-1778454586229/README.md`**  (43 lines, 1.7 KB)
+- **`tmp/openai-smoke/agentsam_openai_graph_e2e_latest.json`**  (60 lines, 1.7 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_schema_agentsam_mcp_tool_execution.json`**  (30 lines, 1.6 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_schema_mcp_workspace_tokens.json`**  (30 lines, 1.6 KB)
+  - D1 tables: `TEXT`, `mcp_workspace_tokens`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_schema_agentsam_mcp_tool_execution.json`**  (30 lines, 1.6 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_schema_mcp_workspace_tokens.json`**  (30 lines, 1.6 KB)
+  - D1 tables: `TEXT`, `mcp_workspace_tokens`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_schema_agentsam_mcp_tool_execution.json`**  (30 lines, 1.6 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_tools_id`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_schema_mcp_workspace_tokens.json`**  (30 lines, 1.6 KB)
+  - D1 tables: `TEXT`, `mcp_workspace_tokens`
+- **`scripts/generated-sites/agent-sam-site-1778454417077/README.md`**  (35 lines, 1.6 KB)
+- **`migrations/232_agentsam_communication_hooks.sql`**  (35 lines, 1.5 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_external_provider`, `agentsam_hook_new`, `agentsam_hook_user_ws`
+- **`migrations/185_mcp_workflow_iam_workspace_shell.sql`**  (47 lines, 1.5 KB)
+  - D1 tables: `cms_themes`
+- **`dashboard/src/AgentSamSession.ts`**  (48 lines, 1.5 KB)
+- **`scripts/audit_agentsam_ops_tables.sh`**  (47 lines, 1.5 KB)
+  - D1 tables: `agentsam_bootstrap`, `agentsam_browser_trusted_origin`, `agentsam_compaction_events`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`
+- **`migrations/324_align_ollama_workflow_trigger_types.sql`**  (40 lines, 1.4 KB)
+  - D1 tables: `agentsam_ollama_embed_pipeline_workflows`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`migrations/229_unify_agentsam_prompt_registry.sql`**  (28 lines, 1.4 KB)
+  - D1 tables: `agentsam_prompt`, `agentsam_prompt_registry`
+- **`artifacts/gemini-agentsam-deploy-fix-checklist.sh`**  (43 lines, 1.4 KB)
+- **`artifacts/agentsam_inspection/agentsam_execution_context.md`**  (32 lines, 1.4 KB)
+  - D1 tables: `agentsam_execution_context`, `agentsam_usage_events`
+- **`docs/agentsam/smoke-tests/smoke_agentsam_latency_report_contract.md`**  (46 lines, 1.4 KB)
+  - D1 tables: `agentsam_latency`
+- **`scripts/record-workflow-run.sh`**  (30 lines, 1.4 KB)
+  - D1 tables: `ci_di_workflow_runs`
+- **`scripts/fix_connor_agentsam_sql_no_transaction.py`**  (44 lines, 1.4 KB)
+  - D1 tables: `Connor`, `agentsam_sql_no_transaction`, `pathlib`
+- **`migrations/261_agentsam_cron_runs.sql`**  (38 lines, 1.3 KB)
+  - D1 tables: `agentsam_cron_runs`, `agentsam_cron_runs_job_started`, `agentsam_cron_runs_scope_started`, `agentsam_cron_runs_status_started`
+- **`migrations/314_agentsam_mcp_workflow_graph_mode_normalize.sql`**  (37 lines, 1.3 KB)
+  - D1 tables: `agentsam_mcp_workflow_graph_mode_normalize`, `agentsam_mcp_workflows`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`migrations/296_agentsam_rules_document_extend.sql`**  (25 lines, 1.3 KB)
+  - D1 tables: `agentsam_cursor_parity`, `agentsam_rules_document`, `agentsam_rules_document_extend`, `agentsam_rules_tenant_ws_active`, `agentsam_rules_user_active_updated`, `agentsam_rules_ws_active_updated`
+- **`artifacts/agentsam_inspection/agentsam_task_slos.md`**  (27 lines, 1.3 KB)
+  - D1 tables: `agentsam_task_slos`
+- **`docs/db/live-inspection/agentsam-routing-workflow-readme.md`**  (37 lines, 1.3 KB)
+  - D1 tables: `agentsam_execution_dependency_graph`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_hook`, `agentsam_hook_execution`, `agentsam_mcp_workflows`
+- **`sql/agentsam/seed_routing_arms_cross_product.sql`**  (44 lines, 1.3 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_routing_arms`
+- **`migrations/165_agentsam_hook_ai_routing.sql`**  (35 lines, 1.2 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_user_ws`, `ai_routing_rules`
+- **`migrations/283_agentsam_scripts_registry.sql`**  (27 lines, 1.2 KB)
+  - D1 tables: `agentsam_scripts`, `agentsam_scripts_registry`, `agentsam_scripts_workspace_path`
+- **`artifacts/agentsam_todo_safe_close_candidates.sql`**  (30 lines, 1.2 KB)
+  - D1 tables: `agentsam_cron_rollup_multitenant_20260506`, `agentsam_run_agent_522_parse_20260506`, `agentsam_todo`
+- **`artifacts/agentsam_inspection/agentsam_webhook_weekly.md`**  (29 lines, 1.2 KB)
+  - D1 tables: `agentsam_webhook_weekly`
+- **`artifacts/agentsam_inspection/agentsam_ignore_pattern.md`**  (29 lines, 1.2 KB)
+  - D1 tables: `agentsam_ignore_pattern`
+- **`artifacts/agentsam_inspection/agentsam_browser_trusted_origin.md`**  (27 lines, 1.2 KB)
+  - D1 tables: `agentsam_browser_trusted_origin`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/07_build_check.md`**  (40 lines, 1.2 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/raw/build_result.json`**  (12 lines, 1.2 KB)
+- **`scripts/sql/fix_agentsam_d1_query_required_schema.sql`**  (40 lines, 1.2 KB)
+  - D1 tables: `agentsam_tools`, `arriving`
+- **`artifacts/agentsam-workflows-frontend-runtime-validate.sh`**  (5 lines, 1.1 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflows`, `agentsam_workflows_frontend_runtime_20260512`
+- **`artifacts/agentsam_inspection/raw/agentsam_compaction_events.raw.md`**  (24 lines, 1.1 KB)
+  - D1 tables: `agentsam_compaction_events`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/raw/quality_scores.json`**  (72 lines, 1.1 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/raw/quality_scores.json`**  (72 lines, 1.1 KB)
+- **`docs/supabase/remote_schema_public_agentsam_2026-04-30.sql`**  (23 lines, 1.1 KB)
+  - D1 tables: `agentsam_2026`
+- **`migrations/297_agentsam_hook_query_indexes.sql`**  (17 lines, 1.0 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_execution`, `agentsam_hook_execution_hook_status`, `agentsam_hook_execution_ws_ran`, `agentsam_hook_query_indexes`, `agentsam_hook_tenant_ws_trigger`
+- **`migrations/164_agentsam_skill.sql`**  (25 lines, 1.0 KB)
+  - D1 tables: `agentsam_skill`, `agentsam_skill_user_name`, `agentsam_skill_workspace`
+- **`migrations/159_mcp_workflows.sql`**  (26 lines, 1.0 KB)
+  - D1 tables: `mcp_workflows`
+- **`migrations/160_mcp_workflow_runs.sql`**  (23 lines, 1.0 KB)
+  - D1 tables: `mcp_workflow_runs`
+- **`migrations/140_ci_di_workflow_runs.sql`**  (21 lines, 1.0 KB)
+  - D1 tables: `ci_di_workflow_runs`, `post`
+- **`artifacts/agentsam_inspection/agentsam_guardrail_events.md`**  (39 lines, 1.0 KB)
+  - D1 tables: `agentsam_guardrail_events`
+- **`artifacts/agentsam_inspection/agentsam_command_allowlist.md`**  (26 lines, 1.0 KB)
+  - D1 tables: `agentsam_command_allowlist`
+- **`artifacts/agentsam_inspection/raw/agentsam_artifact_skills.raw.md`**  (24 lines, 1.0 KB)
+  - D1 tables: `agentsam_artifact_skills`
+- **`scripts/lib/agentsam_workflow_governance.py`**  (28 lines, 1.0 KB)
+  - D1 tables: `__future__`
+- **`db/agentsam_workflow_chatgpt_mcp.sql`**  (17 lines, 1.0 KB)
+  - D1 tables: `agentsam_mcp_workflows`
+- **`src/tools/builtin/workflow.js`**  (26 lines, 1.0 KB)
+  - Routes: `/api/workflow/plan`, `/api/workflow/summary`
+- **`migrations/309_agentsam_model_catalog_sync_from_ai.sql`**  (17 lines, 0.9 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`
+- **`migrations/195_agentsam_code_index_job_iam_tools.sql`**  (30 lines, 0.9 KB)
+  - D1 tables: `agentsam_code_index_job`, `agentsam_code_index_job_iam_tools`
+- **`migrations/319_workspace_capability_mcp_workflow.sql`**  (34 lines, 0.9 KB)
+  - D1 tables: `agentsam_mcp_workflows`, `agentsam_workflow_runs`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_think.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_research.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_mcp_workspace_tokens_hash_indexes.json`**  (33 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_integrate.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_design.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_admin.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_develop.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_api_agent_git_status.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_observe.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_inspect.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_branded_tools_unknown_rows.json`**  (38 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_api_health.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/http_catalog_operate.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_think.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_research.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_mcp_workspace_tokens_hash_indexes.json`**  (33 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_integrate.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_design.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_admin.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_develop.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_api_agent_git_status.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_observe.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_inspect.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_api_health.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/http_catalog_operate.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_think.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_research.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_mcp_workspace_tokens_hash_indexes.json`**  (33 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_integrate.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_design.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_admin.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_develop.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_api_agent_git_status.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_observe.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_inspect.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_api_health.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/http_catalog_operate.json`**  (23 lines, 0.9 KB)
+- **`artifacts/agentsam_inspection/agentsam_cad_jobs.md`**  (29 lines, 0.9 KB)
+  - D1 tables: `agentsam_cad_jobs`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/00_INDEX.md`**  (25 lines, 0.9 KB)
+  - D1 tables: `agentsam_microinteraction_quality_audit`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/00_INDEX.md`**  (25 lines, 0.9 KB)
+  - D1 tables: `agentsam_microinteraction_quality_audit`
+- **`migrations/248_agentsam_tools_bridge_key_auth_test.sql`**  (26 lines, 0.8 KB)
+  - Routes: `/api/terminal/session/register`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_tools`
+- **`migrations/245_agentsam_workflow_runs_supabase_sync.sql`**  (13 lines, 0.8 KB)
+  - D1 tables: `agentsam_workflow_runs`
+- **`artifacts/agentsam_py_quality_gate/20260516_025330/summary.json`**  (35 lines, 0.8 KB)
+- **`artifacts/agentsam_py_quality_gate/20260516_025219/summary.json`**  (35 lines, 0.8 KB)
+- **`artifacts/agentsam_inspection/agentsam_compaction_events.md`**  (27 lines, 0.8 KB)
+  - D1 tables: `agentsam_compaction_events`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/02_quality_scores.md`**  (23 lines, 0.8 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/02_quality_scores.md`**  (23 lines, 0.8 KB)
+- **`scripts/sql/agentsam_tools_catalog_verify_runtime.sql`**  (30 lines, 0.8 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`, `agentsam_tools`
+- **`migrations/d1/20260512120000_agentsam_plans_old_fk_shim.sql`**  (15 lines, 0.7 KB)
+  - D1 tables: `agentsam_plans`, `agentsam_plans_old`, `agentsam_plans_old_fk_shim`, `agentsam_tool_chain`
+- **`artifacts/agentsam_inspection/agentsam_artifact_skills.md`**  (22 lines, 0.7 KB)
+  - D1 tables: `agentsam_artifact_skills`
+- **`artifacts/agentsam_inspection/raw/agentsam_user_feature_override.raw.md`**  (18 lines, 0.7 KB)
+  - D1 tables: `agentsam_skill`, `agentsam_user_feature_override`
+- **`migrations/247_agentsam_mcp_tools_multitenant_routing.sql`**  (10 lines, 0.6 KB)
+  - D1 tables: `agentsam_mcp_tools`
+- **`migrations/166_agentsam_hook_execution.sql`**  (14 lines, 0.6 KB)
+  - D1 tables: `agentsam_hook_execution`, `agentsam_hook_execution_hook_ran`
+- **`migrations/d1/250_agentsam_workspace_iam_defaults.sql`**  (14 lines, 0.6 KB)
+  - D1 tables: `agentsam_workspace`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/seed_liquid/seed_home_agentsam_liquid_manifest.json`**  (12 lines, 0.6 KB)
+  - D1 tables: `agentsam_liquid`, `agentsam_platform_services`
+  - R2: `inneranimalmedia`
+- **`artifacts/agentsam_inspection/SPARSE_TABLES.md`**  (16 lines, 0.6 KB)
+  - D1 tables: `agentsam_artifact_skills`, `agentsam_cad_jobs`, `agentsam_code_index_job`, `agentsam_context_digest`, `agentsam_guardrail_rulesets`, `agentsam_health_daily`
+- **`artifacts/agentsam_inspection/raw/agentsam_skill_revision.raw.md`**  (15 lines, 0.6 KB)
+  - D1 tables: `agentsam_skill_revision`
+- **`migrations/304_agentsam_ai_compaction_feature.sql`**  (10 lines, 0.5 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_ai_compaction_feature`
+- **`migrations/244_create_agentsam_workspace_table.sql`**  (14 lines, 0.5 KB)
+  - D1 tables: `agentsam_workspace`
+- **`migrations/264_agentsam_workspace_state_add_state_json.sql`**  (13 lines, 0.5 KB)
+  - D1 tables: `agentsam_workspace_state`, `workspace`
+- **`migrations/160_mcp_workflows_workflow_id_fk.sql`**  (6 lines, 0.5 KB)
+  - D1 tables: `runs`
+- **`migrations/255_agentsam_mcp_tools_tenant_workspace.sql`**  (8 lines, 0.5 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_mcp_tools_tenant_workspace`
+- **`migrations/246_agentsam_webhook_weekly.sql`**  (15 lines, 0.5 KB)
+  - D1 tables: `agentsam_webhook_weekly`
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_unconfigured_route_requirements.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/raw/d1_mcp_workspace_tokens_raw_audit.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_unconfigured_route_requirements.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_mcp_workspace_tokens_raw_audit.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_parent_routes_missing_requirements.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_unconfigured_route_requirements.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_mcp_workspace_tokens_raw_audit.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_parent_routes_missing_requirements.json`**  (24 lines, 0.5 KB)
+- **`artifacts/agentsam_inspection/agentsam_skill_revision.md`**  (18 lines, 0.5 KB)
+  - D1 tables: `agentsam_skill_revision`
+- **`artifacts/backups/agentsam_e2e_20260512065824/rollback_d1_agent_chat_plan.sql`**  (9 lines, 0.5 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`artifacts/backups/agentsam_e2e_20260512065824/d1_recent_agent_chat_plan_runs.json`**  (24 lines, 0.5 KB)
+- **`artifacts/backups/agentsam_e2e_20260512070007/rollback_d1_agent_chat_plan.sql`**  (9 lines, 0.5 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`artifacts/backups/agentsam_e2e_20260512070007/d1_recent_agent_chat_plan_runs.json`**  (24 lines, 0.5 KB)
+- **`docs/db/live-inspection/agentsam_execution_dependency_graph.sample.json`**  (24 lines, 0.5 KB)
+- **`docs/db/live-inspection/agentsam_execution_steps.sample.json`**  (24 lines, 0.5 KB)
+- **`db/schema_agentsam_mcp_workflows.sql`**  (15 lines, 0.5 KB)
+  - D1 tables: `agentsam_mcp_workflows`
+- **`migrations/252_agentsam_usage_events_telemetry_columns.sql`**  (7 lines, 0.4 KB)
+  - D1 tables: `agentsam_usage_events`
+- **`migrations/248_agentsam_policy_subagent_visibility.sql`**  (7 lines, 0.4 KB)
+  - D1 tables: `agentsam_subagent_profile`, `agentsam_user_policy`
+- **`artifacts/agentsam_py_quality_gate/20260516_025418/summary.json`**  (25 lines, 0.4 KB)
+- **`artifacts/agentsam_py_quality_gate/20260516_025426/summary.json`**  (25 lines, 0.4 KB)
+- **`artifacts/agentsam_py_quality_gate/20260516_030124/summary.json`**  (25 lines, 0.4 KB)
+- **`tmp/agentsam-command-script-study/agentsam_commands.sample.json`**  (16 lines, 0.4 KB)
+- **`migrations/317_agentsam_project_context_add_last_cursor_session.sql`**  (4 lines, 0.3 KB)
+  - D1 tables: `agentsam_project_context`
+- **`migrations/217_agentsam_ai_max_tool_loop.sql`**  (6 lines, 0.3 KB)
+  - D1 tables: `agentsam_ai`
+- **`migrations/176_agentsam_ai_system_prompt_tool_invocation.sql`**  (6 lines, 0.3 KB)
+  - D1 tables: `agentsam_ai`
+- **`artifacts/agentsam-supabase-direct-sync-report.md`**  (22 lines, 0.3 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_workflow_events`, `agentsam_workflow_runs`, `agentsam_workflow_steps`, `agentsam_workflows`
+- **`artifacts/agentsam_py_quality_gate/20260516_025330/INDEX.md`**  (13 lines, 0.3 KB)
+- **`artifacts/agentsam_py_quality_gate/20260516_025219/INDEX.md`**  (13 lines, 0.3 KB)
+- **`artifacts/agentsam_inspection/agentsam_user_feature_override.md`**  (16 lines, 0.3 KB)
+  - D1 tables: `agentsam_user_feature_override`
+- **`migrations/278_agentsam_webhook_events_headers_json.sql`**  (3 lines, 0.2 KB)
+  - D1 tables: `agentsam_webhook_events`
+- **`migrations/256_agentsam_webhook_events_created_at.sql`**  (5 lines, 0.2 KB)
+  - D1 tables: `agentsam_webhook_events`
+- **`docs/agentsam_knowledge/self_evolving_agent_sam_tooling_protocols.md`**  (4 lines, 0.2 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`scripts/d1-workflows-audit.sql`**  (11 lines, 0.2 KB)
+  - D1 tables: `workflows`
+- **`artifacts/agentsam_py_quality_gate/20260516_025418/INDEX.md`**  (9 lines, 0.1 KB)
+- **`artifacts/agentsam_py_quality_gate/20260516_025426/INDEX.md`**  (9 lines, 0.1 KB)
+- **`artifacts/agentsam_py_quality_gate/20260516_030124/INDEX.md`**  (9 lines, 0.1 KB)
+- **`artifacts/agentsam_inspection/CRITICAL_EMPTY.md`**  (6 lines, 0.1 KB)
+  - D1 tables: `agentsam_compaction_events`, `agentsam_guardrail_events`, `agentsam_skill_revision`, `agentsam_user_feature_override`
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/06_ollama_review.md`**  (4 lines, 0.0 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/07_build_check.md`**  (4 lines, 0.0 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_174318/raw/ollama_review.json`**  (4 lines, 0.0 KB)
+- **`artifacts/agentsam_microinteraction_quality_audit/20260514_175116/06_ollama_review.md`**  (4 lines, 0.0 KB)
+- **`db/agentsam-d1-context/2026-05-07_agentsam-schema.context.md`**  (1 lines, 0.0 KB)
+
+### DASHBOARD_UI  (299 files)
+
+- **`dashboard/embed/analytics-dashboard-standalone.html`**  (191 lines, 1642.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`dashboard/design-refs/analytics-dashboard-ref.html`**  (191 lines, 1642.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`dashboard/Finance.js`**  (84 lines, 427.8 KB)  🐛 TOPBAR_POPUP
+  - Routes: `/api/finance/import-csv`, `/api/finance/summary`, `/api/finance/transactions`, `/api/finance/transactions?limit=200`
+- **`dashboard/package-lock.json`**  (8347 lines, 302.6 KB)
+  - R2: `inneranimalmedia-dashboard`
+- **`dashboard/user-settings.html`**  (3406 lines, 178.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/integrations/status`, `/api/settings/emails`, `/api/settings/emails/`, `/api/settings/profile`
+  - D1 tables: `API`, `Address`, `Sessions`, `causing`, `localStorage`, `sessions`
+  - R2: `agent-sam-avatar`, `inneranimalmedia`
+- **`dashboard/App.tsx`**  (3276 lines, 140.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, EXPLORER_TABS_OPEN, EXPLORER_ALIGNMENT, MOVIEMODE_BROKEN
+  - Components: `CalendarPage`, `OverviewPage`, `HealthPage`, `AnalyticsPage`, `RedirectHealthToAnalytics`, `LearnPage`, `DatabasePage`, `McpPage`
+  - Routes: `/api/agent/git/status`, `/api/agent/notifications`, `/api/agent/problems`, `/api/agent/telemetry`, `/api/agent/terminal/config-status`, `/api/auth/me`
+  - D1 tables: `Agent`, `EditorContext`, `GET`, `Lab`, `Welcome`, `cached`
+  - R2: `iam-agent-external-send`, `iam-format-document`, `iam-palette-open-r2`, `iam-palette-r2-bucket`, `iam-run-command`
+- **`dashboard/cms.html`**  (2476 lines, 100.6 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/cloud/r2/buckets/agent-sam/objects?prefix=dashboard-uploads/`, `/api/cms/assets`, `/api/cms/assets/iam`, `/api/cms/assets/iam?limit=48`, `/api/cms/assets?limit=24`, `/api/cms/deploy-page`
+  - D1 tables: `agent`, `any`, `the`
+  - R2: `agent-sam-avatar`, `iam-assets-grid`, `iam-assets-load`, `iam-assets-pane`, `iam-file-input`
+- **`dashboard/features/agent-chat/ChatAssistant.tsx`**  (2332 lines, 96.0 KB)  🐛 GITHUB_REAUTH_LOOP, MOVIEMODE_BROKEN
+  - Components: `Icon`
+  - Routes: `/api/agent/chat`, `/api/agent/chat/execute-approved-tool`, `/api/agent/commands`, `/api/agent/context-picker/catalog`, `/api/agent/models?show_in_picker=1`, `/api/agent/plan-task/resume`
+  - D1 tables: `BrowserView`, `Sessions`, `Settings`, `chat`, `sessions`, `the`
+  - R2: `iam-agent-external-send`, `iam-browser-surface-context`, `iam-chat-mode`, `iam-sidebar-toggle`
+- **`dashboard/meet.html`**  (1763 lines, 95.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `Sessions`, `causing`, `localStorage`, `shell`
+  - R2: `agent-sam-avatar`
+- **`dashboard/clients.html`**  (1578 lines, 91.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/clients`, `/api/clients?id=`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `causing`, `localStorage`, `shell`
+  - R2: `agent-sam-avatar`
+- **`dashboard/schema.json`**  (4449 lines, 87.1 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_browser_trusted_origin`, `agentsam_code_index_job`, `agentsam_command_allowlist`, `agentsam_execution_dependency_graph`
+  - R2: `autorag`
+- **`dashboard/components/MeetPage.tsx`**  (1854 lines, 86.1 KB)
+  - Components: `MeetPage`, `SR`
+  - Routes: `/api/agent/chat`, `/api/meet/recording/save`, `/api/meet/rooms`, `/api/meet/schedule`, `/api/settings/profile`
+  - D1 tables: `Agent`, `Sessions`, `this`
+- **`dashboard/pages/agent.html`**  (2118 lines, 84.7 KB)  🐛 EXPLORER_TABS_OPEN, MOVIEMODE_BROKEN
+  - Routes: `/api/agent/apply-change-set`, `/api/agent/audit-log`, `/api/agent/change-set`, `/api/agent/chat`, `/api/agent/context-refs`, `/api/agent/conversations`
+  - D1 tables: `Editor`, `database`, `repo`, `spend_ledger`
+  - R2: `agent-sam-apply`, `agent-sam-at-popover`, `agent-sam-attached`, `agent-sam-attached-name`, `agent-sam-attached-pill`
+- **`dashboard/mcp.html`**  (987 lines, 83.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/agent/chat`, `/api/mcp/agents`, `/api/mcp/commands`, `/api/mcp/dispatch`, `/api/mcp/invoke`, `/api/mcp/services`
+  - D1 tables: `any`
+  - R2: `agent-sam-avatar`
+- **`dashboard/cloud.html`**  (1054 lines, 83.3 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/r2/buckets`, `/api/r2/buckets/`, `/api/r2/delete?bucket=`, `/api/r2/list?bucket=`, `/api/r2/stats`, `/api/r2/upload?bucket=`
+  - D1 tables: `any`
+  - R2: `) !== currentCategory) return false;
+                    return true;
+                });
+                if (sort === `, `).localeCompare(b.name || b.bucket_name || `, `).toLowerCase();
+                    if (q && name.indexOf(q) === -1) return false;
+                    if (currentCategory !== `, `agent-sam`, `agent-sam-avatar`
+- **`dashboard/projects.html`**  (1432 lines, 80.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/projects`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `causing`, `localStorage`, `shell`
+  - R2: `agent-sam-avatar`
+- **`dashboard/images.html`**  (1553 lines, 79.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/images`, `/api/images/`, `/api/images?page=`, `/api/screenshots`, `/api/screenshots?key=`, `/api/settings/theme`
+  - D1 tables: `URL`, `any`
+  - R2: `agent-sam-avatar`
+- **`dashboard/billing.html`**  (1416 lines, 79.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/billing/summary`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `causing`, `localStorage`, `shell`
+  - R2: `agent-sam-avatar`
+- **`dashboard/billing-from-r2.html`**  (1381 lines, 77.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/billing/summary`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `causing`, `localStorage`, `shell`
+  - R2: `agent-sam-avatar`
+- **`dashboard/pipelines.html`**  (1428 lines, 75.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/pipelines`, `/api/pipelines/`, `/api/pipelines/streams/metrics`, `/api/pipelines/streams/send`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `Worker`, `any`, `code`
+  - R2: `agent-sam-avatar`
+- **`dashboard/chats.html`**  (1356 lines, 74.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/agent/sessions?t=`, `/api/auth/logout`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `causing`, `localStorage`, `sessions`
+  - R2: `agent-sam-avatar`
+- **`dashboard/finance.html`**  (1332 lines, 73.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `causing`, `localStorage`, `shell`
+  - R2: `agent-sam-avatar`
+- **`dashboard/time-tracking.html`**  (1334 lines, 73.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `API`, `causing`, `localStorage`
+  - R2: `agent-sam-avatar`
+- **`dashboard/components/BrowserView.tsx`**  (1729 lines, 72.6 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/agentsam/browser/trust`, `/api/mcp/invoke`, `/api/playwright`, `/api/playwright/screenshot`
+  - D1 tables: `agentsam_browser_trusted_origin`
+  - R2: `iam-agent-external-send`, `iam-browser-navigate`, `iam-browser-navigate-secondary`, `iam-browser-screenshot`, `iam-browser-set-inspector`
+- **`dashboard/overview.html`**  (1358 lines, 71.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `LABELS`
+  - Routes: `/api/agent/chat`, `/api/auth/logout`, `/api/dashboard/time-track/heartbeat`, `/api/search/federated`, `/api/settings/theme`, `/api/settings/workspace/default`
+  - D1 tables: `API`, `causing`, `shell`
+  - R2: `agent-sam-avatar`, `iam-current-workspace`
+- **`dashboard/components/MailPage.tsx`**  (1739 lines, 65.7 KB)  🐛 MOVIEMODE_BROKEN
+  - Components: `MailPage`, `ComposeButtonIcon`, `Icon`
+  - Routes: `/api/mail/archived`, `/api/mail/draft`, `/api/mail/gmail/start`, `/api/mail/gmail/status`, `/api/mail/inbox`, `/api/mail/send`
+  - D1 tables: `the`
+- **`dashboard/calendar.html`**  (926 lines, 64.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/calendar/events`, `/api/calendar/events/`, `/api/calendar/view/`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `any`
+  - R2: `agent-sam-avatar`
+- **`dashboard/components/DatabasePage.tsx`**  (1442 lines, 63.9 KB)
+  - Routes: `/api/d1/query`, `/api/d1/table`, `/api/d1/tables`, `/api/hyperdrive/health`, `/api/hyperdrive/query`, `/api/hyperdrive/table`
+  - D1 tables: `information_schema`, `public`, `sqlite_master`
+- **`dashboard/tools.html`**  (1140 lines, 60.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/agent/run`, `/api/d1/query`, `/api/settings/theme`, `/api/themes`, `/api/tools/status`, `/api/vectorize/search`
+  - D1 tables: `any`, `worker_registry`
+  - R2: `agent-sam-avatar`
+- **`dashboard/mail.html`**  (887 lines, 60.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/mail/`, `/api/mail/identities`, `/api/mail/inbox`, `/api/mail/send`, `/api/mail/templates`, `/api/schedule-morning-email`
+  - D1 tables: `any`
+  - R2: `agent-sam-avatar`
+- **`dashboard/components/McpPage.tsx`**  (1480 lines, 57.9 KB)
+  - Routes: `/api/agent/workflow/start`, `/api/mcp/agent/session/start`, `/api/mcp/agents`, `/api/mcp/agents/reset`, `/api/mcp/agents/reset-all`, `/api/mcp/dispatch`
+  - D1 tables: `GET`, `agentsam_subagent_profile`, `catalog`, `chat`, `sessions`
+- **`dashboard/components/LocalExplorer.tsx`**  (1089 lines, 54.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, MOVIEMODE_BROKEN, EXPLORER_TABS_OPEN
+  - Routes: `/api/r2/buckets`, `/api/r2/delete`, `/api/r2/file`, `/api/r2/upload`, `/api/settings/integrations/connected`, `/api/workspace/create`
+  - D1 tables: `last`, `localStorage`, `sessions`
+  - R2: `iam-agent-native-workspace-v1`
+- **`dashboard/components/IntegrationsPage.deprecated.tsx`**  (1070 lines, 51.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `Ico`
+  - Routes: `/api/integrations/summary`, `/api/integrations/supabase`, `/api/integrations/webhooks`, `/api/oauth/cloudflare/start?return_to=`, `/api/oauth/github/start?return_to=`, `/api/oauth/google/start?return_to=`
+- **`dashboard/kanban.html`**  (662 lines, 50.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/kanban/boards`, `/api/kanban/boards/`, `/api/kanban/tasks`, `/api/kanban/tasks/`, `/api/settings/theme`, `/api/themes`
+  - D1 tables: `any`
+  - R2: `agent-sam-avatar`
+- **`dashboard/components/settings/sections/SecuritySection.tsx`**  (1119 lines, 48.8 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `SecuritySection`
+  - Routes: `/api/auth/email-change/request`, `/api/auth/identities`, `/api/auth/password-change`, `/api/vault/secrets`
+  - D1 tables: `Sessions`, `sessions`
+- **`artifacts/imported_pages/services.original.html`**  (913 lines, 47.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`artifacts/imported_pages/services.html`**  (913 lines, 47.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`dashboard/components/settings/hooks/useSettingsData.ts`**  (1334 lines, 45.2 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/auth/me`, `/api/billing/checkout`, `/api/billing/invoices`, `/api/billing/plans`, `/api/billing/portal`, `/api/billing/subscription`
+  - D1 tables: `Sessions`, `sessions`
+- **`dashboard/index-v3.html`**  (684 lines, 40.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/hello`
+  - D1 tables: `MeauxCloud`, `day`, `one`, `strategy`, `ten`
+- **`dashboard/components/analytics/tabs/OverviewTab.tsx`**  (882 lines, 39.9 KB)
+  - Components: `OverviewTab`
+  - Routes: `/api/analytics/codebase`, `/api/analytics/overview`, `/api/analytics/rag`, `/api/analytics/source-health?range=30d`
+  - D1 tables: `agentsam_error_events`, `agentsam_execution_steps`, `agentsam_usage_events`, `agentsam_workflow_runs`, `usage`
+- **`dashboard/components/XTermShell.tsx`**  (935 lines, 38.4 KB)
+  - Components: `XTermShell`
+  - Routes: `/api/agentsam/config`, `/api/tunnel/restart`, `/api/tunnel/status`
+- **`dashboard/features/agent-chat/hooks/useAgentChatStream.ts`**  (939 lines, 38.1 KB)
+  - D1 tables: `Sessions`, `the`
+- **`dashboard/components/UnifiedSearchBar.tsx`**  (1094 lines, 37.7 KB)
+  - Components: `Icon`
+  - Routes: `/api/agent/sessions?limit=5`, `/api/agentsam/workflows`, `/api/d1/tables`, `/api/overview/deployments?limit=5`, `/api/r2/buckets`, `/api/r2/list?buckets=true`
+  - D1 tables: `agentsam_workflows`, `sessions`
+  - R2: `).trim())
+        .filter(Boolean);
+    }
+  }
+
+  const merged: string[] = [...bound];
+  for (const n of account) {
+    if (!boundSet.has(n)) merged.push(n);
+  }
+
+  const withCounts = await Promise.all(
+    merged.slice(0, 80).map(async (name) => {
+      const stats = await fetchJson<{ object_count?: number }>(
+        `/api/r2/stats?bucket=${encodeURIComponent(name)}`,
+      );
+      return {
+        name,
+        bound: boundSet.has(name),
+        object_count: typeof stats?.object_count === `, `db-autorag`, `iam-palette-db-target`, `iam-palette-open-r2`, `iam-palette-r2-bucket`
+- **`dashboard/components/ImagesPage.tsx`**  (896 lines, 37.4 KB)
+  - Components: `ImagesPage`
+  - Routes: `/api/cms/tenants`, `/api/images`
+  - D1 tables: `URL`
+- **`dashboard/components/learn/LearningOS.tsx`**  (895 lines, 35.1 KB)
+  - Components: `LearningOS`
+  - Routes: `/api/learn/progress`, `/api/learn/submit`
+  - R2: `iam-agent-external-send`
+- **`dashboard/onboarding.html`**  (405 lines, 34.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/settings/theme`, `/api/themes`
+  - D1 tables: `any`, `sessions`
+  - R2: `agent-sam-avatar`
+- **`dashboard/components/R2Explorer.tsx`**  (817 lines, 33.7 KB)
+  - Routes: `/api/r2/buckets`, `/api/r2/delete`, `/api/r2/file`, `/api/r2/sync`
+  - R2: `iam-palette-open-r2`, `iam-palette-r2-bucket`
+- **`dashboard/auth-signin.html`**  (788 lines, 33.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/auth/backup-code`, `/api/auth/login`, `/api/auth/supabase/start`, `/api/oauth/github/start?next=`, `/api/oauth/github/start?next=/dashboard/overview`, `/api/oauth/google/start?return_to=`
+  - D1 tables: `Integrations`, `the`
+- **`dashboard/hub.html`**  (431 lines, 32.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/hub/roadmap?plan_id=plan_iam_dashboard_v1`, `/api/hub/stats`, `/api/hub/tasks`, `/api/hub/tasks/`, `/api/hub/terminal`, `/api/projects`
+- **`dashboard/pages/projects/ProjectManagement.tsx`**  (748 lines, 32.5 KB)
+  - Components: `ProjectManagement`
+  - Routes: `/api/settings/workspaces`
+- **`dashboard/components/DesignStudioPage.tsx`**  (777 lines, 31.1 KB)
+  - Routes: `/api/games/pieces`
+  - D1 tables: `App`
+- **`dashboard/platform-living-design-board.html`**  (874 lines, 31.0 KB)
+  - Routes: `/api/settings/theme`
+  - D1 tables: `canonical`, `cicd_runs`, `cidi`, `cidi_activity_log`, `deployments`, `local`
+- **`dashboard/components/StoragePage.tsx`**  (414 lines, 30.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, MOVIEMODE_BROKEN
+  - Components: `COLORS`, `NavBtn`
+  - Routes: `/api/settings/storage-preferences`, `/api/storage/analytics`, `/api/storage/buckets`, `/api/storage/policies`, `/api/storage/s3`, `/api/storage/vectors`
+  - D1 tables: `by_content_type`
+  - R2: ` tick={{ fill: `, `, `, `allow`, `archived`, `r2_bucket`
+- **`dashboard/components/StatusBar.tsx`**  (715 lines, 29.4 KB)
+  - Routes: `/api/agent/git/branches`
+  - D1 tables: `latest`
+  - R2: `iam-chat-mode`, `inneranimalmedia`
+- **`dashboard/components/settings/sections/AIModelsSection.tsx`**  (638 lines, 29.0 KB)
+  - Components: `AIModelsSection`
+  - Routes: `/api/settings/ai-models`, `/api/settings/ai-models/keys`
+- **`dashboard/components/DatabaseBrowser.tsx`**  (683 lines, 27.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `ConnectionCard`
+  - Routes: `/api/agent/db/query-history`, `/api/agent/db/snippets`, `/api/agent/db/tables`, `/api/d1/query`, `/api/hyperdrive/query`, `/api/hyperdrive/status`
+  - D1 tables: `information_schema`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`dashboard/components/StudioSidebar.tsx`**  (588 lines, 26.8 KB)
+  - D1 tables: `list`
+- **`dashboard/components/settings/sections/WorkspaceSection.tsx`**  (595 lines, 26.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `WorkspaceSection`
+  - D1 tables: `the`
+  - R2: `, `, `iam-storm-white`
+- **`dashboard/components/WorkspaceDashboard.tsx`**  (531 lines, 26.1 KB)
+  - Components: `Icon`
+  - Routes: `/api/agent/models?show_in_picker=1`
+  - D1 tables: `API`, `GitHub`, `Supabase`, `agentsam_plan_tasks`, `agentsam_workspace_state`
+  - R2: `iam-sidebar-toggle`
+- **`dashboard/pages/tasks/TasksPage.tsx`**  (656 lines, 25.8 KB)
+  - Components: `TasksPage`
+  - D1 tables: `agentsam_scripts`, `agentsam_todo_id`, `the`
+- **`dashboard/iam-workspace-shell.html`**  (774 lines, 24.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/settings/theme?slug=`
+  - R2: `iam-tools-public-origin`, `iam-workspace-slug`, `iam-workspace-tokens`, `r2-s3`
+- **`dashboard/components/settings/sections/ApiKeysSection.tsx`**  (648 lines, 24.3 KB)
+  - Components: `ApiKeysSection`
+  - Routes: `/api/settings/api-keys`
+- **`dashboard/services/VoxelEngine.ts`**  (658 lines, 23.8 KB)
+- **`dashboard/components/GitHubExplorer.tsx`**  (609 lines, 22.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/integrations/github/repos`, `/api/oauth/github/start?return_to=/dashboard/agent`
+  - D1 tables: `GitHub`
+- **`dashboard/features/agent-chat/components/AgentMessageList.tsx`**  (527 lines, 21.9 KB)
+- **`dashboard/components/settings/sections/PlanUsageSection.tsx`**  (455 lines, 21.9 KB)
+  - Components: `PlanUsageSection`
+- **`dashboard/components/WorkspaceLauncher.tsx`**  (541 lines, 21.3 KB)
+  - Routes: `/api/settings/workspaces/active`, `/api/workspaces`, `/api/workspaces/list`
+  - D1 tables: `GET`, `agentsam_workspace`
+- **`dashboard/components/onboarding/OnboardingPage.tsx`**  (567 lines, 21.3 KB)
+  - Components: `TIMEZONES`, `OnboardingPage`
+  - Routes: `/api/onboarding/intake`, `/api/onboarding/profile-setup`, `/api/onboarding/recovery-codes`, `/api/settings/profile`
+  - D1 tables: `account`
+  - R2: `agent-sam`
+- **`docs/dashboard/REPO_AND_DASHBOARD_SKETCH.md`**  (413 lines, 20.9 KB)
+  - Routes: `/api/agent/*`, `/api/agent/* , /api/r2/* , …`, `/api/cms/*`, `/api/cms/tenants`, `/api/health/*`, `/api/health/agentsam-d1`
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_analytics__new`, `agentsam_analytics_new`, `agentsam_approval_queue`
+- **`dashboard/src/components/ToolApprovalModal.tsx`**  (577 lines, 20.5 KB)
+  - Components: `ToolApprovalModal`
+  - Routes: `/api/agent/allowlist`
+  - D1 tables: `values`
+- **`dashboard/components/CalendarPage.tsx`**  (338 lines, 20.0 KB)
+  - Components: `MonthView`, `WeekView`, `DayView`, `YearView`
+  - Routes: `/api/calendar/events`, `/api/calendar/events/`, `/api/calendar/view/`
+- **`dashboard/components/TerminalSessionPane.tsx`**  (546 lines, 19.9 KB)
+  - Components: `TerminalSessionPane`
+  - Routes: `/api/agent/memory/list`, `/api/agent/terminal/complete`, `/api/agent/terminal/config-status`, `/api/agent/terminal/run`, `/api/agent/terminal/ws`, `/api/terminal/session/resume`
+- **`dashboard/components/auth/AuthOAuthConsentPage.tsx`**  (498 lines, 19.6 KB)
+  - Components: `Icon`, `McpAuthorizationScreen`
+  - D1 tables: `the`
+- **`dashboard/components/GoogleDriveExplorer.tsx`**  (491 lines, 18.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, EXPLORER_TABS_OPEN
+  - Components: `FileRow`
+  - Routes: `/api/drive/delete`, `/api/drive/folder`, `/api/drive/upload`, `/api/integrations/status`, `/api/oauth/google/start?return_to=/dashboard/agent&connect=drive`, `/api/settings/integrations/connected`
+  - D1 tables: `Google`, `the`
+- **`dashboard/components/MonacoEditorView.tsx`**  (503 lines, 18.3 KB)
+  - Routes: `/api/agent/git/status`, `/api/agent/git/sync`, `/api/monaco/complete`
+  - D1 tables: `the`
+  - R2: `iam-format-document`
+- **`dashboard/Finance.jsx`**  (254 lines, 17.6 KB)
+  - Components: `Finance`
+  - Routes: `/api/finance/import-csv`, `/api/finance/summary`, `/api/finance/transactions`, `/api/finance/transactions?limit=200`
+- **`dashboard/components/settings/components/IntegrationCard.tsx`**  (460 lines, 16.5 KB)  🐛 EXPLORER_TABS_OPEN
+  - Components: `IntegrationCard`
+  - R2: `inneranimalmedia-mcp`
+- **`dashboard/components/analytics/tabs/AgentTab.tsx`**  (382 lines, 15.9 KB)
+  - Components: `AgentTab`
+  - D1 tables: `agentsam_execution_dependency_graph`, `agentsam_execution_steps`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflow_runs`, `the`
+- **`dashboard/src/applyCmsTheme.ts`**  (404 lines, 15.7 KB)
+  - Routes: `/api/themes/active`
+  - D1 tables: `API`, `GET`, `last`, `the`
+- **`dashboard/components/projects/NewProjectModal.tsx`**  (348 lines, 14.6 KB)
+  - Components: `NewProjectModal`
+  - Routes: `/api/settings/workspaces`
+- **`artifacts/cms_d1_pull/tables/cms_pages/table_pull.json`**  (563 lines, 14.5 KB)
+  - D1 tables: `cms_pages`
+  - R2: `inneranimalmedia`
+- **`dashboard/components/analytics/tabs/CodebaseTab.tsx`**  (314 lines, 14.2 KB)
+  - Components: `CodebaseTab`
+  - Routes: `/api/analytics/codebase?range=7d`
+- **`dashboard/components/settings/sections/IntegrationsSection.tsx`**  (400 lines, 13.9 KB)
+  - Components: `IntegrationsSection`
+  - Routes: `/api/catalog/integrations`, `/api/settings/integrations/connected`, `/api/settings/integrations/custom`, `/api/settings/integrations/custom-mcp`
+- **`dashboard/pages/HealthPage.tsx`**  (325 lines, 13.6 KB)
+  - Routes: `/api/health/advisors`, `/api/health/agent`, `/api/health/agentsam-d1`, `/api/health/deployments`, `/api/health/mcp`, `/api/health/mcp/check`
+  - D1 tables: `agentsam_routing_decisions`, `agentsam_stream_events`, `agentsam_tool_call_events`
+- **`dashboard/components/analytics/tabs/AdvisorsTab.tsx`**  (285 lines, 13.1 KB)
+  - Components: `AdvisorsTab`
+  - D1 tables: `advisors`, `agentsam_error_log`, `agentsam_guardrail_events`
+- **`dashboard/pages/library/LibraryPage.tsx`**  (324 lines, 13.1 KB)
+  - Components: `LibraryPage`
+  - Routes: `/api/agent/artifacts`
+  - D1 tables: `Agent`
+  - R2: `iam-lib-btn`
+- **`dashboard/components/settings/components/RulesSkillsDrawers.tsx`**  (246 lines, 12.6 KB)
+  - Components: `RulesSkillsDrawers`
+- **`dashboard/components/ProblemsDebugPanel.tsx`**  (317 lines, 12.5 KB)
+  - Routes: `/api/agent/problems`
+- **`dashboard/components/settings/sections/AgentsSection.tsx`**  (236 lines, 12.2 KB)
+  - Components: `AgentsSection`
+  - D1 tables: `text`, `the`
+- **`dashboard/components/settings/sections/NotificationsSection.tsx`**  (347 lines, 12.1 KB)
+  - Components: `NotificationsSection`
+  - Routes: `/api/settings/notifications`
+  - D1 tables: `agentsam_approval_queue`, `agentsam_error_log`, `agentsam_escalation`
+- **`dashboard/components/settings/components/SectionPrimitives.tsx`**  (380 lines, 12.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `SectionHeader`, `SummaryGrid`, `WarningStrip`, `StatusBadge`, `ProviderCard`, `ActionButton`, `ActionRow`, `EmptyState`
+- **`dashboard/ops-overview-shell.css`**  (625 lines, 11.8 KB)
+- **`dashboard/components/settings/sections/ToolsMcpSection.tsx`**  (262 lines, 11.5 KB)
+  - Components: `ToolsMcpSection`
+- **`dashboard/components/learn/AssignmentPanel.tsx`**  (329 lines, 11.3 KB)
+  - Components: `AssignmentPanel`
+- **`dashboard/components/overview/index.tsx`**  (203 lines, 11.0 KB)
+  - Components: `OverviewPage`, `BK`
+  - Routes: `/api/overview/activity-strip`, `/api/overview/agent-activity`, `/api/overview/commands-workflows`, `/api/overview/deployments`, `/api/overview/kpi-strip`
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_plans`, `agentsam_usage_events`, `agentsam_workflow_runs`
+- **`dashboard/components/analytics/tabs/RagTab.tsx`**  (258 lines, 11.0 KB)
+  - Components: `RagTab`
+  - Routes: `/api/analytics/rag?range=7d`
+- **`dashboard/components/UIOverlay.tsx`**  (237 lines, 10.9 KB)
+- **`dashboard/components/DatabaseAgentChat.tsx`**  (277 lines, 10.7 KB)
+  - D1 tables: `information_schema`, `pg_extension`, `sqlite_master`
+- **`dashboard/components/settings/sections/CiCdSection.tsx`**  (299 lines, 10.4 KB)
+  - Components: `CiCdSection`
+  - Routes: `/api/settings/cicd`
+  - D1 tables: `agentsam_deployment_health`, `agentsam_script_runs`, `agentsam_scripts`
+- **`dashboard/config/analyticsDataSources.ts`**  (345 lines, 10.3 KB)
+  - Routes: `/api/analytics/advisors`, `/api/analytics/advisors/guardrails`, `/api/analytics/agent/dependencies`, `/api/analytics/agent/graph`, `/api/analytics/agent/runs`, `/api/analytics/agent/stream-events`
+  - D1 tables: `agentsam_compaction_events`, `agentsam_cron_runs`, `agentsam_error_events`, `agentsam_error_log`, `agentsam_eval_runs`, `agentsam_execution_dependency_graph`
+- **`dashboard/components/MeetShellPanel.tsx`**  (216 lines, 10.3 KB)
+  - Components: `MeetShellPanel`
+- **`dashboard/lib/wranglerCommandCatalog.ts`**  (250 lines, 10.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_commands`
+  - R2: `r2-bucket-create`, `r2-bucket-delete`, `r2-bucket-info`, `r2-bucket-list`, `r2-object-delete`
+- **`dashboard/components/KnowledgeSearchPanel.tsx`**  (243 lines, 10.2 KB)
+  - Routes: `/api/agent/sessions`, `/api/rag/query`
+  - D1 tables: `Sessions`, `sessions`
+- **`docs/dashboard/R2-inneranimalmedia-dashboard-source-components-filetree.md`**  (169 lines, 10.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`dashboard/components/SQLConsole.tsx`**  (284 lines, 10.1 KB)
+  - Components: `Terminal`
+  - D1 tables: `information_schema`, `sqlite_master`
+- **`dashboard/components/analytics/tabs/ModelsTab.tsx`**  (221 lines, 9.8 KB)
+  - Components: `ModelsTab`
+  - D1 tables: `Supabase`, `agentsam_execution_performance_metrics`
+- **`dashboard/components/settings/sections/HooksSection.tsx`**  (202 lines, 9.6 KB)
+  - Components: `HooksSection`
+- **`dashboard/features/agent-chat/mentionContext.ts`**  (256 lines, 9.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`dashboard/components/themes/ThemeBrowser.tsx`**  (280 lines, 9.5 KB)
+  - Components: `ThemeBrowser`
+  - Routes: `/api/themes/apply`, `/api/themes/package`
+- **`dashboard/components/learn/learn.css`**  (492 lines, 9.0 KB)
+- **`dashboard/components/SourcePanel.tsx`**  (208 lines, 8.9 KB)
+  - Routes: `/api/internal/git-status`
+- **`dashboard/utils/voxelGenerators.ts`**  (176 lines, 8.7 KB)
+  - Components: `Generators`, `EX`, `HY`, `CY`, `CX`, `CHY`, `RX`, `BY`
+- **`artifacts/cms_d1_pull/tables/cms_site_pages/table_pull.json`**  (361 lines, 8.3 KB)
+  - D1 tables: `cms_site_pages`
+- **`dashboard/components/health/D1TelemetryTab.tsx`**  (209 lines, 8.3 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_analytics`, `agentsam_command_run`, `agentsam_deployment_health`, `agentsam_execution_performance_metrics`, `agentsam_execution_performance_metrics_doc`
+- **`dashboard/components/overview/panels/ModelLeaderboard.tsx`**  (209 lines, 8.3 KB)
+  - Components: `ModelLeaderboard`
+  - D1 tables: `agentsam_agent_run`
+- **`dashboard/components/settings/SettingsPanel.tsx`**  (210 lines, 8.1 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `SettingsPanel`
+- **`dashboard/features/agent-chat/streamParsing.ts`**  (203 lines, 8.0 KB)
+  - D1 tables: `streamed`, `the`
+- **`dashboard/features/moviemode/MediaLibrary.tsx`**  (237 lines, 7.9 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/media/assets`
+  - R2: `inneranimalmedia`
+- **`dashboard/components/settings/sections/GitHubSection.tsx`**  (229 lines, 7.9 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `GitHubSection`
+  - Routes: `/api/integrations/github/connect`, `/api/settings/github`
+  - D1 tables: `GitHub`, `agentsam_code_index_job`, `integration_connections`
+- **`dashboard/components/overview/constants.ts`**  (198 lines, 7.9 KB)
+  - Components: `DAYS`
+  - Routes: `/api/overview/dashboard-bundle`
+  - D1 tables: `unix`
+- **`docs/dashboard/README.md`**  (187 lines, 7.8 KB)
+  - D1 tables: `local`, `other`, `repo`, `the`
+- **`dashboard/components/learn/CourseNav.tsx`**  (235 lines, 7.8 KB)
+  - Components: `CourseNav`, `TypeIcon`
+- **`dashboard/src/ideWorkspace.ts`**  (249 lines, 7.8 KB)
+- **`dashboard/features/agent-chat/types.ts`**  (202 lines, 7.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `App`, `agentsam_artifacts`, `agentsam_command_run`, `agentsam_user_policy`, `chat`, `planner`
+  - R2: `iam-chat-github-repo-context`
+- **`dashboard/components/learn/LessonView.tsx`**  (243 lines, 7.7 KB)
+  - Components: `LessonView`
+- **`dashboard/tools-code-hub.html`**  (247 lines, 7.6 KB)
+- **`dashboard/components/ExcalidrawView.tsx`**  (174 lines, 7.6 KB)
+  - D1 tables: `App`, `other`, `spilling`
+- **`dashboard/components/settings/sections/NetworkSection.tsx`**  (215 lines, 7.6 KB)
+  - Components: `NetworkSection`
+  - Routes: `/api/settings/network`
+  - D1 tables: `agentsam_browser_trusted_origin`, `agentsam_fetch_domain_allowlist`
+- **`dashboard/src/components/ThinkingCard.tsx`**  (262 lines, 7.6 KB)  🐛 EXPLORER_TABS_OPEN
+  - Components: `CSS`, `ThinkingCard`
+  - R2: `iam-tc-pulse`, `iam-tc-spin`
+- **`dashboard/components/settings/sections/DocsSection.tsx`**  (218 lines, 7.5 KB)
+  - Components: `DocsSection`
+  - Routes: `/api/settings/docs`
+  - D1 tables: `agentsam_project_context`, `agentsam_rules_document`
+- **`dashboard/components/auth/AuthSignUpPage.tsx`**  (218 lines, 7.1 KB)
+  - Components: `AuthSignUpPage`
+  - Routes: `/api/auth/signup`
+- **`dashboard/components/settings/components/McpServerCard.tsx`**  (214 lines, 7.0 KB)
+  - Components: `McpServerCard`
+- **`dashboard/components/auth/AuthSignInPage.tsx`**  (223 lines, 7.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `AuthSignInPage`
+  - Routes: `/api/auth/login`
+- **`dashboard/components/library/ArtifactPreviewPanel.tsx`**  (164 lines, 6.8 KB)
+  - Components: `ArtifactPreviewPanel`
+- **`dashboard/components/overview/primitives.tsx`**  (178 lines, 6.8 KB)
+  - Components: `Card`, `CardHeader`, `Pill`, `Skel`, `Dot`, `Trend`, `Sparkline`, `Tip`
+- **`dashboard/components/overview/panels/ErrorInbox.tsx`**  (178 lines, 6.8 KB)
+  - Components: `ErrorInbox`
+- **`artifacts/cms_d1_pull/tables/cms_pages/sample_rows.json`**  (212 lines, 6.6 KB)
+  - R2: `inneranimalmedia`
+- **`dashboard/components/learn/MarkdownLite.tsx`**  (219 lines, 6.4 KB)
+  - Components: `MarkdownLite`, `Tag`, `ListTag`
+- **`dashboard/components/settings/components/AgentsAllowlists.tsx`**  (146 lines, 6.3 KB)
+  - Components: `AgentsAllowlists`
+- **`dashboard/inneranimalmedia.css`**  (183 lines, 6.2 KB)
+  - D1 tables: `API`, `CMS`, `the`
+- **`dashboard/src/lib/r2MultipartUpload.ts`**  (175 lines, 6.2 KB)
+  - Routes: `/api/r2/multipart/abort`, `/api/r2/multipart/complete`, `/api/r2/multipart/create`, `/api/r2/upload`
+- **`dashboard/features/agent-presence/deriveAgentPresence.ts`**  (184 lines, 6.1 KB)
+- **`dashboard/components/learn/MarkdownContent.tsx`**  (165 lines, 6.0 KB)
+  - Components: `MarkdownContent`
+- **`dashboard/README.md`**  (118 lines, 5.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `sessions`
+- **`dashboard/components/MonacoSurface.tsx`**  (186 lines, 5.6 KB)
+- **`dashboard/components/JsonModal.tsx`**  (144 lines, 5.6 KB)
+- **`dashboard/components/overview/panels/DeploymentsTimeline.tsx`**  (130 lines, 5.6 KB)
+  - Components: `DeploymentsTimeline`
+  - D1 tables: `agentsam_webhook_events`
+  - R2: `agent-sam-worker`, `iam-api-gateway`, `iam-pty`
+- **`artifacts/cms_d1_pull/tables/cms_section_components/table_pull.json`**  (183 lines, 5.5 KB)
+  - D1 tables: `cms_section_components`
+  - R2: `inneranimalmedia`
+- **`dashboard/components/ExtensionsPanel.tsx`**  (116 lines, 5.5 KB)
+  - Routes: `/api/mcp/tools`
+- **`dashboard/components/analytics/tabs/McpTab.tsx`**  (134 lines, 5.5 KB)
+  - Components: `McpTab`
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_tool_call_log`, `agentsam_tool_chain`
+- **`dashboard/components/overview/panels/CostLatency.tsx`**  (119 lines, 5.4 KB)
+  - Components: `CostLatency`
+  - D1 tables: `agentsam_routing_arms`
+- **`dashboard/features/moviemode/TimelineRail.tsx`**  (151 lines, 5.2 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `Media`
+- **`dashboard/features/agent-chat/components/AgentCodeFencePreview.tsx`**  (153 lines, 5.2 KB)
+  - Components: `AgentCodeFencePreview`
+- **`dashboard/components/PromptModal.tsx`**  (143 lines, 5.2 KB)
+  - D1 tables: `fuchsia`
+- **`dashboard/components/settings/components/rulesSkills/RulesSkillsCommandsTab.tsx`**  (111 lines, 5.2 KB)
+  - Components: `RulesSkillsCommandsTab`
+- **`dashboard/components/themes/ThemePreviewCard.tsx`**  (151 lines, 5.2 KB)
+  - Components: `ThemePreviewCard`
+- **`dashboard/components/overview/panels/SystemHealth.tsx`**  (147 lines, 5.1 KB)
+  - Components: `SystemHealth`
+  - D1 tables: `agentsam_cron_runs`
+- **`dashboard/src/iamDashboardFeeds.ts`**  (155 lines, 5.1 KB)
+  - Routes: `/api/agent/git/status`, `/api/agent/notifications`, `/api/agent/problems`, `/api/agent/rules`, `/api/agent/sessions`, `/api/agent/today-todo`
+  - D1 tables: `sessions`
+- **`dashboard/src/components/FilePreview.tsx`**  (168 lines, 5.1 KB)
+- **`dashboard/components/MCPPanel.tsx`**  (127 lines, 5.0 KB)
+  - Routes: `/api/mcp/invoke`, `/api/mcp/tools`
+- **`dashboard/components/overview/types.ts`**  (178 lines, 5.0 KB)
+  - D1 tables: `sessions`
+- **`dashboard/components/overview/panels/ToolWaterfall.tsx`**  (130 lines, 5.0 KB)
+  - Components: `ToolWaterfall`
+- **`artifacts/cms_d1_pull/tables/cms_pages/columns.json`**  (322 lines, 4.9 KB)
+- **`dashboard/features/agent-presence/presenceMotion.css`**  (261 lines, 4.8 KB)
+- **`dashboard/components/learn/learn.types.ts`**  (218 lines, 4.8 KB)
+- **`dashboard/components/auth/AuthResetPage.tsx`**  (154 lines, 4.8 KB)
+  - Components: `AuthResetPage`
+  - Routes: `/api/auth/reset-password`
+- **`dashboard/src/lib/mediaPreview.ts`**  (199 lines, 4.8 KB)
+- **`dashboard/components/ToolLauncherBar.tsx`**  (124 lines, 4.7 KB)
+- **`dashboard/components/overview/panels/ActiveProjects.tsx`**  (102 lines, 4.7 KB)
+  - Components: `ActiveProjects`
+- **`dashboard/components/settings/sections/GeneralSection.tsx`**  (143 lines, 4.6 KB)
+  - Components: `GeneralSection`
+  - Routes: `/api/settings/user-policy`
+- **`dashboard/components/library/ArtifactCard.tsx`**  (123 lines, 4.6 KB)
+  - Components: `ArtifactCard`
+  - R2: `iam-lib-btn`
+- **`dashboard/index.html`**  (103 lines, 4.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`dashboard/components/GitHubActionsPanel.tsx`**  (71 lines, 4.4 KB)
+- **`dashboard/components/overview/panels/RoutingDecisions.tsx`**  (105 lines, 4.4 KB)
+  - Components: `RoutingDecisions`
+  - D1 tables: `agentsam_routing_arms`
+- **`dashboard/features/agent-chat/execution/ToolTraceRow.tsx`**  (118 lines, 4.3 KB)
+- **`dashboard/src/EditorContext.tsx`**  (143 lines, 4.3 KB)
+  - Components: `EditorContext`
+  - D1 tables: `functional`
+- **`dashboard/agent.html`**  (100 lines, 4.2 KB)
+- **`dashboard/features/agent-chat/components/AgentChatMarkdown.tsx`**  (97 lines, 4.2 KB)
+  - Components: `AgentChatMarkdown`
+- **`dashboard/components/GlobeErrorState.tsx`**  (162 lines, 4.2 KB)
+- **`dashboard/components/overview/panels/RagHealth.tsx`**  (86 lines, 4.1 KB)
+  - Components: `RagHealth`
+- **`dashboard/components/settings/settingsUi.tsx`**  (108 lines, 4.0 KB)
+- **`dashboard/features/agent-chat/execution/ScriptDraftPanel.tsx`**  (89 lines, 3.9 KB)
+  - D1 tables: `Agent`
+- **`dashboard/components/settings/mcp/McpMonacoHost.tsx`**  (120 lines, 3.8 KB)
+  - Components: `McpMonacoHost`
+- **`dashboard/components/settings/components/rulesSkills/RulesSkillsSkillsTab.tsx`**  (86 lines, 3.8 KB)
+  - Components: `RulesSkillsSkillsTab`
+- **`dashboard/components/auth/AuthForgotPage.tsx`**  (123 lines, 3.7 KB)
+  - Components: `AuthForgotPage`
+  - Routes: `/api/auth/forgot-password`
+- **`dashboard/components/analytics/panels/AgentChatPlanTracePanel.tsx`**  (101 lines, 3.6 KB)
+  - Components: `AgentChatPlanTracePanel`
+  - Routes: `/api/agentsam/agent-chat-plan-trace`
+- **`dashboard/features/moviemode/PreviewComposition.tsx`**  (104 lines, 3.4 KB)  🐛 MOVIEMODE_BROKEN
+- **`artifacts/cms_d1_pull/tables/cms_site_pages/sample_rows.json`**  (137 lines, 3.3 KB)
+- **`dashboard/components/settings/types.ts`**  (123 lines, 3.2 KB)
+  - D1 tables: `GET`, `agentsam_subagent_profile`
+- **`dashboard/components/settings/hooks/useSettingsSections.tsx`**  (111 lines, 3.2 KB)
+- **`dashboard/src/recentWorkspacesStorage.ts`**  (88 lines, 3.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_site_pages/columns.json`**  (202 lines, 3.1 KB)
+- **`dashboard/components/settings/sections/RulesSkillsSection.tsx`**  (80 lines, 3.1 KB)
+  - Components: `RulesSkillsSection`
+- **`dashboard/components/overview/panels/BudgetCard.tsx`**  (59 lines, 3.1 KB)
+  - Components: `BudgetCard`
+  - D1 tables: `agentsam_plans`, `agentsam_usage_events`
+- **`dashboard/pages/AnalyticsPage.tsx`**  (90 lines, 3.1 KB)
+  - Components: `ActiveTab`
+- **`dashboard/vite.config.ts`**  (88 lines, 3.0 KB)
+  - D1 tables: `mermaid`
+- **`dashboard/components/settings/components/rulesSkills/RulesSkillsSubagentsTab.tsx`**  (67 lines, 3.0 KB)
+  - Components: `RulesSkillsSubagentsTab`
+- **`dashboard/features/agent-chat/components/AgentCodeDiffPreview.tsx`**  (78 lines, 2.9 KB)
+  - Components: `AgentCodeDiffPreview`
+- **`artifacts/cms_d1_pull/tables/cms_section_components/sample_rows.json`**  (67 lines, 2.8 KB)
+  - R2: `inneranimalmedia`
+- **`dashboard/components/overview/panels/TokensChart.tsx`**  (65 lines, 2.8 KB)
+  - Components: `TokensChart`
+- **`dashboard/types.ts`**  (133 lines, 2.7 KB)
+- **`dashboard/agentSessionsCatalog.ts`**  (94 lines, 2.7 KB)
+- **`dashboard/components/analytics/analyticsRegistry.ts`**  (111 lines, 2.7 KB)
+- **`dashboard/features/agent-presence/presenceCopy.ts`**  (58 lines, 2.6 KB)
+  - D1 tables: `tool`
+- **`dashboard/components/DataGrid.tsx`**  (71 lines, 2.6 KB)
+- **`dashboard/components/overview/panels/SpendChart.tsx`**  (59 lines, 2.6 KB)
+  - Components: `SpendChart`
+- **`dashboard/components/overview/panels/TopServices.tsx`**  (59 lines, 2.6 KB)
+  - Components: `TopServices`
+- **`dashboard/src/lib/fileKind.ts`**  (92 lines, 2.6 KB)
+- **`dashboard/src/hooks/usePlanTasksRealtime.ts`**  (87 lines, 2.5 KB)
+  - D1 tables: `agentsam_plan_tasks`
+- **`dashboard/features/agent-chat/composerLayout.ts`**  (84 lines, 2.4 KB)
+- **`dashboard/components/settings/components/McpToolRow.tsx`**  (68 lines, 2.4 KB)
+  - Components: `McpToolRow`
+- **`dashboard/components/settings/components/rulesSkills/RulesSkillsRulesTab.tsx`**  (62 lines, 2.4 KB)
+  - Components: `RulesSkillsRulesTab`
+- **`dashboard/skill.md`**  (50 lines, 2.3 KB)
+- **`dashboard/components/library/utils.ts`**  (57 lines, 2.3 KB)
+- **`dashboard/components/themes/ThemePreviewCanvas.tsx`**  (76 lines, 2.3 KB)
+  - Components: `ThemePreviewCanvas`
+- **`dashboard/features/agent-presence/useAgentPresence.ts`**  (66 lines, 2.2 KB)
+- **`dashboard/components/LearnPage.tsx`**  (77 lines, 2.2 KB)
+  - Components: `LearnPage`
+  - Routes: `/api/learn/dashboard`
+- **`dashboard/features/agent-chat/streamDebug.ts`**  (78 lines, 2.1 KB)
+- **`dashboard/components/library/ArtifactFilters.tsx`**  (79 lines, 2.1 KB)
+  - Components: `ArtifactFilters`
+  - R2: `iam-lib-select`
+- **`dashboard/index.css`**  (88 lines, 2.0 KB)
+  - D1 tables: `App`
+- **`dashboard/components/library/ArtifactGrid.tsx`**  (80 lines, 2.0 KB)
+  - Components: `ArtifactGrid`
+- **`dashboard/features/agent-chat/components/DiffViewer.tsx`**  (86 lines, 1.9 KB)
+  - Components: `DiffViewer`
+- **`dashboard/components/learn/components/LessonAssetsView.tsx`**  (66 lines, 1.9 KB)
+  - Components: `LessonAssetsView`
+- **`dashboard/components/learn/hooks/useLessonMarkdown.ts`**  (60 lines, 1.9 KB)  🐛 MOVIEMODE_BROKEN
+- **`dashboard/components/settings/components/SectionNav.tsx`**  (54 lines, 1.8 KB)
+  - Components: `SectionNav`
+- **`dashboard/features/moviemode/MovieModeStudio.tsx`**  (48 lines, 1.7 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `Media`
+- **`dashboard/features/moviemode/createEmptyTimeline.ts`**  (67 lines, 1.7 KB)  🐛 MOVIEMODE_BROKEN
+- **`dashboard/features/agent-chat/execution/ArtifactChipList.tsx`**  (51 lines, 1.7 KB)
+- **`dashboard/src/MeetContext.tsx`**  (67 lines, 1.7 KB)
+  - Components: `MeetCtx`, `MeetProvider`
+- **`dashboard/agent.md`**  (29 lines, 1.6 KB)
+- **`dashboard/components/health/HealthShell.tsx`**  (56 lines, 1.6 KB)
+- **`dashboard/components/overview/panels/KpiStrip.tsx`**  (52 lines, 1.6 KB)
+  - Components: `KpiStrip`
+- **`artifacts/cms_d1_pull/tables/cms_pages/create_sql.json`**  (4 lines, 1.5 KB)
+  - D1 tables: `cms_pages`
+- **`dashboard/package.json`**  (53 lines, 1.5 KB)
+  - R2: `inneranimalmedia-dashboard`
+- **`dashboard/components/settings/hooks/useSettingsSectionStatus.ts`**  (51 lines, 1.5 KB)
+- **`artifacts/cms_d1_pull/tables/cms_section_components/columns.json`**  (90 lines, 1.4 KB)
+- **`dashboard/components/learn/ProgressRing.tsx`**  (57 lines, 1.4 KB)
+  - Components: `ProgressRing`
+- **`dashboard/features/agent-presence/AgentPresenceStatus.tsx`**  (40 lines, 1.3 KB)
+- **`dashboard/features/agent-chat/execution/ExecutionTimeline.tsx`**  (44 lines, 1.3 KB)
+- **`dashboard/components/StatusBar.css`**  (77 lines, 1.3 KB)
+- **`dashboard/components/health/HealthScoreCard.tsx`**  (37 lines, 1.3 KB)
+- **`dashboard/components/overview/panels/QuickNav.tsx`**  (44 lines, 1.3 KB)
+  - Components: `QuickNav`
+- **`dashboard/components/themes/ThemeJsonInspector.tsx`**  (45 lines, 1.3 KB)
+  - Components: `ThemeJsonInspector`
+- **`dashboard/components/analytics/cards/EmptyTelemetryCard.tsx`**  (39 lines, 1.3 KB)
+- **`dashboard/src/types/moviemode.ts`**  (54 lines, 1.3 KB)  🐛 MOVIEMODE_BROKEN
+- **`dashboard/src/lib/r2Buckets.ts`**  (38 lines, 1.3 KB)
+  - D1 tables: `GET`, `the`
+- **`dashboard/components/GLBViewer.tsx`**  (25 lines, 1.2 KB)
+- **`dashboard/components/analytics/AnalyticsTabs.tsx`**  (39 lines, 1.2 KB)
+- **`dashboard/components/library/ArtifactTypeIcon.tsx`**  (25 lines, 1.1 KB)
+  - Components: `ArtifactTypeIcon`
+- **`dashboard/components/analytics/AnalyticsHeader.tsx`**  (31 lines, 1.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_site_pages/create_sql.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `cms_site_pages`
+- **`dashboard/features/agent-presence/AgentPresenceLogo.tsx`**  (40 lines, 0.9 KB)
+  - R2: `agent-sam-logo`, `agent-sam-logo-ring`
+- **`dashboard/features/agent-presence/presenceTypes.ts`**  (48 lines, 0.9 KB)
+- **`dashboard/features/agent-chat/execution/ScrollablePreviewPanel.tsx`**  (32 lines, 0.9 KB)
+- **`dashboard/components/analytics/tabs/D1TelemetryTab.tsx`**  (25 lines, 0.9 KB)
+  - Components: `D1TelemetryTab`
+  - D1 tables: `agentsam_execution_performance_metrics`
+- **`dashboard/components/analytics/tabs/DeploysTab.tsx`**  (25 lines, 0.9 KB)
+  - Components: `DeploysTab`
+  - D1 tables: `agentsam_deployment_health`
+- **`dashboard/components/analytics/tabs/CostsTab.tsx`**  (25 lines, 0.9 KB)
+  - Components: `CostsTab`
+  - D1 tables: `agentsam_prompt_cache_keys`, `agentsam_usage_events`
+- **`dashboard/features/agent-chat/execution/types.ts`**  (30 lines, 0.8 KB)
+  - D1 tables: `the`
+- **`dashboard/components/analytics/types.ts`**  (42 lines, 0.8 KB)
+- **`dashboard/components/analytics/AnalyticsShell.tsx`**  (24 lines, 0.8 KB)
+- **`dashboard/components/settings/settingsConstants.ts`**  (28 lines, 0.7 KB)
+- **`dashboard/components/themes/ThemeSwatches.tsx`**  (28 lines, 0.7 KB)
+  - Components: `ThemeSwatches`
+- **`dashboard/index.tsx`**  (21 lines, 0.6 KB)
+- **`dashboard/lib/formatCost.ts`**  (19 lines, 0.6 KB)
+- **`dashboard/pages/RedirectHealthToAnalytics.tsx`**  (21 lines, 0.6 KB)
+- **`artifacts/cms_d1_pull/tables/cms_section_components/create_sql.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `cms_section_components`
+- **`dashboard/tsconfig.json`**  (29 lines, 0.5 KB)
+- **`dashboard/features/moviemode/types.ts`**  (22 lines, 0.5 KB)  🐛 MOVIEMODE_BROKEN
+- **`dashboard/features/agent-presence/index.ts`**  (12 lines, 0.5 KB)
+- **`dashboard/features/agent-chat/execution/index.ts`**  (13 lines, 0.5 KB)
+- **`dashboard/components/ChatAssistant.tsx`**  (15 lines, 0.5 KB)
+- **`dashboard/components/health/EmptyTelemetryState.tsx`**  (16 lines, 0.5 KB)
+- **`artifacts/cms_d1_pull/tables/cms_pages/indexes.json`**  (23 lines, 0.4 KB)
+- **`dashboard/utils/voxelConstants.ts`**  (21 lines, 0.4 KB)
+  - Components: `COLORS`, `CONFIG`
+- **`dashboard/components/OverviewPage.tsx`**  (17 lines, 0.4 KB)
+- **`dashboard/src/lib/supabase.ts`**  (13 lines, 0.4 KB)
+- **`dashboard/agentChatConstants.ts`**  (6 lines, 0.3 KB)
+  - R2: `iam-agent-chat-conversation-change`, `iam-agent-chat-conversation-id`
+- **`dashboard/features/agent-chat/index.ts`**  (11 lines, 0.3 KB)
+- **`dashboard/components/ThemeSwitcher.tsx`**  (11 lines, 0.3 KB)
+- **`dashboard/components/settings/StorageSettingsPanel.tsx`**  (10 lines, 0.3 KB)
+  - Components: `StorageSettingsPanel`
+- **`dashboard/components/settings/sections/ThemesSection.tsx`**  (9 lines, 0.3 KB)
+  - Components: `ThemesSection`
+- **`dashboard/src/shellVersion.ts`**  (8 lines, 0.3 KB)
+- **`artifacts/cms_d1_pull/tables/cms_section_components/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_site_pages/indexes.json`**  (16 lines, 0.2 KB)
+- **`dashboard/tailwind.config.js`**  (10 lines, 0.2 KB)
+- **`dashboard/metadata.json`**  (9 lines, 0.2 KB)
+- **`dashboard/finance-entry.jsx`**  (9 lines, 0.2 KB)
+- **`dashboard/features/agent-chat/execution/shShellQuote.ts`**  (7 lines, 0.2 KB)
+- **`dashboard/components/settings/sections/StorageSection.tsx`**  (9 lines, 0.2 KB)
+  - Components: `StorageSection`
+- **`artifacts/cms_d1_pull/tables/cms_section_components/indexes.json`**  (9 lines, 0.1 KB)
+- **`dashboard/postcss.config.js`**  (8 lines, 0.1 KB)
+- **`dashboard/components/settings/index.ts`**  (3 lines, 0.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_section_components/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_pages/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_pages/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_site_pages/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_site_pages/row_count.json`**  (5 lines, 0.0 KB)
+- **`dashboard/meet-from-r2.html`**  (1 lines, 0.0 KB)
+- **`dashboard/components/GlobalSearchPage.tsx`**  (1 lines, 0.0 KB)
+
+### R2_STORAGE  (118 files)
+
+- **`docs/audits/cms/cms_dashboard_r2_schema_audit.json`**  (3119 lines, 77.1 KB)
+  - D1 tables: `cms_component_templates`, `cms_navigation_menus`, `cms_page_sections`, `cms_pages`, `cms_section_components`, `dashboard_assets`
+  - R2: `,
+      `, `,
+          `, `auto`, `deploy`, `ede6590ac0d2fb7daf155b35653457b2`
+- **`analytics/deploys/deploy_1778466327_486a64f/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778569388_76dd94c/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778542921_374683a/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778595941_6bc1a3c/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778631727_4423433/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778592712_2d78a3c/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778538236_0f66925/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778554115_5794e55/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778613581_b84a89e/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778612946_b84a89e/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778570963_76dd94c/r2-manifest.json`**  (964 lines, 40.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`docs/audits/cms/cms_dashboard_r2_schema_audit.md`**  (1709 lines, 40.1 KB)
+  - D1 tables: `cms_component_templates`, `cms_navigation_menus`, `cms_page_sections`, `cms_pages`, `cms_section_components`, `dashboard_assets`
+- **`artifacts/db-audit/theme_cms_r2_alignment_schema_2026-05-07_174835.md`**  (1254 lines, 39.7 KB)
+  - D1 tables: `cms_activity_log`, `cms_assets`, `cms_component_templates`, `cms_live_edit_sessions`, `cms_live_rollbacks`, `cms_override_versions`
+- **`analytics/deploys/deploy_1778295372_d8f0c14/r2-manifest.json`**  (952 lines, 39.7 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778204385_31cf4e7/r2-manifest.json`**  (868 lines, 36.2 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778107620_5c1494f/r2-manifest.json`**  (772 lines, 32.3 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778106304_6e71bc1/r2-manifest.json`**  (772 lines, 32.3 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`analytics/deploys/deploy_1778106999_4187c8e/r2-manifest.json`**  (772 lines, 32.3 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`r2/course_exports/connor-platform-operator/004_connor_course_assignments.sql`**  (318 lines, 25.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `course_assignments`, `quoted`
+- **`src/core/r2.js`**  (465 lines, 17.4 KB)
+  - D1 tables: `legacy`
+- **`scripts/populate-autorag-bucket.sh`**  (552 lines, 14.5 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `docs`, `repo`, `sessions`, `the`
+  - R2: `autorag`
+- **`docs/AUDIT-PUBLIC-ROUTING-R2-AUTH.md`**  (267 lines, 14.3 KB)  🐛 HARDCODED_R2
+  - Routes: `/api/r2/`
+  - D1 tables: `ASSETS`, `inneranimalmedia`, `the`, `this`
+  - R2: `ASSETS`, `DASHBOARD`, `agent-sam`, `iam-platform`, `inneranimalmedia-assets`
+- **`docs/learn/r2-course-library-readme.md`**  (776 lines, 13.2 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_guardrail_events`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_project_context`
+  - R2: `inneranimalmedia`
+- **`r2/course_exports/connor-platform-operator/003_connor_course_lessons_min.sql`**  (453 lines, 12.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `course_lessons`, `sessions`
+- **`migrations/210_r2_bucket_bindings_and_list_cidi.sql`**  (47 lines, 9.0 KB)  🐛 HARDCODED_R2
+  - D1 tables: `sync`, `wrangler`
+  - R2: `agent-sam`, `agent-sam-sandbox-cidi`, `autorag`, `iam-docs`, `iam-platform`
+- **`docs/CLAUDE_DEBUG_R2_PAGES.md`**  (92 lines, 8.4 KB)
+  - D1 tables: `Chat`, `same`, `the`
+- **`docs/DASHBOARD_R2_ASSET_ARCHITECTURE.md`**  (170 lines, 8.3 KB)
+  - D1 tables: `HTML`, `code`, `the`
+- **`src/tools/r2-dispatch.js`**  (162 lines, 7.1 KB)
+  - R2: `inneranimalmedia`
+- **`src/core/r2-multipart.js`**  (205 lines, 6.7 KB)
+  - D1 tables: `create`
+- **`scripts/audits/cms_dashboard_r2_schema_audit.py`**  (229 lines, 6.0 KB)
+  - D1 tables: `SQL`, `datetime`, `pathlib`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`src/core/media-r2-access.js`**  (150 lines, 5.1 KB)
+  - D1 tables: `workspaces`
+- **`scripts/upload-repo-to-r2-sandbox.sh`**  (117 lines, 4.5 KB)
+  - D1 tables: `dashboard`, `repo`
+- **`learn/software-engineering-builder-os/lessons/007_data-storage-d1-r2-hyperdrive-supabase.md`**  (142 lines, 4.4 KB)
+  - D1 tables: `agentsam_db_query_history`, `agentsam_db_snippets`, `agentsam_execution_performance_metrics`, `sessions`, `sqlite_master`
+- **`migrations/282_r2_deploy_inventory_manifest.sql`**  (85 lines, 4.2 KB)
+  - D1 tables: `r2_deploy_manifest_objects`, `r2_deploy_manifests`, `r2_object_inventory`
+  - R2: `leadership-legacy`
+- **`docs/AUTORAG_BUCKET_STRUCTURE.md`**  (109 lines, 4.2 KB)
+  - D1 tables: `Cloudflare`, `repo`
+- **`migrations/239_storage_dashboard_d1_backfill.sql`**  (56 lines, 4.0 KB)  🐛 HARDCODED_R2
+  - D1 tables: `agentsam_slash_commands`
+  - R2: `ASSETS`, `AUTORAG_BUCKET`, `DASHBOARD`, `DOCS`, `IAM_PLATFORM`
+- **`artifacts/db-audit/cms_r2_tables.raw.json`**  (205 lines, 3.9 KB)
+  - D1 tables: `sessions`
+- **`scripts/upload-dashboard-app-r2-prod.sh`**  (103 lines, 3.8 KB)
+  - R2: `inneranimalmedia`
+- **`src/cron/jobs/r2-prune.js`**  (110 lines, 3.4 KB)
+- **`scripts/sync_learn_course_to_r2.py`**  (109 lines, 3.2 KB)
+  - D1 tables: `__future__`, `pathlib`
+  - R2: `inneranimalmedia`
+- **`scripts/r2-clone-inneranimalmedia-to-sandbox.sh`**  (89 lines, 3.0 KB)
+  - D1 tables: `Cloudflare`, `production`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.objects.md`**  (69 lines, 2.9 KB)
+- **`docs/sprint-mar24-2026.md`**  (29 lines, 2.9 KB)
+  - D1 tables: `agent_costs`, `chat`, `sessions`
+- **`docs/iam-docs/platform/r2-bucket-map.md`**  (48 lines, 2.8 KB)  🐛 HARDCODED_R2
+- **`scripts/build_services_r2_clean.py`**  (86 lines, 2.6 KB)
+  - D1 tables: `pathlib`
+- **`.tmp/verify-r2/iam-tide-dark/theme.css`**  (66 lines, 2.6 KB)
+  - R2: `iam-tide-dark`
+- **`src/core/dashboard-r2-assets.js`**  (74 lines, 2.6 KB)
+  - D1 tables: `the`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.s3_multipart_uploads.md`**  (64 lines, 2.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.s3_multipart_uploads_parts.md`**  (63 lines, 2.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.buckets_analytics.md`**  (61 lines, 2.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.buckets.md`**  (65 lines, 2.3 KB)
+- **`.tmp/verify-r2/first-4/iam-desert-field/theme.css`**  (97 lines, 2.3 KB)
+  - R2: `iam-desert-field`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.vector_indexes.md`**  (61 lines, 2.2 KB)
+- **`scripts/upload-theme-debug-to-r2.sh`**  (76 lines, 2.2 KB)
+  - D1 tables: `scripts`
+- **`r2/course_exports/connor-platform-operator/005_connor_course_exports.sql`**  (82 lines, 2.2 KB)
+  - D1 tables: `agentsam_registration`, `course_exports`
+- **`docs/runbooks/r2-structure.md`**  (58 lines, 2.1 KB)
+- **`scripts/upload-playwright-report-to-r2.sh`**  (56 lines, 2.1 KB)
+- **`scripts/upload-agent-dashboard-r2.sh`**  (65 lines, 2.1 KB)
+  - R2: `inneranimalmedia-sandbox-cicd`
+- **`src/tools/builtin/storage.js`**  (41 lines, 2.1 KB)
+  - Routes: `/api/storage/r2/list`, `/api/storage/r2/read`, `/api/storage/r2/search`, `/api/storage/r2/summary`, `/api/storage/r2/url`, `/api/storage/r2/write`
+- **`r2/course_exports/connor-platform-operator/002_connor_course_modules.sql`**  (86 lines, 2.0 KB)
+  - D1 tables: `course_modules`
+- **`src/core/r2-keys.js`**  (72 lines, 2.0 KB)  🐛 MOVIEMODE_BROKEN
+  - Components: `TRAVERSAL`
+- **`scripts/upload-agent-page-to-r2.sh`**  (53 lines, 1.9 KB)
+  - D1 tables: `repo`, `static`, `zsh`
+- **`r2/course_exports/connor-platform-operator/001_connor_course.sql`**  (61 lines, 1.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `courses`
+- **`.tmp/verify-r2/iam-antiocean-full.theme.css`**  (75 lines, 1.8 KB)
+  - R2: `iam-antiocean-full`
+- **`.tmp/verify-r2/iam-ghost-tactical.theme.css`**  (75 lines, 1.8 KB)
+  - R2: `iam-ghost-tactical`
+- **`.tmp/verify-r2/first-4/iam-antiocean-full/theme.css`**  (75 lines, 1.8 KB)
+  - R2: `iam-antiocean-full`
+- **`.tmp/verify-r2/first-4/iam-ghost-tactical/theme.css`**  (75 lines, 1.8 KB)
+  - R2: `iam-ghost-tactical`
+- **`scripts/upload-monaco-to-tools-r2.sh`**  (54 lines, 1.7 KB)
+  - D1 tables: `tools`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.buckets_vectors.md`**  (55 lines, 1.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/storage.migrations.md`**  (56 lines, 1.6 KB)
+- **`.tmp/verify-r2/kimbie-dark.theme.css`**  (71 lines, 1.6 KB)
+- **`.tmp/verify-r2/first-4/kimbie-dark/theme.css`**  (71 lines, 1.6 KB)
+- **`scripts/sync-docs-to-r2.sh`**  (47 lines, 1.4 KB)
+  - D1 tables: `repo`
+- **`migrations/289_storage_provider_prefs_general_ui.sql`**  (22 lines, 1.1 KB)
+  - D1 tables: `agentsam_user_policy`, `user_storage_provider_preferences`
+- **`scripts/sync-scripts-to-r2.sh`**  (41 lines, 1.1 KB)
+  - D1 tables: `repo`, `scripts`
+- **`migrations/118_r2_bucket_summary_cleanup_columns.sql`**  (13 lines, 0.9 KB)
+- **`artifacts/theme-extracts/r2/iam-storm-white/monaco.json`**  (27 lines, 0.9 KB)
+  - R2: `iam-storm-white-monaco`
+- **`scripts/upload-plan-to-r2.sh`**  (24 lines, 0.8 KB)
+  - D1 tables: `repo`
+- **`scripts/upload-schema-memory-to-r2.sh`**  (23 lines, 0.8 KB)
+  - D1 tables: `repo`
+- **`scripts/upload-today-todo-to-r2.sh`**  (24 lines, 0.8 KB)
+  - D1 tables: `Agent`, `repo`
+- **`r2/course_exports/connor-platform-operator/RUBRIC.md`**  (28 lines, 0.8 KB)
+- **`migrations/233_storage_preferences_and_keys.sql`**  (23 lines, 0.7 KB)
+  - D1 tables: `user_storage_access_keys`, `user_storage_preferences`
+- **`migrations/234_storage_policies.sql`**  (19 lines, 0.7 KB)
+  - D1 tables: `storage_policies`
+- **`artifacts/theme-extracts/r2/iam-storm-white/theme.css`**  (35 lines, 0.7 KB)
+  - R2: `iam-storm-white`
+- **`docs/inneranimalmedia/runbooks/r2-upload-rules.md`**  (20 lines, 0.7 KB)
+- **`docs/inneranimalmedia/architecture/r2-structure.md`**  (22 lines, 0.7 KB)  🐛 HARDCODED_R2
+- **`scripts/upload-daily-log-to-r2.sh`**  (24 lines, 0.7 KB)
+  - D1 tables: `repo`
+- **`.tmp/verify-r2/first-4/iam-desert-field/monaco.json`**  (24 lines, 0.7 KB)
+  - R2: `iam-desert-field-monaco`
+- **`.tmp/verify-r2/desert/monaco.json`**  (24 lines, 0.7 KB)
+  - R2: `iam-desert-field-monaco`
+- **`migrations/224_r2_chat_persistence.sql`**  (16 lines, 0.6 KB)
+  - D1 tables: `sessions`
+  - R2: `iam-platform`
+- **`scripts/playwright/upload_quality_report_r2.sh`**  (30 lines, 0.6 KB)
+- **`scripts/r2-cors-tools-bucket.json`**  (20 lines, 0.5 KB)
+- **`scripts/r2-inventory-duplicate-check.sql`**  (11 lines, 0.5 KB)
+  - D1 tables: `r2_object_inventory`
+- **`.tmp/verify-r2/first-4/iam-antiocean-full/monaco.json`**  (19 lines, 0.5 KB)
+  - R2: `iam-antiocean-full-monaco`
+- **`.tmp/verify-r2/first-4/kimbie-dark/monaco.json`**  (19 lines, 0.5 KB)
+- **`.tmp/verify-r2/first-4/iam-ghost-tactical/monaco.json`**  (19 lines, 0.5 KB)
+  - R2: `iam-ghost-tactical-monaco`
+- **`r2/course_exports/connor-platform-operator/README.md`**  (24 lines, 0.5 KB)
+- **`artifacts/theme-extracts/r2/iam-storm-white/theme.json`**  (21 lines, 0.4 KB)
+  - R2: `iam-storm-white`, `theme-iam-storm-white`
+- **`scripts/sync_root_skills_to_r2.sh`**  (22 lines, 0.4 KB)
+  - R2: `autorag`
+- **`.tmp/verify-r2/first-4/iam-antiocean-full/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-antiocean-full`
+- **`.tmp/verify-r2/first-4/kimbie-dark/manifest.json`**  (12 lines, 0.4 KB)
+- **`.tmp/verify-r2/first-4/iam-ghost-tactical/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-ghost-tactical`
+- **`.tmp/verify-r2/first-4/iam-desert-field/theme.json`**  (16 lines, 0.4 KB)
+  - R2: `iam-desert-field`
+- **`.tmp/verify-r2/first-4/iam-desert-field/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-desert-field`
+- **`.tmp/verify-r2/desert/theme.json`**  (16 lines, 0.4 KB)
+  - R2: `iam-desert-field`
+- **`.tmp/verify-r2/desert/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-desert-field`
+- **`tmp/r2-smoke/r2_env_smoke_20260509_003218.readback.json`**  (11 lines, 0.4 KB)
+  - R2: `inneranimalmedia`
+- **`tmp/r2-smoke/r2_env_smoke_20260509_003218.json`**  (11 lines, 0.4 KB)
+  - R2: `inneranimalmedia`
+- **`r2/course_exports/connor-platform-operator/TO-DO.md`**  (14 lines, 0.4 KB)
+- **`artifacts/theme-extracts/r2/iam-storm-white/manifest.json`**  (13 lines, 0.3 KB)
+  - R2: `iam-storm-white`, `theme-iam-storm-white`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/upload_to_r2.sh`**  (3 lines, 0.3 KB)
+  - D1 tables: `agentsam_platform_services`
+- **`tmp/r2-smoke/r2_env_smoke_20260509_003317.json`**  (2 lines, 0.3 KB)
+  - R2: `inneranimalmedia`
+- **`tmp/r2-smoke/r2_env_smoke_20260509_003317.readback.json`**  (2 lines, 0.3 KB)
+  - R2: `inneranimalmedia`
+- **`.tmp/verify-r2/first-4/iam-antiocean-full/theme.json`**  (10 lines, 0.2 KB)
+  - R2: `iam-antiocean-full`
+- **`.tmp/verify-r2/first-4/kimbie-dark/theme.json`**  (10 lines, 0.2 KB)
+- **`.tmp/verify-r2/first-4/iam-ghost-tactical/theme.json`**  (10 lines, 0.2 KB)
+  - R2: `iam-ghost-tactical`
+- **`src/core/r2-xml.js`**  (9 lines, 0.2 KB)
+
+### D1_DATABASE  (793 files)
+
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/03_column_inventory.json`**  (25518 lines, 662.6 KB)
+  - Routes: `/api/agent/chat`
+  - D1 tables: `SSO`, `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`
+  - R2: `agent-sam`
+- **`docs/db/learn-course-d1-context/2026-05-07_learn-course-schema.json`**  (8881 lines, 231.9 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_user_feature_override`, `agentsam_user_feature_override_1`, `agentsam_user_policy`, `agentsam_user_policy_1`, `agentsam_user_policy_user`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `r2-resources`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/22_migrations.json`**  (663 lines, 214.5 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/agent/chat`
+  - D1 tables: `PUBLIC`, `agent_memory`, `agent_memory_vectors`, `agent_sessions`, `agentsam`, `agentsam_command_run`
+  - R2: `agent-sam`, `iam-context-reindex`, `inneranimalmedia`, `inneranimalmedia-agentsam-dashboard`, `inneranimalmedia-main`
+- **`artifacts/cms_d1_pull/cms_d1_pull_all.json`**  (5496 lines, 173.8 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+  - R2: `iam-clay`, `iam-dark`, `iam-desert-field`, `iam-ember-terminal`, `iam-engineer-blue`
+- **`docs/db/learn-course-d1-context/2026-05-07_learn-course-schema.autorag.md`**  (8038 lines, 171.3 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_user_feature_override`, `agentsam_user_policy`, `auth_user_identities`, `auth_users`, `cms_activity_log`
+- **`docs/db/learn-course-d1-context/2026-05-07_learn-course-schema.context.md`**  (2849 lines, 112.0 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_user_feature_override`, `agentsam_user_feature_override_1`, `agentsam_user_policy`, `agentsam_user_policy_1`, `agentsam_user_policy_user`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/08_indexes.json`**  (2487 lines, 101.4 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_audit_snapshots_pkey`, `agentsam_debug_snapshots`, `agentsam_debug_snapshots_key_created`, `agentsam_debug_snapshots_pkey`, `agentsam_debug_snapshots_run_created`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/12_functions.json`**  (3513 lines, 93.7 KB)
+  - D1 tables: `agentsam_updated_at`, `knowledge_edges`, `session_summaries`, `tenant_context`
+  - R2: `,
+    `
+- **`artifacts/cms_ollama_gameplan/00_CMS_D1_DIGEST.md`**  (2990 lines, 83.4 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+  - R2: `iam-dark`, `iam-desert-field`, `iam-light`, `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`docs/db/SCHEMA_AUDIT.md`**  (2065 lines, 82.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_ai_provider_model_key`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`
+  - R2: `agent-sam`
+- **`tmp/ollama_cloud_series/series_fab1f3539458/insert_d1_runs.sql`**  (922 lines, 80.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_eval_runs`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/07_check_constraints.json`**  (2751 lines, 79.8 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_runs_human_score_architecture_check`, `agentsam_eval_runs_human_score_cost_check`
+- **`tmp/ollama_cloud_series/series_2275097bea56/insert_d1_runs.sql`**  (925 lines, 77.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_eval_runs`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/ollama_cloud_series/series_0620c6d4e4dd/insert_d1_runs.sql`**  (905 lines, 75.2 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_eval_runs`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`cms_schema.json`**  (3729 lines, 73.8 KB)
+  - D1 tables: `agentsam_workflow_runs`, `sessions`
+- **`tmp/ollama_cloud_series/series_3b8751b77f9d/insert_d1_runs.sql`**  (873 lines, 72.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_eval_runs`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/multitenant-audit/live_schema_hardcoded_identity.json`**  (253 lines, 70.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `active_timers`, `address`, `agent_command_executions`, `agent_rules`, `agentsam_ai`, `agentsam_compaction_events`
+  - R2: `agent-sam`, `autorag`, `iam-platform`, `inneranimalmedia-primary`
+- **`migrations/migrate_multitenant_schema.py`**  (1331 lines, 59.7 KB)
+  - D1 tables: `_new`, `agentsam_commands`, `agentsam_commands_active`, `agentsam_commands_category`, `agentsam_commands_new`, `agentsam_commands_slug`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/20_timestamp_columns.json`**  (1787 lines, 45.9 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/08_indexes.md`**  (259 lines, 41.7 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_audit_snapshots_pkey`, `agentsam_debug_snapshots`, `agentsam_debug_snapshots_key_created`, `agentsam_debug_snapshots_pkey`, `agentsam_debug_snapshots_run_created`
+- **`artifacts/db-audit/cms_schema_2026-05-07_151522.md`**  (1330 lines, 40.2 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+- **`scripts/d1_schema_audit.py`**  (838 lines, 37.1 KB)
+  - D1 tables: `MCP`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_bootstrap`
+- **`scripts/lib/cicd-d1-log.sh`**  (847 lines, 36.2 KB)
+  - D1 tables: `Dependabot`, `GitHub`, `HTML`, `Resend`, `cicd_pipeline_runs`, `cicd_runs`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/10_rls_policies.json`**  (1275 lines, 34.7 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`, `agentsam_plan_tasks`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/manifest.json`**  (886 lines, 31.1 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`docs/db/learn-course-d1-context/2026-05-07_learn-course-schema-create-tables.sql`**  (860 lines, 30.1 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_user_feature_override`, `agentsam_user_policy`, `auth_user_identities`, `auth_users`, `cms_activity_log`
+- **`scripts/supabase_schema_audit_chunked.py`**  (868 lines, 28.3 KB)
+  - D1 tables: `__future__`, `exposed`, `fk_cols`, `indexed`, `information_schema`, `pathlib`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/manifest.json`**  (354 lines, 27.9 KB)
+  - D1 tables: `fk_cols`, `indexed`, `information_schema`, `pg_class`, `pg_constraint`, `pg_extension`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/manifest.json`**  (354 lines, 27.4 KB)
+  - D1 tables: `fk_cols`, `indexed`, `information_schema`, `pg_class`, `pg_constraint`, `pg_extension`
+- **`sql/courses/004_connor_course_assignments.sql`**  (318 lines, 25.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `course_assignments`, `quoted`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/21_possible_tenant_scope_columns.json`**  (1059 lines, 25.7 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_prompt_runs`, `agentsam_recent_errors`, `agentsam_recent_routing_decisions`
+  - R2: `agent-sam`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/03_column_inventory.md`**  (259 lines, 24.1 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_smoke`, `agentsam_todo`
+  - R2: `agent-sam`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/19_json_columns.json`**  (923 lines, 22.4 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/15_table_sizes.json`**  (957 lines, 22.3 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/12_functions.md`**  (259 lines, 21.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/07_check_constraints.md`**  (259 lines, 21.4 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_runs_human_score_architecture_check`, `agentsam_eval_runs_human_score_cost_check`
+- **`artifacts/cms_d1_pull/tables/cms_themes/table_pull.json`**  (459 lines, 21.2 KB)
+  - D1 tables: `cms_themes`
+  - R2: `iam-clay`, `iam-dark`, `iam-light`, `iam-midnight-v1`, `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/22_migrations.md`**  (73 lines, 21.2 KB)
+  - D1 tables: `PUBLIC`, `agent_memory`, `agent_sessions`, `agentsam`, `agentsam_execution_analytics_layer`, `agentsam_identity_diagnostics_matrix_v1`
+  - R2: `agent-sam`, `inneranimalmedia`
+- **`artifacts/audit/d1_scan_source_kind.json`**  (445 lines, 20.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_capability_index`, `agentsam_code_index_job`, `agentsam_code_index_job_iam_tools`, `agentsam_project_context`, `agentsam_project_context_iam_tools`, `agentsam_skill`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/05_foreign_keys.json`**  (630 lines, 19.4 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_debug_snapshots_run_id_fkey`, `agentsam_error_events`, `agentsam_error_events_identity_profile_id_fkey`, `agentsam_eval_runs`, `agentsam_eval_runs_identity_profile_id_fkey`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/10_rls_policies.md`**  (113 lines, 18.8 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`, `agentsam_plan_tasks`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/20_timestamp_columns.md`**  (230 lines, 18.2 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`scripts/d1-backfill-dashboard_assets-20260324.sql`**  (54 lines, 18.1 KB)
+  - D1 tables: `API`, `sessions`, `verified`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/02_table_inventory.json`**  (747 lines, 17.2 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`artifacts/cms_d1_pull/00_cms_tables.json`**  (110 lines, 17.0 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+- **`artifacts/cms_ollama_gameplan/3d_assets_audit/01_3D_ASSET_SCHEMA_AUDIT.md`**  (561 lines, 16.8 KB)
+  - D1 tables: `cms_3d_assets`, `cms_assets`, `cms_collection_assets`, `cms_collections`, `cms_component_templates`, `cms_liquid_sections`
+- **`tmp/seed_dashboard_agent_pinstest_plan_and_tasks_d1.sql`**  (880 lines, 16.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_audit_snapshots`, `agentsam_command_run`, `agentsam_dashboard_agent_e2e_pinstest`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`
+- **`tmp/seed_dashboard_agent_pinstest_todos_d1.sql`**  (683 lines, 15.3 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_dashboard_agent_e2e_pinstest`, `agentsam_execution_performance_metrics`, `agentsam_execution_steps`, `agentsam_guardrail_rulesets`, `agentsam_plan_tasks`
+- **`scripts/d1-cursor-parity-schema-review.sql`**  (339 lines, 15.1 KB)
+  - D1 tables: `AGENTSAM_IGNORE_AND_RULES`, `agentsam_agent_run`, `agentsam_browser_trusted_origin`, `agentsam_cmd_allow_user`, `agentsam_code_index_job`, `agentsam_command_allowlist`
+- **`artifacts/cms_d1_pull/tables/cms_themes/sample_rows.json`**  (172 lines, 14.8 KB)
+  - R2: `iam-clay`, `iam-dark`, `iam-light`, `iam-midnight-v1`, `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/04_primary_keys.json`**  (597 lines, 14.3 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_audit_snapshots_pkey`, `agentsam_debug_snapshots`, `agentsam_debug_snapshots_pkey`, `agentsam_error_events`, `agentsam_error_events_pkey`
+- **`tmp/seed_dashboard_agent_pinstest_plan_tasks_d1.sql`**  (299 lines, 13.8 KB)
+  - D1 tables: `agentsam_dashboard_agent_e2e_pinstest`, `agentsam_plan_tasks`, `agentsam_plans`, `prompt`
+- **`captures/inneranimalmedia/raw-quality-report/data/d83375b9b40d1b23e827d7d6e081db9758b98920.md`**  (210 lines, 13.3 KB)
+  - D1 tables: `any`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/09_rls_tables.json`**  (639 lines, 13.1 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`migrations/284_image_tables_workspace_id.sql`**  (254 lines, 12.0 KB)
+  - D1 tables: `agentsam_workspace`, `image_generation_jobs`, `image_generation_variants`, `image_metadata`, `images`, `jobs`
+- **`docs/memory/AGENT_MEMORY_SCHEMA_AND_RECORDS.md`**  (158 lines, 12.0 KB)
+  - D1 tables: `agent_memory_index`, `agent_telemetry`, `cloudflare_deployments`, `logs`, `our`, `post`
+  - R2: `inneranimalmedia`
+- **`scripts/d1-kb-insert-canonical-knowledge.sql`**  (203 lines, 12.0 KB)
+  - D1 tables: `agent_memory_index`, `sessions`
+  - R2: `inneranimalmedia-primary`, `kb-iam-d1-canonical-keys-20260322`, `kb-iam-d1-canonical-keys-20260322-c0`
+- **`sql/courses/003_connor_course_lessons_min.sql`**  (453 lines, 12.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `course_lessons`, `sessions`
+- **`migrations/319_seed_wrangler_cmdk_commands.sql`**  (85 lines, 11.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_commands`
+- **`scripts/export_learn_course_d1_context.py`**  (353 lines, 11.5 KB)
+  - D1 tables: `__future__`, `datetime`, `pathlib`, `sqlite_master`, `this`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `r2-resources`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/11_views.json`**  (88 lines, 11.0 KB)
+  - D1 tables: `agent_decisions`, `agent_memory`, `agentsam_error_events`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_recent_errors`
+- **`scripts/sync_scripts_to_d1.py`**  (309 lines, 11.0 KB)
+  - D1 tables: `agentsam_scripts`, `agentsam_skill`, `datetime`, `file`, `pathlib`
+  - R2: `autorag`, `inneranimalmedia-business`
+- **`captures/inneranimalmedia/raw-quality-report/data/9e547fa52aff5c713415aabd36ab941cd1aa5085.md`**  (197 lines, 10.5 KB)
+  - D1 tables: `children`, `time`
+- **`migrations/318_seed_agent_universal_autonomous_run.sql`**  (214 lines, 10.0 KB)
+  - D1 tables: `agentsam_commands`, `agentsam_mcp_tools`, `agentsam_scripts`, `agentsam_tools`, `agentsam_workflow_edges`, `agentsam_workflow_nodes`
+- **`artifacts/cms_d1_pull/tables/cms_assets/table_pull.json`**  (373 lines, 9.9 KB)
+  - D1 tables: `cms_assets`
+  - R2: `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`docs/CURSOR_HANDOFF_D1_CICD_ORCHESTRATION.md`**  (145 lines, 9.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `Cloudflare`, `agentsam_execution_performance_metrics`, `github_repositories`, `running`, `scripts`, `webhook_events`
+- **`migrations/274_plans_tasks_toolchain_alignment.sql`**  (218 lines, 9.6 KB)
+  - D1 tables: `TEXT`, `agentsam_command_run`, `agentsam_plan_tasks`, `agentsam_plan_tasks_new`, `agentsam_plans`, `agentsam_plans_new`
+- **`scripts/ingest-d1-memory.js`**  (267 lines, 9.5 KB)
+  - Components: `MODEL`
+  - D1 tables: `Supabase`, `agent_rules`, `agentsam_guardrails`, `agentsam_memory`, `documents`, `project_memory`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`sql/learn/010_reconcile_software_engineering_builder_os.sql`**  (43 lines, 9.5 KB)
+  - D1 tables: `agentsam_plan_tasks`, `courses`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/21_possible_tenant_scope_columns.md`**  (139 lines, 9.3 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_prompt_runs`, `agentsam_recent_errors`, `agentsam_recent_routing_decisions`
+  - R2: `agent-sam`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/SUMMARY.md`**  (97 lines, 9.2 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_routing_decisions`, `agentsam_stream_events`, `agentsam_tool_call_events`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/findings.json`**  (178 lines, 9.1 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_tool_call_events`, `agentsam_workflow_events`, `agentsam_workflow_steps`, `agentsam_workflows`
+- **`migrations/153_context_mem_mcp.sql`**  (307 lines, 9.0 KB)
+  - D1 tables: `agent_telemetry`, `high`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/TABLE_CHUNKS_INDEX.md`**  (127 lines, 8.8 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`tmp/agent-pinstest/seed_ollama_pinstest_prompt_context.sql`**  (272 lines, 8.5 KB)
+  - Routes: `/api/agent/*`, `/api/analytics/overview`
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_ollama_local_workflow_batch_pinstest`, `agentsam_ollama_local_workflow_pinstest_v2`
+  - R2: `inneranimalmedia`
+- **`artifacts/theme-extracts/create-iam-refined-themes.sql`**  (159 lines, 8.4 KB)
+  - D1 tables: `meaux`
+  - R2: `iam-cloud-navy`, `iam-cloud-navy-monaco`, `iam-moon-glass`, `iam-moon-glass-monaco`, `iam-slate-ice`
+- **`migrations/210_cicd_20260402_morning_github_churn_and_incidents.sql`**  (162 lines, 8.2 KB)
+  - D1 tables: `agent`, `cicd_github_runs`, `cicd_pipeline_runs`, `cicd_run_steps`, `cicd_runs`, `deploy`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.build_deploy_events.md`**  (111 lines, 8.2 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `workspace_memberships`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/19_json_columns.md`**  (122 lines, 8.2 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/05_foreign_keys.md`**  (64 lines, 8.1 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_debug_snapshots_run_id_fkey`, `agentsam_error_events`, `agentsam_error_events_identity_profile_id_fkey`, `agentsam_eval_runs`, `agentsam_eval_runs_identity_profile_id_fkey`
+- **`artifacts/cms_d1_pull/tables/cms_global_settings/table_pull.json`**  (257 lines, 8.0 KB)
+  - D1 tables: `cms_global_settings`
+- **`prototypes/inneranimalmedia-cms-editor/bootstrap_cms_pages_d1_app.py`**  (237 lines, 8.0 KB)
+  - Components: `TABLES`
+  - D1 tables: `__future__`, `cms_component_templates`, `cms_page_sections`, `cms_pages`, `cms_section_components`, `cms_themes`
+  - R2: `inneranimalmedia-business`, `inneranimalmedia-cms-editor`
+- **`scripts/audit/scan_d1_source_kind_usage.py`**  (279 lines, 7.8 KB)
+  - D1 tables: `__future__`, `pathlib`, `sqlite_master`, `typing`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/cms_d1_pull/tables/cms_page_sections/table_pull.json`**  (232 lines, 7.6 KB)
+  - D1 tables: `cms_page_sections`, `concept`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/15_table_sizes.md`**  (113 lines, 7.6 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`docs/D1_TABLES_AND_NEXT_STEPS.md`**  (100 lines, 7.5 KB)  🐛 HARDCODED_R2
+  - D1 tables: `agent_costs`, `agent_telemetry`, `cloudflare_deployments`, `r2_bucket_list`, `real`, `session`
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_d1_pull/tables/cms_3d_assets/table_pull.json`**  (285 lines, 7.4 KB)
+  - D1 tables: `cms_3d_assets`
+  - R2: `inneranimalmedia`
+- **`scripts/export_d1_schema_context.py`**  (275 lines, 7.4 KB)
+  - D1 tables: `SQL`, `__future__`, `datetime`, `pathlib`, `sqlite_master`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/cms_d1_pull/tables/cms_component_templates/table_pull.json`**  (248 lines, 7.3 KB)
+  - D1 tables: `cms_component_templates`
+- **`artifacts/cms_d1_pull/tables/cms_navigation_menus/table_pull.json`**  (186 lines, 7.3 KB)
+  - D1 tables: `cms_navigation_menus`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agent_memory.md`**  (102 lines, 7.3 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `workspace_memberships`
+  - R2: `agent-sam`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/02_table_inventory.md`**  (131 lines, 7.3 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`tmp/ollama_cloud_series/series_d79dac1307ce/insert_d1_runs.sql`**  (87 lines, 7.3 KB)
+  - D1 tables: `agentsam_eval_runs`
+- **`migrations/212_deployments_backfill_git_hash_notes.sql`**  (103 lines, 7.1 KB)
+  - D1 tables: `deployments`, `workspace`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/FINDINGS.md`**  (32 lines, 6.8 KB)
+  - D1 tables: `agentsam_debug_snapshots`, `agentsam_tool_call_events`, `agentsam_workflow_events`, `agentsam_workflow_steps`, `agentsam_workflows`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/13_triggers.json`**  (203 lines, 6.7 KB)
+  - D1 tables: `agentsam_routing_decisions`, `agentsam_updated_at`, `agentsam_workflow_runs`, `agentsam_workflow_runs_updated_at`, `agentsam_workflow_steps`, `agentsam_workflow_steps_updated_at`
+  - R2: `
+  },
+  {
+    `, `,
+    `
+- **`migrations/199_ai_generation_logs_iam_seed_rows.sql`**  (166 lines, 6.5 KB)
+  - D1 tables: `agentsam_code_index_job`, `agentsam_code_index_job_iam_tools`, `agentsam_project_context`, `agentsam_project_context_iam_tools`, `agentsam_skill`, `agentsam_skill_iam_pipeline`
+- **`scripts/d1-normalize-theme-family-light-dark.sql`**  (92 lines, 6.5 KB)
+  - D1 tables: `cms_themes`
+  - R2: `iam-antiocean`, `iam-aurora`, `iam-forge`, `iam-graphite`, `iam-midnight`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.users.md`**  (100 lines, 6.4 KB)
+  - D1 tables: `SSO`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.workspace_memberships.md`**  (95 lines, 6.3 KB)
+- **`migrations/249_integration_catalog.sql`**  (284 lines, 6.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `integration_catalog`
+- **`migrations/341_moviemode_media_backend.sql`**  (155 lines, 6.1 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `media_assets`, `media_scenes`, `moviemode_exports`, `moviemode_projects`, `moviemode_render_jobs`, `moviemode_timelines`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/04_primary_keys.md`**  (106 lines, 6.1 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_audit_snapshots_pkey`, `agentsam_debug_snapshots`, `agentsam_debug_snapshots_pkey`, `agentsam_error_events`, `agentsam_error_events_pkey`
+- **`scripts/maintenance/execution-performance-rollup-backfill.sql`**  (148 lines, 6.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_workspace`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/06_unique_constraints.json`**  (207 lines, 5.9 KB)
+  - D1 tables: `agentsam_eval_suites`, `agentsam_eval_suites_suite_key_key`, `agentsam_model_cost_snapshots`, `agentsam_model_cost_snapshots_provider_model_key_effective__key`, `agentsam_workflow_runs`, `agentsam_workflow_runs_d1_run_id_key`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.codebase_snapshots.md`**  (98 lines, 5.9 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`, `workspace_memberships`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.session_summaries.md`**  (92 lines, 5.9 KB)
+  - D1 tables: `agentsam_plans`, `session_summaries`, `tenant_memberships`
+  - R2: `agent-sam`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.identity_profiles.md`**  (93 lines, 5.8 KB)
+  - D1 tables: `workspace_memberships`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/extensions.pg_stat_statements.md`**  (94 lines, 5.8 KB)
+- **`migrations/310_legacy_table_migration.sql`**  (141 lines, 5.7 KB)
+  - D1 tables: `agent_command_proposals`, `agent_commands`, `agent_costs`, `agentsam_approval_queue`, `agentsam_commands`, `agentsam_slash_commands`
+  - R2: `agent-sam`
+- **`migrations/184_system_b_iam_workspace_shell_ledger.sql`**  (249 lines, 5.7 KB)
+  - D1 tables: `agentsam_agent_run_id`, `workflow_artifacts`, `workflow_steps`
+  - R2: `TOOLS`, `agent-sam-sandbox-cidi`
+- **`scripts/pull_cms_d1_batch.py`**  (240 lines, 5.7 KB)
+  - D1 tables: `__future__`, `pathlib`, `sqlite_master`, `typing`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agent_context_snapshots.md`**  (86 lines, 5.6 KB)
+  - D1 tables: `agentsam_plans`, `workspace_memberships`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.model_performance_snapshots.md`**  (90 lines, 5.5 KB)
+  - D1 tables: `workspace_memberships`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.cost_forecasts.md`**  (92 lines, 5.5 KB)
+- **`learn/software-engineering-builder-os/sql/003_lessons.sql`**  (32 lines, 5.4 KB)
+  - R2: `ai-engineering-agent-sam-routing`, `data-storage-d1-r2-hyperdrive-supabase`
+- **`docs/CICD_TABLES_AND_MIGRATIONS.md`**  (86 lines, 5.4 KB)
+  - D1 tables: `base`, `project_memory`, `repo`, `the`
+  - R2: `inneranimalmedia`
+- **`migrations/226_iam_sprint_plan_binding_ux_d1_20260405.sql`**  (171 lines, 5.3 KB)
+  - D1 tables: `agent`, `agent_telemetry`, `deployments`, `sessions`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.tenant_memberships.md`**  (89 lines, 5.3 KB)
+- **`scripts/cms_01_chunk_schema.py`**  (193 lines, 5.2 KB)
+  - D1 tables: `pathlib`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.semantic_search_log.md`**  (82 lines, 5.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.codebase_chunks.md`**  (90 lines, 5.1 KB)
+  - D1 tables: `workspace_memberships`
+- **`artifacts/cms_d1_pull/tables/cms_theme_preferences/table_pull.json`**  (206 lines, 5.0 KB)
+  - D1 tables: `cms_theme_preferences`
+  - R2: `iam-desert-field`, `iam-ember-terminal`, `iam-engineer-blue`
+- **`artifacts/cms_d1_pull/tables/cms_tenants/table_pull.json`**  (216 lines, 5.0 KB)
+  - D1 tables: `cms_tenants`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.documents.md`**  (85 lines, 5.0 KB)
+  - D1 tables: `workspace_memberships`
+- **`scripts/d1-snapshot-deploy-metrics-last2.sql`**  (94 lines, 5.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_analytics`, `agentsam_code_index_job`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`
+- **`migrations/240_integrations_full_buildout.sql`**  (97 lines, 4.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `integration_events`, `integration_health_checks`, `integration_registry`, `user_api_keys`
+- **`migrations/209_cicd_20260402_session_failures_documentation.sql`**  (165 lines, 4.9 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `cicd_github_runs`, `cicd_pipeline_runs`, `cicd_run_steps`, `cicd_runs`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/09_rls_tables.md`**  (113 lines, 4.9 KB)
+  - D1 tables: `agentsam_audit_snapshots`, `agentsam_debug_snapshots`, `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_model_cost_snapshots`
+- **`migrations/204_project_memory_cidi_three_step_and_plan_steps.sql`**  (43 lines, 4.8 KB)
+  - D1 tables: `plan_steps`, `project_memory`, `skip`
+  - R2: `agent-sam-sandbox-cidi`, `inneranimalmedia`
+- **`artifacts/cms_d1_pull/tables/cms_assets/sample_rows.json`**  (132 lines, 4.8 KB)
+  - R2: `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/01_schema_inventory.json`**  (275 lines, 4.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.knowledge_edges.md`**  (84 lines, 4.7 KB)
+  - D1 tables: `knowledge_edges`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.custom_oauth_providers.md`**  (84 lines, 4.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.codebase_files.md`**  (86 lines, 4.7 KB)
+  - D1 tables: `workspace_memberships`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agent_decisions.md`**  (85 lines, 4.7 KB)
+  - D1 tables: `agentsam_plan_tasks`, `agentsam_plans`
+  - R2: `agent-sam`
+- **`docs/db-audit/smoke_tests_20260514T040915.sql`**  (105 lines, 4.7 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`, `agentsam_execution_steps`, `agentsam_mcp_tool_execution`
+- **`docs/db-audit/smoke_tests_20260513T211935.sql`**  (105 lines, 4.7 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`, `agentsam_execution_steps`, `agentsam_mcp_tool_execution`
+- **`scripts/reports/model_lineup_catalog_update_20260513T230054.sql`**  (24 lines, 4.7 KB)
+  - D1 tables: `agentsam_model_catalog`
+- **`migrations/106_agent_governance_audit_changesets.sql`**  (118 lines, 4.6 KB)
+  - D1 tables: `agent_command_audit_log`, `change_set_items`, `change_sets`, `governance_capabilities`, `governance_roles`, `role_capabilities`
+- **`learn/software-engineering-builder-os/sql/006_lesson_assets.sql`**  (28 lines, 4.6 KB)
+  - R2: `inneranimalmedia`
+- **`migrations/20260329_fix_quality_checks_constraint.sql`**  (111 lines, 4.5 KB)
+  - D1 tables: `quality_checks`, `quality_checks_new`, `your`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0003.md`**  (85 lines, 4.5 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.codebase_symbols.md`**  (83 lines, 4.5 KB)
+  - D1 tables: `workspace_memberships`
+- **`docs/d1-audit-inneranimalmedia-business-2026-03-22.md`**  (99 lines, 4.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_browser_trusted_origin`, `agentsam_code_index_job`, `agentsam_command_allowlist`, `agentsam_cursor_parity`, `agentsam_feature_flag`
+- **`migrations/211_cicd_20260402_sandbox_agent_dashboard_recovery.sql`**  (164 lines, 4.4 KB)
+  - D1 tables: `cicd_github_runs`, `cicd_pipeline_runs`, `cicd_run_steps`, `cicd_runs`, `workspace`
+  - R2: `iam-explorer`
+- **`migrations/272_execution_chain_alignment.sql`**  (100 lines, 4.4 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_escalation`, `agentsam_escalation_new`, `agentsam_execution_context`, `agentsam_execution_context_new`, `agentsam_executions`
+- **`artifacts/cms_d1_pull/tables/cms_global_settings/sample_rows.json`**  (97 lines, 4.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_content/table_pull.json`**  (70 lines, 4.4 KB)
+  - D1 tables: `cms_content`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0067.md`**  (118 lines, 4.4 KB)
+  - D1 tables: `stored`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.designstudio_runs_analytics.md`**  (81 lines, 4.4 KB)
+- **`learn/software-engineering-builder-os/lessons/009_database-studio-workbench.md`**  (140 lines, 4.4 KB)
+  - D1 tables: `agentsam_db_query_history`, `agentsam_db_snippets`, `agentsam_guardrail_events`, `agentsam_guardrails`, `agentsam_tool_call_log`
+- **`migrations/273_hook_alignment.sql`**  (103 lines, 4.3 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_hook`, `agentsam_hook_execution`, `agentsam_hook_execution_new`, `agentsam_hook_new`, `agentsam_mcp_workflows`
+  - R2: `inneranimalmedia`
+- **`migrations/275_kanban_strip_defaults_add_workspace.sql`**  (104 lines, 4.3 KB)
+  - D1 tables: `agentsam_todo`, `kanban_boards`, `kanban_boards_new`, `kanban_columns`, `kanban_columns_new`, `kanban_tasks`
+- **`artifacts/cms_d1_pull/tables/cms_navigation_menus/sample_rows.json`**  (50 lines, 4.3 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_d1_pull/tables/cms_liquid_sections/table_pull.json`**  (183 lines, 4.2 KB)
+  - D1 tables: `cms_liquid_sections`
+- **`artifacts/cms_d1_pull/tables/cms_page_sections/sample_rows.json`**  (82 lines, 4.2 KB)
+  - D1 tables: `concept`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0011.md`**  (130 lines, 4.2 KB)
+  - R2: `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`artifacts/cms_d1_pull/tables/cms_liquid_imports/table_pull.json`**  (179 lines, 4.1 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_liquid_imports`
+- **`artifacts/theme-extracts/upsert-iam-storm-white.sql`**  (71 lines, 4.1 KB)
+  - R2: `iam-storm-white`, `iam-storm-white-monaco`, `inneranimalmedia`, `theme-iam-storm-white`
+- **`artifacts/cms_d1_pull/tables/cms_themes/columns.json`**  (258 lines, 4.0 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0039.md`**  (110 lines, 4.0 KB)
+  - D1 tables: `raw`, `the`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/rebuild_liquid_imports/rebuild_cms_liquid_imports.sql`**  (177 lines, 4.0 KB)
+  - D1 tables: `cms_liquid_imports`, `cms_liquid_imports_old`, `that`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0082.md`**  (128 lines, 3.9 KB)
+  - D1 tables: `indexes`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0009.md`**  (123 lines, 3.9 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.oauth_authorizations.md`**  (76 lines, 3.9 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/11_views.md`**  (24 lines, 3.9 KB)
+  - D1 tables: `agentsam_recent_errors`, `agentsam_recent_routing_decisions`, `agentsam_recent_tool_failures`, `agentsam_stream_run_summary`, `agentsam_tool_c`, `pg_stat_statements_info`
+- **`scripts/d1-sync-session-2026-03-22.sql`**  (52 lines, 3.9 KB)
+  - D1 tables: `agent_memory_index`
+  - R2: `inneranimalmedia-primary`
+- **`migrations/322_semantic_search_log_knowledge_edges_rls.sql`**  (109 lines, 3.8 KB)
+  - D1 tables: `anon`, `authenticated`, `knowledge_edges`, `public`
+- **`artifacts/cms_d1_pull/tables/cms_video_projects/table_pull.json`**  (153 lines, 3.8 KB)
+  - D1 tables: `cms_video_projects`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0087.md`**  (78 lines, 3.8 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0007.md`**  (78 lines, 3.8 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0076.md`**  (107 lines, 3.8 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0058.md`**  (122 lines, 3.8 KB)
+  - D1 tables: `cms_page_sections`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.agent_sessions.md`**  (77 lines, 3.8 KB)
+  - D1 tables: `agentsam_plans`, `sessions`
+  - R2: `agent-sam`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.workspaces.md`**  (81 lines, 3.8 KB)
+- **`scripts/d1-insert-themes-kimbie-solarized-proposal.sql`**  (36 lines, 3.8 KB)
+  - D1 tables: `cms_themes`
+- **`migrations/150_imgx_remote_builtin_tools.sql`**  (165 lines, 3.7 KB)
+  - D1 tables: `text`
+- **`artifacts/cms_d1_pull/tables/cms_collections/table_pull.json`**  (164 lines, 3.7 KB)
+  - D1 tables: `cms_collections`
+- **`artifacts/cms_d1_pull/tables/cms_component_templates/sample_rows.json`**  (92 lines, 3.7 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0020.md`**  (104 lines, 3.7 KB)
+  - D1 tables: `cms_content`, `tenant`, `the`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0060.md`**  (86 lines, 3.7 KB)
+  - D1 tables: `CMS`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0002.md`**  (136 lines, 3.7 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0018.md`**  (114 lines, 3.7 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0069.md`**  (98 lines, 3.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.tenant_context.md`**  (77 lines, 3.7 KB)
+  - D1 tables: `tenant_context`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.message_thread_summaries.md`**  (72 lines, 3.7 KB)
+  - D1 tables: `conversation_members`
+- **`scripts/d1-register-plan-mcp-builtins-finish-20260325.sql`**  (59 lines, 3.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - R2: `autorag`, `iam-docs`
+- **`migrations/209_cidi_meauxcad_chat_log_builds_activity.sql`**  (117 lines, 3.6 KB)
+  - D1 tables: `ai_api_test_runs`, `builds`, `cidi_activity_log`, `first`
+  - R2: `iam-build-meauxcad-aitestsuite-chatlog-6b18e70`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0089.md`**  (83 lines, 3.6 KB)
+  - R2: `iam-light`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0092.md`**  (102 lines, 3.6 KB)
+  - R2: `iam-dark`, `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0000.md`**  (83 lines, 3.6 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0065.md`**  (106 lines, 3.6 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0044.md`**  (112 lines, 3.6 KB)
+  - D1 tables: `this`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0006.md`**  (129 lines, 3.6 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0072.md`**  (99 lines, 3.6 KB)
+  - D1 tables: `ordered`, `reusable`
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0056.md`**  (114 lines, 3.6 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0085.md`**  (86 lines, 3.6 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0095.md`**  (67 lines, 3.6 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0038.md`**  (89 lines, 3.6 KB)
+  - D1 tables: `cms_liquid_sections`, `imported`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/final_fk_fix/final_fix_cms_liquid_sections_fk.sql`**  (126 lines, 3.6 KB)
+  - D1 tables: `cms_component_templates`, `cms_liquid_imports`, `cms_liquid_sections`, `cms_liquid_sections_rebuild_backup`, `cms_page_sections`, `sqlite_master`
+- **`migrations/190_workspace_notes_and_projects_iam_plan.sql`**  (42 lines, 3.5 KB)
+  - D1 tables: `agent_commands`, `workspace_notes`, `workspace_projects`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0061.md`**  (81 lines, 3.5 KB)
+  - D1 tables: `CMS`, `human`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0055.md`**  (82 lines, 3.5 KB)
+  - D1 tables: `cms_page_overrides`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0075.md`**  (99 lines, 3.5 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0086.md`**  (98 lines, 3.5 KB)
+  - D1 tables: `cms_themes`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0074.md`**  (91 lines, 3.5 KB)
+  - D1 tables: `cms_site_pages`, `stored`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0083.md`**  (117 lines, 3.5 KB)
+  - D1 tables: `samples`
+  - R2: `iam-desert-field`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0054.md`**  (125 lines, 3.5 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0026.md`**  (117 lines, 3.5 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0077.md`**  (98 lines, 3.5 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0073.md`**  (77 lines, 3.5 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0063.md`**  (80 lines, 3.5 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0017.md`**  (87 lines, 3.5 KB)
+  - D1 tables: `chunk`, `cms_component_templates`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0091.md`**  (71 lines, 3.5 KB)
+  - D1 tables: `CMS`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0008.md`**  (88 lines, 3.5 KB)
+  - D1 tables: `cms_assets`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0068.md`**  (86 lines, 3.5 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.mfa_factors.md`**  (73 lines, 3.5 KB)
+  - D1 tables: `friendly_name`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.conversation_members.md`**  (68 lines, 3.5 KB)
+  - D1 tables: `conversation_members`
+- **`migrations/334_rescue_route_tool_view_and_default_parent.sql`**  (118 lines, 3.4 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `agentsam_prompt_routes`, `agentsam_route_requirements`, `agentsam_tools_id`
+- **`migrations/254_auth_events_and_integration_normalization.sql`**  (95 lines, 3.4 KB)
+  - D1 tables: `auth_event_log`, `integration_audit_log`, `integration_connections`, `integration_resources`, `oauth_state_nonces`, `sessions`
+- **`migrations/154_unify_mcp_services_to_canonical.sql`**  (115 lines, 3.4 KB)
+  - D1 tables: `mcp_registered_tools`, `mcp_services`
+  - R2: `inneranimalmedia-mcp`
+- **`artifacts/cms_d1_pull/tables/cms_content/sample_rows.json`**  (22 lines, 3.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_3d_assets/sample_rows.json`**  (97 lines, 3.4 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0099.md`**  (89 lines, 3.4 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0004.md`**  (91 lines, 3.4 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0051.md`**  (100 lines, 3.4 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0096.md`**  (89 lines, 3.4 KB)
+  - D1 tables: `row`
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0034.md`**  (86 lines, 3.4 KB)
+  - D1 tables: `Shopify`, `parsed`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0050.md`**  (59 lines, 3.4 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0097.md`**  (76 lines, 3.4 KB)
+  - D1 tables: `cms_video_projects`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0035.md`**  (74 lines, 3.4 KB)
+  - D1 tables: `Shopify`, `cms_liquid_imports`, `local`, `several`, `the`, `theme`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0036.md`**  (99 lines, 3.4 KB)
+  - D1 tables: `agentsam_workflow_runs`, `indexing`, `multiple`, `source`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0057.md`**  (81 lines, 3.4 KB)
+  - D1 tables: `cms_page_sections`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0081.md`**  (77 lines, 3.4 KB)
+  - D1 tables: `cms_theme_preferences`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0052.md`**  (100 lines, 3.4 KB)
+  - D1 tables: `cms_override_versions`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0019.md`**  (81 lines, 3.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.supabase_retention_policies.md`**  (71 lines, 3.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/13_triggers.md`**  (32 lines, 3.4 KB)
+  - D1 tables: `agentsam_routing_decisions`, `agentsam_updated_at`, `agentsam_workflow_runs`, `agentsam_workflow_runs_updated_at`, `agentsam_workflow_steps`, `agentsam_workflow_steps_updated_at`
+- **`docs/iam-docs/platform/d1-schema-overview.md`**  (71 lines, 3.4 KB)
+  - D1 tables: `agentsam_code_index_job`, `queue`, `sessions`
+- **`migrations/149_a11y_mcp_endpoint_and_tools.sql`**  (141 lines, 3.3 KB)
+- **`migrations/266_analytics_unique_add_workspace.sql`**  (68 lines, 3.3 KB)
+  - D1 tables: `INTEGER`, `agentsam_analytics`, `agentsam_analytics_new`, `sessions`
+- **`artifacts/cms_d1_pull/tables/cms_conversions/table_pull.json`**  (157 lines, 3.3 KB)
+  - D1 tables: `cms_conversions`
+- **`artifacts/cms_d1_pull/tables/cms_folders/table_pull.json`**  (155 lines, 3.3 KB)
+  - D1 tables: `cms_folders`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0098.md`**  (108 lines, 3.3 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0014.md`**  (104 lines, 3.3 KB)
+  - D1 tables: `cms_collections`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0010.md`**  (112 lines, 3.3 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0040.md`**  (115 lines, 3.3 KB)
+  - D1 tables: `sessions`, `this`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0001.md`**  (110 lines, 3.3 KB)
+  - D1 tables: `cms_3d_assets`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0012.md`**  (97 lines, 3.3 KB)
+  - D1 tables: `cms_collection_assets`, `the`
+  - R2: `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0033.md`**  (76 lines, 3.3 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0062.md`**  (68 lines, 3.3 KB)
+  - D1 tables: `Cloudflare`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0037.md`**  (105 lines, 3.3 KB)
+  - D1 tables: `agentsam_workflow_runs`, `files`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0049.md`**  (69 lines, 3.3 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0059.md`**  (93 lines, 3.3 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0078.md`**  (73 lines, 3.3 KB)
+  - D1 tables: `adjacent`, `cms_tenants`, `other`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.messages.md`**  (71 lines, 3.3 KB)
+  - D1 tables: `conversation_members`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.refresh_tokens.md`**  (70 lines, 3.3 KB)
+- **`migrations/255_data_retention_policies_cleanup.sql`**  (71 lines, 3.2 KB)
+  - D1 tables: `agentsam_compaction_events`, `agentsam_execution_context`, `agentsam_hook_execution`, `agentsam_mcp_tool_execution`, `agentsam_prompt_cache_keys`, `agentsam_shadow_runs`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0045.md`**  (103 lines, 3.2 KB)
+  - D1 tables: `cms_navigation_menus`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0071.md`**  (102 lines, 3.2 KB)
+  - D1 tables: `the`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0064.md`**  (88 lines, 3.2 KB)
+  - D1 tables: `cms_pages`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0015.md`**  (118 lines, 3.2 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0021.md`**  (122 lines, 3.2 KB)
+  - D1 tables: `cms_content`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0070.md`**  (88 lines, 3.2 KB)
+  - D1 tables: `cms_section_components`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0093.md`**  (78 lines, 3.2 KB)
+  - R2: `iam-dark`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0084.md`**  (102 lines, 3.2 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0053.md`**  (124 lines, 3.2 KB)
+  - D1 tables: `another`, `cms_page_drafts`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0016.md`**  (87 lines, 3.2 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0047.md`**  (60 lines, 3.2 KB)
+  - D1 tables: `code`
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0080.md`**  (97 lines, 3.2 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0066.md`**  (103 lines, 3.2 KB)
+  - D1 tables: `row`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.sessions.md`**  (72 lines, 3.2 KB)
+  - D1 tables: `sessions`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/06_unique_constraints.md`**  (41 lines, 3.2 KB)
+  - D1 tables: `agentsam_eval_suites`, `agentsam_eval_suites_suite_key_key`, `agentsam_model_cost_snapshots`, `agentsam_model_cost_snapshots_provider_model_key_effective__key`, `agentsam_workflow_runs`, `agentsam_workflow_runs_d1_run_id_key`
+- **`migrations/147_backfill_march19_deployments.sql`**  (68 lines, 3.1 KB)
+  - D1 tables: `cursor`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0024.md`**  (94 lines, 3.1 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0031.md`**  (104 lines, 3.1 KB)
+  - D1 tables: `index`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0005.md`**  (96 lines, 3.1 KB)
+  - D1 tables: `cms_activity_log`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0022.md`**  (82 lines, 3.1 KB)
+  - D1 tables: `cms_conversion_jobs`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0032.md`**  (78 lines, 3.1 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0023.md`**  (112 lines, 3.1 KB)
+  - D1 tables: `the`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0042.md`**  (111 lines, 3.1 KB)
+  - D1 tables: `sessions`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.flow_state.md`**  (73 lines, 3.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.tenants.md`**  (76 lines, 3.1 KB)
+- **`docs/memory/D1_CANONICAL_AGENT_KEYS.md`**  (57 lines, 3.1 KB)
+  - D1 tables: `sessions`
+- **`scripts/d1-dump-deploy-metrics-last2.sh`**  (75 lines, 3.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_analytics`, `agentsam_code_index_job`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`
+- **`migrations/207_cidi_aitestsuite_shell_v1_2_0.sql`**  (84 lines, 3.0 KB)
+  - D1 tables: `cidi_activity_log`
+- **`migrations/215_project_memory_agent_dashboard_ui_20260402.sql`**  (71 lines, 3.0 KB)
+  - D1 tables: `picker`, `project_memory`
+  - R2: `agent-sam-sandbox-cicd`, `agent-sam-sandbox-cidi`, `inneranimalmedia`, `inneranimalmedia-agentsam-dashboard`
+- **`migrations/277_workspace_members_dedup_fk.sql`**  (75 lines, 3.0 KB)
+  - D1 tables: `auth_users`, `workspace_members`, `workspace_members_new`
+- **`migrations/205_cidi_cursor_sync_overnight_docs_20260401.sql`**  (83 lines, 3.0 KB)
+  - D1 tables: `cidi_activity_log`
+  - R2: `inneranimalmedia-agentsam-dashboard`
+- **`migrations/276_tenants_enhance_cms_link.sql`**  (61 lines, 3.0 KB)
+  - D1 tables: `cms_tenants`, `kanban_boards`, `kanban_columns`, `kanban_tasks`, `tenants`
+- **`artifacts/cms_d1_pull/tables/cms_conversion_jobs/table_pull.json`**  (142 lines, 3.0 KB)
+  - D1 tables: `cms_conversion_jobs`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0030.md`**  (83 lines, 3.0 KB)
+  - D1 tables: `cms_global_settings`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0025.md`**  (100 lines, 3.0 KB)
+  - D1 tables: `cms_conversions`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0043.md`**  (97 lines, 3.0 KB)
+  - D1 tables: `cms_live_rollbacks`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0027.md`**  (107 lines, 3.0 KB)
+  - D1 tables: `cms_folders`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0028.md`**  (116 lines, 3.0 KB)
+  - D1 tables: `FKs`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0029.md`**  (79 lines, 3.0 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0048.md`**  (76 lines, 3.0 KB)
+  - D1 tables: `remote`
+  - R2: `inneranimalmedia`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.webauthn_credentials.md`**  (69 lines, 3.0 KB)
+- **`scripts/d1-roadmap-mcp-builtins-finish-20260325.sql`**  (65 lines, 3.0 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `mcp_registered_tools`
+- **`migrations/330_mcp_workspace_tokens_security_hardening.sql`**  (58 lines, 2.9 KB)
+  - D1 tables: `mcp_workspace_tokens`
+- **`migrations/227_database_explorer_template_alignment.sql`**  (61 lines, 2.9 KB)
+  - D1 tables: `app`, `external`, `project_files`, `sqlite_master`
+- **`artifacts/cms_d1_pull/tables/cms_page_overrides/table_pull.json`**  (129 lines, 2.9 KB)
+  - D1 tables: `cms_page_overrides`
+- **`artifacts/cms_d1_pull/tables/cms_assets/columns.json`**  (194 lines, 2.9 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0088.md`**  (104 lines, 2.9 KB)
+  - D1 tables: `other`
+  - R2: `iam-light`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0041.md`**  (94 lines, 2.9 KB)
+  - D1 tables: `cms_live_edit_sessions`, `sessions`, `structured`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0079.md`**  (102 lines, 2.9 KB)
+  - D1 tables: `indexes`
+- **`migrations/279_project_context_strip_defaults.sql`**  (68 lines, 2.8 KB)
+  - D1 tables: `agentsam_plans`, `agentsam_project_context`, `agentsam_project_context_new`, `auth`
+- **`migrations/249_billing_plans_public_pricing_products.sql`**  (94 lines, 2.8 KB)
+  - D1 tables: `Stripe`, `billing_plans`
+- **`artifacts/cms_d1_pull/tables/cms_activity_log/table_pull.json`**  (136 lines, 2.8 KB)
+  - D1 tables: `cms_activity_log`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0094.md`**  (57 lines, 2.8 KB)
+  - D1 tables: `sessions`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.designstudio_asset_metrics.md`**  (67 lines, 2.8 KB)
+- **`tmp/ollama_expansive/run_2_sql_d1_generation.json`**  (1 lines, 2.8 KB)
+  - D1 tables: `agentsam_agent_run`
+- **`migrations/155_mcp_services_inneranimalmedia_fields_and_health.sql`**  (85 lines, 2.7 KB)  🐛 HARDCODED_R2
+  - D1 tables: `mcp_services`
+  - R2: `iam-platform`, `inneranimalmedia-assets`, `inneranimalmedia-mcp`, `inneranimalmedia-mcp-server`, `inneranimalmedia-selfhosted`
+- **`migrations/157_mcp_usage_log_rollup_trigger.sql`**  (87 lines, 2.7 KB)
+  - D1 tables: `mcp_tool_calls`, `mcp_usage_log`, `sqlite_master`
+  - R2: `inneranimalmedia-mcp`
+- **`migrations/235_ai_models_openai_gpt_4_1_gpt_5_1_family.sql`**  (76 lines, 2.7 KB)
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0046.md`**  (100 lines, 2.7 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0013.md`**  (107 lines, 2.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.identities.md`**  (67 lines, 2.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.webhook_delivery_attempts.md`**  (66 lines, 2.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.oauth_consents.md`**  (65 lines, 2.7 KB)
+- **`artifacts/cms_d1_pull/tables/cms_override_versions/table_pull.json`**  (117 lines, 2.6 KB)
+  - D1 tables: `cms_override_versions`
+- **`artifacts/cms_ollama_gameplan/chunk_summaries/cms_schema_chunk_0090.md`**  (52 lines, 2.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/supabase_functions.hooks.md`**  (65 lines, 2.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.saml_providers.md`**  (66 lines, 2.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.designstudio_step_metrics.md`**  (65 lines, 2.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/realtime.messages.md`**  (68 lines, 2.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.saml_relay_states.md`**  (64 lines, 2.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.oauth_clients.md`**  (67 lines, 2.6 KB)
+- **`scripts/patch_eval_schema.py`**  (44 lines, 2.6 KB)
+  - D1 tables: `PRAGMA`, `agentsam_agent_run`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_model_routing_memory`, `agentsam_plan_tasks`
+- **`db/seed_canonical_repo_memory.sql`**  (69 lines, 2.6 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_project_context`, `repo`
+- **`migrations/175_sprint_snapshots.sql`**  (68 lines, 2.5 KB)
+  - D1 tables: `agent_telemetry`, `agentsam_agent_run`, `deployments`, `live`, `roadmap_steps`, `sprint_snapshots`
+- **`migrations/270_todo_strip_hardcoded_defaults.sql`**  (66 lines, 2.5 KB)
+  - D1 tables: `agentsam_todo`, `agentsam_todo_new`
+- **`migrations/201_projects_ai_iam_tools_agent_workspace.sql`**  (76 lines, 2.5 KB)
+  - D1 tables: `agentsam_project_context`, `agentsam_project_context_id`
+- **`migrations/271_approval_queue_lock_chain.sql`**  (61 lines, 2.5 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_approval_queue_new`, `agentsam_command_run`, `agentsam_plans`, `agentsam_todo`, `agentsam_workflow_runs`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/supabase_migrations.schema_migrations.md`**  (64 lines, 2.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/extensions.wrappers_fdw_stats.md`**  (62 lines, 2.5 KB)
+  - D1 tables: `origin`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/realtime.subscription.md`**  (63 lines, 2.5 KB)
+- **`migrations/216_mcp_workspace_pty_tools.sql`**  (66 lines, 2.4 KB)
+  - D1 tables: `mcp_registered_tools`, `the`
+- **`migrations/203_cidi_log_git_push_main_393a9c0.sql`**  (82 lines, 2.4 KB)
+  - D1 tables: `cidi_activity_log`
+  - R2: `inneranimalmedia-agentsam-dashboard`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.conversations.md`**  (63 lines, 2.4 KB)
+  - D1 tables: `conversation_members`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.designstudio_user_actions.md`**  (62 lines, 2.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/cron.job_run_details.md`**  (65 lines, 2.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.one_time_tokens.md`**  (63 lines, 2.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.sso_providers.md`**  (60 lines, 2.3 KB)
+- **`scripts/seed-agent-theme-refinement.sql`**  (45 lines, 2.3 KB)
+  - D1 tables: `ai_compiled_context_cache`, `cms_themes`, `the`
+- **`migrations/138_integrations_mcp_tools.sql`**  (101 lines, 2.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Cloudflare`, `Google`
+- **`migrations/186_ws_agentsandbox_workspace.sql`**  (100 lines, 2.2 KB)
+  - R2: `iam-workspace-shell`
+- **`migrations/174_mcp_cursor_cloud_agent_tools.sql`**  (57 lines, 2.2 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.webauthn_challenges.md`**  (61 lines, 2.2 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.mfa_amr_claims.md`**  (61 lines, 2.2 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/01_schema_inventory.md`**  (75 lines, 2.2 KB)
+- **`scripts/d1-wf-dashboard-deploy-code-review-pipelines.sql`**  (43 lines, 2.2 KB)
+  - D1 tables: `ai_workflow_pipelines`
+- **`sql/courses/005_connor_course_exports.sql`**  (82 lines, 2.2 KB)
+  - D1 tables: `agentsam_registration`, `course_exports`
+- **`migrations/179_ui_loading_states.sql`**  (37 lines, 2.1 KB)
+  - D1 tables: `ui_loading_states`
+- **`artifacts/cms_d1_pull/tables/cms_global_settings/columns.json`**  (138 lines, 2.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_3d_assets/columns.json`**  (138 lines, 2.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_imports/columns.json`**  (138 lines, 2.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/cron.job.md`**  (63 lines, 2.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/vault.secrets.md`**  (62 lines, 2.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.mfa_challenges.md`**  (61 lines, 2.1 KB)
+- **`src/core/d1.js`**  (66 lines, 2.1 KB)
+  - D1 tables: `legacy`
+- **`migrations/121_mcp_dashboard_tables.sql`**  (47 lines, 2.0 KB)
+  - D1 tables: `Sessions`, `agent_intent_patterns`, `mcp_agent_sessions`, `mcp_command_suggestions`, `sessions`
+- **`migrations/287_seed_iam_storm_white_cms_theme.sql`**  (51 lines, 2.0 KB)
+  - R2: `iam-storm-white`, `iam-storm-white-monaco`, `theme-iam-storm-white`
+- **`migrations/269_memory_canonical_user_unique.sql`**  (51 lines, 2.0 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_memory_new`
+- **`artifacts/cms_d1_pull/tables/cms_live_edit_sessions/table_pull.json`**  (92 lines, 2.0 KB)
+  - D1 tables: `cms_live_edit_sessions`, `sessions`
+- **`artifacts/cms_d1_pull/tables/cms_tenants/sample_rows.json`**  (77 lines, 2.0 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_d1_pull/tables/cms_component_templates/columns.json`**  (130 lines, 2.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_rollbacks/table_pull.json`**  (100 lines, 2.0 KB)
+  - D1 tables: `cms_live_rollbacks`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.v_active_plan_dashboard.md`**  (58 lines, 2.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.v_designstudio_recent_runs.md`**  (58 lines, 2.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.sso_domains.md`**  (60 lines, 2.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.webhook_secrets.md`**  (60 lines, 2.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.audit_log_entries.md`**  (59 lines, 2.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.oauth_client_states.md`**  (58 lines, 2.0 KB)
+- **`sql/courses/002_connor_course_modules.sql`**  (86 lines, 2.0 KB)
+  - D1 tables: `course_modules`
+- **`artifacts/cms_d1_pull/tables/cms_liquid_sections/columns.json`**  (122 lines, 1.9 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.provider_budget_status.md`**  (57 lines, 1.9 KB)
+- **`docs/inneranimalmedia/product/designstudio/design-blueprints-schema.sql`**  (81 lines, 1.9 KB)
+  - D1 tables: `application`, `designstudio_design_blueprints`
+- **`tmp/ollama_cloud_series/series_8e51e1be0ff4/6109f665-e0ce-401c-a07f-500c399ead16.artifact.json`**  (25 lines, 1.9 KB)
+  - D1 tables: `InnerAnimalMedia`
+- **`sql/courses/001_connor_course.sql`**  (61 lines, 1.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `courses`
+- **`migrations/20260329_recreate_views_from_repo.sql`**  (47 lines, 1.8 KB)
+  - D1 tables: `agent_telemetry`, `mcp_registered_tools`, `mcp_tool_calls`
+- **`migrations/236_user_intake_profiles.sql`**  (47 lines, 1.8 KB)
+  - D1 tables: `iam_user_onboarding_step`, `legacy`, `user_intake_profiles`
+- **`migrations/313_mcp_execution_action_context.sql`**  (54 lines, 1.8 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_mcp_tools`
+- **`migrations/116_browser_rendering_and_agent_tools.sql`**  (32 lines, 1.8 KB)
+  - D1 tables: `agent_workspace_state`, `playwright_jobs`, `prior`, `sessions`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/net._http_response.md`**  (59 lines, 1.8 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/supabase_functions.migrations.md`**  (58 lines, 1.8 KB)
+- **`scripts/d1-refinements-optional-post-audit.sql`**  (39 lines, 1.8 KB)
+  - D1 tables: `agent_sessions`, `agentsam_agent_run`, `cms_themes`, `existing`, `sessions`
+- **`tmp/ollama_cloud_series/series_299cfc64ce8c/e55b186e-b46e-498b-ba24-7a9b80202d15.artifact.json`**  (23 lines, 1.8 KB)
+  - D1 tables: `the`
+- **`migrations/308_python_execute_skill_and_mcp.sql`**  (43 lines, 1.7 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_skill`
+- **`migrations/111_agent_telemetry_and_latest_deploy.sql`**  (51 lines, 1.7 KB)
+  - D1 tables: `agent_telemetry`, `cloudflare_deployments`, `projects`
+  - R2: `inneranimalmedia`
+- **`migrations/129_agent_execution_plans_and_queue.sql`**  (34 lines, 1.7 KB)
+  - D1 tables: `agent_execution_plans`, `agent_request_queue`
+- **`artifacts/cms_d1_pull/tables/cms_page_sections/columns.json`**  (114 lines, 1.7 KB)
+- **`artifacts/cms_d1_pull/tables/cms_navigation_menus/columns.json`**  (114 lines, 1.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/05_foreign_keys.error.json`**  (4 lines, 1.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.instances.md`**  (58 lines, 1.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/05_foreign_keys.error.json`**  (4 lines, 1.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/05_foreign_keys.ERROR.md`**  (49 lines, 1.7 KB)
+  - D1 tables: `information_schema`
+- **`sql/supabase/search_all_context.sql`**  (51 lines, 1.7 KB)
+  - D1 tables: `pg_proc`, `public`
+- **`migrations/225_database_explorer_unified_search.sql`**  (46 lines, 1.6 KB)
+  - D1 tables: `ai_query_history`, `ai_query_snippets`, `ai_search_analytics`
+- **`migrations/171_imgx_gemini_imagen_tool_copy.sql`**  (15 lines, 1.6 KB)
+  - D1 tables: `mcp_registered_tools`
+- **`migrations/288_iam_storm_white_monaco_bg_correction.sql`**  (15 lines, 1.6 KB)
+  - D1 tables: `cms_themes`
+  - R2: `iam-storm-white`
+- **`artifacts/cms_d1_pull/tables/cms_theme_preferences/sample_rows.json`**  (58 lines, 1.6 KB)
+  - R2: `iam-desert-field`, `iam-ember-terminal`, `iam-engineer-blue`
+- **`artifacts/cms_d1_pull/tables/cms_page_overrides/columns.json`**  (106 lines, 1.6 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_drafts/table_pull.json`**  (73 lines, 1.6 KB)
+  - D1 tables: `cms_page_drafts`
+- **`artifacts/cms_d1_pull/tables/cms_collection_assets/table_pull.json`**  (71 lines, 1.6 KB)
+  - D1 tables: `cms_collection_assets`
+- **`artifacts/cms_d1_pull/tables/cms_tenants/columns.json`**  (106 lines, 1.6 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversions/columns.json`**  (106 lines, 1.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/17_fk_columns_missing_indexes.error.json`**  (4 lines, 1.6 KB)
+  - D1 tables: `fk_cols`, `indexed`, `pg_constraint`, `pg_index`, `unnest`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/17_fk_columns_missing_indexes.ERROR.md`**  (56 lines, 1.6 KB)
+  - D1 tables: `fk_cols`, `indexed`, `pg_constraint`, `pg_index`, `unnest`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/05_foreign_keys.ERROR.md`**  (49 lines, 1.6 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.v_designstudio_overview_30d.md`**  (54 lines, 1.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/realtime.schema_migrations.md`**  (55 lines, 1.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.v_designstudio_overview_today.md`**  (54 lines, 1.6 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/17_fk_columns_missing_indexes.error.json`**  (4 lines, 1.6 KB)
+  - D1 tables: `fk_cols`, `indexed`, `pg_constraint`, `pg_index`, `unnest`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/17_fk_columns_missing_indexes.ERROR.md`**  (56 lines, 1.6 KB)
+  - D1 tables: `fk_cols`, `indexed`, `pg_constraint`, `pg_index`, `unnest`
+- **`tmp/openai-smoke/d1-detail/tool_chain.json`**  (53 lines, 1.6 KB)
+- **`migrations/120_otlp_traces.sql`**  (44 lines, 1.5 KB)
+  - D1 tables: `Workers`, `otlp_traces`
+- **`migrations/170_imgx_tool_openai_only_description.sql`**  (15 lines, 1.5 KB)
+  - D1 tables: `chat`, `mcp_registered_tools`
+- **`migrations/285_otlp_traces_multitenant.sql`**  (47 lines, 1.5 KB)
+  - D1 tables: `otlp_traces`, `session`
+- **`migrations/20260329_batch2_rag_quality_pipeline.sql`**  (22 lines, 1.5 KB)
+- **`migrations/145_deployments_tracking_tables.sql`**  (47 lines, 1.5 KB)
+  - D1 tables: `activity_signals`, `deployment_changes`, `deployments`, `sessions`, `work_sessions`
+- **`migrations/223_cicd_deploy_log_columns.sql`**  (24 lines, 1.5 KB)
+- **`artifacts/cms_d1_pull/tables/cms_theme_preferences/columns.json`**  (98 lines, 1.5 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversion_jobs/columns.json`**  (98 lines, 1.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/17_fk_columns_missing_indexes.error.json`**  (4 lines, 1.5 KB)
+  - D1 tables: `fk_cols`, `indexed`, `pg_constraint`, `pg_index`, `unnest`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/net.http_request_queue.md`**  (55 lines, 1.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.v_plan_tool_costs.md`**  (55 lines, 1.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/17_fk_columns_missing_indexes.ERROR.md`**  (58 lines, 1.5 KB)
+  - D1 tables: `fk_cols`, `indexed`, `pg_constraint`, `pg_index`, `unnest`
+- **`migrations/110_agent_dashboard_integration_deploy.sql`**  (35 lines, 1.4 KB)
+  - D1 tables: `cloudflare_deployments`, `projects`, `sessions`
+  - R2: `inneranimalmedia`
+- **`migrations/107_inneranimalmedia_deployment_record.sql`**  (37 lines, 1.4 KB)
+  - D1 tables: `cloudflare_deployments`, `march1st`, `projects`, `this`, `wrangler`
+  - R2: `inneranimalmedia`
+- **`migrations/144_user_oauth_tokens_multi_github.sql`**  (26 lines, 1.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `user_oauth_tokens`, `user_oauth_tokens_new`
+- **`migrations/222_commands_table_sync_session_autorag.sql`**  (56 lines, 1.4 KB)
+- **`migrations/121_mcp_dashboard_tables_part2.sql`**  (13 lines, 1.4 KB)
+- **`migrations/121_mcp_dashboard_tables_part1.sql`**  (39 lines, 1.4 KB)
+  - D1 tables: `agent_intent_patterns`, `mcp_agent_sessions`, `mcp_command_suggestions`, `sessions`
+- **`migrations/drop_secret_audit_log_fk.sql`**  (55 lines, 1.4 KB)
+  - D1 tables: `secret_audit_log`, `secret_audit_log__new`
+- **`migrations/247_designstudio_design_blueprints.sql`**  (52 lines, 1.4 KB)
+  - D1 tables: `designstudio_design_blueprints`
+- **`migrations/194_agent_workspace_state_iam_tools.sql`**  (46 lines, 1.4 KB)
+- **`migrations/d1/247_designstudio_design_blueprints.sql`**  (52 lines, 1.4 KB)
+  - D1 tables: `designstudio_design_blueprints`
+- **`artifacts/cms_d1_pull/tables/cms_collections/sample_rows.json`**  (57 lines, 1.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_override_versions/columns.json`**  (90 lines, 1.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/vault.decrypted_secrets.md`**  (54 lines, 1.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.v_designstudio_asset_rollup.md`**  (52 lines, 1.4 KB)
+- **`tmp/openai-smoke/d1-detail/usage_events.json`**  (51 lines, 1.4 KB)
+  - D1 tables: `agentsam_tool_chain`
+- **`migrations/202_projects_iam_tools_fix_projects_check.sql`**  (31 lines, 1.3 KB)
+  - D1 tables: `agentsam_project_context`, `agentsam_project_context_id`
+- **`migrations/130_agent_generate_execution_plan_tool.sql`**  (28 lines, 1.3 KB)
+- **`migrations/192_vectorize_registry_tools_agent_workspace_label.sql`**  (21 lines, 1.3 KB)
+  - D1 tables: `vectorize_index_registry`
+  - R2: `tools-inneranimalmedia-com`
+- **`migrations/113_cloudflare_deployments_and_checkpoints.sql`**  (30 lines, 1.3 KB)
+  - D1 tables: `cloudflare_deployments`, `workflow_checkpoints`
+- **`migrations/161_mcp_usage_log_trigger_minimal.sql`**  (28 lines, 1.3 KB)
+  - D1 tables: `mcp_usage_log`
+- **`migrations/315_integration_local_tunnel_catalog.sql`**  (32 lines, 1.3 KB)
+- **`migrations/175_cidi_pipeline.sql`**  (39 lines, 1.3 KB)
+  - D1 tables: `cidi_pipeline_runs`, `cidi_run_results`
+- **`migrations/191_vectorize_index_registry_d1_rag.sql`**  (49 lines, 1.3 KB)
+- **`artifacts/cms_d1_pull/tables/cms_video_projects/sample_rows.json`**  (38 lines, 1.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/14_extensions.json`**  (73 lines, 1.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.v_plan_evidence_timeline.md`**  (52 lines, 1.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/auth.schema_migrations.md`**  (52 lines, 1.3 KB)
+- **`scripts/repair-model-catalog-safe.sql`**  (40 lines, 1.3 KB)
+  - D1 tables: `ai_models`
+- **`src/core/d1-read-validator.js`**  (47 lines, 1.3 KB)
+- **`migrations/221_agent_command_sync_session_autorag.sql`**  (44 lines, 1.2 KB)
+  - D1 tables: `repo`
+  - R2: `sync-session-autorag`
+- **`migrations/298_retire_claude_haiku_3_context_cap.sql`**  (33 lines, 1.2 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_ai_provider_model_key`
+- **`migrations/117_agent_command_proposals_terminal_history.sql`**  (25 lines, 1.2 KB)
+  - D1 tables: `agent_command_proposals`, `terminal_history`
+- **`migrations/137_mcp_tool_calls_table.sql`**  (23 lines, 1.2 KB)
+  - D1 tables: `mcp_tool_calls`
+- **`migrations/303_secret_audit_log_source_expansion.sql`**  (38 lines, 1.2 KB)
+  - D1 tables: `secret_audit_log`, `secret_audit_log_old`
+- **`artifacts/cms_d1_pull/tables/cms_activity_log/columns.json`**  (82 lines, 1.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_video_projects/columns.json`**  (82 lines, 1.2 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/extensions.hypopg_hidden_indexes.md`**  (51 lines, 1.2 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/public.d1_databases.md`**  (52 lines, 1.2 KB)
+- **`scripts/d1-dashboard-versions-v138.sql`**  (9 lines, 1.2 KB)
+  - D1 tables: `agent`, `workspace`
+- **`scripts/d1-insert-infra-doc-d1-canonical.sql`**  (34 lines, 1.2 KB)
+  - R2: `iam-platform`
+- **`tmp/openai-smoke/d1-detail/execution_steps.json`**  (49 lines, 1.2 KB)
+- **`migrations/108_finance_apis_deploy.sql`**  (34 lines, 1.1 KB)
+  - D1 tables: `cloudflare_deployments`, `projects`
+  - R2: `inneranimalmedia`
+- **`migrations/262_fix_context_optimization_savings_view.sql`**  (40 lines, 1.1 KB)
+  - D1 tables: `agentsam_compaction_events`
+- **`migrations/161_mcp_usage_log_unique_constraint.sql`**  (27 lines, 1.1 KB)
+  - D1 tables: `mcp_usage_log`
+- **`migrations/230_register_imessage_skills.sql`**  (13 lines, 1.1 KB)
+  - D1 tables: `agentsam_skill`, `iMessage`
+- **`migrations/256_cms_theme_preferences.sql`**  (27 lines, 1.1 KB)
+  - D1 tables: `cms_theme_preferences`
+- **`migrations/112_agent_sessions_messages.sql`**  (25 lines, 1.1 KB)
+  - D1 tables: `agent_messages`, `agent_sessions`, `sessions`
+- **`migrations/131_playwright_tools.sql`**  (41 lines, 1.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collections/columns.json`**  (74 lines, 1.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_themes/create_sql.json`**  (4 lines, 1.1 KB)
+  - D1 tables: `cms_themes`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/extensions.hypopg_list_indexes.md`**  (50 lines, 1.1 KB)
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/cms_seed_review.sql`**  (24 lines, 1.1 KB)
+  - D1 tables: `cms_page_sections`, `cms_pages`, `section_data_seed`
+- **`scripts/maintenance/backfill-eval-runs-provider.sql`**  (23 lines, 1.1 KB)
+  - D1 tables: `agentsam_eval_runs`, `public`
+- **`migrations/119_ai_compiled_context_cache.sql`**  (22 lines, 1.0 KB)
+  - D1 tables: `ai_compiled_context_cache`
+- **`migrations/305_deprecate_dot_notation_anthropic_models.sql`**  (30 lines, 1.0 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_routing_arms`
+- **`migrations/109_agent_footer_ai_spend.sql`**  (34 lines, 1.0 KB)
+  - D1 tables: `cloudflare_deployments`, `projects`
+  - R2: `inneranimalmedia`
+- **`migrations/237_ai_models_picker_eligible_picker_group.sql`**  (19 lines, 1.0 KB)
+  - D1 tables: `ai_models`, `provider`
+- **`migrations/126_knowledge_search_tool.sql`**  (28 lines, 1.0 KB)
+  - R2: `inneranimalmedia-aisearch`
+- **`migrations/208_cicd_runs_plan_routing_fixes_20260402.sql`**  (39 lines, 1.0 KB)
+  - D1 tables: `cicd_runs`
+- **`migrations/148_workspace_default_and_theme.sql`**  (15 lines, 1.0 KB)
+  - D1 tables: `cms_themes`
+- **`migrations/158_mcp_tool_drift_view.sql`**  (34 lines, 1.0 KB)
+  - D1 tables: `mcp_registered_tools`, `mcp_tool_calls`, `v_mcp_tool_drift`
+- **`migrations/241_mcp_entitlements.sql`**  (20 lines, 1.0 KB)
+  - D1 tables: `mcp_entitlements`
+- **`migrations/188_workspace_audit_log_cursor_workspace_seed.sql`**  (33 lines, 1.0 KB)
+- **`migrations/238_execution_dependency_graph_overview_mock.sql`**  (22 lines, 1.0 KB)
+  - D1 tables: `agentsam_execution_dependency_graph`, `agentsam_tool_chain`
+- **`artifacts/cms_d1_pull/tables/cms_liquid_imports/create_sql.json`**  (4 lines, 1.0 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_liquid_imports`
+- **`artifacts/cms_d1_pull/tables/cms_live_rollbacks/columns.json`**  (66 lines, 1.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_folders/sample_rows.json`**  (47 lines, 1.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/03_column_inventory.error.json`**  (4 lines, 1.0 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/15_table_sizes.error.json`**  (4 lines, 1.0 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/04_primary_keys.error.json`**  (4 lines, 1.0 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/03_column_inventory.error.json`**  (4 lines, 1.0 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/15_table_sizes.error.json`**  (4 lines, 1.0 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/06_unique_constraints.error.json`**  (4 lines, 1.0 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/03_column_inventory.ERROR.md`**  (35 lines, 1.0 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/06_unique_constraints.ERROR.md`**  (31 lines, 1.0 KB)
+  - D1 tables: `information_schema`
+- **`scripts/d1-kimbie-cssvars-full-sync.sql`**  (8 lines, 1.0 KB)
+  - D1 tables: `cms_themes`
+- **`migrations/156_mcp_health_status_healthy.sql`**  (25 lines, 0.9 KB)
+  - D1 tables: `mcp_services`
+  - R2: `inneranimalmedia-mcp`
+- **`migrations/187_workspace_projects_wp_inneranimalmedia.sql`**  (39 lines, 0.9 KB)
+  - R2: `inneranimalmedia`
+- **`migrations/135_mcp_tracking_columns.sql`**  (13 lines, 0.9 KB)
+  - D1 tables: `sessions`
+- **`artifacts/cms_d1_pull/tables/cms_liquid_sections/create_sql.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `cms_liquid_sections`
+- **`artifacts/cms_d1_pull/tables/cms_live_edit_sessions/columns.json`**  (58 lines, 0.9 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/04_primary_keys.error.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/12_functions.error.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `pg_proc`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/21_possible_tenant_scope_columns.error.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/06_unique_constraints.error.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/15_table_sizes.ERROR.md`**  (31 lines, 0.9 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/21_possible_tenant_scope_columns.ERROR.md`**  (36 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/03_column_inventory.ERROR.md`**  (35 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/04_primary_keys.ERROR.md`**  (31 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/06_unique_constraints.ERROR.md`**  (31 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/table_chunks/extensions.pg_stat_statements_info.md`**  (47 lines, 0.9 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/12_functions.error.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `pg_proc`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/21_possible_tenant_scope_columns.error.json`**  (4 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/15_table_sizes.ERROR.md`**  (31 lines, 0.9 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/21_possible_tenant_scope_columns.ERROR.md`**  (36 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/12_functions.ERROR.md`**  (31 lines, 0.9 KB)
+  - D1 tables: `pg_proc`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/04_primary_keys.ERROR.md`**  (31 lines, 0.9 KB)
+  - D1 tables: `information_schema`
+- **`scripts/d1-roadmap-multi-project-search.sql`**  (20 lines, 0.9 KB)
+  - D1 tables: `one`
+- **`scripts/sql/seed-browser-trusted-origins-inneranimal.sql`**  (25 lines, 0.9 KB)
+  - D1 tables: `agentsam_browser_trusted_origin`
+- **`migrations/200_ai_integrations_openai_webhook_url.sql`**  (12 lines, 0.8 KB)
+  - Routes: `/api/hooks/openai`, `/api/webhooks/openai`
+  - D1 tables: `ai_integrations`
+- **`migrations/307_delete_deprecated_anthropic_ghost_catalog.sql`**  (21 lines, 0.8 KB)
+  - D1 tables: `agentsam_ai`
+- **`migrations/193_vectorize_registry_binding_tools.sql`**  (12 lines, 0.8 KB)
+  - D1 tables: `vectorize_index_registry`
+- **`migrations/218_ai_generation_logs_tokens.sql`**  (12 lines, 0.8 KB)
+- **`migrations/213_deployments_canonical_sandbox_dashboard_v6.sql`**  (10 lines, 0.8 KB)
+  - D1 tables: `deployments`
+- **`migrations/115_deployment_notes_and_failure_record.sql`**  (17 lines, 0.8 KB)
+  - D1 tables: `cloudflare_deployments`
+  - R2: `inneranimalmedia`
+- **`migrations/d1_manual/20260514_dashboard_projects_c2_work_items.sql`**  (17 lines, 0.8 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_todo`
+- **`artifacts/cms_d1_pull/tables/cms_theme_preferences/indexes.json`**  (44 lines, 0.8 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_drafts/columns.json`**  (50 lines, 0.8 KB)
+- **`artifacts/cms_d1_pull/tables/cms_assets/create_sql.json`**  (4 lines, 0.8 KB)
+  - D1 tables: `cms_assets`
+- **`artifacts/cms_d1_pull/tables/cms_folders/columns.json`**  (58 lines, 0.8 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/07_check_constraints.error.json`**  (4 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/16_missing_primary_keys.error.json`**  (4 lines, 0.8 KB)
+  - D1 tables: `pg_class`, `pg_index`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/20_timestamp_columns.error.json`**  (4 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/20_timestamp_columns.ERROR.md`**  (31 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/12_functions.ERROR.md`**  (31 lines, 0.8 KB)
+  - D1 tables: `pg_proc`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/07_check_constraints.ERROR.md`**  (29 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/16_missing_primary_keys.ERROR.md`**  (32 lines, 0.8 KB)
+  - D1 tables: `pg_class`, `pg_index`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/07_check_constraints.error.json`**  (4 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/16_missing_primary_keys.error.json`**  (4 lines, 0.8 KB)
+  - D1 tables: `pg_class`, `pg_index`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/20_timestamp_columns.error.json`**  (4 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/20_timestamp_columns.ERROR.md`**  (31 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/07_check_constraints.ERROR.md`**  (29 lines, 0.8 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/16_missing_primary_keys.ERROR.md`**  (32 lines, 0.8 KB)
+  - D1 tables: `pg_class`, `pg_index`
+- **`scripts/d1-roadmap-cli-npm-runbook-pointer.sql`**  (16 lines, 0.8 KB)
+  - D1 tables: `roadmap_plans`, `roadmap_steps`
+- **`scripts/d1-update-today-todo-20260324.sql`**  (7 lines, 0.8 KB)
+  - D1 tables: `agent_memory_index`
+- **`migrations/267_plans_todo_tenant_workspace.sql`**  (15 lines, 0.7 KB)
+  - D1 tables: `agent_model_registry`, `agentsam_approval_queue`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_todo`
+- **`migrations/198_ai_generation_logs_extend.sql`**  (12 lines, 0.7 KB)
+- **`migrations/114_add_deploy_timing_columns.sql`**  (10 lines, 0.7 KB)
+  - D1 tables: `cloudflare_deployments`
+- **`migrations/231_register_time_skills.sql`**  (9 lines, 0.7 KB)
+  - D1 tables: `agentsam_skill`
+- **`migrations/134_mcp_usage_log.sql`**  (16 lines, 0.7 KB)
+  - D1 tables: `mcp_usage_log`
+- **`migrations/168_keyboard_shortcuts.sql`**  (16 lines, 0.7 KB)
+  - D1 tables: `keyboard_shortcuts`
+- **`migrations/141_user_workspace_settings.sql`**  (17 lines, 0.7 KB)
+  - D1 tables: `user_workspace_settings`
+- **`migrations/124_terminal_sessions.sql`**  (20 lines, 0.7 KB)
+  - D1 tables: `sessions`, `terminal_sessions`
+- **`migrations/add_auth_verification.sql`**  (18 lines, 0.7 KB)
+  - D1 tables: `email_verification_tokens`
+- **`artifacts/cms_d1_pull/tables/cms_theme_preferences/create_sql.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `cms_theme_preferences`
+- **`artifacts/cms_d1_pull/tables/cms_page_overrides/create_sql.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `cms_page_overrides`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/SUMMARY.md`**  (38 lines, 0.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/02_table_inventory.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/19_json_columns.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/09_rls_tables.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/13_triggers.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/09_rls_tables.ERROR.md`**  (28 lines, 0.7 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/02_table_inventory.ERROR.md`**  (26 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/19_json_columns.ERROR.md`**  (28 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/13_triggers.ERROR.md`**  (27 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/SUMMARY.md`**  (38 lines, 0.7 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/02_table_inventory.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/19_json_columns.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/09_rls_tables.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/13_triggers.error.json`**  (4 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/09_rls_tables.ERROR.md`**  (28 lines, 0.7 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/02_table_inventory.ERROR.md`**  (26 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/19_json_columns.ERROR.md`**  (28 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/13_triggers.ERROR.md`**  (27 lines, 0.7 KB)
+  - D1 tables: `information_schema`
+- **`docs/iam-docs/agent-memory-schema.sql`**  (17 lines, 0.7 KB)
+  - D1 tables: `public`
+  - R2: `agent-sam`
+- **`docs/iam-docs/ingest-documents-schema.sql`**  (21 lines, 0.7 KB)
+  - D1 tables: `public`
+- **`migrations/142_user_backup_codes.sql`**  (15 lines, 0.6 KB)
+  - D1 tables: `user_backup_codes`
+- **`migrations/128_ai_models_sonnet_4_6.sql`**  (25 lines, 0.6 KB)
+- **`migrations/REFERENCE_theme_terminal_quick_actions.json`**  (11 lines, 0.6 KB)
+- **`migrations/326_user_workspace_settings_theme_column.sql`**  (10 lines, 0.6 KB)
+- **`migrations/127_agent_configs_add_columns.sql`**  (8 lines, 0.6 KB)
+  - D1 tables: `agent_configs`, `older`
+  - R2: `agent-sam-primary`
+- **`migrations/172_ai_models_cursor_secret_and_picker.sql`**  (16 lines, 0.6 KB)
+  - D1 tables: `ai_models`, `repo`
+- **`migrations/127_agent_configs_default_model.sql`**  (13 lines, 0.6 KB)
+  - D1 tables: `agent_configs`
+  - R2: `agent-sam-primary`
+- **`migrations/245_deployments_weekly_rollup.sql`**  (18 lines, 0.6 KB)
+  - D1 tables: `deployments_weekly_rollup`
+- **`migrations/214_auth_users_tenant_id.sql`**  (8 lines, 0.6 KB)
+  - D1 tables: `auth_users`, `billing`
+- **`artifacts/cms_d1_pull/tables/cms_global_settings/create_sql.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `cms_global_settings`
+- **`artifacts/cms_d1_pull/tables/cms_liquid_sections/foreign_keys.json`**  (32 lines, 0.6 KB)
+- **`artifacts/cms_d1_pull/tables/cms_override_versions/create_sql.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `cms_override_versions`
+- **`artifacts/cms_d1_pull/tables/cms_component_templates/create_sql.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `cms_component_templates`
+- **`artifacts/cms_d1_pull/tables/cms_3d_assets/create_sql.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `cms_3d_assets`
+- **`artifacts/cms_d1_pull/tables/cms_conversions/create_sql.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `cms_conversions`
+- **`artifacts/cms_d1_pull/tables/cms_page_sections/create_sql.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `cms_page_sections`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/08_indexes.error.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `pg_indexes`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/10_rls_policies.error.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `pg_policies`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/18_public_tables_without_rls.error.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/18_public_tables_without_rls.ERROR.md`**  (26 lines, 0.6 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/10_rls_policies.ERROR.md`**  (29 lines, 0.6 KB)
+  - D1 tables: `pg_policies`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/08_indexes.ERROR.md`**  (26 lines, 0.6 KB)
+  - D1 tables: `pg_indexes`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/08_indexes.error.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `pg_indexes`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/10_rls_policies.error.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `pg_policies`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/01_schema_inventory.error.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `pg_namespace`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/18_public_tables_without_rls.error.json`**  (4 lines, 0.6 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/18_public_tables_without_rls.ERROR.md`**  (26 lines, 0.6 KB)
+  - D1 tables: `pg_class`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/10_rls_policies.ERROR.md`**  (29 lines, 0.6 KB)
+  - D1 tables: `pg_policies`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/08_indexes.ERROR.md`**  (26 lines, 0.6 KB)
+  - D1 tables: `pg_indexes`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/01_schema_inventory.ERROR.md`**  (24 lines, 0.6 KB)
+  - D1 tables: `pg_namespace`
+- **`scripts/d1-time-entry-2026-03-23-autorag.sql`**  (26 lines, 0.6 KB)
+  - D1 tables: `project_time_entries`
+  - R2: `inneranimalmedia`, `pte-2026-03-23-autorag-session`
+- **`migrations/288_sessions_workspace_work_session_id.sql`**  (8 lines, 0.5 KB)
+  - D1 tables: `sessions`
+- **`migrations/123_user_oauth_tokens.sql`**  (15 lines, 0.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `user_oauth_tokens`
+- **`migrations/331_knowledge_edges_source_type_architecture.sql`**  (19 lines, 0.5 KB)
+  - D1 tables: `knowledge_edges`
+- **`migrations/133_agent_conversations_project_id.sql`**  (7 lines, 0.5 KB)
+- **`migrations/136_terminal_history_columns.sql`**  (7 lines, 0.5 KB)
+- **`migrations/281_playwright_jobs_user_workspace.sql`**  (9 lines, 0.5 KB)
+- **`migrations/339_agent_mode_configs_drop_model_preference.sql`**  (6 lines, 0.5 KB)
+  - D1 tables: `agent_mode_configs`, `agentsam_routing_arms`
+- **`migrations/173_ai_models_cursor_model_keys_from_v0_models.sql`**  (6 lines, 0.5 KB)
+  - D1 tables: `ai_models`, `picker`
+- **`migrations/242_mcp_entitlements_services.sql`**  (12 lines, 0.5 KB)
+- **`migrations/135_remaining_columns.sql`**  (8 lines, 0.5 KB)
+  - D1 tables: `sessions`
+- **`migrations/306_deprecate_legacy_haiku_3_5_catalog.sql`**  (11 lines, 0.5 KB)
+  - D1 tables: `agentsam_ai`
+- **`migrations/338_agent_mode_configs_refresh_stale_model_pref.sql`**  (8 lines, 0.5 KB)
+  - D1 tables: `agent_mode_configs`, `agentsam_ai`
+- **`artifacts/cms_d1_pull/tables/cms_collection_assets/columns.json`**  (34 lines, 0.5 KB)
+- **`artifacts/cms_d1_pull/tables/cms_tenants/create_sql.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `cms_tenants`
+- **`artifacts/cms_d1_pull/tables/cms_assets/indexes.json`**  (30 lines, 0.5 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversion_jobs/create_sql.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `cms_conversion_jobs`
+- **`artifacts/cms_d1_pull/tables/cms_navigation_menus/create_sql.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `cms_navigation_menus`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/11_views.error.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/01_schema_inventory.error.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `pg_namespace`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/14_extensions.error.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `pg_extension`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/14_extensions.ERROR.md`**  (24 lines, 0.5 KB)
+  - D1 tables: `pg_extension`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/11_views.ERROR.md`**  (24 lines, 0.5 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/01_schema_inventory.ERROR.md`**  (24 lines, 0.5 KB)
+  - D1 tables: `pg_namespace`
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/14_extensions.md`**  (21 lines, 0.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/00_database_identity.error.json`**  (4 lines, 0.5 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/11_views.error.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/14_extensions.error.json`**  (4 lines, 0.5 KB)
+  - D1 tables: `pg_extension`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/14_extensions.ERROR.md`**  (24 lines, 0.5 KB)
+  - D1 tables: `pg_extension`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/11_views.ERROR.md`**  (24 lines, 0.5 KB)
+  - D1 tables: `information_schema`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/00_database_identity.ERROR.md`**  (22 lines, 0.5 KB)
+- **`scripts/d1-migration-docs-index-log-20260326.sql`**  (15 lines, 0.5 KB)
+  - D1 tables: `docs_index_log`
+- **`migrations/129_ai_models_gemini_2_5_flash_key.sql`**  (6 lines, 0.4 KB)
+  - D1 tables: `ai_models`
+- **`migrations/125_agent_conversations_name.sql`**  (6 lines, 0.4 KB)
+- **`migrations/178_excalidraw_add_elements_fontfamily_description.sql`**  (11 lines, 0.4 KB)
+  - D1 tables: `mcp_registered_tools`
+- **`migrations/162_mcp_agent_sessions_panel.sql`**  (7 lines, 0.4 KB)
+  - D1 tables: `mcp_agent_sessions`, `sessions`
+- **`migrations/132_agent_conversations_starred.sql`**  (6 lines, 0.4 KB)
+- **`migrations/135_final_columns.sql`**  (7 lines, 0.4 KB)
+  - D1 tables: `sessions`
+- **`migrations/169_retention_agent_messages_condition.sql`**  (6 lines, 0.4 KB)
+  - D1 tables: `agent_sessions`, `sessions`
+- **`migrations/253_auth_users_supabase_subject.sql`**  (10 lines, 0.4 KB)
+- **`migrations/146_deployments_notes_and_changed_files.sql`**  (7 lines, 0.4 KB)
+- **`migrations/256_auth_users_active_scope.sql`**  (7 lines, 0.4 KB)
+- **`migrations/143_secret_audit_log_created_at.sql`**  (6 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_sections/indexes.json`**  (23 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_edit_sessions/create_sql.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `cms_live_edit_sessions`, `sessions`
+- **`artifacts/cms_d1_pull/tables/cms_collections/create_sql.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `cms_collections`
+- **`artifacts/cms_d1_pull/tables/cms_collection_assets/foreign_keys.json`**  (22 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collection_assets/create_sql.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `cms_collection_assets`
+- **`artifacts/cms_d1_pull/tables/cms_content/columns.json`**  (26 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_themes/indexes.json`**  (23 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_activity_log/sample_rows.json`**  (14 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_activity_log/indexes.json`**  (23 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_activity_log/create_sql.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `cms_activity_log`
+- **`artifacts/cms_d1_pull/tables/cms_3d_assets/foreign_keys.json`**  (22 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversion_jobs/foreign_keys.json`**  (22 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversions/foreign_keys.json`**  (22 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversions/indexes.json`**  (23 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_imports/indexes.json`**  (23 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_video_projects/create_sql.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `cms_video_projects`
+- **`artifacts/cms_d1_pull/tables/cms_live_rollbacks/create_sql.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `cms_live_rollbacks`
+- **`artifacts/cms_d1_pull/tables/cms_folders/foreign_keys.json`**  (22 lines, 0.4 KB)
+- **`artifacts/cms_d1_pull/tables/cms_folders/create_sql.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `cms_folders`
+- **`artifacts/cms_d1_pull/tables/cms_page_sections/foreign_keys.json`**  (22 lines, 0.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/00_database_identity.error.json`**  (4 lines, 0.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/json/22_migrations.error.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `supabase_migrations`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/22_migrations.ERROR.md`**  (20 lines, 0.4 KB)
+  - D1 tables: `supabase_migrations`
+- **`artifacts/supabase_schema_audit/20260515T024428Z/reports/00_database_identity.ERROR.md`**  (22 lines, 0.4 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/json/22_migrations.error.json`**  (4 lines, 0.4 KB)
+  - D1 tables: `supabase_migrations`
+- **`artifacts/supabase_schema_audit/20260515T024645Z/reports/22_migrations.ERROR.md`**  (20 lines, 0.4 KB)
+  - D1 tables: `supabase_migrations`
+- **`artifacts/backups/agent_chat_plan_20260512T065409Z/rollback_agent_chat_plan.sql`**  (13 lines, 0.4 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`scripts/d1-kimbie-dark-theme-merge.sql`**  (17 lines, 0.4 KB)
+  - D1 tables: `cms_themes`
+- **`scripts/d1-kimbie-dark-bg-surface-patch.sql`**  (13 lines, 0.4 KB)
+  - D1 tables: `cms_themes`
+- **`scripts/add_cache_indexes.sql`**  (24 lines, 0.4 KB)
+  - D1 tables: `agentsam_prompt_cache_keys`, `agentsam_prompt_cache_keys_route`, `agentsam_prompt_cache_keys_source`, `agentsam_prompt_cache_keys_unique`
+- **`migrations/181_agent_telemetry_event_severity.sql`**  (5 lines, 0.3 KB)
+- **`migrations/134_add_tenant_id_mcp_usage_log.sql`**  (5 lines, 0.3 KB)
+- **`migrations/135_index_and_last_used.sql`**  (6 lines, 0.3 KB)
+  - D1 tables: `sessions`
+- **`migrations/180_mcp_tool_calls_tokens.sql`**  (6 lines, 0.3 KB)
+- **`migrations/293_tool_call_log_tracing.sql`**  (6 lines, 0.3 KB)
+  - D1 tables: `agentsam_tool_call_log`
+- **`migrations/280_drop_unused_tables.sql`**  (6 lines, 0.3 KB)
+  - D1 tables: `agentsam_judge_runs`, `agentsam_shadow_runs`
+- **`migrations/183_quality_runs_results_columns.sql`**  (7 lines, 0.3 KB)
+- **`migrations/122_agent_sessions_project_id.sql`**  (5 lines, 0.3 KB)
+  - D1 tables: `sessions`
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_d1_pull/tables/cms_global_settings/indexes.json`**  (16 lines, 0.3 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_edit_sessions/indexes.json`**  (16 lines, 0.3 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_overrides/indexes.json`**  (16 lines, 0.3 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_drafts/create_sql.json`**  (4 lines, 0.3 KB)
+  - D1 tables: `cms_page_drafts`
+- **`artifacts/cms_d1_pull/tables/cms_3d_assets/indexes.json`**  (23 lines, 0.3 KB)
+- **`artifacts/cms_d1_pull/tables/cms_folders/indexes.json`**  (23 lines, 0.3 KB)
+- **`artifacts/cms_d1_pull/tables/cms_navigation_menus/indexes.json`**  (16 lines, 0.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/00_database_identity.md`**  (8 lines, 0.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T025832Z/PREFLIGHT_ERROR.md`**  (16 lines, 0.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T025140Z/PREFLIGHT_ERROR.md`**  (16 lines, 0.3 KB)
+- **`artifacts/supabase_schema_audit/20260515T025250Z/PREFLIGHT_ERROR.md`**  (16 lines, 0.3 KB)
+- **`artifacts/backups/true_e2e_20260512070654/rollback_agent_chat_plan_template.sql`**  (5 lines, 0.3 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`artifacts/backups/true_e2e_20260512070513/rollback_agent_chat_plan_template.sql`**  (5 lines, 0.3 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`artifacts/backups/true_e2e_20260512070944/rollback_agent_chat_plan_template.sql`**  (5 lines, 0.3 KB)
+  - D1 tables: `agentsam_workflow_edges`, `agentsam_workflow_nodes`, `agentsam_workflows`
+- **`migrations/323_knowledge_edges_upsert_unique.sql`**  (4 lines, 0.2 KB)
+  - D1 tables: `Worker`, `knowledge_edges`
+- **`migrations/208_ai_api_test_runs.sql`**  (4 lines, 0.2 KB)
+- **`migrations/279_null_d1_embeddings.sql`**  (3 lines, 0.2 KB)
+  - D1 tables: `ai_knowledge_chunks`
+- **`migrations/335_python_execute_requires_approval.sql`**  (5 lines, 0.2 KB)
+  - D1 tables: `agentsam_mcp_tools`
+- **`artifacts/cms_d1_pull/tables/cms_live_edit_sessions/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collections/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collections/indexes.json`**  (16 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_drafts/indexes.json`**  (16 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_tenants/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_tenants/indexes.json`**  (16 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_override_versions/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_content/indexes.json`**  (16 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_content/create_sql.json`**  (4 lines, 0.2 KB)
+  - D1 tables: `cms_content`
+- **`artifacts/cms_d1_pull/tables/cms_assets/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_activity_log/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_component_templates/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversion_jobs/indexes.json`**  (16 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_imports/foreign_keys.json`**  (12 lines, 0.2 KB)
+  - D1 tables: `agentsam_workflow_runs`
+- **`artifacts/cms_d1_pull/tables/cms_video_projects/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_video_projects/indexes.json`**  (16 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_rollbacks/foreign_keys.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_rollbacks/indexes.json`**  (16 lines, 0.2 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/00_database_identity.json`**  (9 lines, 0.2 KB)
+- **`migrations/134_add_date_mcp_usage_log.sql`**  (4 lines, 0.1 KB)
+- **`migrations/182_spend_ledger_neuron_cost.sql`**  (2 lines, 0.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collection_assets/indexes.json`**  (9 lines, 0.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_override_versions/indexes.json`**  (9 lines, 0.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_component_templates/indexes.json`**  (9 lines, 0.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_sections/indexes.json`**  (9 lines, 0.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/16_missing_primary_keys.json`**  (11 lines, 0.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/18_public_tables_without_rls.md`**  (6 lines, 0.1 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/reports/16_missing_primary_keys.md`**  (9 lines, 0.1 KB)
+- **`scripts/sql/drop_extinct_tables.sql`**  (6 lines, 0.1 KB)
+- **`tmp/ollama_cloud_series/series_e8e9d05293b2/insert_d1_runs.sql`**  (2 lines, 0.1 KB)
+- **`artifacts/cms_d1_pull/tables/cms_global_settings/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_global_settings/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_sections/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_sections/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_edit_sessions/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_edit_sessions/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collections/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_theme_preferences/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_theme_preferences/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_overrides/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_overrides/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_overrides/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_drafts/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_drafts/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_drafts/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collection_assets/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_collection_assets/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_tenants/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_override_versions/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_override_versions/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_content/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_content/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_assets/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_themes/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_themes/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_activity_log/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_component_templates/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_3d_assets/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversion_jobs/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversion_jobs/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversions/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_conversions/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_imports/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_liquid_imports/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_video_projects/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_rollbacks/sample_rows.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_live_rollbacks/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_folders/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_page_sections/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_navigation_menus/foreign_keys.json`**  (1 lines, 0.0 KB)
+- **`artifacts/cms_d1_pull/tables/cms_navigation_menus/row_count.json`**  (5 lines, 0.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/findings.json`**  (2 lines, 0.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/FINDINGS.md`**  (6 lines, 0.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T024428Z/TABLE_CHUNKS_INDEX.md`**  (3 lines, 0.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T030004Z/json/18_public_tables_without_rls.json`**  (2 lines, 0.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/findings.json`**  (2 lines, 0.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/FINDINGS.md`**  (6 lines, 0.0 KB)
+- **`artifacts/supabase_schema_audit/20260515T024645Z/TABLE_CHUNKS_INDEX.md`**  (3 lines, 0.0 KB)
+
+### AUTH  (44 files)
+
+- **`docs/cursor-session-log.md`**  (2489 lines, 147.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, MOVIEMODE_BROKEN
+  - Components: `Ts`
+  - D1 tables: `AgentDashboard`, `CSS`, `Cursor`, `React`, `TOOLS`, `agent`
+  - R2: `iam-docs`, `inneranimalmedia`
+- **`artifacts/key_hygiene_audit/chunks/key_usage_auth_webhooks.md`**  (494 lines, 41.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `TokensChart`, `BASE`
+  - Routes: `/api/agentsam`, `/api/seed`, `/api/terminal/session/register`, `/api/terminal/session/validate`
+  - D1 tables: `AGENTSAM_REMASTER_MAX_OUTPUT_TOKENS`, `agentsam_audit`, `agentsam_benchmark_flood_v2`, `agentsam_benchmark_v3`, `agentsam_d1_and_codebase`, `agentsam_d1_codebase_audit`
+- **`src/core/auth.js`**  (769 lines, 24.8 KB)
+  - D1 tables: `agentsam_browser_trusted_origin`, `agentsam_feature_flag`, `agentsam_fetch_domain_allowlist`, `agentsam_ignore_pattern`, `agentsam_user_feature_override`, `auth_sessions`
+  - R2: `SESSION_CACHE`
+- **`scripts/seed_session_plan.py`**  (409 lines, 23.0 KB)
+  - D1 tables: `Worker`, `agentsam_agent_run`, `agentsam_capability_aliases`, `agentsam_command_pattern`, `agentsam_context_digest`, `agentsam_eval_cases`
+  - R2: `inneranimalmedia-business`
+- **`Mcp_Oauth_Consent.jsx`**  (498 lines, 19.6 KB)
+  - Components: `Icon`, `McpAuthorizationScreen`
+  - D1 tables: `the`
+- **`artifacts/cleanup_hold_20260515/McpAuthorizationScreen.tsx`**  (498 lines, 19.6 KB)
+  - Components: `Icon`, `McpAuthorizationScreen`
+  - D1 tables: `the`
+- **`artifacts/cleanup_hold_20260515/Mcp_Oauth_Consent.tsx`**  (498 lines, 19.6 KB)
+  - Components: `Icon`, `McpAuthorizationScreen`
+  - D1 tables: `the`
+- **`src/integrations/github.js`**  (417 lines, 18.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/agent/github/file`, `/api/agent/github/repos`, `/api/integrations/gdrive/file`, `/api/integrations/gdrive/files`, `/api/integrations/gdrive/raw`, `/api/integrations/github/file`
+  - D1 tables: `Secret`, `user_oauth_tokens`
+- **`google_model_matrix.js`**  (291 lines, 13.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `MODELS`, `PROMPT`
+  - D1 tables: `agentsam_eval_runs`, `ai_api_test_runs`
+- **`docs/iam-docs/sessions/2026-03-24-25-platform-sprint-overview.md`**  (150 lines, 11.0 KB)
+  - Components: `Ts`
+  - D1 tables: `agentsam_agent_run`, `empty`, `sessions`, `the`, `worker`
+- **`artifacts/key_hygiene_audit/chunks/key_usage_google_gemini.md`**  (111 lines, 10.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_benchmark_flood`, `agentsam_benchmark_flood_v2`, `agentsam_benchmark_v3`
+- **`docs/MCP_SERVER_GITHUB_CLOUDFLARE_AUDIT.md`**  (195 lines, 8.7 KB)  🐛 HARDCODED_R2
+  - D1 tables: `repo`, `the`
+- **`docs/oauth-callback-parity-map.md`**  (183 lines, 8.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Google`, `provider`, `returnTo`, `sessions`, `start`
+- **`src/core/user-oauth-token.js`**  (226 lines, 8.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `DB`
+  - D1 tables: `user_oauth_tokens`, `user_secrets`
+- **`src/core/mcp-auth.js`**  (212 lines, 6.5 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `mcp_workspace_tokens`
+- **`docs/supabase-oauth-split.md`**  (99 lines, 5.0 KB)
+- **`artifacts/key_hygiene_audit/chunks/key_usage_github.md`**  (68 lines, 4.6 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Components: `TokensChart`
+  - D1 tables: `agentsam_audit`, `agentsam_d1_codebase_audit`, `agentsam_d1_codebase_audit_20260515T011657Z`
+- **`docs/OAUTH_DEBUG.md`**  (85 lines, 4.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `Google`, `another`, `that`, `the`, `www`
+- **`scripts/test-google-stream.sh`**  (128 lines, 4.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`docs/autorag-knowledge/sessions/2026-03-23-session-summary.md`**  (66 lines, 4.2 KB)
+- **`learn/software-engineering-builder-os/lessons/004_git-github-repo-hygiene.md`**  (139 lines, 4.1 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_tool_call_log`
+- **`docs/OAUTH_AND_AGENT_INTEGRATION_APPLIED.md`**  (96 lines, 4.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `ASSETS`, `DASHBOARD`, `SESSIONS`, `sessions`, `the`
+- **`src/core/provisionAuthenticatedUser.js`**  (115 lines, 3.7 KB)
+  - D1 tables: `auth_users`
+- **`src/core/mcp-authorization.js`**  (127 lines, 3.5 KB)
+- **`docs/iam-docs/autorag/sessions/2026-03-23-full-session.md`**  (53 lines, 3.4 KB)
+  - D1 tables: `session`, `sessions`
+- **`docs/auth/SUPABASE_AUTH_HOOKS.md`**  (67 lines, 3.0 KB)
+  - R2: `inneranimalmedia`
+- **`docs/iam-docs/agents/google-gemini.md`**  (71 lines, 3.0 KB)
+  - D1 tables: `chat`
+- **`scripts/oauth-secrets-placeholder.md`**  (82 lines, 2.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `the`
+- **`docs/auth/AUTH_E2E_TEST_PLAN.md`**  (58 lines, 2.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `HTTP`, `Supabase`, `sessions`, `the`
+- **`scripts/upload-session-docs-to-autorag.sh`**  (64 lines, 2.4 KB)
+  - D1 tables: `repo`
+- **`src/tools/github-dispatch.js`**  (63 lines, 2.3 KB)
+- **`docs/PRODUCTION_CONFIG_OAUTH_CHECKLIST.md`**  (30 lines, 1.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `Google`, `SESSIONS`, `sessions`
+  - R2: `DASHBOARD`
+- **`docs/auth/SUPABASE_URL_CONFIG.md`**  (34 lines, 1.8 KB)
+- **`docs/SESSION_2026-03-16_MONACO_FIX.md`**  (39 lines, 1.7 KB)
+- **`src/core/auth-events.js`**  (58 lines, 1.7 KB)
+  - D1 tables: `auth_event_log`
+- **`docs/PRE_COMMIT_AUTH_ROUTES.md`**  (39 lines, 1.4 KB)
+- **`docs/iam-docs/sessions/README.md`**  (23 lines, 1.0 KB)
+  - D1 tables: `sessions`
+- **`docs/inneranimalmedia/architecture/auth.md`**  (17 lines, 0.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `login`
+- **`src/core/github-token.js`**  (25 lines, 0.8 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `user_oauth_tokens`
+- **`docs/session-summary-2026-03-12.md`**  (25 lines, 0.7 KB)
+  - D1 tables: `PTY`
+- **`scripts/sync-github.sh`**  (19 lines, 0.5 KB)
+- **`supabase/auth-hooks/README.md`**  (10 lines, 0.4 KB)
+- **`artifacts/theme-extracts/theme-google-light.pretty.json`**  (1 lines, 0.0 KB)
+- **`src/core/session.js`**  (1 lines, 0.0 KB)
+
+### MOVIEMODE  (118 files)
+
+- **`analytics/codebase-index/ws_inneranimalmedia/index-priority-files.json`**  (1 lines, 939.2 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, TOPBAR_POPUP, EXPLORER_TABS_OPEN, EXPLORER_ALIGNMENT, MOVIEMODE_BROKEN
+  - Components: `THRESHOLD`, `AgentTab`, `OverviewPage`, `BK`, `WorkflowPanel`, `ErrorInbox`, `RagHealth`, `DAYS`
+  - Routes: `/api/agent/alignment-sync`, `/api/agent/allowlist`, `/api/agent/approval/pending`, `/api/agent/boot`, `/api/agent/bootstrap`, `/api/agent/chat`
+  - D1 tables: `AGENTSAM_TOOLS`, `AGENTSAM_TOOL_DEBUG`, `AGENTSAM_WORKFLOW_RUNS_TABLE`, `GitHub`, `OpenAI`, `Request`
+  - R2: `AGENT_SESSION`, `R2`, `SESSION_CACHE`, `agent-sam`, `inneranimalmedia`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/assets/defaultSettingsView-CJSZINFr.js`**  (267 lines, 625.8 KB)  🐛 EXPLORER_TABS_OPEN, MOVIEMODE_BROKEN
+  - Components: `Ah`, `Gy`, `Fh`, `Qh`, `Ux`, `Kx`, `Mh`, `Cb`
+  - D1 tables: `other`, `the`
+- **`captures/inneranimalmedia/raw-quality-report/trace/assets/defaultSettingsView-CJSZINFr.js`**  (267 lines, 625.8 KB)  🐛 EXPLORER_TABS_OPEN, MOVIEMODE_BROKEN
+  - Components: `Ah`, `Gy`, `Fh`, `Qh`, `Ux`, `Kx`, `Mh`, `Cb`
+  - D1 tables: `other`, `the`
+- **`captures/inneranimalmedia/raw-quality-report/index.html`**  (85 lines, 560.3 KB)  🐛 EXPLORER_TABS_OPEN, TOPBAR_POPUP, MOVIEMODE_BROKEN
+  - Components: `YA`, `Pu`, `L1`, `PA`, `R8`, `D8`, `I2`, `J2`
+- **`captures/inneranimalmedia/raw-playwright-report/index.html`**  (85 lines, 530.4 KB)  🐛 EXPLORER_TABS_OPEN, TOPBAR_POPUP, MOVIEMODE_BROKEN
+  - Components: `YA`, `Pu`, `L1`, `PA`, `R8`, `D8`, `I2`, `J2`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js`**  (33 lines, 305.7 KB)  🐛 EXPLORER_TABS_OPEN
+  - D1 tables: `get`
+- **`captures/inneranimalmedia/raw-quality-report/trace/assets/codeMirrorModule-a5XoALAZ.js`**  (33 lines, 305.7 KB)  🐛 EXPLORER_TABS_OPEN
+  - D1 tables: `get`
+- **`docs/inneranimalmedia-function-index.json`**  (6760 lines, 134.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `DOCS_BUCKET`, `Gemini`, `MCP`, `Workers`, `agent_memory_index`, `agent_sessions`
+  - R2: `inneranimalmedia`
+- **`docs/codebase-index/ws_inneranimalmedia/route-map.md`**  (3625 lines, 127.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/admin/archive-conversations`, `/api/admin/cleanup/stuck-runs`, `/api/admin/db-health`, `/api/admin/overnight/start`, `/api/admin/overnight/validate`, `/api/admin/rag-backfill`
+  - D1 tables: `sessions`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/defaultSettingsView.7ch9cixO.css`**  (2 lines, 107.8 KB)  🐛 EXPLORER_ALIGNMENT
+- **`captures/inneranimalmedia/raw-quality-report/trace/defaultSettingsView.7ch9cixO.css`**  (2 lines, 107.8 KB)  🐛 EXPLORER_ALIGNMENT
+- **`captures/inneranimalmedia/raw-playwright-report/trace/sw.bundle.js`**  (6 lines, 92.9 KB)
+  - Components: `Wn`, `Bn`, `Ht`, `He`, `Xn`, `Qn`, `Oe`, `At`
+- **`captures/inneranimalmedia/raw-quality-report/trace/sw.bundle.js`**  (6 lines, 92.9 KB)
+  - Components: `Wn`, `Bn`, `Ht`, `He`, `Xn`, `Qn`, `Oe`, `At`
+- **`docs/inneranimalmedia-function-index.md`**  (2690 lines, 82.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `MCP`, `Workers`, `agent_memory_index`, `agent_sessions`, `agentsam_fetch_domain_allowlist`, `ai_models`
+- **`artifacts/key_hygiene_audit/chunks/03_immediate_red_flags.md`**  (130 lines, 65.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/agent/memory/sync`
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_audit`, `agentsam_cms_audit_plan`, `agentsam_d1_and_codebase`, `agentsam_d1_codebase_audit`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/uiMode.Btcz36p_.css`**  (2 lines, 58.8 KB)
+- **`captures/inneranimalmedia/raw-quality-report/trace/uiMode.Btcz36p_.css`**  (2 lines, 58.8 KB)
+- **`captures/inneranimalmedia/results.json`**  (664 lines, 38.2 KB)
+- **`captures/inneranimalmedia/raw-playwright-report/trace/uiMode.CQJ9SCIQ.js`**  (6 lines, 36.5 KB)  🐛 MOVIEMODE_BROKEN
+  - Components: `Te`, `It`, `St`
+- **`captures/inneranimalmedia/raw-quality-report/trace/uiMode.CQJ9SCIQ.js`**  (6 lines, 36.5 KB)  🐛 MOVIEMODE_BROKEN
+  - Components: `Te`, `It`, `St`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/cms_wire_20260513T040646Z/report.json`**  (1532 lines, 33.6 KB)
+  - Routes: `/api/cms/pages`, `/api/cms/themes`
+  - D1 tables: `agentsam_cms_editor_wire_validate_20260513`, `agentsam_verify`, `sessions`
+  - R2: `inneranimalmedia-business`
+- **`prototypes/inneranimalmedia-cms-editor/studio.jsx`**  (745 lines, 32.8 KB)
+  - Components: `Icon`
+  - D1 tables: `schema`, `templates`, `the`
+- **`prototypes/inneranimalmedia-cms-editor/bridge/cms_wire_20260513T040646Z/studio.jsx`**  (745 lines, 32.8 KB)
+  - Components: `Icon`
+  - D1 tables: `schema`, `templates`, `the`
+- **`prototypes/inneranimalmedia-cms-editor/inspect_design_studio_app.py`**  (694 lines, 30.5 KB)
+  - Routes: `/api/cms/*`
+  - D1 tables: `__future__`, `agentsam_mcp_branding_org_20260513`, `agentsam_plan_tasks`, `agentsam_plans`, `dataclasses`, `knowledge_edges`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`prototypes/inneranimalmedia-cms-editor/index.html`**  (798 lines, 29.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`prototypes/inneranimalmedia-cms-editor/Design Studio.html`**  (798 lines, 29.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`prototypes/inneranimalmedia-cms-editor/bridge/cms_wire_20260513T040646Z/Design Studio.html`**  (798 lines, 29.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`captures/inneranimalmedia/report/index.html`**  (246 lines, 27.2 KB)
+- **`prototypes/inneranimalmedia-cms-editor/tweaks-panel.jsx`**  (569 lines, 25.2 KB)
+  - Components: `PAD`
+  - D1 tables: `the`
+- **`prototypes/inneranimalmedia-cms-editor/bridge/cms_wire_20260513T040646Z/tweaks-panel.jsx`**  (569 lines, 25.2 KB)
+  - Components: `PAD`
+  - D1 tables: `the`
+- **`docs/codebase-index/ws_inneranimalmedia/index-priority-files.md`**  (255 lines, 17.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`captures/inneranimalmedia/results/inneranimalmedia-public-In-f05ae-ass-Home-page-quality-check/error-context.md`**  (223 lines, 13.7 KB)
+  - D1 tables: `autonomous`, `building`, `day`, `dream`, `enterprise`, `other`
+- **`captures/inneranimalmedia/raw-playwright-report/data/a365af96306e77d4dbd3d750e22c9536995ec51a.md`**  (223 lines, 13.7 KB)
+  - D1 tables: `autonomous`, `building`, `day`, `dream`, `enterprise`, `other`
+- **`captures/inneranimalmedia/raw-quality-report/data/a365af96306e77d4dbd3d750e22c9536995ec51a.md`**  (223 lines, 13.7 KB)
+  - D1 tables: `autonomous`, `building`, `day`, `dream`, `enterprise`, `other`
+- **`captures/inneranimalmedia/raw-quality-report/data/8029386e3ce99a4b0ed70a2816b7e2ddf9dc49cb.md`**  (211 lines, 13.3 KB)
+  - D1 tables: `autonomous`, `building`, `day`, `dream`, `enterprise`, `other`
+- **`captures/inneranimalmedia/raw-quality-report/data/4a57633248a7aac5e15c7ed0e121c0e70d5950bc.md`**  (198 lines, 12.9 KB)
+  - D1 tables: `any`
+- **`captures/inneranimalmedia/raw-quality-report/data/2faa2038218abfd7f4690eea8830bd09e445f0c9.md`**  (292 lines, 12.6 KB)
+  - D1 tables: `concept`, `the`, `web`
+- **`scripts/upload-codebase-index-ws-inneranimalmedia.sh`**  (408 lines, 12.6 KB)
+  - Components: `KEY`
+  - D1 tables: `route`
+  - R2: `inneranimalmedia`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/design_studio_inspection_20260513T035442Z/inspection.json`**  (161 lines, 12.3 KB)
+  - D1 tables: `agentsam_prompt_routes`, `knowledge_edges`, `sessions`, `the`
+- **`captures/inneranimalmedia/raw-quality-report/data/eba880b895b2380d9a8e4e9002529df0f8a97107.md`**  (284 lines, 12.2 KB)
+  - D1 tables: `concept`
+- **`captures/inneranimalmedia/raw-quality-report/data/dd7ef1456d63bec871eafff8ae9cbae5c2615a7e.md`**  (284 lines, 12.2 KB)
+  - D1 tables: `the`, `typography`
+- **`captures/inneranimalmedia/raw-quality-report/data/065d04bcf663d64ada64b8dfc37be32bd771decb.md`**  (284 lines, 12.1 KB)
+  - D1 tables: `rich`
+- **`captures/inneranimalmedia/raw-quality-report/data/b34ffefec7868a2c73541fe9b62747ca6cb34491.md`**  (268 lines, 11.7 KB)
+  - D1 tables: `concept`, `the`, `web`
+- **`scripts/inneranimalmedia/create_quality_report.py`**  (255 lines, 11.4 KB)
+  - D1 tables: `pathlib`
+  - R2: `inneranimalmedia`
+- **`captures/inneranimalmedia/raw-quality-report/data/997ca6d5e6c608234e85b0adeaba093d34861509.md`**  (260 lines, 11.3 KB)
+  - D1 tables: `the`, `typography`
+- **`captures/inneranimalmedia/raw-quality-report/data/3f878c1ead93f05419f437d7b339002a80922994.md`**  (260 lines, 11.3 KB)
+  - D1 tables: `concept`
+- **`captures/inneranimalmedia/raw-quality-report/data/8a2ccc83b63a3e5360e9d7859472ec8d517a39d9.md`**  (260 lines, 11.2 KB)
+  - D1 tables: `rich`
+- **`captures/inneranimalmedia/raw-quality-report/data/2a11e3df44f5519ca9062128a61ac6486da41ffa.md`**  (233 lines, 10.0 KB)
+  - D1 tables: `slipping`
+- **`captures/inneranimalmedia/raw-quality-report/data/4a8dfa76613a462e1bc332262424449a4b67d607.md`**  (185 lines, 10.0 KB)
+  - D1 tables: `children`, `time`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/design_studio_inspection_20260513T035442Z/report.md`**  (98 lines, 9.9 KB)
+  - D1 tables: `knowledge_edges`, `sessions`, `the`
+- **`iam_remediation.py`**  (221 lines, 9.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `auth_sessions`, `auth_users`, `column`, `repo`, `sessions`, `terminal_sessions`
+  - R2: `inneranimalmedia-business`
+- **`captures/inneranimalmedia/raw-quality-report/data/b33b370a2d642582cbd550bf81bd49ea32422bdd.md`**  (221 lines, 9.5 KB)
+  - D1 tables: `slipping`
+- **`analytics/codebase-index/ws_inneranimalmedia/directory-summary.json`**  (530 lines, 9.0 KB)
+  - D1 tables: `sessions`
+  - R2: `inneranimalmedia-agentsam-dashboard`
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/design_studio_inspection_20260513T035529Z/inspection.json`**  (137 lines, 8.3 KB)
+  - D1 tables: `knowledge_edges`
+- **`captures/inneranimalmedia/raw-quality-report/data/c31120f4bfc38218fab39e1e84fd4ed66db02c0f.md`**  (181 lines, 7.1 KB)
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/design_studio_inspection_20260513T035529Z/report.md`**  (79 lines, 7.0 KB)
+  - D1 tables: `knowledge_edges`
+- **`captures/inneranimalmedia/raw-quality-report/data/8d04707b1377328bcc1aa5ab702713ec7c8b3984.md`**  (169 lines, 6.7 KB)
+- **`docs/inneranimalmedia/product/designstudio/README.md`**  (205 lines, 6.6 KB)
+  - D1 tables: `agentsam_tool_call_log`, `agentsam_tool_chain`, `idea`, `sessions`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/codeMirrorModule.DYBRYzYX.css`**  (2 lines, 6.3 KB)
+- **`captures/inneranimalmedia/raw-playwright-report/trace/index.BDwrLSGN.js`**  (3 lines, 6.3 KB)
+  - D1 tables: `the`
+- **`captures/inneranimalmedia/raw-quality-report/trace/codeMirrorModule.DYBRYzYX.css`**  (2 lines, 6.3 KB)
+- **`captures/inneranimalmedia/raw-quality-report/trace/index.BDwrLSGN.js`**  (3 lines, 6.3 KB)
+  - D1 tables: `the`
+- **`tmp/codebase-index/ws_inneranimalmedia/manifest.json`**  (128 lines, 5.9 KB)
+  - R2: `inneranimalmedia`
+- **`captures/inneranimalmedia/quality-report/index.html`**  (78 lines, 5.3 KB)
+- **`docs/inneranimalmedia/product/designstudio/PIPELINE.md`**  (100 lines, 4.9 KB)
+  - D1 tables: `Worker`, `agentsam_commands`, `agentsam_mcp_tools`, `agentsam_tools`, `agentsam_workflow_runs`, `blueprint`
+- **`docs/inneranimalmedia/product/designstudio/E2E-TEST-PIPELINE.md`**  (128 lines, 4.8 KB)
+  - D1 tables: `Design`, `Meshy`, `agentsam_workflow_runs`, `repo`
+- **`tmp/codebase-index/ws_inneranimalmedia/uploaded-files.json`**  (102 lines, 4.7 KB)
+- **`src/tools/builtin/media.js`**  (75 lines, 4.4 KB)
+  - Routes: `/api/draw/clear`, `/api/draw/elements`, `/api/draw/export`, `/api/draw/library`, `/api/images/edit`, `/api/images/generate`
+  - D1 tables: `agentsam_artifacts`
+- **`docs/codebase-index/ws_inneranimalmedia/directory-summary.md`**  (93 lines, 4.2 KB)
+  - D1 tables: `sessions`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/xtermModule.DYP7pi_n.css`**  (33 lines, 4.1 KB)
+- **`captures/inneranimalmedia/raw-quality-report/trace/xtermModule.DYP7pi_n.css`**  (33 lines, 4.1 KB)
+- **`docs/codebase-index/ws_inneranimalmedia/file-inventory.md`**  (89 lines, 4.0 KB)
+- **`docs/inneranimalmedia/product/designstudio/companion-tables.md`**  (124 lines, 3.6 KB)
+  - D1 tables: `agentsam_cad_export_log`, `agentsam_design_blueprint_versions`, `agentsam_design_intent_templates`, `agentsam_design_runs`, `agentsam_designstudio_sessions`, `agentsam_tool_call_log`
+- **`tests/quality/inneranimalmedia-public.spec.js`**  (97 lines, 3.4 KB)
+- **`scripts/seed_moviemode_atc_project.py`**  (79 lines, 2.3 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `agentsam_studio_moviemode`, `moviemode_projects`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/index.html`**  (44 lines, 2.2 KB)
+  - D1 tables: `your`
+- **`captures/inneranimalmedia/raw-quality-report/trace/index.html`**  (44 lines, 2.2 KB)
+  - D1 tables: `your`
+- **`captures/inneranimalmedia/results/inneranimalmedia-public-In-e66d7-s-Signup-page-quality-check/error-context.md`**  (59 lines, 2.1 KB)
+- **`captures/inneranimalmedia/raw-playwright-report/data/325490260a08be413fe3ec6f646e2116781cf72e.md`**  (59 lines, 2.1 KB)
+- **`captures/inneranimalmedia/raw-quality-report/data/325490260a08be413fe3ec6f646e2116781cf72e.md`**  (59 lines, 2.1 KB)
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/cms_wire_20260513T040646Z/report.md`**  (47 lines, 1.9 KB)
+  - Routes: `/api/cms/pages`, `/api/cms/themes`
+  - D1 tables: `agentsam_cms_editor_wire_validate_20260513`, `sessions`
+- **`captures/inneranimalmedia/raw-playwright-report/trace/index.BVu7tZDe.css`**  (2 lines, 1.8 KB)
+- **`captures/inneranimalmedia/raw-quality-report/trace/index.BVu7tZDe.css`**  (2 lines, 1.8 KB)
+- **`docs/MOVIEMODE.md`**  (45 lines, 1.7 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `agentsam_studio_moviemode`
+- **`scripts/audit_moviemode_backend.py`**  (43 lines, 1.2 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `pathlib`
+- **`captures/inneranimalmedia/evidence/privacy.json`**  (14 lines, 1.0 KB)
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/design_studio_inspection_20260513T035442Z/files_scanned.json`**  (10 lines, 1.0 KB)
+  - D1 tables: `agentsam_cms_audit_plan`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_cms_plan_20260513T033820Z`
+- **`captures/inneranimalmedia/evidence/terms.json`**  (14 lines, 0.9 KB)
+- **`captures/inneranimalmedia/raw-playwright-report/trace/snapshot.html`**  (22 lines, 0.9 KB)
+- **`captures/inneranimalmedia/raw-quality-report/trace/snapshot.html`**  (22 lines, 0.9 KB)
+- **`captures/inneranimalmedia/raw-playwright-report/trace/uiMode.html`**  (18 lines, 0.6 KB)
+- **`captures/inneranimalmedia/raw-quality-report/trace/uiMode.html`**  (18 lines, 0.6 KB)
+- **`docs/inneranimalmedia/runbooks/deploy-public-site.md`**  (20 lines, 0.6 KB)
+- **`docs/inneranimalmedia/architecture/dashboard.md`**  (18 lines, 0.6 KB)
+  - D1 tables: `Vite`
+- **`docs/inneranimalmedia/architecture/public-site.md`**  (19 lines, 0.6 KB)
+  - D1 tables: `the`
+- **`captures/inneranimalmedia/evidence/home.json`**  (16 lines, 0.5 KB)
+- **`docs/inneranimalmedia/brand/brand-guidelines.md`**  (16 lines, 0.5 KB)
+- **`docs/inneranimalmedia/runbooks/fix-routes.md`**  (16 lines, 0.5 KB)
+- **`docs/inneranimalmedia/architecture/deployment.md`**  (16 lines, 0.5 KB)
+- **`analytics/codebase-index/ws_inneranimalmedia/repo-snapshot.json`**  (14 lines, 0.5 KB)
+  - R2: `inneranimalmedia`
+- **`captures/inneranimalmedia/evidence/signup.json`**  (16 lines, 0.4 KB)
+- **`docs/inneranimalmedia/brand/asset-rules.md`**  (15 lines, 0.4 KB)
+  - D1 tables: `shell`
+- **`docs/inneranimalmedia/brand/voice-and-copy.md`**  (15 lines, 0.4 KB)
+- **`docs/inneranimalmedia/product/page-quality-standards.md`**  (18 lines, 0.4 KB)
+- **`docs/inneranimalmedia/product/roadmap.md`**  (17 lines, 0.4 KB)
+- **`docs/inneranimalmedia/product/goals.md`**  (16 lines, 0.4 KB)
+- **`docs/inneranimalmedia/games/launch-plan.md`**  (17 lines, 0.4 KB)
+- **`docs/inneranimalmedia/games/glb-asset-map.md`**  (14 lines, 0.4 KB)
+- **`docs/inneranimalmedia/games/chess-architecture.md`**  (14 lines, 0.4 KB)
+- **`captures/inneranimalmedia/evidence/games.json`**  (12 lines, 0.3 KB)
+- **`captures/inneranimalmedia/evidence/services.json`**  (12 lines, 0.3 KB)
+- **`captures/inneranimalmedia/evidence/work.json`**  (12 lines, 0.3 KB)
+- **`captures/inneranimalmedia/evidence/pricing.json`**  (12 lines, 0.3 KB)
+- **`captures/inneranimalmedia/evidence/contact.json`**  (12 lines, 0.3 KB)
+- **`captures/inneranimalmedia/evidence/about.json`**  (12 lines, 0.3 KB)
+- **`docs/inneranimalmedia/product/known-bugs.md`**  (16 lines, 0.3 KB)
+- **`prototypes/inneranimalmedia-cms-editor/artifacts/design_studio_inspection_20260513T035529Z/files_scanned.json`**  (6 lines, 0.2 KB)
+- **`captures/inneranimalmedia/results/.last-run.json`**  (7 lines, 0.1 KB)
+
+### EXPLORER  (10 files)
+
+- **`src/core/workspace-capability-actions/index.js`**  (531 lines, 16.4 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_mcp_workflows`, `agentsam_workflow_runs`
+- **`src/core/workspace-provisioning.js`**  (423 lines, 12.4 KB)
+  - D1 tables: `agentsam_workspace`, `auth_users`, `tenant_workspaces`, `tenants`, `workspace_members`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/02_agent_workspace_map.md`**  (239 lines, 11.1 KB)
+  - D1 tables: `AGENTSAM_MCP_WORKFLOWS`, `AGENTSAM_WORKFLOW_RUNS_TABLE`, `agentsam_cms_audit_plan`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_cms_plan_20260513T033820Z`, `agentsam_cms_plan_20260513T035443Z`
+- **`scripts/audit_agent_workspace_surface.py`**  (339 lines, 9.5 KB)
+  - D1 tables: `__future__`, `dataclasses`, `pathlib`, `the`, `typing`
+- **`scripts/audit_tenant_workspace_hardcoding.py`**  (298 lines, 9.0 KB)
+  - D1 tables: `__future__`, `dataclasses`, `pathlib`, `root`, `sqlite_master`, `typing`
+  - R2: `inneranimalmedia-business`
+- **`src/core/workspace-capability-actions/browser.js`**  (229 lines, 6.8 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_tools`
+- **`scripts/may14_terminal_workspace_cd.py`**  (176 lines, 6.1 KB)
+  - Routes: `/api/terminal/session`
+  - D1 tables: `agentsam_workspace`, `grep`, `pathlib`, `repo`, `sessions`, `terminal_sessions`
+- **`src/core/workspace-capability-actions/excalidraw.js`**  (174 lines, 5.1 KB)
+- **`src/core/workspace-capability-actions/monaco.js`**  (141 lines, 4.1 KB)
+  - D1 tables: `workspace`
+- **`src/core/workspace-tokens.js`**  (61 lines, 2.3 KB)
+  - D1 tables: `mcp_workspace_tokens`
+
+### INFRA_CONFIG  (10 files)
+
+- **`artifacts/key_hygiene_audit/chunks/key_usage_cloudflare.md`**  (208 lines, 16.7 KB)
+  - D1 tables: `AGENTSAM_R2_ANALYTICS_PREFIX`, `AGENTSAM_R2_BUCKET`, `AGENTSAM_R2_RESULTS_PREFIX`, `agentsam_audit`, `agentsam_benchmark_flood_v2`, `agentsam_benchmark_v3`
+- **`docs/CLOUDFLARE_API_TOKEN.md`**  (89 lines, 5.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_hook`, `cloudflare_deployments`, `scripts`, `this`, `your`
+- **`wrangler.production.toml`**  (187 lines, 4.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - R2: `ai-search-inneranimalmedia-autorag`, `iam-autorag`, `iam-docs`, `iam-platform`, `inneranimalmedia`
+- **`scripts/with-cloudflare-env.sh`**  (69 lines, 2.2 KB)
+  - D1 tables: `may`
+- **`scripts/verify-cloudflare-cli.sh`**  (34 lines, 1.8 KB)
+  - D1 tables: `repo`
+- **`scripts/sync-cloudflare-env-from-zshrc.sh`**  (23 lines, 0.8 KB)
+  - D1 tables: `current`, `env`, `repo`, `your`
+- **`iam-test-reports/deploy-checks/settings-api-vault-20260508T082834Z-fbf202b/run.env`**  (5 lines, 0.1 KB)
+- **`iam-test-reports/deploy-checks/settings-api-vault-20260508T082633Z-d0a1d57/run.env`**  (5 lines, 0.1 KB)
+- **`iam-test-reports/deploy-checks/settings-api-vault-20260508T082728Z-fbf202b/run.env`**  (5 lines, 0.1 KB)
+- **`iam-test-reports/deploy-checks/settings-api-vault-20260508T082927Z-a8702eb/run.env`**  (5 lines, 0.1 KB)
+
+### SUPABASE  (9 files)
+
+- **`artifacts/key_hygiene_audit/chunks/key_usage_supabase.md`**  (149 lines, 11.3 KB)
+  - D1 tables: `agentsam_benchmark_flood_v2`, `agentsam_benchmark_v3`, `agentsam_scripts_register_e2e_workflow`, `agentsam_supabase_repair`
+- **`docs/DEPLOY_ENV_SUPABASE_MAPPING.md`**  (179 lines, 10.4 KB)
+  - D1 tables: `agentsam_error_events`, `agentsam_eval_runs`, `agentsam_guardrails`, `agentsam_prompt_runs`, `agentsam_routing_decisions`, `agentsam_stream_events`
+- **`docs/SUPABASE_AI_ASSISTANT_AND_AUTORAG_PLAYBOOK.md`**  (119 lines, 10.1 KB)
+  - D1 tables: `agentsam_eval_`, `agentsam_prompt_runs`, `logs`, `session`, `session_summaries`, `sessions`
+- **`src/integrations/hyperdrive.js`**  (276 lines, 9.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/hyperdrive`, `/api/hyperdrive/health`, `/api/hyperdrive/query`, `/api/hyperdrive/status`, `/api/hyperdrive/tables`
+  - D1 tables: `information_schema`, `pg_indexes`, `public`
+- **`src/core/supabase-finalize-stale-deploy-events.js`**  (244 lines, 7.5 KB)
+  - D1 tables: `env`
+- **`docs/supabase/MIGRATION_RECONCILIATION_2026-04-30.md`**  (117 lines, 5.1 KB)
+  - D1 tables: `agentsam_2026`, `agentsam_dashboard_tester_rls`, `current`, `this`
+- **`src/core/hyperdrive-query.js`**  (124 lines, 4.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`src/integrations/supabase.js`**  (65 lines, 2.0 KB)
+  - D1 tables: `agentsam_routing_decisions`
+- **`supabase/.temp/linked-project.json`**  (1 lines, 0.2 KB)
+  - R2: `inneranimalmedia-business-supabase`
+
+### SCRIPTS  (185 files)
+
+- **`scripts/audit_hardcoded_identity_report.md`**  (19077 lines, 2536.0 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `BASE`, `BUCKET`, `FROM`, `TO`, `SOURCE`
+  - Routes: `/api/webhooks/openai`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_WORKSPACE_ID`, `API`, `ASSETS`, `Cloudflare`, `Cursor`
+  - R2: `: `, `AUTORAG_BUCKET`, `TOOLS`, `agent-sam`, `agent-sam-sandbox-cicd`
+- **`scripts/audit_agent_remaster_report.md`**  (1928 lines, 104.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `Pill`, `TABLE`
+  - Routes: `/api/agent/memory/list`
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_browser_trusted_origin`, `agentsam_cron_runs`, `agentsam_execution_performance_metrics`
+  - R2: `agent-sam`, `autorag`, `iam-sidebar-toggle`
+- **`scripts/aitestsuite/package-lock.json`**  (1505 lines, 42.8 KB)
+  - R2: `wrangler2`
+- **`scripts/smoke/smoke_todo_fix.py`**  (877 lines, 39.0 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_audit_snapshots`, `agentsam_command_run`, `agentsam_commands`, `agentsam_cron_runs`, `agentsam_error_events`
+  - R2: `agent-sam`
+- **`artifacts/cleanup_hold_20260515/audit_repo_keys_hygiene.py`**  (919 lines, 35.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `Workers`, `__future__`, `agentsam_api_keys`, `agentsam_memory`, `agentsam_project_context`, `agentsam_prompt_cache_keys`
+  - R2: `iam-pty`, `inneranimalmedia`, `inneranimalmedia-mcp-server`
+- **`scripts/audit_agent_microinteractions.py`**  (981 lines, 30.5 KB)
+  - D1 tables: `__future__`, `cwd`, `dataclasses`, `pathlib`, `repo`, `the`
+- **`scripts/write_learn_course_readmes.py`**  (755 lines, 29.5 KB)
+  - D1 tables: `__future__`, `agentsam_ai`, `agentsam_analytics`, `agentsam_command_allowlist`, `agentsam_command_run`, `agentsam_commands`
+  - R2: ` wrangler*.toml`, `ai-engineering-agent-sam-routing`, `data-storage-d1-r2-hyperdrive-supabase`, `inneranimalmedia`
+- **`scripts/deploy-sandbox.sh`**  (556 lines, 29.0 KB)
+  - D1 tables: `Step`, `deployments`, `wrangler`
+- **`scripts/install_tasks_page_v1.py`**  (740 lines, 28.7 KB)
+  - Components: `TasksPage`, `SettingsPanel`
+  - D1 tables: `agentsam_scripts`, `agentsam_todo_id`, `pathlib`, `repo`, `the`
+- **`scripts/promote-to-prod.sh`**  (532 lines, 26.8 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `ai_workflow_executions`, `ai_workflow_pipelines`, `deployment_health_checks`, `deployments`, `pulled`
+  - R2: `inneranimalmedia`
+- **`scripts/ingest_testing_knowledge.js`**  (348 lines, 26.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `INDEX`, `DOC`, `PREFIX`
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_commands`, `agentsam_debug_snapshots`, `agentsam_escalation`, `agentsam_eval_cases`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/batch_embed_all.py`**  (658 lines, 26.2 KB)
+  - Routes: `/api/embed`, `/api/embeddings`
+  - D1 tables: `agentsam_agent_run`, `agentsam_commands`, `agentsam_error_log`, `agentsam_executions`, `agentsam_mcp_tools`, `agentsam_mcp_workflows`
+  - R2: `ai-search-inneranimalmedia-autorag`, `inneranimalmedia-business`
+- **`scripts/iam-model-test.sh`**  (688 lines, 25.6 KB)
+  - D1 tables: `SSE`, `agentsam_prompt`, `ai_api_test_runs`, `headers`, `quality_results`, `quality_runs`
+- **`scripts/overnight.js`**  (427 lines, 23.8 KB)
+  - Components: `ACCOUNT`, `BUCKET`, `FROM`, `TO`, `BASE`, `IIFE`
+  - Routes: `/api/agents`, `/api/settings/theme`, `/api/themes`, `/api/user/preferences`
+  - D1 tables: `email_logs`, `project_memory`
+  - R2: `inneranimalmedia`
+- **`scripts/smoke-test-full.py`**  (508 lines, 23.4 KB)
+  - Routes: `/api/agent/browse`, `/api/agent/chat`, `/api/agent/vertex-test`, `/api/rag/query`
+  - D1 tables: `ai_models`, `datetime`, `image_generation_jobs`, `mcp_tool_call_stats`, `mcp_workflow_runs`, `mcp_workflows`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`scripts/eval_routing_matrix.py`**  (625 lines, 22.1 KB)
+  - D1 tables: `__future__`, `agentsam_eval_runner`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_routing_arms`, `agentsam_usage_events`
+  - R2: `inneranimalmedia-business`, `x-iam-workspace-id`
+- **`scripts/deploy-gate.sh`**  (536 lines, 21.6 KB)
+  - D1 tables: `dashboard_versions`, `deployments`, `roadmap_steps`
+  - R2: `inneranimalmedia`
+- **`scripts/deploy-frontend.sh`**  (475 lines, 20.7 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_hook`, `agentsam_hook_execution`, `shell`, `wrangler`
+  - R2: `inneranimalmedia`
+- **`scripts/reconcile_learning_os_course.py`**  (599 lines, 20.5 KB)
+  - D1 tables: `__future__`, `agentsam_command_run`, `agentsam_guardrail_events`, `agentsam_plan_tasks`, `agentsam_tool_call_log`, `agentsam_workspace_state`
+  - R2: `ai-engineering-agent-sam-routing`, `data-storage-d1-r2-hyperdrive-supabase`, `inneranimalmedia-business`
+- **`scripts/eval_model_lineup_v1.py`**  (551 lines, 20.5 KB)
+  - D1 tables: `__future__`, `agentsam_model_catalog`, `catalog`, `concurrent`, `dataclasses`, `datetime`
+  - R2: `inneranimalmedia-business`
+- **`scripts/iam_codebase_audit.py`**  (486 lines, 20.2 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, TOPBAR_POPUP, EXPLORER_TABS_OPEN, EXPLORER_ALIGNMENT, MOVIEMODE_BROKEN
+  - D1 tables: `collections`, `context`, `knowledge_edges`, `pathlib`, `session_summaries`, `sessions`
+  - R2: `\`, `agent-sam`, `autorag`, `iam-`, `inneranimalmedia`
+- **`scripts/smoke/smoke_command_pipeline.py`**  (524 lines, 20.1 KB)
+  - D1 tables: `AGENTSAM_SMOKE_WRITE_D1`, `Beta`, `agentsam_command_run`, `agentsam_commands`, `agentsam_cron_runs`, `agentsam_error_log`
+- **`scripts/seed_prompt_layers.py`**  (331 lines, 19.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_approval_queue`, `agentsam_error_log`, `agentsam_model_catalog`, `agentsam_plan_tasks`, `agentsam_prompt_versions`, `agentsam_routing_arms`
+  - R2: `inneranimalmedia-business`
+- **`scripts/write_learn_area_readme.py`**  (906 lines, 19.2 KB)
+  - D1 tables: `__future__`, `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_guardrail_events`, `agentsam_plan_tasks`, `agentsam_plans`
+  - R2: `inneranimalmedia`
+- **`scripts/ingest_rag_knowledge.js`**  (372 lines, 18.6 KB)
+  - Components: `INDEX`, `DOC`, `PREFIX`
+  - D1 tables: `Vectorize`, `another`, `scratch`, `the`, `this`, `updated`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/reports/pipeline_e2e_20260514T001913.json`**  (803 lines, 18.4 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_mcp_tools_id`, `agentsam_model_routing_memory`, `agentsam_plan_tasks`
+- **`scripts/smoke/smoke_error_events.py`**  (423 lines, 18.0 KB)
+  - Routes: `/api/agent/chat`
+  - D1 tables: `agentsam_error_events`, `agentsam_escalation`, `datetime`
+- **`scripts/apply-batch1-patches.sh`**  (424 lines, 17.9 KB)
+  - Routes: `/api/rag/ingest`, `/api/rag/query`, `/api/search/docs/index`
+  - D1 tables: `ai_knowledge_chunks`, `autorag`, `rag_ingest_log`, `rag_query_log`, `repo`
+  - R2: `AUTORAG_BUCKET`
+- **`scripts/vectorize_knowledge_ollama_cf.py`**  (549 lines, 17.6 KB)
+  - Routes: `/api/embeddings`, `/api/tags`
+  - D1 tables: `__future__`, `agentsam_knowledge`, `pathlib`, `typing`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/audit_secrets.py`**  (377 lines, 17.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `collections`, `pathlib`
+- **`scripts/eval_pipeline_e2e.py`**  (402 lines, 16.7 KB)
+  - D1 tables: `__future__`, `agentsam_agent_run`, `agentsam_ai`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_memory`
+  - R2: `inneranimalmedia-business`
+- **`scripts/chunk_and_embed_inspection.py`**  (453 lines, 16.2 KB)
+  - Routes: `/api/embed`, `/api/embeddings`
+  - D1 tables: `agentsam_foo`, `agentsam_inspection`, `dataclasses`, `header`, `pathlib`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/embed_supabase_semantic.py`**  (468 lines, 16.1 KB)
+  - D1 tables: `Supabase`, `agent_decisions`, `agent_memory`, `knowledge_edges`, `pathlib`, `tenant_context`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/analytics_ui_audit.py`**  (298 lines, 15.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_cron_runs`, `agentsam_deployment_health`
+  - R2: `inneranimalmedia`
+- **`scripts/timestamp_audit.py`**  (358 lines, 15.8 KB)
+  - D1 tables: `agentsam_prompt_cache_keys`, `datetime`, `pathlib`, `sqlite_master`, `this`, `timestamp_audit`
+  - R2: `inneranimalmedia`
+- **`scripts/reports/deploy_audit_20260513T203422.md`**  (238 lines, 15.8 KB)
+  - D1 tables: `agentsam_scripts`, `the`
+- **`scripts/patch_infer_intent.py`**  (268 lines, 15.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `bucket`, `pathlib`, `taskType`
+- **`artifacts/cleanup_hold_20260515/retry_failed_cms_embeddings.py`**  (495 lines, 15.4 KB)
+  - D1 tables: `__future__`, `datetime`, `pathlib`, `typing`
+  - R2: `ai-search-inneranimalmedia-autorag`, `inneranimalmedia`
+- **`scripts/reports/model_lineup_eval_20260513T230054.json`**  (555 lines, 15.4 KB)
+- **`scripts/benchmark-full.sh`**  (355 lines, 14.3 KB)
+  - D1 tables: `cicd_runs`
+- **`scripts/cms_06_audit_3d_assets.py`**  (443 lines, 14.1 KB)
+  - D1 tables: `CMS`, `cms_3d_assets`, `pathlib`, `pull`
+- **`scripts/compare-openai.sh`**  (220 lines, 13.6 KB)
+- **`scripts/cms_14_fix_liquid_fk_seed.py`**  (440 lines, 13.6 KB)
+  - D1 tables: `agentsam_platform_services`, `cms_liquid_imports`, `cms_liquid_sections`, `cms_liquid_sections_old_fkfix`, `cms_page_sections`, `cms_pages`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-home`
+- **`scripts/smoke_cms_frontend_playwright.py`**  (445 lines, 13.3 KB)
+  - D1 tables: `__future__`, `agentsam_parallel_cms_workers_20260515`, `agentsam_plan_tasks`, `agentsam_plans`, `pathlib`, `playwright`
+  - R2: `inneranimalmedia-business`
+- **`scripts/benchmark-cost-accuracy.sh`**  (371 lines, 13.2 KB)
+  - D1 tables: `agent_costs`, `agent_telemetry`, `ai_models`, `ai_usage_log`, `collections`
+- **`scripts/fix_route_requirements.py`**  (305 lines, 13.1 KB)
+  - D1 tables: `agentsam_route_requirements`, `required`
+  - R2: `inneranimalmedia-business`
+- **`scripts/seed_subagent_python_primeaux.py`**  (345 lines, 13.1 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_approval_queue`, `agentsam_capability_aliases`, `agentsam_commands`, `agentsam_context_digest`, `agentsam_model_routing_rules`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`scripts/cms_07_audit_homepage_sections.py`**  (425 lines, 13.1 KB)
+  - D1 tables: `html`, `pathlib`
+- **`scripts/benchmark-ai-full.sh`**  (298 lines, 13.0 KB)
+- **`artifacts/cleanup_hold_20260515/embed_cms_logic_local.py`**  (433 lines, 12.8 KB)
+  - D1 tables: `__future__`, `datetime`, `pathlib`, `typing`
+  - R2: `ai-search-inneranimalmedia-autorag`, `inneranimalmedia`
+- **`scripts/patch_infer_intent_v2.py`**  (209 lines, 12.8 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `bucket`, `pathlib`
+- **`scripts/audit_agent_remaster.py`**  (310 lines, 12.7 KB)
+  - D1 tables: `agentsam_routing`, `datetime`, `pathlib`, `repo`
+  - R2: `iam-classy`
+- **`scripts/persist_inventory.py`**  (300 lines, 12.7 KB)
+  - Routes: `/api/agent/approve`, `/api/agent/approve, /api/agent/mcp, /api/agent/workflow/approve, `, `/api/agent/boot`, `/api/agent/chat`, `/api/agent/mcp`, `/api/agent/rag/query`
+  - D1 tables: `agentsam_code_index_job`, `agentsam_memory`, `codebase_files`, `datetime`, `pathlib`, `repo_inventory`
+- **`scripts/smoke_embed.py`**  (343 lines, 12.5 KB)
+  - D1 tables: `Ollama`, `agentsam_code_index_job`, `agentsam_error_log`, `agentsam_memory`, `agentsam_plan_tasks`, `agentsam_plans`
+  - R2: `ai-search-inneranimalmedia-autorag`, `inneranimalmedia-business`
+- **`scripts/smoke/smoke_prompt_runs.py`**  (285 lines, 12.5 KB)
+  - D1 tables: `agentsam_prompt_runs`, `datetime`
+  - R2: `agent-sam`
+- **`scripts/audit_dashboard_identity.py`**  (302 lines, 12.2 KB)
+  - D1 tables: `datetime`, `env`, `repo`
+- **`artifacts/cleanup_hold_20260515/embed_key_hygiene_vectorize.py`**  (383 lines, 12.0 KB)
+  - Routes: `/api/embed returned no vector: {str(data)[:400]}`, `/api/embeddings returned no vector: {str(data)[:400]}`
+  - D1 tables: `__future__`, `pathlib`, `typing`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/seed_plan.py`**  (257 lines, 11.4 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_approval_queue`, `agentsam_artifact_skills`, `agentsam_capability_aliases`, `agentsam_commands`, `agentsam_compaction_events`
+  - R2: `inneranimalmedia-business`
+- **`scripts/benchmark-ai-full.py`**  (309 lines, 11.3 KB)
+  - D1 tables: `datetime`
+- **`scripts/upload_codebase_index.py`**  (232 lines, 11.2 KB)
+  - D1 tables: `agentsam_code_index_job`, `datetime`, `docs`, `pathlib`
+  - R2: `iam-test-reports`, `inneranimalmedia`
+- **`scripts/ingest-docs.js`**  (321 lines, 10.9 KB)
+  - Components: `MODEL`
+  - D1 tables: `Cloudflare`, `agent_commands`, `agentsam_rules_document`, `documents`, `iam_agent_sam_prompts`, `the`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`scripts/e2e-overnight.sh`**  (277 lines, 10.9 KB)
+  - D1 tables: `SESSION_COOKIE`, `agent_telemetry`, `dist`, `this`
+- **`scripts/patch_routing_unified.py`**  (263 lines, 10.7 KB)
+  - D1 tables: `agent`, `agentsam_ai`, `agentsam_model_catalog`, `agentsam_model_routing_memory`, `agentsam_routing_arms`, `pathlib`
+- **`scripts/sync-modular-repo.sh`**  (271 lines, 10.7 KB)
+  - D1 tables: `anywhere`, `pathlib`, `production`
+  - R2: `AGENT_SESSION`
+- **`scripts/seed_iam_framework_flag.py`**  (221 lines, 10.6 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_workflow_runs`, `datetime`, `existing`
+  - R2: `inneranimalmedia-business`
+- **`scripts/generate_themes_ai.py`**  (284 lines, 10.6 KB)
+  - D1 tables: `cms_themes`, `concurrent`, `model`, `repo`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`scripts/smoke/smoke_routing_decisions.py`**  (253 lines, 10.5 KB)
+  - D1 tables: `agentsam_routing_decisions`, `datetime`
+- **`scripts/smoke/audit_and_todo.py`**  (255 lines, 10.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_commands`, `agentsam_compaction_events`, `agentsam_context_digest`, `agentsam_error_log`
+- **`scripts/audit/audit_python_architect_skill_table_refs.py`**  (359 lines, 10.5 KB)
+  - D1 tables: `Wrangler`, `__future__`, `agentsam_approval_queue`, `agentsam_approval_queue_columns`, `agentsam_artifacts`, `agentsam_artifacts_columns`
+  - R2: `inneranimalmedia-business`
+- **`scripts/generate_source_map.py`**  (239 lines, 10.3 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_approval_queue`, `agentsam_code_index_job`, `agentsam_command_run`, `agentsam_cron_runs`, `agentsam_execution_steps`
+  - R2: `inneranimalmedia`
+- **`scripts/build_thinking_card_wire.py`**  (255 lines, 10.2 KB)
+  - D1 tables: `repo`, `scripts`
+- **`tmp/agent-pinstest/seed_ollama_pinstest_prompt_context.py`**  (374 lines, 10.0 KB)
+  - Routes: `/api/agent/*`, `/api/analytics/overview`
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_ollama_local_workflow_batch_pinstest`, `agentsam_ollama_local_workflow_pinstest_v2`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`scripts/ingest.py`**  (299 lines, 9.5 KB)
+  - D1 tables: `datetime`, `pathlib`, `the`, `this`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/deploy-with-record.sh`**  (160 lines, 9.4 KB)
+  - D1 tables: `repo`
+- **`scripts/iam-welcome.sh`**  (152 lines, 9.3 KB)
+  - D1 tables: `repo`
+- **`artifacts/cleanup_hold_20260515/audit_cms_tables.py`**  (295 lines, 9.2 KB)
+  - D1 tables: `__future__`, `datetime`, `pathlib`, `repo`, `sqlite_master`, `typing`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audits/cms-autorag-compact-audit.sh`**  (230 lines, 9.2 KB)
+  - D1 tables: `CREATE`, `SQL`, `pragma_table_info`, `sessions`, `sqlite_master`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`
+- **`scripts/audit_deploy_scripts.py`**  (227 lines, 9.1 KB)
+  - D1 tables: `agentsam_scripts`, `datetime`, `pathlib`
+  - R2: `inneranimalmedia`
+- **`scripts/repo_inventory.py`**  (258 lines, 9.1 KB)
+  - D1 tables: `collections`, `pathlib`, `sqlite_master`
+  - R2: `inneranimalmedia`
+- **`scripts/maintenance/fix_deploy_pipeline.py`**  (239 lines, 8.9 KB)
+  - D1 tables: `__future__`, `pathlib`, `repo`, `script`
+- **`scripts/generate-route-map.js`**  (238 lines, 8.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/agent/chat`, `/api/internal/`, `/api/oauth/github/callback`, `/api/oauth/google/callback`, `/api/search`, `/api/search/federated`
+  - D1 tables: `repo`
+- **`scripts/may14_verify.py`**  (244 lines, 8.8 KB)
+  - Routes: `/api/agent/allowlist`
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_allowlist`, `agentsam_command_pattern`, `agentsam_mcpwf_global_key`, `agentsam_mcpwf_tenant_key`, `agentsam_model_catalog`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audit_hardcoded_identity.py`**  (241 lines, 8.7 KB)
+  - D1 tables: `datetime`, `repo`
+  - R2: `inneranimalmedia`
+- **`scripts/deploy_cms_editor_live.py`**  (234 lines, 8.6 KB)
+  - Routes: `/api/d1`, `/api/r2/`
+  - D1 tables: `Downloads`, `datetime`, `output`, `pathlib`
+  - R2: `DASHBOARD`, `agent-sam`, `inneranimalmedia-business`, `inneranimalmedia-cms-editor`
+- **`scripts/ollama_cms_gameplan.py`**  (309 lines, 8.3 KB)
+  - Routes: `/api/embed`, `/api/embeddings`, `/api/generate`
+  - D1 tables: `pathlib`, `sessions`, `this`
+- **`artifacts/cleanup_hold_20260515/vectorize_todo.py`**  (188 lines, 7.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - R2: `ai-search-inneranimalmedia-autorag`, `inneranimalmedia`
+- **`scripts/cms_04_reduce_reports.py`**  (252 lines, 7.7 KB)
+  - D1 tables: `pathlib`
+- **`scripts/seed_agent_design_protocol.py`**  (169 lines, 7.7 KB)
+  - D1 tables: `agentsam_mcp_workflows`, `agentsam_scripts`
+- **`scripts/pinstest/ollama_e2e_observability_pintest_v3.py`**  (193 lines, 7.6 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_error_log`, `agentsam_execution_steps`, `agentsam_executions`, `agentsam_tool_call_log`, `agentsam_usage_events`
+  - R2: `inneranimalmedia-business`
+- **`scripts/ThinkingCard.tsx`**  (261 lines, 7.5 KB)  🐛 EXPLORER_TABS_OPEN
+  - Components: `CSS`, `ThinkingCard`
+  - R2: `iam-tc-pulse`, `iam-tc-spin`
+- **`scripts/validate-overnight-setup.js`**  (174 lines, 7.3 KB)
+  - Components: `ACCOUNT`, `BUCKET`, `FROM`, `TO`, `BASE`
+  - R2: `inneranimalmedia`
+- **`scripts/cms_05_chess_asset_manifest.py`**  (196 lines, 7.2 KB)
+  - D1 tables: `CMS`, `__future__`, `pathlib`, `the`, `urllib`
+- **`scripts/cms_03_synthesize_embed.py`**  (242 lines, 7.2 KB)
+  - Routes: `/api/embed`, `/api/embeddings`, `/api/generate`
+  - D1 tables: `pathlib`, `the`
+- **`scripts/deploy-cf-builds-prod.sh`**  (186 lines, 7.2 KB)
+  - D1 tables: `deployments`, `iam_deploy_log`
+  - R2: `inneranimalmedia`
+- **`scripts/deploy-test-promote.sh`**  (157 lines, 7.0 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/health → $health`, `/api/health → 200`
+- **`scripts/verify_buildsystemprompt.py`**  (146 lines, 7.0 KB)
+  - D1 tables: `agentsam_prompt_routes`, `agentsam_prompt_versions`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`scripts/rotate_mcp_identity.py`**  (195 lines, 6.9 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `datetime`, `mcp_workspace_tokens`, `pathlib`
+  - R2: `inneranimalmedia`, `inneranimalmedia-business`, `inneranimalmedia-mcp-server`
+- **`scripts/fix_route_requirements_v2.py`**  (113 lines, 6.5 KB)
+  - D1 tables: `agentsam_route_requirements`, `required`
+  - R2: `inneranimalmedia-business`
+- **`scripts/smoke_agent_e2e.py`**  (182 lines, 6.4 KB)
+  - D1 tables: `__future__`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`scripts/batch-api-test.sh`**  (137 lines, 6.2 KB)
+  - D1 tables: `agent_conversations`, `agent_messages`, `quality_checks`
+  - R2: `inneranimalmedia`
+- **`scripts/cms_02_qwen_summarize_chunks.py`**  (212 lines, 6.1 KB)
+  - D1 tables: `pathlib`
+- **`scripts/may14_db_cleanup.py`**  (154 lines, 6.1 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_plan_tasks`, `agentsam_routing_arms`, `agentsam_scripts`, `agentsam_todo`, `agentsam_workflow_nodes`
+  - R2: `inneranimalmedia-business`
+- **`scripts/model-smoke-test.sh`**  (143 lines, 6.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/agent/chat`
+  - D1 tables: `quality_checks`
+  - R2: `inneranimalmedia`
+- **`scripts/audit_services_route.py`**  (201 lines, 6.0 KB)
+  - D1 tables: `__future__`, `pathlib`
+- **`scripts/find_agent_prompt_minimal_assets.py`**  (194 lines, 5.9 KB)
+  - D1 tables: `__future__`, `agentsam_prompt_routes`, `agentsam_prompt_versions`, `pathlib`, `route`
+- **`scripts/fix_timestamp_formats.py`**  (122 lines, 5.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_allowlist`, `agentsam_commands`, `agentsam_deployment_health`, `agentsam_escalation`, `agentsam_eval_cases`
+- **`scripts/deploy-full.sh`**  (135 lines, 5.7 KB)
+  - D1 tables: `agentsam_script_runs`
+- **`scripts/patch_anthropic.py`**  (135 lines, 5.5 KB)
+  - D1 tables: `agentsam_usage_events`, `pathlib`, `streamParams`, `the`
+- **`scripts/backfill_theme_vars.py`**  (191 lines, 5.5 KB)
+  - D1 tables: `__future__`, `cms_themes`, `pathlib`, `public`, `repo`
+  - R2: `inneranimalmedia-business`
+- **`scripts/test_supabase.py`**  (146 lines, 5.4 KB)
+  - D1 tables: `agentsam_benchmark_v3`, `agentsam_eval_runs`, `agentsam_routing_decisions`, `agentsam_tool_call_events`, `pathlib`
+- **`scripts/audit_services_headers.py`**  (178 lines, 5.3 KB)
+  - D1 tables: `__future__`, `pathlib`
+- **`scripts/benchmark-all-models.sh`**  (91 lines, 5.2 KB)
+  - D1 tables: `sessions`
+- **`scripts/benchmark-all-providers.sh`**  (109 lines, 5.1 KB)
+  - D1 tables: `sessions`
+- **`scripts/smoke_dashboard_agent_browser_workbench.py`**  (165 lines, 5.1 KB)
+  - D1 tables: `__future__`, `agentsam_agent_run`, `agentsam_tool_call_log`, `agentsam_tool_chain`, `agentsam_tools`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`scripts/populate-autorag.sh`**  (178 lines, 5.0 KB)
+  - D1 tables: `inneranimalmedia`, `repo`
+  - R2: `autorag`, `iam-autorag`
+- **`scripts/cms_13_rebuild_liquid_imports.py`**  (221 lines, 5.0 KB)
+  - D1 tables: `cms_liquid_imports`, `cms_liquid_imports_old`, `pathlib`, `that`
+  - R2: `inneranimalmedia-business`
+- **`scripts/patch_wire_selectautomodel.py`**  (128 lines, 4.9 KB)
+  - D1 tables: `core`, `pathlib`, `src`
+- **`scripts/smoke-agent-e2e.sh`**  (182 lines, 4.7 KB)
+  - D1 tables: `agentsam_error_log`, `agentsam_mcp_tool_execution`, `agentsam_tools_id`, `agentsam_workflow_runs`, `pragma_table_info`
+- **`scripts/seed_fallback_edges.sh`**  (90 lines, 4.7 KB)
+  - D1 tables: `agentsam_workflow_edges`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/cleanup_hold_20260515/patch_rules_doc_scoping.py`**  (130 lines, 4.5 KB)
+  - D1 tables: `agentsam_rules_document`, `pathlib`, `repo`
+- **`scripts/cms_15_final_fix_liquid_sections_fk.py`**  (170 lines, 4.5 KB)
+  - D1 tables: `cms_component_templates`, `cms_liquid_imports`, `cms_liquid_sections`, `cms_liquid_sections_rebuild_backup`, `cms_page_sections`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`scripts/patch_prompt_cache_keys.py`**  (104 lines, 4.5 KB)
+  - D1 tables: `agentsam_prompt_cache_keys`, `context`, `pathlib`
+- **`scripts/log-repo-edit-to-cicd-events.sh`**  (132 lines, 4.4 KB)
+  - R2: `inneranimalmedia-business`
+- **`scripts/post-deploy-memory-sync.sh`**  (129 lines, 4.4 KB)
+  - D1 tables: `agentsam_memory`
+- **`scripts/audit_legacy_tables.py`**  (136 lines, 4.3 KB)
+  - D1 tables: `agentsam_tables`, `collections`, `pathlib`, `sqlite_master`
+  - R2: `inneranimalmedia`
+- **`scripts/backfill_memory_embeddings.py`**  (124 lines, 4.1 KB)
+  - D1 tables: `agentsam_memory`, `pathlib`
+  - R2: `agent-sam`
+- **`scripts/patch_mime.py`**  (84 lines, 4.0 KB)
+  - D1 tables: `pathlib`, `repo`
+- **`scripts/benchmark-providers.sh`**  (106 lines, 4.0 KB)
+  - D1 tables: `sessions`
+- **`scripts/routing_audit.py`**  (117 lines, 3.9 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_route_requirements`, `agentsam_routing_arms`, `pathlib`, `repo`
+- **`scripts/audit-model-catalog.sh`**  (61 lines, 3.8 KB)
+  - D1 tables: `agent_model_registry`, `ai_models`
+- **`scripts/audit_projects_page_data.py`**  (124 lines, 3.7 KB)
+  - D1 tables: `__future__`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_usage_events`, `agentsam_workflow_runs`, `pathlib`
+  - R2: `inneranimalmedia-business`
+- **`scripts/pull_public_pages_batch.py`**  (146 lines, 3.6 KB)
+  - D1 tables: `pathlib`
+- **`scripts/settings_deploy_check.sh`**  (105 lines, 3.6 KB)
+- **`scripts/patch_wire_selectautomodel_v2.py`**  (96 lines, 3.6 KB)
+  - D1 tables: `pathlib`
+- **`scripts/deploy-cf-builds.sh`**  (110 lines, 3.5 KB)
+  - D1 tables: `repo`
+- **`scripts/cms_05_final_openai_remaster.py`**  (125 lines, 3.5 KB)
+  - D1 tables: `pathlib`
+- **`scripts/upload-frontend-prod.sh`**  (91 lines, 3.4 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_plan_tasks`
+  - R2: `inneranimalmedia`
+- **`scripts/fix_memory_backtick.py`**  (100 lines, 3.2 KB)
+  - D1 tables: `agentsam_memory`, `pathlib`
+- **`artifacts/cleanup_hold_20260515/fix_app_tsx.py`**  (84 lines, 3.1 KB)
+  - Components: `WorkflowsPage`, `WorkflowCanvas`
+  - D1 tables: `pathlib`, `repo`
+- **`scripts/supabase-embeddings-backfill.sh`**  (77 lines, 3.1 KB)
+  - D1 tables: `session_summaries`
+- **`scripts/thinking_sse_handlers.js`**  (70 lines, 3.1 KB)
+- **`scripts/seed_routing_arms.py`**  (96 lines, 2.9 KB)
+  - D1 tables: `agentsam_model_tier`, `agentsam_routing_arms`, `datetime`
+  - R2: `inneranimalmedia-business`
+- **`scripts/audit_dashboard_identity_report.md`**  (83 lines, 2.9 KB)
+  - D1 tables: `auth`
+- **`scripts/post-deploy-record.sh`**  (60 lines, 2.9 KB)
+  - D1 tables: `deployments`, `environment`, `repo`
+  - R2: `inneranimalmedia`
+- **`scripts/terminal-debug.sh`**  (59 lines, 2.8 KB)
+  - D1 tables: `repo`
+- **`scripts/deploy.sh`**  (77 lines, 2.8 KB)
+- **`scripts/post-deploy-smoke.sh`**  (54 lines, 2.7 KB)
+  - D1 tables: `agentsam_tool_chain`, `deploy`
+- **`scripts/designstudio/stl-to-glb.py`**  (90 lines, 2.7 KB)
+  - D1 tables: `blender`, `shutil`, `typing`
+- **`scripts/patch-dashboard-flat-deploy-paths.sh`**  (83 lines, 2.6 KB)
+  - D1 tables: `pathlib`
+- **`scripts/repair-dashboard-vite-flat.sh`**  (97 lines, 2.4 KB)
+- **`scripts/promote-agent-dashboard-to-production.sh`**  (51 lines, 2.4 KB)
+  - D1 tables: `dist`, `repo`
+- **`scripts/mcp-token-create.sh`**  (61 lines, 2.0 KB)
+  - D1 tables: `mcp_workspace_tokens`
+- **`artifacts/cleanup_hold_20260515/vectorize_query.py`**  (61 lines, 1.9 KB)
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`scripts/fix-flat-dashboard-vite-deps.sh`**  (67 lines, 1.9 KB)
+- **`scripts/patch_mcp_execution_action_columns_safe.sh`**  (57 lines, 1.8 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `inneranimalmedia`, `pathlib`, `repo`
+- **`scripts/dev-deploy.sh`**  (67 lines, 1.8 KB)  🐛 HARDCODED_R2
+- **`scripts/test_ollama_e2e.py`**  (58 lines, 1.8 KB)
+- **`scripts/cf-builds-sync.sh`**  (60 lines, 1.6 KB)
+  - D1 tables: `repo`
+- **`scripts/run-overnight-pipeline.sh`**  (33 lines, 1.5 KB)
+  - Routes: `/api/admin/overnight/start`
+  - D1 tables: `DevTools`, `the`
+- **`scripts/promote-flat-dashboard-to-parent.sh`**  (56 lines, 1.5 KB)
+  - D1 tables: `parent`, `pathlib`
+- **`scripts/designstudio/README.md`**  (45 lines, 1.5 KB)
+- **`scripts/run-validate-overnight.sh`**  (32 lines, 1.4 KB)
+  - Routes: `/api/admin/overnight/validate`
+  - D1 tables: `DevTools`, `the`
+- **`scripts/apply_web_fetch_domain_allowlist.sh`**  (36 lines, 1.3 KB)
+  - D1 tables: `agentsam_fetch_domain_allowlist`
+- **`scripts/patch_routing.py`**  (42 lines, 1.3 KB)
+  - D1 tables: `pathlib`
+- **`scripts/fix_memory_string.py`**  (36 lines, 1.3 KB)
+  - D1 tables: `pathlib`
+- **`scripts/patch_app_tsx.py`**  (40 lines, 1.2 KB)
+  - Components: `WorkflowsPage`
+  - D1 tables: `pathlib`, `repo`
+- **`scripts/fix_memory_dupes.py`**  (34 lines, 1.2 KB)
+  - D1 tables: `memory`, `pathlib`, `the`
+- **`scripts/aitestsuite/AGENTS.md`**  (35 lines, 1.1 KB)
+  - D1 tables: `the`
+- **`scripts/designstudio/fixtures/README.md`**  (26 lines, 1.1 KB)
+- **`scripts/designstudio/local-check.sh`**  (23 lines, 0.9 KB)
+- **`scripts/designstudio/upload-asset.sh`**  (29 lines, 0.9 KB)
+- **`scripts/designstudio/lib.sh`**  (27 lines, 0.9 KB)
+  - D1 tables: `other`
+- **`scripts/maintenance/README.md`**  (20 lines, 0.9 KB)
+  - D1 tables: `repo`
+- **`scripts/bump-cache.js`**  (26 lines, 0.7 KB)
+- **`scripts/check-mcp-action-columns.sh`**  (37 lines, 0.7 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `pragma_table_info`
+- **`scripts/designstudio/pipeline-smoke.sh`**  (23 lines, 0.7 KB)
+- **`scripts/check-dashboard-theme.py`**  (17 lines, 0.5 KB)
+- **`scripts/designstudio/run-openscad.sh`**  (17 lines, 0.5 KB)
+- **`.mcp_exports.sh`**  (8 lines, 0.4 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`
+- **`scripts/designstudio/freecad-check.sh`**  (15 lines, 0.4 KB)
+- **`scripts/designstudio/run-blender-glb.sh`**  (8 lines, 0.3 KB)
+- **`scripts/supabase-documents-selected-manifest.json`**  (7 lines, 0.2 KB)
+- **`scripts/vbump.py`**  (7 lines, 0.2 KB)
+- **`scripts/aitestsuite/package.json`**  (13 lines, 0.2 KB)
+- **`scripts/repo_map.py`**  (2 lines, 0.0 KB)
+
+### OTHER  (757 files)
+
+- **`artifacts/key_hygiene_audit/key_hygiene_audit.json`**  (28739 lines, 33296.8 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, TOPBAR_POPUP, EXPLORER_TABS_OPEN, EXPLORER_ALIGNMENT, MOVIEMODE_BROKEN
+  - Components: `THRESHOLD`, `AgentTab`, `OverviewPage`, `BK`, `WorkflowPanel`, `ErrorInbox`, `RagHealth`, `DAYS`
+  - Routes: `/api/agent/alignment-sync`, `/api/agent/allowlist`, `/api/agent/approval/pending`, `/api/agent/boot`, `/api/agent/bootstrap`, `/api/agent/chat`
+  - D1 tables: `AGENTSAM_ANTHROPIC_ESCALATION_ONLY`, `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_BRIDGE_KEY_SHINSHU`, `AGENTSAM_DEFAULT_CHEAP_MODEL`, `AGENTSAM_DEFAULT_CHEAP_PROVIDER`, `AGENTSAM_DISABLE_DEFAULT_ANTHROPIC`
+  - R2: `AGENT_SESSION`, `ASSETS`, `AUTORAG_BUCKET`, `CHESS_SESSION`, `CMS`
+- **`artifacts/services_route_audit/services_route_audit.json`**  (70229 lines, 2662.5 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, EXPLORER_ALIGNMENT
+  - Components: `Yv`, `Bn`, `LessonAssetsView`, `PL`
+  - Routes: `/api/...`, `/api/\`, `/api/` in fetch`, `/api/admin/archive-conversations`, `/api/admin/cleanup/stuck-runs`, `/api/admin/db-health`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_IGNORE_AND_RULES`, `AGENTSAM_R2_ANALYTICS_PREFIX`, `AGENTSAM_R2_BUCKET`, `AGENTSAM_R2_EVIDENCE_PREFIX`, `AGENTSAM_R2_PREFIX`
+  - R2: `
+          },
+          {
+            `, `${b}`, `).bind(name).all();`, `, `, `: \`
+- **`artifacts/services_header_audit/services_header_audit.json`**  (52165 lines, 2175.0 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, TOPBAR_POPUP, EXPLORER_ALIGNMENT
+  - Components: `FROM`, `TO`, `DB`, `BUCKET`, `BASE`, `ORIGIN`, `SOURCE`, `PL`
+  - Routes: `/api/agent`, `/api/agentsam`, `/api/auth/logout`, `/api/auth/logout\`, `/api/auth/signup`, `/api/auth/signup\`
+  - D1 tables: `AGENTSAM_ANTHROPIC_ESCALATION_ONLY`, `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_BRIDGE_KEY_SHINSHU`, `AGENTSAM_DEFAULT_CHEAP_MODEL`, `AGENTSAM_DEFAULT_CHEAP_PROVIDER`, `AGENTSAM_DISABLE_DEFAULT_ANTHROPIC`
+  - R2: `: \`, `AGENT_SESSION`, `ASSETS`, `R2`, `agent-sam`
+- **`artifacts/services_header_audit/SERVICES_HEADER_AUDIT.md`**  (13104 lines, 982.1 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, TOPBAR_POPUP, EXPLORER_ALIGNMENT
+  - Components: `FROM`, `TO`, `DB`, `BUCKET`, `BASE`, `ORIGIN`, `SOURCE`, `PL`
+  - Routes: `/api/agent`
+- L32: `| **HIGH** | `unscoped-sensitive-query` | `inneranimalmedia:analytics/codebase-index/ws_inneranimalmedia/index-priority-files.json:1` | Sensitive table query appears to have no WHERE: agentsam_memory — Verify tenant/workspace/user scoping before this can run in production. | `rc/core/memory.js`, `/api/agentsam`, `/api/auth/logout`, `/api/auth/signup`, `/api/oauth/github/start returns 302 to GitHub with no X-IAM-Legacy header`
+
+#### iam_header_component
+- L4525: ``, `/api/oauth/google/start returns 302 to Google with no X-IAM-Legacy headers\`
+  - D1 tables: `AGENTSAM_ANTHROPIC_ESCALATION_ONLY`, `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_BRIDGE_KEY_SHINSHU`, `AGENTSAM_DEFAULT_CHEAP_MODEL`, `AGENTSAM_DEFAULT_CHEAP_PROVIDER`, `AGENTSAM_DISABLE_DEFAULT_ANTHROPIC`
+  - R2: `: `, `ASSETS`, `R2`, `agent-sam`, `agent-sam-logo`
+- **`artifacts/services_route_audit/SERVICES_ROUTE_AUDIT.md`**  (12392 lines, 966.2 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, EXPLORER_ALIGNMENT
+  - Components: `Yv`, `Bn`, `LessonAssetsView`, `PL`
+  - Routes: `/api/...`, `/api/admin/archive-conversations`, `/api/admin/cleanup/stuck-runs`, `/api/admin/db-health`, `/api/admin/overnight/start`, `/api/admin/overnight/validate`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_IGNORE_AND_RULES`, `AGENTSAM_R2_ANALYTICS_PREFIX`, `AGENTSAM_R2_BUCKET`, `AGENTSAM_R2_EVIDENCE_PREFIX`, `AGENTSAM_R2_PREFIX`
+  - R2: `${b}`, `, `, `ASSETS`, `CHESS_SESSION`, `DASHBOARD`
+- **`artifacts/key_hygiene_audit/KEY_HYGIENE_AUDIT.md`**  (5410 lines, 761.6 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `ORIGIN`, `TokensChart`, `TO`, `MODELS`, `MODES`, `COUNT`, `DB`, `DRY`
+  - Routes: `/api/agent/execute`, `/api/agent/memory/sync`, `/api/agent/session/ws`, `/api/agent/terminal/config-status`, `/api/agentsam`** inside the function for the full list.` | `- **Gate:** `chatMode === `, `/api/auth-hooks/before-user-created`
+  - D1 tables: `AGENTSAM_ANTHROPIC_ESCALATION_ONLY`, `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_BRIDGE_KEY_SHINSHU`, `AGENTSAM_DEFAULT_CHEAP_MODEL`, `AGENTSAM_DEFAULT_CHEAP_PROVIDER`, `AGENTSAM_DISABLE_DEFAULT_ANTHROPIC`
+  - R2: `AGENT_SESSION`, `ASSETS`, `AUTORAG_BUCKET`, `CHESS_SESSION`, `CMS`
+- **`artifacts/key_hygiene_audit/chunks/07_key_usage_map.md`**  (4072 lines, 404.2 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `ORIGIN`, `COUNT`, `DB`, `DRY`, `TokensChart`, `CWD`, `BASE`, `INGEST`
+  - Routes: `/api/agent/execute`, `/api/agent/session/ws`, `/api/agent/terminal/config-status`, `/api/agentsam`** inside the function for the full list.` | `- **Gate:** `chatMode === `, `/api/auth-hooks/before-user-created`, `/api/auth-hooks/custom-access-token`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_BRIDGE_KEY_SHINSHU`, `AGENTSAM_E2E_MODEL`, `AGENTSAM_OPENAI_API_KEY`, `AGENTSAM_R2_ANALYTICS_PREFIX`, `AGENTSAM_R2_BUCKET`
+  - R2: `AGENT_SESSION`, `ASSETS`, `AUTORAG_BUCKET`, `CHESS_SESSION`, `CMS`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/raw/pattern_hits.json`**  (8402 lines, 282.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, EXPLORER_TABS_OPEN
+  - Routes: `/api/auth/email-change/request\`, `/api/auth/password-reset/request\`
+  - D1 tables: `GET`, `Request`, `agentsam_ai`, `agentsam_approval_queue`, `agentsam_cms_tables_20260514T160627Z`, `agentsam_commands`
+- **`artifacts/theme-debug/2026-05-07_145213/theme-api-summary.json`**  (3649 lines, 275.2 KB)
+  - R2: `iam-antiocean`, `iam-antiocean-full`, `iam-antiocean-full-monaco`, `iam-arctic-command`, `iam-aurora`
+- **`artifacts/cms_ollama_gameplan/02_CHUNK_SUMMARIES.md`**  (5534 lines, 240.1 KB)
+  - D1 tables: `CMS`, `Cloudflare`, `FKs`, `Shopify`, `adjacent`, `agentsam_workflow_runs`
+  - R2: `iam-dark`, `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`analytics/secret-audit-report.json`**  (8533 lines, 215.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_audit`, `agentsam_benchmark_flood`, `agentsam_benchmark_flood_v2`, `agentsam_benchmark_v3`, `agentsam_checklist`
+- **`artifacts/key_hygiene_audit/chunks/08_all_findings.md`**  (849 lines, 208.4 KB)
+  - D1 tables: `agentsam_audit`, `agentsam_audit_snapshots`, `agentsam_cms_audit_plan`, `agentsam_cms_overnight_build`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_cms_plan_20260513T033820Z`
+- **`artifacts/playwright/cms_frontend_20260514T082741Z/cms_editor/page.html`**  (2277 lines, 162.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `PAGES`, `SECTIONS`, `COMPONENTS`, `TEMPLATES`, `THEME`, `HISTORY`
+  - D1 tables: `Brooklyn`, `published`, `sessions`, `the`
+- **`artifacts/playwright/cms_frontend_20260514T082237Z/cms_editor/page.html`**  (2277 lines, 162.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `PAGES`, `SECTIONS`, `COMPONENTS`, `TEMPLATES`, `THEME`, `HISTORY`
+  - D1 tables: `Brooklyn`, `published`, `sessions`, `the`
+- **`artifacts/playwright/cms_frontend_20260514T082325Z/cms_editor/page.html`**  (2277 lines, 162.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Components: `PAGES`, `SECTIONS`, `COMPONENTS`, `TEMPLATES`, `THEME`, `HISTORY`
+  - D1 tables: `Brooklyn`, `published`, `sessions`, `the`
+- **`artifacts/projects_remaster/projects_remaster_model_prompt.md`**  (4267 lines, 161.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, EXPLORER_TABS_OPEN, MOVIEMODE_BROKEN, EXPLORER_ALIGNMENT
+  - Components: `ProjectManagement`, `CalendarPage`, `OverviewPage`, `HealthPage`, `AnalyticsPage`, `RedirectHealthToAnalytics`, `LearnPage`, `DatabasePage`
+  - Routes: `/api/agent`, `/api/agent/artifact-filters`, `/api/agent/intake`, `/api/agentsam`, `/api/agentsam/browser/trust`, `/api/agentsam/time`
+  - D1 tables: `AGENTSAM_R2_BUCKET`, `AGENTSAM_R2_RESULTS_PREFIX`, `EditorContext`, `GET`, `GitHub`, `Lab`
+  - R2: `agent-sam`, `iam-agent-external-send`, `inneranimalmedia`
+- **`artifacts/cms_db_audit/cms_tables_audit_20260515T201620Z.json`**  (5534 lines, 158.0 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+  - R2: `iam-clay`, `iam-dark`, `iam-desert-field`, `iam-engineer-blue`, `iam-light`
+- **`artifacts/cms_db_audit/LATEST_CMS_TABLES_AUDIT.json`**  (5534 lines, 158.0 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+  - R2: `iam-clay`, `iam-dark`, `iam-desert-field`, `iam-engineer-blue`, `iam-light`
+- **`package-lock.json`**  (3257 lines, 112.1 KB)
+  - R2: `inneranimalmedia`, `wrangler2`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/03_microinteraction_hits.md`**  (854 lines, 111.6 KB)
+  - D1 tables: `GET`, `agentsam_ai`, `agentsam_cms_tables_20260514T160627Z`, `agentsam_commands`, `agentsam_commands_catalog`, `agentsam_commands_summary`
+  - R2: `iam-desert-field`, `iam-desert-ops`, `iam-forest-classic`, `iam-forest-recon`, `iam-ghost-classic`
+- **`artifacts/key_hygiene_audit/chunks/hardcoded_secret_like_findings.md`**  (541 lines, 100.4 KB)
+  - D1 tables: `agentsam_audit`, `agentsam_audit_snapshots`, `agentsam_d1_codebase_audit`, `agentsam_d1_codebase_audit_20260515T011657Z`, `agentsam_error_events`, `agentsam_error_log`
+- **`artifacts/cms_db_audit/cms_tables_audit_20260515T201620Z.md`**  (2169 lines, 88.3 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+  - R2: `iam-clay`, `iam-dark`, `iam-desert-field`, `iam-engineer-blue`, `iam-light`
+- **`artifacts/cms_db_audit/LATEST_CMS_TABLES_AUDIT.md`**  (2169 lines, 88.3 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+  - R2: `iam-clay`, `iam-dark`, `iam-desert-field`, `iam-engineer-blue`, `iam-light`
+- **`artifacts/cms_homepage_section_audit/00_homepage_snapshot.html`**  (1948 lines, 78.6 KB)  🐛 EXPLORER_TABS_OPEN
+  - D1 tables: `autonomous`, `building`, `day`, `dream`, `enterprise`, `other`
+  - R2: `data-iam-header`, `iam-footer`, `iam-footer-canvas`, `iam-hamburger`, `iam-header`
+- **`artifacts/cms_ollama_gameplan/3d_assets_audit/3d_asset_audit.json`**  (2476 lines, 78.0 KB)
+  - D1 tables: `cms_3d_assets`, `cms_assets`, `cms_collection_assets`, `cms_collections`, `cms_component_templates`, `cms_liquid_sections`
+  - R2: `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`artifacts/cms_audit_20260513T031136Z/cms_themes_sample.json`**  (685 lines, 73.5 KB)
+  - R2: `iam-antiocean`, `iam-antiocean-full`, `iam-antiocean-full-monaco`, `iam-antiocean-monaco`, `iam-arctic-command`
+- **`artifacts/key_hygiene_audit/chunks/05_used_but_not_declared_found.md`**  (280 lines, 71.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Components: `ORIGIN`, `TokensChart`, `TO`, `MODELS`, `MODES`
+  - Routes: `/api/agent/execute`, `/api/agent/session/ws`, `/api/agent/terminal/config-status`, `/api/games/ws/`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY_SHINSHU`, `AGENTSAM_E2E_MODEL`, `AGENTSAM_OPENAI_API_KEY`, `AGENTSAM_REMASTER_MAX_OUTPUT_TOKENS`, `agentsam_ai_split_brain`, `agentsam_audit`
+  - R2: `ASSETS`, `DASHBOARD`, `autorag`
+- **`artifacts/audit/python-architect-skill-table-refs-report.json`**  (3013 lines, 65.7 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_approval_queue_columns`, `agentsam_artifacts`, `agentsam_artifacts_columns`, `agentsam_command_run`, `agentsam_command_run_exists`
+  - R2: `inneranimalmedia-business`
+- **`artifacts/repo_map.md`**  (583 lines, 62.6 KB)
+  - D1 tables: `agentsam_SUGGESTIONS_`, `agentsam_agent_run`, `agentsam_agent_run_id`, `agentsam_ai`, `agentsam_ai_api_platform`, `agentsam_ai_id`
+- **`tmp/codebase-index-upload/file-inventory.json`**  (2515 lines, 54.7 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_audit`, `agentsam_commands`, `agentsam_d1_context`, `agentsam_eval_runner`, `agentsam_everything`
+- **`snapshot-before.json`**  (1190 lines, 54.6 KB)  🐛 HARDCODED_R2, GITHUB_REAUTH_LOOP
+  - Routes: `/api/health\`, `/api/learn/dashboard\`, `/api/learn/progress\`, `/api/learn/submit\`, `/api/oauth/* after modular 404\`, `/api/workspace/create`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_agent_run`, `agentsam_analytics`, `agentsam_approval_queue_expiry_sweep`, `agentsam_bridge_key_workers`, `agentsam_code_index_job`
+  - R2: `: `, `agent-sam`, `inneranimalmedia`, `inneranimalmedia-1778192367499-upps8f4fr`, `inneranimalmedia-1778192367647-8ar6ulg1h`
+- **`docs/db-audit/routing_study_20260513.md`**  (357 lines, 52.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_analytics`, `agentsam_analytics_tenant_backup`, `agentsam_analytics_v2`, `agentsam_capability_aliases`, `agentsam_chat_e2e`, `agentsam_context_e2e`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/raw/ranked_files.json`**  (2225 lines, 52.5 KB)
+  - Routes: `/api/auth/oauth/consent`
+  - D1 tables: `AGENTSAM_MCP_WORKFLOWS`, `AGENTSAM_WORKFLOW_RUNS_TABLE`, `agentsam_cms_audit_plan`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_cms_plan_20260513T033820Z`, `agentsam_cms_plan_20260513T035443Z`
+- **`snapshot-after.json`**  (1126 lines, 49.1 KB)  🐛 HARDCODED_R2, GITHUB_REAUTH_LOOP
+  - Routes: `/api/health\`, `/api/oauth/* after modular 404\`, `/api/workspace/create`
+  - D1 tables: `agentsam_agent_run`, `agentsam_analytics`, `agentsam_code_index_job`, `agentsam_cron_runs`, `agentsam_deployment_health`, `agentsam_error_log`
+  - R2: `: `, `agent-sam`, `inneranimalmedia`, `inneranimalmedia-1778204187554-4jibvddfy`, `inneranimalmedia-1778204187711-ui3l8om8v`
+- **`artifacts/cms_ollama_gameplan/06_REDUCED_EVIDENCE.md`**  (742 lines, 47.8 KB)
+  - D1 tables: `Liquid`, `Shopify`, `admin`, `agentsam_workflow_runs`, `asset`, `current`
+- **`src/do/AgentChat.js`**  (1254 lines, 47.7 KB)
+  - D1 tables: `agentsam_bootstrap`, `agentsam_workspace_state`, `auth_users`, `browser`, `designstudio_event_outbox`, `explicit`
+- **`docs/knowledge/skills/skill-creator.md`**  (837 lines, 42.7 KB)
+  - D1 tables: `Benchmark`, `PDF`, `SKILL`, `blind`, `consulting`, `generating`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/raw/shell_anchor_map.json`**  (1458 lines, 41.7 KB)  🐛 EXPLORER_TABS_OPEN
+  - Routes: `/api/auth/oauth/consent\`
+  - D1 tables: `cached`, `remote`
+  - R2: `iam-run-command`
+- **`docs/AGENT_SAM_FULL_CAPABILITY_AUDIT.md`**  (566 lines, 40.2 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/agent/terminal/ws`
+  - D1 tables: `Sessions`, `TERMINAL_WS_URL`, `agent_messages`, `json_extract`, `mcp_registered_tools`, `message`
+  - R2: `R2`, `inneranimalmedia-aisearch`
+- **`artifacts/cms_audit_20260513T031136Z/cms_page_sections_sample.json`**  (715 lines, 37.6 KB)
+  - D1 tables: `concept`, `rich`, `the`, `typography`, `web`
+- **`artifacts/projects_remaster/projects_remaster_audit.md`**  (1219 lines, 37.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `TEXT`, `agentsam_command_run`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_todo`
+  - R2: `agent-sam`
+- **`src/core/retention.js`**  (939 lines, 34.2 KB)
+  - D1 tables: `agentsam_analytics`, `agentsam_health_daily`, `agentsam_health_daily_missing_snapshot_fallback_columns`, `agentsam_mcp_tool_execution`, `agentsam_model_drift_signals`, `agentsam_routing_arms`
+- **`src/core/routing.js`**  (962 lines, 34.0 KB)
+  - Components: `TABLE`
+  - D1 tables: `agentsam_ai`, `agentsam_ai_row`, `agentsam_model_catalog`, `agentsam_model_routing_memory`, `agentsam_route_requirements`, `agentsam_routing_arms`
+- **`docs/AUTORAG_ARCHITECTURE_AUDIT.md`**  (468 lines, 32.4 KB)
+  - Routes: `/api/agent/rag/query`, `/api/search`
+  - D1 tables: `JSON`, `ai_rag_search_history`, `cache`, `dashboard`, `params`, `request`
+  - R2: `R2`, `ai-search-inneranimalmedia-aisearch`, `iam-autorag`, `inneranimalmedia-aisearch`
+- **`src/core/memory.js`**  (851 lines, 31.4 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_memory`, `agentsam_model_routing_memory`, `agentsam_usage_events`
+  - R2: `SESSION_CACHE`, `agent-sam`
+- **`docs/cost-tracking-analysis-20260329.md`**  (616 lines, 31.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agent_costs`, `agentsam_agent_run`, `ai_models`, `ai_usage_log`, `benchmark`, `queries`
+- **`tmp/codebase-index-upload/file-inventory-src.json`**  (1 lines, 30.5 KB)  🐛 GITHUB_REAUTH_LOOP
+- **`artifacts/cms_audit_20260513T031136Z/cms_section_components_sample.json`**  (625 lines, 30.4 KB)
+  - D1 tables: `autonomous`, `building`, `concept`, `day`, `dream`, `enterprise`
+  - R2: `inneranimalmedia`
+- **`docs/PROJECT_AUDIT_VERBATIM.md`**  (545 lines, 30.2 KB)  🐛 HARDCODED_R2
+  - D1 tables: `cms_themes`, `code`, `localStorage`, `repo`, `sessions`, `worker`
+  - R2: `ASSETS`, `DASHBOARD`, `agent-sam`
+- **`src/core/provider.js`**  (792 lines, 29.6 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_routing_arms`, `catalog`, `provider`
+- **`artifacts/rag_vectorize/20260516_023707/vectors.full.json`**  (1056 lines, 29.5 KB)
+  - D1 tables: `agentsam_self_evolving`
+- **`artifacts/rag_vectorize/20260516_023759/vectors.full.json`**  (1056 lines, 29.5 KB)
+  - D1 tables: `agentsam_self_evolving`
+- **`artifacts/rag_vectorize/20260516_030019/vectors.full.json`**  (1059 lines, 29.4 KB)
+  - D1 tables: `agentsam_knowledge`, `agentsam_self_evolving`
+- **`artifacts/rag_vectorize/20260516_030026/vectors.full.json`**  (1059 lines, 29.4 KB)
+  - D1 tables: `agentsam_knowledge`, `agentsam_self_evolving`
+- **`artifacts/rag_vectorize/20260516_030133/vectors.full.json`**  (1059 lines, 29.4 KB)
+  - D1 tables: `agentsam_knowledge`, `agentsam_self_evolving`
+- **`artifacts/rag_vectorize/20260516_023842/vectors.full.json`**  (1056 lines, 29.3 KB)
+  - D1 tables: `agentsam_knowledge`, `agentsam_self_evolving`
+- **`docs/ARCHITECTURAL_AUDIT.md`**  (494 lines, 29.2 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `ASSETS`, `DASHBOARD`, `auth_sessions`, `binding`, `body`, `env`
+  - R2: `agent-sam`, `inneranimalmedia`, `inneranimalmedia-business`
+- **`artifacts/cms_audit_20260513T031136Z/cms_pages_sample.json`**  (739 lines, 28.3 KB)
+  - D1 tables: `Inner`
+  - R2: `inneranimalmedia`
+- **`docs/iam-docs/index.html`**  (794 lines, 27.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, EXPLORER_TABS_OPEN
+  - Components: `BASE`, `STRUCTURE`
+  - D1 tables: `sessions`, `the`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/01_shell_map.md`**  (284 lines, 26.7 KB)  🐛 EXPLORER_TABS_OPEN
+  - Routes: `/api/auth/oauth/consent`
+  - D1 tables: `cached`, `remote`
+  - R2: `iam-run-command`
+- **`artifacts/cleanup_hold_20260515/SAMS_TODO_05-15-2026.md`**  (440 lines, 25.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, TOPBAR_POPUP, EXPLORER_ALIGNMENT
+  - Components: `StudioPreviewPanel`
+  - D1 tables: `Drive`, `agentsam_studio_video_draft`, `day`, `rendering`, `the`, `this`
+- **`artifacts/cms_ollama_gameplan/07_TABLE_MAP.md`**  (1065 lines, 25.0 KB)
+  - D1 tables: `agentsam_workflow_runs`, `chunk`, `imported`, `sessions`
+- **`artifacts/key_hygiene_audit/chunks/high_findings_first_150.md`**  (157 lines, 24.9 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_project_context`, `agentsam_scripts_register_e2e_workflow`, `agentsam_todo_audit`
+- **`tmp/codebase-index-upload/index-priority-files.json`**  (1130 lines, 24.0 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_audit`, `agentsam_d1_context`, `agentsam_eval_runner`, `agentsam_everything`, `agentsam_full_mirrored_eval_series`
+- **`artifacts/cms_homepage_section_audit/01_extracted_sections.json`**  (47 lines, 22.0 KB)
+  - D1 tables: `autonomous`, `building`, `day`, `enterprise`, `other`, `sessions`
+- **`docs/AGENT_SAM_WORKSTATION_MASTER_PLAN.md`**  (258 lines, 21.8 KB)
+  - Routes: `/api/agent`, `/api/agent/...`
+  - D1 tables: `agent_ai_sam`, `middleware`, `repo`, `session`, `settings`, `user_governance_roles`
+- **`src/core/mcp-tools-branded.js`**  (625 lines, 21.6 KB)
+  - Components: `LANES`
+  - D1 tables: `active`, `agentsam_mcp_tools`, `agentsam_mcp_tools_branded`, `json_each`, `mcp_workspace_tokens`, `v_agentsam_mcp_tools_branded`
+- **`artifacts/key_hygiene_audit/chunks/sensitive_logging_findings_first_150.md`**  (146 lines, 21.1 KB)
+  - D1 tables: `agentsam_audit`, `agentsam_cms_audit_plan`, `agentsam_cms_overnight_build`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_cms_plan_20260513T033820Z`, `agentsam_cms_plan_20260513T035443Z`
+- **`docs/PLATFORM_UX_PERF_AGENT_DOCS_MASTER_PLAN.md`**  (449 lines, 20.1 KB)
+  - Routes: `/api/...`, `/api/agent/boot`
+  - D1 tables: `agent_system_prompt_versions`, `archive`, `client`, `internal`, `mcp_tool_calls`, `model`
+- **`src/core/mcp-tool-execution.js`**  (543 lines, 19.1 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_tool_cache`, `agentsam_tools_id`
+- **`artifacts/cms_ollama_gameplan/08_CMS_ARCHITECTURE_GAMEPLAN.md`**  (832 lines, 19.0 KB)
+  - D1 tables: `Shopify`, `base`, `bleeding`, `cms_assets`, `domain`, `migration`
+- **`artifacts/key_hygiene_audit/chunks/key_usage_mcp_agent_bridge.md`**  (197 lines, 18.8 KB)
+  - Routes: `/api/agent/execute`, `/api/agent/terminal/config-status`, `/api/terminal/session/register`, `/api/terminal/session/validate`
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `AGENTSAM_BRIDGE_KEY_SHINSHU`, `AGENTSAM_E2E_MODEL`, `AGENTSAM_OPENAI_API_KEY`, `AGENTSAM_R2_ANALYTICS_PREFIX`, `AGENTSAM_R2_BUCKET`
+- **`docs/cursor/cursor_settings_todo.md`**  (492 lines, 18.6 KB)
+  - D1 tables: `AGENTSAM_POLICY_COLS`, `agentsam_bootstrap`, `agentsam_compaction_events`, `agentsam_cron_runs`, `agentsam_error_log`, `agentsam_guardrail_events`
+- **`artifacts/theme-extracts/theme-search.raw.json`**  (515 lines, 18.5 KB)
+  - R2: `iam-glass-black`, `iam-glass-black-monaco`, `iam-void-clay`, `iam-void-clay-monaco`, `iam-whiteglass`
+- **`artifacts/cms_audit_20260513T031136Z/cms_tables.json`**  (160 lines, 18.4 KB)
+  - D1 tables: `agentsam_workflow_runs`, `cms_3d_assets`, `cms_activity_log`, `cms_assets`, `cms_collection_assets`, `cms_collections`
+- **`docs/infrastructure/terminal.md`**  (493 lines, 18.4 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `GCP`, `Worker`, `agentsam_mcp_tools`, `local`, `mcp_workspace_tokens`
+  - R2: `iam-pty`
+- **`docs/TOKEN_EFFICIENCY_REFACTOR_CODE_REVIEW.md`**  (343 lines, 18.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `full`, `scratch`, `the`
+  - R2: `R2`
+- **`src/core/cms-theme-resolve.js`**  (583 lines, 18.2 KB)
+  - D1 tables: `auth_users`, `cms_theme_preferences`, `cms_themes`, `user_settings`, `workspace_members`, `workspace_settings`
+  - R2: `ASSETS`, `IAM_COLLAB`
+- **`docs/AGENT_SAM_AUDIT_AND_ROADMAP.md`**  (307 lines, 17.9 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `Monaco`, `agent`, `agent_intent_patterns`, `ai_rag_search_history`, `chat`, `dashboard`
+  - R2: `inneranimalmedia-aisearch`
+- **`docs/plans/plan_iam_dashboard_v2.md`**  (310 lines, 17.8 KB)
+  - D1 tables: `agent`, `cms_themes`, `extension`, `fetch`, `files`, `live`
+- **`docs/AGENT_SAM_CAPABILITIES_AND_TRACKING_AUDIT.md`**  (267 lines, 17.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agent`, `agent_costs`, `agent_telemetry`, `code`, `intent`, `mcp_registered_tools`
+  - R2: `inneranimalmedia-aisearch`
+- **`docs/SPRINT_PTY_SOLIDIFIED.md`**  (382 lines, 17.0 KB)
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `TEXT`, `WebSocket`, `agentsam_command_run`, `agentsam_commands`, `agentsam_error_log`
+- **`src/cron/jobs/daily-digest.js`**  (417 lines, 16.7 KB)
+  - D1 tables: `agent_conversations`, `agent_messages`, `agent_platform_context`, `agentsam_hook_execution`, `agentsam_mcp_tool_execution`, `agentsam_memory`
+  - R2: `R2`, `agent-sam-primary`
+- **`docs/db-audit/timestamp_audit_20260513T212528.md`**  (276 lines, 16.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_artifact_skills`, `agentsam_artifacts`, `agentsam_bootstrap`
+- **`docs/PLATFORM_WIREFRAME_TECHNICAL_OVERVIEW.md`**  (284 lines, 16.4 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Sessions`, `sessions`, `worker`
+- **`docs/THEME_SYSTEM_AUDIT.md`**  (328 lines, 16.1 KB)
+  - Routes: `/api/settings/theme`, `/api/themes`, `/api/user/preferences`
+  - D1 tables: `API`, `GET`, `apply`, `applyShellTheme`, `cms_themes`, `localStorage`
+- **`smoke_e2e.js`**  (398 lines, 16.0 KB)
+  - Components: `PROMPT`, `PROBES`, `RATES`
+  - D1 tables: `agentsam_eval_runs`, `ai_api_test_runs`
+- **`artifacts/cms_vectorize/cms_logic_vectorize_summary_20260515T204814Z.md`**  (157 lines, 16.0 KB)
+  - D1 tables: `agentsam_cms_d1_table_audit`, `agentsam_cms_overnight_build`, `agentsam_seed_parallel_cms_plan`, `agentsam_structure_audit`
+- **`src/core/terminal.js`**  (435 lines, 16.0 KB)
+  - D1 tables: `iam`, `legacy`, `sessions`, `terminal_connections`, `terminal_history`, `terminal_sessions`
+  - R2: `AGENT_SESSION`, `iam-terminal-session-pepper`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/01_replacement_extraction.json`**  (96 lines, 15.7 KB)
+  - D1 tables: `agentsam_platform_services`, `one`
+- **`docs/ARCHITECTURE.md`**  (356 lines, 15.7 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `AutoRAG`, `agent`, `agent_platform_context`, `agentsam_agent_run`, `agentsam_project_context`, `agentsam_skill`
+- **`docs/DEPLOY_AUDIT_2026-03-10_AGENT_THEME.md`**  (208 lines, 15.7 KB)
+  - D1 tables: `agent`, `earlier`, `localStorage`, `repo`, `roadmap_steps`, `sessions`
+- **`docs/PLATFORM_TABLES_AUDIT_AND_WIRING.md`**  (259 lines, 15.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `OAuth`, `OVERVIEW_DASHBOARD_DB_AUDIT`, `ai_rag_search_history`, `auth`, `canonical`, `cicd_events`
+- **`docs/specs/AGENT_DASHBOARD_FULL_TECH_SPEC.md`**  (286 lines, 15.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_rules`, `boot`, `parent`, `repo`, `sessions`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/raw/compact_digest.json`**  (589 lines, 15.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/auth/oauth/consent`
+  - D1 tables: `AGENTSAM_MCP_WORKFLOWS`, `AGENTSAM_WORKFLOW_RUNS_TABLE`, `agentsam_cms_audit_plan`, `agentsam_cms_plan_20260513T033812Z`, `agentsam_cms_plan_20260513T033820Z`, `agentsam_cms_plan_20260513T035443Z`
+- **`docs/AGENT_SAM_DASHBOARD_FEATURE_STATUS_REPORT.md`**  (212 lines, 15.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `API`, `GitHub`, `Google`, `chat`, `diff`, `filename`
+- **`tmp/openai-smoke/models.json`**  (737 lines, 15.3 KB)
+- **`src/cron/jobs/weekly-rollup.js`**  (450 lines, 15.3 KB)
+  - D1 tables: `agent_costs`, `agentsam_analytics`, `agentsam_deployments`, `agentsam_mcp_tool_execution`, `agentsam_tool_call_log`, `agentsam_workflow_runs`
+- **`artifacts/cms_vectorize/cms_logic_vectorize_summary_20260515T205023Z.md`**  (157 lines, 15.1 KB)
+  - D1 tables: `agentsam_cms_d1_table_audit`, `agentsam_cms_overnight_build`, `agentsam_seed_parallel_cms_plan`, `agentsam_structure_audit`
+- **`artifacts/cms_vectorize/LATEST_CMS_LOGIC_VECTORIZE_SUMMARY.md`**  (157 lines, 15.1 KB)
+  - D1 tables: `agentsam_cms_d1_table_audit`, `agentsam_cms_overnight_build`, `agentsam_seed_parallel_cms_plan`, `agentsam_structure_audit`
+- **`src/integrations/openai.js`**  (452 lines, 15.1 KB)
+  - D1 tables: `agentsam_ai`, `the`
+- **`docs/AGENT_FULL_CAPABILITIES_AND_MCP_PLAN.md`**  (180 lines, 15.0 KB)
+  - D1 tables: `Mac`, `agent`, `boot`, `chat`, `config`, `sessions`
+  - R2: `R2`
+- **`docs/AGENT_SAM_100_AUDIT_2026-03-18.md`**  (244 lines, 14.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP, MOVIEMODE_BROKEN
+  - Routes: `/api/oauth/google/callback`, `/api/oauth/google/start`, `/api/oauth/google/start?connect=drive&return_to=/dashboard/agent`
+  - D1 tables: `agent_costs`, `agent_id`, `deploy`, `mcp_registered_tools`, `the`
+- **`artifacts/cms_ollama_gameplan/11_FINAL_CMS_MASTER_PLAN.md`**  (573 lines, 14.6 KB)
+  - D1 tables: `cms_page_sections`, `cms_section_components`, `cms_site_pages`, `domain`, `liquid`, `references`
+- **`README.md`**  (377 lines, 14.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `OAuth`, `address`, `agentsam_ai`, `agentsam_command_run`, `agentsam_commands`
+- **`artifacts/cms_ollama_gameplan/10_OPENAI_REMASTER_PACKET.md`**  (388 lines, 14.3 KB)
+  - D1 tables: `Next`, `agentsam_workflow_runs`, `sessions`, `the`
+- **`docs/FUNCTIONALITY_AUDIT_REPORT.md`**  (181 lines, 14.0 KB)
+  - D1 tables: `GET`, `context`, `mode`, `queue`, `response`, `sessions`
+- **`src/core/cms-theme-active.js`**  (356 lines, 14.0 KB)
+  - D1 tables: `cms_themes`, `the`
+  - R2: `ASSETS`, `DASHBOARD`, `R2`
+- **`docs/OVERNIGHT_BATCH_API_TEST_BRIEF.md`**  (214 lines, 13.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `quality_checks`, `sessions`, `test`, `the`, `this`, `token`
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/09_MIGRATION_SPRINT.md`**  (417 lines, 13.5 KB)
+  - D1 tables: `sessions`, `source`, `the`
+- **`src/lib/email.js`**  (383 lines, 13.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `email_logs`, `for`, `public_config`, `user_oauth_tokens`
+  - R2: `KV`
+- **`docs/TERMINAL_SERVER_SETUP.md`**  (248 lines, 13.3 KB)
+  - D1 tables: `Access`, `WAF`, `boot`, `iPhone`, `repo`, `root`
+- **`docs/METRICS_QUIZ_AND_TRACKING_CHECKLIST.md`**  (220 lines, 13.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agent_costs`, `ai_compiled_context_cache`, `ai_rag_search_history`, `autorag`, `mcp_tool_calls`, `runToolLoop`
+- **`learn/README.md`**  (776 lines, 13.2 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_guardrail_events`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_project_context`
+  - R2: `inneranimalmedia`
+- **`docs/AUTORAG_SEARCH_AUDIT.md`**  (200 lines, 12.9 KB)
+  - D1 tables: `RAG`, `buckets`, `chat`, `string`
+  - R2: `R2`, `ai-search-inneranimalmedia-aisearch`, `inneranimalmedia-aisearch`
+- **`src/core/agent-run-routing.js`**  (360 lines, 12.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai_models`, `agentsam_routing_arms`
+- **`docs/AGENT_SAM_ASSESSMENT.md`**  (311 lines, 12.7 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/agent...`, `/api/r2...`, `/api/terminal...`
+  - D1 tables: `AgentDashboard`, `agent_costs`, `agent_tools`, `chat`, `parent`, `sessions`
+- **`docs/agent-api-contract-audit.md`**  (155 lines, 12.7 KB)  🐛 GITHUB_REAUTH_LOOP
+  - Routes: `/api/[a-zA-Z0-9_./-]+`, `/api/agent`, `/api/agent/`, `/api/agent/[a-zA-Z0-9_./-]+`, `/api/agent/boot`, `/api/chat`
+  - D1 tables: `Worker`, `env`, `latest`, `repo`, `sessions`
+  - R2: `inneranimalmedia`
+- **`docs/route-map.md`**  (421 lines, 12.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/admin/run-retention`, `/api/agent/approve`, `/api/agent/execute`, `/api/agent/workflow/start`, `/api/auth-hooks/`, `/api/auth/cloudflare/start`
+- **`docs/MCP_README.md`**  (266 lines, 12.4 KB)
+  - D1 tables: `agentsam_mcp_allowlist`, `mcp_registered_tools`, `mcp_tool_calls`, `repo`
+- **`tmp/cms_3_theme_matrix_latest.json`**  (330 lines, 12.4 KB)
+  - R2: `inneranimalmedia`
+- **`analytics/cms-theme-audits/chatgpt-theme-batch-next-5-source.json`**  (165 lines, 12.2 KB)
+  - R2: `iam-arctic-command`, `iam-arctic-command-monaco`, `iam-ember-terminal`, `iam-ember-terminal-monaco`, `iam-mocha-orbit`
+- **`src/cron/jobs/daily-plan-email.js`**  (252 lines, 12.2 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_plan_tasks`, `agentsam_plans`, `agentsam_routing_arms`, `agentsam_todo`, `ai_provider_usage`
+  - R2: `inneranimalmedia`
+- **`docs/AGENT_PAGE_DEBUG_SUMMARY.md`**  (178 lines, 12.0 KB)
+  - D1 tables: `conversation`, `full`, `repo`, `the`, `your`
+- **`src/core/routing-cron.js`**  (326 lines, 12.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_model_drift_signals`, `agentsam_model_routing_memory`, `agentsam_model_routing_memory_rollup`, `agentsam_routing_arms`, `agentsam_task_slos`
+- **`docs/OVERVIEW_DASHBOARD_DB_AUDIT.md`**  (178 lines, 11.9 KB)
+  - D1 tables: `Cursor`, `another`, `cicd_runs`, `cloudflare_deployments`, `cursor_tasks`, `dashboard`
+  - R2: `inneranimalmedia`
+- **`docs/db-audit/timestamp_canonical_map.json`**  (482 lines, 11.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_artifact_skills`, `agentsam_artifacts`, `agentsam_bootstrap`
+- **`docs/SYSTEM_CICD_ARCHITECTURE_README.md`**  (229 lines, 11.6 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `main`, `sessions`, `that`
+- **`docs/AITESTSUITE_IAM_STACK_INTEGRATION.md`**  (193 lines, 11.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `the`, `there`
+- **`docs/AGENT_SAM_UNIVERSAL_SYNC_LAW.md`**  (204 lines, 11.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_browser_trusted_origin`, `agentsam_code_index_job`, `agentsam_command_allowlist`, `agentsam_cursor_parity`
+- **`docs/AGENT_TOOLS_DB_AUDIT_AND_PLAN.md`**  (182 lines, 11.5 KB)
+  - D1 tables: `Sessions`, `queue`, `sessions`, `the`
+- **`src/core/security-scan.js`**  (266 lines, 11.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `AGENTSAM_BRIDGE_KEY`, `agentsam_mcp_tool_execution`, `agentsam_memory`, `deploy`, `env_secrets`, `nightly`
+- **`artifacts/cms_ollama_gameplan/3d_assets_audit/02_3D_ASSET_CANDIDATES.md`**  (390 lines, 11.4 KB)
+  - R2: `inneranimalmedia`, `inneranimalmedia-chessgame`
+- **`docs/KNOWLEDGE_SEARCH_SLOW_ANALYSIS_AND_FAST_PATH.md`**  (178 lines, 11.3 KB)
+  - D1 tables: `invokeMcpToolFromChat`, `repo`
+  - R2: `R2`, `inneranimalmedia-aisearch`
+- **`docs/plans/TOMORROW_2026-03-23_UI_SETTINGS_TERMINAL_PLAN.md`**  (241 lines, 11.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `sessions`, `shell`, `the`
+- **`src/core/agent-policy.js`**  (333 lines, 11.3 KB)
+  - D1 tables: `agentsam_mcp_allowlist`, `agentsam_mcp_tools`, `agentsam_run_agent`, `agentsam_spawn`, `agentsam_user_policy`
+- **`docs/plans/MONACO_PREVIEW_INPUT_PLAN.md`**  (135 lines, 11.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `assistant`, `collapsing`, `content`, `display`, `displayed`, `message`
+- **`docs/AGENT_SAM_DASHBOARD_TECHNICAL_INVENTORY.md`**  (142 lines, 11.0 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `API`, `FloatingPreviewPanel`, `GDrive`, `Sessions`, `URL`, `chat`
+  - R2: `DASHBOARD`
+- **`artifacts/cms_homepage_section_audit/03_OPENAI_HOMEPAGE_CMS_AUDIT.md`**  (403 lines, 10.9 KB)
+  - D1 tables: `CMS`, `the`
+- **`docs/CURRENT_STATE_AUDIT_2026-03-09.md`**  (188 lines, 10.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Overview`, `agent`, `chat`, `roadmap`, `roadmap_steps`, `same`
+- **`docs/agent-dashboard-function-index.json`**  (568 lines, 10.9 KB)
+  - D1 tables: `git`
+- **`docs/analytics_ui_audit.md`**  (167 lines, 10.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_cron_runs`, `agentsam_deployment_health`
+- **`docs/MCP_SERVER_MINIMAL_SKELETON.js`**  (253 lines, 10.8 KB)
+  - D1 tables: `clients`, `repo`, `worker_services`
+  - R2: `R2`
+- **`src/integrations/gemini.js`**  (329 lines, 10.8 KB)
+  - D1 tables: `dispatchStream`
+- **`docs/modularization.md`**  (243 lines, 10.7 KB)
+  - Routes: `/api/auth/oauth/consent`
+  - D1 tables: `business`, `src`, `worker`
+- **`src/core/production-dispatch.js`**  (310 lines, 10.7 KB)  🐛 MOVIEMODE_BROKEN
+  - Routes: `/api/agent`, `/api/agent/intake`, `/api/agentsam`, `/api/agentsam/browser/trust`, `/api/agentsam/time`, `/api/ai`
+  - D1 tables: `GitHub`, `documentation`, `pathname`
+- **`src/core/guardrails.js`**  (325 lines, 10.7 KB)
+  - D1 tables: `agentsam_guardrail_events`, `agentsam_guardrails`
+- **`src/core/cms-theme-package-files.js`**  (336 lines, 10.6 KB)
+  - R2: `inneranimalmedia`
+- **`docs/USER_SETTINGS_THEME_GALLERY_AUDIT.md`**  (177 lines, 10.5 KB)
+  - Routes: `/api/settings/theme`, `/api/themes`, `/api/user/preferences`
+  - D1 tables: `another`, `the`, `this`, `user_preferences`
+  - R2: `DASHBOARD`
+- **`src/tools/memory.js`**  (354 lines, 10.5 KB)
+  - D1 tables: `agentsam_memory`
+- **`src/core/bootstrap.js`**  (342 lines, 10.4 KB)
+  - D1 tables: `URL`, `agentsam_bootstrap`, `auth_users`, `session`, `tenant_workspaces`, `workspace_members`
+  - R2: `x-iam-workspace-id`
+- **`docs/audits/autorag/cms-autorag-compact-audit.md`**  (504 lines, 10.3 KB)
+  - D1 tables: `sessions`
+  - R2: `iam-engineer-blue`, `inneranimalmedia-tenant`
+- **`src/core/tracer.js`**  (295 lines, 10.3 KB)
+  - D1 tables: `agentsam_error_log`, `otlp_traces`
+  - R2: `inneranimalmedia`
+- **`src/core/capability-router.js`**  (237 lines, 10.2 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_browser_trusted_origin`, `agentsam_model_catalog`, `tool`
+- **`docs/AGENT_SAM_SURGICAL_FOLLOWUP.md`**  (208 lines, 10.1 KB)
+  - D1 tables: `chat`, `the`, `this`
+- **`tmp/codebase-index-upload/file-inventory-scripts.json`**  (1 lines, 10.1 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_audit`, `agentsam_commands`, `agentsam_d1_context`, `agentsam_eval_runner`, `agentsam_everything`
+- **`tmp/codebase-index-upload/route-map.md`**  (474 lines, 10.1 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `sessions`
+- **`src/email-templates/onboarding-invite.html`**  (177 lines, 10.0 KB)
+  - D1 tables: `SAM`
+- **`docs/COMPANY_MINDMAP_ARCHITECTURE.md`**  (118 lines, 9.9 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `Sessions`, `sessions`, `the`, `your`
+  - R2: `ASSETS`, `DASHBOARD`, `R2`, `inneranimalmedia`
+- **`src/cron/jobs/overnight-progress.js`**  (208 lines, 9.9 KB)
+  - D1 tables: `project_memory`
+  - R2: `DASHBOARD`, `inneranimalmedia`
+- **`src/core/thompson.js`**  (297 lines, 9.8 KB)
+  - D1 tables: `agentsam_execution_dependency_graph`, `agentsam_execution_performance_metrics`, `agentsam_model_catalog`, `agentsam_routing_arms`, `agentsam_tool_chain`, `pre`
+- **`docs/TODAY_EXECUTION_PLAN_AGENT_SAM_100.md`**  (159 lines, 9.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/images`, `/api/images/`, `/api/oauth/github/start?return_to=/dashboard/agent`, `/api/oauth/google/start?connect=drive&return_to=/dashboard/agent`
+  - D1 tables: `agent_costs`
+- **`docs/LEARN_PLATFORM_ARCHITECTURE.md`**  (256 lines, 9.5 KB)
+  - D1 tables: `localStorage`, `the`
+- **`src/tools/ai-dispatch.js`**  (189 lines, 9.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_compare`, `agentsam_complete`, `agentsam_embed`, `agentsam_run_agent`
+- **`docs/CICD_SHELL_MASTER_README.md`**  (174 lines, 9.4 KB)
+  - Routes: `/api/placeholder`
+  - D1 tables: `project_memory`, `static`, `terminal`
+  - R2: `inneranimalmedia`
+- **`docs/plans/AGENT_SIDEDRAWER_FOOTER_MONACO_PLAN.md`**  (101 lines, 9.4 KB)
+  - D1 tables: `chat`, `clicked`, `main`, `repo`, `the`, `user`
+- **`src/integrations/anthropic.js`**  (248 lines, 9.4 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_usage_events`, `legacy`, `the`
+- **`docs/memory/daily/2026-03-05.md`**  (129 lines, 9.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `cloudflare_deployments`, `docs`, `here`, `repo`, `sessions`
+- **`package.json`**  (106 lines, 9.0 KB)
+  - D1 tables: `AGENTSAM_R2_BUCKET`, `AGENTSAM_R2_RESULTS_PREFIX`, `agentsam_cron_runs`
+  - R2: `inneranimalmedia`
+- **`artifacts/theme-extracts/selected-themes.raw.json`**  (157 lines, 8.8 KB)
+  - R2: `iam-whiteglass`, `iam-whiteglass-monaco`, `inneranimalmedia`
+- **`artifacts/theme-extracts/selected-themes-by-id.raw.json`**  (157 lines, 8.8 KB)
+  - R2: `iam-searchlight`, `iam-searchlight-monaco`, `iam-whiteglass`, `iam-whiteglass-monaco`, `inneranimalmedia`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/03_SELECTED_WORK_REPLACEMENT_PLAN.md`**  (321 lines, 8.8 KB)
+  - D1 tables: `agentsam_platform_services`, `missing`, `one`, `the`
+- **`docs/METRICS_AND_MONITORING_AUDIT.md`**  (113 lines, 8.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `chat`, `each`, `logs`, `real`, `sessions`, `terminal_history`
+- **`docs/agent-dashboard-function-index.md`**  (394 lines, 8.8 KB)
+  - D1 tables: `git`
+- **`docs/IAM_INFRASTRUCTURE_TERMINAL_FIX_AGENT_SAM_HANDOFF.md`**  (192 lines, 8.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `GitHub`, `scratch`
+- **`docs/AGENT_TRAINING_TERMINAL_AND_WORK_DIVISION.md`**  (111 lines, 8.7 KB)
+  - D1 tables: `Chats`, `safest`, `sessions`, `the`
+- **`docs/memory/daily/2026-03-02.md`**  (89 lines, 8.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Browser`, `GET`, `Sessions`, `here`, `repo`, `sessions`
+- **`docs/source-map.md`**  (299 lines, 8.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_ai`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_cron_runs`, `agentsam_execution_steps`, `agentsam_feature_flag`
+- **`docs/DEV_TOOLS_PAGE_SPEC.md`**  (134 lines, 8.5 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/...`
+  - D1 tables: `env`, `sessions`, `the`
+  - R2: `ASSETS`, `DASHBOARD`
+- **`docs/CURRENT_STATE_AUDIT_2026-03-18.md`**  (147 lines, 8.5 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agent`, `deploy`, `docs`, `inneranimalmedia`, `localStorage`, `same`
+- **`tmp/codebase-index-upload/source-map.md`**  (299 lines, 8.5 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_ai`, `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_cron_runs`, `agentsam_execution_steps`, `agentsam_feature_flag`
+- **`docs/AGENT_SAM_LAYOUT_CSS_AUDIT.md`**  (228 lines, 8.4 KB)
+- **`docs/knowledge/skills/webapp-testing.md`**  (238 lines, 8.4 KB)
+  - D1 tables: `inspection`, `page`, `playwright`, `rendered`
+- **`src/core/dashboard-mirror-sync.js`**  (217 lines, 8.4 KB)
+  - D1 tables: `agentsam_artifacts`, `agentsam_project_context`, `parent`
+- **`src/core/agent-chat-tool-execution-ledger.js`**  (283 lines, 8.3 KB)
+  - D1 tables: `agentsam_execution_steps`, `agentsam_executions`, `sessions`
+- **`src/queue/codebase-index-sync.js`**  (259 lines, 8.3 KB)
+- **`artifacts/design_studio_inspection_20260513T032540Z/inspection.json`**  (137 lines, 8.2 KB)
+  - D1 tables: `knowledge_edges`
+- **`src/core/agent-terminal-run.js`**  (250 lines, 8.2 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_command_run`, `agentsam_tool_call_log`
+- **`docs/LIVE_DASHBOARD_API_SURFACE.md`**  (124 lines, 8.1 KB)
+  - D1 tables: `agent`, `agentsam_bootstrap`, `ai_models`, `change`, `the`
+- **`docs/MONACO_EDITOR_IMPLEMENTATION_AUDIT.md`**  (90 lines, 8.0 KB)
+  - D1 tables: `JSON`, `chat`, `conditional`, `filename`, `the`
+- **`docs/daily/CURSOR_SYNC_2026-04-30.md`**  (150 lines, 8.0 KB)
+  - D1 tables: `agentsam_routing_arms`, `auth`, `doc`
+- **`src/core/cms-theme-preview-model.js`**  (254 lines, 8.0 KB)
+  - D1 tables: `cms_themes`
+- **`artifacts/theme-extracts/selected-themes-by-id.pretty.json`**  (135 lines, 7.9 KB)
+  - R2: `iam-searchlight`, `iam-searchlight-monaco`, `iam-whiteglass`, `iam-whiteglass-monaco`, `inneranimalmedia`
+- **`docs/LOCATIONS_AND_DEPLOY_AUDIT.md`**  (180 lines, 7.9 KB)  🐛 HARDCODED_R2
+  - D1 tables: `repo`, `the`
+- **`docs/SPRINT_PLAN_IAM_BINDING_UX.md`**  (193 lines, 7.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `aggregates`, `binding`, `project_goals`, `project_issues`, `project_memory`, `sandbox`
+  - R2: `: `, `TOOLS`, `inneranimalmedia`
+- **`artifacts/theme-extracts/selected-themes.pretty.json`**  (135 lines, 7.8 KB)
+  - R2: `iam-whiteglass`, `iam-whiteglass-monaco`, `inneranimalmedia`
+- **`artifacts/backups/true_e2e_20260512070654/agent_chat_plan_nodes.json`**  (165 lines, 7.7 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/backups/true_e2e_20260512070513/agent_chat_plan_nodes.json`**  (165 lines, 7.7 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`artifacts/backups/true_e2e_20260512070944/agent_chat_plan_nodes.json`**  (165 lines, 7.7 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_execution_steps`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`docs/pre-deploy-audit.md`**  (225 lines, 7.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agent_mode_configs`, `agentsam_ai`, `agentsam_routing_arms`, `agentsam_webhook_events`, `options`, `repo`
+- **`docs/OVERVIEW_JSX_REFACTOR_HOW_IT_WORKS.md`**  (105 lines, 7.7 KB)
+  - D1 tables: `the`, `your`
+- **`docs/CLAUDE_CODE_OVERNIGHT_HANDOFF.md`**  (123 lines, 7.6 KB)
+  - D1 tables: `Sessions`, `sessions`, `test`, `that`, `your`
+- **`docs/DEPLOY_AND_AGENT_GUIDE.md`**  (131 lines, 7.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `bar`, `dashboard`, `repo`, `the`, `this`
+- **`docs/CURSOR_HANDOFF_SANDBOX_UI_TO_PRODUCTION.md`**  (125 lines, 7.5 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/settings/theme`
+  - D1 tables: `repo`, `sandbox`
+- **`src/integrations/playwright.js`**  (193 lines, 7.5 KB)
+  - Routes: `/api/browser/screenshot`, `/api/playwright`, `/api/playwright/screenshot`
+  - D1 tables: `playwright_jobs`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/raw/target_summaries.json`**  (312 lines, 7.4 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/auth/oauth/consent`
+- **`docs/AGENT_UI_PRE_LAUNCH_STATUS.md`**  (77 lines, 7.4 KB)
+  - D1 tables: `Sessions`, `boot`, `brainstorming`, `chat`, `sessions`, `the`
+- **`analytics/cms-theme-audits/next-3-theme-artifacts-source.json`**  (97 lines, 7.4 KB)
+  - R2: `iam-desert-field`, `iam-desert-field-monaco`, `iam-forest-recon`, `iam-forest-recon-monaco`, `iam-night-strike`
+- **`analytics/cms-theme-audits/first-3-theme-artifacts-source.json`**  (97 lines, 7.4 KB)
+  - R2: `iam-antiocean-full`, `iam-antiocean-full-monaco`, `iam-ghost-tactical`, `iam-ghost-tactical-monaco`, `theme-iam-antiocean-full`
+- **`docs/MCP_TOOL_CALLS_AND_TERMINAL_HISTORY_LOGGING.md`**  (119 lines, 7.3 KB)
+  - D1 tables: `mcp_tool_calls`, `migration`, `sessions`
+- **`src/cron/retention-purge.js`**  (178 lines, 7.2 KB)
+  - D1 tables: `agent_sessions`, `agentsam_hook_execution`, `agentsam_mcp_tool_execution`, `agentsam_tool_stats_compacted`, `agentsam_webhook_events`, `agentsam_workflow_runs`
+- **`docs/CURRENT_STATE_AUDIT_2026-05-01.md`**  (110 lines, 7.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `agentsam_memory`, `cache`, `prod`, `project`, `repo`, `sandbox`
+- **`src/core/tool-capability-filter.js`**  (214 lines, 7.1 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_model_catalog`, `agentsam_run_agent`, `agentsam_todo`, `agentsam_tools`
+- **`artifacts/design_studio_inspection_20260513T032540Z/report.md`**  (79 lines, 7.0 KB)
+  - D1 tables: `knowledge_edges`
+- **`docs/memory/tomorrow-suggested-todo.md`**  (106 lines, 7.0 KB)  🐛 HARDCODED_R2
+  - D1 tables: `Overview`, `TOMORROW`, `roadmap_steps`
+- **`docs/db/FRONTEND_GAPS.md`**  (319 lines, 6.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_ai`, `agentsam_analytics`, `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_bootstrap`
+- **`src/core/identity.js`**  (233 lines, 6.8 KB)
+  - D1 tables: `agentsam_workspace`, `session`, `tenant_workspaces`, `workspaces`
+  - R2: `x-iam-workspace-id`
+- **`docs/API_METRICS_AND_AGENT_COST_TRACKING.md`**  (157 lines, 6.7 KB)
+  - D1 tables: `agent_telemetry`, `chat`, `provider`, `queries`, `repo`, `tokens`
+  - R2: `inneranimalmedia`
+- **`docs/DEPLOY_TRACKING.md`**  (143 lines, 6.7 KB)
+  - D1 tables: `Cloudflare`, `Cursor`, `deployments`, `script`, `this`, `your`
+- **`docs/DASHBOARD_METRICS_AND_TIME_TRACKING.md`**  (141 lines, 6.6 KB)
+  - Routes: `/api/dashboard/time-track/end`, `/api/dashboard/time-track/start`, `/api/dashboard/time-track?action=heartbeat`
+  - D1 tables: `project_time_entries`, `sessions`, `the`
+  - R2: `inneranimalmedia`
+- **`tmp/agent_site_build/series_8e51e1be0ff4/index.html`**  (176 lines, 6.6 KB)
+  - D1 tables: `agentsam_artifacts`
+- **`src/cron/jobs/thirty-minute-cron.js`**  (180 lines, 6.6 KB)
+  - D1 tables: `Sessions`, `agent_request_queue`, `agentsam_agent_run`, `agentsam_approval_queue`, `agentsam_approval_queue_expiry_sweep`, `agentsam_cron_runs`
+- **`docs/TERMINAL_REBUILD.md`**  (190 lines, 6.5 KB)
+  - D1 tables: `Step`, `above`, `repo`, `scratch`, `the`
+- **`docs/AUTORAG_PARTIAL_FAILURE_DIAGNOSIS.md`**  (134 lines, 6.5 KB)
+  - D1 tables: `autorag`, `compiled`, `curl`, `the`
+  - R2: `iam-autorag`
+- **`src/core/tool-stats-rollup.js`**  (199 lines, 6.5 KB)
+  - D1 tables: `agentsam_mcp_tool_execution`, `agentsam_mcp_tool_execution_missing_tool_name`, `agentsam_tool_stats_compacted`, `agentsam_tool_stats_compacted_schema_unexpected`
+- **`src/core/cms-theme-registry.js`**  (197 lines, 6.4 KB)
+  - D1 tables: `r2_object_inventory`
+- **`docs/deploy-architecture-v3.md`**  (141 lines, 6.3 KB)
+  - D1 tables: `Path`, `agentsam_memory`, `agentsam_plan_tasks`, `dashboard`, `deployments`
+- **`src/core/tool-registry.js`**  (193 lines, 6.3 KB)
+  - D1 tables: `agentsam_mcp_tools`, `agentsam_run_agent`, `agentsam_tools`
+- **`src/tools/terminal-dispatch.js`**  (177 lines, 6.1 KB)
+  - Routes: `/api/agent/terminal/complete`, `/api/agent/terminal/run`, `/api/terminal/assist`
+  - D1 tables: `agentsam_command_run`, `agentsam_script_id`, `agentsam_script_run_id`, `agentsam_script_runs`
+- **`src/integrations/vertex.js`**  (208 lines, 6.1 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`artifacts/cms_page_pull/public_pages_pull.json`**  (55 lines, 6.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+- **`tmp/agent_site_build/series_8e51e1be0ff4/index-ollama-qwen-coder-7b.html`**  (166 lines, 6.0 KB)
+  - D1 tables: `task`
+- **`tmp/agent_site_build/series_8e51e1be0ff4/index-gpt-5-4-nano.html`**  (144 lines, 6.0 KB)
+  - D1 tables: `InnerAnimalMedia`, `task`
+- **`src/tools/db.js`**  (171 lines, 6.0 KB)
+  - D1 tables: `agentsam_tool_call_log`, `sqlite_master`
+- **`src/core/runtime-actor.js`**  (168 lines, 6.0 KB)
+- **`docs/MCP_SERVER_REBUILD.md`**  (84 lines, 5.9 KB)  🐛 HARDCODED_R2
+  - D1 tables: `another`, `here`, `its`, `scratch`, `that`, `the`
+  - R2: `: `, `R2`, `iam-platform`
+- **`docs/E2E_OVERNIGHT_TEST_SPEC.md`**  (76 lines, 5.9 KB)
+  - D1 tables: `TOOLS`
+- **`tmp/ollama_expansive/run_9_quality.json`**  (1 lines, 5.9 KB)
+- **`docs/BINDINGS_AND_DO_SETUP.md`**  (105 lines, 5.8 KB)  🐛 HARDCODED_R2
+  - D1 tables: `ASSETS`, `DASHBOARD`, `Dashboard`, `here`, `that`, `the`
+  - R2: `ASSETS`, `DASHBOARD`, `SESSION_CACHE`
+- **`src/tools/builtin/python.js`**  (177 lines, 5.8 KB)
+- **`tests/e2e/public-pages.spec.ts`**  (161 lines, 5.7 KB)
+- **`docs/DASHBOARD_THEME_AND_DATA_REPAIR_PLAN.md`**  (106 lines, 5.7 KB)
+- **`src/cron/jobs/write-daily-snapshot.js`**  (113 lines, 5.7 KB)
+  - D1 tables: `agentsam_health_daily`, `agentsam_mcp_tool_execution`, `agentsam_plans`, `agentsam_tool_call_log`, `agentsam_usage_events`, `deployment_tracking`
+- **`docs/AUTORAG_SYNC.md`**  (125 lines, 5.6 KB)
+  - D1 tables: `ci_di_workflow_runs`, `cron`, `the`
+- **`docs/PRODUCTION_URLS.md`**  (126 lines, 5.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `sitemap`, `wrangler`, `your`
+  - R2: `R2`
+- **`docs/theme-logic.md`**  (100 lines, 5.6 KB)
+  - D1 tables: `User`, `the`
+- **`docs/memory/daily/2026-03-10.md`**  (69 lines, 5.6 KB)
+  - D1 tables: `cms_themes`, `the`
+- **`docs/FAILURE_2026-03-03_DASHBOARD_REVERT.md`**  (81 lines, 5.5 KB)
+  - R2: `DASHBOARD`
+- **`docs/MCP_CURSOR_TERMINAL_SYNC.md`**  (106 lines, 5.5 KB)
+  - D1 tables: `config`, `the`, `this`, `your`
+- **`src/queue/docs-vectorize.js`**  (161 lines, 5.5 KB)
+  - D1 tables: `DOCS_BUCKET`, `docs_index_log`, `worker`
+  - R2: `DOCS_BUCKET`, `VECTORIZE_DOCS`
+- **`learn/software-engineering-builder-os/manifest.json`**  (103 lines, 5.4 KB)
+  - R2: `ai-engineering-agent-sam-routing`, `data-storage-d1-r2-hyperdrive-supabase`, `inneranimalmedia`
+- **`docs/AGENT_PAGE_UI_INSPECTION_AND_PLAN.md`**  (45 lines, 5.4 KB)
+  - D1 tables: `the`
+- **`src/tools/builtin/web.js`**  (98 lines, 5.4 KB)
+- **`src/do/Legacy.js`**  (141 lines, 5.4 KB)
+  - D1 tables: `game_moves`, `games`, `sessions`
+- **`artifacts/cms_homepage_section_audit/02_SECTION_EXTRACTION.md`**  (56 lines, 5.3 KB)
+  - D1 tables: `autonomous`, `building`, `day`, `enterprise`, `other`, `sessions`
+- **`docs/INCIDENT_RETROSPECTIVE_2026-03-19_TERMINAL_MCP.md`**  (81 lines, 5.3 KB)
+  - D1 tables: `the`
+- **`docs/iam-docs/agents/README.md`**  (79 lines, 5.3 KB)
+- **`tmp/ollama_cloud_series/series_0620c6d4e4dd/report.json`**  (141 lines, 5.3 KB)
+  - D1 tables: `your`
+- **`src/core/alignment-sync.js`**  (178 lines, 5.3 KB)
+  - D1 tables: `agentsam_memory`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`docs/memory/agent-plans/2026-03-03-overview-todo.md`**  (73 lines, 5.2 KB)
+  - D1 tables: `repo`, `that`, `those`
+- **`docs/iam-docs/agents/tool-reference.md`**  (149 lines, 5.2 KB)  🐛 GITHUB_REAUTH_LOOP
+  - D1 tables: `URL`, `image`, `text`
+- **`tmp/ollama_cloud_series/series_2275097bea56/report.json`**  (121 lines, 5.2 KB)
+  - D1 tables: `your`
+- **`artifacts/key_hygiene_audit/chunks/06_declared_found_but_not_used_in_scanned_code.md`**  (56 lines, 5.1 KB)
+  - D1 tables: `AGENTSAM_ANTHROPIC_ESCALATION_ONLY`, `AGENTSAM_DEFAULT_CHEAP_MODEL`, `AGENTSAM_DEFAULT_CHEAP_PROVIDER`, `AGENTSAM_DISABLE_DEFAULT_ANTHROPIC`, `AGENTSAM_E2E_MODE`, `AGENTSAM_E2E_NO_LLM_BY_DEFAULT`
+- **`docs/AGENT_DASHBOARD_UI_PRODUCTION_PLAN.md`**  (92 lines, 5.1 KB)  🐛 MOVIEMODE_BROKEN
+  - D1 tables: `repo`
+- **`docs/autorag-knowledge/architecture/shell-refactor-2026-03-23.md`**  (102 lines, 5.1 KB)
+- **`tmp/ollama_cloud_series/series_fab1f3539458/report.json`**  (120 lines, 5.1 KB)
+  - D1 tables: `your`
+- **`tmp/ollama_expansive/run_3_routing.json`**  (1 lines, 5.1 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_routing_arms`
+- **`src/cron/jobs/midnight-utc.js`**  (158 lines, 5.1 KB)
+  - D1 tables: `agentsam_cron_runs`, `agentsam_execution_performance_metrics`, `agentsam_mcp_tool_execution`, `agentsam_memory`, `agentsam_memory_decay`, `agentsam_usage_rollups_daily`
+- **`docs/STREAMING_TOOLS_ARCHITECTURE.md`**  (102 lines, 5.0 KB)
+  - D1 tables: `tool_result`
+- **`docs/autorag-knowledge/architecture/platform-stack.md`**  (87 lines, 5.0 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_fetch_domain_allowlist`, `agentsam_user_policy`, `sessions`
+- **`docs/plans/TOMORROW_2026-03-25_MCP_BUILTINS_FINISH.md`**  (91 lines, 5.0 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - Routes: `/api/mcp/invoke`
+  - D1 tables: `MCP`, `dashboard`, `mcp_registered_tools`
+- **`src/queue/dispatcher.js`**  (140 lines, 5.0 KB)
+  - D1 tables: `agentsam_webhook_events`, `docs_index_log`
+  - R2: `iam-docs`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/claude-haiku-4-5-20251001/iam-violet-nocturne/theme.json`**  (5 lines, 4.9 KB)
+  - R2: `iam-violet-nocturne`
+- **`src/cron/jobs/compact-agent-chats.js`**  (123 lines, 4.9 KB)
+  - D1 tables: `agent_conversations`, `agent_messages`
+  - R2: `R2`
+- **`docs/FILE_CONTEXT_TIMING_DEBUG.md`**  (71 lines, 4.8 KB)
+  - D1 tables: `the`
+- **`docs/MCP_TOOLS_DIAGNOSTIC_REPORT.md`**  (86 lines, 4.8 KB)
+  - D1 tables: `JSON`, `another`, `mcp_registered_tools`
+- **`docs/learn/LEARNING_OS_RECONCILIATION.md`**  (219 lines, 4.8 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_guardrail_events`, `agentsam_tool_call_log`, `agentsam_workspace_state`
+- **`src/cron/jobs/archive-old-conversations.js`**  (134 lines, 4.8 KB)
+  - D1 tables: `agent_conversations`, `agent_messages`, `quality_checks`, `sessions`
+  - R2: `R2`, `inneranimalmedia`
+- **`docs/AGENT_SAM_THEME_REPAIR_COMMANDS.md`**  (97 lines, 4.7 KB)
+  - D1 tables: `apiVariables`, `dashboard`, `overview`, `repo`, `the`
+- **`docs/memory/RAG_OVERVIEW_AND_NEXT_TASKS.md`**  (81 lines, 4.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Drive`, `sessions`, `step`, `the`, `those`
+- **`tmp/openai-smoke/openai_model_access_results.json`**  (172 lines, 4.7 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-violet-nocturne/raw-output.json`**  (26 lines, 4.7 KB)
+  - R2: `iam-violet-nocturne`
+- **`docs/memory/daily/2026-03-07.md`**  (54 lines, 4.6 KB)
+  - D1 tables: `here`, `repo`
+- **`src/tools/fs.js`**  (146 lines, 4.6 KB)
+- **`src/core/eval-runner.js`**  (129 lines, 4.6 KB)
+  - D1 tables: `agentsam_eval_cases`, `agentsam_eval_runs`, `agentsam_eval_suites`, `agentsam_routing_arms`, `recordArmOutcome`
+- **`src/do/Collaboration.js`**  (117 lines, 4.6 KB)
+  - Routes: `/api/collab/canvas`
+  - D1 tables: `Worker`, `cms_themes`
+- **`tmp/ollama_cloud_series/series_3b8751b77f9d/report.json`**  (95 lines, 4.5 KB)
+  - D1 tables: `agentsam_eval_runs`, `your`
+- **`learn/software-engineering-builder-os/lessons/010_capstone-ship-review-measure.md`**  (147 lines, 4.4 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_execution_performance_metrics`, `agentsam_plan_tasks`, `agentsam_plans`
+- **`tests/e2e/dashboard-agent-workbench.spec.ts`**  (110 lines, 4.4 KB)
+  - Components: `BASE`
+- **`docs/IMPLEMENTATION_PLAN_SANDBOX_CI_CORRECTED.md`**  (108 lines, 4.4 KB)
+  - D1 tables: `MeauxCAD`, `same`
+- **`docs/MCP_FULL_FUNCTIONALITY_AGENT_SAM.md`**  (62 lines, 4.4 KB)
+- **`docs/knowledge/skills/frontend-design.md`**  (50 lines, 4.4 KB)
+  - D1 tables: `executing`
+- **`docs/iam-docs/platform/deploy-runbook.md`**  (111 lines, 4.4 KB)
+  - D1 tables: `deployments`, `git`, `sessions`, `the`, `wrangler`
+- **`src/core/cms-theme-create.js`**  (146 lines, 4.4 KB)
+  - D1 tables: `request`
+- **`src/core/model-catalog-cost.js`**  (118 lines, 4.4 KB)
+  - D1 tables: `agentsam_model_catalog`
+- **`learn/software-engineering-builder-os/lessons/002_terminal-command-line.md`**  (142 lines, 4.3 KB)
+  - D1 tables: `agentsam_command_allowlist`, `agentsam_command_run`, `agentsam_commands`, `agentsam_guardrail_events`, `repo`
+- **`artifacts/key_hygiene_audit/chunks/key_usage_openai.md`**  (63 lines, 4.2 KB)
+  - D1 tables: `AGENTSAM_OPENAI_API_KEY`, `agentsam_projects_remaster`, `agentsam_structure_audit`
+- **`learn/software-engineering-builder-os/lessons/005_frontend-react-dashboard-ux.md`**  (139 lines, 4.2 KB)
+  - D1 tables: `agentsam_workspace_state`
+- **`learn/software-engineering-builder-os/lessons/001_software-engineering-map.md`**  (142 lines, 4.2 KB)
+  - D1 tables: `agentsam_project_context`
+- **`docs/memory/daily/2026-03-09.md`**  (48 lines, 4.2 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `GitHub`, `Google`, `main`, `repo`, `the`, `within`
+- **`docs/iam-docs/agents/anthropic.md`**  (93 lines, 4.2 KB)
+  - D1 tables: `same`
+- **`docs/TERMINAL_KEYS_RESET.md`**  (103 lines, 4.1 KB)
+  - D1 tables: `repo`, `scratch`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-mocha-orbit/raw-output.json`**  (26 lines, 4.1 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-arctic-command/raw-output.json`**  (26 lines, 4.1 KB)
+  - R2: `iam-arctic-command`
+- **`src/tools/builtin/agent.js`**  (107 lines, 4.1 KB)
+  - D1 tables: `agentsam_get_agent`, `agentsam_list_agents`, `agentsam_run_agent`, `agentsam_workflow_runs`, `agentsam_workflows`
+- **`src/core/agent-costs.js`**  (114 lines, 4.1 KB)
+  - D1 tables: `agent_costs`
+- **`tmp/ollama_expansive/run_4_sse_debug.json`**  (1 lines, 4.0 KB)
+- **`tmp/ollama_expansive/run_7_tooling.json`**  (1 lines, 4.0 KB)
+  - D1 tables: `anywhere`, `outside`
+- **`src/core/usage-event-writer.js`**  (117 lines, 4.0 KB)
+  - D1 tables: `agentsam_usage_events`, `agentsam_workflow_runs`, `provider`, `the`
+  - R2: `agent-sam`
+- **`src/queue/playwright-queue-job.js`**  (110 lines, 4.0 KB)
+  - D1 tables: `playwright_jobs`, `queue`
+  - R2: `DASHBOARD`, `DOCS_BUCKET`, `R2`
+- **`docs/RAG_VECTORIZE_SETUP.md`**  (65 lines, 3.9 KB)
+  - D1 tables: `that`
+  - R2: `R2`
+- **`docs/memory/agent-plans/telemetry-endpoints.md`**  (63 lines, 3.9 KB)
+  - Routes: `/api/telemetry/otlp/v1/logs`, `/api/telemetry/v1/traces`
+  - D1 tables: `the`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-violet-nocturne/raw-output.json`**  (25 lines, 3.9 KB)
+  - R2: `iam-violet-nocturne`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_06.md`**  (60 lines, 3.8 KB)
+  - D1 tables: `agentsam_workflow_runs`, `multiple`, `sessions`, `theme`
+- **`artifacts/playwright/cms_frontend_20260514T082741Z/summary.json`**  (108 lines, 3.8 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082237Z/summary.json`**  (108 lines, 3.8 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082325Z/summary.json`**  (108 lines, 3.8 KB)
+- **`docs/CURSOR_HANDOFF_SANDBOX.md`**  (97 lines, 3.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `repo`
+- **`docs/theme-presets/iam-v2-kimbie-solarized.css`**  (123 lines, 3.8 KB)
+- **`src/core/error-pages.js`**  (81 lines, 3.8 KB)
+- **`src/integrations/stripe.js`**  (119 lines, 3.8 KB)
+  - D1 tables: `sessions`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_03.md`**  (54 lines, 3.7 KB)
+  - D1 tables: `Liquid`, `Shopify`, `admin`
+- **`docs/AGENT_THEME_AND_COMPONENT_REFINEMENT.md`**  (67 lines, 3.7 KB)
+  - D1 tables: `cms_themes`, `the`
+- **`src/tools/builtin/integrations.js`**  (74 lines, 3.7 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - Routes: `/api/convert/create`, `/api/email/broadcast`, `/api/email/domains`, `/api/email/keys`, `/api/gdrive/fetch`, `/api/gdrive/list`
+  - D1 tables: `agentsam_hook`
+- **`src/core/actor-context.js`**  (135 lines, 3.7 KB)
+- **`src/core/cms-theme-hashing.js`**  (135 lines, 3.7 KB)
+  - D1 tables: `tokens_json`
+- **`artifacts/cms_ollama_gameplan/3d_assets_audit/03_CHESS_GLB_REBUILD_PLAN.md`**  (89 lines, 3.6 KB)
+  - D1 tables: `CMS`, `cms_3d_assets`
+- **`artifacts/backups/true_e2e_20260512070654/agent_chat_plan_edges.json`**  (109 lines, 3.6 KB)
+- **`artifacts/backups/true_e2e_20260512070513/agent_chat_plan_edges.json`**  (109 lines, 3.6 KB)
+- **`artifacts/backups/true_e2e_20260512070944/agent_chat_plan_edges.json`**  (109 lines, 3.6 KB)
+- **`docs/memory/agent-plans/2026-03-03-build-status-vs-todo.md`**  (56 lines, 3.6 KB)
+  - D1 tables: `another`, `bootstrap`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-arctic-command/raw-output.json`**  (26 lines, 3.6 KB)
+  - R2: `iam-arctic-command`
+- **`src/core/ensureAppUser.js`**  (116 lines, 3.6 KB)
+  - D1 tables: `auth_users`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_13.md`**  (49 lines, 3.5 KB)
+  - D1 tables: `the`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_09.md`**  (45 lines, 3.5 KB)
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_10.md`**  (47 lines, 3.5 KB)
+  - D1 tables: `current`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_04.md`**  (56 lines, 3.5 KB)
+  - D1 tables: `Liquid`, `rendering`
+- **`docs/MCP_TOKEN_ARCHITECTURE.md`**  (74 lines, 3.5 KB)
+  - Routes: `/api/mcp/invoke\n/api/agent chat`
+  - D1 tables: `the`
+  - R2: `inneranimalmedia-mcp`
+- **`docs/AGENT_RELIABILITY_AND_BROWSER_COLLABORATION.md`**  (60 lines, 3.5 KB)
+  - D1 tables: `message`, `the`, `your`
+- **`docs/runbooks/deploy-dashboard.md`**  (94 lines, 3.5 KB)
+  - D1 tables: `cicd_runs`, `source`, `the`
+- **`docs/knowledge/skills/README.md`**  (59 lines, 3.5 KB)
+  - D1 tables: `repo`, `scratch`, `the`, `themes`
+- **`docs/knowledge/skills/theme-factory.md`**  (73 lines, 3.5 KB)
+  - D1 tables: `the`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-mocha-orbit/raw-output.json`**  (26 lines, 3.5 KB)
+  - R2: `iam-mocha-orbit`
+- **`src/core/cms-theme-tokens.js`**  (114 lines, 3.5 KB)
+  - D1 tables: `cms`
+- **`src/cron/jobs/index-memory-vectorize.js`**  (113 lines, 3.5 KB)
+  - R2: `R2`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_12.md`**  (60 lines, 3.4 KB)
+- **`docs/OPENAI_API_KEY_PLAN.md`**  (87 lines, 3.4 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-mocha-orbit/raw-output.json`**  (26 lines, 3.4 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/codebase-index-upload/file-inventory.md`**  (66 lines, 3.4 KB)
+  - D1 tables: `agentsam_everything`, `agentsam_full_mirrored_eval_series`, `agentsam_latency`, `agentsam_mcp_tool_e2e_sprint`, `agentsam_route_tool_alignment_e2e`, `agentsam_seed_visualizer_todos`
+- **`src/core/email-templates.js`**  (75 lines, 3.4 KB)
+  - D1 tables: `request`
+- **`src/core/cron-run-ledger.js`**  (112 lines, 3.4 KB)
+  - D1 tables: `agentsam_cron_runs`, `startCronRun`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_07.md`**  (51 lines, 3.3 KB)
+  - D1 tables: `sessions`, `static`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_11.md`**  (49 lines, 3.3 KB)
+- **`docs/memory/RAG_MEMORY_PIPELINE.md`**  (61 lines, 3.3 KB)
+  - D1 tables: `last`, `the`
+  - R2: `inneranimalmedia-aisearch`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-violet-nocturne/raw-output.json`**  (26 lines, 3.3 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-arctic-command/raw-output.json`**  (26 lines, 3.3 KB)
+  - R2: `iam-arctic-command`
+- **`src/cron/jobs/webhook-events-maintenance.js`**  (82 lines, 3.3 KB)
+  - D1 tables: `agentsam_code_index_job`, `agentsam_webhook_events`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_14.md`**  (43 lines, 3.2 KB)
+- **`docs/memory/daily/2026-03-16.md`**  (54 lines, 3.2 KB)
+  - D1 tables: `Agent`, `cursor`, `localStorage`, `roadmap`, `sessions`, `user_settings`
+- **`src/tools/builtin/ai-ops.js`**  (78 lines, 3.2 KB)
+- **`src/core/anthropic-webhook-verify.js`**  (102 lines, 3.2 KB)
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_05.md`**  (65 lines, 3.1 KB)
+- **`docs/iam-docs/agents/openai.md`**  (74 lines, 3.1 KB)
+  - D1 tables: `Anthropic`, `chat`
+- **`docs/iam-docs/agents/auto-mode.md`**  (69 lines, 3.1 KB)
+  - D1 tables: `MCP`, `ai_models`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055558_e0a5151d/gpt-5.4-nano/iam-violet-nocturne/raw-output.json`**  (26 lines, 3.1 KB)
+  - R2: `iam-violet-nocturne`
+- **`src/core/mcp-servers.js`**  (102 lines, 3.1 KB)
+  - D1 tables: `agentsam_mcp_servers`, `agentsam_mcp_tools`
+- **`src/core/vault.js`**  (96 lines, 3.1 KB)
+  - D1 tables: `env_secrets`, `user_secrets`
+- **`artifacts/key_hygiene_audit/chunks/key_usage_anthropic.md`**  (40 lines, 3.0 KB)
+  - D1 tables: `agentsam_benchmark_flood`, `agentsam_benchmark_flood_v2`, `agentsam_benchmark_v3`
+  - R2: `autorag`
+- **`docs/OVERNIGHT_EMAIL_AND_METRICS.md`**  (51 lines, 3.0 KB)
+- **`docs/memory/daily/2026-03-12.md`**  (57 lines, 3.0 KB)
+  - D1 tables: `TOMORROW`, `sessions`
+- **`docs/knowledge/skills/web-artifacts-builder.md`**  (82 lines, 3.0 KB)
+- **`docs/iam-docs/platform/bindings-reference.md`**  (38 lines, 3.0 KB)  🐛 HARDCODED_R2, GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `sessions`
+  - R2: `iam-autorag`
+- **`src/cron/jobs/spend-ledger-rollup.js`**  (98 lines, 3.0 KB)
+  - D1 tables: `spend_ledger`, `spend_ledger_monthly_rollup`
+- **`docs/PHASE_2_6_TEST_CHECKLIST.md`**  (104 lines, 2.9 KB)
+  - D1 tables: `ALL`, `conversations`, `knowledge`
+- **`docs/memory/API_SECRET_ROTATION_TODO.md`**  (59 lines, 2.9 KB)
+  - D1 tables: `repo`, `the`
+- **`docs/db/live-inspection/fixes/before_routing_memory_model_keys.json`**  (140 lines, 2.9 KB)
+- **`docs/iam-docs/autorag/architecture/how-rag-works.md`**  (56 lines, 2.9 KB)
+  - D1 tables: `sessions`
+- **`src/integrations/canvas.js`**  (68 lines, 2.9 KB)
+  - Routes: `/api/draw/load`, `/api/draw/save`
+  - D1 tables: `project_assets`
+  - R2: `DASHBOARD`
+- **`docs/DEPLOY-CHECKLIST.md`**  (52 lines, 2.8 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Vite`
+- **`docs/AGENT_DASHBOARD.md`**  (33 lines, 2.8 KB)
+- **`src/core/routing-decisions-writer.js`**  (84 lines, 2.8 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_routing_arms`, `agentsam_usage_events`, `routing_decisions`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_02.md`**  (42 lines, 2.7 KB)
+  - D1 tables: `asset`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_08.md`**  (46 lines, 2.7 KB)
+- **`docs/BROWSER_PUPPETEER_AND_PLAYWRIGHT_MCP.md`**  (79 lines, 2.7 KB)
+- **`.tmp/cms/themes/iam-green-terminal/theme.css`**  (66 lines, 2.7 KB)
+  - R2: `iam-green-terminal`
+- **`src/tools/network-tier-dispatchers.js`**  (84 lines, 2.7 KB)
+- **`src/tools/builtin/context.js`**  (42 lines, 2.7 KB)
+  - Routes: `/api/context/attached-content`, `/api/context/chunk`, `/api/context/extract`, `/api/context/knowledge-search`, `/api/context/memory/add`, `/api/context/memory/list`
+- **`src/core/hook-dispatcher.js`**  (86 lines, 2.7 KB)
+  - D1 tables: `agentsam_hook`, `agentsam_hook_execution`
+- **`src/cron/jobs/financial-command-cron.js`**  (78 lines, 2.7 KB)
+  - D1 tables: `agentsam_guardrails`, `spend_ledger`
+- **`docs/CMS_REALTIME_EDIT_LOOP.md`**  (34 lines, 2.6 KB)
+- **`docs/iam-docs/cursor/IAM-CURSOR-CONTEXT.md`**  (39 lines, 2.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `sessions`
+- **`.tmp/cms/themes/iam-forest-classic/theme.css`**  (65 lines, 2.6 KB)
+  - R2: `iam-forest-classic`
+- **`.tmp/cms/themes/iam-starfield/theme.css`**  (65 lines, 2.6 KB)
+  - R2: `iam-starfield`
+- **`.tmp/cms/themes/iam-tide-dark/theme.css`**  (66 lines, 2.6 KB)
+  - R2: `iam-tide-dark`
+- **`.tmp/cms/themes/iam-tide-light/theme.css`**  (66 lines, 2.6 KB)
+  - R2: `iam-tide-light`
+- **`.tmp/cms/themes/iam-desert-ops/theme.css`**  (65 lines, 2.6 KB)
+  - R2: `iam-desert-ops`
+- **`.tmp/cms/themes/iam-ghost-classic/theme.css`**  (65 lines, 2.6 KB)
+  - R2: `iam-ghost-classic`
+- **`tmp/codebase-index-upload/index-priority-files.md`**  (55 lines, 2.6 KB)
+  - D1 tables: `agentsam_everything`, `agentsam_full_mirrored_eval_series`, `agentsam_latency`, `agentsam_mcp_tool_e2e_sprint`, `agentsam_route_tool_alignment_e2e`, `agentsam_structure_audit`
+- **`analytics/deploys/latest-script-upload-inventory.json`**  (58 lines, 2.6 KB)
+  - R2: `: `, `inneranimalmedia`
+- **`src/core/features.js`**  (82 lines, 2.6 KB)
+  - D1 tables: `agentsam_feature_flag`, `agentsam_user_feature_override`
+- **`src/cron/notify-sam.js`**  (75 lines, 2.6 KB)
+  - D1 tables: `email_logs`, `worker`
+- **`src/cron/jobs/knowledge-daily-sync.js`**  (69 lines, 2.6 KB)
+  - D1 tables: `agentsam_memory`, `roadmap_steps`
+  - R2: `R2`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_01.md`**  (37 lines, 2.5 KB)
+- **`learn/software-engineering-builder-os/README.md`**  (85 lines, 2.5 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_guardrail_events`, `agentsam_tool_call_log`, `agentsam_workspace_state`
+- **`learn/software-engineering-builder-os/COURSE.md`**  (85 lines, 2.5 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_guardrail_events`, `agentsam_tool_call_log`, `agentsam_workspace_state`
+- **`docs/RECOVERY_PLAN.md`**  (51 lines, 2.5 KB)
+  - D1 tables: `sessions`
+- **`docs/learn/courses/software-engineering-builder-os.md`**  (85 lines, 2.5 KB)
+  - D1 tables: `agentsam_command_run`, `agentsam_guardrail_events`, `agentsam_tool_call_log`, `agentsam_workspace_state`
+- **`.tmp/cms/themes/iam-engineer-blue/theme.css`**  (94 lines, 2.5 KB)
+  - R2: `iam-engineer-blue`
+- **`.tmp/cms/themes/iam-savanna-scout/theme.css`**  (65 lines, 2.5 KB)
+  - R2: `iam-savanna-scout`
+- **`.tmp/cms/themes/solarized-dark/theme.css`**  (65 lines, 2.5 KB)
+- **`.tmp/cms/themes/iam-night-strike/theme.css`**  (64 lines, 2.5 KB)
+  - R2: `iam-night-strike`
+- **`.tmp/cms/themes/iam-forest-recon/theme.css`**  (55 lines, 2.5 KB)
+  - R2: `iam-forest-recon`
+- **`src/tools/builtin/imessage.js`**  (82 lines, 2.5 KB)
+  - D1 tables: `agentsam_hook`
+- **`src/tools/builtin/deploy.js`**  (56 lines, 2.5 KB)
+- **`src/cron/scheduled.js`**  (87 lines, 2.5 KB)
+- **`.tmp/cms/themes/iam-legacy-gold/theme.css`**  (94 lines, 2.4 KB)
+  - R2: `iam-legacy-gold`
+- **`tmp/codebase-index-upload/package-snapshot.json`**  (98 lines, 2.4 KB)
+  - R2: `inneranimalmedia`
+- **`docs/memory/dashboardmodularization-05012026.md`**  (40 lines, 2.3 KB)
+  - R2: `inneranimalmedia`
+- **`.tmp/cms/themes/iam-desert-field/theme.css`**  (97 lines, 2.3 KB)
+  - R2: `iam-desert-field`
+- **`src/tools/builtin/anthropic-batch.js`**  (68 lines, 2.3 KB)
+- **`src/core/file-kind.js`**  (70 lines, 2.3 KB)
+- **`src/core/provisionNewUser.js`**  (66 lines, 2.3 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `worker`
+- **`src/core/unified-source-filters.js`**  (84 lines, 2.3 KB)
+  - D1 tables: `normalizeSourceFilters`
+- **`docs/TERMINAL_AND_PLAYWRIGHT.md`**  (33 lines, 2.2 KB)
+  - D1 tables: `home`, `repo`
+- **`docs/mcp-server-function-index.json`**  (136 lines, 2.2 KB)
+- **`docs/memory/agent-plans/time-documentation-fix.md`**  (28 lines, 2.2 KB)
+- **`src/tools/http-dispatch.js`**  (55 lines, 2.2 KB)
+- **`src/integrations/resend.js`**  (59 lines, 2.2 KB)
+- **`src/tools/builtin/computer-use.js`**  (69 lines, 2.1 KB)
+- **`src/core/dashboard-realtime-jwt.js`**  (59 lines, 2.1 KB)
+  - R2: `inneranimalmedia-dashboard`
+- **`artifacts/theme-extracts/inneranimal-slate.pretty.json`**  (34 lines, 2.0 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/cms_ollama_gameplan/reduced_reports/pack_15.md`**  (36 lines, 2.0 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/7fd72476-d246-44d2-81e0-00b74892226d.artifact.json`**  (25 lines, 2.0 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/b2588945-9915-43d6-99b1-448ed62b00da.artifact.json`**  (25 lines, 2.0 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/bf7544af-a238-49b2-b81c-b32f11fe4538.artifact.json`**  (25 lines, 2.0 KB)
+  - D1 tables: `content`
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/5174b2d0-3c52-4d91-85a8-71dc45841ca8.artifact.json`**  (25 lines, 2.0 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/c4463a59-602d-437f-bc1e-d3d89413b651.artifact.json`**  (25 lines, 2.0 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/182636b8-cc4b-47c8-809b-3f55861d79f1.artifact.json`**  (25 lines, 2.0 KB)
+  - D1 tables: `InnerAnimalMedia`
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/9aea3967-6f86-4155-8a18-ce8645401fb5.artifact.json`**  (25 lines, 2.0 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_eval_runs`
+- **`tmp/ollama_cloud_series/series_b8944e814d37/52a4a6e9-5433-41fa-8ced-0f816602626d.artifact.json`**  (25 lines, 2.0 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/ollama_cloud_series/series_b8944e814d37/2a4305f1-af20-4bcb-8780-a4ac444b1f6b.artifact.json`**  (23 lines, 2.0 KB)
+  - D1 tables: `http`
+- **`tmp/ollama_cloud_series/series_8e51e1be0ff4/0ed7c8f8-6101-46e0-99e5-24d79a9b3c08.artifact.json`**  (25 lines, 2.0 KB)
+- **`src/core/gate.js`**  (55 lines, 2.0 KB)
+  - D1 tables: `agent_mode_configs`, `agentsam_routing_arms`
+- **`artifacts/theme-extracts/meaux-glass-blue.pretty.json`**  (34 lines, 1.9 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/theme-extracts/iam-whiteglass.pretty.json`**  (34 lines, 1.9 KB)
+  - R2: `iam-whiteglass`, `iam-whiteglass-monaco`, `inneranimalmedia`
+- **`docs/UI_POLISH_VERIFICATION.md`**  (36 lines, 1.9 KB)
+- **`docs/db/live-inspection/fixes/before_routing_arms_model_keys.json`**  (90 lines, 1.9 KB)
+- **`docs/iam-docs/screenshots/README.md`**  (36 lines, 1.9 KB)
+- **`tmp/ollama_cloud_series/series_299cfc64ce8c/1887a6bf-89e9-4b94-80f3-87d54b644709.artifact.json`**  (23 lines, 1.9 KB)
+- **`tmp/ollama_cloud_series/series_299cfc64ce8c/b3624d4a-ad74-4683-85ea-164ecf6b7922.artifact.json`**  (23 lines, 1.9 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/ollama_cloud_series/series_299cfc64ce8c/e49e626b-af9c-4d52-bcfb-23817b4ad088.artifact.json`**  (23 lines, 1.9 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/ollama_cloud_series/series_c174f9e654f5/25fe6ea9-7811-4bdb-ac47-eee81d95eb9f.artifact.json`**  (20 lines, 1.9 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/ollama_cloud_series/series_c174f9e654f5/8bbd3769-ae3e-420d-8580-f0f21564d9aa.artifact.json`**  (20 lines, 1.9 KB)
+- **`tmp/ollama_cloud_series/series_16aa61f7b36b/813fda09-e797-41b5-a88c-9b2b0e7f86bf.artifact.json`**  (25 lines, 1.9 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/0c70426c-de27-4280-96b0-f44d2ef9f2bc.artifact.json`**  (25 lines, 1.9 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`, `arm`
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/4130ad4d-dd34-4145-b24f-d91e725a8b2d.artifact.json`**  (25 lines, 1.9 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/dc9c929a-408d-4661-a4a0-66fd5af6180c.artifact.json`**  (25 lines, 1.9 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_eval_runs`
+- **`tmp/ollama_cloud_series/series_faed75000821/bba43aff-c512-46db-950c-26d6e01cc661.artifact.json`**  (20 lines, 1.9 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/ollama_cloud_series/series_faed75000821/8d4c192a-5c31-424d-914d-a721af6922f6.artifact.json`**  (20 lines, 1.9 KB)
+- **`tmp/ollama_cloud_series/series_faed75000821/e031ba58-e561-4d94-8ab6-31db71e07053.artifact.json`**  (20 lines, 1.9 KB)
+  - D1 tables: `the`
+- **`tmp/ollama_cloud_series/series_faed75000821/65c3b8c9-f748-4071-9ba7-a787d4dd64e4.artifact.json`**  (20 lines, 1.9 KB)
+- **`tmp/ollama_cloud_series/series_b8944e814d37/3dfa3479-69c2-4836-8573-4d0fa183df9f.artifact.json`**  (25 lines, 1.9 KB)
+  - D1 tables: `agentsam_ai`, `agentsam_model_catalog`, `agentsam_prompt_routes`, `agentsam_routing_arms`
+- **`tmp/cms-live-editor-e2e/cms_live_editor_e2e_20260509T065544_bafc293c.json`**  (84 lines, 1.9 KB)
+  - R2: `inneranimalmedia`
+- **`src/tools/time.js`**  (57 lines, 1.9 KB)
+- **`src/tools/builtin/telemetry.js`**  (53 lines, 1.9 KB)
+  - D1 tables: `mcp_tool_usage`
+- **`src/integrations/tokens.js`**  (55 lines, 1.9 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP
+  - D1 tables: `agentsam_ai`
+- **`artifacts/theme-extracts/clay.pretty.json`**  (34 lines, 1.8 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/playwright/cms_frontend_20260514T082741Z/cms_editor/result.json`**  (44 lines, 1.8 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082237Z/cms_editor/result.json`**  (44 lines, 1.8 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082325Z/cms_editor/result.json`**  (44 lines, 1.8 KB)
+- **`artifacts/agent_microinteraction_audit/20260514_171939/05_patch_plan_for_cursor.md`**  (57 lines, 1.8 KB)
+  - D1 tables: `the`
+- **`artifacts/agent_microinteraction_audit/20260514_171939/04_recommended_primitives.md`**  (92 lines, 1.8 KB)
+- **`artifacts/key_hygiene_audit/chunks/rules_document_scope_findings.md`**  (17 lines, 1.8 KB)
+  - D1 tables: `agentsam_rules_document`
+- **`.tmp/cms/themes/iam-antiocean-full/theme.css`**  (75 lines, 1.8 KB)
+  - R2: `iam-antiocean-full`
+- **`.tmp/cms/themes/iam-ghost-tactical/theme.css`**  (75 lines, 1.8 KB)
+  - R2: `iam-ghost-tactical`
+- **`tmp/ollama_cloud_series/series_16aa61f7b36b/3b83f27c-e1df-4654-85a3-0a8c57634d89.artifact.json`**  (25 lines, 1.8 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/b11e7abe-9eea-4c11-987d-d0fc0bc53899.artifact.json`**  (25 lines, 1.8 KB)
+  - D1 tables: `AgentSam_Telemetry`
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/08297c19-d767-458a-8e68-70b41a0b7552.artifact.json`**  (25 lines, 1.8 KB)
+- **`tmp/ollama_cloud_series/series_faed75000821/97670802-7e96-452c-ba98-80c99057279d.artifact.json`**  (20 lines, 1.8 KB)
+- **`tmp/ollama_cloud_series/series_b8944e814d37/ee8f0c4b-e005-4f10-be06-3e140e81ddaf.artifact.json`**  (25 lines, 1.8 KB)
+- **`tmp/cms-live-editor-e2e/cms_live_editor_e2e_20260509T065544_bafc293c.readback.json`**  (81 lines, 1.8 KB)
+  - R2: `inneranimalmedia`
+- **`src/core/crypto-vault.js`**  (51 lines, 1.8 KB)
+  - D1 tables: `env`
+  - R2: `iam-vault-v1`
+- **`.tmp/cms/themes/iam-green-terminal/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-green-terminal-monaco`
+- **`.tmp/cms/themes/iam-forest-classic/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-forest-classic-monaco`
+- **`.tmp/cms/themes/iam-savanna-scout/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-savanna-scout-monaco`
+- **`.tmp/cms/themes/iam-starfield/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-starfield-monaco`
+- **`.tmp/cms/themes/iam-tide-dark/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-tide-dark-monaco`
+- **`.tmp/cms/themes/iam-tide-light/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-tide-light-monaco`
+- **`.tmp/cms/themes/iam-desert-ops/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-desert-ops-monaco`
+- **`.tmp/cms/themes/iam-night-strike/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-night-strike-monaco`
+- **`.tmp/cms/themes/iam-ghost-classic/monaco.json`**  (39 lines, 1.7 KB)
+  - R2: `iam-ghost-classic-monaco`
+- **`tmp/ollama_cloud_series/series_faed75000821/a7005827-53af-4925-847a-408a5102a18b.artifact.json`**  (20 lines, 1.7 KB)
+  - D1 tables: `AgentSam_Telemetry`
+- **`tmp/ollama_cloud_series/series_faed75000821/51bd821d-326c-4817-b90c-7e9d78680ae3.artifact.json`**  (20 lines, 1.7 KB)
+- **`tmp/cms-live-editor-e2e/cms_live_editor_e2e_20260509T070316_2022972f.json`**  (73 lines, 1.7 KB)
+  - R2: `inneranimalmedia`
+- **`tmp/cms-live-editor-e2e/cms_live_editor_e2e_20260509T070428_7123f620.json`**  (72 lines, 1.7 KB)
+  - R2: `inneranimalmedia`
+- **`src/cron/jobs/rag-six-am.js`**  (46 lines, 1.7 KB)
+- **`artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_mxbai.manifest.json`**  (30 lines, 1.6 KB)
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`docs/mcp-server-function-index.md`**  (74 lines, 1.6 KB)
+- **`docs/AGENT_SAM_ROADMAP.md`**  (50 lines, 1.6 KB)
+  - D1 tables: `agent`
+- **`docs/rag-vector-dimensions.md`**  (27 lines, 1.6 KB)
+  - D1 tables: `earlier`, `knowledge_edges`, `session_summaries`, `tenant_context`
+- **`docs/memory/today-todo.md`**  (19 lines, 1.6 KB)  🐛 GOOGLE_DRIVE_OAUTH_LOOP, GITHUB_REAUTH_LOOP
+  - D1 tables: `Drive`, `the`
+- **`.tmp/cms/themes/kimbie-dark/theme.css`**  (71 lines, 1.6 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/112ea12c-ddad-4166-85c8-bc358a122d90.artifact.json`**  (25 lines, 1.6 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_eval_runs`
+- **`tmp/cms-live-editor-e2e/cms_live_editor_e2e_20260509T070428_7123f620.readback.json`**  (69 lines, 1.6 KB)
+  - R2: `inneranimalmedia`
+- **`tmp/cms-live-editor-e2e/cms_live_editor_e2e_20260509T070316_2022972f.readback.json`**  (70 lines, 1.6 KB)
+  - R2: `inneranimalmedia`
+- **`artifacts/playwright/cms_frontend_20260514T082741Z/cms_app/result.json`**  (58 lines, 1.5 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082237Z/cms_app/result.json`**  (58 lines, 1.5 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082325Z/cms_app/result.json`**  (58 lines, 1.5 KB)
+- **`tmp/ollama_cloud_series/series_a478f7513baf/report.json`**  (61 lines, 1.5 KB)
+- **`tmp/ollama_cloud_series/series_faed75000821/17a00a1b-c4f5-4b85-8546-e80a1344fad4.artifact.json`**  (20 lines, 1.5 KB)
+  - D1 tables: `agentsam_agent_run`, `agentsam_eval_runs`
+- **`src/tools/terminal.js`**  (53 lines, 1.5 KB)
+- **`src/tools/builtin/platform.js`**  (31 lines, 1.5 KB)
+  - Routes: `/api/platform/a11y/audit`, `/api/platform/a11y/summary`, `/api/platform/clients`, `/api/platform/info`
+- **`src/cron/jobs/webhook-payload-purge.js`**  (50 lines, 1.5 KB)
+  - D1 tables: `agentsam_webhook_events`
+- **`artifacts/audit/python-architect-skill-table-refs-report.md`**  (39 lines, 1.4 KB)
+  - D1 tables: `agentsam_approval_queue`, `agentsam_artifacts`, `agentsam_command_run`, `agentsam_command_runs`, `agentsam_execution_steps`, `agentsam_executions`
+- **`artifacts/key_hygiene_audit/chunks/INDEX.md`**  (26 lines, 1.4 KB)
+  - D1 tables: `agentsam_rules_document`, `agentsam_rules_document_scoping_audit`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/section_data_seed.json`**  (39 lines, 1.4 KB)
+  - D1 tables: `agentsam_platform_services`, `one`
+- **`docs/iam-docs/clients/README.md`**  (17 lines, 1.4 KB)
+- **`tmp/ollama_cloud_series/series_16aa61f7b36b/report.json`**  (53 lines, 1.4 KB)
+- **`tmp/ollama_cloud_series/series_cc0f5da5f516/9f5822c8-bcf8-4fba-affa-e3e7a7a6e49a.artifact.json`**  (25 lines, 1.4 KB)
+- **`tmp/ollama_cloud_series/series_8e51e1be0ff4/report.json`**  (55 lines, 1.4 KB)
+- **`tmp/codebase-index-upload/file-inventory-dashboard.json`**  (1 lines, 1.4 KB)
+- **`src/integrations/bluebubbles.js`**  (67 lines, 1.4 KB)
+- **`src/queue/inventory.js`**  (32 lines, 1.4 KB)
+  - D1 tables: `legacy`
+- **`src/services/resend.js`**  (42 lines, 1.4 KB)
+  - D1 tables: `required`
+- **`docs/production-branch-audit.md`**  (23 lines, 1.3 KB)
+  - D1 tables: `the`
+- **`docs/MCP_CHROME_DEVTOOLS_CURSOR.md`**  (36 lines, 1.3 KB)
+- **`tmp/ollama_cloud_series/series_faed75000821/2706e800-4c64-4c0a-b06d-86740f96ef43.artifact.json`**  (20 lines, 1.3 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-violet-nocturne/theme.css`**  (60 lines, 1.3 KB)
+- **`tmp/ollama_expansive/run_1_code.json`**  (1 lines, 1.3 KB)
+- **`tmp/ollama_expansive/run_8_cost.json`**  (1 lines, 1.3 KB)
+- **`src/core/themes.js`**  (42 lines, 1.3 KB)
+  - D1 tables: `workspaces`
+- **`artifacts/rag_vectorize/20260516_030019/manifest.json`**  (34 lines, 1.2 KB)
+  - D1 tables: `agentsam_knowledge`, `agentsam_self_evolving`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`artifacts/rag_vectorize/20260516_030133/manifest.json`**  (34 lines, 1.2 KB)
+  - D1 tables: `agentsam_knowledge`, `agentsam_self_evolving`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`docs/tomorrow-ui-plan-v2.md`**  (48 lines, 1.2 KB)
+  - D1 tables: `agent`, `mcp_tool_calls`, `sessions`
+- **`docs/memory/TIME_TRACKING_FIX_B_RUN.md`**  (17 lines, 1.2 KB)
+  - D1 tables: `active_timers`
+  - R2: `inneranimalmedia`
+- **`cms/themes/kimbie-dark/theme.css`**  (48 lines, 1.2 KB)
+- **`.tmp/cms/themes/iam-forest-recon/monaco.json`**  (2 lines, 1.2 KB)
+  - R2: `iam-forest-recon-monaco`
+- **`tmp/ollama_eval_2.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_10.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_3.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_11.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_16.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_4.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_8.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_9.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_17.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_5.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_6.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_14.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_18.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_19.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_7.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_15.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_12.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_13.json`**  (1 lines, 1.2 KB)
+- **`tmp/ollama_eval_1.json`**  (1 lines, 1.2 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-mocha-orbit/theme.css`**  (51 lines, 1.2 KB)
+- **`src/tools/builtin/anthropic-cli.js`**  (35 lines, 1.2 KB)
+- **`src/core/tunnel-status.js`**  (33 lines, 1.2 KB)
+  - Routes: `/api/tunnel/status`
+  - D1 tables: `sessions`, `tunnel_sessions`
+- **`src/cron/matrix.js`**  (19 lines, 1.2 KB)
+  - D1 tables: `agentsam_analytics`
+- **`artifacts/rag_vectorize/20260516_023842/manifest.json`**  (31 lines, 1.1 KB)
+  - D1 tables: `agentsam_knowledge`, `agentsam_self_evolving`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`cms/themes/iam-antiocean-full/theme.css`**  (41 lines, 1.1 KB)
+  - R2: `iam-antiocean-full`
+- **`cms/themes/iam-ghost-tactical/theme.css`**  (43 lines, 1.1 KB)
+  - R2: `iam-ghost-tactical`
+- **`cms/themes/iam-desert-field/theme.css`**  (43 lines, 1.1 KB)
+  - R2: `iam-desert-field`
+- **`cms/themes/iam-forest-recon/theme.css`**  (43 lines, 1.1 KB)
+  - R2: `iam-forest-recon`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-mocha-orbit/theme.css`**  (55 lines, 1.1 KB)
+- **`tmp/ollama_expansive/run_6_observability.json`**  (1 lines, 1.1 KB)
+- **`src/tools/proxy-dispatch.js`**  (36 lines, 1.1 KB)
+- **`artifacts/rag_vectorize/20260516_023707/manifest.json`**  (31 lines, 1.0 KB)
+  - D1 tables: `agentsam_self_evolving`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`artifacts/rag_vectorize/20260516_023759/manifest.json`**  (31 lines, 1.0 KB)
+  - D1 tables: `agentsam_self_evolving`
+  - R2: `ai-search-inneranimalmedia-autorag`
+- **`learn/software-engineering-builder-os/RUBRIC.md`**  (15 lines, 1.0 KB)
+- **`docs/TOMORROW.md`**  (30 lines, 1.0 KB)
+  - D1 tables: `Cursor`, `token`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-violet-nocturne/theme.css`**  (49 lines, 1.0 KB)
+- **`src/cron/chunk-markdown.js`**  (27 lines, 1.0 KB)
+  - D1 tables: `worker`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/stage_manifest.json`**  (14 lines, 0.9 KB)
+  - D1 tables: `agentsam_platform_services`
+  - R2: `inneranimalmedia`
+- **`docs/meauxcad-submodule.md`**  (18 lines, 0.9 KB)
+- **`tmp/ollama_cloud_series/series_c174f9e654f5/report.json`**  (37 lines, 0.9 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-violet-nocturne/theme.css`**  (41 lines, 0.9 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-arctic-command/monaco.json`**  (38 lines, 0.9 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-arctic-command/theme.css`**  (41 lines, 0.9 KB)
+- **`src/core/routing-thompson-flag.js`**  (20 lines, 0.9 KB)
+  - D1 tables: `AGENTSAM_DETERMINISTIC_ROUTING`, `AGENTSAM_THOMPSON_SAMPLING`
+- **`src/email-templates/verification.html`**  (20 lines, 0.9 KB)
+- **`playwright.config.ts`**  (40 lines, 0.8 KB)
+- **`artifacts/theme-debug/2026-05-07_145213/README.md`**  (21 lines, 0.8 KB)
+- **`artifacts/key_hygiene_audit/chunks/critical_findings_only.md`**  (12 lines, 0.8 KB)
+  - D1 tables: `agentsam_rules_document`
+- **`docs/autorag/context/iam-rag-index.md`**  (22 lines, 0.8 KB)
+- **`docs/iam-docs/README.md`**  (26 lines, 0.8 KB)
+  - D1 tables: `sessions`
+- **`.tmp/cms/themes/iam-legacy-gold/monaco.json`**  (27 lines, 0.8 KB)
+  - R2: `iam-legacy-gold-monaco`
+- **`.tmp/cms/themes/iam-engineer-blue/monaco.json`**  (27 lines, 0.8 KB)
+  - R2: `iam-engineer-blue-monaco`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055558_e0a5151d/gpt-5.4-nano/iam-violet-nocturne/theme.css`**  (24 lines, 0.8 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-violet-nocturne/monaco.json`**  (37 lines, 0.8 KB)
+- **`src/core/router.js`**  (16 lines, 0.8 KB)
+  - D1 tables: `production`
+- **`src/core/notifications.js`**  (30 lines, 0.8 KB)
+- **`src/email-templates/password-reset.html`**  (17 lines, 0.8 KB)
+- **`src/integrations/ollama.js`**  (24 lines, 0.8 KB)
+  - Routes: `/api/chat`, `/api/generate`, `/api/tags`
+- **`artifacts/key_hygiene_audit/chunks/09_recommended_next_fixes.md`**  (12 lines, 0.7 KB)
+  - D1 tables: `Workers`, `agentsam_rules_document`, `private`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/04_CURSOR_REPLACEMENT_TASK.md`**  (21 lines, 0.7 KB)
+  - D1 tables: `Downloads`
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/stage/README.md`**  (23 lines, 0.7 KB)
+  - D1 tables: `agentsam_platform_services`
+- **`docs/db/CREDENTIAL_VAULT_REMOTE_APPLIED_2026-05-08.md`**  (25 lines, 0.7 KB)
+  - D1 tables: `agentsam_user_policy`
+- **`docs/iam-docs/clients/pelican-peptides/overview.md`**  (22 lines, 0.7 KB)
+  - D1 tables: `codebase`
+- **`.tmp/cms/themes/iam-desert-field/monaco.json`**  (24 lines, 0.7 KB)
+  - R2: `iam-desert-field-monaco`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055558_e0a5151d/gpt-5.4-nano/iam-violet-nocturne/theme.json`**  (31 lines, 0.7 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-mocha-orbit/theme.css`**  (21 lines, 0.7 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-violet-nocturne/theme.json`**  (29 lines, 0.7 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/ollama_expansive/run_5_frontend.json`**  (1 lines, 0.7 KB)
+- **`reports/ai-smoke/latency-script-contract-2026-05-12T21-04-41Z.json`**  (20 lines, 0.7 KB)
+  - D1 tables: `agentsam_latency`, `agentsam_latency_report_contract`, `agentsam_latency_smoke_contract_snapshot`
+- **`src/core/wp-probe-path.js`**  (19 lines, 0.7 KB)
+- **`src/core/agent-step.js`**  (23 lines, 0.7 KB)
+- **`src/email-templates/welcome.html`**  (14 lines, 0.7 KB)
+- **`.deploy-run-context.json`**  (17 lines, 0.6 KB)
+  - R2: `inneranimalmedia`
+- **`.deploy-eval-results.json`**  (30 lines, 0.6 KB)
+- **`artifacts/agent_microinteraction_audit/20260514_171939/00_INDEX.md`**  (22 lines, 0.6 KB)
+- **`artifacts/rag_vectorize/20260516_023707/chunks.json`**  (9 lines, 0.6 KB)
+  - D1 tables: `agentsam_self_evolving`
+- **`artifacts/rag_vectorize/20260516_023759/chunks.json`**  (9 lines, 0.6 KB)
+  - D1 tables: `agentsam_self_evolving`
+- **`learn/software-engineering-builder-os/TO-DO.md`**  (19 lines, 0.6 KB)
+- **`docs/iam-docs/clients/swamp-blood-gator/overview.md`**  (16 lines, 0.6 KB)
+- **`cms/themes/iam-antiocean-full/theme.json`**  (18 lines, 0.6 KB)
+  - R2: `iam-antiocean-full`, `iam-antiocean-full-monaco`, `inneranimalmedia`, `theme-iam-antiocean-full`
+- **`cms/themes/kimbie-dark/theme.json`**  (18 lines, 0.6 KB)
+  - R2: `inneranimalmedia`
+- **`cms/themes/iam-ghost-tactical/theme.json`**  (18 lines, 0.6 KB)
+  - R2: `iam-ghost-tactical`, `iam-ghost-tactical-monaco`, `inneranimalmedia`
+- **`cms/themes/iam-desert-field/theme.json`**  (18 lines, 0.6 KB)
+  - R2: `iam-desert-field`, `iam-desert-field-monaco`, `inneranimalmedia`
+- **`cms/themes/iam-forest-recon/theme.json`**  (18 lines, 0.6 KB)
+  - R2: `iam-forest-recon`, `iam-forest-recon-monaco`, `inneranimalmedia`
+- **`.tmp/cms/themes/iam-green-terminal/theme.json`**  (16 lines, 0.6 KB)
+  - D1 tables: `sessions`
+  - R2: `iam-green-terminal`, `iam-green-terminal-monaco`
+- **`.tmp/cms/themes/iam-forest-classic/theme.json`**  (16 lines, 0.6 KB)
+  - D1 tables: `sessions`
+  - R2: `iam-forest-classic`, `iam-forest-classic-monaco`
+- **`.tmp/cms/themes/iam-savanna-scout/theme.json`**  (16 lines, 0.6 KB)
+  - R2: `iam-savanna-scout`, `iam-savanna-scout-monaco`
+- **`.tmp/cms/themes/iam-starfield/theme.json`**  (16 lines, 0.6 KB)
+  - R2: `iam-starfield`, `iam-starfield-monaco`
+- **`.tmp/cms/themes/iam-tide-dark/theme.json`**  (16 lines, 0.6 KB)
+  - D1 tables: `sessions`
+  - R2: `iam-tide-dark`, `iam-tide-dark-monaco`
+- **`.tmp/cms/themes/iam-tide-light/theme.json`**  (16 lines, 0.6 KB)
+  - R2: `iam-tide-light`, `iam-tide-light-monaco`
+- **`.tmp/cms/themes/iam-desert-ops/theme.json`**  (16 lines, 0.6 KB)
+  - D1 tables: `sessions`
+  - R2: `iam-desert-ops`, `iam-desert-ops-monaco`
+- **`.tmp/cms/themes/iam-night-strike/theme.json`**  (16 lines, 0.6 KB)
+  - D1 tables: `sessions`
+  - R2: `iam-night-strike`, `iam-night-strike-monaco`
+- **`.tmp/cms/themes/iam-ghost-classic/theme.json`**  (16 lines, 0.6 KB)
+  - R2: `iam-ghost-classic`, `iam-ghost-classic-monaco`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-mocha-orbit/theme.json`**  (30 lines, 0.6 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-arctic-command/theme.css`**  (1 lines, 0.6 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-violet-nocturne/monaco.json`**  (19 lines, 0.6 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-arctic-command/theme.css`**  (38 lines, 0.6 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-arctic-command/theme.json`**  (32 lines, 0.6 KB)
+  - R2: `iam-arctic-command`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-mocha-orbit/monaco.json`**  (30 lines, 0.6 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-mocha-orbit/theme.json`**  (28 lines, 0.6 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-arctic-command/theme.json`**  (28 lines, 0.6 KB)
+  - R2: `iam-arctic-command`
+- **`artifacts/theme-extracts/theme-meaux-glass-blue.raw.json`**  (24 lines, 0.5 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082741Z/cms_app/page.html`**  (14 lines, 0.5 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082237Z/cms_app/page.html`**  (14 lines, 0.5 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082325Z/cms_app/page.html`**  (14 lines, 0.5 KB)
+- **`artifacts/key_hygiene_audit/chunks/00_COMPACT_SUMMARY.md`**  (14 lines, 0.5 KB)
+- **`artifacts/rag_vectorize/20260516_030019/INDEX.md`**  (19 lines, 0.5 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`artifacts/rag_vectorize/20260516_023842/INDEX.md`**  (19 lines, 0.5 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`artifacts/rag_vectorize/20260516_030133/INDEX.md`**  (19 lines, 0.5 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`artifacts/cms_homepage_section_audit/04_CURSOR_HOMEPAGE_CMS_SPRINT.md`**  (20 lines, 0.5 KB)
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/02_REPLACEMENT_EXTRACTION.md`**  (30 lines, 0.5 KB)
+  - D1 tables: `agentsam_platform_services`
+- **`artifacts/backups/true_e2e_20260512070654/recent_agent_chat_plan_runs.json`**  (24 lines, 0.5 KB)
+- **`artifacts/backups/true_e2e_20260512070513/recent_agent_chat_plan_runs.json`**  (24 lines, 0.5 KB)
+- **`artifacts/backups/true_e2e_20260512070944/recent_agent_chat_plan_runs.json`**  (24 lines, 0.5 KB)
+- **`learn/connor-platform-operator/README.md`**  (24 lines, 0.5 KB)
+- **`docs/infrastructure/README.md`**  (10 lines, 0.5 KB)
+- **`.tmp/cms/themes/iam-antiocean-full/monaco.json`**  (19 lines, 0.5 KB)
+  - R2: `iam-antiocean-full-monaco`
+- **`.tmp/cms/themes/iam-legacy-gold/theme.json`**  (17 lines, 0.5 KB)
+  - R2: `iam-legacy-gold`
+- **`.tmp/cms/themes/iam-engineer-blue/theme.json`**  (17 lines, 0.5 KB)
+  - R2: `iam-engineer-blue`
+- **`.tmp/cms/themes/kimbie-dark/monaco.json`**  (19 lines, 0.5 KB)
+- **`.tmp/cms/themes/iam-ghost-tactical/monaco.json`**  (19 lines, 0.5 KB)
+  - R2: `iam-ghost-tactical-monaco`
+- **`.tmp/cms/themes/iam-forest-recon/theme.json`**  (2 lines, 0.5 KB)
+  - R2: `iam-forest-recon`, `iam-forest-recon-monaco`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-arctic-command/theme.json`**  (29 lines, 0.5 KB)
+  - R2: `iam-arctic-command`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-mocha-orbit/theme.json`**  (29 lines, 0.5 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-violet-nocturne/theme.json`**  (29 lines, 0.5 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-arctic-command/monaco.json`**  (16 lines, 0.5 KB)
+- **`tmp/codebase-index-upload/repo-snapshot.json`**  (21 lines, 0.5 KB)
+- **`src/core/responses.js`**  (19 lines, 0.5 KB)
+- **`artifacts/key_hygiene_audit/chunks/01_scope.md`**  (10 lines, 0.4 KB)
+- **`artifacts/rag_vectorize/20260516_023707/INDEX.md`**  (19 lines, 0.4 KB)
+- **`artifacts/rag_vectorize/20260516_023759/INDEX.md`**  (19 lines, 0.4 KB)
+- **`docs/security-notes.md`**  (6 lines, 0.4 KB)
+- **`cms/themes/iam-antiocean-full/monaco.json`**  (15 lines, 0.4 KB)
+- **`cms/themes/kimbie-dark/monaco.json`**  (15 lines, 0.4 KB)
+- **`cms/themes/iam-ghost-tactical/monaco.json`**  (15 lines, 0.4 KB)
+- **`cms/themes/iam-desert-field/monaco.json`**  (15 lines, 0.4 KB)
+- **`cms/themes/iam-forest-recon/monaco.json`**  (15 lines, 0.4 KB)
+- **`.tmp/cms/themes/iam-antiocean-full/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-antiocean-full`
+- **`.tmp/cms/themes/iam-legacy-gold/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-legacy-gold`
+- **`.tmp/cms/themes/iam-engineer-blue/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-engineer-blue`
+- **`.tmp/cms/themes/kimbie-dark/manifest.json`**  (12 lines, 0.4 KB)
+- **`.tmp/cms/themes/iam-ghost-tactical/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-ghost-tactical`
+- **`.tmp/cms/themes/iam-desert-field/theme.json`**  (16 lines, 0.4 KB)
+  - R2: `iam-desert-field`
+- **`.tmp/cms/themes/iam-desert-field/manifest.json`**  (12 lines, 0.4 KB)
+  - R2: `iam-desert-field`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-mocha-orbit/monaco.json`**  (14 lines, 0.4 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-violet-nocturne/theme.json`**  (24 lines, 0.4 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-arctic-command/monaco.json`**  (15 lines, 0.4 KB)
+- **`src/queue/docs-chunk.js`**  (12 lines, 0.4 KB)
+  - D1 tables: `worker`
+- **`artifacts/design_studio_inspection_20260513T032540Z/files_scanned.json`**  (5 lines, 0.3 KB)
+- **`artifacts/key_hygiene_audit/chunks/02_executive_summary.md`**  (12 lines, 0.3 KB)
+- **`artifacts/rag_vectorize/20260516_030019/chunks.json`**  (9 lines, 0.3 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`artifacts/rag_vectorize/20260516_030026/chunks.json`**  (9 lines, 0.3 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`artifacts/rag_vectorize/20260516_023842/chunks.json`**  (9 lines, 0.3 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`artifacts/rag_vectorize/20260516_030133/chunks.json`**  (9 lines, 0.3 KB)
+  - D1 tables: `agentsam_knowledge`
+- **`docs/cursor-mcp-config.example.json`**  (15 lines, 0.3 KB)
+  - R2: `inneranimalmedia`
+- **`docs/runbooks/add-user.md`**  (12 lines, 0.3 KB)
+- **`docs/runbooks/rollback.md`**  (12 lines, 0.3 KB)
+- **`docs/daily/README.md`**  (9 lines, 0.3 KB)
+- **`tmp/mxbai_embedding_metric_example.json`**  (11 lines, 0.3 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055558_e0a5151d/gpt-5.4-nano/iam-violet-nocturne/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-mocha-orbit/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-violet-nocturne/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-arctic-command/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-arctic-command`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-mocha-orbit/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-violet-nocturne/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-arctic-command/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-arctic-command`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-mocha-orbit/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-mocha-orbit`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-violet-nocturne/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-violet-nocturne`
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5-codex/iam-arctic-command/manifest.json`**  (14 lines, 0.3 KB)
+  - R2: `iam-arctic-command`
+- **`src/core/durable_objects.js`**  (10 lines, 0.3 KB)
+- **`.cursor/settings.json`**  (10 lines, 0.2 KB)
+  - R2: `inneranimalmedia-agentsam-dashboard`
+- **`.cursor/mcp.json`**  (12 lines, 0.2 KB)
+- **`artifacts/cms_ollama_gameplan/INDEX.md`**  (11 lines, 0.2 KB)
+- **`artifacts/cms_ollama_gameplan/FINAL_INDEX.md`**  (8 lines, 0.2 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082741Z/cms_app/console.json`**  (14 lines, 0.2 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082237Z/cms_app/console.json`**  (14 lines, 0.2 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082325Z/cms_app/console.json`**  (14 lines, 0.2 KB)
+- **`artifacts/theme-debug/2026-05-07_145213/meta.json`**  (9 lines, 0.2 KB)
+- **`artifacts/theme-debug/2026-05-07_145027/meta.json`**  (9 lines, 0.2 KB)
+- **`artifacts/theme-debug/2026-05-07_145129/meta.json`**  (9 lines, 0.2 KB)
+- **`artifacts/cms_homepage_section_audit/INDEX.md`**  (8 lines, 0.2 KB)
+- **`artifacts/cms_homepage_section_audit/selected_work_replacement/INDEX.md`**  (8 lines, 0.2 KB)
+  - D1 tables: `agentsam_platform_services_source`
+- **`.tmp/cms/themes/iam-green-terminal/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-green-terminal`
+- **`.tmp/cms/themes/iam-antiocean-full/theme.json`**  (10 lines, 0.2 KB)
+  - R2: `iam-antiocean-full`
+- **`.tmp/cms/themes/iam-forest-classic/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-forest-classic`
+- **`.tmp/cms/themes/iam-savanna-scout/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-savanna-scout`
+- **`.tmp/cms/themes/kimbie-dark/theme.json`**  (10 lines, 0.2 KB)
+- **`.tmp/cms/themes/iam-ghost-tactical/theme.json`**  (10 lines, 0.2 KB)
+  - R2: `iam-ghost-tactical`
+- **`.tmp/cms/themes/iam-starfield/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-starfield`
+- **`.tmp/cms/themes/iam-tide-dark/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-tide-dark`
+- **`.tmp/cms/themes/iam-tide-light/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-tide-light`
+- **`.tmp/cms/themes/iam-desert-ops/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-desert-ops`
+- **`.tmp/cms/themes/iam-night-strike/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-night-strike`
+- **`.tmp/cms/themes/iam-forest-recon/manifest.json`**  (2 lines, 0.2 KB)
+  - R2: `iam-forest-recon`
+- **`.tmp/cms/themes/iam-ghost-classic/manifest.json`**  (7 lines, 0.2 KB)
+  - R2: `iam-ghost-classic`
+- **`tmp/codebase-index-upload/directory-summary.md`**  (8 lines, 0.2 KB)
+- **`tmp/codebase-index-upload/directory-summary.json`**  (14 lines, 0.2 KB)
+- **`src/cron/cron-tenant.js`**  (7 lines, 0.2 KB)
+- **`.deploy-codebase-index-stats.json`**  (1 lines, 0.1 KB)
+- **`artifacts/cms_ollama_gameplan/3d_assets_audit/INDEX.md`**  (7 lines, 0.1 KB)
+- **`artifacts/cms_page_pull/INDEX.md`**  (6 lines, 0.1 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082741Z/cms_editor/console.json`**  (6 lines, 0.1 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082237Z/cms_editor/console.json`**  (6 lines, 0.1 KB)
+- **`artifacts/playwright/cms_frontend_20260514T082325Z/cms_editor/console.json`**  (6 lines, 0.1 KB)
+- **`artifacts/agent_microinteraction_audit/20260514_171939/06_ollama_review.md`**  (4 lines, 0.1 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055558_e0a5151d/gpt-5.4-nano/iam-violet-nocturne/monaco.json`**  (6 lines, 0.1 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-nano/iam-violet-nocturne/monaco.json`**  (6 lines, 0.1 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/gpt-5.4-mini/iam-mocha-orbit/monaco.json`**  (6 lines, 0.1 KB)
+- **`.deploy-pipeline-stats.json`**  (1 lines, 0.0 KB)
+- **`.deploy-route-stats.json`**  (1 lines, 0.0 KB)
+- **`artifacts/theme-extracts/theme-inneranimal-slate.pretty.json`**  (1 lines, 0.0 KB)
+- **`artifacts/theme-extracts/theme-clay-global-light.pretty.json`**  (1 lines, 0.0 KB)
+- **`artifacts/theme-extracts/theme-meaux-glass-blue.pretty.json`**  (1 lines, 0.0 KB)
+- **`artifacts/theme-extracts/cms_themes.columns.json`**  (1 lines, 0.0 KB)
+- **`artifacts/key_hygiene_audit/embeddings/key_hygiene_embed_failures.json`**  (1 lines, 0.0 KB)
+- **`tmp/ollama_eval_20.json`**  (1 lines, 0.0 KB)
+- **`tmp/cms-theme-matrix/cms3theme_20260509055951_85257a47/claude-haiku-4-5-20251001/iam-violet-nocturne/monaco.json`**  (1 lines, 0.0 KB)
+- **`src/tools/builtin/db.js`**  (1 lines, 0.0 KB)
+- **`src/tools/builtin/shinshu.js`**  (1 lines, 0.0 KB)
+- **`src/tools/builtin/reasoning.js`**  (1 lines, 0.0 KB)

@@ -1,0 +1,62 @@
+--- a/src/core/pty-workspace-paths.js
++++ b/src/core/pty-workspace-paths.js
+@@ -10,8 +10,6 @@
+ const REMOTION_INSTALL_CMD =
+   'npm install --save-dev remotion @remotion/renderer @remotion/bundler @remotion/player';
+ 
+-const PTY_EXEC_URL = 'http://localhost:3099/exec';
+-
+ /** Platform PTY mount (iam-pty `IAM_WORKSPACES_ROOT`); not a per-customer secret. */
+ export function ptyWorkspacesRootFromEnv(env) {
+   const r = env?.IAM_WORKSPACES_ROOT != null ? String(env.IAM_WORKSPACES_ROOT).trim() : '';
+@@ -26,10 +24,10 @@
+  */
+ export function buildPtyUserWorkspaceRoot(env, { tenantId, userId }) {
+   const tid = String(tenantId || '').trim();
+-  const uid = String(userId || '').trim();
++  const uid = String(userId || '').trim();
+   if (!tid || !uid) return null;
+   const base = ptyWorkspacesRootFromEnv(env).replace(/\/+$/, '');
+   return `${base}/${tid}/${uid}`;
+ }
+@@ -111,15 +109,24 @@
+ export async function execOnPtyHost(env, { command, cwd = null, timeout_ms = 120_000 }) {
+   const payload = { command, stream: false, timeout_ms };
+   const wd = cwd != null ? String(cwd).trim() : '';
+   if (wd) payload.cwd = wd;
+ 
++  const execUrl = (() => {
++    const raw = env?.PTY_EXEC_URL != null ? String(env.PTY_EXEC_URL).trim() : '';
++    if (raw) return raw;
++    const local = env?.PTY_EXEC_URL_LOCAL != null ? String(env.PTY_EXEC_URL_LOCAL).trim() : '';
++    if (local) return local;
++    const tunnel = env?.PTY_EXEC_URL_TUNNEL != null ? String(env.PTY_EXEC_URL_TUNNEL).trim() : '';
++    if (tunnel) return tunnel;
++    return 'http://localhost:3099/exec';
++  })();
++
+   if (env?.PTY_SERVICE) {
+     try {
+       const res = await env.PTY_SERVICE.fetch(
+-        new Request(PTY_EXEC_URL, {
++        new Request(execUrl, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify(payload),
+         }),
+       );
+@@ -148,10 +155,11 @@
+  * @param {any} env
+  * @param {string} repoRoot
+  */
+-export async function validateMoviemodeRepoOnPty(env, repoRoot) {
++export async function validateMoviemodeRepoOnPty(env, repoRoot, ctx = {}) {
+   const root = String(repoRoot || '').trim();
++  const uid = String(ctx?.userId || '').trim();
+-  if (!root) {
++  if (!root || !uid) {
+     return {
+       ok: false,
+       errorCode: 'workspace_context_missing',
+       message: 'Could not resolve PTY workspace for export',
+     };

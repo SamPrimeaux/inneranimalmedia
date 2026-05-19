@@ -1,6 +1,6 @@
 # Deploy runbook (Inner Animal Media)
 
-All commands assume repo root: `march1st-inneranimalmedia/`. Load Cloudflare credentials via `./scripts/with-cloudflare-env.sh` (reads `.env.cloudflare` / `HOME/IAM_SECRETS.env` as used elsewhere in this repo).
+All commands assume repo root: `inneranimalmedia/`. Load credentials via `./scripts/with-cloudflare-env.sh` (reads `.env.cloudflare` at repo root).
 
 ## Production worker (inneranimalmedia)
 

@@ -1,7 +1,11 @@
 /**
  * Back-compat re-export — implementation lives in `dashboard/features/agent-chat/`.
  */
-export { ChatAssistant, IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../features/agent-chat/ChatAssistant';
+export {
+  ChatAssistant,
+  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
+  IAM_AGENT_CHAT_NEW_THREAD,
+} from '../features/agent-chat/ChatAssistant';
 export {
   normalizeAssistantSseText,
   looksLikeRawProviderLeak,

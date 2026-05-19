@@ -1,0 +1,72 @@
+[
+  {
+    "plan_id": "plan_github_scoping",
+    "plan_title": "Fix GitHub repo workspace scoping",
+    "applied": [
+      "src/api/agent.js"
+    ],
+    "failed": [
+      {
+        "file": "dashboard/components/GitHubExplorer.tsx",
+        "reason": "both models failed dry-run",
+        "patch": "/Users/samprimeaux/inneranimalmedia/scripts/patch_results/plan_github_scoping_dashboard_components_GitHubExplorer.tsx_manual.patch"
+      }
+    ]
+  },
+  {
+    "plan_id": "plan_r2_fetch",
+    "plan_title": "Fix R2 explorer object fetch routing",
+    "applied": [
+      "src/tools/r2-dispatch.js",
+      "dashboard/components/LocalExplorer.tsx"
+    ],
+    "failed": [
+      {
+        "file": "src/api/r2-api.js",
+        "reason": "both models failed dry-run",
+        "patch": "/Users/samprimeaux/inneranimalmedia/scripts/patch_results/plan_r2_fetch_src_api_r2-api.js_manual.patch"
+      },
+      {
+        "file": "src/api/r2-api.js",
+        "reason": "both models failed dry-run",
+        "patch": "/Users/samprimeaux/inneranimalmedia/scripts/patch_results/plan_r2_fetch_src_api_r2-api.js_manual.patch"
+      }
+    ]
+  },
+  {
+    "plan_id": "plan_d1_routing",
+    "plan_title": "Fix agent D1 routing \u2014 stop Monaco workflow hijack",
+    "applied": [
+      "src/api/agent.js"
+    ],
+    "failed": []
+  },
+  {
+    "plan_id": "plan_r2_topbar",
+    "plan_title": "Fix R2 topbar routing and explorer bucket hydration",
+    "applied": [
+      "dashboard/components/UnifiedSearchBar.tsx"
+    ],
+    "failed": [
+      {
+        "file": "dashboard/App.tsx",
+        "reason": "both models failed dry-run",
+        "patch": "/Users/samprimeaux/inneranimalmedia/scripts/patch_results/plan_r2_topbar_dashboard_App.tsx_manual.patch"
+      }
+    ]
+  },
+  {
+    "plan_id": "plan_pty_gating",
+    "plan_title": "Fix PTY dual endpoint + user_id gating",
+    "applied": [
+      "src/api/agent.js"
+    ],
+    "failed": [
+      {
+        "file": "src/core/pty-workspace-paths.js",
+        "reason": "both models failed dry-run",
+        "patch": "/Users/samprimeaux/inneranimalmedia/scripts/patch_results/plan_pty_gating_src_core_pty-workspace-paths.js_manual.patch"
+      }
+    ]
+  }
+]

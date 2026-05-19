@@ -305,7 +305,7 @@ export async function mirrorAgentChatPlanD1RunToSupabasePublic(env, runId) {
       return { ok: false, error: err };
     }
 
-    const tenantId = run.tenant_id || workflow.tenant_id || 'tenant_sam_primeaux';
+    const tenantId = run.tenant_id || workflow.tenant_id || env?.TENANT_ID || '';
     const workspaceId = normalizeWorkspace(run.workspace_id || workflow.workspace_id);
 
     const steps =

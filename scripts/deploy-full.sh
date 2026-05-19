@@ -6,7 +6,7 @@
 #   Worker only (~1 min):     npm run deploy
 #   Frontend + R2 + Worker:   npm run deploy:frontend   (always: clean Vite → bump-cache → R2 → Worker)
 #   Full pipeline (~several min):  npm run deploy:full
-#   Full pipeline + R2 inventory:  npm run deploy:full:reconcile
+#   Full pipeline (alias):         npm run deploy:full:reconcile
 #
 # ── Skips (content-hash vs last run, stored in .deploy-*-hash files; gitignored) ─
 #   Override reingest:        FORCE_SUPABASE_REINGEST=1 npm run deploy:full
@@ -21,13 +21,6 @@ if [[ -f "$REPO_ROOT/.env.cloudflare" ]]; then
   source "$REPO_ROOT/.env.cloudflare"
 fi
 set +a
-
-if [[ "${ALLOW_UNSAFE_R2_RECONCILE:-0}" != "1" && "${SKIP_R2_DEPLOY_RECONCILE:-0}" != "1" ]]; then
-  echo "[deploy-full] Refusing to run unsafe R2 reconcile path."
-  echo "[deploy-full] Use: npm run deploy:full:safe"
-  echo "[deploy-full] Or set ALLOW_UNSAFE_R2_RECONCILE=1 only after R2 batching/timeouts are fixed."
-  exit 1
-fi
 
 export RUN_GROUP_ID="${RUN_GROUP_ID:-rg_$(date +%s)_$(git rev-parse --short HEAD)}"
 

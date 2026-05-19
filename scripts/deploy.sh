@@ -4,7 +4,7 @@
 # Example: ./scripts/deploy.sh "v44-deploy-tracking-test" "Testing deployment tracking system"
 #
 # Requires DEPLOY_TRACKING_TOKEN in env (same value as WORKER_SECRET or a dedicated secret).
-# Source before running: source ~/IAM_SECRETS.env   or add to .env.cloudflare
+# Set DEPLOY_TRACKING_TOKEN in .env.cloudflare (repo root, gitignored).
 # Get WORKER_SECRET from: Cloudflare Dashboard > Workers > inneranimalmedia > Settings > Variables > Secrets
 
 set -e
@@ -12,13 +12,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 CONFIG="${PROJECT_DIR}/wrangler.production.toml"
 
-# Load token: IAM_SECRETS.env then .env.cloudflare
-if [[ -f "$HOME/IAM_SECRETS.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$HOME/IAM_SECRETS.env"
-  set +a
-fi
+# Load deploy env from .env.cloudflare only
 if [[ -f "$PROJECT_DIR/.env.cloudflare" ]]; then
   set -a
   # shellcheck source=/dev/null
@@ -49,7 +43,7 @@ echo "Deployment successful in ${DEPLOY_SECONDS}s."
 echo ""
 
 if [[ -z "$DEPLOY_TRACKING_TOKEN" ]]; then
-  echo "Warning: DEPLOY_TRACKING_TOKEN not set. Skipping deployment log. Set it in ~/IAM_SECRETS.env or .env.cloudflare."
+  echo "Warning: DEPLOY_TRACKING_TOKEN not set. Skipping deployment log. Add it to .env.cloudflare."
   echo "Deployment complete."
   exit 0
 fi

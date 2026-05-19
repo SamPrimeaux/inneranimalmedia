@@ -11,7 +11,6 @@ import {
 import { runRetentionPurge } from '../retention-purge.js';
 import { archiveOldConversations } from './archive-old-conversations.js';
 import { sendDailyDigest } from './daily-digest.js';
-import { runR2DashboardPrune } from './r2-prune.js';
 import { writeDailySnapshot } from './write-daily-snapshot.js';
 
 const CRON_MIDNIGHT = '0 0 * * *';
@@ -67,7 +66,6 @@ async function cronLedgerWrap(env, jobName, cronExpr, fn, tenantId = null, works
 export async function runMidnightUtcJobs(env, ctx) {
   if (env?.DB) {
     ctx.waitUntil(cronLedgerWrap(env, 'retention_purge', CRON_MIDNIGHT, () => runRetentionPurge(env)));
-    ctx.waitUntil(cronLedgerWrap(env, 'r2_dashboard_prune', CRON_MIDNIGHT, () => runR2DashboardPrune(env)));
   }
   if (env?.DB) {
     ctx.waitUntil(

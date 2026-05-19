@@ -86,7 +86,16 @@ function matchWorkspaceGuardrailPolicy(m, ctx) {
   }
 
   if (m.deny_if_mismatch === true) {
-    return !!(ctx.tenant_id && ctx.workspace_id);
+    const pinTid = m.tenant_id != null ? String(m.tenant_id).trim() : '';
+    const pinWs = m.workspace_id != null ? String(m.workspace_id).trim() : '';
+    if (pinTid || pinWs) {
+      const gotTid = ctx.tenant_id != null ? String(ctx.tenant_id).trim() : '';
+      const gotWs = ctx.workspace_id != null ? String(ctx.workspace_id).trim() : '';
+      if (pinTid && gotTid !== pinTid) return true;
+      if (pinWs && gotWs !== pinWs) return true;
+    }
+    // Scoped cross-tenant checks need explicit pins; never block solely because ctx has ids.
+    return false;
   }
 
   if (m.membership_required === true) {

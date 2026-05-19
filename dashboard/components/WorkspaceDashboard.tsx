@@ -1,25 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  FolderOpen, 
-  Github, 
-  Terminal, 
+import {
+  FolderOpen,
+  Github,
+  Terminal,
   ArrowRight,
-  ArrowUp,
-  X,
-  FileText,
-  Bug,
   Target,
   Sparkles,
   ChevronDown,
-  Monitor,
   Database,
-  Plus,
   Zap,
-  Layers,
   Globe,
-  History as HistoryIcon
+  History as HistoryIcon,
 } from 'lucide-react';
-import { useEditor } from '../src/EditorContext';
 import type { RecentFileEntry } from '../src/ideWorkspace';
 import { usePlanTasksRealtime } from '../src/hooks/usePlanTasksRealtime';
 
@@ -31,23 +23,15 @@ interface WorkspaceDashboardProps {
   workspaceRows: Array<{ id: string; name: string }>;
   authWorkspaceId: string | null;
   onSwitchWorkspace: (id: string) => void;
-  onSendMessage: (message: string) => void;
+  onCreateSkill: () => void;
+  onRunVerificationCommand?: (command: string) => void;
   onOpenEditor?: () => void;
   onOpenRecent: (entry: RecentFileEntry) => void;
-  /** From `agentsam_workspace_state.state_json.next_tasks` */
   workspacePlanTasks?: unknown[];
-  /** When set, next tasks are loaded from Supabase Realtime (`agentsam_plan_tasks`) instead of workspace state. */
   activePlanId?: string | null;
   workspaceActivity?: unknown[];
   workspaceVerificationCommands?: unknown[];
   activeAgentSlug?: string | null;
-}
-
-interface AIModel {
-  model_key: string;
-  name: string;
-  provider: string;
-  description?: string;
 }
 
 const HOME_SUBLINE_OPTIONS = [
@@ -59,16 +43,11 @@ const HOME_SUBLINE_OPTIONS = [
   "Let's get to work",
 ] as const;
 
-/** One random subline per mount — stable until the user reloads or leaves the home tab. */
 function pickHomeSubline(): string {
   const i = Math.floor(Math.random() * HOME_SUBLINE_OPTIONS.length);
   return HOME_SUBLINE_OPTIONS[i] ?? HOME_SUBLINE_OPTIONS[0];
 }
 
-/**
- * WorkspaceDashboard: A premium, centered 'Cursor-style' home screen for the IDE.
- * Replaces the legacy WelcomeScreen and WorkspaceLauncher modal.
- */
 function summarizeUnknownTask(row: unknown): string {
   if (row == null) return '';
   if (typeof row === 'string') return row;
@@ -82,16 +61,16 @@ function summarizeUnknownTask(row: unknown): string {
   }
 }
 
-export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({ 
-  onOpenFolder, 
-  onConnectWorkspace, 
+export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
+  onOpenFolder,
+  onConnectWorkspace,
   onGithubSync,
   recentFiles,
   workspaceRows,
   authWorkspaceId,
   onSwitchWorkspace,
-  onSendMessage,
-  onOpenEditor,
+  onCreateSkill,
+  onRunVerificationCommand,
   onOpenRecent,
   workspacePlanTasks = [],
   activePlanId = null,
@@ -102,20 +81,10 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   const { tasks: realtimePlanTasks } = usePlanTasksRealtime(activePlanId ?? null);
   const displayPlanTasks: unknown[] = activePlanId ? (realtimePlanTasks as unknown[]) : workspacePlanTasks;
 
-  const [chatInput, setChatInput] = useState('');
   const [subline] = useState(pickHomeSubline);
-  const [models, setModels] = useState<AIModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isPlusOpen, setIsPlusOpen] = useState(false);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
-  const [isAgentRunning, setIsAgentRunning] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const plusRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch models from API
   const getGreeting = () => {
     const h = new Date().getHours();
     if (h < 12) return 'Good morning';
@@ -124,35 +93,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   };
 
   useEffect(() => {
-    fetch('/api/agent/models?show_in_picker=1')
-      .then(res => res.json())
-      .then((data: any) => {
-        if (data && Array.isArray(data.rows)) {
-          const rows: AIModel[] = data.rows;
-          // Group by provider and take top 5 each
-          const grouped: Record<string, AIModel[]> = {};
-          rows.forEach(m => {
-            if (!grouped[m.provider]) grouped[m.provider] = [];
-            if (grouped[m.provider].length < 5) grouped[m.provider].push(m);
-          });
-          const filtered = Object.values(grouped).flat();
-          setModels(filtered);
-          if (filtered.length > 0) setSelectedModel(filtered[0]);
-        }
-      })
-      .catch(err => console.error('Failed to fetch models', err));
-  }, []);
-
-  // Close dropdown on click outside
-  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (dropdownRef.current && !dropdownRef.current.contains(target)) {
-        setIsDropdownOpen(false);
-      }
-      if (plusRef.current && !plusRef.current.contains(target)) {
-        setIsPlusOpen(false);
-      }
       if (workspaceRef.current && !workspaceRef.current.contains(target)) {
         setIsWorkspaceOpen(false);
       }
@@ -161,23 +103,10 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSendMessage = () => {
-    if (!chatInput.trim()) return;
-    onSendMessage(chatInput);
-    setChatInput('');
-  };
-
-  const handleStopAgent = () => {
-    setIsAgentRunning(false);
-    console.log('Stopping agent...');
-  };
-
-  const activeWorkspace = (workspaceRows || []).find(w => w.id === authWorkspaceId) || { name: 'Home', id: 'default' };
+  const activeWorkspace = (workspaceRows || []).find((w) => w.id === authWorkspaceId) || { name: 'Home', id: 'default' };
 
   return (
     <div className="flex-1 flex flex-col items-center justify-start bg-[var(--scene-bg)] overflow-y-auto py-12 px-6 no-scrollbar h-full">
-      
-      {/* ── Branded Logo + Greeting ── */}
       <div className="flex flex-col items-center mb-6 text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="w-16 h-16 mb-4 rounded-2xl flex items-center justify-center grayscale opacity-80">
           <img
@@ -186,17 +115,13 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
             className="w-full h-full object-contain"
           />
         </div>
-        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--dashboard-text)] mb-1">
-          {getGreeting()}
-        </h1>
-        <p className="text-[13px] text-[var(--dashboard-muted)] opacity-60">
-          {subline}
-        </p>
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--dashboard-text)] mb-1">{getGreeting()}</h1>
+        <p className="text-[13px] text-[var(--dashboard-muted)] opacity-60">{subline}</p>
       </div>
 
-      {/* ── Directory Dropdown (NEW) ── */}
       <div className="relative mb-4 z-[80]" ref={workspaceRef}>
-        <button 
+        <button
+          type="button"
           onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--dashboard-card)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] transition-all font-medium text-[13px]"
         >
@@ -213,6 +138,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
             {workspaceRows.map((ws) => (
               <button
                 key={ws.id}
+                type="button"
                 onClick={() => {
                   onSwitchWorkspace(ws.id);
                   setIsWorkspaceOpen(false);
@@ -220,7 +146,9 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                 className={`w-full flex items-center justify-between px-3 py-2 text-[12px] transition-colors ${authWorkspaceId === ws.id ? 'text-[var(--solar-cyan)] bg-[var(--dashboard-canvas)]' : 'text-[var(--dashboard-text)] hover:bg-[var(--dashboard-canvas)]'}`}
               >
                 <div className="flex items-center gap-3">
-                  <div className={`w-1.5 h-1.5 rounded-full ${ws.id.includes('sandbox') ? 'bg-[var(--solar-cyan)]' : 'bg-[var(--solar-green)] shadow-[0_0_8px_var(--solar-green)]'}`} />
+                  <div
+                    className={`w-1.5 h-1.5 rounded-full ${ws.id.includes('sandbox') ? 'bg-[var(--solar-cyan)]' : 'bg-[var(--solar-green)] shadow-[0_0_8px_var(--solar-green)]'}`}
+                  />
                   <span>{ws.name}</span>
                 </div>
                 {authWorkspaceId === ws.id && <Sparkles size={10} />}
@@ -230,154 +158,42 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         )}
       </div>
 
-      {/* ── Centered Chat Interaction (HEAVILY REVISED) ── */}
-      <div className="w-full max-w-2xl mb-8 animate-in fade-in slide-in-from-bottom-6 duration-1000">
-        <div className="relative group p-[1px] rounded-3xl bg-gradient-to-br from-[var(--dashboard-border)]/40 to-transparent hover:from-[var(--dashboard-border)] transition-all duration-500 shadow-2xl">
-          <div className="relative bg-[#111] rounded-[22px] border border-white/5">
-            
-            {/* Input Row */}
-            <div className="flex items-start p-5 pb-2 gap-4">
-              <textarea 
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (isAgentRunning) handleStopAgent();
-                    else handleSendMessage();
-                  }
-                }}
-                placeholder="Plan, Build, / for commands, @ for context"
-                className="flex-1 bg-transparent border-none outline-none resize-none py-1 text-[16px] text-[var(--dashboard-text)] placeholder:text-[var(--dashboard-muted)]/40 min-h-[48px] max-h-[300px] leading-relaxed"
-              />
-            </div>
-
-            {/* Footer Row (Premium Controls) */}
-            <div className="flex items-center justify-between px-4 py-4">
-              
-              <div className="flex items-center gap-1.5">
-                <div className="relative" ref={plusRef}>
-                  <button 
-                    onClick={() => setIsPlusOpen(!isPlusOpen)}
-                    className="flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--dashboard-card)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] border border-[var(--dashboard-border)] transition-colors"
-                  >
-                    <Plus size={16} />
-                  </button>
-                  {isPlusOpen && (
-                    <div className="absolute left-0 bottom-full mb-3 w-56 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-in fade-in slide-in-from-bottom-2">
-                      <div className="px-3 py-2 text-[10px] text-[var(--dashboard-muted)] font-medium opacity-60">Add agents, context, tools...</div>
-                      {[
-                        { icon: FileText, label: 'Plan', slug: 'plan' },
-                        { icon: Bug, label: 'Debug', slug: 'debug' },
-                        { icon: Target, label: 'Ask', slug: 'ask' },
-                        { icon: Terminal, label: 'Image', action: () => fileInputRef.current?.click() },
-                        { icon: Zap, label: 'Skills', action: () => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } })) },
-                        { icon: Layers, label: 'MCP Servers', action: () => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } })) },
-                      ].map((item, i) => {
-                        const Icon = item.icon || Plus;
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => {
-                              if ('action' in item) item.action?.();
-                              setIsPlusOpen(false);
-                            }}
-                            className="w-full flex items-center gap-3 px-3 py-2 text-[12px] text-[var(--dashboard-text)] hover:bg-[var(--dashboard-canvas)] transition-colors text-left"
-                          >
-                            <Icon size={14} className="text-[var(--dashboard-muted)]" />
-                            <span>{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="relative" ref={dropdownRef}>
-                  <button 
-                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-card)] hover:bg-[var(--dashboard-canvas)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)]"
-                  >
-                    <span>{selectedModel?.name || 'Auto'}</span>
-                    <ChevronDown size={14} className={`opacity-60 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {isDropdownOpen && (
-                    <div className="absolute left-0 bottom-full mb-3 w-64 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-[70] overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-2">
-                      <div className="px-3 py-2 flex items-center justify-between border-b border-[var(--dashboard-border)]/30 mb-1">
-                        <span className="text-[11px] font-bold text-[var(--dashboard-text)]">Search models</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-[var(--dashboard-muted)]">Auto</span>
-                          <div className="w-8 h-4 bg-[var(--solar-cyan)]/20 rounded-full relative p-0.5">
-                            <div className="w-3 h-3 bg-[var(--solar-cyan)] rounded-full float-right" />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="max-h-[300px] overflow-y-auto no-scrollbar scroll-px-1">
-                        {models.map((m) => (
-                          <button
-                            key={m.model_key}
-                            onClick={() => {
-                              setSelectedModel(m);
-                              setIsDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-[12px] transition-all flex items-center justify-between group ${selectedModel?.model_key === m.model_key ? 'bg-[var(--solar-cyan)]/5 text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)] hover:bg-[var(--dashboard-canvas)]'}`}
-                          >
-                            <div className="min-w-0">
-                              <div className="font-bold truncate">{m.name}</div>
-                              <div className="text-[10px] opacity-40 uppercase tracking-widest truncate">{m.provider}</div>
-                            </div>
-                            {selectedModel?.model_key === m.model_key && <Sparkles size={11} className="animate-pulse" />}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={isAgentRunning ? handleStopAgent : handleSendMessage}
-                  className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${isAgentRunning ? 'bg-[var(--solar-red)] text-white' : 'bg-white text-black hover:bg-white/90'}`}
-                >
-                  {isAgentRunning ? <X size={16} /> : <ArrowUp size={16} />}
-                </button>
-              </div>
-
-            </div>
-          </div>
-        </div>
-
-        {/* ── Pill Buttons ── */}
-        <div className="mt-4 flex items-center justify-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1200 delay-300">
+      <div className="w-full max-w-2xl mb-8 flex flex-col items-center animate-in fade-in slide-in-from-bottom-6 duration-1000">
+        <div className="flex items-center justify-center gap-3 flex-wrap animate-in fade-in slide-in-from-bottom-2 duration-1200 delay-300">
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'mcps' } }))}
+            onClick={onCreateSkill}
             className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
           >
+            <Zap size={14} />
             <span>Create Skill</span>
           </button>
           <button
             type="button"
-            onClick={() => { window.location.href = '/dashboard/library'; }}
+            onClick={() => {
+              window.location.href = '/dashboard/library';
+            }}
             className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
           >
             <span>View Artifacts</span>
           </button>
           <button
             type="button"
-            onClick={() => { window.location.href = '/dashboard/projects'; }}
+            onClick={() => {
+              window.location.href = '/dashboard/projects';
+            }}
             className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
           >
             <span>Open Project</span>
           </button>
         </div>
-
       </div>
 
-      {(displayPlanTasks.length > 0 || activePlanId || workspaceActivity.length > 0 || workspaceVerificationCommands.length > 0 || activeAgentSlug) ? (
+      {(displayPlanTasks.length > 0 ||
+        activePlanId ||
+        workspaceActivity.length > 0 ||
+        workspaceVerificationCommands.length > 0 ||
+        activeAgentSlug) ? (
         <div className="w-full max-w-3xl mb-10 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
           {activeAgentSlug ? (
             <div className="rounded-2xl border border-[var(--dashboard-border)] bg-[var(--dashboard-card)] p-4 md:col-span-2">
@@ -391,17 +207,14 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
               <ul className="space-y-2 text-[12px] text-[var(--dashboard-text)]">
                 {displayPlanTasks.slice(0, 12).map((t, i) => {
                   const rowKey =
-                    t != null &&
-                    typeof t === 'object' &&
-                    'id' in t &&
-                    typeof (t as { id?: unknown }).id === 'string'
+                    t != null && typeof t === 'object' && 'id' in t && typeof (t as { id?: unknown }).id === 'string'
                       ? (t as { id: string }).id
                       : i;
                   return (
-                  <li key={rowKey} className="flex gap-2">
-                    <Target size={12} className="mt-0.5 shrink-0 text-[var(--solar-yellow)]" />
-                    <span className="leading-snug">{summarizeUnknownTask(t)}</span>
-                  </li>
+                    <li key={rowKey} className="flex gap-2">
+                      <Target size={12} className="mt-0.5 shrink-0 text-[var(--solar-yellow)]" />
+                      <span className="leading-snug">{summarizeUnknownTask(t)}</span>
+                    </li>
                   );
                 })}
               </ul>
@@ -412,7 +225,9 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
               <p className="text-[10px] font-black uppercase tracking-widest text-[var(--dashboard-muted)] mb-2">Recent activity</p>
               <ul className="space-y-2 text-[11px] text-[var(--dashboard-muted)] font-mono">
                 {workspaceActivity.slice(0, 12).map((a, i) => (
-                  <li key={i} className="truncate">{summarizeUnknownTask(a)}</li>
+                  <li key={i} className="truncate">
+                    {summarizeUnknownTask(a)}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -427,7 +242,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                     <button
                       key={i}
                       type="button"
-                      onClick={() => onSendMessage(`Run in terminal: ${cmd}`)}
+                      onClick={() => onRunVerificationCommand?.(`Run in terminal: ${cmd}`)}
                       className="px-2 py-1 rounded-lg border border-[var(--dashboard-border)] text-[11px] font-mono text-[var(--dashboard-text)] hover:border-[var(--solar-cyan)]"
                     >
                       {cmd}
@@ -440,9 +255,9 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         </div>
       ) : null}
 
-      {/* ── Action Grid (Preserved) ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mb-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
-        <button 
+        <button
+          type="button"
           onClick={onOpenFolder}
           className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
         >
@@ -453,7 +268,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
           <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Browse your local filesystem to pick a repository</p>
         </button>
 
-        <button 
+        <button
+          type="button"
           onClick={onConnectWorkspace}
           className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
         >
@@ -464,7 +280,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
           <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Switch to a D1-backed remote control plane</p>
         </button>
 
-        <button 
+        <button
+          type="button"
           onClick={onGithubSync}
           className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
         >
@@ -476,20 +293,24 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         </button>
       </div>
 
-      {/* ── Recent Projects (Preserved) ── */}
       <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
         <div className="flex items-center gap-2 mb-4 px-2">
-            <HistoryIcon size={14} className="text-[var(--dashboard-muted)]" />
-            <h2 className="text-[11px] font-bold text-[var(--dashboard-muted)] uppercase tracking-widest">Recent Files</h2>
+          <HistoryIcon size={14} className="text-[var(--dashboard-muted)]" />
+          <h2 className="text-[11px] font-bold text-[var(--dashboard-muted)] uppercase tracking-widest">Recent Files</h2>
         </div>
-        
+
         <div className="bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl divide-y divide-[var(--dashboard-border)] overflow-hidden">
           {recentFiles.length > 0 ? (
             recentFiles.slice(0, 6).map((file) => (
-              <div 
+              <div
                 key={file.id}
+                role="button"
+                tabIndex={0}
                 className="group flex items-center justify-between p-4 hover:bg-[var(--dashboard-canvas)] transition-colors cursor-pointer"
                 onClick={() => onOpenRecent(file)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onOpenRecent(file);
+                }}
               >
                 <div className="flex items-center gap-4 min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors">
@@ -504,13 +325,10 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
               </div>
             ))
           ) : (
-            <div className="p-8 text-center text-[var(--dashboard-muted)] italic text-[12px]">
-              No recent projects found.
-            </div>
+            <div className="p-8 text-center text-[var(--dashboard-muted)] italic text-[12px]">No recent projects found.</div>
           )}
         </div>
       </div>
-
     </div>
   );
 };

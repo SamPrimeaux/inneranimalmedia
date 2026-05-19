@@ -13,6 +13,7 @@ import { handleAgentSamRegistryRequest } from '../api/agentsam.js';
 import { handleTimeDispatch } from '../tools/time.js';
 import { handleR2Api } from '../api/r2-api.js';
 import { handleStorageApi } from '../api/storage.js';
+import { handleUserStorageKeysApi } from '../api/user-storage-keys.js';
 import { handleIntegrationsRequest } from '../api/integrations.js';
 import { handleSettingsRequest } from '../api/settings.js';
 import { handleWorkspaceApi } from '../api/workspace.js';
@@ -112,6 +113,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/calendar')) {
     return handleCalendarApi(request, url, env, ctx);
+  }
+
+  if (pathLower.startsWith('/api/user/storage-keys')) {
+    return handleUserStorageKeysApi(request, url, env);
   }
 
   if (pathLower.startsWith('/api/storage')) {

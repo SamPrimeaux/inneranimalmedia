@@ -1,0 +1,37 @@
+{
+  "plan_id": "plan_r2_topbar",
+  "plan_title": "Fix R2 topbar routing and explorer bucket hydration",
+  "gpt": {
+    "model": "gpt-5.4-mini",
+    "output": "--- dashboard/components/UnifiedSearchBar.tsx\n+++ dashboard/components/UnifiedSearchBar.tsx\n@@ -770,8 +770,7 @@\n     } catch {\n       /* ignore */\n     }\n-    window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'remote', r2Bucket: bucket } }));\n-    window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket } }));\n+    window.dispatchEvent(new CustomEvent('iam:palette-open-r2', { detail: { bucket } }));\n   }, []);\n@@ -779,7 +778,7 @@\n     try {\n       const rows = await fetchAllR2BucketNames();\n       setBucketMenuRows(rows);\n-    } catch {\n-      setBucketMenuRows([]);\n+    } catch (err) {\n+      /* keep existing rows on transient failure */\n     } finally {\n       setBucketMenuLoading(false);\n     }\n@@ -828,7 +827,7 @@\n       }).catch(() => {});\n \n       if (item.category === 'r2' || (item.category === 'resource' && item.r2Bucket)) {\n-        openR2Bucket(item.r2Bucket || item.title);\n+        openR2Bucket(item.r2Bucket ?? item.title);\n         closePalette();\n         return;\n       }\n--- dashboard/App.tsx\n+++ dashboard/App.tsx\n@@ -1342,6 +1342,12 @@\n       } else if (s === 'monaco' || s === 'code') {\n         openTab('code');\n         if (isNarrowViewport) setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');\n+      } else if (s === 'r2') {\n+        openTab('explorer');\n+        window.dispatchEvent(\n+          new CustomEvent('iam:explorer-open-section', { detail: { section: 'r2', bucket: d?.bucket ?? null } }),\n+        );\n+        if (isNarrowViewport) setToastMsg('R2 explorer opened. Tap Chat to return to Agent Sam.');\n       }\n     };\n     window.addEventListener('iam:agent-open-surface', h as EventListener);",
+    "score": {
+      "has_diff": true,
+      "has_workspace": false,
+      "file_coverage": "4/4",
+      "patch_lines": 44,
+      "no_hardcode": true,
+      "score": 5
+    },
+    "time_ms": 2871,
+    "tok_in": 2337,
+    "tok_out": 467,
+    "cost_usd": 0.000631
+  },
+  "gemini": {
+    "model": "gemini-2.5-flash",
+    "output": "```diff\n--- a/dashboard/components/UnifiedSearchBar.tsx\n+++ b/dashboard/components/UnifiedSearchBar.tsx\n@@ -771,7 +771,6 @@\n       /* ignore */\n     }\n     window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'remote', r2Bucket: bucket } }));\n-    window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket } }));\n   }, []);\n \n   const loadBucketMenu = useCallback(async () => {\n--- a/dashboard/components/UnifiedSearchBar.tsx\n+++ b/dashboard/components/UnifiedSearchBar.tsx\n@@ -779,7 +779,7 @@\n       const rows = await fetchAllR2BucketNames();\n       setBucketMenuRows(rows);\n     } catch {\n-      setBucketMenuRows([]);\n+      // Do not clear on transient failure, keep existing rows\n     } finally {\n       setBucketMenuLoading(false);\n     }\n--- a/dashboard/components/UnifiedSearchBar.tsx\n+++ b/dashboard/components/UnifiedSearchBar.tsx\n@@ -829,8 +829,13 @@\n         }),\n       }).catch(() => {});\n \n-      if (item.category === 'r2' || (item.category === 'resource' && item.r2Bucket)) {\n-        openR2Bucket(item.r2Bucket || item.title);\n+      if (item.category === 'r2') {\n+        // For 'r2' category, item.title is the resolved bucket name\n+        openR2Bucket(item.title);\n+        closePalette();\n+        return;\n+      }\n+      if (item.category === 'resource' && item.r2Bucket) {\n+        // For 'resource' category with r2Bucket, item.r2Bucket is the resolved bucket name\n+        openR2Bucket(item.r2Bucket);\n         closePalette();\n         return;\n       }\n--- a/dashboard/App.tsx\n+++ b/dashboard/App.tsx\n@@ -1364,6 +1364,27 @@\n   const consumeGithubExpandRepo = useCallback(() => setGithubExpandRepo(null), []);\n \n   useEffect(() => {\n+    // Listener for iam:palette-open-r2 to ensure the R2 explorer section is opened\n+    const handleOpenR2Palette = (e: Event) => {\n+      const detail = (e as CustomEvent<{ bucket?: string }>).detail;\n+      const r2BucketName = detail?.bucket;\n+\n+      if (!r2BucketName) {\n+        console.warn('iam:palette-open-r2 event received without bucket name.');\n+        return;\n+      }\n+\n+      // Ensure the main workspace is revealed if in a narrow viewport\n+      revealMainWorkspaceIfNarrow();\n+      \n+      // Dispatch the canonical sidebar toggle event with R2-specific details.\n+      // This ensures the sidebar/explorer state is consistently managed by its primary listener.\n+      window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'remote', r2Bucket: r2BucketName } }));\n+    };\n+\n+    window.addEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);\n+    return () => window.removeEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);\n+  }, [revealMainWorkspaceIfNarrow]);\n+\n+  useEffect(() => {\n     if (!activeFile) return;\n     const t = window.setTimeout(() => {\n       setRecentFiles((prev) => mergeRecentFromActiveFile(prev, activeFile));\n```",
+    "score": {
+      "has_diff": true,
+      "has_workspace": false,
+      "file_coverage": "4/4",
+      "patch_lines": 74,
+      "no_hardcode": true,
+      "score": 5
+    },
+    "time_ms": 50856,
+    "tok_in": 2925,
+    "tok_out": 863,
+    "cost_usd": 0.003035
+  },
+  "winner": "GPT"
+}

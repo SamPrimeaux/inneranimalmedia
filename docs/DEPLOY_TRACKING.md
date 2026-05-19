@@ -14,22 +14,19 @@ The script runs `wrangler deploy` then POSTs to `/api/deployments/log` with vers
 
 **Required:** Set `DEPLOY_TRACKING_TOKEN` so the log request is authorized. Use the same value as **WORKER_SECRET** (Cloudflare Dashboard > Workers > inneranimalmedia > Settings > Variables > Secrets).
 
-Create or edit `~/IAM_SECRETS.env`:
+Add to `.env.cloudflare` at the repo root (copy from `.env.cloudflare.example` if needed):
 
 ```bash
-# Get WORKER_SECRET from Cloudflare Dashboard (Workers > inneranimalmedia > Settings > Variables > Secrets)
+# Same value as WORKER_SECRET (Cloudflare Dashboard → Workers → inneranimalmedia → Settings → Variables → Secrets)
 DEPLOY_TRACKING_TOKEN="<paste WORKER_SECRET value here>"
 ```
 
-Then before running the script either:
-
-- `source ~/IAM_SECRETS.env`, or
-- Add `DEPLOY_TRACKING_TOKEN` to the project's `.env.cloudflare` (the script sources both).
+Scripts load it via `source .env.cloudflare` or `./scripts/with-cloudflare-env.sh`.
 
 **Both deploy paths log to the new table when the token is set:**
 
 - **`./scripts/deploy.sh "VERSION" "Description"`** — Runs wrangler deploy, then POSTs to `/api/deployments/log` with that version and description. Always logs to `deployments` when `DEPLOY_TRACKING_TOKEN` is set.
-- **`npm run deploy`** (runs `deploy-with-record.sh`) — After recording to `cloudflare_deployments`, if `DEPLOY_TRACKING_TOKEN` is set (e.g. from `~/IAM_SECRETS.env` or `.env.cloudflare`), it also POSTs to `/api/deployments/log` with version `DEPLOY_VERSION` or `deploy-<timestamp>`, description from `DEPLOYMENT_NOTES` or `TRIGGERED_BY`, and deploy duration. So every full deploy is tracked in both tables.
+- **`npm run deploy`** (runs `deploy-with-record.sh`) — After recording to `cloudflare_deployments`, if `DEPLOY_TRACKING_TOKEN` is set in `.env.cloudflare`, it also POSTs to `/api/deployments/log` with version `DEPLOY_VERSION` or `deploy-<timestamp>`, description from `DEPLOYMENT_NOTES` or `TRIGGERED_BY`, and deploy duration. So every full deploy is tracked in both tables.
 
 Optional for `npm run deploy`: set `DEPLOY_VERSION` and `DEPLOYMENT_NOTES` for a clearer Overview feed, e.g. `DEPLOY_VERSION=v45 DEPLOYMENT_NOTES='Fixed header z-index' npm run deploy`.
 

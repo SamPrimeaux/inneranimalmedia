@@ -33,7 +33,7 @@ function parseArgs() {
   return {
     dist: get('--dist', 'dashboard/dist'),
     bucket: get('--bucket', 'inneranimalmedia'),
-    prefix: get('--prefix', 'static/dashboard/agent').replace(/^\/+|\/+$/g, ''),
+    prefix: get('--prefix', 'static/dashboard/app').replace(/^\/+|\/+$/g, ''),
     deployId: get('--deploy-id', `deploy_${Date.now()}`),
     tenantIdRaw: get('--tenant-id', ''),
     workspaceIdRaw: get('--workspace-id', ''),

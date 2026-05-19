@@ -1,0 +1,37 @@
+{
+  "plan_id": "plan_github_scoping",
+  "plan_title": "Fix GitHub repo workspace scoping",
+  "gpt": {
+    "model": "gpt-5.4-mini",
+    "output": "--- src/api/agent.js\n+++ src/api/agent.js\n@@ -7932,7 +7932,7 @@\n     const linkedRows = await env.DB.prepare(\n       `SELECT repo_full_name, cloudflare_worker_name\n        FROM github_repositories\n-       WHERE tenant_id = ?`,\n+       WHERE tenant_id = ? AND workspace_id = ?`,\n     )\n-      .bind(authUser.tenant_id)\n+      .bind(authUser.tenant_id, authUser.workspace_id)\n       .all();\n--- dashboard/components/GitHubExplorer.tsx\n+++ dashboard/components/GitHubExplorer.tsx\n@@ -221,6 +221,7 @@\n       if (branch) qs.set('ref', branch);\n       const res = await fetch(\n         `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents?${qs}`,\n+        { credentials: 'same-origin' },\n         { credentials: 'same-origin' },\n       );\n@@ -286,7 +287,7 @@\n     if (isLoading) return;\n     setExpandedRepo(fn);\n     setPathByRepo((p) => ({ ...p, [fn]: '' }));\n-    const br = defaultBranchFor(fn);\n+    const br = `${workspaceId || ''}:${defaultBranchFor(fn)}`;\n     void (async () => {\n       await loadContents(fn, '', br);\n       onExpandRepoConsumed?.();",
+    "score": {
+      "has_diff": true,
+      "has_workspace": true,
+      "file_coverage": "2/2",
+      "patch_lines": 29,
+      "no_hardcode": true,
+      "score": 5
+    },
+    "time_ms": 2960,
+    "tok_in": 1952,
+    "tok_out": 295,
+    "cost_usd": 0.00047
+  },
+  "gemini": {
+    "model": "gemini-2.5-flash",
+    "output": "```diff\n--- a/src/api/agent.js\n+++ b/src/api/agent.js\n@@ -7933,9 +7933,10 @@\n     const linkedRows = await env.DB.prepare(\n       `SELECT repo_full_name, cloudflare_worker_name\n        FROM github_repositories\n-       WHERE tenant_id = ?`,\n+       WHERE tenant_id = ? AND workspace_id = ?`,\n     )\n       .bind(authUser.tenant_id)\n+      .bind(authUser.workspace_id)\n       .all();\n \n     const linkedMap = Object.fromEntries(\n```\n```diff\n--- a/dashboard/components/GitHubExplorer.tsx\n+++ b/dashboard/components/GitHubExplorer.tsx\n@@ -223,7 +223,7 @@\n       if (!repo) return;\n       setLoadingPath(`${owner}/${repo}/${path}`);\n \n-      const ck = `${owner}/${repo}/${path}`; // Cache key for itemsByRepoPath\n+      const ck = `${workspaceId}::${owner}/${repo}/${path}`; // Cache key for itemsByRepoPath\n       if (itemsByRepoPath[ck] !== undefined) {\n         setItemsByRepoPath((prev) => ({ ...prev, [ck]: itemsByRepoPath[ck] }));\n         setLoadingPath(null);\n@@ -282,10 +282,19 @@\n     }\n   }, []);\n \n+  // Clear workspace-specific state (like expanded repo/paths) when the active workspace changes.\n+  // Assume 'workspaceId' is available as a prop or from context within this component.\n+  useEffect(() => {\n+    setExpandedRepo(null);\n+    setPathByRepo({}); // Reset pathByRepo to an empty object for the new workspace\n+    // itemsByRepoPath is already keyed by workspaceId, so no need to clear it.\n+  }, [workspaceId]);\n+\n   useEffect(() => {\n     const fn = expandRepoFullName?.trim();\n     if (!fn) return;\n     if (isLoading) return;\n     setExpandedRepo(fn);\n     setPathByRepo((p) => ({ ...p, [fn]: '' }));\n     const br = defaultBranchFor(fn);\n```",
+    "score": {
+      "has_diff": true,
+      "has_workspace": true,
+      "file_coverage": "2/2",
+      "patch_lines": 47,
+      "no_hardcode": true,
+      "score": 5
+    },
+    "time_ms": 35531,
+    "tok_in": 2497,
+    "tok_out": 520,
+    "cost_usd": 0.002049
+  },
+  "winner": "GPT"
+}

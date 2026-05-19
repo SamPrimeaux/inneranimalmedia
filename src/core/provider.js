@@ -8,7 +8,7 @@ import { chatWithToolsOpenAI,
          chatWithToolsOpenAIResponses,
          completeWithOpenAI,
          completeWithOpenAIResponsesNonStream }  from '../integrations/openai.js';
-import { chatWithToolsGemini } from '../integrations/gemini.js';
+import { chatWithToolsGemini, completeWithGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
 import { resolveApiKey }       from './vault.js';
@@ -150,6 +150,13 @@ function deriveApiPlatformFromProvider(provider, rawPlatform) {
   if (p === 'vertex') return 'vertex';
   if (p === 'ollama') return 'ollama';
   return 'unknown';
+}
+
+/** Catalog api_platform with provider-derived fallback (never default to anthropic). */
+function resolveDispatchPlatform(meta) {
+  return String(
+    meta?.api_platform ? meta.api_platform : deriveApiPlatformFromProvider(meta?.provider || '', ''),
+  ).toLowerCase();
 }
 
 /**
@@ -438,9 +445,7 @@ export async function dispatchStream(env, request, params) {
   const { systemPrompt, messages, tools = [], options = {}, userId, anthropicContainerId } = params;
   const meta = await resolveModelMeta(env, modelKey);
   maybeLogAgentChatPromptAudit(env, params, modelKey, meta);
-  const platform = String(
-    meta?.api_platform ? meta.api_platform : deriveApiPlatformFromProvider(meta?.provider || '', '')
-  ).toLowerCase();
+  const platform = resolveDispatchPlatform(meta);
   const providerModelId =
     meta?.provider_model_id != null && String(meta.provider_model_id).trim() !== ''
       ? String(meta.provider_model_id).trim()
@@ -500,50 +505,61 @@ export async function dispatchComplete(env, params) {
   }
   const { systemPrompt, messages, tools = [], options = {}, userId } = params;
   const meta = await resolveModelMeta(env, modelKey);
-  const platform = String(meta?.api_platform || 'anthropic').toLowerCase();
+  const platform = resolveDispatchPlatform(meta);
   const providerModelId =
     meta?.provider_model_id != null && String(meta.provider_model_id).trim() !== ''
       ? String(meta.provider_model_id).trim()
       : null;
   const modelForUpstream = providerModelId || modelKey;
+  const completeOpts = {
+    modelKey,
+    providerModelId,
+    systemPrompt,
+    messages,
+    tools,
+    userId,
+    reasoningEffort: options.reasoningEffort || 'none',
+    verbosity: options.verbosity || 'low',
+  };
 
   if (platform === 'openai' || platform === 'openai_chat_completions') {
-    return completeWithOpenAI(env, {
-      modelKey,
-      providerModelId,
-      systemPrompt,
-      messages,
-      tools,
-      userId,
-      reasoningEffort: options.reasoningEffort || 'none',
-      verbosity: options.verbosity || 'low',
-    });
+    return completeWithOpenAI(env, completeOpts);
   }
 
   if (platform === 'openai_responses' || platform === 'responses') {
     return completeWithOpenAIResponsesNonStream(env, {
-      modelKey,
-      providerModelId,
-      systemPrompt,
-      messages,
-      tools,
-      userId,
+      ...completeOpts,
       openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
-      reasoningEffort: options.reasoningEffort || 'none',
-      verbosity: options.verbosity || 'low',
     });
   }
 
-  // Fallback non-streaming via Anthropic
-  const res = await chatWithAnthropic({
-    messages, tools, env, userId,
-    options: { model: modelForUpstream, catalogModelKey: modelKey, systemPrompt, stream: false },
-  });
-  if (res instanceof Response) {
-    const text = await res.text();
-    try { return JSON.parse(text); } catch (_) { return { text }; }
+  if (platform === 'gemini_api') {
+    return completeWithGemini(env, completeOpts);
   }
-  return res;
+
+  if (platform === 'anthropic') {
+    const res = await chatWithAnthropic({
+      messages,
+      tools,
+      env,
+      userId,
+      options: { model: modelForUpstream, catalogModelKey: modelKey, systemPrompt, stream: false },
+    });
+    if (res instanceof Response) {
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        return { text };
+      }
+    }
+    return res;
+  }
+
+  throw new Error(
+    `[dispatchComplete] unsupported api_platform: "${platform}" for model "${modelKey}". ` +
+      'Use openai, openai_responses, gemini_api, or anthropic.',
+  );
 }
 
 /** Prefer an active OpenAI catalog row for Workers AI → OpenAI failover (no hardcoded SKU). */

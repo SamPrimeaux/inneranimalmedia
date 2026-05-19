@@ -93,7 +93,7 @@ pm2 kill && pm2 start ~/iam-pty/ecosystem.config.cjs
 | `wrangler.production.toml` | Already protected. Never touch. |
 | `handleGoogleOAuthCallback` | Already protected. Never touch. |
 | `handleGitHubOAuthCallback` | Already protected. Never touch. |
-| `~/IAM_SECRETS.env` | Read only. Never overwrite. |
+| `.env.cloudflare` (repo root) | Gitignored local secrets. Never commit. |
 
 ---
 

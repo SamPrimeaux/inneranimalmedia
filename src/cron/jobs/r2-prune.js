@@ -1,6 +1,10 @@
 /**
- * R2 prune job — keeps only the latest N complete dashboard builds.
- * Runs nightly as part of midnight-UTC cron.
+ * R2 prune job — DISABLED (removed from midnight-UTC cron).
+ * Replaced by deploy-time manifest-diff in scripts/r2-dashboard-manifest-reconcile.mjs.
+ * Do not re-enable until a manifest-aware replacement exists if this file is reused.
+ *
+ * Former behavior: kept only the latest N complete dashboard builds.
+ * Ran nightly as part of midnight-UTC cron.
  *
  * Strategy: dashboard builds upload under static/dashboard/ (and sandbox test paths).
  * When r2_deploy_manifests is empty, cluster objects by upload time: objects within

@@ -61,7 +61,7 @@ export async function createWorkflowRun(env, payload = {}) {
 
   return runHyperdriveQuery(env, sql, [
     id, payload.d1_run_id || id,
-    payload.tenant_id    || 'tenant_sam_primeaux',
+    payload.tenant_id || env?.TENANT_ID || '',
     payload.workspace_id || (() => { throw new Error('[workflow-debug-store] workspace_id is required'); })(),
     payload.workflow_id  || null,
     payload.workflow_key || 'agent_chat_tool_session',
@@ -152,7 +152,7 @@ export async function appendWorkflowStep(env, payload = {}) {
   return runHyperdriveQuery(env, sql, [
     payload.id          || textId('wfs'),
     payload.run_id,
-    payload.tenant_id    || 'tenant_sam_primeaux',
+    payload.tenant_id || env?.TENANT_ID || '',
     payload.workspace_id || (() => { throw new Error('[workflow-debug-store] workspace_id is required'); })(),
     Number(payload.step_index || 0),
     payload.step_key    || null,
@@ -195,7 +195,7 @@ export async function appendWorkflowEvents(env, events = []) {
           ev.id           || textId('wfe'),
           ev.run_id       || null,
           ev.step_id      || null,
-          ev.tenant_id    || 'tenant_sam_primeaux',
+          ev.tenant_id    || (() => { throw new Error('[workflow-debug-store] tenant_id is required'); })(),
           ev.workspace_id || (() => { throw new Error('[workflow-debug-store] workspace_id is required'); })(),
           ev.event_type   || 'workflow_event',
           ev.event_level  || 'info',
@@ -221,7 +221,7 @@ export async function captureDebugSnapshot(env, payload = {}) {
 
   return runHyperdriveQuery(env, sql, [
     payload.id           || textId('dbg'),
-    payload.tenant_id    || 'tenant_sam_primeaux',
+    payload.tenant_id || env?.TENANT_ID || '',
     payload.workspace_id || (() => { throw new Error('[workflow-debug-store] workspace_id is required'); })(),
     payload.run_id       || null,
     payload.snapshot_key || 'agent_debug_snapshot',

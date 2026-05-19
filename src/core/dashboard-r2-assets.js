@@ -1,7 +1,7 @@
 /**
  * Resolve dashboard SPA assets from the DASHBOARD R2 bucket (production: inneranimalmedia).
- * Supports incremental migration between legacy keys and `static/dashboard/app/*` without
- * deleting old objects. See docs/DASHBOARD_R2_ASSET_ARCHITECTURE.md.
+ * Canonical deploy prefix: `static/dashboard/app/*`. Legacy `/static/dashboard/agent/*` URLs
+ * resolve to the same keys under `app/` until bookmarks expire.
  */
 
 export const DASHBOARD_STATIC_AGENT_PREFIX = 'static/dashboard/agent/';
@@ -20,26 +20,17 @@ export async function getDashboardR2Object(bucket, assetKey) {
     if (k && !keys.includes(k)) keys.push(k);
   };
 
-  add(assetKey);
-  // Vite `public/static/dashboard/shell.css` → dist ends up under agent prefix after rclone; HTML still
-  // links `/static/dashboard/shell.css`. Try the nested key early (also covered by legacy add below).
-  if (assetKey === 'static/dashboard/shell.css') {
-    add(`${DASHBOARD_STATIC_AGENT_PREFIX}static/dashboard/shell.css`);
-  }
-
   if (assetKey.startsWith(DASHBOARD_STATIC_AGENT_PREFIX)) {
     const rest = assetKey.slice(DASHBOARD_STATIC_AGENT_PREFIX.length);
     add(`${DASHBOARD_STATIC_APP_PREFIX}${rest}`);
-    add(`dashboard/app/${rest}`);
-  } else if (assetKey.startsWith(DASHBOARD_STATIC_APP_PREFIX)) {
-    const rest = assetKey.slice(DASHBOARD_STATIC_APP_PREFIX.length);
-    add(`${DASHBOARD_STATIC_AGENT_PREFIX}${rest}`);
-    add(`dashboard/app/${rest}`);
+  } else {
+    add(assetKey);
   }
 
-  // Legacy Worker lookups (preserve until R2 layout is fully normalized)
-  add(`static/${assetKey}`);
-  add(`${DASHBOARD_STATIC_AGENT_PREFIX}${assetKey}`);
+  // Vite public copy lands under app/ after rclone; HTML may still request the short shell path.
+  if (assetKey === 'static/dashboard/shell.css') {
+    add(`${DASHBOARD_STATIC_APP_PREFIX}static/dashboard/shell.css`);
+  }
 
   for (const key of keys) {
     const obj = await bucket.get(key);
@@ -58,10 +49,9 @@ export async function getDashboardSpaHtmlShell(bucket) {
   const shellKeys = [
     'static/dashboard/app.html',
     'static/dashboard/app/index.html',
-    // deploy-frontend.sh syncs Vite dist to static/dashboard/agent/ (includes index.html)
+    // Legacy bookmarks → same shell under canonical prefix
     'static/dashboard/agent/index.html',
     'static/dashboard/agent.html',
-    'dashboard/app/agent.html',
     'index.html',
   ];
 

@@ -1,0 +1,37 @@
+{
+  "plan_id": "plan_d1_routing",
+  "plan_title": "Fix agent D1 routing \u2014 stop Monaco workflow hijack",
+  "gpt": {
+    "model": "gpt-5.4-mini",
+    "output": "--- a/src/api/agent.js\n+++ b/src/api/agent.js\n@@ -2130,18 +2130,24 @@\n async function resolveWorkflowForMessage(env, taskType, message, workspaceId) {\n   if (!env.DB) return null;\n   const t = String(message || '').toLowerCase();\n+  const isSqlOrD1Intent = /\\b(d1|sql|sqlite|database|table|tables|query|queries|select|insert|update|delete|create table|alter table|drop table)\\b/.test(t);\n+  if (isSqlOrD1Intent) return null;\n   if (userExplicitlyRequestsMonacoEditor(message)) {\n     try {\n       const wf = await env.DB.prepare(\n         `SELECT id, workflow_key, display_name, default_task_type,\n                 risk_level, requires_approval\n          FROM agentsam_workflows\n-         WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,\n+         WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,\n       )\n         .bind('i-am-builder-monaco')\n         .first();\n       if (wf) return wf;\n     } catch {\n       /* fall through */\n     }\n   }\n   const keywordMap = [\n     [/\\b(excalidraw|draw|diagram|wireframe|flowchart)\\b/, 'i-am-architect-excalidraw'],\n     [/\\b(architect|plan|design spec)\\b/, 'i-am-architect-plan'],",
+    "score": {
+      "has_diff": true,
+      "has_workspace": true,
+      "file_coverage": "2/2",
+      "patch_lines": 26,
+      "no_hardcode": true,
+      "score": 5
+    },
+    "time_ms": 2479,
+    "tok_in": 2060,
+    "tok_out": 319,
+    "cost_usd": 0.0005
+  },
+  "gemini": {
+    "model": "gemini-2.5-flash",
+    "output": "```diff\n--- a/src/api/agent.js\n+++ b/src/api/agent.js\n@@ -2127,10 +2127,24 @@\n     return false;\n   }\n }\n+\n+function isD1SqlIntent(message) {\n+  const t = String(message || '').toLowerCase();\n+  // Keywords indicating a D1/SQL query intent\n+  const d1SqlKeywords = [\n+    /\\bd1\\b/, /\\bsql\\b/, /\\bdatabase\\b/, /\\btable\\b/, /\\bquery\\b/,\n+    /\\bselect\\b/, /\\binsert\\b/, /\\bupdate\\b/, /\\bdelete\\b/,\n+    /\\balter\\b/, /\\bcreate table\\b/, /\\bdrop table\\b/,\n+  ];\n+  return d1SqlKeywords.some(pattern => pattern.test(t));\n+}\n \n async function resolveWorkflowForMessage(env, taskType, message, workspaceId) {\n   if (!env.DB) return null;\n+  if (isD1SqlIntent(message)) {\n+    return null; // Don't resolve any workflow, let direct tools handle D1/SQL intents\n+  }\n   const t = String(message || '').toLowerCase();\n   if (userExplicitlyRequestsMonacoEditor(message)) {\n     try {\n```\n```diff\n--- a/src/api/agent.js\n+++ b/src/api/agent.js\n@@ -2130,9 +2130,22 @@\n async function resolveWorkflowForMessage(env, taskType, message, workspaceId) {\n   if (!env.DB) return null;\n   const t = String(message || '').toLowerCase();\n-  if (userExplicitlyRequestsMonacoEditor(message)) {\n+\n+  // Helper to strictly identify explicit requests for the Monaco editor\n+  // This replaces the more permissive userExplicitlyRequestsMonacoEditor function\n+  // to prevent accidental routing for SQL/table mentions.\n+  function isExplicitMonacoEditorRequest(msg) {\n+    const lowerMsg = String(msg || '').toLowerCase();\n+    const explicitEditorKeywords = [\n+      /\\bmonaco editor\\b/, /\\bcode editor\\b/, /\\bedit code\\b/,\n+      /\\bopen editor\\b/, /\\buse editor\\b/, /\\bshow editor\\b/, /\\bstart editor\\b/,\n+      /\\beditor window\\b/, /\\bview code editor\\b/,\n+    ];\n+    return explicitEditorKeywords.some(pattern => pattern.test(lowerMsg));\n+  }\n+\n+  // Use the new, stricter helper function to route to the Monaco editor\n+  if (isExplicitMonacoEditorRequest(message)) {\n     try {\n       const wf = await env.DB.prepare(\n         `SELECT id, workflow_key, display_name, default_task_type,\n```",
+    "score": {
+      "has_diff": true,
+      "has_workspace": true,
+      "file_coverage": "2/2",
+      "patch_lines": 55,
+      "no_hardcode": true,
+      "score": 5
+    },
+    "time_ms": 30877,
+    "tok_in": 2586,
+    "tok_out": 675,
+    "cost_usd": 0.002463
+  },
+  "winner": "GPT"
+}

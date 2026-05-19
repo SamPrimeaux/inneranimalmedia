@@ -1,0 +1,4060 @@
+{
+  "src/index.js": {
+    "path": "src/index.js",
+    "exists": true,
+    "line_count": 840,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 773,
+          "content": "        tenantId = typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : tenantId;",
+          "pattern": "env\\.TENANT_ID"
+        },
+        {
+          "line": 775,
+          "content": "          typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()",
+          "pattern": "env\\.WORKSPACE_ID"
+        },
+        {
+          "line": 776,
+          "content": "            ? env.WORKSPACE_ID.trim()",
+          "pattern": "env\\.WORKSPACE_ID"
+        }
+      ],
+      "user_id_from_session": [
+        {
+          "line": 511,
+          "content": "          if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 526,
+          "content": "        let userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 560,
+          "content": "          if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 562,
+          "content": "        const userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 578,
+          "content": "          if (!session?.user_id) return jsonResponse({ error: 'Unauthorized' }, 401);",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 592,
+          "content": "        let userId = body.userId ?? authUser?.id ?? session?.user_id ?? null;",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 11,
+          "content": "  getSession,",
+          "pattern": "getSession"
+        },
+        {
+          "line": 510,
+          "content": "          session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 559,
+          "content": "          session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 577,
+          "content": "          session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 538,
+          "content": "        const sessionId = body.sessionId ?? session?.session_id ?? null;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 544,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 604,
+          "content": "        const sessionId = body.sessionId ?? session?.session_id ?? null;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 608,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 75,
+          "content": "    const sessionCount = (cookieHeader.match(new RegExp(`(?:^|;\\\\s*)session=`, 'g')) || []).length;",
+          "pattern": "cookie.*session"
+        },
+        {
+          "line": 83,
+          "content": "      // Never clear cookies on a response that is setting a new session \u2014",
+          "pattern": "cookie.*session"
+        },
+        {
+          "line": 95,
+          "content": "        mutableHeaders.append('Set-Cookie', 'session=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax');",
+          "pattern": "cookie.*session"
+        },
+        {
+          "line": 96,
+          "content": "        mutableHeaders.append('Set-Cookie', 'session=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax');",
+          "pattern": "cookie.*session"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 34,
+          "content": "  handleGitHubLoginOAuthCallback,",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 424,
+          "content": "      // Google/GitHub login OAuth (same handlers as /api/oauth/{google,github}/callback \u2014 see oauth.js dispatch).",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 432,
+          "content": "          await handleGitHubLoginOAuthCallback(request, new URL(request.url), env),",
+          "pattern": "github.*oauth"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 3,
+      "user_id_from_session": 6,
+      "session_extraction": 12,
+      "github_oauth": 3
+    }
+  },
+  "src/core/router.js": {
+    "path": "src/core/router.js",
+    "exists": true,
+    "line_count": 15,
+    "findings": {},
+    "summary": {}
+  },
+  "src/core/production-dispatch.js": {
+    "path": "src/core/production-dispatch.js",
+    "exists": true,
+    "line_count": 314,
+    "findings": {},
+    "summary": {}
+  },
+  "src/core/auth.js": {
+    "path": "src/core/auth.js",
+    "exists": true,
+    "line_count": 781,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 698,
+          "content": "  const t = env?.TENANT_ID != null ? String(env.TENANT_ID).trim() : '';",
+          "pattern": "env\\.TENANT_ID"
+        }
+      ],
+      "user_id_from_session": [
+        {
+          "line": 270,
+          "content": "  if (!session?.user_id) return session;",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 272,
+          "content": "    const feature_flags = await loadFeatureFlags(env, session.user_id, session.tenant_id);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 425,
+          "content": "          `SELECT id, user_id, expires_at, tenant_id FROM auth_sessions",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 141,
+          "content": "    _session_user_id: authRow.email,",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 475,
+          "content": "  const authId = session.user_id; // au_ prefix",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 510,
+          "content": "    email: session._session_user_id || null,",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 535,
+          "content": "    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 611,
+          "content": "    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at, ip_address, user_agent, tenant_id) VALUES (?, ?, ?, datetime('now'), ?, ?, ?)`,",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 179,
+          "content": "  const session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 399,
+          "content": "export async function getSession(env, request) {",
+          "pattern": "getSession"
+        },
+        {
+          "line": 472,
+          "content": "  const session = await getSession(env, request);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 119,
+          "content": "export async function buildSuperadminContext(env, sessionId, sessionUserKey) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 138,
+          "content": "    id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 409,
+          "content": "  for (const sessionId of sessionCandidates) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 412,
+          "content": "        const data = await env.SESSION_CACHE.get(IAM_KV_SESSION_KEY_PREFIX + sessionId);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 415,
+          "content": "          return attachFeatureFlagsToSession(env, { ...parsed, session_id: sessionId });",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 422,
+          "content": "    for (const sessionId of sessionCandidates) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 428,
+          "content": "        ).bind(sessionId).first();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 440,
+          "content": "              IAM_KV_SESSION_KEY_PREFIX + sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 453,
+          "content": "export async function writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 454,
+          "content": "  if (!env.SESSION_CACHE || !sessionId || !userId) return;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 457,
+          "content": "    session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 465,
+          "content": "    await env.SESSION_CACHE.put(IAM_KV_SESSION_KEY_PREFIX + sessionId, JSON.stringify(payload), {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 520,
+          "content": "  const sessionId = crypto.randomUUID();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 536,
+          "content": "  ).bind(sessionId, userId, expiresAtIso, ip, ua, tid).run();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 548,
+          "content": "        sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 565,
+          "content": "  await writeIamSessionToKv(env, sessionId, userId, tid, expiresAtIso);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 568,
+          "content": "  response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 577,
+          "content": "  const sessionId = crypto.randomUUID();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 613,
+          "content": "    .bind(sessionId, userId, expiresAtIso, ip, ua, tenantId)",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 626,
+          "content": "      sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 642,
+          "content": "  await writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 644,
+          "content": "  return sessionId;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 12,
+          "content": "export const AUTH_COOKIE_NAME = 'session';",
+          "pattern": "cookie.*session"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 1,
+      "user_id_from_session": 8,
+      "session_extraction": 26
+    }
+  },
+  "src/core/identity.js": {
+    "path": "src/core/identity.js",
+    "exists": true,
+    "line_count": 232,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 52,
+          "content": "    trimOrNull(session?.user_id);",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 8,
+          "content": "import { getSession, getAuthUser, fetchAuthUserTenantId } from './auth.js';",
+          "pattern": "getSession"
+        },
+        {
+          "line": 34,
+          "content": "  const session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 81,
+          "content": "  const sessionId =",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 122,
+          "content": "    sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 206,
+          "content": "    sessionId: ctx.sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 211,
+          "content": "export async function resolveSessionIds(env, request) {",
+          "pattern": "sessionId"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 1,
+      "session_extraction": 6
+    }
+  },
+  "src/core/actor-context.js": {
+    "path": "src/core/actor-context.js",
+    "exists": true,
+    "line_count": 134,
+    "findings": {
+      "session_extraction": [
+        {
+          "line": 22,
+          "content": " *   sessionId: string | null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 52,
+          "content": " *     sessionId?: string | null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 81,
+          "content": "      sessionId: sa.sessionId != null ? trim(sa.sessionId) || null : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 98,
+          "content": "  const sessionId = iam?.sessionId != null && trim(iam.sessionId) !== '' ? trim(iam.sessionId) : null;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 126,
+          "content": "    sessionId,",
+          "pattern": "sessionId"
+        }
+      ]
+    },
+    "summary": {
+      "session_extraction": 5
+    }
+  },
+  "src/core/runtime-actor.js": {
+    "path": "src/core/runtime-actor.js",
+    "exists": true,
+    "line_count": 167,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 115,
+          "content": " * @returns {{ tenant_id: string, workspace_id: string, user_id: string, person_uuid: string | null, session_id: string | null, agent_id: string | null }}",
+          "pattern": "user_id.*session"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 16,
+          "content": " *   sessionId: string | null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 67,
+          "content": "    sessionId: iam.sessionId != null && String(iam.sessionId).trim() !== '' ? String(iam.sessionId).trim() : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 77,
+          "content": " * Does not require personUuid / sessionId / agentId (nullable in D1).",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 124,
+          "content": "    session_id: actor.sessionId ?? null,",
+          "pattern": "sessionId"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 1,
+      "session_extraction": 4
+    }
+  },
+  "src/core/bootstrap.js": {
+    "path": "src/core/bootstrap.js",
+    "exists": true,
+    "line_count": 341,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 141,
+          "content": "    workspaceId = trim(env.WORKSPACE_ID) || '';",
+          "pattern": "env\\.WORKSPACE_ID"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 4,
+          "content": "import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin } from './auth.js';",
+          "pattern": "getSession"
+        },
+        {
+          "line": 90,
+          "content": "      session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 55,
+          "content": "       WHERE tenant_id = ? AND COALESCE(is_default, 0) = 1 AND COALESCE(is_active, 1) = 1",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 27,
+          "content": "       WHERE workspace_id = ? AND COALESCE(is_active, 1) = 1",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 164,
+          "content": "      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 1,
+      "session_extraction": 2,
+      "cross_tenant_risk": 3
+    }
+  },
+  "src/core/workspace-provisioning.js": {
+    "path": "src/core/workspace-provisioning.js",
+    "exists": true,
+    "line_count": 422,
+    "findings": {
+      "cross_tenant_risk": [
+        {
+          "line": 50,
+          "content": "       WHERE tenant_id = ? AND COALESCE(is_default, 0) = 1 AND COALESCE(is_active, 1) = 1",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "cross_tenant_risk": 1
+    }
+  },
+  "src/core/dashboard-realtime-jwt.js": {
+    "path": "src/core/dashboard-realtime-jwt.js",
+    "exists": true,
+    "line_count": 58,
+    "findings": {},
+    "summary": {}
+  },
+  "src/core/mcp-auth.js": {
+    "path": "src/core/mcp-auth.js",
+    "exists": true,
+    "line_count": 211,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 43,
+          "content": "  const tenantId = String(env.TENANT_ID || '').trim();",
+          "pattern": "env\\.TENANT_ID"
+        },
+        {
+          "line": 42,
+          "content": "  const workspaceId = String(env.WORKSPACE_ID || '').trim();",
+          "pattern": "env\\.WORKSPACE_ID"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 2
+    }
+  },
+  "src/core/mcp-authorization.js": {
+    "path": "src/core/mcp-authorization.js",
+    "exists": true,
+    "line_count": 126,
+    "findings": {
+      "cross_tenant_risk": [
+        {
+          "line": 27,
+          "content": "  if (p === 'superadmin_scoped_mcp_tool' || p === 'allowlist_tenant_workspace_tool') return 'tenant_policy';",
+          "pattern": "scope.*tenant(?!.*user_id)"
+        }
+      ]
+    },
+    "summary": {
+      "cross_tenant_risk": 1
+    }
+  },
+  "src/api/auth.js": {
+    "path": "src/api/auth.js",
+    "exists": true,
+    "line_count": 2075,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 122,
+          "content": " * Body: { user_id?, user_email?, ttl_seconds? } \u2014 or rely on env AGENT_SESSION_DEFAULT_USER_ID.",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 167,
+          "content": "      { error: 'user_id, user_email, or AGENT_SESSION_DEFAULT_USER_ID binding is required' },",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 162,
+          "content": "    const def = String(env.AGENT_SESSION_DEFAULT_USER_ID || '').trim();",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 672,
+          "content": "    .bind(session.user_id)",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 722,
+          "content": "    .bind(session.user_id)",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 786,
+          "content": "    .bind(session.user_id)",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "oauth_token_write": [
+        {
+          "line": 31,
+          "content": "import { upsertOauthToken } from './oauth.js';",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 1320,
+          "content": "      await upsertOauthToken(",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 1350,
+          "content": "      INSERT OR REPLACE INTO user_oauth_tokens",
+          "pattern": "INSERT.*user_oauth_tokens"
+        }
+      ],
+      "encrypted_secrets": [
+        {
+          "line": 1318,
+          "content": "  if (env.VAULT_MASTER_KEY) {",
+          "pattern": "VAULT_MASTER_KEY"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 16,
+          "content": "  getSession,",
+          "pattern": "getSession"
+        },
+        {
+          "line": 81,
+          "content": "    const session = await getSession(env, request);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 668,
+          "content": "  const session = await getSession(env, request);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 718,
+          "content": "  const session = await getSession(env, request);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 782,
+          "content": "  const session = await getSession(env, request);",
+          "pattern": "getSession"
+        },
+        {
+          "line": 181,
+          "content": "    const sessionId = await createLoginSession(request, env, userId, 'agent_mint', { ttlSeconds });",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 191,
+          "content": "      session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 193,
+          "content": "      cookie_header: `${AUTH_COOKIE_NAME}=${sessionId}`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 303,
+          "content": "    const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 304,
+          "content": "    return redirectWithLoginSession(request, sessionId);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 346,
+          "content": "  const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 347,
+          "content": "  return redirectWithLoginSession(request, sessionId);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 521,
+          "content": "  const sessionId = await createLoginSession(request, env, authUserId, 'email_signup');",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 537,
+          "content": "      `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 544,
+          "content": "    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 549,
+          "content": "function redirectWithLoginSession(request, sessionId) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 554,
+          "content": "    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 573,
+          "content": "  const sessionId = match ? match[1] : null;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 575,
+          "content": "  if (sessionId && env.DB) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 576,
+          "content": "    await env.DB.prepare('DELETE FROM auth_sessions WHERE id = ?').bind(sessionId).run();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 582,
+          "content": "      ).bind(Date.now(), sessionId).run().catch(() => {});",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 585,
+          "content": "      await env.SESSION_CACHE.delete(`iam_sess_v1:${sessionId}`);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 609,
+          "content": "  const sessionId = await createLoginSession(request, env, userId, 'email');",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 622,
+          "content": "    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1378,
+          "content": "  const cookiesOut = collectSetCookieValues(sessionResponse.headers);",
+          "pattern": "cookie.*session"
+        },
+        {
+          "line": 1391,
+          "content": "    has_session_cookie: hasSessionCookie,",
+          "pattern": "cookie.*session"
+        },
+        {
+          "line": 508,
+          "content": "        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 763,
+          "content": "      Authorization: `Bearer ${env.RESEND_API_KEY}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 857,
+          "content": "    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RESEND_API_KEY}` },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1233,
+          "content": "    headers: { Authorization: `Bearer ${access_token}` },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1239,
+          "content": "      headers: { Authorization: `Bearer ${access_token}` },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1520,
+          "content": "      Authorization: `Bearer ${accessToken}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1534,
+          "content": "    headers: { apikey: sr, Authorization: `Bearer ${sr}` },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1552,
+          "content": "      Authorization: `Bearer ${sr}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1604,
+          "content": "async function fetchAuthorizationDetails(env, bearer, authorizationId) {",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1610,
+          "content": "      Authorization: `Bearer ${bearer}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1627,
+          "content": "        Authorization: `Bearer ${bearer}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1943,
+          "content": "    const detail = await fetchAuthorizationDetails(env, bearer, authorizationId);",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1965,
+          "content": "  const detail = await fetchAuthorizationDetails(env, bearer, authorizationId);",
+          "pattern": "Authorization.*Bearer"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 6,
+      "oauth_token_write": 3,
+      "encrypted_secrets": 1,
+      "session_extraction": 39
+    }
+  },
+  "src/api/auth-me.js": {
+    "path": "src/api/auth-me.js",
+    "exists": true,
+    "line_count": 104,
+    "findings": {
+      "session_extraction": [
+        {
+          "line": 1,
+          "content": "import { getSession } from '../core/auth.js';",
+          "pattern": "getSession"
+        },
+        {
+          "line": 11,
+          "content": "  const session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        }
+      ]
+    },
+    "summary": {
+      "session_extraction": 2
+    }
+  },
+  "src/api/auth-hooks.js": {
+    "path": "src/api/auth-hooks.js",
+    "exists": true,
+    "line_count": 289,
+    "findings": {
+      "cross_tenant_risk": [
+        {
+          "line": 75,
+          "content": "    const r = await env.DB.prepare(`SELECT plan_id FROM billing_subscriptions WHERE tenant_id = ? LIMIT 1`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "cross_tenant_risk": 1
+    }
+  },
+  "src/api/dashboard-api-identity.js": {
+    "path": "src/api/dashboard-api-identity.js",
+    "exists": true,
+    "line_count": 40,
+    "findings": {},
+    "summary": {}
+  },
+  "src/api/kanban-scope.js": {
+    "path": "src/api/kanban-scope.js",
+    "exists": true,
+    "line_count": 31,
+    "findings": {},
+    "summary": {}
+  },
+  "src/api/access.js": {
+    "path": "src/api/access.js",
+    "exists": true,
+    "line_count": 208,
+    "findings": {},
+    "summary": {}
+  },
+  "src/api/provisioning.js": {
+    "path": "src/api/provisioning.js",
+    "exists": true,
+    "line_count": 610,
+    "findings": {
+      "encrypted_secrets": [
+        {
+          "line": 379,
+          "content": " * Decrypt BYOK secret from user_api_keys.key_hash (AES-GCM blob, vault layout).",
+          "pattern": "AES.GCM"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 105,
+          "content": "      existingWs = await env.DB.prepare(`SELECT id FROM agentsam_workspace WHERE tenant_id = ? LIMIT 1`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 159,
+          "content": "      `SELECT id FROM tenant_workspaces WHERE tenant_id = ? AND workspace_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 190,
+          "content": "      `SELECT id FROM billing_subscriptions WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 210,
+          "content": "      `SELECT id FROM onboarding_state WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 386,
+          "content": "       WHERE tenant_id = ? AND user_id = ? AND provider = ? AND COALESCE(is_active, 1) = 1",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "encrypted_secrets": 1,
+      "cross_tenant_risk": 5
+    }
+  },
+  "src/api/onboarding.js": {
+    "path": "src/api/onboarding.js",
+    "exists": true,
+    "line_count": 1105,
+    "findings": {
+      "session_extraction": [
+        {
+          "line": 522,
+          "content": "      Authorization: `Bearer ${key}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 949,
+          "content": "          Authorization: `Bearer ${env.RESEND_API_KEY}`,",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 619,
+          "content": "    .prepare(`SELECT activation_progress FROM tenant_activation_status WHERE tenant_id = ? LIMIT 1`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 628,
+          "content": "        .prepare(`UPDATE tenant_activation_status SET activation_progress = ? WHERE tenant_id = ?`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 777,
+          "content": "         WHERE tenant_id = ? AND user_id = ? AND status != 'completed' ORDER BY step`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 964,
+          "content": "          `UPDATE iam_user_onboarding_step SET status = 'completed', updated_at = ? WHERE tenant_id = ? AND user_id = ? AND step = 'intake'`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1062,
+          "content": "        `UPDATE iam_user_onboarding_step SET status = 'completed', data_json = ?, updated_at = ? WHERE tenant_id = ? AND user_id = ? AND step = 'profile_setup'`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1070,
+          "content": "          `UPDATE iam_user_onboarding_step SET data_json = ?, updated_at = ? WHERE tenant_id = ? AND user_id = ? AND step = 'environment_setup'`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1090,
+          "content": "      .prepare(`SELECT * FROM iam_user_onboarding_step WHERE tenant_id = ? AND user_id = ? ORDER BY step`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1094,
+          "content": "      .prepare(`SELECT * FROM tenant_activation_status WHERE tenant_id = ? LIMIT 1`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "session_extraction": 2,
+      "cross_tenant_risk": 8
+    }
+  },
+  "src/api/oauth.js": {
+    "path": "src/api/oauth.js",
+    "exists": true,
+    "line_count": 1591,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 893,
+          "content": "  const direct = String(authUser?.tenant_id || env.TENANT_ID || env.DEFAULT_TENANT_ID || '').trim();",
+          "pattern": "env\\.TENANT_ID"
+        },
+        {
+          "line": 1258,
+          "content": "          tenantId: authUser.tenant_id || env.TENANT_ID,",
+          "pattern": "env\\.TENANT_ID"
+        },
+        {
+          "line": 912,
+          "content": "  const direct = String(authUser?.workspace_id || authUser?.active_workspace_id || env.WORKSPACE_ID || env.DEFAULT_WORKSPACE_ID || '').trim();",
+          "pattern": "env\\.WORKSPACE_ID"
+        },
+        {
+          "line": 1308,
+          "content": "    const workspace_id = String(url.searchParams.get('workspace_id') || '').trim() || String(env.WORKSPACE_ID || '').trim() || '';",
+          "pattern": "env\\.WORKSPACE_ID"
+        },
+        {
+          "line": 905,
+          "content": "  return 'tenant_sam_primeaux';",
+          "pattern": "tenant_sam_primeaux"
+        },
+        {
+          "line": 1097,
+          "content": "  const tenantId = String(row.tenant_id || authRow?.tenant_id || 'tenant_sam_primeaux');",
+          "pattern": "tenant_sam_primeaux"
+        }
+      ],
+      "oauth_token_write": [
+        {
+          "line": 292,
+          "content": "export async function upsertOauthToken(",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 654,
+          "content": "    await upsertOauthToken(env, {",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 1401,
+          "content": "        await upsertOauthToken(env, {",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 1417,
+          "content": "        await upsertOauthToken(env, {",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 1432,
+          "content": "        await upsertOauthToken(env, {",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 1473,
+          "content": "        await upsertOauthToken(env, {",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 1561,
+          "content": "      await upsertOauthToken(env, {",
+          "pattern": "upsertOauthToken"
+        },
+        {
+          "line": 324,
+          "content": "    INSERT OR REPLACE INTO user_oauth_tokens",
+          "pattern": "INSERT.*user_oauth_tokens"
+        },
+        {
+          "line": 773,
+          "content": "    INSERT OR REPLACE INTO user_oauth_tokens",
+          "pattern": "INSERT.*user_oauth_tokens"
+        }
+      ],
+      "oauth_token_read": [
+        {
+          "line": 1502,
+          "content": "export { getOAuthToken, refreshGoogleToken } from '../core/user-oauth-token.js';",
+          "pattern": "getOauthToken"
+        },
+        {
+          "line": 1531,
+          "content": "    `SELECT * FROM user_oauth_tokens",
+          "pattern": "SELECT.*user_oauth_tokens"
+        }
+      ],
+      "plaintext_secrets": [
+        {
+          "line": 659,
+          "content": "      access_token: tok.access_token,",
+          "pattern": "\\.access_token\\s*,(?!.*encrypt)"
+        },
+        {
+          "line": 1406,
+          "content": "          access_token: tok.access_token,",
+          "pattern": "\\.access_token\\s*,(?!.*encrypt)"
+        },
+        {
+          "line": 1422,
+          "content": "          access_token: tok.access_token,",
+          "pattern": "\\.access_token\\s*,(?!.*encrypt)"
+        },
+        {
+          "line": 1437,
+          "content": "          access_token: tok.access_token,",
+          "pattern": "\\.access_token\\s*,(?!.*encrypt)"
+        },
+        {
+          "line": 1478,
+          "content": "          access_token: tok.access_token,",
+          "pattern": "\\.access_token\\s*,(?!.*encrypt)"
+        }
+      ],
+      "encrypted_secrets": [
+        {
+          "line": 188,
+          "content": "  if (row.access_token_encrypted) {",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 190,
+          "content": "      const dec = await decryptWithVault(env, row.access_token_encrypted);",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 201,
+          "content": "  if (row.refresh_token_encrypted) {",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 203,
+          "content": "      const dec = await decryptWithVault(env, row.refresh_token_encrypted);",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 223,
+          "content": "    ['access_token_encrypted', 'TEXT'],",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 224,
+          "content": "    ['refresh_token_encrypted', 'TEXT'],",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 309,
+          "content": "  const hasEncrypted = cols.has('access_token_encrypted');",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 327,
+          "content": "       ${hasEncrypted ? 'access_token_encrypted, refresh_token_encrypted,' : ''}",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 769,
+          "content": "  const hasEncrypted = cols.has('access_token_encrypted');",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 776,
+          "content": "       ${hasEncrypted ? 'access_token_encrypted,' : ''}",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 1540,
+          "content": "    fullRow.access_token_encrypted && env.VAULT_MASTER_KEY",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 1541,
+          "content": "      ? await decryptWithVault(env, fullRow.access_token_encrypted).catch(() => fullRow.access_token || null)",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 1544,
+          "content": "    fullRow.refresh_token_encrypted && env.VAULT_MASTER_KEY",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 1545,
+          "content": "      ? await decryptWithVault(env, fullRow.refresh_token_encrypted).catch(() => fullRow.refresh_token || null)",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 299,
+          "content": "  if (!env.VAULT_MASTER_KEY) throw new Error('VAULT_MASTER_KEY not configured');",
+          "pattern": "VAULT_MASTER_KEY"
+        },
+        {
+          "line": 644,
+          "content": "  if (!env.DB || !env.VAULT_MASTER_KEY) return fail();",
+          "pattern": "VAULT_MASTER_KEY"
+        },
+        {
+          "line": 760,
+          "content": "  if (!env.VAULT_MASTER_KEY) throw new Error('VAULT_MASTER_KEY not configured');",
+          "pattern": "VAULT_MASTER_KEY"
+        },
+        {
+          "line": 1527,
+          "content": "  if (!env?.DB || !userId || !env.VAULT_MASTER_KEY) return null;",
+          "pattern": "VAULT_MASTER_KEY"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 280,
+          "content": "    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 519,
+          "content": "    headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'IAM-Platform', Accept: 'application/vnd.github+json' },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 545,
+          "content": "    headers: { Authorization: `Bearer ${accessToken}` },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 719,
+          "content": "    const res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${key}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 748,
+          "content": "    const res = await fetch('https://api.resend.com/domains', { headers: { Authorization: `Bearer ${key}` } });",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 386,
+          "content": "         WHERE tenant_id = ? AND provider_key = ?`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 801,
+          "content": "       WHERE tenant_id = ? AND provider_key = ?`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 244,
+          "content": "  if (p === 'gdrive' || p === 'google_drive' || p === 'google_gmail' || p === 'google_calendar') return 'google';",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 250,
+          "content": "  if (p === 'google') return 'google_drive';",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 110,
+          "content": "  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET || !env.SESSION_CACHE) {",
+          "pattern": "google_oauth"
+        },
+        {
+          "line": 565,
+          "content": "    typeof env.GOOGLE_OAUTH_CLIENT_SECRET === 'string' ? env.GOOGLE_OAUTH_CLIENT_SECRET.trim() : '';",
+          "pattern": "google_oauth"
+        },
+        {
+          "line": 123,
+          "content": "    ? 'openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file'",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 437,
+          "content": "          'https://www.googleapis.com/auth/drive.readonly',",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 552,
+          "content": "/** Gmail integration OAuth \u2014 distinct from login Google (`/api/oauth/google/*`) and Drive integration. */",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 438,
+          "content": "          'https://www.googleapis.com/auth/userinfo.email',",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 439,
+          "content": "          'https://www.googleapis.com/auth/userinfo.profile',",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 527,
+          "content": "  const res = await fetch('https://oauth2.googleapis.com/token', {",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 544,
+          "content": "  const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 555,
+          "content": "  'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly';",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 574,
+          "content": "  const res = await fetch('https://oauth2.googleapis.com/token', {",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 743,
+          "content": "    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);",
+          "pattern": "googleapis"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 502,
+          "content": "  const res = await fetch('https://github.com/login/oauth/access_token', {",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 513,
+          "content": "  if (!res.ok || !data.access_token) throw new Error(data.error_description || data.error || 'GitHub token exchange failed');",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 517,
+          "content": "async function githubAccount(accessToken) {",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 1400,
+          "content": "        const acct = await githubAccount(tok.access_token);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 16,
+          "content": "  handleGitHubLoginOAuthCallback,",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 146,
+          "content": " * Unauthenticated GitHub login/start \u2014 state key + redirect_uri must match handleGitHubOAuthCallback in worker.js.",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 148,
+          "content": "async function loginGitHubOAuthStart(_request, url, env) {",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 173,
+          "content": "  return Response.redirect(`https://github.com/login/oauth/authorize?${params}`, 302);",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 413,
+          "content": "function githubAuthUrl(env, state, oauthScopeString) {",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 414,
+          "content": "  const u = new URL('https://github.com/login/oauth/authorize');",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 1272,
+          "content": "    // Login/sign-up OAuth (no session): same behavior as worker.js handleGoogleOAuthStart / handleGitHubOAuthStart.",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 1278,
+          "content": "      return loginGitHubOAuthStart(request, url, env);",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 1324,
+          "content": "    if (provider === 'github') redirectUrl = githubAuthUrl(env, state, oauthScopes);",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 1353,
+          "content": "    // GitHub: login flow uses oauth_state_github_* \u2014 must run before integration (oauth_state_*).",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 1358,
+          "content": "        return handleGitHubLoginOAuthCallback(request, url, env, { cachedRedirect: rawGh });",
+          "pattern": "github.*oauth"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 6,
+      "oauth_token_write": 9,
+      "oauth_token_read": 2,
+      "plaintext_secrets": 5,
+      "encrypted_secrets": 18,
+      "session_extraction": 5,
+      "cross_tenant_risk": 2,
+      "google_drive": 14,
+      "github_oauth": 15
+    }
+  },
+  "src/api/oauth-login-callbacks.js": {
+    "path": "src/api/oauth-login-callbacks.js",
+    "exists": true,
+    "line_count": 539,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 104,
+          "content": "           (session_id, user_id, tenant_id, workspace_id,",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "oauth_token_write": [
+        {
+          "line": 266,
+          "content": "          `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope)",
+          "pattern": "INSERT.*user_oauth_tokens"
+        },
+        {
+          "line": 332,
+          "content": "        `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope)",
+          "pattern": "INSERT.*user_oauth_tokens"
+        },
+        {
+          "line": 459,
+          "content": "      `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope) VALUES (?, 'google_drive', '', ?, ?, ?, ?)`,",
+          "pattern": "INSERT.*user_oauth_tokens"
+        }
+      ],
+      "plaintext_secrets": [
+        {
+          "line": 459,
+          "content": "      `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope) VALUES (?, 'google_drive', '', ?, ?, ?, ?)`,",
+          "pattern": "INSERT.*access_token.*VALUES"
+        },
+        {
+          "line": 463,
+          "content": "        tokens.access_token,",
+          "pattern": "\\.access_token\\s*,(?!.*encrypt)"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 60,
+          "content": "  const sessionId = 'ws_' + String(userId || '').slice(-8) + '_' + Date.now();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 66,
+          "content": "  `).bind(sessionId, tenantId, pageContext || '/dashboard/agent').run().catch(() => {});",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 67,
+          "content": "  return sessionId;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 77,
+          "content": " * @param {string} browserSessionId \u2014 `sessions.id` from createLoginSession (cookie session UUID)",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 80,
+          "content": "async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 81,
+          "content": "  if (!db || !browserSessionId || !userId) return;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 95,
+          "content": "    const wsSessionId =",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 108,
+          "content": "      .bind(wsSessionId, userId, tenantId, activeWs)",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 116,
+          "content": "      .bind(activeWs ?? null, wsSessionId, browserSessionId)",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 131,
+          "content": "        wsSessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 309,
+          "content": "  const sessionId = await createLoginSession(request, env, userId, 'github');",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 324,
+          "content": "  await tryOAuthLoginTimeTracking(env.DB, sessionId, userId);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 347,
+          "content": "    `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 505,
+          "content": "  const sessionId = await createLoginSession(request, env, authUserId, 'google');",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 520,
+          "content": "  await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 527,
+          "content": "    `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 230,
+          "content": "      Authorization: `Bearer ${tokens.access_token}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 242,
+          "content": "        Authorization: `Bearer ${tokens.access_token}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 440,
+          "content": "    headers: { Authorization: `Bearer ${tokens.access_token}` },",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 459,
+          "content": "      `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope) VALUES (?, 'google_drive', '', ?, ?, ?, ?)`,",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 71,
+          "content": "  return env.GOOGLE_OAUTH_CLIENT_SECRET || env.GOOGLE_CLIENT_SECRET || '';",
+          "pattern": "google_oauth"
+        },
+        {
+          "line": 477,
+          "content": "    { email: oauthEmail, name, source: 'google_oauth' },",
+          "pattern": "google_oauth"
+        },
+        {
+          "line": 502,
+          "content": "    source: 'google_oauth',",
+          "pattern": "google_oauth"
+        },
+        {
+          "line": 407,
+          "content": "  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 439,
+          "content": "  const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {",
+          "pattern": "googleapis"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 211,
+          "content": "  const tokenRes = await fetch('https://github.com/login/oauth/access_token', {",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 272,
+          "content": "        console.error('[oauth/github/callback] user_oauth_tokens upsert failed:', e?.message ?? e);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 338,
+          "content": "      console.error('[oauth/github/callback] user_oauth_tokens upsert failed:', e?.message ?? e);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 3,
+          "content": " * handleGoogleOAuthCallback / handleGitHubOAuthCallback.",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 177,
+          "content": " * GitHub login callback \u2014 parity with worker.js handleGitHubOAuthCallback.",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 179,
+          "content": " * @param {string} [options.cachedRedirect] \u2014 if set, KV get/delete for github state was already done (e.g. /api/oauth/github/callback dispatch).",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 181,
+          "content": "export async function handleGitHubLoginOAuthCallback(request, url, env, options = {}) {",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 283,
+          "content": "    { email: oauthEmail, name, source: 'github_oauth' },",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 307,
+          "content": "    source: 'github_oauth',",
+          "pattern": "github.*oauth"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 1,
+      "oauth_token_write": 3,
+      "plaintext_secrets": 2,
+      "session_extraction": 19,
+      "google_drive": 6,
+      "github_oauth": 9
+    }
+  },
+  "src/core/user-oauth-token.js": {
+    "path": "src/core/user-oauth-token.js",
+    "exists": true,
+    "line_count": 225,
+    "findings": {
+      "oauth_token_read": [
+        {
+          "line": 222,
+          "content": "export async function getOAuthToken(env, userId, provider, accountIdentifier = '') {",
+          "pattern": "getOauthToken"
+        },
+        {
+          "line": 111,
+          "content": "      `SELECT ${parts.join(', ')} FROM user_oauth_tokens",
+          "pattern": "SELECT.*user_oauth_tokens"
+        },
+        {
+          "line": 119,
+          "content": "      `SELECT ${parts.join(', ')} FROM user_oauth_tokens",
+          "pattern": "SELECT.*user_oauth_tokens"
+        }
+      ],
+      "encrypted_secrets": [
+        {
+          "line": 55,
+          "content": "    `SELECT secret_value_encrypted FROM user_secrets WHERE id = ? AND user_id = ? AND is_active = 1 LIMIT 1`,",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 59,
+          "content": "  if (!row?.secret_value_encrypted) return null;",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 61,
+          "content": "    return await decryptWithVault(env, row.secret_value_encrypted);",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 72,
+          "content": "  if (row.access_token_encrypted && env?.VAULT_MASTER_KEY) {",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 73,
+          "content": "    const t = await decryptWithVault(env, row.access_token_encrypted).catch(() => null);",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 84,
+          "content": "  if (row.refresh_token_encrypted && env?.VAULT_MASTER_KEY) {",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 85,
+          "content": "    const t = await decryptWithVault(env, row.refresh_token_encrypted).catch(() => null);",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 100,
+          "content": "  if (cols.has('access_token_encrypted')) parts.push('access_token_encrypted');",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 101,
+          "content": "  if (cols.has('refresh_token_encrypted')) parts.push('refresh_token_encrypted');",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 130,
+          "content": " * Persist refreshed Google access token to D1 (access_token, access_token_encrypted, expires_at).",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 159,
+          "content": "  if (cols.has('access_token_encrypted') && env.VAULT_MASTER_KEY) {",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 169,
+          "content": "  if (cols.has('access_token_encrypted')) {",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 170,
+          "content": "    sets.push('access_token_encrypted = ?');",
+          "pattern": "_encrypted"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 32,
+          "content": "  if (p === 'google' || p === 'gdrive' || p === 'google_drive') return 'google_drive';",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 47,
+          "content": "  if (p === 'google_drive' || p === 'gmail' || p === 'google_gmail' || p === 'google_calendar') return true;",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 38,
+          "content": "  const a = typeof env?.GOOGLE_OAUTH_CLIENT_SECRET === 'string' ? env.GOOGLE_OAUTH_CLIENT_SECRET.trim() : '';",
+          "pattern": "google_oauth"
+        },
+        {
+          "line": 44,
+          "content": "/** Google OAuth integrations that use oauth2.googleapis.com refresh with a refresh_token. */",
+          "pattern": "googleapis"
+        },
+        {
+          "line": 137,
+          "content": "  const res = await fetch('https://oauth2.googleapis.com/token', {",
+          "pattern": "googleapis"
+        }
+      ]
+    },
+    "summary": {
+      "oauth_token_read": 3,
+      "encrypted_secrets": 13,
+      "google_drive": 5
+    }
+  },
+  "src/core/auth-events.js": {
+    "path": "src/core/auth-events.js",
+    "exists": true,
+    "line_count": 57,
+    "findings": {},
+    "summary": {}
+  },
+  "src/core/provisionAuthenticatedUser.js": {
+    "path": "src/core/provisionAuthenticatedUser.js",
+    "exists": true,
+    "line_count": 114,
+    "findings": {},
+    "summary": {}
+  },
+  "src/core/ensureAppUser.js": {
+    "path": "src/core/ensureAppUser.js",
+    "exists": true,
+    "line_count": 115,
+    "findings": {},
+    "summary": {}
+  },
+  "src/core/provisionNewUser.js": {
+    "path": "src/core/provisionNewUser.js",
+    "exists": true,
+    "line_count": 65,
+    "findings": {},
+    "summary": {}
+  },
+  "src/integrations/tokens.js": {
+    "path": "src/integrations/tokens.js",
+    "exists": true,
+    "line_count": 54,
+    "findings": {
+      "google_drive": [
+        {
+          "line": 5,
+          "content": " * OAuth row for integration routes (GitHub, Google Drive, etc.):",
+          "pattern": "Google.*Drive"
+        }
+      ]
+    },
+    "summary": {
+      "google_drive": 1
+    }
+  },
+  "src/integrations/github.js": {
+    "path": "src/integrations/github.js",
+    "exists": true,
+    "line_count": 526,
+    "findings": {
+      "oauth_token_read": [
+        {
+          "line": 428,
+          "content": "        `SELECT provider, account_identifier FROM user_oauth_tokens WHERE user_id = ?`",
+          "pattern": "SELECT.*user_oauth_tokens"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 33,
+          "content": "                    'Authorization': `Bearer ${ghAccess}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 54,
+          "content": "                    'Authorization': `Bearer ${ghAccess}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 117,
+          "content": "      Authorization: `Bearer ${jwt}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 136,
+          "content": "        Authorization: `Bearer ${jwt}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 251,
+          "content": "        Authorization: `Bearer ${tokenResult.token}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 293,
+          "content": "      Authorization: `Bearer ${token}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 455,
+          "content": "      headers: { Authorization: `Bearer ${gdBearer}` }",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 465,
+          "content": "    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${gdBearer}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 480,
+          "content": "    const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghBearer}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 490,
+          "content": "    const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghBearer}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 503,
+          "content": "    const res = await fetch(`https://raw.githubusercontent.com/${encodeURIComponent(repo)}/HEAD/${filePath.split('/').map(p => encodeURIComponent(p)).join('/')}`, { headers: { Authorization: `Bearer ${ghBearer}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 518,
+          "content": "    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdBearer}` } });",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 431,
+          "content": "        if (r.provider === 'google_drive') google = true;",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 447,
+          "content": "    const tokenRow = await getIntegrationToken(env, integrationUserId, 'google_drive', '');",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 462,
+          "content": "    const tokenRow = await getIntegrationToken(env, integrationUserId, 'google_drive', '');",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 515,
+          "content": "    const tokenRow = await getIntegrationToken(env, integrationUserId, 'google_drive', '');",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 450,
+          "content": "    const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 465,
+          "content": "    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${gdBearer}` } });",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 518,
+          "content": "    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdBearer}` } });",
+          "pattern": "Google.*Drive"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 23,
+          "content": "    // Retrieve the GitHub token from Secret/Vault/KV",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 132,
+          "content": "    `https://api.github.com/app/installations/${match.id}/access_tokens`,",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 150,
+          "content": "export function getAdminGithubToken(env) {",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 151,
+          "content": "  const token = typeof env?.GITHUB_TOKEN === 'string' ? env.GITHUB_TOKEN.trim() : '';",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 157,
+          "content": " * Per-user GitHub OAuth from `user_oauth_tokens` only (no env.GITHUB_TOKEN).",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 160,
+          "content": "export async function getUserGithubToken(env, userId, providerAccountId = '') {",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 184,
+          "content": "/** User OAuth \u2192 GitHub App installation token (no PAT). */",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 185,
+          "content": "export async function resolveGitHubToken(env, authUser, owner) {",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 190,
+          "content": "    const userGh = await getUserGithubToken(env, uid, '');",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 199,
+          "content": "      console.warn('[GitHub] App token fallback failed:', err.message);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 207,
+          "content": " * GET /api/integrations/github/repos \u2014 session user token only; 401 when not connected.",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 222,
+          "content": "  const tokenResult = await getUserGithubToken(env, userId, accountParam);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 338,
+          "content": "  const { token, mode } = await resolveGitHubToken(env, authUser, owner);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 203,
+          "content": "  throw new Error('No GitHub auth resolved \u2014 connect GitHub OAuth or configure App credentials');",
+          "pattern": "github.*oauth"
+        }
+      ]
+    },
+    "summary": {
+      "oauth_token_read": 1,
+      "session_extraction": 12,
+      "google_drive": 7,
+      "github_oauth": 14
+    }
+  },
+  "src/api/integrations.js": {
+    "path": "src/api/integrations.js",
+    "exists": true,
+    "line_count": 1030,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 932,
+          "content": "        await recordIntegrationEvent(env, env.TENANT_ID || fallbackSystemTenantId(env), 'bluebubbles', 'webhook_received', sender, `iMessage webhook received from ${sender}`, { hook_matched: !!hook, chatGuid });",
+          "pattern": "env\\.TENANT_ID"
+        },
+        {
+          "line": 1013,
+          "content": "        await recordIntegrationEvent(env, env.TENANT_ID || fallbackSystemTenantId(env), 'resend', 'webhook_received', senderEmail, `Inbound email webhook received from ${senderEmail}`, { hook_matched: !!hook, subject });",
+          "pattern": "env\\.TENANT_ID"
+        }
+      ],
+      "user_id_from_session": [
+        {
+          "line": 244,
+          "content": "    return String(authUser?.email || authUser?._session_user_id || '').trim();",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "oauth_token_read": [
+        {
+          "line": 363,
+          "content": "        safeAll(env.DB, `SELECT provider, account_identifier, scope, expires_at, created_at, updated_at, metadata_json, workspace_id FROM user_oauth_tokens WHERE user_id = ?`, [userId]),",
+          "pattern": "SELECT.*user_oauth_tokens"
+        },
+        {
+          "line": 537,
+          "content": "        safeAll(env.DB, `SELECT provider, account_identifier, scope, expires_at, created_at, updated_at FROM user_oauth_tokens WHERE user_id = ? AND provider = ?`, [userId, OAUTH_PROVIDER_ALIASES[provider] || provider]),",
+          "pattern": "SELECT.*user_oauth_tokens"
+        },
+        {
+          "line": 780,
+          "content": "    const rows = await safeAll(env.DB, `SELECT provider, account_identifier FROM user_oauth_tokens WHERE user_id = ?`, [userId]);",
+          "pattern": "SELECT.*user_oauth_tokens"
+        },
+        {
+          "line": 869,
+          "content": "    const row = await safeFirst(DB, `SELECT 1 AS ok FROM user_oauth_tokens WHERE user_id = ? AND provider = ? LIMIT 1`, [userId, provider]);",
+          "pattern": "SELECT.*user_oauth_tokens"
+        }
+      ],
+      "plaintext_secrets": [
+        {
+          "line": 525,
+          "content": "        return jsonResponse({ ok: !!tok?.access_token, provider: 'supabase_management' });",
+          "pattern": "\\.access_token\\s*,(?!.*encrypt)"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 639,
+          "content": "        const res = await fetch('https://api.github.com/user', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 648,
+          "content": "        const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user,storageQuota', { headers: { Authorization: `Bearer ${gdToken}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 653,
+          "content": "    if (provider === 'openai') return testJsonFetch('https://api.openai.com/v1/models', env.OPENAI_API_KEY, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY || ''}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 655,
+          "content": "    if (provider === 'resend') return testJsonFetch('https://api.resend.com/emails?limit=1', env.RESEND_API_KEY, { headers: { Authorization: `Bearer ${env.RESEND_API_KEY || ''}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 683,
+          "content": "                const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=10&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 807,
+          "content": "        const res = await fetch(driveUrl.toString(), { headers: { Authorization: `Bearer ${gdToken}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 816,
+          "content": "        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 825,
+          "content": "        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 839,
+          "content": "        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 849,
+          "content": "        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 861,
+          "content": "        const res = await fetch(`https://raw.githubusercontent.com/${encodeURIComponent(repo)}/HEAD/${String(filePath || '').split('/').map((p) => encodeURIComponent(p)).join('/')}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 160,
+          "content": "                 WHERE tenant_id = ? AND COALESCE(is_enabled, 1) = 1",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 367,
+          "content": "        safeAll(env.DB, `SELECT provider_key, event_type, message, actor, created_at FROM integration_events WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 25`, [tenantId]),",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 534,
+          "content": "        safeFirst(env.DB, `SELECT * FROM integration_registry WHERE tenant_id = ? AND provider_key = ? LIMIT 1`, [tenantId, provider]),",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 535,
+          "content": "        safeAll(env.DB, `SELECT * FROM integration_health_checks WHERE tenant_id = ? AND provider_key = ? ORDER BY checked_at DESC LIMIT 5`, [tenantId, provider]),",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 536,
+          "content": "        safeAll(env.DB, `SELECT * FROM integration_events WHERE tenant_id = ? AND provider_key = ? ORDER BY created_at DESC LIMIT 10`, [tenantId, provider]),",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 584,
+          "content": "        safeAll(env.DB, `SELECT provider_key, display_name, secret_binding_name, status, last_health_check_at, last_health_latency_ms FROM integration_registry WHERE tenant_id = ? AND auth_type = 'api_key' ORDER BY sort_order`, [tenantId]),",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 585,
+          "content": "        safeAll(env.DB, `SELECT id, provider, key_name, key_preview, is_active, last_used_at, created_at FROM user_api_keys WHERE tenant_id = ? AND user_id = ? ORDER BY created_at DESC`, [tenantId, userId]),",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 625,
+          "content": "        env.DB.prepare(`UPDATE integration_registry SET last_health_check_at = datetime('now'), last_health_status = ?, last_health_latency_ms = ?, status = CASE WHEN ? = 'ok' THEN 'connected' ELSE 'degraded' END, updated_at = datetime('now') WHERE tenant_id = ? AND provider_key = ?`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 698,
+          "content": "    await env.DB.prepare(`UPDATE integration_registry SET last_sync_at = datetime('now'), updated_at = datetime('now') WHERE tenant_id = ? AND provider_key = ?`).bind(tenantId, provider).run();",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 709,
+          "content": "        `UPDATE integration_registry SET status = 'disconnected', account_display = NULL, updated_at = datetime('now') WHERE tenant_id = ? AND provider_key = 'supabase_oauth'`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 721,
+          "content": "    await env.DB.prepare(`UPDATE integration_registry SET status = 'disconnected', updated_at = datetime('now') WHERE tenant_id = ? AND provider_key = ?`).bind(tenantId, provider).run();",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 729,
+          "content": "    const row = await safeFirst(env.DB, `SELECT config_json, scopes_json FROM integration_registry WHERE tenant_id = ? AND provider_key = ?`, [tenantId, provider]);",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 734,
+          "content": "        await env.DB.prepare(`UPDATE integration_registry SET config_json = ?, scopes_json = ?, updated_at = datetime('now') WHERE tenant_id = ? AND provider_key = ?`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 737,
+          "content": "        await env.DB.prepare(`UPDATE integration_registry SET config_json = ?, scopes_json = ?, is_enabled = ?, updated_at = datetime('now') WHERE tenant_id = ? AND provider_key = ?`)",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 735,
+          "content": "            .bind(JSON.stringify(config), JSON.stringify(scopes), tenantId, provider).run();",
+          "pattern": "scope.*tenant(?!.*user_id)"
+        },
+        {
+          "line": 738,
+          "content": "            .bind(JSON.stringify(config), JSON.stringify(scopes), enabled, tenantId, provider).run();",
+          "pattern": "scope.*tenant(?!.*user_id)"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 15,
+          "content": "    ['int_google_drive', 'google_drive', 'Google Drive', 'storage', 'oauth2', 'disconnected', 20, null],",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 39,
+          "content": "    google_drive: 'google_drive',",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 54,
+          "content": "    google_drive: 'google_workspace',",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 249,
+          "content": "    if (p === 'gdrive' || p === 'google') return 'google_drive';",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 503,
+          "content": "    if (['github', 'google_drive', 'cloudflare_images'].includes(providerKey)) return byCategory?.integrations?.enabled || 0;",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 643,
+          "content": "    if (provider === 'google_drive') {",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 644,
+          "content": "        const token = await getIntegrationToken(env, userId, 'google_drive', '');",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 687,
+          "content": "    } else if (provider === 'google_drive') {",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 688,
+          "content": "        changes.push({ token_status: await oauthProviderConnected(env.DB, integrationUserId(authUser), 'google_drive') ? 'valid_row_present' : 'missing' });",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 718,
+          "content": "    if (['github', 'google_drive', 'google_gmail'].includes(provider)) {",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 785,
+          "content": "        if (r.provider === 'google_drive') google = true;",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 799,
+          "content": "        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 812,
+          "content": "        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 821,
+          "content": "        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 645,
+          "content": "        if (!token) return { ok: false, status: 'error', error: 'Google Drive OAuth token not found' };",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 647,
+          "content": "        if (!gdToken) return { ok: false, status: 'error', error: 'Google Drive token unavailable \u2014 please reconnect' };",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 648,
+          "content": "        const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user,storageQuota', { headers: { Authorization: `Bearer ${gdToken}` } });",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 802,
+          "content": "        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable \u2014 please reconnect' }, 401);",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 803,
+          "content": "        const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 815,
+          "content": "        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable \u2014 please reconnect' }, 401);",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 816,
+          "content": "        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 824,
+          "content": "        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable \u2014 please reconnect' }, 401);",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 825,
+          "content": "        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 654,
+          "content": "    if (provider === 'google_ai') return testJsonFetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(env.GOOGLE_AI_API_KEY || '')}`, env.GOOGLE_AI_API_KEY, {});",
+          "pattern": "googleapis"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 636,
+          "content": "        if (!token) return { ok: false, status: 'error', error: 'GitHub OAuth token not found' };",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 638,
+          "content": "        if (!ghToken) return { ok: false, status: 'error', error: 'GitHub token unavailable \u2014 please reconnect' };",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 639,
+          "content": "        const res = await fetch('https://api.github.com/user', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 683,
+          "content": "                const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=10&affiliation=owner,collaborator,organization_member', { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 838,
+          "content": "        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable \u2014 please reconnect' }, 401);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 839,
+          "content": "        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 848,
+          "content": "        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable \u2014 please reconnect' }, 401);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 849,
+          "content": "        const res = await fetch(`https://api.github.com/repos/${repo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 860,
+          "content": "        if (!ghToken) return jsonResponse({ error: 'GitHub token unavailable \u2014 please reconnect' }, 401);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 861,
+          "content": "        const res = await fetch(`https://raw.githubusercontent.com/${encodeURIComponent(repo)}/HEAD/${String(filePath || '').split('/').map((p) => encodeURIComponent(p)).join('/')}`, { headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'IAM-Platform' } });",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 14,
+          "content": "    ['int_github', 'github', 'GitHub', 'source_control', 'oauth2', 'disconnected', 10, null],",
+          "pattern": "github.*oauth"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 2,
+      "user_id_from_session": 1,
+      "oauth_token_read": 4,
+      "plaintext_secrets": 1,
+      "session_extraction": 11,
+      "cross_tenant_risk": 16,
+      "google_drive": 24,
+      "github_oauth": 11
+    }
+  },
+  "src/api/integrations/connect.js": {
+    "path": "src/api/integrations/connect.js",
+    "exists": true,
+    "line_count": 385,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 10,
+          "content": "    (env?.TENANT_ID && String(env.TENANT_ID).trim()) ||",
+          "pattern": "env\\.TENANT_ID"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 153,
+          "content": "        Authorization: `Bearer ${ptyTok}`,",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 358,
+          "content": "        `DELETE FROM user_api_keys WHERE tenant_id = ? AND user_id = ? AND LOWER(provider) = LOWER(?)`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 370,
+          "content": "           WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 372,
+          "content": "           WHERE tenant_id = ? AND LOWER(provider_key) = LOWER(?)`;",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 26,
+          "content": "    ['google_drive', 'google_gmail', 'google_calendar', 'gmail', 'google_ai'].includes(s)",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 218,
+          "content": "  if (['google_drive', 'google_gmail', 'google_calendar', 'gmail', 'google_ai'].includes(s)) {",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 219,
+          "content": "    providers.add('google_drive');",
+          "pattern": "google_drive"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 1,
+      "session_extraction": 1,
+      "cross_tenant_risk": 3,
+      "google_drive": 3
+    }
+  },
+  "src/api/settings-integrations.js": {
+    "path": "src/api/settings-integrations.js",
+    "exists": true,
+    "line_count": 381,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 21,
+          "content": "  if (env?.TENANT_ID) return String(env.TENANT_ID).trim();",
+          "pattern": "env\\.TENANT_ID"
+        }
+      ],
+      "oauth_token_read": [
+        {
+          "line": 100,
+          "content": "        `SELECT DISTINCT lower(provider) AS p FROM user_oauth_tokens WHERE user_id = ?`,",
+          "pattern": "SELECT.*user_oauth_tokens"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 229,
+          "content": "  if (bearerToken) headers.Authorization = `Bearer ${bearerToken}`;",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 337,
+          "content": "       WHERE tenant_id = ?",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 163,
+          "content": "    } else if (pk === 'google_drive' && tokProviders.has('google_drive')) {",
+          "pattern": "google_drive"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 1,
+      "oauth_token_read": 1,
+      "session_extraction": 1,
+      "cross_tenant_risk": 1,
+      "google_drive": 1
+    }
+  },
+  "src/core/media-r2-access.js": {
+    "path": "src/core/media-r2-access.js",
+    "exists": true,
+    "line_count": 149,
+    "findings": {},
+    "summary": {}
+  },
+  "src/api/workspace.js": {
+    "path": "src/api/workspace.js",
+    "exists": true,
+    "line_count": 191,
+    "findings": {
+      "cross_tenant_risk": [
+        {
+          "line": 30,
+          "content": "                 FROM workspace_settings WHERE workspace_id = ? LIMIT 1`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "cross_tenant_risk": 1
+    }
+  },
+  "src/api/workspaces.js": {
+    "path": "src/api/workspaces.js",
+    "exists": true,
+    "line_count": 949,
+    "findings": {
+      "cross_tenant_risk": [
+        {
+          "line": 169,
+          "content": "      `SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 185,
+          "content": "      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 404,
+          "content": "             FROM workspace_members WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 435,
+          "content": "          `SELECT id FROM workspace_members WHERE workspace_id = ? AND LOWER(email) = ? AND COALESCE(is_active, 1) = 1`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 666,
+          "content": "      .prepare(`SELECT * FROM workspace_connectivity_status WHERE workspace_id = ?`)",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 706,
+          "content": "          `SELECT * FROM workspace_audit_log WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 730,
+          "content": "             WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 905,
+          "content": "          `SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "cross_tenant_risk": 8
+    }
+  },
+  "src/api/settings-workspace.js": {
+    "path": "src/api/settings-workspace.js",
+    "exists": true,
+    "line_count": 710,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 586,
+          "content": "      const targetUserId = target?.user_id != null ? String(target.user_id).trim() : null;",
+          "pattern": "getUserId"
+        },
+        {
+          "line": 587,
+          "content": "      if (targetUserId && targetUserId === callerId) {",
+          "pattern": "getUserId"
+        },
+        {
+          "line": 607,
+          "content": "        if (targetUserId && targetUserId === callerId) return jsonResponse({ error: 'Cannot change own role' }, 400);",
+          "pattern": "getUserId"
+        },
+        {
+          "line": 622,
+          "content": "          metadata: { target_user_id: targetUserId, role: nextRole, status: memberStatusFromRow(target) },",
+          "pattern": "getUserId"
+        },
+        {
+          "line": 629,
+          "content": "        if (targetUserId && targetUserId === callerId) return jsonResponse({ error: 'Cannot remove self' }, 400);",
+          "pattern": "getUserId"
+        },
+        {
+          "line": 644,
+          "content": "          metadata: { target_user_id: targetUserId, status: 'removed' },",
+          "pattern": "getUserId"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 11,
+          "content": "import { getSession, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';",
+          "pattern": "getSession"
+        },
+        {
+          "line": 50,
+          "content": "  const session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 295,
+          "content": "             WHERE tenant_id = ?",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 68,
+          "content": "         WHERE workspace_id = ? AND user_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 209,
+          "content": "    .prepare(`SELECT id, role, user_id, is_active FROM workspace_members WHERE workspace_id = ? AND id = ? LIMIT 1`)",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 224,
+          "content": "       WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 276,
+          "content": "          .prepare(`SELECT * FROM workspace_limits WHERE workspace_id = ? LIMIT 1`)",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 397,
+          "content": "         WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 495,
+          "content": "           WHERE workspace_id = ? AND id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 580,
+          "content": "        .prepare(`SELECT * FROM workspace_members WHERE workspace_id = ? AND id = ? LIMIT 1`)",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 610,
+          "content": "          .prepare(`UPDATE workspace_members SET role = ?, updated_at = unixepoch() WHERE workspace_id = ? AND id = ?`)",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 632,
+          "content": "          .prepare(`UPDATE workspace_members SET is_active = 0, updated_at = unixepoch() WHERE workspace_id = ? AND id = ?`)",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 6,
+      "session_extraction": 2,
+      "cross_tenant_risk": 10
+    }
+  },
+  "src/api/r2-api.js": {
+    "path": "src/api/r2-api.js",
+    "exists": true,
+    "line_count": 1348,
+    "findings": {
+      "r2_credentials": [
+        {
+          "line": 89,
+          "content": "  return !!(env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && getR2S3Host(env));",
+          "pattern": "R2_ACCESS_KEY"
+        },
+        {
+          "line": 1211,
+          "content": "  const accessKey = env.R2_ACCESS_KEY_ID;",
+          "pattern": "R2_ACCESS_KEY"
+        },
+        {
+          "line": 1283,
+          "content": "/** S3 ListBuckets (account-wide) when R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY are set. */",
+          "pattern": "R2_ACCESS_KEY"
+        },
+        {
+          "line": 1285,
+          "content": "  const accessKey = env.R2_ACCESS_KEY_ID;",
+          "pattern": "R2_ACCESS_KEY"
+        },
+        {
+          "line": 1212,
+          "content": "  const secretKey = env.R2_SECRET_ACCESS_KEY;",
+          "pattern": "R2_SECRET"
+        },
+        {
+          "line": 1286,
+          "content": "  const secretKey = env.R2_SECRET_ACCESS_KEY;",
+          "pattern": "R2_SECRET"
+        }
+      ]
+    },
+    "summary": {
+      "r2_credentials": 6
+    }
+  },
+  "src/api/agent.js": {
+    "path": "src/api/agent.js",
+    "exists": true,
+    "line_count": 9193,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 1184,
+          "content": "      user_id, session_id, trigger_type, status,",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 2446,
+          "content": "       (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 2607,
+          "content": "              (id, tenant_id, workspace_id, user_id, session_id,",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 2634,
+          "content": "              (id, tenant_id, workspace_id, user_id, session_id,",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 5123,
+          "content": "  /** @type {{ user_id: string, tenant_id: string, workspace_id: string, session_id?: string|null }} */",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 8129,
+          "content": "       (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 8488,
+          "content": "       (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 5188,
+          "content": "    userId: session?.user_id,",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 5235,
+          "content": "  if (!tenantId && session?.user_id) {",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 5236,
+          "content": "    tenantId = await fetchAuthUserTenantId(env, session.user_id);",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 5239,
+          "content": "    session?.user_id ||",
+          "pattern": "session.*user_id"
+        },
+        {
+          "line": 8522,
+          "content": "    let sql = `SELECT q.id, q.tenant_id, q.session_id AS agent_session_id, q.user_id AS proposed_by,",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "oauth_token_read": [
+        {
+          "line": 4168,
+          "content": "            cacheReadTokens: totalUsage.cache_read_input_tokens,",
+          "pattern": "readToken"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 37,
+          "content": "import { getAuthUser, getSession,",
+          "pattern": "getSession"
+        },
+        {
+          "line": 379,
+          "content": "    sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 406,
+          "content": "    sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 431,
+          "content": "      sessionId: sessionId ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 544,
+          "content": "  const { sessionId, planId, taskId } = options;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 550,
+          "content": "  } else if (sessionId) {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 555,
+          "content": "    `).bind(sessionId).first().catch(() => null);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1173,
+          "content": "  const { tenantId, workspaceId, userId, sessionId, modelKey, stepsTotal } = p;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1206,
+          "content": "      sessionId != null ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1207,
+          "content": "      JSON.stringify({ model_key: modelKey, session_id: sessionId }),",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1221,
+          "content": "    sessionId: sessionId != null ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1719,
+          "content": "    session_id: context.sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1726,
+          "content": "    session_id: context.sessionId || input?.session_id || null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 2412,
+          "content": "    sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 2454,
+          "content": "      sessionId || null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 2469,
+          "content": "      session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 2480,
+          "content": "      sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3009,
+          "content": "    sessionId, tenantId, userId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3148,
+          "content": "        session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3149,
+          "content": "        conversation_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3155,
+          "content": "              : sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3189,
+          "content": "      const eidFail = String(params.chatAgentRunId || sessionId || 'unknown').slice(0, 200);",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3497,
+          "content": "        sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3588,
+          "content": "        sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3626,
+          "content": "          session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3650,
+          "content": "          session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3661,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3693,
+          "content": "        session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3694,
+          "content": "        conversation_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3702,
+          "content": "                : sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3714,
+          "content": "          session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3725,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3763,
+          "content": "          session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3774,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3802,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3824,
+          "content": "            sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 3867,
+          "content": "            sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4025,
+          "content": "        sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4048,
+          "content": "        session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4063,
+          "content": "        agentSessionId: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4070,
+          "content": "        terminalSessionId: null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4160,
+          "content": "            sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4818,
+          "content": "    sessionId: sessionPkId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4867,
+          "content": "          sessionId: sessionPkId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4995,
+          "content": "  const sessionId =",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4996,
+          "content": "    opts.conversationId || opts.session_id || opts.sessionId || null;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5052,
+          "content": "        sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5068,
+          "content": "        sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5082,
+          "content": "          session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5136,
+          "content": "      session_id: body.sessionId ?? body.session_id ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5147,
+          "content": "      session_id: body.sessionId ?? body.session_id ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5222,
+          "content": "  const sessionId = body.conversationId || body.session_id || body.sessionId || null;",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5263,
+          "content": "    session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5264,
+          "content": "    conversation_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5265,
+          "content": "    request_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5526,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5535,
+          "content": "          sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5586,
+          "content": "            sessionId: sessionId || null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 5681,
+          "content": "    sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6048,
+          "content": "        sessionId: sessionId ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6055,
+          "content": "    sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6102,
+          "content": "        sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6138,
+          "content": "        conversationId: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6255,
+          "content": "        conversationId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6278,
+          "content": "        workSessionId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6319,
+          "content": "              sessionId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6366,
+          "content": "        session_id: sessionId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6406,
+          "content": "              sessionId, tenantId, userId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6542,
+          "content": "                sessionId, tenantId, userId,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6656,
+          "content": "        sessionId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6657,
+          "content": "        conversationId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6692,
+          "content": "          conversationId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6729,
+          "content": "        conversationId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6736,
+          "content": "        refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6759,
+          "content": "          sessionId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6811,
+          "content": "        sessionId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6812,
+          "content": "        conversationId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6845,
+          "content": "          conversationId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6864,
+          "content": "        conversationId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6871,
+          "content": "        refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 6878,
+          "content": "          sessionId: sessionId ? String(sessionId) : null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 7394,
+          "content": "      session_id: body.session_id ?? identity.sessionId ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 7416,
+          "content": "        sessionId: sess.session_id,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 7441,
+          "content": "          sessionId: sess.session_id ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 7820,
+          "content": "    const session_id = String(body.session_id ?? body.sessionId ?? '').trim();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 7932,
+          "content": "      sessionId: body.session_id ?? body.sessionId ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 8645,
+          "content": "    const sessionId = String(url.searchParams.get('session_id') || '').trim();",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 8659,
+          "content": "    const sessionFilterTable = sessionId ? ` AND session_id = ?` : '';",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 8660,
+          "content": "    const sessionFilterAlias = sessionId ? ` AND q.session_id = ?` : '';",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 8661,
+          "content": "    const sessionBinds = sessionId ? [sessionId] : [];",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 8895,
+          "content": "          sessionId: body.sessionId ?? body.session_id ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 9050,
+          "content": "      sessionId: identity?.sessionId ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 4318,
+          "content": " *     -H \"Cookie: session=$IAM_SESSION\" \\",
+          "pattern": "cookie.*session"
+        },
+        {
+          "line": 4330,
+          "content": " *     -H \"Cookie: session=$IAM_SESSION\" \\",
+          "pattern": "cookie.*session"
+        },
+        {
+          "line": 8030,
+          "content": "          Authorization: `Bearer ${token}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 8070,
+          "content": "          Authorization: `Bearer ${token}`,",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 7477,
+          "content": "         WHERE tenant_id = ? AND (status IS NULL OR LOWER(TRIM(status)) != 'done')",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 7785,
+          "content": "      tenantId ? env.DB.prepare(`SELECT key FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 150`).bind(tenantId).all().then(r => { memory_keys = (r.results||[]).map(x=>x.key); }) : Promise.resolve(),",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 7803,
+          "content": "    const { results } = await env.DB.prepare(`SELECT key, memory_type, importance_score FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 200`).bind(tenantId).all().catch(() => ({ results: [] }));",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 8087,
+          "content": "       WHERE tenant_id = ? AND workspace_id = ?`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 182,
+          "content": "       WHERE workspace_id = ? AND is_active = 1",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 5970,
+          "content": "           WHERE workspace_id = ? AND is_active = 1",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 8387,
+          "content": "            `SELECT id, state_json FROM agentsam_workspace_state WHERE workspace_id = ? OR id = ? ORDER BY updated_at DESC LIMIT 1`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 42,
+          "content": "import { resolveGitHubToken } from '../core/github-token.js';",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 8009,
+          "content": "    const { token, error, status } = await resolveGitHubToken(authUser, env);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 8063,
+          "content": "    const { token, error, status } = await resolveGitHubToken(authUser, env);",
+          "pattern": "github.*token"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 12,
+      "oauth_token_read": 1,
+      "session_extraction": 96,
+      "cross_tenant_risk": 7,
+      "github_oauth": 3
+    }
+  },
+  "src/api/agentsam.js": {
+    "path": "src/api/agentsam.js",
+    "exists": true,
+    "line_count": 685,
+    "findings": {
+      "cross_tenant_risk": [
+        {
+          "line": 273,
+          "content": "             WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        }
+      ]
+    },
+    "summary": {
+      "cross_tenant_risk": 1
+    }
+  },
+  "src/api/settings.js": {
+    "path": "src/api/settings.js",
+    "exists": true,
+    "line_count": 3303,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 357,
+          "content": "    if (!env.DB) return jsonResponse({ prefs_json: {}, tenant_id: null, user_id: sessionUserId });",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1196,
+          "content": "    const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1249,
+          "content": "        session_user_id: sessionUserId || null,",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1283,
+          "content": "      const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1332,
+          "content": "    const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1393,
+          "content": "    const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1422,
+          "content": "      const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1453,
+          "content": "    const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1482,
+          "content": "      const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1515,
+          "content": "    const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        },
+        {
+          "line": 1559,
+          "content": "      const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);",
+          "pattern": "user_id.*session"
+        }
+      ],
+      "oauth_token_read": [
+        {
+          "line": 592,
+          "content": "          `SELECT DISTINCT lower(provider) AS p FROM user_oauth_tokens WHERE user_id = ?`,",
+          "pattern": "SELECT.*user_oauth_tokens"
+        }
+      ],
+      "encrypted_secrets": [
+        {
+          "line": 1778,
+          "content": "    if (!env.VAULT_MASTER_KEY && !env.VAULT_KEY) {",
+          "pattern": "VAULT_MASTER_KEY"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 231,
+          "content": "  if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 1593,
+          "content": "        headers: { Authorization: `Bearer ${k}` },",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 2127,
+          "content": "        if (token && !headers.Authorization) headers.Authorization = `Bearer ${token}`;",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 363,
+          "content": "        `SELECT * FROM user_storage_preferences WHERE tenant_id = ? AND user_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 710,
+          "content": "        `SELECT * FROM tenant_activation_status WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 751,
+          "content": "        `SELECT * FROM tenant_activation_status WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 786,
+          "content": "        `SELECT * FROM tenant_activation_status WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 800,
+          "content": "            `SELECT * FROM tenant_activation_status WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 817,
+          "content": "               WHERE tenant_id = ?`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 841,
+          "content": "            `SELECT * FROM tenant_activation_status WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 861,
+          "content": "        `SELECT * FROM tenant_branding WHERE tenant_id = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1632,
+          "content": "         WHERE tenant_id = ? AND created_at > unixepoch() - 2592000",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1673,
+          "content": "         WHERE tenant_id = ? AND created_at > unixepoch() - 2592000",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 3161,
+          "content": "    let where = `WHERE tenant_id = ?`;",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 3179,
+          "content": "         WHERE tenant_id = ? AND created_at >= unixepoch(date('now','start of month'))",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1189,
+          "content": "       WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1276,
+          "content": "         WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1325,
+          "content": "       WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1386,
+          "content": "       WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1415,
+          "content": "         WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1446,
+          "content": "       WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1475,
+          "content": "         WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1508,
+          "content": "       WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1552,
+          "content": "         WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 1930,
+          "content": "          `SELECT * FROM agentsam_model_tier WHERE workspace_id = ? ORDER BY tier_level`,",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 2304,
+          "content": "        // Workspace scoping: tools are visible when workspace_scope contains ws OR tenant_id matches.",
+          "pattern": "scope.*tenant(?!.*user_id)"
+        },
+        {
+          "line": 2473,
+          "content": "      // Scope: update only within the caller's workspace/tenant visibility.",
+          "pattern": "scope.*tenant(?!.*user_id)"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 559,
+          "content": "  const STORAGE_PROVIDER_PREFS_ALLOWED = ['r2', 'github', 'google_drive', 'supabase', 's3'];",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 642,
+          "content": "      google_drive: ['folder_id', 'folder_name'],",
+          "pattern": "google_drive"
+        },
+        {
+          "line": 1614,
+          "content": "      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(k)}`;",
+          "pattern": "googleapis"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 11,
+      "oauth_token_read": 1,
+      "encrypted_secrets": 1,
+      "session_extraction": 3,
+      "cross_tenant_risk": 24,
+      "google_drive": 3
+    }
+  },
+  "src/api/settings-api-keys.js": {
+    "path": "src/api/settings-api-keys.js",
+    "exists": true,
+    "line_count": 859,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 57,
+          "content": "  if (env?.TENANT_ID) return String(env.TENANT_ID).trim();",
+          "pattern": "env\\.TENANT_ID"
+        }
+      ],
+      "encrypted_secrets": [
+        {
+          "line": 349,
+          "content": "      ['secret_value_encrypted', encrypted],",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 584,
+          "content": "    if (has(sCols, 'secret_value_encrypted')) {",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 585,
+          "content": "      sets.push('secret_value_encrypted = ?');",
+          "pattern": "_encrypted"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 11,
+          "content": "import { jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId, getSession } from '../core/auth.js';",
+          "pattern": "getSession"
+        },
+        {
+          "line": 123,
+          "content": "  const session = await getSession(env, request).catch(() => null);",
+          "pattern": "getSession"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 8,
+          "content": " * - Scope every operation by authenticated user + tenant_id (when available) + workspace_id.",
+          "pattern": "scope.*tenant(?!.*user_id)"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 1,
+      "encrypted_secrets": 3,
+      "session_extraction": 2,
+      "cross_tenant_risk": 1
+    }
+  },
+  "src/api/unified-search.js": {
+    "path": "src/api/unified-search.js",
+    "exists": true,
+    "line_count": 728,
+    "findings": {
+      "hardcoded_tenant": [
+        {
+          "line": 564,
+          "content": "    if (!tenantId && typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) {",
+          "pattern": "env\\.TENANT_ID"
+        },
+        {
+          "line": 565,
+          "content": "      tenantId = env.TENANT_ID.trim();",
+          "pattern": "env\\.TENANT_ID"
+        },
+        {
+          "line": 571,
+          "content": "    if (!workspaceId && typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) {",
+          "pattern": "env\\.WORKSPACE_ID"
+        },
+        {
+          "line": 572,
+          "content": "      workspaceId = env.WORKSPACE_ID.trim();",
+          "pattern": "env\\.WORKSPACE_ID"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 155,
+          "content": " *   sessionId?: string | null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 277,
+          "content": "    sessionId: opts.sessionId ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 643,
+          "content": "        sessionId: authUser.session_id ?? null,",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 364,
+          "content": "                Authorization: `Bearer ${token}`,",
+          "pattern": "Authorization.*Bearer"
+        },
+        {
+          "line": 419,
+          "content": "              Authorization: `Bearer ${token}`,",
+          "pattern": "Authorization.*Bearer"
+        }
+      ],
+      "cross_tenant_risk": [
+        {
+          "line": 408,
+          "content": "           FROM github_repositories WHERE tenant_id = ?`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 233,
+          "content": "      scopeSql += ` AND tenant_id = $${params.length}`;",
+          "pattern": "scope.*tenant(?!.*user_id)"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 8,
+          "content": "import { resolveGitHubToken } from '../core/github-token.js';",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 348,
+          "content": "    const { token, error } = await resolveGitHubToken(authUser, env);",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 399,
+          "content": "    const { token, error } = await resolveGitHubToken(authUser, env);",
+          "pattern": "github.*token"
+        }
+      ]
+    },
+    "summary": {
+      "hardcoded_tenant": 4,
+      "session_extraction": 5,
+      "cross_tenant_risk": 2,
+      "github_oauth": 3
+    }
+  },
+  "src/api/vault.js": {
+    "path": "src/api/vault.js",
+    "exists": true,
+    "line_count": 470,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 256,
+          "content": "      name: 'AGENT_SESSION_DEFAULT_USER_ID',",
+          "pattern": "session.*user_id"
+        }
+      ],
+      "encrypted_secrets": [
+        {
+          "line": 72,
+          "content": "    `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active)",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 110,
+          "content": "    plaintext = await vaultDecrypt(env, row.secret_value_encrypted);",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 152,
+          "content": "    const oldPlain = await vaultDecrypt(env, existing.secret_value_encrypted);",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 158,
+          "content": "  await env.DB.prepare(`UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, updated_at = unixepoch() WHERE id = ?`).bind(newEncrypted, newMeta, id).run();",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 312,
+          "content": "      `UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, service_name = 'llm', updated_at = unixepoch() WHERE id = ?`,",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 334,
+          "content": "    `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active)",
+          "pattern": "_encrypted"
+        },
+        {
+          "line": 274,
+          "content": "    { name: 'VAULT_MASTER_KEY', type: 'secret', description: 'Vault encryption' },",
+          "pattern": "VAULT_MASTER_KEY"
+        },
+        {
+          "line": 298,
+          "content": "  const encrypted = await vaultEncrypt(value, env.VAULT_MASTER_KEY);",
+          "pattern": "VAULT_MASTER_KEY"
+        },
+        {
+          "line": 435,
+          "content": "  if (!env.VAULT_MASTER_KEY) return vaultErr('VAULT_MASTER_KEY not configured. Run: wrangler secret put VAULT_MASTER_KEY', 500);",
+          "pattern": "VAULT_MASTER_KEY"
+        },
+        {
+          "line": 30,
+          "content": "async function vaultEncrypt(env, plaintext) {",
+          "pattern": "encrypt\\("
+        },
+        {
+          "line": 65,
+          "content": "  const encrypted = await vaultEncrypt(env, secret_value);",
+          "pattern": "encrypt\\("
+        },
+        {
+          "line": 155,
+          "content": "  const newEncrypted = await vaultEncrypt(env, new_value);",
+          "pattern": "encrypt\\("
+        },
+        {
+          "line": 35,
+          "content": "export async function vaultDecrypt(env, encryptedB64) {",
+          "pattern": "decrypt\\("
+        }
+      ],
+      "r2_credentials": [
+        {
+          "line": 269,
+          "content": "    { name: 'R2_ACCESS_KEY_ID', type: 'secret', description: 'R2 storage' },",
+          "pattern": "R2_ACCESS_KEY"
+        },
+        {
+          "line": 270,
+          "content": "    { name: 'R2_SECRET_ACCESS_KEY', type: 'secret', description: 'R2 storage' },",
+          "pattern": "R2_SECRET"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 247,
+          "content": "    { name: 'GOOGLE_OAUTH_CLIENT_SECRET', type: 'secret', description: 'Google OAuth (alternate)' },",
+          "pattern": "google_oauth"
+        }
+      ],
+      "github_oauth": [
+        {
+          "line": 243,
+          "content": "    { name: 'GITHUB_TOKEN', type: 'secret', description: 'GitHub PAT for github_repos / github_file (preferred over per-user OAuth when set)' },",
+          "pattern": "github.*token"
+        },
+        {
+          "line": 241,
+          "content": "    { name: 'GITHUB_CLIENT_ID', type: 'plaintext', description: 'GitHub OAuth' },",
+          "pattern": "github.*oauth"
+        },
+        {
+          "line": 242,
+          "content": "    { name: 'GITHUB_CLIENT_SECRET', type: 'secret', description: 'GitHub OAuth' },",
+          "pattern": "github.*oauth"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 1,
+      "encrypted_secrets": 13,
+      "r2_credentials": 2,
+      "google_drive": 1,
+      "github_oauth": 3
+    }
+  },
+  "src/api/storage.js": {
+    "path": "src/api/storage.js",
+    "exists": true,
+    "line_count": 861,
+    "findings": {
+      "cross_tenant_risk": [
+        {
+          "line": 165,
+          "content": "       WHERE tenant_id = ? AND user_id = ?",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 496,
+          "content": "        WHERE tenant_id = ? AND COALESCE(is_active,1) = 1",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 608,
+          "content": "            `SELECT id FROM project_storage WHERE tenant_id = ? AND storage_name = ? LIMIT 1`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 612,
+          "content": "              `UPDATE project_storage SET status = 'active', storage_type = 'r2_bucket', storage_id = ?, metadata_json = ?, updated_at = unixepoch() WHERE tenant_id = ? AND storage_name = ?`,",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 630,
+          "content": "      const bucketRows = await q(env, new Set(), 'r2_objects', `SELECT DISTINCT bucket_id FROM r2_objects WHERE tenant_id = ? AND COALESCE(is_active,1) = 1`, [tenantId]);",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 699,
+          "content": "        ? q(env, new Set(), 'project_storage', `SELECT storage_name, storage_id, storage_type, status FROM project_storage WHERE tenant_id = ? AND status = 'active' ORDER BY storage_name`, [tenantId])",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 702,
+          "content": "        ? q(env, new Set(), 'storage_policies', `SELECT bucket_name, actions FROM storage_policies WHERE tenant_id = ? AND user_id = ? AND effect = 'allow'`, [tenantId, userId])",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 842,
+          "content": "        `SELECT prefs_json, updated_at FROM user_storage_preferences WHERE tenant_id = ? AND user_id = ? LIMIT 1`",
+          "pattern": "WHERE tenant_id\\s*=.*(?!user)"
+        },
+        {
+          "line": 448,
+          "content": "          WHERE workspace_id = ?",
+          "pattern": "WHERE workspace_id\\s*=.*(?!user)"
+        }
+      ],
+      "r2_credentials": [
+        {
+          "line": 164,
+          "content": "      `SELECT access_key_id, created_at, status FROM user_storage_access_keys",
+          "pattern": "user_storage_access_keys"
+        },
+        {
+          "line": 752,
+          "content": "        `INSERT INTO user_storage_access_keys (id, tenant_id, user_id, access_key_id, secret_hash, status, created_at)",
+          "pattern": "user_storage_access_keys"
+        }
+      ]
+    },
+    "summary": {
+      "cross_tenant_risk": 9,
+      "r2_credentials": 2
+    }
+  },
+  "dashboard/App.tsx": {
+    "path": "dashboard/App.tsx",
+    "exists": true,
+    "line_count": 3406,
+    "findings": {
+      "user_id_from_session": [
+        {
+          "line": 2699,
+          "content": "                          user_id={sessionUserId}",
+          "pattern": "user_id.*session"
+        }
+      ],
+      "session_extraction": [
+        {
+          "line": 1652,
+          "content": "  const openAgentThreadFromProblems = useCallback((sessionId: string) => {",
+          "pattern": "sessionId"
+        },
+        {
+          "line": 1653,
+          "content": "    const id = sessionId.trim();",
+          "pattern": "sessionId"
+        }
+      ],
+      "google_drive": [
+        {
+          "line": 32,
+          "content": "import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 2180,
+          "content": "        setToastMsg('Saved to Google Drive');",
+          "pattern": "Google.*Drive"
+        },
+        {
+          "line": 2720,
+          "content": "                      <GoogleDriveExplorer",
+          "pattern": "Google.*Drive"
+        }
+      ]
+    },
+    "summary": {
+      "user_id_from_session": 1,
+      "session_extraction": 2,
+      "google_drive": 3
+    }
+  },
+  "dashboard/src/lib/supabase.ts": {
+    "path": "dashboard/src/lib/supabase.ts",
+    "exists": true,
+    "line_count": 12,
+    "findings": {},
+    "summary": {}
+  },
+  "dashboard/features/agent-chat/ChatAssistant.tsx": {
+    "path": "dashboard/features/agent-chat/ChatAssistant.tsx",
+    "exists": true,
+    "line_count": 2404,
+    "findings": {
+      "session_extraction": [
+        {
+          "line": 1765,
+          "content": "            chatSessionId={conversationId}",
+          "pattern": "sessionId"
+        }
+      ]
+    },
+    "summary": {
+      "session_extraction": 1
+    }
+  },
+  "dashboard/components/auth/AuthSignInPage.tsx": {
+    "path": "dashboard/components/auth/AuthSignInPage.tsx",
+    "exists": true,
+    "line_count": 222,
+    "findings": {
+      "github_oauth": [
+        {
+          "line": 132,
+          "content": "            href={`/api/oauth/github/start?next=${encodeURIComponent(oauthReturn)}`}",
+          "pattern": "github.*oauth"
+        }
+      ]
+    },
+    "summary": {
+      "github_oauth": 1
+    }
+  },
+  "dashboard/components/auth/AuthSignUpPage.tsx": {
+    "path": "dashboard/components/auth/AuthSignUpPage.tsx",
+    "exists": true,
+    "line_count": 217,
+    "findings": {},
+    "summary": {}
+  }
+}

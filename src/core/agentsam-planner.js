@@ -200,7 +200,7 @@ export async function startAgentChatPlanWorkflowRun(env, p) {
   }
 
   const wid = runId();
-  const tid = p.tenantId != null && String(p.tenantId).trim() !== '' ? String(p.tenantId).trim() : 'tenant_sam_primeaux';
+  const tid = p.tenantId != null && String(p.tenantId).trim() !== '' ? String(p.tenantId).trim() : (env?.TENANT_ID || '');
   const ws = String(p.workspaceId || '').trim();
   if (!ws) throw new Error('workspaceId required for workflow run');
 
@@ -433,7 +433,7 @@ export async function createPlan(
 
   const pid = planId();
   const today = new Date().toISOString().slice(0, 10);
-  const tid0 = tenantId || 'tenant_sam_primeaux';
+  const tid0 = tenantId || env?.TENANT_ID || '';
   const ws0 = workspaceId || '';
   const uidRaw = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
   const canonicalUser = uidRaw ? await resolveCanonicalUserId(uidRaw, env).catch(() => uidRaw) : null;

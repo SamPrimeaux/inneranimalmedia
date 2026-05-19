@@ -803,7 +803,7 @@ export async function executeCommand(env, ctx, o) {
     const approvalId = 'appr_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
     const commandRunId = 'run_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
     const tidForRun =
-      tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : 'tenant_sam_primeaux';
+      tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : (env?.TENANT_ID || '');
     const userInput = String(cmd.display_name || cmd.slug || 'command').slice(0, 2000);
     const commandsExecuted = [
       {

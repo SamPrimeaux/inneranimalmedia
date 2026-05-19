@@ -878,6 +878,9 @@ function inferIntentHeuristically(text) {
   const hasCms       = is(/(cms|theme|liquid|shopify|content edit|cms page|cms section|cms component)/);
 
   // ── Agent / skill / tool ─────────────────────────────────────────────────
+  const hasSkillCreate =
+    is(/(create|make|build|write|add|new).{0,40}(skill|skills)/) &&
+    !is(/(SKILL\.md|src\/skills\/|agentsam_skill|playwright)/);
   const hasTool      = is(/(use tool|invoke|mcp tool|call tool|run tool|tool call)/);
   const hasSkill     = is(/(use skill|apply skill|run skill|invoke skill|skill:)/);
   const hasSpawn     = is(/(spawn subagent|delegate to|assign to agent|run.*agent|subagent|agent.*handle|have.*agent|let.*agent)/);
@@ -903,6 +906,7 @@ function inferIntentHeuristically(text) {
   if (hasRefactor)    return { taskType: 'refactor',               mode: 'agent' };
   if (hasReview)      return { taskType: 'review',                 mode: 'agent' };
   if (hasCode)        return { taskType: 'code',                   mode: 'agent' };
+  if (hasSkillCreate) return { taskType: 'plan',                   mode: 'agent' };
   if (hasPlan)        return { taskType: 'plan',                   mode: 'agent' };
   if (hasSkill)       return { taskType: 'skill_use',              mode: 'agent' };
   if (hasTool)        return { taskType: 'tool_use',               mode: 'agent' };
@@ -2113,6 +2117,35 @@ async function loadSkillsForTaskType(env, taskType, workspaceId) {
   }
 }
 
+/** Vague "create a skill" requests should interview first, not auto-run the plan executor. */
+function isSkillCreatorIntakeMessage(message) {
+  const m = String(message || '').trim();
+  if (!m) return false;
+  if (
+    /\b(SKILL\.md|src\/skills\/|agentsam_skill|playwright|validate the skill|wrun_|plan_\w{8,})\b/i.test(
+      m,
+    )
+  ) {
+    return false;
+  }
+  return (
+    /\b(create|make|build|write|add|new)\b.{0,50}\b(skill|skills)\b/i.test(m) ||
+    /\b(skill|skills)\b.{0,40}\b(for|to help|that helps)\b/i.test(m)
+  );
+}
+
+async function loadSkillCreatorSkillRow(env) {
+  if (!env?.DB) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT id, name, content_markdown FROM agentsam_skill
+       WHERE id = 'skill_skill_creator' AND is_active = 1 LIMIT 1`,
+    ).first();
+  } catch {
+    return null;
+  }
+}
+
 async function shouldIncludeRag(env, taskType, tenantId) {
   if (!env.DB) return false;
   try {
@@ -3007,7 +3040,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           const mk  = String(modelKey || '');
           const tt  = String(routingTaskType || 'chat');
           const md  = String(mode || 'agent');
-          const ws  = routingWs || 'ws_inneranimalmedia';
+          const ws  = routingWs || env.WORKSPACE_ID || '';
           // workspace-scoped arm first, then global fallback
           const arm = await env.DB.prepare(
             `SELECT id FROM agentsam_routing_arms
@@ -5426,14 +5459,18 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const explicitPlanPhrase = /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(
     message,
   );
+  const skillCreatorIntake = isSkillCreatorIntakeMessage(message);
 
   let enterLongWorkPlanPipeline = false;
   if (requestedMode === 'plan') {
-    enterLongWorkPlanPipeline = (isWorkIntent || explicitPlanPhrase) && planWordCount >= 3;
+    enterLongWorkPlanPipeline =
+      !skillCreatorIntake && (isWorkIntent || explicitPlanPhrase) && planWordCount >= 3;
   } else if (requestedMode === 'ask') {
-    enterLongWorkPlanPipeline = explicitPlanPhrase && isWorkIntent && planWordCount >= 5;
+    enterLongWorkPlanPipeline =
+      !skillCreatorIntake && explicitPlanPhrase && isWorkIntent && planWordCount >= 5;
   } else {
-    enterLongWorkPlanPipeline = !capabilityLedIntent && isWorkIntent && planWordCount >= 5;
+    enterLongWorkPlanPipeline =
+      !skillCreatorIntake && !capabilityLedIntent && isWorkIntent && planWordCount >= 5;
   }
 
   const askConversationalCurve =
@@ -5443,7 +5480,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     /^(what|who|where|when|why|how|explain|describe|define)\b/i.test(trimmedMsg);
   const isConversational =
     (wordParts.length < 4 && !looksLikeExplicitCommand) ||
-    askConversationalCurve;
+    askConversationalCurve ||
+    skillCreatorIntake;
 
   if (!isConversational && allowImmediateWorkflowMatch) {
     const workflowMatch = await resolveWorkflowForMessage(
@@ -6074,6 +6112,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (!minimalAskChat) {
     try {
       const skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
+      if (isSkillCreatorIntakeMessage(message)) {
+        const creator = await loadSkillCreatorSkillRow(env);
+        if (creator?.content_markdown && !skillRows.some((s) => s.id === creator.id)) {
+          skillRows.unshift(creator);
+        }
+        systemPrompt =
+          `${systemPrompt}\n\n## Skill creation mode\n` +
+          'Interview the user before planning or editing files. Ask what the skill should do, when it should trigger, and whether it is a Cursor skill (.cursor/skills) or an Agent Sam D1 skill. ' +
+          'Do not auto-run a multi-step implementation plan until requirements are confirmed.';
+      }
       const skillContext = skillRows
         .map((s) => `## Skill: ${s.name}\n${s.content_markdown}`)
         .join('\n\n---\n\n');

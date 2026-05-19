@@ -28,7 +28,7 @@ BUCKET="inneranimalmedia"
 # Vite base is /static/dashboard/app/ (dashboard/vite.config.ts). The live SPA shell loads
 # /static/dashboard/app/agent-dashboard.js — sync app/ first or production keeps stale JS.
 PREFIX="static/dashboard/app"
-PREFIX_LEGACY="static/dashboard/agent"
+MANIFEST_PREVIOUS_KEY="analytics/deploys/previous-manifest.json"
 TOML="wrangler.production.toml"
 DEPLOY_ENV="${DEPLOY_ENV:-production}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
@@ -112,18 +112,27 @@ rclone_sync_dashboard_prefix() {
     --progress
 }
 
-# Canonical (matches Vite asset URLs in dist/index.html)
+# Canonical prefix only (matches Vite base /static/dashboard/app/)
 rclone_sync_dashboard_prefix "$PREFIX"
-# Legacy mirror (dashboard/agent.html, bookmarks, Worker fallbacks)
-rclone_sync_dashboard_prefix "$PREFIX_LEGACY"
 
 R2_SYNC_END=$(date +%s)
 R2_SYNC_MS=$(( (R2_SYNC_END - R2_SYNC_START) * 1000 ))
-echo "→ R2 sync complete (${PREFIX}/ + ${PREFIX_LEGACY}/)"
+echo "→ R2 sync complete (${PREFIX}/)"
 
-# Canonical URL `/static/dashboard/shell.css` (HTML + shells) must hit this exact key; Vite only copies
+# Manifest-diff prune: delete keys from previous deploy not in current dist (replaces cron prune + D1 reconcile)
+if command -v node >/dev/null 2>&1; then
+  echo "→ R2 manifest-diff reconcile (stale chunk cleanup under ${PREFIX}/)"
+  node "$REPO_ROOT/scripts/r2-dashboard-manifest-reconcile.mjs" \
+    --dist "$REPO_ROOT/$DIST" \
+    --bucket "$BUCKET" \
+    --prefix "$PREFIX" \
+    --previous-key "$MANIFEST_PREVIOUS_KEY" \
+    || { echo "✗ R2 manifest-diff reconcile failed" >&2; exit 1; }
+fi
+
+# Canonical URL `/static/dashboard/shell.css` (HTML + shells) must hit this exact key; Vite copies
 # the file into dist as `static/dashboard/shell.css`, which rclone maps to
-# `static/dashboard/agent/static/dashboard/shell.css` — without this put, ASSETS.get(short key) misses.
+# `static/dashboard/app/static/dashboard/shell.css` — without this put, the short path 404s.
 SHELL_CANON="$REPO_ROOT/dashboard/public/static/dashboard/shell.css"
 if [[ -f "$SHELL_CANON" ]]; then
   echo "→ Publishing canonical R2 key static/dashboard/shell.css"
@@ -141,96 +150,17 @@ if [[ -f "$WS_SHELL" ]]; then
     -c "$TOML" --remote
 fi
 
-# R2 inventory: manifest + D1 upsert + stale marking (no object deletes — use npm run r2:prune:dry-run separately)
-DEPLOY_ID="${DEPLOY_ID:-deploy_$(date +%s)_$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo local)}"
-export DEPLOY_ID
-MANIFEST_PATH="$REPO_ROOT/analytics/deploys/$DEPLOY_ID/r2-manifest.json"
-R2_RECONCILE_STATUS=skipped
+R2_RECONCILE_STATUS=passed
 R2_OBJECT_COUNT=""
 R2_BYTE_COUNT=""
-if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" != "1" ] && command -v node >/dev/null 2>&1; then
-  echo "→ R2 deploy manifest + inventory reconcile (no R2 deletes; prune remains manual)"
-  R2_RECONCILE_STATUS=passed
-  R2_MANIFEST_TIMEOUT_SEC="${R2_MANIFEST_TIMEOUT_SEC:-1200}"
-  R2_INVENTORY_TIMEOUT_SEC="${R2_INVENTORY_TIMEOUT_SEC:-7200}"
-  R2_RECONCILE_TIMEOUT_SEC="${R2_RECONCILE_TIMEOUT_SEC:-3600}"
-
-  echo "[r2-manifest] start deploy_id=$DEPLOY_ID"
-  MF=0
-  _R2_PROJECT_ID="${DEPLOY_PROJECT_ID:-${DOCUMENTS_PROJECT_ID:-}}"
-  run_with_timeout_secs "$R2_MANIFEST_TIMEOUT_SEC" \
-    node "$REPO_ROOT/scripts/build-r2-deploy-manifest.mjs" \
-    --dist "$REPO_ROOT/$DIST" \
-    --bucket "$BUCKET" \
-    --prefix "$PREFIX" \
-    --deploy-id "$DEPLOY_ID" \
-    --tenant-id "${TENANT_ID}" \
-    --workspace-id "${WORKSPACE_ID}" \
-    --project-id "${_R2_PROJECT_ID}" \
-    || MF=$?
-  if [ -f "$MANIFEST_PATH" ] && command -v jq >/dev/null 2>&1; then
-    R2_OBJECT_COUNT=$(jq -r '.object_count // empty' "$MANIFEST_PATH" 2>/dev/null || true)
-    R2_BYTE_COUNT=$(jq -r '.total_size_bytes // empty' "$MANIFEST_PATH" 2>/dev/null || true)
+if command -v jq >/dev/null 2>&1; then
+  _cur_manifest_json="$(mktemp "${TMPDIR:-/tmp}/iam-cur-manifest.XXXXXX")"
+  if ./scripts/with-cloudflare-env.sh npx wrangler r2 object get \
+    "${BUCKET}/${MANIFEST_PREVIOUS_KEY}" --file "$_cur_manifest_json" -c "$TOML" --remote 2>/dev/null; then
+    R2_OBJECT_COUNT=$(jq -r '.object_count // empty' "$_cur_manifest_json" 2>/dev/null || true)
+    R2_BYTE_COUNT=$(jq -r '.total_size_bytes // empty' "$_cur_manifest_json" 2>/dev/null || true)
   fi
-  echo "[r2-manifest] end objects=${R2_OBJECT_COUNT:-?} bytes=${R2_BYTE_COUNT:-?}"
-
-  echo "[r2-inventory] start bucket=$BUCKET"
-  IF=0
-  _R2_EDITED_BY="${D1_AUTH_USER_ID:-${DEPLOY_USER_EMAIL:-}}"
-  set +e
-  set -o pipefail
-  run_with_timeout_secs "$R2_INVENTORY_TIMEOUT_SEC" \
-    node "$REPO_ROOT/scripts/inventory-r2-bucket.mjs" \
-    --bucket "$BUCKET" \
-    --upsert-d1 \
-    --deploy-id "$DEPLOY_ID" \
-    --tenant-id "${TENANT_ID}" \
-    --workspace-id "${WORKSPACE_ID}" \
-    --project-id "${_R2_PROJECT_ID}" \
-    --edited-by "${_R2_EDITED_BY}" \
-    2>&1 | tee "${TMPDIR:-/tmp}/iam-r2-inventory-${DEPLOY_ID}.log"
-  IF=${PIPESTATUS[0]}
-  set +o pipefail
-  set -e
-
-  echo "[r2-reconcile] start"
-  RF=0
-  REC_LOG="${TMPDIR:-/tmp}/iam-r2-reconcile-${DEPLOY_ID}.log"
-  set +e
-  set -o pipefail
-  run_with_timeout_secs "$R2_RECONCILE_TIMEOUT_SEC" \
-    node "$REPO_ROOT/scripts/reconcile-r2-deploy.mjs" \
-    --manifest "$MANIFEST_PATH" \
-    --bucket "$BUCKET" \
-    --deploy-id "$DEPLOY_ID" \
-    --tenant-id "${TENANT_ID}" \
-    --workspace-id "${WORKSPACE_ID}" \
-    --project-id "${_R2_PROJECT_ID}" \
-    --apply-stale \
-    2>&1 | tee "$REC_LOG"
-  RF=${PIPESTATUS[0]}
-  set +o pipefail
-  set -e
-  STALE_HINT=""
-  if [ -f "$REC_LOG" ]; then
-    STALE_HINT=$(grep -oE '"keys_to_mark_stale":[[:space:]]*[0-9]+' "$REC_LOG" | head -1 | tr -dc '0-9' || true)
-  fi
-  REC_STATUS=passed
-  if [ "$RF" -ne 0 ]; then REC_STATUS=failed; fi
-  echo "[r2-reconcile] end status=$REC_STATUS rc=$RF stale_candidates=${STALE_HINT:-unknown}"
-
-  if [ "$MF" -ne 0 ] || [ "$IF" -ne 0 ] || [ "$RF" -ne 0 ]; then
-    R2_RECONCILE_STATUS=failed
-    echo "⚠️  R2 reconcile steps had failures (manifest=$MF inventory=$IF reconcile=$RF)"
-  fi
-  if [ "${STRICT_R2_RECONCILE:-0}" = "1" ] && [ "$R2_RECONCILE_STATUS" = "failed" ]; then
-    echo "✗ STRICT_R2_RECONCILE=1 — aborting before worker deploy"
-    exit 1
-  fi
-fi
-
-if [ "${SKIP_R2_DEPLOY_RECONCILE:-}" = "1" ] && [ -n "${RUN_GROUP_ID:-}" ] && command -v node >/dev/null 2>&1; then
-  node "$REPO_ROOT/scripts/record-d1-deployment-health.mjs" --phase r2-skip 2>/dev/null || true
+  rm -f "$_cur_manifest_json"
 fi
 
 echo "→ Deploying worker..."
@@ -270,7 +200,7 @@ echo "[deploy-proof] local_dashboard_dist_files=${R2_LOCAL_OBJECTS} (rclone sync
 if [[ -n "${R2_OBJECT_COUNT:-}" ]]; then
   echo "[deploy-proof] r2_deploy_manifest_object_count=${R2_OBJECT_COUNT}"
 else
-  echo "[deploy-proof] r2_deploy_manifest_object_count=(not built — SKIP_R2_DEPLOY_RECONCILE=1 or manifest unavailable)"
+  echo "[deploy-proof] r2_deploy_manifest_object_count=(manifest unavailable)"
 fi
 echo "[deploy-proof] live GET ${GIT_STATUS_URL} → HTTP ${HTTP_CODE}"
 if command -v jq >/dev/null 2>&1 && [[ -s "$GIT_STATUS_TMP" ]]; then
@@ -328,39 +258,8 @@ if [ -f "$REPO_ROOT/.deploy-run-context.json" ] && command -v node >/dev/null 2>
     --output-preview "${WORKER_VERSION_ID:-}" || true
 fi
 
-# Build manifest → R2 (dashboard build history under analytics/app-builds/)
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 FILE_COUNT=$(find "$REPO_ROOT/$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')
-BRANCH=$(git branch --show-current 2>/dev/null || echo main)
-printf '{"git_hash":"%s","timestamp":"%s","file_count":%s,"branch":"%s","environment":"production"}' \
-  "$GIT_HASH" "$TS" "$FILE_COUNT" "$BRANCH" | \
-./scripts/with-cloudflare-env.sh npx wrangler r2 object put \
-  "${BUCKET}/analytics/app-builds/${TS}.json" \
-  --pipe --content-type application/json -c "$TOML" --remote
-echo "[deploy] build manifest → analytics/app-builds/${TS}.json"
-
-# Expire old build manifests (90 days) under analytics/app-builds/
-echo "→ Ensuring R2 lifecycle rule for analytics/app-builds/ (expire after 90 days)..."
-if ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle list "$BUCKET" -c "$TOML" 2>/dev/null | grep -qE 'app-builds-manifests-90d|app-builds/'; then
-  echo "  (lifecycle rule for app-builds/ likely already present — skipping add)"
-else
-  set +e
-  _lif_out=$(
-    ./scripts/with-cloudflare-env.sh npx wrangler r2 bucket lifecycle add "$BUCKET" app-builds-manifests-90d analytics/app-builds/ \
-      --expire-days 90 --force -c "$TOML" 2>&1
-  )
-  _lif_rc=$?
-  set -e
-  if [ "$_lif_rc" -ne 0 ]; then
-    if echo "$_lif_out" | grep -qE '10061|Rule IDs must be unique|unique'; then
-      echo "  (lifecycle rule already exists on bucket — continuing)"
-    else
-      echo "$_lif_out" >&2
-      exit "$_lif_rc"
-    fi
-  fi
-fi
 
 # Post-deploy: Supabase pgvector backfill for rows with NULL embedding (Edge Function).
 # Set SUPABASE_WEBHOOK_SECRET in .env.cloudflare (same value as the function's WEBHOOK_SECRET).

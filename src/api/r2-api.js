@@ -5,6 +5,7 @@
  */
 
 import { getAuthUser, jsonResponse } from '../core/auth';
+import { mergeR2S3EnvFromUserStorage } from '../core/user-storage-r2-credentials.js';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
 import { detectFileKind, isEditableTextKind } from '../core/file-kind.js';
 import {
@@ -370,6 +371,9 @@ export async function handleR2Api(request, url, env) {
   const path = url.pathname.replace(/\/$/, '') || '/';
   const pathLower = path.toLowerCase();
   const method = (request.method || 'GET').toUpperCase();
+
+  const authUser = await getAuthUser(request, env).catch(() => null);
+  env = await mergeR2S3EnvFromUserStorage(env, authUser);
 
   // 1. Buckets & Inventory
   if (pathLower === '/api/r2/buckets' && method === 'GET') {

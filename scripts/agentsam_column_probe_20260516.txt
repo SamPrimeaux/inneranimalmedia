@@ -1,0 +1,38 @@
+agentsam NO_TS column probe - 2026-05-16 19:36:56
+tables: 12
+
+## agentsam_skill_invocation (3919 rows)
+id, skill_id, tenant_id, user_id, person_uuid, workspace_id, conversation_id, trigger_method, input_summary, success, error_message, duration_ms, model_used, tokens_in, tokens_out, cost_usd, agent_id, tool_chain_id, ai_model_id, plan_task_id, invoked_at
+
+## agentsam_webhook_events (1167 rows)
+id, tenant_id, provider, event_type, event_id, payload_json, status, response_id, model_key, input_tokens, output_tokens, cost_usd, error_message, processed_at, received_at, endpoint_id, source, repo_full_name, branch, commit_sha, commit_message, actor, author_username, author_email, headers_json, signature_valid, ip_address, processing_error, processed_at_unix
+
+## agentsam_execution_performance_metrics (986 rows)
+id, tenant_id, workspace_id, user_id, metric_date, metric_grain, source_table, command_id, command_slug, tool_name, tool_category, workflow_id, workflow_run_id, chain_id, task_type, intent_category, trigger_key, model_key, provider, routing_arm_id, execution_count, success_count, failure_count, timeout_count, blocked_count, skipped_count, cancelled_count, approval_required_count, sla_breach_count, avg_duration_ms, min_duration_ms, max_duration_ms, median_duration_ms, p95_duration_ms, p99_duration_ms, success_rate_percent, failure_rate_percent, timeout_rate_percent, sla_breach_rate_percent, total_tokens_consumed, input_tokens, output_tokens, total_cost_usd, total_cost_cents, avg_cost_usd, avg_confidence_score, avg_quality_score, error_types_json, status_counts_json, metadata_json, first_seen_at, last_seen_at, last_computed_at, node_key
+
+## agentsam_deployment_health (161 rows)
+id, tenant_id, deployment_id, worker_name, environment, check_type, check_url, status, http_status_code, response_time_ms, error_message, metadata_json, checked_by, checked_at, workspace_id, checked_at_unix, last_checked_at
+
+## agentsam_eval_runs (92 rows)
+id, suite_id, case_id, tenant_id, model_key, provider, input_tokens, output_tokens, latency_ms, cost_usd, score_quality, score_latency, score_cost, score_tool_use, score_safety, score_overall, passed, output_text, grader_notes, grader_model, run_at, cached_input_tokens, schema_valid, retry_count, prompt_version_id, run_group_id, tool_calls_attempted, tool_calls_succeeded, failure_taxonomy, run_at_unix
+
+## agentsam_tool_stats_compacted (84 rows)
+id, tenant_id, workspace_id, tool_name, total_calls, success_count, failure_count, success_rate, total_cost_usd, total_tokens, avg_duration_ms, first_seen_at, last_seen_at, compacted_at, agent_id, timed_out_count, sla_breach_count, p95_duration_ms
+
+## agentsam_route_requirements (54 rows)
+id, route_key, task_type, min_context_window, min_output_tokens, requires_tools, requires_vision, requires_json_mode, requires_reasoning, requires_streaming, max_cost_per_1k_in, max_cost_per_1k_out, max_cost_per_call, max_latency_p50_ms, min_quality_score, preferred_tier, max_tier, budget_priority, preferred_providers, blocked_providers, is_active, mode, allowed_lanes_json, required_capability_keys_json, optional_capability_keys_json, blocked_capability_keys_json, approval_policy_json, max_tools
+
+## agentsam_usage_rollups_daily (39 rows)
+tenant_id, workspace_id, day, ai_calls, tokens_in, tokens_out, cost_usd, tool_calls, tool_successes, tool_failures, mcp_calls, deployments, webhook_events, blocked_count, error_count, provider_breakdown_json, top_tools_json, rollup_source, rolled_up_at
+
+## agentsam_prompt_cache_keys (7 rows)
+id, tenant_id, provider, model_key, cache_key_hash, cache_type, token_count, write_cost_usd, read_count, total_read_savings_usd, first_written_at, last_read_at, expires_at, source_type, source_id, workspace_id, agent_id, session_id, user_id, prompt_version_id, layer_keys_json, is_shared, fragment_hash, route_key
+
+## agentsam_health_daily (3 rows)
+id, tenant_id, day, health_status, snapshot_count, green_count, yellow_count, red_count, avg_tools_degraded, avg_rd_total, avg_tel_cost_24h, worst_status, health_notes, rolled_up_at, workspace_id, sla_breach_count, timed_out_count, snapshot_json, rolled_up_at_unix
+
+## agentsam_model_drift_signals (3 rows)
+id, model_key, provider, task_type, case_id, baseline_score, baseline_run_id, current_score, current_run_id, delta, delta_pct, detected_at, severity, acknowledged, acknowledged_by, acknowledged_at, notes, ai_model_id, routing_arm_paused, routing_arm_id
+
+## agentsam_webhook_weekly (1 rows)
+id, tenant_id, workspace_id, week_start, week_end, provider, total_received, total_processed, total_failed, total_cost_usd, top_event_types, top_repos, notes, rolled_up_at

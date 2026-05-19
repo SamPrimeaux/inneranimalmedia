@@ -902,7 +902,7 @@ async function mcpOAuthResolveTenantId(env, authUser) {
     } catch (_) {}
   }
 
-  return 'tenant_sam_primeaux';
+  return null;
 }
 
 async function mcpOAuthResolveWorkspaceId(env, authUser, url) {
@@ -927,7 +927,7 @@ async function mcpOAuthResolveWorkspaceId(env, authUser, url) {
     } catch (_) {}
   }
 
-  return 'ws_inneranimalmedia';
+  return null;
 }
 
 function mcpOAuthNormalizeScope(raw) {
@@ -1094,8 +1094,8 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     .first()
     .catch(() => null);
 
-  const tenantId = String(row.tenant_id || authRow?.tenant_id || 'tenant_sam_primeaux');
-  const workspaceId = String(metadata.workspace_id || 'ws_inneranimalmedia');
+  const tenantId = String(row.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
+  const workspaceId = String(metadata.workspace_id || env.WORKSPACE_ID || '');
   const scope = mcpOAuthNormalizeScope(metadata.scope || 'mcp:tools mcp:userinfo');
   const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
   const tokenHash = await mcpOAuthSha256Hex(accessToken);

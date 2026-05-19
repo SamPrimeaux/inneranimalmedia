@@ -1,0 +1,178 @@
+--- a/src/api/r2-api.js
++++ b/src/api/r2-api.js
+@@ -494,7 +494,7 @@
+     const bucket = url.searchParams.get('bucket');
+     const prefix = url.searchParams.get('prefix') || '';
+     const recursive = url.searchParams.get('recursive') === '1' || url.searchParams.get('recursive') === 'true';
+     const limitParam = Math.min(5000, Math.max(1, parseInt(url.searchParams.get('limit') || '1000', 10) || 1000));
+     
+     if (!bucket) return jsonResponse({ error: 'bucket required' }, 400);
+     const { bucketName, binding } = resolveR2Access(env, bucket);
+-
+-    if (binding && binding.list) {
+-      if (recursive) {
+-        const allObjects = [];
+-        let cursor;
+-        do {
+-          const pageLimit = Math.min(1000, limitParam - allObjects.length);
+-          if (pageLimit <= 0) break;
+-          const list = await binding.list({ prefix, limit: pageLimit, cursor });
+-          for (const o of list.objects || []) {
+-            if (o.key.endsWith('/')) continue;
+-            allObjects.push({
+-              key: o.key,
+-              size: o.size ?? 0,
+-              last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+-            });
+-            if (allObjects.length >= limitParam) break;
+-          }
+-          cursor = list.truncated ? list.cursor : undefined;
+-        } while (cursor && allObjects.length < limitParam);
+-        return jsonResponse({ objects: allObjects, prefixes: [] });
+-      }
+-      
+-      const list = await binding.list({ prefix, delimiter: '/', limit: limitParam });
+-      const objects = (list.objects || []).filter(o => !o.key.endsWith('/')).map(o => ({
+-        key: o.key,
+-        size: o.size ?? 0,
+-        last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+-      }));
+-      return jsonResponse({ objects, prefixes: list.rolledUpPrefixes || [] });
+-    }
+-    
+-    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+-    if (s3Denied) return s3Denied;
+-
+-    // S3 Compatibility Fallback (any account bucket when R2 API token is configured)
+-    const signed = await signR2Request(
+-      'GET',
+-      bucketName,
+-      '',
+-      recursive
+-        ? buildR2Query({ 'list-type': '2', prefix, 'max-keys': String(Math.min(1000, limitParam)) })
+-        : buildR2Query({ 'list-type': '2', prefix, delimiter: '/', 'max-keys': String(Math.min(1000, limitParam)) }),
+-      env,
+-    );
+-    if (!signed) return jsonResponse({ error: 'Bucket not bound and credentials missing' }, 400);
+-    
+-    const listResp = await fetch(signed.endpoint, { method: 'GET', headers: signed.headers });
+-    if (!listResp.ok) return jsonResponse({ error: 'R2 list failed', status: listResp.status }, 400);
+-    
+-    const parsed = parseListObjectsV2Xml(await listResp.text());
+-    return jsonResponse({ 
+-      objects: parsed.objects.map(o => ({ key: o.key, size: o.size, last_modified: o.lastModified })),
+-      prefixes: parsed.prefixes || []
+-    });
++    const listViaBinding = async () => {
++      if (!binding || !binding.list) return null;
++      if (recursive) {
++        const allObjects = [];
++        let cursor;
++        do {
++          const pageLimit = Math.min(1000, limitParam - allObjects.length);
++          if (pageLimit <= 0) break;
++          const list = await binding.list({ prefix, limit: pageLimit, cursor });
++          for (const o of list.objects || []) {
++            if (o.key.endsWith('/')) continue;
++            allObjects.push({
++              key: o.key,
++              size: o.size ?? 0,
++              last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
++            });
++            if (allObjects.length >= limitParam) break;
++          }
++          cursor = list.truncated ? list.cursor : undefined;
++        } while (cursor && allObjects.length < limitParam);
++        return { objects: allObjects, prefixes: [] };
++      }
++      const list = await binding.list({ prefix, delimiter: '/', limit: limitParam });
++      return {
++        objects: (list.objects || []).filter(o => !o.key.endsWith('/')).map(o => ({
++          key: o.key,
++          size: o.size ?? 0,
++          last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
++        })),
++        prefixes: list.rolledUpPrefixes || [],
++      };
++    };
++
++    const bindingList = await listViaBinding();
++    if (bindingList) return jsonResponse(bindingList);
++
++    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
++    if (s3Denied) return s3Denied;
++
++    const signed = await signR2Request(
++      'GET',
++      bucketName,
++      '',
++      recursive
++        ? buildR2Query({ 'list-type': '2', prefix, 'max-keys': String(Math.min(1000, limitParam)) })
++        : buildR2Query({ 'list-type': '2', prefix, delimiter: '/', 'max-keys': String(Math.min(1000, limitParam)) }),
++      env,
++    );
++    if (!signed) return jsonResponse({ error: 'Bucket not bound and credentials missing' }, 400);
++
++    const listResp = await fetch(signed.endpoint, { method: 'GET', headers: signed.headers });
++    if (!listResp.ok) return jsonResponse({ error: 'R2 list failed', status: listResp.status }, 400);
++
++    const parsed = parseListObjectsV2Xml(await listResp.text());
++    return jsonResponse({
++      objects: parsed.objects.map(o => ({ key: o.key, size: o.size, last_modified: o.lastModified })),
++      prefixes: parsed.prefixes || []
++    });
+   }
+@@ -711,13 +711,29 @@
+   if (pathLower === '/api/r2/head' && (method === 'GET' || method === 'HEAD')) {
+     const bucket = url.searchParams.get('bucket');
+     const key = url.searchParams.get('key');
+     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+     const { bucketName, binding } = resolveR2Access(env, bucket);
+-    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+-    if (s3Denied) return s3Denied;
+-    const denied = await assertR2ObjectAccess(request, env, bucketName, key);
+-    if (denied) return denied;
+-    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
+-    if (!meta) return jsonResponse({ error: 'Not found' }, 404);
+-    return jsonResponse({ ok: true, bucket: bucketName, ...meta });
++    const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
++    if (meta) {
++      const denied = await assertR2ObjectAccess(request, env, bucketName, key);
++      if (denied) return denied;
++      return jsonResponse({ ok: true, bucket: bucketName, ...meta });
++    }
++    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
++    if (s3Denied) return s3Denied;
++    const denied = await assertR2ObjectAccess(request, env, bucketName, key);
++    if (denied) return denied;
++    const fallbackMeta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
++    if (!fallbackMeta) return jsonResponse({ error: 'Not found' }, 404);
++    return jsonResponse({ ok: true, bucket: bucketName, ...fallbackMeta });
+   }
+@@ -758,13 +774,29 @@
+   if (pathLower === '/api/r2/stream' && (method === 'GET' || method === 'HEAD')) {
+     const bucketParam = (url.searchParams.get('bucket') || '').trim();
+     const key = (url.searchParams.get('key') || '').trim();
+     if (!bucketParam || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+     const { bucketName, binding } = resolveR2Access(env, bucketParam);
+-    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
+-    if (s3Denied) return s3Denied;
+-    const denied = await assertR2ObjectAccess(request, env, bucketName, key);
+-    if (denied) return denied;
+-    const streamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
+-    if (!streamRes) return jsonResponse({ error: 'Not found' }, 404);
+-    return streamRes;
++    const streamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
++    if (streamRes) {
++      const denied = await assertR2ObjectAccess(request, env, bucketName, key);
++      if (denied) return denied;
++      return streamRes;
++    }
++    const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
++    if (s3Denied) return s3Denied;
++    const denied = await assertR2ObjectAccess(request, env, bucketName, key);
++    if (denied) return denied;
++    const fallbackStreamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
++    if (!fallbackStreamRes) return jsonResponse({ error: 'Not found' }, 404);
++    return fallbackStreamRes;
+   }

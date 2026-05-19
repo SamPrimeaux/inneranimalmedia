@@ -35,7 +35,11 @@ import {
 } from 'lucide-react';
 import { ProjectType } from '../../types';
 import type { ActiveFile } from '../../types';
-import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from '../../agentChatConstants';
+import {
+  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
+  IAM_AGENT_CHAT_NEW_THREAD,
+  LS_AGENT_CHAT_CONVERSATION_ID,
+} from '../../agentChatConstants';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import type {
   ChatAssistantProps,
@@ -78,7 +82,7 @@ import '../agent-presence/presenceMotion.css';
 import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
 
 
-export { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../agentChatConstants';
+export { IAM_AGENT_CHAT_CONVERSATION_CHANGE, IAM_AGENT_CHAT_NEW_THREAD } from '../../agentChatConstants';
 
 export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activeProject,
@@ -367,14 +371,29 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
     
     const onExternalSend = (e: Event) => {
-      const msg = (e as CustomEvent<{ message?: string }>).detail?.message;
-      if (msg) handleSend(msg);
+      const detail = (e as CustomEvent<{ message?: string; modelKey?: string }>).detail;
+      const msg = detail?.message?.trim();
+      if (!msg) return;
+      void handleSend(msg, detail?.modelKey?.trim() ? { modelKey: detail.modelKey.trim() } : undefined);
     };
     window.addEventListener('iam-agent-external-send', onExternalSend);
+
+    const onNewThreadMessage = (e: Event) => {
+      const msg = (e as CustomEvent<{ message?: string }>).detail?.message?.trim();
+      if (!msg) return;
+      setMobileThreadTab('chat');
+      setThreadTitle('New Chat');
+      setPythonDraftHint(null);
+      queueMicrotask(() => {
+        void handleSend(msg);
+      });
+    };
+    window.addEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
 
     return () => {
       window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
       window.removeEventListener('iam-agent-external-send', onExternalSend);
+      window.removeEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
     };
   }, [handleSend]);
 
@@ -599,6 +618,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       })
       .catch(() => {});
   }, []);
+
+  const prevSelectedModelKeyRef = useRef('');
+  useEffect(() => {
+    const prev = prevSelectedModelKeyRef.current;
+    prevSelectedModelKeyRef.current = selectedModelKey;
+    if (!selectedModelKey || prev || isLoading) return;
+    const q = messageQueueRef.current;
+    if (!q.length) return;
+    const next = q[0];
+    setMessageQueue((prevQ) => prevQ.slice(1));
+    void handleSendRef.current(next);
+  }, [selectedModelKey, isLoading]);
 
   useEffect(() => {
     fetch('/api/settings/default-model', { credentials: 'same-origin' })
@@ -1019,9 +1050,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
   }, [pendingToolApproval, setMessages]);
 
-  async function handleSend(overrideMessage?: string) {
+  async function handleSend(overrideMessage?: string, sendOpts?: { modelKey?: string }) {
     const text = overrideMessage ?? input;
-    if ((!text && attachments.length === 0) || (isLoading && !overrideMessage) || !selectedModelKey) return;
+    let effectiveModelKey = (sendOpts?.modelKey?.trim() || selectedModelKey).trim();
+    if (!effectiveModelKey && chatModels[0]?.model_key) {
+      effectiveModelKey = chatModels[0].model_key;
+    }
+    if ((!text && attachments.length === 0) || (isLoading && !overrideMessage)) return;
+    if (!effectiveModelKey) {
+      if (overrideMessage?.trim()) {
+        setMessageQueue((prev) => (prev.includes(overrideMessage) ? prev : [...prev, overrideMessage]));
+      }
+      return;
+    }
+    if (sendOpts?.modelKey?.trim() && sendOpts.modelKey.trim() !== selectedModelKey) {
+      setSelectedModelKey(sendOpts.modelKey.trim());
+    } else if (effectiveModelKey !== selectedModelKey) {
+      setSelectedModelKey(effectiveModelKey);
+    }
     setThinkingState(null);
     
     if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -1126,8 +1172,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     form.append('mode', mode);
     form.append('agent_mode', mode);
     form.append('runtime_intent_mode', mode);
-    form.append('model', selectedModelKey);
-    const selectedModelProvider = chatModels.find((m) => m.model_key === selectedModelKey)?.provider || 'anthropic';
+    form.append('model', effectiveModelKey);
+    const selectedModelProvider = chatModels.find((m) => m.model_key === effectiveModelKey)?.provider || 'anthropic';
     form.append('provider', selectedModelProvider);
     form.append('conversationId', effectiveConvId);
     form.append('contextMode', String(activeProject));

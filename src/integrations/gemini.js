@@ -326,3 +326,66 @@ export async function chatWithToolsGemini(env, request, params) {
     },
   });
 }
+
+/**
+ * Non-streaming generateContent for plan tasks, workflows, and other dispatchComplete callers.
+ */
+export async function completeWithGemini(env, params) {
+  const {
+    modelKey,
+    providerModelId,
+    systemPrompt,
+    messages = [],
+    tools: toolDefinitions = [],
+    userId,
+  } = params;
+
+  const apiKey = await resolveModelApiKey(env, 'google', modelKey, userId);
+  if (!apiKey || !String(apiKey).trim()) {
+    throw new Error('Google AI API key not configured');
+  }
+
+  const resolvedModel =
+    providerModelId != null && String(providerModelId).trim() !== ''
+      ? String(providerModelId).trim()
+      : String(modelKey || '').trim();
+  if (!resolvedModel) throw new Error('modelKey required');
+
+  const geminiTools = normalizeGeminiTools(toolDefinitions);
+  const contents = toGeminiContents(messages);
+  const body = {
+    contents,
+    ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
+    ...(geminiTools ? { tools: geminiTools } : {}),
+    generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+  };
+
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}` +
+    `:generateContent?key=${apiKey}`;
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error(`Gemini request failed: ${e?.message ?? e}`);
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data?.error?.message ?? JSON.stringify(data);
+    throw new Error(`Gemini ${res.status}: ${detail}`);
+  }
+
+  let text = '';
+  for (const c of data?.candidates || []) {
+    for (const p of c?.content?.parts || []) {
+      if (typeof p?.text === 'string') text += p.text;
+    }
+  }
+  return { text, output_text: text };
+}

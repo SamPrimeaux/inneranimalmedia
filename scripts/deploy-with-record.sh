@@ -50,7 +50,6 @@ if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
   set +a
 fi
-[[ -f "$HOME/IAM_SECRETS.env" ]] && set -a && source "$HOME/IAM_SECRETS.env" && set +a
 export TRIGGERED_BY
 export DEPLOYMENT_NOTES
 export DEPLOY_VERSION

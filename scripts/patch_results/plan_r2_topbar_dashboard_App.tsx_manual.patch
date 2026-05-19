@@ -1,0 +1,19 @@
+--- a/dashboard/App.tsx
++++ b/dashboard/App.tsx
+@@ -1342,6 +1342,8 @@
+       } else if (s === 'monaco' || s === 'code') {
+         openTab('code');
+         if (isNarrowViewport) setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
++      } else if (s === 'r2') {
++        window.dispatchEvent(new CustomEvent('iam:palette-open-r2'));
+       }
+     };
+     window.addEventListener('iam:agent-open-surface', h as EventListener);
+@@ -1450,7 +1452,7 @@
+       } catch {
+         applySnapshots('Opened from cached snapshot. Use Repos or Files to refresh from remote if needed.');
+       }
+     },
+     [revealMainWorkspaceIfNarrow],
+   );
+*** End Patch

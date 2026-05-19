@@ -588,7 +588,7 @@ async function handlePost(request, env, authUser) {
   const budgetUsd = Number(body.budget_usd);
   const budget = Number.isFinite(budgetUsd) ? budgetUsd : 0;
 
-  let ownerUserId = 'usr_sam_primeaux';
+  let ownerUserId = null;
   try {
     const wpOwner = await env.DB
       .prepare(`SELECT owner_user_id FROM workspace_projects WHERE workspace_id = ? LIMIT 1`)
