@@ -12,6 +12,7 @@ import { selectAgentsamMcpToolRow } from './agentsam-mcp-tools.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { runTerminalCommand } from './terminal.js';
 import { scheduleRecordMcpToolExecution } from './mcp-tool-execution.js';
+import { scheduleToolCallLog } from './agentsam-ops-ledger.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 
 function isLikelySafeShellCommand(cmd) {
@@ -27,7 +28,6 @@ function isLikelySafeShellCommand(cmd) {
 }
 
 function scheduleTerminalToolCallLog(env, ctx, params) {
-  if (!env?.DB) return;
   const {
     tenantId,
     sessionId,
@@ -38,34 +38,24 @@ function scheduleTerminalToolCallLog(env, ctx, params) {
     durationMs,
     errorMessage,
     inputSummary,
+    agent_run_id,
+    agentRunId,
+    conversation_id,
+    conversationId,
   } = params;
-  const p = (async () => {
-    let uid = userId ?? null;
-    if (uid) uid = await resolveCanonicalUserId(String(uid).trim(), env);
-    await env.DB
-      .prepare(
-        `INSERT INTO agentsam_tool_call_log
-       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      )
-      .bind(
-        tenantId != null ? String(tenantId) : 'system',
-        sessionId ?? null,
-        String(toolName || 'terminal_run'),
-        status === 'success' ? 'success' : 'error',
-        Math.max(0, Math.floor(Number(durationMs) || 0)),
-        0,
-        0,
-        0,
-        uid,
-        workspaceId ?? null,
-        errorMessage != null ? String(errorMessage).slice(0, 8000) : null,
-        String(inputSummary ?? '').slice(0, 200),
-      )
-      .run();
-  })().catch((e) => console.warn('[agent-terminal-run tool_call_log]', e?.message ?? e));
-  if (ctx?.waitUntil) ctx.waitUntil(p);
-  else void p;
+  scheduleToolCallLog(env, ctx, {
+    tenantId: tenantId != null ? String(tenantId) : 'system',
+    workspaceId,
+    sessionId,
+    userId,
+    toolName: String(toolName || 'terminal_run'),
+    status: status === 'success' ? 'success' : 'error',
+    durationMs,
+    errorMessage,
+    inputSummary,
+    agent_run_id: agent_run_id ?? agentRunId,
+    conversation_id: conversation_id ?? conversationId ?? sessionId,
+  });
 }
 
 /**
@@ -204,6 +194,19 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       ).run();
     } catch (_) {}
 
+    const terminalSpine = {
+      agent_run_id:
+        body?.agent_run_id != null && String(body.agent_run_id).trim() !== ''
+          ? String(body.agent_run_id).trim()
+          : body?.agentRunId != null && String(body.agentRunId).trim() !== ''
+            ? String(body.agentRunId).trim()
+            : null,
+      conversation_id:
+        body?.conversation_id != null && String(body.conversation_id).trim() !== ''
+          ? String(body.conversation_id).trim()
+          : sessionId,
+    };
+
     scheduleRecordMcpToolExecution(env, ctx, {
       tenant_id: tenantId,
       workspace_id: targetWorkspace,
@@ -217,6 +220,7 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       user_id: uid,
       person_uuid: personUuid || null,
       status: execErr ? 'error' : 'completed',
+      ...terminalSpine,
     });
 
     scheduleTerminalToolCallLog(env, ctx, {
@@ -227,6 +231,7 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
       toolName: 'terminal_run',
       status: execErr ? 'error' : 'success',
       durationMs,
+      ...terminalSpine,
       errorMessage: execErr ? String(execErr.message || execErr) : null,
       inputSummary: String(runCommand).slice(0, 200),
     });

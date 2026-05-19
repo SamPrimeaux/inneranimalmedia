@@ -986,6 +986,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           tool_name: tool.name,
           tool_input: tool.parameters ?? {},
           conversation_id: conversationId || undefined,
+          agent_run_id: agentRunId?.trim() || undefined,
         }),
       });
       const j = (await res.json()) as { success?: boolean; error?: string; result?: unknown };

@@ -387,6 +387,10 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     workspaceId,
     errorMessage,
     inputSummary,
+    agent_run_id,
+    agentRunId,
+    conversation_id,
+    conversationId,
   } = fields;
   const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
   const ws =
@@ -423,6 +427,8 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     server_key: fields.server_key,
     approval_id: fields.approval_id,
     policy_decision_json: fields.policy_decision_json,
+    agent_run_id: agent_run_id ?? agentRunId,
+    conversation_id: conversation_id ?? conversationId ?? sessionId,
   });
   if (stat === 'error' && errMsg && ctx?.waitUntil) {
     scheduleAgentsamErrorLog(env, ctx, {
@@ -1750,6 +1756,15 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
     workspace_id: context.workspaceId ?? input?.workspace_id ?? null,
     person_uuid: context.personUuid ?? input?.person_uuid ?? null,
     request: context.request || null,
+    agent_run_id:
+      context.agent_run_id ?? context.agentRunId ?? input?.agent_run_id ?? input?.agentRunId ?? null,
+    conversation_id:
+      context.conversation_id ??
+      context.conversationId ??
+      context.sessionId ??
+      input?.conversation_id ??
+      input?.conversationId ??
+      null,
   };
   let out = await runBuiltinTool(env, toolName, params, context);
   if (out && typeof out === 'object' && out.error) {
@@ -2440,7 +2455,19 @@ async function createApprovalRequest(env, ctx, opts) {
     riskLevel,
     rationale,
     ledgerExtras,
+    agentRunId,
+    agent_run_id,
+    conversationId,
+    conversation_id,
   } = opts;
+  const approvalSpine = {
+    agent_run_id:
+      (agent_run_id ?? agentRunId) != null ? String(agent_run_id ?? agentRunId).trim() : null,
+    conversation_id:
+      (conversation_id ?? conversationId ?? sessionId) != null
+        ? String(conversation_id ?? conversationId ?? sessionId).trim()
+        : null,
+  };
   const proposalId  = 'prop_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const now         = Math.floor(Date.now() / 1000);
   const expiresAt   = now + 3600;
@@ -2495,6 +2522,7 @@ async function createApprovalRequest(env, ctx, opts) {
       status: 'awaiting_approval',
       requires_approval: 1,
       error_message: null,
+      ...approvalSpine,
     });
     scheduleAgentsamToolCallLog(env, ctx, {
       tenantId,
@@ -2509,6 +2537,7 @@ async function createApprovalRequest(env, ctx, opts) {
       workspaceId,
       errorMessage: null,
       inputSummary: argsStr.slice(0, 200),
+      ...approvalSpine,
       ...(ledgerExtras && typeof ledgerExtras === 'object' ? ledgerExtras : {}),
     });
   } catch (e) { console.warn('[agent] createApprovalRequest:', e?.message); }
@@ -3080,6 +3109,10 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     : routingArmIdParam;
   const routingArmIdStr = _resolvedArmId != null ? String(_resolvedArmId).trim() : '';
   const thompsonMkStr = thompsonModelKeyParam != null ? String(thompsonModelKeyParam).trim() : '';
+  const runSpineIds = {
+    agent_run_id: chatAgentRunId != null ? String(chatAgentRunId).trim() : null,
+    conversation_id: sessionId != null ? String(sessionId).trim() : null,
+  };
 
   const attributedRoutingArmId = () =>
     // accept arm if it was DB-resolved (no thompsonMkStr required) or if thompson model matches
@@ -3652,6 +3685,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           error_message: 'tool_arguments_json_parse_error',
           duration_ms: 0,
           status: 'error',
+          ...runSpineIds,
         });
         emit('tool_error', { tool: call.name, error: 'tool_arguments_json_parse_error' });
         toolResults.push({
@@ -3676,6 +3710,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           error_message: validation.reason,
           duration_ms: 0,
           status: 'error',
+          ...runSpineIds,
         });
         scheduleAgentsamToolCallLog(env, ctx, {
           tenantId,
@@ -3691,6 +3726,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           errorMessage: validation.reason,
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
           ...toolLogFieldsFromValidation(validation),
+          ...runSpineIds,
         });
         await auditToolDecision(env, {
           tenantId,
@@ -3740,6 +3776,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           error_message: grTool.decision?.reason || 'guardrail_blocked',
           duration_ms: 0,
           status: 'blocked',
+          ...runSpineIds,
         });
         scheduleAgentsamToolCallLog(env, ctx, {
           tenantId,
@@ -3755,6 +3792,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           errorMessage: grTool.decision?.reason || 'guardrail_blocked',
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
           ...toolLogFieldsFromValidation(validation),
+          ...runSpineIds,
         });
         await auditToolDecision(env, {
           tenantId,
@@ -3789,6 +3827,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           error_message: 'duplicate_pending_approval',
           duration_ms: 0,
           status: 'blocked',
+          ...runSpineIds,
         });
         scheduleAgentsamToolCallLog(env, ctx, {
           tenantId,
@@ -3804,6 +3843,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           errorMessage: 'duplicate_pending_approval',
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
           ...toolLogFieldsFromValidation(validation),
+          ...runSpineIds,
         });
         emit('approval_required', {
           approval_id: queuePending.id,
@@ -3830,6 +3870,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           riskLevel: validation.riskLevel,
           rationale: `Agent requested ${call.name} (${validation.riskLevel} risk)`,
           ledgerExtras: toolLogFieldsFromValidation(validation),
+          ...runSpineIds,
         });
         notifySam(env, { subject: `Approval required: ${call.name}`, body: `Tool: ${call.name}\nRisk: ${validation.riskLevel}\nArgs: ${JSON.stringify(call.input||{}).slice(0,500)}\n\nApprove: ${(env.IAM_ORIGIN||'').replace(/\/$/,'')}/dashboard/overview?proposal=${proposalId}`, category: 'approval' }).catch(() => {});
         emit('approval_required', { proposal_id: proposalId, tool_name: call.name, tool_args: call.input, risk_level: validation.riskLevel, message: 'This action requires your approval.' });
@@ -3892,6 +3933,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             personUuid: mcpCtx.personUuid,
             isSuperadmin: mcpCtx.isSuperadmin,
             request,
+            ...runSpineIds,
           },
           toolBudgetMs,
         );
@@ -4062,6 +4104,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         errorMessage: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
         inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
         ...toolLogFieldsFromValidation(validation),
+        ...runSpineIds,
       });
       const mcpExecId = scheduleRecordMcpToolExecution(env, ctx, {
         tenant_id: tenantId,
@@ -4077,6 +4120,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         user_id: userId,
         invoked_by: userId || 'iam_agent',
         status: execErr ? 'error' : 'completed',
+        ...runSpineIds,
       });
       const canonicalToolChainUserId = await resolveCanonicalUserId(userId, env);
       previousToolChainId = await fireForgetAgentToolChainRow(env, {
@@ -4094,6 +4138,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         toolInputJson: JSON.stringify(call.input || {}),
         workflowRunId: agentToolLedger?.runId ?? null,
         executionStepId: chatToolExecutionStepId,
+        ...runSpineIds,
         ctx,
       });
       if (previousToolChainId && !toolChainRootId) toolChainRootId = previousToolChainId;
@@ -9179,6 +9224,15 @@ export async function handleAgentApi(request, url, env, ctx) {
       body.conversation_id != null && String(body.conversation_id).trim() !== ''
         ? String(body.conversation_id).trim()
         : null;
+    const approvedToolSpine = {
+      agent_run_id:
+        body.agent_run_id != null && String(body.agent_run_id).trim() !== ''
+          ? String(body.agent_run_id).trim()
+          : body.agentRunId != null && String(body.agentRunId).trim() !== ''
+            ? String(body.agentRunId).trim()
+            : null,
+      conversation_id: conversationId,
+    };
 
     console.log('[execute-approved-tool] tool_name:', toolName);
     console.log('[execute-approved-tool] tool_input:', JSON.stringify(toolInput).slice(0, 2000));
@@ -9193,6 +9247,7 @@ export async function handleAgentApi(request, url, env, ctx) {
       personUuid: identity?.personUuid ?? actorCtx?.personUuid ?? null,
       isSuperadmin: !!(identity?.isSuperadmin ?? actorCtx?.isSuperadmin),
       request,
+      ...approvedToolSpine,
     };
 
     const toolBudgetMs = resolveToolExecutionBudgetMs(toolName, toolInput);
@@ -9222,6 +9277,7 @@ export async function handleAgentApi(request, url, env, ctx) {
         user_id: context.userId,
         invoked_by: context.userId || 'iam_agent',
         status: 'completed',
+        ...approvedToolSpine,
       });
 
       return jsonResponse({ success: true, tool_name: toolName, result });
@@ -9247,6 +9303,7 @@ export async function handleAgentApi(request, url, env, ctx) {
         user_id: context.userId,
         invoked_by: context.userId || 'iam_agent',
         status: 'error',
+        ...approvedToolSpine,
       });
 
       return jsonResponse({ success: false, tool_name: toolName, error: errMsg }, 200);

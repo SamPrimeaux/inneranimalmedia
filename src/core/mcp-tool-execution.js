@@ -6,6 +6,7 @@
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 import { recordSpan } from './tracer.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
+import { pickRunSpineIds } from './run-spine-ids.js';
 
 /** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
 export async function hashToolInputJson(obj) {
@@ -225,6 +226,8 @@ function normalizeMcpExecutionFields(fields, id) {
       ? String(pick('user_id', 'userId', 'invoked_by', 'invokedBy')).trim() || null
       : null;
 
+  const spine = pickRunSpineIds(f);
+
   const out = {
     id,
     tool_id: pick('tool_id', 'toolId'),
@@ -236,6 +239,8 @@ function normalizeMcpExecutionFields(fields, id) {
     user_id: userId,
     person_uuid: pick('person_uuid', 'personUuid'),
     session_id: pick('session_id', 'sessionId'),
+    agent_run_id: spine.agent_run_id,
+    conversation_id: spine.conversation_id,
     agent_id: pick('agent_id', 'agentId'),
     workflow_id: pick('workflow_id', 'workflowId'),
     input_json: inputJson,

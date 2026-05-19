@@ -12,6 +12,7 @@
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 import { assertBrowserOriginTrusted } from './auth.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
+import { pickRunSpineIds } from './run-spine-ids.js';
 
 export { scheduleAgentsamErrorLog };
 
@@ -135,6 +136,10 @@ function reportHelperFailure(env, ctx, source, err, scope = {}) {
  *   approval_id?: string|null,
  *   policyDecisionJson?: string|Record<string, unknown>|null,
  *   policy_decision_json?: string|Record<string, unknown>|null,
+ *   agent_run_id?: string|null,
+ *   agentRunId?: string|null,
+ *   conversation_id?: string|null,
+ *   conversationId?: string|null,
  * }} fields
  */
 export function scheduleToolCallLog(env, ctx, fields) {
@@ -184,11 +189,15 @@ export function scheduleToolCallLog(env, ctx, fields) {
       uidLog = await resolveCanonicalUserId(String(uidLog).trim(), env);
     }
 
+    const spine = pickRunSpineIds(fields);
+
     const v = {
       id: `tcl_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`,
       tenant_id: tid,
       workspace_id: ws,
       session_id: fields.sessionId ?? null,
+      agent_run_id: spine.agent_run_id,
+      conversation_id: spine.conversation_id,
       tool_name: toolName,
       status: stat,
       duration_ms: durationMs,

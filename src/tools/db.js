@@ -6,6 +6,7 @@
 import { d1_query as d1QueryCore } from '../core/d1.js';
 import { assertD1ReadOnlySelect } from '../core/d1-read-validator.js';
 import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { scheduleToolCallLog } from '../core/agentsam-ops-ledger.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 
 async function logPolicyBlock(env, fields) {
@@ -20,6 +21,20 @@ async function logPolicyBlock(env, fields) {
   const sqlSnippet = String(fields.sql || '').slice(0, 2000);
   const err = String(fields.error || 'policy_block');
   const inputSum = JSON.stringify({ sql: sqlSnippet }).slice(0, 200);
+  const spine = {
+    agent_run_id:
+      fields.agent_run_id != null && String(fields.agent_run_id).trim() !== ''
+        ? String(fields.agent_run_id).trim()
+        : fields.agentRunId != null && String(fields.agentRunId).trim() !== ''
+          ? String(fields.agentRunId).trim()
+          : null,
+    conversation_id:
+      fields.conversation_id != null && String(fields.conversation_id).trim() !== ''
+        ? String(fields.conversation_id).trim()
+        : fields.conversationId != null && String(fields.conversationId).trim() !== ''
+          ? String(fields.conversationId).trim()
+          : sessionId,
+  };
   void recordMcpToolExecution(env, {
     tenant_id: tenantId,
     workspace_id: workspaceId,
@@ -31,23 +46,41 @@ async function logPolicyBlock(env, fields) {
     duration_ms: 0,
     user_id: userId,
     status: 'error',
+    ...spine,
   }).catch(() => {});
-  void env.DB
-    .prepare(
-      `INSERT INTO agentsam_tool_call_log
-       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
-       VALUES (?, ?, 'd1_query', 'error', 0, 0, 0, 0, ?, ?, ?, ?)`,
-    )
-    .bind(tenantId, sessionId, userId, workspaceId, err, inputSum)
-    .run()
-    .catch(() => {});
+  scheduleToolCallLog(env, null, {
+    tenantId,
+    workspaceId,
+    sessionId,
+    userId,
+    toolName: 'd1_query',
+    status: 'error',
+    durationMs: 0,
+    errorMessage: err,
+    inputSummary: inputSum,
+    ...spine,
+  });
 }
 
 export const handlers = {
   /**
    * d1_query: read-only SELECT / WITH via src/core/d1.js
    */
-  async d1_query({ sql, params = [], tenant_id, user_id, workspace_id, session_id }, env) {
+  async d1_query(
+    {
+      sql,
+      params = [],
+      tenant_id,
+      user_id,
+      workspace_id,
+      session_id,
+      agent_run_id,
+      agentRunId,
+      conversation_id,
+      conversationId,
+    },
+    env,
+  ) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
     if (!sql) return { error: 'SQL query required' };
     if (user_id && (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')) {
@@ -63,6 +96,8 @@ export const handlers = {
         user_id: user_id ?? null,
         workspace_id: workspace_id ?? null,
         session_id: session_id ?? null,
+        agent_run_id: agent_run_id ?? agentRunId ?? null,
+        conversation_id: conversation_id ?? conversationId ?? session_id ?? null,
       });
       return {
         error: `${gate.error} For mutations, use d1_write after dashboard approval.`,
@@ -107,7 +142,20 @@ export const handlers = {
   /**
    * EXPLAIN QUERY PLAN for a read-only SELECT / WITH (same gate as d1_query).
    */
-  async d1_explain({ sql, tenant_id, user_id, workspace_id, session_id }, env) {
+  async d1_explain(
+    {
+      sql,
+      tenant_id,
+      user_id,
+      workspace_id,
+      session_id,
+      agent_run_id,
+      agentRunId,
+      conversation_id,
+      conversationId,
+    },
+    env,
+  ) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
     if (!sql) return { error: 'SQL query required' };
     if (
@@ -125,6 +173,8 @@ export const handlers = {
         user_id: user_id ?? null,
         workspace_id: workspace_id ?? null,
         session_id: session_id ?? null,
+        agent_run_id: agent_run_id ?? agentRunId ?? null,
+        conversation_id: conversation_id ?? conversationId ?? session_id ?? null,
       });
       return { error: `${gate.error} EXPLAIN is read-only.` };
     }

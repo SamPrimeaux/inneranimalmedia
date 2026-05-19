@@ -207,6 +207,10 @@ export async function fireForgetAgentToolChainRow(env, opts) {
     toolInputJson = null,
     workflowRunId = null,
     executionStepId = null,
+    agentRunId = null,
+    agent_run_id = null,
+    conversationId = null,
+    conversation_id = null,
   } = opts || {};
   if (!env?.DB) return null;
   const ws =
@@ -230,6 +234,22 @@ export async function fireForgetAgentToolChainRow(env, opts) {
   if (tcCols.has('execution_step_id')) {
     scopeMid += ', execution_step_id';
     scopeMidBinds.push(esId);
+  }
+  const arId =
+    (agentRunId ?? agent_run_id) != null && String(agentRunId ?? agent_run_id).trim() !== ''
+      ? String(agentRunId ?? agent_run_id).trim()
+      : null;
+  const convId =
+    (conversationId ?? conversation_id) != null && String(conversationId ?? conversation_id).trim() !== ''
+      ? String(conversationId ?? conversation_id).trim()
+      : null;
+  if (tcCols.has('agent_run_id')) {
+    scopeMid += ', agent_run_id';
+    scopeMidBinds.push(arId);
+  }
+  if (tcCols.has('conversation_id')) {
+    scopeMid += ', conversation_id';
+    scopeMidBinds.push(convId);
   }
   const completedAt = Math.floor(Date.now() / 1000);
   const durSec = Math.max(0, Math.ceil((Number(durationMs) || 0) / 1000));
