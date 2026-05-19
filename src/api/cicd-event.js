@@ -1,5 +1,6 @@
 // Handles all CICD lifecycle events and fans out to correct D1 tables.
 import { fallbackSystemTenantId } from '../core/auth.js';
+import { dispatchComplete } from '../core/provider.js';
 // Tables written per event:
 //   post_promote  → deployments, deployment_health_checks, deployment_changes,
 //                   tracking_metrics, ai_workflow_executions, project_storage
@@ -25,7 +26,7 @@ export async function handleCicdEvent(request, env, ctx) {
     case 'session_start':
       return await handleSessionStart(payload, env);
     case 'session_end':
-      return await handleSessionEnd(payload, env);
+      return await handleSessionEnd(payload, env, ctx);
     default:
       return Response.json({ error: `Unknown event: ${event}` }, { status: 400 });
   }
@@ -217,7 +218,228 @@ async function handleSessionStart(p, env) {
   return Response.json({ ok: true, entry_id: entryId });
 }
 
-async function handleSessionEnd(p, env) {
+async function sha256Hex(input) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(input ?? '')));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Cheapest active catalog row (agentsam_ai.sort_order + size_class). */
+async function resolveCheapestModelKey(env) {
+  if (!env?.DB) return null;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT model_key FROM agentsam_ai
+       WHERE mode = 'model' AND status = 'active'
+         AND lower(COALESCE(size_class, '')) = 'small'
+       ORDER BY sort_order ASC, name ASC
+       LIMIT 1`,
+    ).first();
+    if (row?.model_key) return String(row.model_key).trim();
+    const fallback = await env.DB.prepare(
+      `SELECT model_key FROM agentsam_ai
+       WHERE mode = 'model' AND status = 'active'
+       ORDER BY sort_order ASC, name ASC
+       LIMIT 1`,
+    ).first();
+    return fallback?.model_key ? String(fallback.model_key).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonSafe(value, fallback = null) {
+  if (value == null) return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Summarize session tool use + chat, upsert agentsam_context_digest (digest_type=session).
+ * @param {any} env
+ * @param {Record<string, unknown>} payload session_end payload
+ */
+export async function writeSessionContextDigest(env, payload) {
+  if (!env?.DB) return;
+  const workspaceId =
+    payload?.workspace_id != null && String(payload.workspace_id).trim()
+      ? String(payload.workspace_id).trim()
+      : '';
+  const sessionId =
+    payload?.session_id != null && String(payload.session_id).trim()
+      ? String(payload.session_id).trim()
+      : '';
+  if (!workspaceId || !sessionId) return;
+
+  const userId =
+    payload?.user_id != null && String(payload.user_id).trim()
+      ? String(payload.user_id).trim()
+      : null;
+
+  const toolLimit = 24;
+  const msgLimit = 32;
+  let toolRows = [];
+  let messageRows = [];
+
+  try {
+    const tools = await env.DB.prepare(
+      `SELECT tool_name, tool_key, success, created_at, input_json
+       FROM agentsam_mcp_tool_execution
+       WHERE session_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    )
+      .bind(sessionId, toolLimit)
+      .all();
+    toolRows = tools.results || [];
+  } catch {
+    toolRows = [];
+  }
+
+  try {
+    const msgs = await env.DB.prepare(
+      `SELECT role, content, created_at
+       FROM agent_messages
+       WHERE conversation_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    )
+      .bind(sessionId, msgLimit)
+      .all();
+    messageRows = (msgs.results || []).reverse();
+  } catch {
+    messageRows = [];
+  }
+
+  const toolLines = toolRows.map((r) => {
+    const name = String(r.tool_key || r.tool_name || 'tool');
+    const st = Number(r.success) === 1 ? 'ok' : 'error';
+    const inp = parseJsonSafe(r.input_json, {});
+    const pathHints = [
+      inp?.path,
+      inp?.workspacePath,
+      inp?.workspace_path,
+      inp?.r2Key,
+      inp?.r2_key,
+      inp?.githubPath,
+      inp?.github_path,
+    ]
+      .filter((x) => x != null && String(x).trim())
+      .map((x) => String(x).trim());
+    const paths = pathHints.length ? ` paths=${pathHints.join(', ')}` : '';
+    return `- ${name} (${st})${paths}`;
+  });
+
+  const msgLines = messageRows.map((m) => {
+    const role = String(m.role || 'unknown');
+    const text = String(m.content || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+    return `- [${role}] ${text}`;
+  });
+
+  const sourceMaterial = [
+    `session_id: ${sessionId}`,
+    `workspace_id: ${workspaceId}`,
+    payload?.summary != null ? `session_summary: ${String(payload.summary).slice(0, 500)}` : '',
+    payload?.duration_ms != null ? `duration_ms: ${payload.duration_ms}` : '',
+    'tool_calls:',
+    toolLines.length ? toolLines.join('\n') : '(none recorded)',
+    'conversation:',
+    msgLines.length ? msgLines.join('\n') : '(no messages)',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const sourceHash = await sha256Hex(sourceMaterial);
+  const digestHash = await sha256Hex(`${workspaceId}:session`);
+
+  let digestText = '';
+  const modelKey = await resolveCheapestModelKey(env);
+  const summarizePrompt = [
+    'Summarize this Agent Sam chat session for the next session system prompt.',
+    'Include: what was worked on, files/paths touched, tools used, current state, and open items.',
+    'Use concise markdown bullets. Max ~400 words.',
+    '',
+    sourceMaterial,
+  ].join('\n');
+
+  if (modelKey) {
+    try {
+      const result = await dispatchComplete(env, {
+        modelKey,
+        systemPrompt: 'You write compact workspace session digests for an AI coding agent.',
+        messages: [{ role: 'user', content: summarizePrompt }],
+        tools: [],
+        userId,
+        options: { reasoningEffort: 'none', verbosity: 'low' },
+      });
+      digestText =
+        (typeof result?.text === 'string' && result.text) ||
+        result?.choices?.[0]?.message?.content ||
+        result?.output_text ||
+        '';
+    } catch (e) {
+      console.warn('[context_digest] summarize', e?.message ?? e);
+    }
+  }
+
+  if (!String(digestText).trim()) {
+    digestText = [
+      '# Session digest (deterministic fallback)',
+      payload?.summary ? `- ${String(payload.summary).slice(0, 400)}` : '',
+      toolLines.length ? `## Tools\n${toolLines.slice(0, 12).join('\n')}` : '',
+      msgLines.length ? `## Recent messages\n${msgLines.slice(-6).join('\n')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  digestText = String(digestText).trim().slice(0, 12000);
+  if (!digestText) return;
+
+  const rawBytes = new TextEncoder().encode(sourceMaterial).length;
+  const reducedBytes = new TextEncoder().encode(digestText).length;
+  const tokenEstimate = Math.ceil(reducedBytes / 4);
+  const digestId = `cd_${digestHash.slice(0, 16)}`;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_context_digest (
+         id, workspace_id, digest_type, source_hash, digest_hash,
+         raw_size_bytes, reduced_size_bytes, token_count, digest_text,
+         generation_model, namespace, updated_at
+       ) VALUES (?, ?, 'session', ?, ?, ?, ?, ?, ?, ?, 'agent_session', datetime('now'))
+       ON CONFLICT(digest_hash) DO UPDATE SET
+         digest_text = excluded.digest_text,
+         source_hash = excluded.source_hash,
+         raw_size_bytes = excluded.raw_size_bytes,
+         reduced_size_bytes = excluded.reduced_size_bytes,
+         token_count = excluded.token_count,
+         generation_model = excluded.generation_model,
+         updated_at = datetime('now')`,
+    )
+      .bind(
+        digestId,
+        workspaceId,
+        sourceHash,
+        digestHash,
+        rawBytes,
+        reducedBytes,
+        tokenEstimate,
+        digestText,
+        modelKey || 'fallback',
+      )
+      .run();
+  } catch (e) {
+    console.warn('[context_digest] upsert', e?.message ?? e);
+  }
+}
+
+async function handleSessionEnd(p, env, ctx) {
   const entryId = await env.KV.get(`session_time_entry:${p.session_id}`);
   if (!entryId) return Response.json({ ok: false, reason: 'no open entry' });
 
@@ -227,6 +449,16 @@ async function handleSessionEnd(p, env) {
   `).bind(hours, p.summary || 'Agent session', entryId).run();
 
   await env.KV.delete(`session_time_entry:${p.session_id}`);
+
+  const digestPromise = writeSessionContextDigest(env, p).catch((e) =>
+    console.warn('[context_digest] session_end', e?.message ?? e),
+  );
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(digestPromise);
+  } else {
+    await digestPromise;
+  }
+
   return Response.json({ ok: true, hours });
 }
 

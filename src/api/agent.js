@@ -763,9 +763,30 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     if (!minimalAsk && modeConfig?.system_prompt_fragment) parts.push(modeConfig.system_prompt_fragment);
     if (!minimalAsk && includeWorkspace && contextBlock) parts.push(contextBlock);
 
-    const result = parts.join('\n\n---\n\n');
+    let result = parts.join('\n\n---\n\n');
 
-    if (_kv) _kv.put(_kvKey, result, { expirationTtl: 300 }).catch(() => {});
+    // Workspace session digest (cache-miss path only; not stored in KV — stays fresh per build)
+    if (!minimalAsk && options?.workspaceId && env.DB) {
+      try {
+        const wsDigest = String(options.workspaceId).trim();
+        if (wsDigest) {
+          const digest = await env.DB.prepare(
+            `SELECT digest_text FROM agentsam_context_digest
+             WHERE workspace_id = ? AND digest_type = 'session'
+             ORDER BY created_at DESC LIMIT 1`,
+          )
+            .bind(wsDigest)
+            .first();
+          if (digest?.digest_text?.trim()) {
+            result += `\n## Workspace Context\n${digest.digest_text.trim()}\n`;
+          }
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    if (_kv) _kv.put(_kvKey, parts.join('\n\n---\n\n'), { expirationTtl: 300 }).catch(() => {});
 
     // Fire-and-forget prompt cache tracking
     if (env.DB && layerKeys.length) {
