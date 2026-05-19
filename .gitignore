@@ -117,3 +117,10 @@ scripts/generated-sites/
 .iam_cookie
 !.env.agentsam.example
 analytics/codebase-index/
+
+# Audit outputs — never commit
+scripts/audit/*.json
+scripts/audit/*.ndjson
+scripts/audit_results/
+*.audit.json
+scripts/audit/auth_audit_results.json
