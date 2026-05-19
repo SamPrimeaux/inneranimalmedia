@@ -33,6 +33,15 @@ import {
     saveR2SavedBuckets,
     type R2ObjectRow,
 } from '../src/lib/r2Listing';
+import { VirtualizedFileTree } from './VirtualizedFileTree';
+import {
+    flattenVisibleLocalFileTree,
+    findLocalNodeByPath,
+    mapLocalNodeByPath,
+    readLocalDirectoryEntries,
+    type LocalFileNode,
+    type LocalFileTreeRow,
+} from '../src/lib/localFileTree';
 
 const IAM_PALETTE_OPEN_R2 = 'iam-palette-open-r2';
 
@@ -179,26 +188,25 @@ function parentR2Prefix(prefix: string): string {
     return i < 0 ? '' : trimmed.slice(0, i + 1);
 }
 
-interface FileNode {
-    name: string;
-    kind: 'file' | 'directory';
-    handle: any; // FileSystemHandle
-    children?: FileNode[];
-    isOpen?: boolean;
-}
-
-/** Immutable path update so React always sees a new root after expand/collapse. */
-function mapFileNodeInTree(node: FileNode, target: FileNode, fn: (n: FileNode) => FileNode): FileNode {
-    if (node === target) return fn({ ...node });
-    if (!node.children?.length) return node;
-    let changed = false;
-    const nextChildren = node.children.map((ch) => {
-        const nc = mapFileNodeInTree(ch, target, fn);
-        if (nc !== ch) changed = true;
-        return nc;
-    });
-    if (!changed) return node;
-    return { ...node, children: nextChildren };
+async function hydrateLocalRootChildren(
+    setRootDir: React.Dispatch<React.SetStateAction<LocalFileNode | null>>,
+    dirHandle: FileSystemDirectoryHandle,
+): Promise<void> {
+    try {
+        const children = await readLocalDirectoryEntries(dirHandle);
+        setRootDir((prev) =>
+            prev && prev.handle === dirHandle
+                ? { ...prev, loading: false, children }
+                : prev,
+        );
+    } catch (e) {
+        console.error('[LocalExplorer] directory read failed:', e);
+        setRootDir((prev) =>
+            prev && prev.handle === dirHandle
+                ? { ...prev, loading: false, children: [] }
+                : prev,
+        );
+    }
 }
 
 export const LocalExplorer: React.FC<{
@@ -222,7 +230,7 @@ export const LocalExplorer: React.FC<{
     workspace_id = null,
     user_id = null,
 }) => {
-    const [rootDir, setRootDir] = useState<FileNode | null>(null);
+    const [rootDir, setRootDir] = useState<LocalFileNode | null>(null);
     /**
      * When the directory handle cannot be revalidated, show vscode.dev-style resume copy.
      * `workspaceId` null = name came from localStorage only (no server row).
@@ -614,22 +622,10 @@ export const LocalExplorer: React.FC<{
         setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
-    const getEntries = useCallback(async (dirHandle: any): Promise<FileNode[]> => {
-        const entries: FileNode[] = [];
-        for await (const entry of dirHandle.values()) {
-            if (entry.name === 'node_modules' || entry.name === '.git') continue;
-            entries.push({
-                name: entry.name,
-                kind: entry.kind,
-                handle: entry,
-                isOpen: false,
-            });
-        }
-        return entries.sort((a, b) => {
-            if (a.kind === b.kind) return a.name.localeCompare(b.name);
-            return a.kind === 'directory' ? -1 : 1;
-        });
-    }, []);
+    const localTreeRows = useMemo(
+        () => (rootDir ? flattenVisibleLocalFileTree(rootDir) : []),
+        [rootDir],
+    );
 
     useEffect(() => {
         if (typeof indexedDB === 'undefined') return;
@@ -683,36 +679,38 @@ export const LocalExplorer: React.FC<{
                 }
                 setLocalResumeHint(null);
                 persistLastLocalFolderNameOnly(h.name);
-                const root: FileNode = {
+                const root: LocalFileNode = {
                     name: h.name,
                     kind: 'directory',
                     handle: h,
                     isOpen: true,
-                    children: await getEntries(h),
+                    loading: true,
                 };
                 setRootDir(root);
                 onWorkspaceRootChange?.({ folderName: root.name });
+                void hydrateLocalRootChildren(setRootDir, h);
             } catch (e) {
                 console.warn('[LocalExplorer] native workspace restore skipped', e);
                 await tryResumeHints();
             }
         })();
-    }, [getEntries, onWorkspaceRootChange]);
+    }, [onWorkspaceRootChange]);
 
     const handleOpenFolder = useCallback(async () => {
         try {
             // File System Access API (Chromium); not in all TS DOM libs
             const dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<any> }).showDirectoryPicker();
 
-            const root: FileNode = {
+            const root: LocalFileNode = {
                 name: dirHandle.name,
                 kind: 'directory',
                 handle: dirHandle,
                 isOpen: true,
-                children: await getEntries(dirHandle),
+                loading: true,
             };
             setRootDir(root);
             onWorkspaceRootChange?.({ folderName: root.name });
+            void hydrateLocalRootChildren(setRootDir, dirHandle);
             await persistNativeDirectoryHandle(dirHandle);
             persistLastLocalFolderNameOnly(dirHandle.name);
 
@@ -756,7 +754,7 @@ export const LocalExplorer: React.FC<{
         } catch (err) {
             console.error('Failed to open directory:', err);
         }
-    }, [getEntries, onWorkspaceRootChange, localResumeHint]);
+    }, [onWorkspaceRootChange, localResumeHint]);
 
     const disconnectNativeFolder = useCallback(async () => {
         setRootDir(null);
@@ -773,26 +771,79 @@ export const LocalExplorer: React.FC<{
         void handleOpenFolder();
     }, [nativeFolderOpenSignal, handleOpenFolder]);
 
-    const toggleDir = async (node: FileNode, pathPrefix: string) => {
-        if (node.kind === 'file') {
-            const file = await node.handle.getFile();
-            const workspacePath = pathPrefix ? `${pathPrefix}/${node.name}` : node.name;
-            const { openLocalFileInEditor } = await import('../src/lib/mediaPreview');
-            const openHandler = onOpenInEditor || onFileSelect;
-            await openLocalFileInEditor(file, node.handle, workspacePath, openHandler);
-            return;
-        }
+    const refreshRootChildren = useCallback(async () => {
+        if (!rootDir?.handle || rootDir.kind !== 'directory') return;
+        setRootDir((prev) => (prev ? { ...prev, loading: true } : prev));
+        await hydrateLocalRootChildren(setRootDir, rootDir.handle as FileSystemDirectoryHandle);
+    }, [rootDir]);
 
-        if (!rootDir) return;
-        const cur = findNode(rootDir, node);
-        if (!cur) return;
-        if (cur.isOpen) {
-            setRootDir((prev) => (prev ? mapFileNodeInTree(prev, node, (n) => ({ ...n, isOpen: false })) : prev));
-            return;
-        }
-        const children = await getEntries(node.handle);
-        setRootDir((prev) => (prev ? mapFileNodeInTree(prev, node, (n) => ({ ...n, isOpen: true, children })) : prev));
-    };
+    const onLocalTreeRowClick = useCallback(
+        async (row: LocalFileTreeRow) => {
+            if (row.type === 'loading' || !rootDir) return;
+
+            const nodePath = row.id;
+            const node = findLocalNodeByPath(rootDir, nodePath);
+            if (!node) return;
+
+            if (node.kind === 'file') {
+                const file = await (node.handle as FileSystemFileHandle).getFile();
+                const { openLocalFileInEditor } = await import('../src/lib/mediaPreview');
+                const openHandler = onOpenInEditor || onFileSelect;
+                await openLocalFileInEditor(file, node.handle as FileSystemFileHandle, nodePath, openHandler);
+                return;
+            }
+
+            if (node.isOpen) {
+                setRootDir((prev) =>
+                    prev ? mapLocalNodeByPath(prev, nodePath, '', (n) => ({ ...n, isOpen: false })) : prev,
+                );
+                return;
+            }
+
+            if (node.children !== undefined) {
+                setRootDir((prev) =>
+                    prev ? mapLocalNodeByPath(prev, nodePath, '', (n) => ({ ...n, isOpen: true })) : prev,
+                );
+                return;
+            }
+
+            setRootDir((prev) =>
+                prev
+                    ? mapLocalNodeByPath(prev, nodePath, '', (n) => ({
+                          ...n,
+                          isOpen: true,
+                          loading: true,
+                      }))
+                    : prev,
+            );
+            try {
+                const children = await readLocalDirectoryEntries(node.handle as FileSystemDirectoryHandle);
+                setRootDir((prev) =>
+                    prev
+                        ? mapLocalNodeByPath(prev, nodePath, '', (n) => ({
+                              ...n,
+                              isOpen: true,
+                              loading: false,
+                              children,
+                          }))
+                        : prev,
+                );
+            } catch (e) {
+                console.error('[LocalExplorer] expand failed:', e);
+                setRootDir((prev) =>
+                    prev
+                        ? mapLocalNodeByPath(prev, nodePath, '', (n) => ({
+                              ...n,
+                              isOpen: true,
+                              loading: false,
+                              children: [],
+                          }))
+                        : prev,
+                );
+            }
+        },
+        [rootDir, onFileSelect, onOpenInEditor],
+    );
 
     const handleCreateLocalFile = async () => {
         if (!rootDir?.handle) {
@@ -803,8 +854,7 @@ export const LocalExplorer: React.FC<{
         if (!name) return;
         try {
             await rootDir.handle.getFileHandle(name, { create: true });
-            const children = await getEntries(rootDir.handle);
-            setRootDir(prev => prev ? { ...prev, children } : null);
+            await refreshRootChildren();
         } catch (e) {
             console.error('Local file creation failed:', e);
             alert('Failed to create file: ' + (e instanceof Error ? e.message : String(e)));
@@ -820,56 +870,13 @@ export const LocalExplorer: React.FC<{
         if (!name) return;
         try {
             await rootDir.handle.getDirectoryHandle(name, { create: true });
-            const children = await getEntries(rootDir.handle);
-            setRootDir(prev => prev ? { ...prev, children } : null);
+            await refreshRootChildren();
         } catch (e) {
             console.error('Local folder creation failed:', e);
             alert('Failed to create folder: ' + (e instanceof Error ? e.message : String(e)));
         }
     };
 
-    const findNode = (current: FileNode, target: FileNode): FileNode | null => {
-        if (current === target) return current;
-        if (current.children) {
-            for (let child of current.children) {
-                const found = findNode(child, target);
-                if (found) return found;
-            }
-        }
-        return null;
-    };
-
-    const renderTree = (node: FileNode, depth: number = 0, pathPrefix: string = '') => {
-        const nodePath = pathPrefix ? `${pathPrefix}/${node.name}` : node.name;
-        return (
-            <div key={nodePath} className="flex flex-col">
-                <button
-                    type="button"
-                    onClick={() => void toggleDir(node, pathPrefix)}
-                    style={{ paddingLeft: `${depth * 10}px` }}
-                    className="flex items-center gap-1.5 px-2 py-1 w-full text-left hover:bg-[var(--bg-hover)] cursor-pointer text-[13px] text-[var(--text-main)] group whitespace-nowrap overflow-hidden text-ellipsis border-none bg-transparent font-inherit"
-                >
-                    {node.kind === 'directory' ? (
-                        <>
-                            {node.isOpen ? <ChevronDown size={14} className="text-[var(--text-muted)] opacity-50"/> : <ChevronRight size={14} className="text-[var(--text-muted)] opacity-50"/>}
-                            <Folder size={14} className="text-[var(--solar-blue)]" />
-                        </>
-                    ) : (
-                        <>
-                            <div className="w-3.5" />
-                            <FileIcon size={14} className="text-[var(--text-muted)]" />
-                        </>
-                    )}
-                    <span className="truncate">{node.name}</span>
-                </button>
-                {node.isOpen && node.children && (
-                    <div className="flex flex-col border-l border-[var(--border-subtle)] ml-3">
-                        {node.children.map(child => renderTree(child, depth + 1, nodePath))}
-                    </div>
-                )}
-            </div>
-        );
-    };
 
     return (
         <div className="flex flex-col h-full bg-[var(--bg-panel)] overflow-hidden text-[var(--text-main)] overflow-y-auto align-top">
@@ -965,7 +972,10 @@ export const LocalExplorer: React.FC<{
                                         Disconnect
                                     </button>
                                 </div>
-                                {renderTree(rootDir)}
+                                <VirtualizedFileTree
+                                    rows={localTreeRows}
+                                    onRowClick={(row) => void onLocalTreeRowClick(row)}
+                                />
                             </div>
                         )}
                     </div>
