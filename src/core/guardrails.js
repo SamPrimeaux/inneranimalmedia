@@ -374,6 +374,64 @@ export async function evaluateGuardrails(env, workerCtx, opts) {
     return empty;
   }
 
+  // Active rulesets bundle guardrail keys via guardrail_keys_json (no members join table in D1).
+  try {
+    const tenantId = opts.tenant_id != null ? String(opts.tenant_id).trim() : '';
+    const workspaceId = opts.workspace_id != null ? String(opts.workspace_id).trim() : '';
+    const applies = String(opts.applies_to);
+    const rulesets = await env.DB.prepare(
+      `SELECT gr.id, gr.ruleset_key, gr.guardrail_keys_json
+       FROM agentsam_guardrail_rulesets gr
+       WHERE gr.is_enabled = 1
+         AND gr.status = 'active'
+         AND (gr.tenant_id IS NULL OR gr.tenant_id = ?)
+         AND (gr.workspace_id IS NULL OR gr.workspace_id = ?)
+       ORDER BY gr.priority DESC
+       LIMIT 10`,
+    )
+      .bind(tenantId, workspaceId)
+      .all();
+
+    for (const rs of rulesets.results ?? []) {
+      let keys = [];
+      try {
+        const parsed = JSON.parse(String(rs.guardrail_keys_json || '[]'));
+        if (Array.isArray(parsed)) {
+          keys = parsed.map((k) => String(k || '').trim()).filter(Boolean);
+        }
+      } catch {
+        keys = [];
+      }
+      if (!keys.length) continue;
+
+      const placeholders = keys.map(() => '?').join(',');
+      const rsGuardrails = await env.DB.prepare(
+        `SELECT id, scope, tenant_id, workspace_id, user_id,
+                guardrail_key, title, description, category,
+                severity, action, applies_to, matcher_json,
+                policy_json, priority
+         FROM agentsam_guardrails
+         WHERE is_enabled = 1
+           AND guardrail_key IN (${placeholders})
+           AND (applies_to = ? OR applies_to = 'all')
+         ORDER BY priority DESC`,
+      )
+        .bind(...keys, applies)
+        .all();
+      rows = [...rows, ...(rsGuardrails.results ?? [])];
+    }
+  } catch {
+    /* non-fatal — individual guardrails still evaluated */
+  }
+
+  const seenKeys = new Set();
+  rows = rows.filter((row) => {
+    const key = String(row.guardrail_key || '').trim();
+    if (!key || seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+
   const events = [];
   let blocked = false;
   let decision = null;
