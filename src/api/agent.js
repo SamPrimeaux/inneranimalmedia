@@ -1306,37 +1306,6 @@ async function appendAgentChatToolLedgerStep(env, emit, ledger, stepEntry) {
   binds.push(ledger.runId);
   await env.DB.prepare(sql).bind(...binds).run();
 
-  const sessionId = ledger.sessionId ?? null;
-  const conversationId = ledger.conversationId ?? sessionId ?? null;
-  const agentRunIdForLog = ledger.chatAgentRunId ?? null;
-  try {
-    await env.DB.prepare(`
-      INSERT INTO agentsam_tool_call_log (
-        tenant_id, workspace_id, session_id,
-        tool_name, status, duration_ms,
-        input_json, output_json, input_summary, output_summary,
-        agent_run_id, conversation_id, tool_category, cost_usd
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).bind(
-      ledger.tenantId,
-      ledger.workspaceId,
-      sessionId,
-      stepEntry.tool_name,
-      stepEntry.ok ? 'success' : 'error',
-      Math.max(0, Math.floor(stepEntry.duration_ms || 0)),
-      JSON.stringify(stepEntry.input_json || {}).slice(0, 8000),
-      JSON.stringify({ ok: stepEntry.ok, preview: stepEntry.output_preview }).slice(0, 8000),
-      String(stepEntry.tool_name).slice(0, 500),
-      String(stepEntry.output_preview || '').slice(0, 500),
-      agentRunIdForLog,
-      conversationId,
-      stepEntry.tool_category ?? 'builtin',
-      stepEntry.cost_usd ?? 0,
-    ).run();
-  } catch (e) {
-    console.warn('[agent] tool_call_log insert', e?.message);
-  }
-
   let executionStepId = null;
   if (ledger.executionStepCols?.size) {
     try {
