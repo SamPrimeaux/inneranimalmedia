@@ -90,11 +90,17 @@ export async function ensureAppUser(env, identity, options = {}) {
     const passwordHash = hasPassword ? identity.passwordHash : 'oauth';
     const salt = hasPassword ? identity.salt : 'oauth';
 
+    const localPart = email.split('@')[0].toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 32);
+    const tenantId = 'tenant_' + (localPart || crypto.randomUUID().slice(0, 8));
+
     await env.DB.prepare(
-      `INSERT INTO auth_users (id, email, name, password_hash, salt, supabase_user_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      `INSERT INTO auth_users (id, email, name, password_hash, salt, supabase_user_id, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     )
-      .bind(id, email, name, passwordHash, salt, supabaseUserId || null)
+      .bind(id, email, name, passwordHash, salt, supabaseUserId || null, tenantId)
       .run();
 
     const row = await env.DB.prepare(

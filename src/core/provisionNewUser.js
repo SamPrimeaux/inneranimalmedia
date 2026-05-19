@@ -16,21 +16,23 @@ export async function provisionNewUser(env, { email, name, authUserId }) {
     .replace(/^_+|_+$/g, '')
     .slice(0, 32);
   const user_key = localPart || 'user_' + crypto.randomUUID().slice(0, 8);
+  const tenantId = 'tenant_' + (localPart || crypto.randomUUID().slice(0, 8));
   const workspace_id = 'ws_' + user_key;
   const displayName = name || email.split('@')[0];
 
   try {
     await env.DB.prepare(
       `INSERT OR IGNORE INTO users
-         (id, user_key, email, display_name, role, default_workspace_id, auth_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'user', ?, ?, datetime('now'), datetime('now'))`
+         (id, user_key, email, display_name, role, default_workspace_id, auth_id, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'user', ?, ?, ?, datetime('now'), datetime('now'))`
     ).bind(
       authUserId || ('usr_' + user_key),
       user_key,
       email,
       displayName,
       workspace_id,
-      authUserId || null
+      authUserId || null,
+      tenantId
     ).run();
 
     await env.DB.prepare(
