@@ -7,6 +7,7 @@
 import { getAuthUser, resolveTenantAtLogin, createLoginSession } from '../core/auth.js';
 import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
+import { upsertOauthToken } from './oauth.js';
 
 function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
@@ -463,16 +464,22 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
       sessionUser?.id != null && String(sessionUser.id).trim() !== ''
         ? String(sessionUser.id).trim()
         : String(sessionUser.email || '').trim();
+    const driveTenantId = sessionUser?.tenant_id || env.TENANT_ID;
+    await upsertOauthToken(env, {
+      user_id: driveUserId,
+      tenant_id: driveTenantId,
+      provider: 'google_drive',
+      account_identifier: oauthEmail,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token ?? null,
+      expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
+      scope: tokens.scope ?? null,
+    });
     await env.DB.prepare(
-      `INSERT OR REPLACE INTO user_oauth_tokens (user_id, provider, account_identifier, access_token, refresh_token, expires_at, scope) VALUES (?, 'google_drive', '', ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO integration_registry (tenant_id, provider_key, status, connected_at)
+       VALUES (?, 'google_drive', 'connected', datetime('now'))`,
     )
-      .bind(
-        driveUserId,
-        tokens.access_token,
-        tokens.refresh_token ?? null,
-        tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
-        tokens.scope ?? null,
-      )
+      .bind(driveTenantId)
       .run();
     return new Response(
       `<script>window.opener?.postMessage({type:'oauth_success',provider:'google'},window.location.origin);window.close();</script>`,

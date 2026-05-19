@@ -258,6 +258,17 @@ export const LocalExplorer: React.FC<{
     const r2UploadRef = useRef<HTMLInputElement>(null);
     const [r2UploadTargetBucket, setR2UploadTargetBucket] = useState<string | null>(null);
     const lastNativeFolderSignal = useRef(0);
+    const [googleDriveOAuthRefresh, setGoogleDriveOAuthRefresh] = useState(0);
+
+    useEffect(() => {
+        const handler = (e: MessageEvent) => {
+            if (e.data?.type === 'oauth_success' && e.data?.provider === 'google') {
+                setGoogleDriveOAuthRefresh((n) => n + 1);
+            }
+        };
+        window.addEventListener('message', handler);
+        return () => window.removeEventListener('message', handler);
+    }, []);
 
     const loadR2Buckets = useCallback(async () => {
         try {
@@ -1275,7 +1286,10 @@ export const LocalExplorer: React.FC<{
                 </div>
                 {expandedSections.drive && (
                     <div className="min-h-[200px] max-h-[min(45vh,380px)] flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
-                        <GoogleDriveExplorer onOpenInEditor={onOpenInEditor} />
+                        <GoogleDriveExplorer
+                            key={googleDriveOAuthRefresh}
+                            onOpenInEditor={onOpenInEditor}
+                        />
                     </div>
                 )}
             </div>
