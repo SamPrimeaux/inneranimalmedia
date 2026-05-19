@@ -1,0 +1,1393 @@
+{
+  "generated_at": "2026-05-19T13:08:33.846884+00:00",
+  "plan_id": "plan_may19_agentsam_realtime_sse_ux_audit",
+  "task_id": "task_sseux_t027_inspect_confirmed_repo_targets",
+  "manifest": {
+    "files": {
+      "dashboard/App.tsx": {
+        "exists": true,
+        "size_bytes": 148444,
+        "lines": 3423,
+        "hash": "5c901305",
+        "last_modified": "2026-05-19T08:02:28.291778+00:00"
+      },
+      "dashboard/features/agent-chat/ChatAssistant.tsx": {
+        "exists": true,
+        "size_bytes": 102884,
+        "lines": 2432,
+        "hash": "6f6a881e",
+        "last_modified": "2026-05-19T08:02:19.508910+00:00"
+      },
+      "dashboard/components/ChatAssistant.tsx": {
+        "exists": true,
+        "size_bytes": 532,
+        "lines": 19,
+        "hash": "9caf3e6c",
+        "last_modified": "2026-05-18T20:53:37.457148+00:00"
+      },
+      "dashboard/features/agent-chat/hooks/useAgentChatStream.ts": {
+        "exists": true,
+        "size_bytes": 45436,
+        "lines": 1095,
+        "hash": "b2da727e",
+        "last_modified": "2026-05-19T08:23:40.581563+00:00"
+      },
+      "dashboard/features/agent-chat/streamParsing.ts": {
+        "exists": true,
+        "size_bytes": 8153,
+        "lines": 203,
+        "hash": "af72b274",
+        "last_modified": "2026-05-14T06:51:34.344320+00:00"
+      },
+      "dashboard/features/agent-chat/types.ts": {
+        "exists": true,
+        "size_bytes": 8064,
+        "lines": 204,
+        "hash": "d0af96bd",
+        "last_modified": "2026-05-19T08:02:05.440411+00:00"
+      },
+      "dashboard/features/agent-chat/index.ts": {
+        "exists": true,
+        "size_bytes": 268,
+        "lines": 11,
+        "hash": "2446f162",
+        "last_modified": "2026-05-14T06:51:34.343768+00:00"
+      },
+      "dashboard/agentChatConstants.ts": {
+        "exists": true,
+        "size_bytes": 779,
+        "lines": 12,
+        "hash": "a0aa95fd",
+        "last_modified": "2026-05-18T21:04:22.592443+00:00"
+      },
+      "dashboard/components/BrowserView.tsx": {
+        "exists": true,
+        "size_bytes": 76147,
+        "lines": 1780,
+        "hash": "98c8bda1",
+        "last_modified": "2026-05-19T08:23:29.604078+00:00"
+      },
+      "dashboard/components/ExcalidrawView.tsx": {
+        "exists": true,
+        "size_bytes": 7743,
+        "lines": 174,
+        "hash": "7b524c19",
+        "last_modified": "2026-05-14T06:51:34.315403+00:00"
+      },
+      "dashboard/components/MonacoEditorView.tsx": {
+        "exists": true,
+        "size_bytes": 19889,
+        "lines": 529,
+        "hash": "0ac0d113",
+        "last_modified": "2026-05-19T06:36:40.289191+00:00"
+      },
+      "dashboard/components/McpPage.tsx": {
+        "exists": true,
+        "size_bytes": 59294,
+        "lines": 1480,
+        "hash": "ee06d8fa",
+        "last_modified": "2026-05-14T06:51:34.316945+00:00"
+      },
+      "dashboard/components/MeetPage.tsx": {
+        "exists": true,
+        "size_bytes": 88132,
+        "lines": 1854,
+        "hash": "cafc8aef",
+        "last_modified": "2026-05-14T06:51:34.317088+00:00"
+      },
+      "dashboard/components/settings/sections/WorkspaceSection.tsx": {
+        "exists": true,
+        "size_bytes": 27153,
+        "lines": 595,
+        "hash": "06539a11",
+        "last_modified": "2026-05-14T06:51:34.330242+00:00"
+      },
+      "dashboard/vite.config.ts": {
+        "exists": true,
+        "size_bytes": 3075,
+        "lines": 88,
+        "hash": "5f247be7",
+        "last_modified": "2026-05-16T12:53:02.174682+00:00"
+      },
+      "dashboard/README.md": {
+        "exists": true,
+        "size_bytes": 5970,
+        "lines": 118,
+        "hash": "f68aa52a",
+        "last_modified": "2026-05-14T06:51:34.311526+00:00"
+      },
+      "docs/dashboard/README.md": {
+        "exists": true,
+        "size_bytes": 7965,
+        "lines": 187,
+        "hash": "d832a201",
+        "last_modified": "2026-05-14T06:51:34.370529+00:00"
+      },
+      "docs/dashboard/R2-inneranimalmedia-dashboard-source-components-filetree.md": {
+        "exists": true,
+        "size_bytes": 10390,
+        "lines": 169,
+        "hash": "edfc59fe",
+        "last_modified": "2026-05-14T06:51:34.370451+00:00"
+      },
+      "src/integrations/openai.js": {
+        "exists": true,
+        "size_bytes": 15500,
+        "lines": 452,
+        "hash": "8481851f",
+        "last_modified": "2026-05-14T06:51:34.496681+00:00"
+      },
+      "src/tools/builtin/media.js": {
+        "exists": true,
+        "size_bytes": 4527,
+        "lines": 75,
+        "hash": "19e02ea1",
+        "last_modified": "2026-05-14T06:51:34.499377+00:00"
+      },
+      "docs/agent-api-contract-audit.md": {
+        "exists": true,
+        "size_bytes": 13055,
+        "lines": 155,
+        "hash": "745cc3bc",
+        "last_modified": "2026-05-14T06:51:34.365398+00:00"
+      },
+      "docs/audits/agentsam-chatassistant-workflow-readiness.md": {
+        "exists": true,
+        "size_bytes": 23090,
+        "lines": 559,
+        "hash": "6403c287",
+        "last_modified": "2026-05-14T06:51:34.366817+00:00"
+      },
+      "docs/audits/agentsam-workspace-capability-map.md": {
+        "exists": true,
+        "size_bytes": 7125,
+        "lines": 122,
+        "hash": "bd989fd7",
+        "last_modified": "2026-05-14T06:51:34.366907+00:00"
+      },
+      "docs/pre-deploy-audit.md": {
+        "exists": true,
+        "size_bytes": 7920,
+        "lines": 225,
+        "hash": "0da42b5d",
+        "last_modified": "2026-05-14T06:51:34.389092+00:00"
+      },
+      "docs/CMS_REALTIME_EDIT_LOOP.md": {
+        "exists": true,
+        "size_bytes": 2711,
+        "lines": 34,
+        "hash": "0607404a",
+        "last_modified": "2026-05-14T06:51:34.355886+00:00"
+      },
+      "docs/codebase-index/ws_inneranimalmedia/file-inventory.md": {
+        "exists": true,
+        "size_bytes": 4097,
+        "lines": 89,
+        "hash": "3adde07c",
+        "last_modified": "2026-05-14T06:51:34.369170+00:00"
+      },
+      "docs/codebase-index/ws_inneranimalmedia/index-priority-files.md": {
+        "exists": true,
+        "size_bytes": 18095,
+        "lines": 255,
+        "hash": "43059167",
+        "last_modified": "2026-05-14T06:51:34.369239+00:00"
+      },
+      "analytics/codebase-index/ws_inneranimalmedia/route-tokens.txt": {
+        "exists": true,
+        "size_bytes": 57474,
+        "lines": 1369,
+        "hash": "b105af8f",
+        "last_modified": "2026-05-14T06:51:34.271744+00:00"
+      },
+      "analytics/codebase-index/ws_inneranimalmedia/file-inventory.csv": {
+        "exists": true,
+        "size_bytes": 356464,
+        "lines": 842,
+        "hash": "afa72a9c",
+        "last_modified": "2026-05-14T06:51:34.269413+00:00"
+      },
+      "scripts/audit_agent_remaster.py": {
+        "exists": true,
+        "size_bytes": 12981,
+        "lines": 310,
+        "hash": "1c2d7ec9",
+        "last_modified": "2026-05-14T18:59:33.717068+00:00"
+      },
+      "scripts/audit_agent_remaster_report.md": {
+        "exists": true,
+        "size_bytes": 107387,
+        "lines": 1928,
+        "hash": "24969db9",
+        "last_modified": "2026-05-14T19:03:42.006703+00:00"
+      },
+      "scripts/audit_agent_microinteractions.py": {
+        "exists": true,
+        "size_bytes": 31238,
+        "lines": 981,
+        "hash": "fe236035",
+        "last_modified": "2026-05-14T22:19:17.963331+00:00"
+      },
+      "scripts/agentsam_microinteraction_quality_audit.py": {
+        "exists": true,
+        "size_bytes": 30435,
+        "lines": 927,
+        "hash": "2b7c4f9b",
+        "last_modified": "2026-05-14T22:43:05.888856+00:00"
+      },
+      "scripts/build_thinking_card_wire.py": {
+        "exists": true,
+        "size_bytes": 10477,
+        "lines": 255,
+        "hash": "5735f036",
+        "last_modified": "2026-05-14T19:53:25.244681+00:00"
+      },
+      "scripts/build_agentsam_cursor_gap_pack.py": {
+        "exists": true,
+        "size_bytes": 44247,
+        "lines": 1283,
+        "hash": "03cd265c",
+        "last_modified": "2026-05-16T22:36:04.058613+00:00"
+      },
+      "scripts/refine_agentsam_cursor_gap_pack.py": {
+        "exists": true,
+        "size_bytes": 17212,
+        "lines": 488,
+        "hash": "411f1c0c",
+        "last_modified": "2026-05-16T22:59:49.743281+00:00"
+      },
+      "scripts/agentsam-cursor-capability-connector.py": {
+        "exists": true,
+        "size_bytes": 24338,
+        "lines": 654,
+        "hash": "b37aaff4",
+        "last_modified": "2026-05-14T06:51:34.419626+00:00"
+      },
+      "scripts/agentsam-workflows-frontend-runtime-planner.py": {
+        "exists": true,
+        "size_bytes": 33035,
+        "lines": 833,
+        "hash": "267295e2",
+        "last_modified": "2026-05-14T06:51:34.420625+00:00"
+      },
+      "scripts/seed_session_plan.py": {
+        "exists": true,
+        "size_bytes": 23563,
+        "lines": 409,
+        "hash": "535edb9a",
+        "last_modified": "2026-05-15T02:33:32.886896+00:00"
+      },
+      "scripts/iam_targeted_diagnosis.py": {
+        "exists": true,
+        "size_bytes": 13676,
+        "lines": 303,
+        "hash": "f262f6c5",
+        "last_modified": "2026-05-16T15:04:51.730031+00:00"
+      },
+      "scripts/audit_dashboard_identity.py": {
+        "exists": true,
+        "size_bytes": 12541,
+        "lines": 302,
+        "hash": "9433509e",
+        "last_modified": "2026-05-14T19:16:04.127540+00:00"
+      },
+      "scripts/audit/SOURCE_HITS.md": {
+        "exists": true,
+        "size_bytes": 9440,
+        "lines": 173,
+        "hash": "f41d6e30",
+        "last_modified": "2026-05-17T01:20:27.667845+00:00"
+      },
+      "scripts/sql/upsert-agentsam-project-context-universal-runtime.sql": {
+        "exists": true,
+        "size_bytes": 8289,
+        "lines": 232,
+        "hash": "4c93472e",
+        "last_modified": "2026-05-14T06:51:34.453594+00:00"
+      },
+      "scripts/patch_results/backups/20260516_160912/dashboard/App.tsx": {
+        "exists": true,
+        "size_bytes": 143512,
+        "lines": 3276,
+        "hash": "6eea0edc",
+        "last_modified": "2026-05-16T17:23:55.534520+00:00"
+      },
+      "migrations/209_cidi_meauxcad_chat_log_builds_activity.sql": {
+        "exists": true,
+        "size_bytes": 3723,
+        "lines": 117,
+        "hash": "2dbec981",
+        "last_modified": "2026-05-14T06:51:34.401837+00:00"
+      },
+      "migrations/215_project_memory_agent_dashboard_ui_20260402.sql": {
+        "exists": true,
+        "size_bytes": 3040,
+        "lines": 71,
+        "hash": "f6b38a23",
+        "last_modified": "2026-05-14T06:51:34.402512+00:00"
+      },
+      "migrations/327_agentsam_dashboard_agent_self_debug.sql": {
+        "exists": true,
+        "size_bytes": 6285,
+        "lines": 158,
+        "hash": "859257da",
+        "last_modified": "2026-05-14T06:51:34.411062+00:00"
+      },
+      "sql/agentsam/seed_platform_remaster_plans.sql": {
+        "exists": true,
+        "size_bytes": 28519,
+        "lines": 706,
+        "hash": "9c578bb0",
+        "last_modified": "2026-05-14T06:51:34.461144+00:00"
+      }
+    },
+    "found": 48,
+    "missing_count": 0,
+    "missing": []
+  },
+  "chatassistant_duality": {
+    "feature_path_exists": true,
+    "legacy_path_exists": true,
+    "app_imports_feature": false,
+    "app_imports_legacy": true,
+    "feature_lines": 2432,
+    "legacy_lines": 19,
+    "app_mounted_components": [
+      "ChatAssistant"
+    ],
+    "verdict": "LEGACY_IS_LIVE",
+    "legacy_imported_in": [
+      "dashboard/App.tsx",
+      "dashboard/vite.config.ts"
+    ]
+  },
+  "stream_hook": {
+    "dashboard/features/agent-chat/hooks/useAgentChatStream.ts": {
+      "exists": true,
+      "lines": 1095,
+      "sse_patterns": {
+        "TextDecoder": [
+          "TextDecoder"
+        ],
+        "openai_stream": [
+          "stream: true"
+        ]
+      },
+      "event_patterns": {
+        "delta_content": [
+          "choices: Array<{ delta",
+          "delta",
+          "delta",
+          "delta",
+          "delta"
+        ]
+      },
+      "word_vomit_patterns": {},
+      "event_names_found": [],
+      "exports": [
+        "ConsumeAgentChatSseContext"
+      ],
+      "imports": [
+        "react",
+        "../../../agentChatConstants",
+        "../types",
+        "../execution/types",
+        "../streamDebug"
+      ],
+      "routes_referenced": [],
+      "uses_json_parse": true,
+      "uses_text_decoder": true,
+      "uses_getreader": false,
+      "uses_eventsource": false,
+      "chunk_handling_lines": [
+        {
+          "line": 100,
+          "match": "* Read NDJSON/SSE chunks from the chat response body until done or error.",
+          "context": "  99 | /**\n 100 |  * Read NDJSON/SSE chunks from the chat response body until done or error.\n 101 |  * Mutates assistant bubble via setMessages; throws on fatal stream errors for outer catch."
+        },
+        {
+          "line": 144,
+          "match": "/** Last `tool_output` chunk for the active browser navigation tool. */",
+          "context": " 143 |   let pendingBrowserToolUrl: string | null = null;\n 144 |   /** Last `tool_output` chunk for the active browser navigation tool. */\n 145 |   let lastBrowserToolOutputChunk: string | null = null;"
+        },
+        {
+          "line": 145,
+          "match": "let lastBrowserToolOutputChunk: string | null = null;",
+          "context": " 144 |   /** Last `tool_output` chunk for the active browser navigation tool. */\n 145 |   let lastBrowserToolOutputChunk: string | null = null;\n 146 |   let activeBrowserNavTool = false;"
+        },
+        {
+          "line": 147,
+          "match": "/** Last `tool_output` chunk for the active browser screenshot tool. */",
+          "context": " 146 |   let activeBrowserNavTool = false;\n 147 |   /** Last `tool_output` chunk for the active browser screenshot tool. */\n 148 |   let lastBrowserScreenshotOutputChunk: string | null = null;"
+        },
+        {
+          "line": 148,
+          "match": "let lastBrowserScreenshotOutputChunk: string | null = null;",
+          "context": " 147 |   /** Last `tool_output` chunk for the active browser screenshot tool. */\n 148 |   let lastBrowserScreenshotOutputChunk: string | null = null;\n 149 |   let activeBrowserScreenshotTool = false;"
+        },
+        {
+          "line": 232,
+          "match": "const ch0 = (data as { choices: Array<{ delta?: { content?: string | null; reasoning_content?: unknown } }> })",
+          "context": " 231 |         if (data && typeof data === 'object' && Array.isArray((data as { choices?: unknown }).choices)) {\n 232 |           const ch0 = (data as { choices: Array<{ delta?: { content?: string | null; reasoning_content?: unknown } }> })\n 233 |             .choices[0];"
+        },
+        {
+          "line": 234,
+          "match": "const del = ch0?.delta;",
+          "context": " 233 |             .choices[0];\n 234 |           const del = ch0?.delta;\n 235 |           if (del) {"
+        },
+        {
+          "line": 764,
+          "match": "lastBrowserToolOutputChunk = null;",
+          "context": " 763 |           pendingBrowserToolUrl = null;\n 764 |           lastBrowserToolOutputChunk = null;\n 765 |           lastBrowserScreenshotOutputChunk = null;"
+        },
+        {
+          "line": 765,
+          "match": "lastBrowserScreenshotOutputChunk = null;",
+          "context": " 764 |           lastBrowserToolOutputChunk = null;\n 765 |           lastBrowserScreenshotOutputChunk = null;\n 766 |           activeBrowserScreenshotTool = isBrowserScreenshotToolName(tn);"
+        },
+        {
+          "line": 843,
+          "match": "lastBrowserToolOutputChunk = null;",
+          "context": " 842 |           pendingBrowserToolUrl = null;\n 843 |           lastBrowserToolOutputChunk = null;\n 844 |           lastBrowserScreenshotOutputChunk = null;"
+        }
+      ],
+      "state_dispatch_lines": [
+        {
+          "line": 75,
+          "match": "setMessages: React.Dispatch<React.SetStateAction<Message[]>>;",
+          "context": "  74 |   streamReaderRef: React.MutableRefObject<ReadableStreamDefaultReader<Uint8Array> | null>;\n  75 |   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;\n  76 |   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;"
+        },
+        {
+          "line": 76,
+          "match": "setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;",
+          "context": "  75 |   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;\n  76 |   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;\n  77 |   setWorkflowLedger: React.Dispatch<React.SetStateAction<WorkflowLedgerState>>;"
+        },
+        {
+          "line": 77,
+          "match": "setWorkflowLedger: React.Dispatch<React.SetStateAction<WorkflowLedgerState>>;",
+          "context": "  76 |   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;\n  77 |   setWorkflowLedger: React.Dispatch<React.SetStateAction<WorkflowLedgerState>>;\n  78 |   /** Optional: Agent Sam tool / terminal trace rows (replaces legacy single exec panel). */"
+        },
+        {
+          "line": 79,
+          "match": "setToolTraceRows?: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;",
+          "context": "  78 |   /** Optional: Agent Sam tool / terminal trace rows (replaces legacy single exec panel). */\n  79 |   setToolTraceRows?: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;\n  80 |   /** When a streamed monaco invoke opens a `.py` draft in the editor. */"
+        },
+        {
+          "line": 82,
+          "match": "setConversationId: React.Dispatch<React.SetStateAction<string>>;",
+          "context": "  81 |   onPythonDraftOpened?: (fileName: string) => void;\n  82 |   setConversationId: React.Dispatch<React.SetStateAction<string>>;\n  83 |   stripEmptyAssistantTail: (prev: Message[]) => Message[];"
+        },
+        {
+          "line": 101,
+          "match": "* Mutates assistant bubble via setMessages; throws on fatal stream errors for outer catch.",
+          "context": " 100 |  * Read NDJSON/SSE chunks from the chat response body until done or error.\n 101 |  * Mutates assistant bubble via setMessages; throws on fatal stream errors for outer catch.\n 102 |  */"
+        },
+        {
+          "line": 109,
+          "match": "setMessages,",
+          "context": " 108 |     streamReaderRef,\n 109 |     setMessages,\n 110 |     setIsLoading,"
+        },
+        {
+          "line": 154,
+          "match": "setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);",
+          "context": " 153 |     setToolTraceRows?.([]);\n 154 |     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);\n 155 |   }"
+        },
+        {
+          "line": 163,
+          "match": "setMessages((prev) => {",
+          "context": " 162 |       assistantContent = assistantStreamBuf;\n 163 |       setMessages((prev) => {\n 164 |         const last = [...prev];"
+        },
+        {
+          "line": 321,
+          "match": "window.dispatchEvent(",
+          "context": " 320 |           };\n 321 |           window.dispatchEvent(\n 322 |             new CustomEvent('iam:agent-open-surface', {"
+        }
+      ]
+    },
+    "dashboard/features/agent-chat/streamParsing.ts": {
+      "exists": true,
+      "lines": 203,
+      "sse_patterns": {},
+      "event_patterns": {
+        "delta_content": [
+          "choices = o.choices as Array<{ delta",
+          "choices?.[0]?.delta",
+          "choices = o.choices as Array<{ delta",
+          "choices?.[0]?.delta",
+          "delta"
+        ],
+        "tool_call_chunk": [
+          "tool_use",
+          "function_call",
+          "function_call",
+          "function_call",
+          "function_call"
+        ]
+      },
+      "word_vomit_patterns": {},
+      "event_names_found": [],
+      "exports": [
+        "looksLikeRawProviderLeak",
+        "ssePayloadLooksReasoningOnly",
+        "normalizeAssistantSseText",
+        "isStreamErrorPayload",
+        "extractMonacoInvokesFromBuffer",
+        "hideIncompleteMonacoInvokeTail",
+        "looksLikeEmbeddedFileDumpStart",
+        "formatHttpErrorMessage"
+      ],
+      "imports": [],
+      "routes_referenced": [],
+      "uses_json_parse": true,
+      "uses_text_decoder": false,
+      "uses_getreader": false,
+      "uses_eventsource": false,
+      "chunk_handling_lines": [
+        {
+          "line": 6,
+          "match": "/** Block chat UI leaks that look like OpenAI streaming chunks (never append). */",
+          "context": "   5 | \n   6 | /** Block chat UI leaks that look like OpenAI streaming chunks (never append). */\n   7 | export function looksLikeRawProviderLeak(data: unknown): boolean {"
+        },
+        {
+          "line": 11,
+          "match": "o.object === 'chat.completion.chunk' ||",
+          "context": "  10 |   const looksOpenAiFraming =\n  11 |     o.object === 'chat.completion.chunk' ||\n  12 |     (typeof o.id === 'string' && o.id.startsWith('chatcmpl'));"
+        },
+        {
+          "line": 14,
+          "match": "const choices = o.choices as Array<{ delta?: { content?: unknown } }> | undefined;",
+          "context": "  13 |   if (!looksOpenAiFraming) return false;\n  14 |   const choices = o.choices as Array<{ delta?: { content?: unknown } }> | undefined;\n  15 |   const dc = choices?.[0]?.delta?.content;"
+        },
+        {
+          "line": 15,
+          "match": "const dc = choices?.[0]?.delta?.content;",
+          "context": "  14 |   const choices = o.choices as Array<{ delta?: { content?: unknown } }> | undefined;\n  15 |   const dc = choices?.[0]?.delta?.content;\n  16 |   if (typeof dc === 'string' && dc.length > 0) return false;"
+        },
+        {
+          "line": 23,
+          "match": "const choices = o.choices as Array<{ delta?: Record<string, unknown> }> | undefined;",
+          "context": "  22 |   const o = data as Record<string, unknown>;\n  23 |   const choices = o.choices as Array<{ delta?: Record<string, unknown> }> | undefined;\n  24 |   const d = choices?.[0]?.delta;"
+        },
+        {
+          "line": 24,
+          "match": "const d = choices?.[0]?.delta;",
+          "context": "  23 |   const choices = o.choices as Array<{ delta?: Record<string, unknown> }> | undefined;\n  24 |   const d = choices?.[0]?.delta;\n  25 |   if (!d || typeof d !== 'object') return false;"
+        },
+        {
+          "line": 44,
+          "match": "(pt === 'delta' && typeof p.text === 'string' ? p.text : '') ||",
+          "context": "  43 |     (pt === 'token' && typeof p.text === 'string' ? p.text : '') ||\n  44 |     (pt === 'delta' && typeof p.text === 'string' ? p.text : '') ||\n  45 |     (pt === 'text' && typeof p.text === 'string' ? p.text : '');"
+        },
+        {
+          "line": 48,
+          "match": "const nestedDelta = p.delta as Record<string, unknown> | undefined;",
+          "context": "  47 | \n  48 |   const nestedDelta = p.delta as Record<string, unknown> | undefined;\n  49 |   if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {"
+        },
+        {
+          "line": 49,
+          "match": "if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {",
+          "context": "  48 |   const nestedDelta = p.delta as Record<string, unknown> | undefined;\n  49 |   if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {\n  50 |     return nestedDelta.content;"
+        },
+        {
+          "line": 50,
+          "match": "return nestedDelta.content;",
+          "context": "  49 |   if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {\n  50 |     return nestedDelta.content;\n  51 |   }"
+        }
+      ],
+      "state_dispatch_lines": []
+    }
+  },
+  "types_file": {
+    "exists": true,
+    "lines": 204,
+    "type_names": [
+      "React",
+      "MessageAttachmentPreview",
+      "ImplementationPlanVisualMap",
+      "ImplementationPlanMarkdown",
+      "ImplementationPlanChip",
+      "AgentPreviewArtifactKind",
+      "AgentPreviewArtifact",
+      "Message",
+      "AgentChatShellTab",
+      "ChatAssistantProps",
+      "StagedAttachment",
+      "PickerItem",
+      "SlashCmd",
+      "ToolApprovalPayload",
+      "ChatModelRow",
+      "AgentMode",
+      "WorkflowLedgerState",
+      "ExecPanelState"
+    ],
+    "enum_names": [],
+    "exports": [
+      "MessageAttachmentPreview",
+      "ImplementationPlanVisualMap",
+      "ImplementationPlanMarkdown",
+      "ImplementationPlanChip",
+      "AgentPreviewArtifactKind",
+      "AgentPreviewArtifact",
+      "Message",
+      "AgentChatShellTab",
+      "ChatAssistantProps",
+      "StagedAttachment",
+      "PickerItem",
+      "SlashCmd",
+      "ToolApprovalPayload",
+      "ChatModelRow",
+      "MENTION_CONTEXT_HEADER",
+      "MENTION_FILE_MAX_CHARS",
+      "MENTION_R2_LIST_MAX_ROWS",
+      "CHAT_REQUEST_MAX_BYTES",
+      "CHAT_ATTACH_MAX_TOTAL_BYTES",
+      "MOBILE_CHAT_COMPOSER_BOTTOM_PAD",
+      "COMPOSER_TEXTAREA_MAX_PX_NARROW",
+      "COMPOSER_TEXTAREA_MAX_PX_WIDE",
+      "LS_GH_REPO",
+      "AgentMode",
+      "AGENT_MODES",
+      "WorkflowLedgerState",
+      "ExecPanelState"
+    ],
+    "event_types": [],
+    "has_tool_type": true,
+    "has_stream_type": false,
+    "has_error_type": false
+  },
+  "openai_integration": {
+    "exists": true,
+    "lines": 452,
+    "sse_patterns": {
+      "SSE_header": [
+        "text/event-stream",
+        "text/event-stream"
+      ],
+      "openai_stream": [
+        "stream:   true",
+        "stream: true"
+      ]
+    },
+    "event_patterns": {
+      "delta_content": [
+        "choices[0].delta",
+        "choices[0].delta"
+      ],
+      "tool_call_chunk": [
+        "function_call",
+        "tool_use",
+        "function_call",
+        "tool_use",
+        "tool_call"
+      ]
+    },
+    "stream_true": true,
+    "uses_responses_api": true,
+    "uses_chat_api": false,
+    "emits_sse_events": [],
+    "tool_call_handling": [
+      {
+        "line": 61,
+        "match": "* Build `input` for /v1/responses. With `previousResponseId`, only `function_call_output` items",
+        "context": "  60 | /**\n  61 |  * Build `input` for /v1/responses. With `previousResponseId`, only `function_call_output` items\n  62 |  * from the latest user message (tool results) are sent; otherwise user/assistant text turns."
+      },
+      {
+        "line": 71,
+        "match": "const callId = String(b.tool_use_id || '').trim();",
+        "context": "  70 |         if (b.type === 'tool_result') {\n  71 |           const callId = String(b.tool_use_id || '').trim();\n  72 |           if (!callId) continue;"
+      },
+      {
+        "line": 76,
+        "match": "type: 'function_call_output',",
+        "context": "  75 |           out.push({\n  76 |             type: 'function_call_output',\n  77 |             call_id: callId,"
+      },
+      {
+        "line": 128,
+        "match": "// Convert Anthropic tool_use blocks to OpenAI tool_calls",
+        "context": " 127 |   for (const msg of messages) {\n 128 |     // Convert Anthropic tool_use blocks to OpenAI tool_calls\n 129 |     if (msg.role === 'assistant' && Array.isArray(msg.content)) {"
+      },
+      {
+        "line": 132,
+        "match": ".filter(b => b.type === 'tool_use')",
+        "context": " 131 |       const toolCalls  = msg.content\n 132 |         .filter(b => b.type === 'tool_use')\n 133 |         .map(b => ({"
+      },
+      {
+        "line": 142,
+        "match": "...(toolCalls.length ? { tool_calls: toolCalls } : {}),",
+        "context": " 141 |         content:    textParts || null,\n 142 |         ...(toolCalls.length ? { tool_calls: toolCalls } : {}),\n 143 |       });"
+      },
+      {
+        "line": 153,
+        "match": "tool_call_id: block.tool_use_id,",
+        "context": " 152 |             role:         'tool',\n 153 |             tool_call_id: block.tool_use_id,\n 154 |             content:      typeof block.content === 'string' ? block.content : JSON.stringify(block.content),"
+      }
+    ],
+    "error_handling": [
+      {
+        "line": 12,
+        "match": "/** Strip obvious secrets before logging provider error bodies. */",
+        "context": "  12 | /** Strip obvious secrets before logging provider error bodies. */"
+      },
+      {
+        "line": 13,
+        "match": "function sanitizeOpenAiErrorBodyForLog(text) {",
+        "context": "  13 | function sanitizeOpenAiErrorBodyForLog(text) {"
+      },
+      {
+        "line": 183,
+        "match": "if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);",
+        "context": " 183 |   if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);"
+      },
+      {
+        "line": 184,
+        "match": "if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);",
+        "context": " 184 |   if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);"
+      },
+      {
+        "line": 211,
+        "match": "} catch (e) {",
+        "context": " 211 |   } catch (e) {"
+      },
+      {
+        "line": 212,
+        "match": "return jsonResponse({ error: 'OpenAI request failed', detail: e.message }, 502);",
+        "context": " 212 |     return jsonResponse({ error: 'OpenAI request failed', detail: e.message }, 502);"
+      },
+      {
+        "line": 216,
+        "match": "const err = await upstream.text().catch(() => '');",
+        "context": " 216 |     const err = await upstream.text().catch(() => '');"
+      },
+      {
+        "line": 217,
+        "match": "return jsonResponse({ error: 'OpenAI API error', status: upstream.status, detail: err.slice(0, 500) }, upstream.status);",
+        "context": " 217 |     return jsonResponse({ error: 'OpenAI API error', status: upstream.status, detail: err.slice(0, 500) }, upstream.status);"
+      },
+      {
+        "line": 254,
+        "match": "if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);",
+        "context": " 254 |   if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);"
+      },
+      {
+        "line": 255,
+        "match": "if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);",
+        "context": " 255 |   if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);"
+      }
+    ],
+    "exports": []
+  },
+  "browserview": {
+    "exists": true,
+    "lines": 1780,
+    "capability_hits": {
+      "screenshot": [
+        "screenshot",
+        "screenshot",
+        "Screenshot",
+        "Screenshot",
+        "screenshot"
+      ],
+      "cursor_position": [
+        "cursor",
+        "cursor",
+        "mousemove', onMove",
+        "mousemove', onMove",
+        "cursor"
+      ],
+      "dom_highlight": [
+        "highlight",
+        "overlay",
+        "overlay",
+        "overlay",
+        "overlay"
+      ],
+      "iframe_embed": [
+        "<iframe",
+        "sandbox"
+      ],
+      "viewport": [
+        "viewport: { width: window.innerWidth",
+        "viewport: { width: window.innerWidth"
+      ]
+    },
+    "capabilities_present": [
+      "screenshot",
+      "cursor_position",
+      "dom_highlight",
+      "iframe_embed",
+      "viewport"
+    ],
+    "capabilities_missing": [
+      "click_event",
+      "selector_label",
+      "manual_takeover",
+      "action_timeline"
+    ],
+    "imports": [],
+    "sse_usage": [],
+    "websocket_usage": [
+      {
+        "line": 15,
+        "match": "*  - WebSocket bridge to IAM_COLLAB for live Agent Sam events",
+        "context": "  14 |  *  - Area screenshot drag-select\n  15 |  *  - WebSocket bridge to IAM_COLLAB for live Agent Sam events\n  16 |  *  - Split pane A/B"
+      },
+      {
+        "line": 1549,
+        "match": "/** When false, no collab HTTP probe or WebSocket (avoids IAM_COLLAB churn when panel is hidden). */",
+        "context": "1548 |   addressDisplay?: string | null;\n1549 |   /** When false, no collab HTTP probe or WebSocket (avoids IAM_COLLAB churn when panel is hidden). */\n1550 |   isActive?:       boolean;"
+      },
+      {
+        "line": 1587,
+        "match": "// \u2500\u2500 WebSocket bridge to IAM_COLLAB (exponential backoff; no retry storm on stub/503) \u2500",
+        "context": "1586 | \n1587 |   // \u2500\u2500 WebSocket bridge to IAM_COLLAB (exponential backoff; no retry storm on stub/503) \u2500\n1588 |   useEffect(() => {"
+      },
+      {
+        "line": 1628,
+        "match": "let ws: WebSocket | null = null;",
+        "context": "1627 | \n1628 |     let ws: WebSocket | null = null;\n1629 |     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;"
+      },
+      {
+        "line": 1673,
+        "match": "ws = new WebSocket(wsUrl);",
+        "context": "1672 |       try {\n1673 |         ws = new WebSocket(wsUrl);\n1674 |       } catch {"
+      }
+    ]
+  },
+  "excalidrawview": {
+    "exists": true,
+    "lines": 174,
+    "capability_hits": {
+      "scene_load": [
+        "updateScene",
+        "updateScene",
+        "updateScene",
+        "updateScene",
+        "updateScene"
+      ],
+      "blob_replace": [
+        "exportToBlob"
+      ],
+      "collab": [
+        "collab",
+        "collab"
+      ],
+      "ref_api": [
+        "excalidrawApi",
+        "useRef<Excalidraw",
+        "excalidrawApi",
+        ".current",
+        "excalidrawApi"
+      ],
+      "on_change": [
+        "onChange={(elements) => handleChange(elements"
+      ]
+    },
+    "capabilities_present": [
+      "scene_load",
+      "blob_replace",
+      "collab",
+      "ref_api",
+      "on_change"
+    ],
+    "capabilities_missing": [
+      "element_patch",
+      "selection",
+      "viewport_move",
+      "export_svg",
+      "undo_redo"
+    ],
+    "imports": [
+      "react",
+      "@excalidraw/excalidraw"
+    ],
+    "sse_usage": [],
+    "websocket_usage": [
+      {
+        "line": 102,
+        "match": "// Listen for canvas_update broadcast from other clients via App.tsx WebSocket",
+        "context": " 101 | \n 102 |     // Listen for canvas_update broadcast from other clients via App.tsx WebSocket\n 103 |     useEffect(() => {"
+      }
+    ],
+    "write_mode": "blob_replace",
+    "agent_triggered": true
+  },
+  "word_vomit": {
+    "dashboard/features/agent-chat/ChatAssistant.tsx": {
+      "exists": true,
+      "word_vomit_indicators": {},
+      "typed_event_indicators": {},
+      "has_typed_events": false,
+      "likely_word_vomit": false,
+      "loading_state_mentions": 36,
+      "streaming_render_lines": [
+        {
+          "line": 158,
+          "match": "/** Structured BrowserView selection \u2014 appended to next Agent Sam message as JSON context. */",
+          "context": " 157 |   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);\n 158 |   /** Structured BrowserView selection \u2014 appended to next Agent Sam message as JSON context. */\n 159 |   const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);"
+        },
+        {
+          "line": 1175,
+          "match": "form.append('message', messageForApi);",
+          "context": "1174 |     const form = new FormData();\n1175 |     form.append('message', messageForApi);\n1176 |     form.append('mode', mode);"
+        },
+        {
+          "line": 1176,
+          "match": "form.append('mode', mode);",
+          "context": "1175 |     form.append('message', messageForApi);\n1176 |     form.append('mode', mode);\n1177 |     form.append('agent_mode', mode);"
+        },
+        {
+          "line": 1177,
+          "match": "form.append('agent_mode', mode);",
+          "context": "1176 |     form.append('mode', mode);\n1177 |     form.append('agent_mode', mode);\n1178 |     form.append('runtime_intent_mode', mode);"
+        },
+        {
+          "line": 1178,
+          "match": "form.append('runtime_intent_mode', mode);",
+          "context": "1177 |     form.append('agent_mode', mode);\n1178 |     form.append('runtime_intent_mode', mode);\n1179 |     form.append('model', effectiveModelKey);"
+        },
+        {
+          "line": 1179,
+          "match": "form.append('model', effectiveModelKey);",
+          "context": "1178 |     form.append('runtime_intent_mode', mode);\n1179 |     form.append('model', effectiveModelKey);\n1180 |     const selectedModelProvider = chatModels.find((m) => m.model_key === effectiveModelKey)?.provider || 'anthropic';"
+        },
+        {
+          "line": 1181,
+          "match": "form.append('provider', selectedModelProvider);",
+          "context": "1180 |     const selectedModelProvider = chatModels.find((m) => m.model_key === effectiveModelKey)?.provider || 'anthropic';\n1181 |     form.append('provider', selectedModelProvider);\n1182 |     form.append('conversationId', effectiveConvId);"
+        },
+        {
+          "line": 1182,
+          "match": "form.append('conversationId', effectiveConvId);",
+          "context": "1181 |     form.append('provider', selectedModelProvider);\n1182 |     form.append('conversationId', effectiveConvId);\n1183 |     form.append('contextMode', String(activeProject));"
+        },
+        {
+          "line": 1183,
+          "match": "form.append('contextMode', String(activeProject));",
+          "context": "1182 |     form.append('conversationId', effectiveConvId);\n1183 |     form.append('contextMode', String(activeProject));\n1184 |     if (effectiveWsId) form.append('workspace_id', effectiveWsId);"
+        },
+        {
+          "line": 1184,
+          "match": "if (effectiveWsId) form.append('workspace_id', effectiveWsId);",
+          "context": "1183 |     form.append('contextMode', String(activeProject));\n1184 |     if (effectiveWsId) form.append('workspace_id', effectiveWsId);\n1185 |     try {"
+        }
+      ]
+    },
+    "dashboard/components/ChatAssistant.tsx": {
+      "exists": true,
+      "word_vomit_indicators": {},
+      "typed_event_indicators": {},
+      "has_typed_events": false,
+      "likely_word_vomit": false,
+      "loading_state_mentions": 0,
+      "streaming_render_lines": []
+    },
+    "dashboard/features/agent-chat/hooks/useAgentChatStream.ts": {
+      "exists": true,
+      "word_vomit_indicators": {},
+      "typed_event_indicators": {
+        "delta_content": [
+          "choices: Array<{ delta",
+          "delta",
+          "delta",
+          "delta",
+          "delta"
+        ]
+      },
+      "has_typed_events": true,
+      "likely_word_vomit": false,
+      "loading_state_mentions": 3,
+      "streaming_render_lines": [
+        {
+          "line": 100,
+          "match": "* Read NDJSON/SSE chunks from the chat response body until done or error.",
+          "context": "  99 | /**\n 100 |  * Read NDJSON/SSE chunks from the chat response body until done or error.\n 101 |  * Mutates assistant bubble via setMessages; throws on fatal stream errors for outer catch."
+        },
+        {
+          "line": 144,
+          "match": "/** Last `tool_output` chunk for the active browser navigation tool. */",
+          "context": " 143 |   let pendingBrowserToolUrl: string | null = null;\n 144 |   /** Last `tool_output` chunk for the active browser navigation tool. */\n 145 |   let lastBrowserToolOutputChunk: string | null = null;"
+        },
+        {
+          "line": 145,
+          "match": "let lastBrowserToolOutputChunk: string | null = null;",
+          "context": " 144 |   /** Last `tool_output` chunk for the active browser navigation tool. */\n 145 |   let lastBrowserToolOutputChunk: string | null = null;\n 146 |   let activeBrowserNavTool = false;"
+        },
+        {
+          "line": 147,
+          "match": "/** Last `tool_output` chunk for the active browser screenshot tool. */",
+          "context": " 146 |   let activeBrowserNavTool = false;\n 147 |   /** Last `tool_output` chunk for the active browser screenshot tool. */\n 148 |   let lastBrowserScreenshotOutputChunk: string | null = null;"
+        },
+        {
+          "line": 148,
+          "match": "let lastBrowserScreenshotOutputChunk: string | null = null;",
+          "context": " 147 |   /** Last `tool_output` chunk for the active browser screenshot tool. */\n 148 |   let lastBrowserScreenshotOutputChunk: string | null = null;\n 149 |   let activeBrowserScreenshotTool = false;"
+        },
+        {
+          "line": 232,
+          "match": "const ch0 = (data as { choices: Array<{ delta?: { content?: string | null; reasoning_content?: unknown } }> })",
+          "context": " 231 |         if (data && typeof data === 'object' && Array.isArray((data as { choices?: unknown }).choices)) {\n 232 |           const ch0 = (data as { choices: Array<{ delta?: { content?: string | null; reasoning_content?: unknown } }> })\n 233 |             .choices[0];"
+        },
+        {
+          "line": 234,
+          "match": "const del = ch0?.delta;",
+          "context": " 233 |             .choices[0];\n 234 |           const del = ch0?.delta;\n 235 |           if (del) {"
+        },
+        {
+          "line": 764,
+          "match": "lastBrowserToolOutputChunk = null;",
+          "context": " 763 |           pendingBrowserToolUrl = null;\n 764 |           lastBrowserToolOutputChunk = null;\n 765 |           lastBrowserScreenshotOutputChunk = null;"
+        },
+        {
+          "line": 765,
+          "match": "lastBrowserScreenshotOutputChunk = null;",
+          "context": " 764 |           lastBrowserToolOutputChunk = null;\n 765 |           lastBrowserScreenshotOutputChunk = null;\n 766 |           activeBrowserScreenshotTool = isBrowserScreenshotToolName(tn);"
+        },
+        {
+          "line": 843,
+          "match": "lastBrowserToolOutputChunk = null;",
+          "context": " 842 |           pendingBrowserToolUrl = null;\n 843 |           lastBrowserToolOutputChunk = null;\n 844 |           lastBrowserScreenshotOutputChunk = null;"
+        }
+      ]
+    },
+    "dashboard/features/agent-chat/streamParsing.ts": {
+      "exists": true,
+      "word_vomit_indicators": {},
+      "typed_event_indicators": {
+        "delta_content": [
+          "choices = o.choices as Array<{ delta",
+          "choices?.[0]?.delta",
+          "choices = o.choices as Array<{ delta",
+          "choices?.[0]?.delta",
+          "delta"
+        ],
+        "tool_call_chunk": [
+          "tool_use",
+          "function_call",
+          "function_call",
+          "function_call",
+          "function_call"
+        ]
+      },
+      "has_typed_events": true,
+      "likely_word_vomit": false,
+      "loading_state_mentions": 0,
+      "streaming_render_lines": [
+        {
+          "line": 6,
+          "match": "/** Block chat UI leaks that look like OpenAI streaming chunks (never append). */",
+          "context": "   5 | \n   6 | /** Block chat UI leaks that look like OpenAI streaming chunks (never append). */\n   7 | export function looksLikeRawProviderLeak(data: unknown): boolean {"
+        },
+        {
+          "line": 11,
+          "match": "o.object === 'chat.completion.chunk' ||",
+          "context": "  10 |   const looksOpenAiFraming =\n  11 |     o.object === 'chat.completion.chunk' ||\n  12 |     (typeof o.id === 'string' && o.id.startsWith('chatcmpl'));"
+        },
+        {
+          "line": 14,
+          "match": "const choices = o.choices as Array<{ delta?: { content?: unknown } }> | undefined;",
+          "context": "  13 |   if (!looksOpenAiFraming) return false;\n  14 |   const choices = o.choices as Array<{ delta?: { content?: unknown } }> | undefined;\n  15 |   const dc = choices?.[0]?.delta?.content;"
+        },
+        {
+          "line": 15,
+          "match": "const dc = choices?.[0]?.delta?.content;",
+          "context": "  14 |   const choices = o.choices as Array<{ delta?: { content?: unknown } }> | undefined;\n  15 |   const dc = choices?.[0]?.delta?.content;\n  16 |   if (typeof dc === 'string' && dc.length > 0) return false;"
+        },
+        {
+          "line": 23,
+          "match": "const choices = o.choices as Array<{ delta?: Record<string, unknown> }> | undefined;",
+          "context": "  22 |   const o = data as Record<string, unknown>;\n  23 |   const choices = o.choices as Array<{ delta?: Record<string, unknown> }> | undefined;\n  24 |   const d = choices?.[0]?.delta;"
+        },
+        {
+          "line": 24,
+          "match": "const d = choices?.[0]?.delta;",
+          "context": "  23 |   const choices = o.choices as Array<{ delta?: Record<string, unknown> }> | undefined;\n  24 |   const d = choices?.[0]?.delta;\n  25 |   if (!d || typeof d !== 'object') return false;"
+        },
+        {
+          "line": 44,
+          "match": "(pt === 'delta' && typeof p.text === 'string' ? p.text : '') ||",
+          "context": "  43 |     (pt === 'token' && typeof p.text === 'string' ? p.text : '') ||\n  44 |     (pt === 'delta' && typeof p.text === 'string' ? p.text : '') ||\n  45 |     (pt === 'text' && typeof p.text === 'string' ? p.text : '');"
+        },
+        {
+          "line": 48,
+          "match": "const nestedDelta = p.delta as Record<string, unknown> | undefined;",
+          "context": "  47 | \n  48 |   const nestedDelta = p.delta as Record<string, unknown> | undefined;\n  49 |   if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {"
+        },
+        {
+          "line": 49,
+          "match": "if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {",
+          "context": "  48 |   const nestedDelta = p.delta as Record<string, unknown> | undefined;\n  49 |   if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {\n  50 |     return nestedDelta.content;"
+        },
+        {
+          "line": 50,
+          "match": "return nestedDelta.content;",
+          "context": "  49 |   if (nestedDelta && typeof nestedDelta.content === 'string' && nestedDelta.content.length > 0) {\n  50 |     return nestedDelta.content;\n  51 |   }"
+        }
+      ]
+    }
+  },
+  "import_graph": {
+    "imports_components_chat": [
+      "dashboard/App.tsx"
+    ],
+    "imports_browserview": [
+      "dashboard/App.tsx"
+    ],
+    "imports_excalidraw": [
+      "dashboard/App.tsx",
+      "dashboard/components/ExcalidrawView.tsx",
+      "dashboard/components/MeetPage.tsx",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/animated-trail.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/shapes.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/points.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/snapping.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/visualdebug.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/index.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/utils/export.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/utils/withinBounds.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/utils/collision.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/utils/bbox.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/utils/index.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/utils/geometry/shape.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/transformHandles.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/elbowArrow.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/resizeTest.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/binding.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/linearElementEditor.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/types.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/collision.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/bounds.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/utils.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/resizeElements.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/distance.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/element/heading.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/fonts/Fonts.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/components/hyperlink/helpers.d.ts",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/types/excalidraw/components/TTDDialog/common.d.ts",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/elementSkeleton.d.ts",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/types.d.ts",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/interfaces.d.ts",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/converter/helpers.d.ts",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/parser/state.d.ts",
+      "dashboard/dist/agent-dashboard.js",
+      "dashboard/node_modules/@excalidraw/excalidraw/dist/dev/index.js",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/index.js",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/converter/helpers.js",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/converter/types/sequence.js",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/converter/types/er.js",
+      "dashboard/node_modules/@excalidraw/mermaid-to-excalidraw/dist/converter/types/class.js"
+    ],
+    "imports_monaco": [
+      "dashboard/App.tsx",
+      "dashboard/components/MonacoEditorView.tsx",
+      "dashboard/components/SQLConsole.tsx",
+      "dashboard/components/DatabasePage.tsx",
+      "dashboard/components/MonacoSurface.tsx",
+      "dashboard/components/settings/sections/ToolsMcpSection.tsx",
+      "dashboard/components/settings/mcp/McpMonacoHost.tsx",
+      "dashboard/components/settings/components/RulesSkillsDrawers.tsx",
+      "dashboard/features/agent-chat/components/DiffViewer.tsx",
+      "dashboard/node_modules/@monaco-editor/react/dist/index.d.ts",
+      "dashboard/node_modules/@monaco-editor/loader/lib/types.d.ts",
+      "dashboard/node_modules/monaco-editor/esm/vs/editor/editor.main.js",
+      "dashboard/node_modules/monaco-editor/esm/vs/language/typescript/languageFeatures.js",
+      "dashboard/node_modules/@monaco-editor/loader/playground/main.js"
+    ],
+    "imports_mcp": [
+      "dashboard/App.tsx",
+      "dashboard/components/settings/SettingsPanel.tsx",
+      "dashboard/node_modules/monaco-editor/min/vs/assets/css.worker-HnVq6Ewq.js"
+    ],
+    "imports_feature_chat": [
+      "dashboard/components/ChatAssistant.tsx",
+      "dashboard/pages/workflows/WorkflowsPage.tsx"
+    ],
+    "imports_stream_parsing": [
+      "dashboard/components/ChatAssistant.tsx",
+      "dashboard/features/agent-chat/ChatAssistant.tsx",
+      "dashboard/features/agent-chat/index.ts",
+      "dashboard/features/agent-chat/hooks/useAgentChatStream.ts"
+    ],
+    "imports_useAgentStream": [
+      "dashboard/features/agent-chat/ChatAssistant.tsx"
+    ]
+  },
+  "existing_scripts": {
+    "scripts/audit_agent_remaster.py": {
+      "exists": true,
+      "lines": 310,
+      "relevant_keywords_found": [
+        "sse"
+      ],
+      "relevance_score": 1,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\naudit_agent_remaster.py\nRun from repo root:  python3 scripts/audit_agent_remaster.py\nOutputs a markdown report of every file/line that touches WorkspaceDashboard,\nthe + menu, the input bar, cms_themes, greeting state, and recent-files logic.\n\"\"\"\n\nimport os, re, subprocess, json\nfrom pathlib import Path\nfrom datetime import datetime\n\nROOT = Path(__file__).resolve().parent.parent   # repo root\n\n# \u2500\u2500\u2500 SEARCH TARGETS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    "scripts/audit_agent_remaster_report.md": {
+      "exists": true,
+      "lines": 1928,
+      "relevant_keywords_found": [
+        "stream",
+        "sse",
+        "event",
+        "loading",
+        "progress",
+        "BrowserView",
+        "excalidraw",
+        "diff",
+        "approval",
+        "chunk",
+        "cursor",
+        "gap"
+      ],
+      "relevance_score": 12,
+      "preview": "# Agent Remaster \u2014 Asset Audit\nGenerated: 2026-05-14 14:03:32\nRoot: /Users/samprimeaux/inneranimalmedia\n\n## Git State\n```\nSTATUS: M src/core/agentsam-task-executor.js\n?? scripts/audit_agent_remaster.py\n\nLAST 5 COMMITS:\n143acdb feat(dashboard): workflows page, rail icon, and multi-chat tabs\nf66f975 chore(scripts): add D1 agentsam/cms table audit under scripts/\n9b3cb6e chore(deps): bump wrangler to ^4.91.0\nd5ec6ac chore(scripts): align may14_verify with ToolApprovalModal button copy\n061fffe fix(au"
+    },
+    "scripts/build_thinking_card_wire.py": {
+      "exists": true,
+      "lines": 255,
+      "relevant_keywords_found": [
+        "thinking",
+        "stream",
+        "sse",
+        "event",
+        "loading",
+        "approval"
+      ],
+      "relevance_score": 6,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nbuild_thinking_card_wire.py\n1. Copies ThinkingCard.tsx into dashboard/src/components/\n2. Wires ThinkingCard state + SSE events into ChatAssistant.tsx\n3. Adds onApprovalRequired callback to surface command_run_id to App.tsx\n\nRun from repo root:\n  python3 scripts/build_thinking_card_wire.py\n\"\"\"\n\nimport os, re, shutil, sys\n\nROOT = os.getcwd()\n\ndef rp(rel): return os.path.join(ROOT, rel)\ndef read(rel): \n    with open(rp(rel), encoding='utf-8') as f: return f.read()\ndef wri"
+    },
+    "scripts/build_agentsam_cursor_gap_pack.py": {
+      "exists": true,
+      "lines": 1283,
+      "relevant_keywords_found": [
+        "thinking",
+        "stream",
+        "sse",
+        "event",
+        "excalidraw",
+        "diff",
+        "approval",
+        "tool_call",
+        "chunk",
+        "cursor",
+        "gap"
+      ],
+      "relevance_score": 11,
+      "preview": "#!/usr/bin/env python3\n\"\"\"\nbuild_agentsam_cursor_gap_pack.py\n=================================\n\nAgent Sam Cursor Gap Pack Builder\n\nRead-only repo intelligence generator for:\n- Agent Sam /dashboard/agent architecture\n- backend route/tool/executor/routing surfaces\n- D1 agentsam_* closed-loop mapping\n- OpenAI-generated recommendations\n- Ollama local embedding corpus, chunked for vector planning\n\nDefault behavior:\n- Scans repo files.\n- Writes markdown + JSON artifacts.\n- Does not modify source.\n- Do"
+    },
+    "scripts/agentsam_microinteraction_quality_audit.py": {
+      "exists": true,
+      "lines": 927,
+      "relevant_keywords_found": [
+        "thinking",
+        "checkpoint",
+        "stream",
+        "sse",
+        "event",
+        "loading",
+        "approval",
+        "chunk",
+        "microinteraction"
+      ],
+      "relevance_score": 9,
+      "preview": "\"\"\"\nAgent Sam Micro-Interaction Quality Audit\n\nPurpose:\n- Practice the correct workflow: write Python in a text editor, run it from Mac terminal.\n- Audit /dashboard/agent micro-interaction implementation quality.\n- Check for Agent Presence Layer files, execution trace primitives, script draft UI, artifact chips, queue-readiness, and plan/task anchor readiness.\n- Produce chunked markdown reports under artifacts/agentsam_microinteraction_quality_audit/<timestamp>/.\n- Optionally ask local Ollama fo"
+    },
+    "scripts/audit_agent_microinteractions.py": {
+      "exists": true,
+      "lines": 981,
+      "relevant_keywords_found": [
+        "stream",
+        "sse",
+        "event",
+        "diff",
+        "tool_call",
+        "chunk",
+        "cursor",
+        "microinteraction"
+      ],
+      "relevance_score": 8,
+      "preview": "\"\"\"\nAgent Sam micro-interaction audit.\n\nPurpose:\n- Audit the Vite + React dashboard shell and /dashboard/agent workspace.\n- Locate the files/components involved in the top bar, left rail, center workspace, bottom status bar.\n- Find existing UI patterns for tool calls, workflow steps, request/result previews, collapsible panels, SSE, logs, and artifacts.\n- Produce chunked markdown reports instead of one massive blob.\n- Optionally ask a local Ollama model to review the compact audit digest.\n\nRun f"
+    },
+    "scripts/agentsam-cursor-capability-connector.py": {
+      "exists": true,
+      "lines": 654,
+      "relevant_keywords_found": [
+        "stream",
+        "sse",
+        "event",
+        "loading",
+        "BrowserView",
+        "excalidraw",
+        "approval",
+        "cursor"
+      ],
+      "relevance_score": 8,
+      "preview": "#!/usr/bin/env python3\nfrom __future__ import annotations\n\nimport argparse\nimport csv\nimport json\nimport os\nimport re\nimport shutil\nimport subprocess\nimport time\nfrom pathlib import Path\nfrom typing import Any, Dict, List\n\nROOT = Path.cwd()\nARTIFACTS = ROOT / \"artifacts\"\n\nD1_DB = os.getenv(\"IAM_D1_DB\", \"inneranimalmedia-business\")\nWRANGLER_CONFIG = os.getenv(\"IAM_WRANGLER_CONFIG\", \"wrangler.production.toml\")\nD1_REMOTE = os.getenv(\"IAM_D1_REMOTE\", \"1\") not in {\"0\", \"false\", \"False\", \"no\"}\n\nINPUT_"
+    },
+    "scripts/agentsam-workflows-frontend-runtime-planner.py": {
+      "exists": true,
+      "lines": 833,
+      "relevant_keywords_found": [
+        "checkpoint",
+        "stream",
+        "sse",
+        "event",
+        "spinner",
+        "BrowserView",
+        "excalidraw",
+        "approval",
+        "cursor"
+      ],
+      "relevance_score": 9,
+      "preview": "#!/usr/bin/env python3\nfrom __future__ import annotations\n\nimport argparse\nimport json\nimport os\nimport re\nimport subprocess\nimport time\nfrom pathlib import Path\nfrom typing import Any\n\nROOT = Path.cwd()\nARTIFACTS = ROOT / \"artifacts\"\nARTIFACTS.mkdir(parents=True, exist_ok=True)\n\nD1_DB = os.getenv(\"IAM_D1_DB\", \"inneranimalmedia-business\")\nWRANGLER_CONFIG = os.getenv(\"IAM_WRANGLER_CONFIG\", \"wrangler.production.toml\")\nD1_REMOTE = os.getenv(\"IAM_D1_REMOTE\", \"1\").lower() not in {\"0\", \"false\", \"no\"}\n"
+    }
+  },
+  "migrations": {
+    "migrations/209_cidi_meauxcad_chat_log_builds_activity.sql": {
+      "exists": true,
+      "lines": 117,
+      "tables_created": [],
+      "columns_added": [],
+      "indexes_created": [],
+      "chat_related": true,
+      "agent_related": true
+    },
+    "migrations/215_project_memory_agent_dashboard_ui_20260402.sql": {
+      "exists": true,
+      "lines": 71,
+      "tables_created": [],
+      "columns_added": [],
+      "indexes_created": [],
+      "chat_related": true,
+      "agent_related": true
+    },
+    "migrations/327_agentsam_dashboard_agent_self_debug.sql": {
+      "exists": true,
+      "lines": 158,
+      "tables_created": [],
+      "columns_added": [],
+      "indexes_created": [],
+      "chat_related": true,
+      "agent_related": true
+    }
+  },
+  "implementation_hitlist": [
+    {
+      "priority": "P0",
+      "area": "BrowserView",
+      "issue": "No manual takeover control detected",
+      "action": "Add safety/control UX"
+    },
+    {
+      "priority": "P1",
+      "area": "Types",
+      "issue": "No stream/event types found",
+      "action": "Add AgentEvent/StreamEvent types"
+    },
+    {
+      "priority": "P1",
+      "area": "Excalidraw",
+      "issue": "Write mode is blob_replace",
+      "action": "Implement scene patch events"
+    }
+  ]
+}

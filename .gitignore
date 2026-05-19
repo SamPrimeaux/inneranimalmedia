@@ -87,6 +87,10 @@ scripts/agentsam_schema_chunks.jsonl
 agentsam_inspection.txt
 audit_agentsam_report.json
 
+# Root one-off audit/patch scratch (committed tooling lives under scripts/)
+/audit_*.py
+/patch_*.py
+
 # One-off local D1 migration scratch (use migrations/ for committed schema)
 run_migrations.sh
 
