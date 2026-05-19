@@ -188,6 +188,53 @@ export function looksLikeEmbeddedFileDumpStart(full: string): boolean {
   return false;
 }
 
+const BROWSER_TOOL_RE =
+  /^(browser_|cdt_|playwright_)/i;
+
+/** User-facing tool error copy; keeps raw parser noise in `detail`. */
+export function normalizeBrowserToolErrorMessage(
+  toolName: string,
+  rawError: string,
+): { short: string; detail: string } {
+  const detail = String(rawError || '').trim() || 'Unknown error';
+  const tool = String(toolName || '').trim();
+  const isBrowserish =
+    BROWSER_TOOL_RE.test(tool) || /browser/i.test(tool) || tool === 'browser_navigate';
+
+  if (!isBrowserish) {
+    return { short: detail.slice(0, 280), detail };
+  }
+
+  const lower = detail.toLowerCase();
+  if (/error code:\s*522/.test(lower) || lower.includes('522')) {
+    return {
+      short: 'Browser preview failed: Cloudflare 522 (origin timeout).',
+      detail,
+    };
+  }
+  if (/unexpected token/i.test(detail) && /error code:/i.test(detail)) {
+    return {
+      short: 'Browser preview failed: response was not JSON (origin may be down).',
+      detail,
+    };
+  }
+  if (/unexpected token/i.test(detail) && /is not valid json/i.test(detail)) {
+    return {
+      short: 'Browser preview failed: response was not JSON.',
+      detail,
+    };
+  }
+  if (/^browser error \[/i.test(detail)) {
+    const stripped = detail.replace(/^Browser Error \[[^\]]+\]:\s*/i, '').trim();
+    if (/unexpected token/i.test(stripped)) {
+      return { short: 'Browser preview failed: response was not JSON.', detail };
+    }
+    return { short: `Browser preview failed: ${stripped.slice(0, 200)}`, detail };
+  }
+
+  return { short: `Browser preview failed: ${detail.slice(0, 200)}`, detail };
+}
+
 export function formatHttpErrorMessage(status: number, bodyText: string): string {
   try {
     const j = JSON.parse(bodyText) as { error?: string; detail?: string; status?: number; model?: string };

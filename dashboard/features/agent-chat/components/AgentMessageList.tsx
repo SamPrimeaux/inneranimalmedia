@@ -20,6 +20,7 @@ import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
 import { AgentPresenceLogo } from '../../agent-presence/AgentPresenceLogo';
+import { AgentPlanChecklist } from './AgentPlanChecklist';
 
 const getLangMeta = (lang: string) => {
   const map: Record<string, { ext: string; icon: React.ReactNode }> = {
@@ -424,6 +425,9 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       onFileSelect={onFileSelect}
                       onImagePreview={onImagePreview}
                     />
+                  ) : null}
+                  {msg.executionPlan && msg.executionPlan.tasks.length > 0 ? (
+                    <AgentPlanChecklist plan={msg.executionPlan} />
                   ) : null}
                   <div
                     className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full"

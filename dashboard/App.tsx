@@ -3170,6 +3170,9 @@ const App: React.FC = () => {
                             onOpenGitHubIntegration={openGitHubFromChat}
                             onMobileOpenDashboard={openDashboardFromChat}
                             onOpenCodeTab={focusCodeEditorFromChat}
+                            onLoadingChange={setAgentIsStreaming}
+                            onApprovalRequired={setActiveCommandRunId}
+                            agentRunId={activeCommandRunId}
                             syncedHostConversationId={activeAgentConversationId}
                             agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
                             activeAgentChatShellTabId={activeAgentChatTabId}

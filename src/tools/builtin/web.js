@@ -61,11 +61,31 @@ async function invokeBrowserOp(env, toolName, params) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tool_name: tool, params }),
         });
-        const data = await res.json();
+        const bodyText = await res.text();
+        let data;
+        try {
+            data = bodyText ? JSON.parse(bodyText) : {};
+        } catch (parseErr) {
+            const snippet = String(bodyText || '').trim().slice(0, 200);
+            if (/error code:\s*522/i.test(snippet)) {
+                return { error: `Browser preview failed: Cloudflare 522 (origin timeout).`, detail: snippet };
+            }
+            return {
+                error: 'Browser preview failed: response was not JSON.',
+                detail: snippet || parseErr?.message || 'empty response',
+            };
+        }
         if (!res.ok) throw new Error(data.error || 'Browser Operation Failed');
         return data;
     } catch (e) {
-        return { error: `Browser Error [${tool}]: ${e.message}` };
+        const msg = e?.message || String(e);
+        if (/unexpected token/i.test(msg) && /error code:\s*522/i.test(msg)) {
+            return { error: 'Browser preview failed: Cloudflare 522 (origin timeout).', detail: msg };
+        }
+        if (/unexpected token/i.test(msg) && /is not valid json/i.test(msg)) {
+            return { error: 'Browser preview failed: response was not JSON.', detail: msg };
+        }
+        return { error: `Browser preview failed: ${msg}`, detail: msg };
     }
 }
 

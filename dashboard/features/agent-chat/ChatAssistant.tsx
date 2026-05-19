@@ -870,17 +870,48 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   );
 
 
+  const compactToolLabel = useCallback((toolName: string) => {
+    const n = String(toolName || '').toLowerCase();
+    if (n === 'browser_navigate' || n === 'browser_open_url' || n === 'cdt_navigate_page') return 'Opening browser preview…';
+    if (n.includes('monaco') || n === 'r2_write' || n.includes('write')) return 'Editing code…';
+    if (n === 'cdt_take_screenshot' || n === 'playwright_screenshot' || n === 'browser_screenshot') {
+      return 'Capturing browser screenshot…';
+    }
+    if (n.startsWith('browser_') || n.startsWith('cdt_') || n.startsWith('playwright_')) return 'Browser tool…';
+    return toolName;
+  }, []);
+
   const handleThinkingEvent = useCallback((ev: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string }) => {
     if (ev.type === 'thinking_start') {
       setThinkingState({ steps: [], thinkingText: '', status: 'thinking', startedAt: Date.now() });
     } else if (ev.type === 'thinking') {
       setThinkingState(prev => prev ? { ...prev, thinkingText: (prev.thinkingText || '') + (ev.text || '') } : prev);
+    } else if (ev.type === 'plan_thinking') {
+      setThinkingState({
+        steps: [],
+        thinkingText: ev.text || 'Creating plan…',
+        status: 'thinking',
+        startedAt: Date.now(),
+      });
+    } else if (ev.type === 'plan_created' || ev.type === 'plan_progress') {
+      setThinkingState(prev => ({
+        steps: prev?.steps ?? [],
+        thinkingText: ev.text || 'Running plan…',
+        status: 'working',
+        startedAt: prev?.startedAt ?? Date.now(),
+      }));
     } else if (ev.type === 'tool_start') {
       const id = ev.tool_name || String(Date.now());
+      const label = compactToolLabel(id);
       setThinkingState(prev => {
-        const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };
-        if (base.steps.find(s => s.id === id)) return base;
-        return { ...base, status: 'working', steps: [...base.steps, { id, name: id, status: 'running' as const }] };
+        const base = prev ?? { steps: [], thinkingText: label, status: 'working', startedAt: Date.now() };
+        if (base.steps.find(s => s.id === id)) return { ...base, thinkingText: label, status: 'working' };
+        return {
+          ...base,
+          status: 'working',
+          thinkingText: label,
+          steps: [...base.steps, { id, name: label, status: 'running' as const }],
+        };
       });
     } else if (ev.type === 'tool_done' || ev.type === 'workflow_step') {
       const id = ev.tool_name || '';
@@ -902,7 +933,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } else if (ev.type === 'workflow_error' || ev.type === 'error') {
       setThinkingState(prev => prev ? { ...prev, status: 'error' } : prev);
     }
-  }, [onApprovalRequired]);
+  }, [onApprovalRequired, compactToolLabel]);
 
   const handleApprovePendingTool = useCallback(async () => {
     if (!pendingToolApproval) return;

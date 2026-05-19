@@ -7,7 +7,15 @@
 
 import type React from 'react';
 import { LS_AGENT_CHAT_CONVERSATION_ID } from '../../../agentChatConstants';
-import type { Message, ToolApprovalPayload, WorkflowLedgerState, AgentPreviewArtifact, AgentPreviewArtifactKind } from '../types';
+import type {
+  Message,
+  ToolApprovalPayload,
+  WorkflowLedgerState,
+  AgentPreviewArtifact,
+  AgentPreviewArtifactKind,
+  ExecutionPlanState,
+  ExecutionPlanTask,
+} from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import {
   extractMonacoInvokesFromBuffer,
@@ -15,6 +23,7 @@ import {
   looksLikeEmbeddedFileDumpStart,
   looksLikeRawProviderLeak,
   normalizeAssistantSseText,
+  normalizeBrowserToolErrorMessage,
   ssePayloadLooksReasoningOnly,
   isStreamErrorPayload,
 } from '../streamParsing';
@@ -38,6 +47,20 @@ function extForStreamOutput(lang: string): string {
 function isBrowserScreenshotToolName(name: string): boolean {
   const n = String(name || '').trim().toLowerCase();
   return n === 'cdt_take_screenshot' || n === 'playwright_screenshot' || n === 'browser_screenshot';
+}
+
+function mapTaskCompleteStatus(status: string | undefined): ExecutionPlanTask['status'] {
+  if (status === 'done') return 'done';
+  if (status === 'skipped') return 'skipped';
+  return 'failed';
+}
+
+function planStatusFromSummary(status: string | undefined, failed: number): ExecutionPlanState['status'] {
+  const s = String(status || '').toLowerCase();
+  if (s === 'complete' || s === 'completed' || s === 'ok') return failed > 0 ? 'partial' : 'complete';
+  if (s === 'partial') return 'partial';
+  if (s === 'failed') return 'failed';
+  return failed > 0 ? 'partial' : 'complete';
 }
 
 function parseScreenshotUrlFromToolPayload(raw: string | null | undefined): string | null {
@@ -147,6 +170,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   /** Last `tool_output` chunk for the active browser screenshot tool. */
   let lastBrowserScreenshotOutputChunk: string | null = null;
   let activeBrowserScreenshotTool = false;
+  let executionPlan: ExecutionPlanState | null = null;
+
+  const pushExecutionPlan = (next: ExecutionPlanState | null) => {
+    executionPlan = next;
+    setMessages((prev) => {
+      const last = [...prev];
+      const idx = last.length - 1;
+      if (idx < 0 || last[idx].role !== 'assistant') return prev;
+      last[idx] = { ...last[idx], content: assistantContent, executionPlan: next };
+      return last;
+    });
+  };
 
   if (!mergeIntoLastAssistant) {
     activeToolTraceId = null;
@@ -408,13 +443,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_thinking') {
           const d = data as { type: string; message?: string };
-          assistantStreamBuf += `\n\n_${String(d.message || 'Planning…')}_\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
+          onThinkingEvent?.({ type: 'plan_thinking', text: String(d.message || 'Creating plan…') });
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'approval_required') {
@@ -446,12 +475,10 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               },
             });
           }
-          assistantStreamBuf += `\n\n**Approval required:** ${String(d.title || 'Terminal')} (${String(d.risk_level || 'medium')})\n\`\`\`bash\n${String(d.command_preview || '').slice(0, 1500)}\n\`\`\`\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
+          onThinkingEvent?.({
+            type: 'approval_required',
+            text: `Waiting for approval: ${String(d.title || 'Terminal')}`,
+            command_run_id: crid || aid,
           });
           continue;
         }
@@ -478,20 +505,33 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               files_involved?: string[];
             }>;
           };
-          const wr = d.workflow_run_id ? `\n_workflow run:_ \`${d.workflow_run_id}\`\n` : '';
-          const lines = (d.tasks || []).map((t, i) => {
-            const cap = t.capability_type ? ` · **${t.capability_type}**` : '';
-            const step = t.execution_step_id ? ` · step \`${String(t.execution_step_id).slice(0, 18)}…\`` : '';
-            const cr = t.command_run_id ? ` · cmd \`${String(t.command_run_id).slice(0, 14)}…\`` : '';
-            const files =
-              Array.isArray(t.files_involved) && t.files_involved.length
-                ? ` · files: ${t.files_involved.slice(0, 4).join(', ')}${t.files_involved.length > 4 ? '…' : ''}`
-                : '';
-            return `${i + 1}. [ ] **${String(t.title || '').slice(0, 200)}** _(${String(t.handler_type || 'agent')})_${cap}${step}${cr}${files}`;
-          });
-          assistantStreamBuf += `\n\n### ${String(d.plan_title || 'Plan')}\n_plan ${String(d.plan_id || '').slice(0, 14)}…_${wr}_${Number(d.task_count || lines.length)} tasks_\n\n${lines.join('\n')}\n`;
-          assistantContent = assistantStreamBuf;
           const pid = typeof d.plan_id === 'string' ? d.plan_id.trim() : '';
+          const planTasks: ExecutionPlanTask[] = (d.tasks || []).map((t) => ({
+            id: String(t.id || ''),
+            title: String(t.title || '').slice(0, 200),
+            order_index: Number(t.order_index ?? 0),
+            status: 'todo',
+            handler_type: t.handler_type ?? null,
+            trace: {
+              execution_step_id: t.execution_step_id ?? null,
+              command_run_id: t.command_run_id ?? null,
+              workflow_run_id: t.workflow_run_id ?? d.workflow_run_id ?? null,
+              capability_type: t.capability_type ?? null,
+              handler_key: t.handler_key ?? null,
+              files_involved: Array.isArray(t.files_involved) ? t.files_involved : undefined,
+            },
+          }));
+          executionPlan = {
+            plan_id: pid,
+            plan_title: String(d.plan_title || 'Plan'),
+            status: 'running',
+            tasks: planTasks,
+            workflow_run_id: d.workflow_run_id ?? null,
+          };
+          onThinkingEvent?.({
+            type: 'plan_created',
+            text: `Running task 1 of ${planTasks.length || Number(d.task_count || 0) || '?' }…`,
+          });
           const vm = d.visual_map;
           const pm = d.plan_markdown;
           const vmOk =
@@ -548,12 +588,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 ...last[idx],
                 content: assistantContent,
                 implementationPlan: chip ?? null,
+                executionPlan,
               };
             } else {
               last.push({
                 role: 'assistant',
                 content: assistantContent,
                 ...(chip ? { implementationPlan: chip } : {}),
+                executionPlan,
               });
             }
             return last;
@@ -561,34 +603,58 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'task_start') {
-          const d = data as { type: string; title?: string; order_index?: number; handler_type?: string };
-          assistantStreamBuf += `\n- **Running** (#${Number(d.order_index ?? 0) + 1}) ${String(d.title || '')} _${String(d.handler_type || '')}_\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
+          const d = data as {
+            type: string;
+            task_id?: string;
+            title?: string;
+            order_index?: number;
+            handler_type?: string;
+            total_tasks?: number;
+          };
+          if (executionPlan) {
+            const idx = Number(d.order_index ?? 0);
+            const total = Number(d.total_tasks ?? executionPlan.tasks.length) || executionPlan.tasks.length;
+            executionPlan = {
+              ...executionPlan,
+              status: 'running',
+              tasks: executionPlan.tasks.map((t) =>
+                t.id === d.task_id || t.order_index === idx
+                  ? { ...t, status: 'running' as const }
+                  : t,
+              ),
+            };
+            pushExecutionPlan(executionPlan);
+            onThinkingEvent?.({
+              type: 'plan_progress',
+              text: `Running task ${idx + 1} of ${total}…`,
+            });
+          }
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'task_complete') {
           const d = data as {
             type: string;
+            task_id?: string;
             title?: string;
             status?: string;
             output?: string;
             error?: string;
             order_index?: number;
           };
-          const tag = d.status === 'done' ? 'Done' : d.status === 'skipped' ? 'Skipped' : 'Failed';
+          const taskStatus = mapTaskCompleteStatus(d.status);
           const detail = String(d.output || d.error || '').slice(0, 1200);
-          assistantStreamBuf += `\n  → **${tag}** (#${Number(d.order_index ?? 0) + 1}) ${String(d.title || '')}${detail ? ` — ${detail}` : ''}\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
+          if (executionPlan) {
+            const idx = Number(d.order_index ?? 0);
+            executionPlan = {
+              ...executionPlan,
+              tasks: executionPlan.tasks.map((t) =>
+                t.id === d.task_id || t.order_index === idx
+                  ? { ...t, status: taskStatus, detail: detail || t.detail }
+                  : t,
+              ),
+            };
+            pushExecutionPlan(executionPlan);
+          }
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_task_resume_complete') {
@@ -601,13 +667,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             tasks_skipped?: number;
             status?: string;
           };
-          assistantStreamBuf += `\n\n_Resume ${String(d.status || 'finished')}: ${Number(d.tasks_completed || 0)} completed, ${Number(d.tasks_failed || 0)} failed, ${Number(d.tasks_skipped || 0)} skipped._\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
+          if (executionPlan) {
+            const failed = Number(d.tasks_failed || 0);
+            executionPlan = {
+              ...executionPlan,
+              status: planStatusFromSummary(d.status, failed),
+              tasks_completed: Number(d.tasks_completed || 0),
+              tasks_failed: failed,
+              tasks_skipped: Number(d.tasks_skipped || 0),
+            };
+            pushExecutionPlan(executionPlan);
+          }
+          onThinkingEvent?.({ type: 'workflow_complete' });
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_complete') {
@@ -619,13 +690,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             tasks_skipped?: number;
             status?: string;
           };
-          assistantStreamBuf += `\n\n_Plan ${String(d.status || 'finished')}: ${Number(d.tasks_completed || 0)} completed, ${Number(d.tasks_failed || 0)} failed, ${Number(d.tasks_skipped || 0)} skipped._\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
+          if (executionPlan) {
+            const failed = Number(d.tasks_failed || 0);
+            executionPlan = {
+              ...executionPlan,
+              status: planStatusFromSummary(d.status, failed),
+              tasks_completed: Number(d.tasks_completed || 0),
+              tasks_failed: failed,
+              tasks_skipped: Number(d.tasks_skipped || 0),
+            };
+            pushExecutionPlan(executionPlan);
+          }
+          onThinkingEvent?.({ type: 'workflow_complete' });
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'workflow_start') {
@@ -636,13 +712,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             workflow_key?: string;
           };
           if (typeof w.workflow_key === 'string' && w.workflow_key.trim()) {
-            assistantStreamBuf += `\n\n_Workflow:_ **${w.workflow_key.trim()}** …\n`;
-            assistantContent = assistantStreamBuf;
-            setMessages((prev) => {
-              const last = [...prev];
-              last[last.length - 1] = { role: 'assistant', content: assistantContent };
-              return last;
-            });
+            onThinkingEvent?.({ type: 'plan_progress', text: 'Running workflow…' });
           }
           setWorkflowLedger((prev) => ({
             ...prev,
@@ -670,13 +740,10 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             (typeof w.node_key === 'string' && w.node_key) ||
             '';
           if (nk) {
-            const st = w.ok === false ? 'failed' : 'ok';
-            assistantStreamBuf += `\n_Step ${nk}:_ ${st}\n`;
-            assistantContent = assistantStreamBuf;
-            setMessages((prev) => {
-              const last = [...prev];
-              last[last.length - 1] = { role: 'assistant', content: assistantContent };
-              return last;
+            onThinkingEvent?.({
+              type: 'workflow_step',
+              tool_name: nk,
+              ok: w.ok !== false,
             });
           }
           setWorkflowLedger((prev) => ({
@@ -707,19 +774,13 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             runId: typeof w.run_id === 'string' ? w.run_id : prev.runId,
             lastError: w.type === 'workflow_error' ? String(w.message || 'workflow_error') : null,
           }));
-          const tag =
-            w.type === 'workflow_complete'
-              ? 'complete'
-              : w.type === 'workflow_approval_required'
-                ? 'approval'
-                : 'error';
-          assistantStreamBuf += `\n\n_Workflow ${tag}:_ ${String(w.message || w.status || '').slice(0, 800)}\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
+          if (w.type === 'workflow_complete') {
+            onThinkingEvent?.({ type: 'workflow_complete' });
+          } else if (w.type === 'workflow_approval_required') {
+            onThinkingEvent?.({ type: 'approval_required', text: 'Waiting for approval…' });
+          } else {
+            onThinkingEvent?.({ type: 'workflow_error' });
+          }
           continue;
         }
         if (
@@ -732,13 +793,6 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const r2evt = data as { type: 'r2_file_updated'; bucket: string; key: string };
           onR2FileUpdated?.(r2evt);
           fileEchoSuppress = false;
-          assistantStreamBuf += `\n[FILE_CREATED:${r2evt.key}]\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
           continue;
         }
         if (
@@ -812,16 +866,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_error') {
           const d = data as { type?: string; tool?: string; error?: string };
-          const msg = String(d.error || 'tool_error').slice(0, 4000);
+          const rawMsg = String(d.error || 'tool_error').slice(0, 4000);
           const toolLabel = String(d.tool || 'tool');
+          const normalized = normalizeBrowserToolErrorMessage(toolLabel, rawMsg);
           setToolTraceRows?.((prev) => {
+            const traceLine = `${normalized.short}${normalized.detail !== rawMsg ? `\n${normalized.detail}` : ''}`;
             if (activeToolTraceId && prev.some((r) => r.id === activeToolTraceId)) {
               return prev.map((r) =>
                 r.id === activeToolTraceId
                   ? {
                       ...r,
                       status: 'error' as const,
-                      lines: [...r.lines, `[${toolLabel}] ${msg}`],
+                      lines: [...r.lines, `[${toolLabel}] ${traceLine}`],
                     }
                   : r,
               );
@@ -833,24 +889,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 id,
                 toolName: toolLabel,
                 status: 'error',
-                lines: [msg],
+                lines: [traceLine],
                 startedAtLabel: new Date().toLocaleTimeString(),
               },
             ];
           });
+          onThinkingEvent?.({ type: 'tool_error', tool_name: toolLabel });
           activeToolTraceId = null;
           pendingBrowserToolUrl = null;
           lastBrowserToolOutputChunk = null;
           lastBrowserScreenshotOutputChunk = null;
           activeBrowserNavTool = false;
           activeBrowserScreenshotTool = false;
-          assistantStreamBuf += `\n\n_Tool error (${String(d.tool || 'tool')}):_ ${msg}\n`;
-          assistantContent = assistantStreamBuf;
-          setMessages((prev) => {
-            const last = [...prev];
-            last[last.length - 1] = { role: 'assistant', content: assistantContent };
-            return last;
-          });
           continue;
         }
         if (

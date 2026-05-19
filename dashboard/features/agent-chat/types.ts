@@ -33,6 +33,37 @@ export type ImplementationPlanChip = {
   plan_markdown?: ImplementationPlanMarkdown | null;
 };
 
+export type ExecutionPlanTaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
+
+export type ExecutionPlanTask = {
+  id: string;
+  title: string;
+  order_index: number;
+  status: ExecutionPlanTaskStatus;
+  handler_type?: string | null;
+  /** Collapsed-by-default task output or error snippet. */
+  detail?: string;
+  trace?: {
+    execution_step_id?: string | null;
+    command_run_id?: string | null;
+    workflow_run_id?: string | null;
+    capability_type?: string | null;
+    handler_key?: string | null;
+    files_involved?: string[];
+  };
+};
+
+export type ExecutionPlanState = {
+  plan_id: string;
+  plan_title: string;
+  status: 'planning' | 'running' | 'complete' | 'partial' | 'failed';
+  tasks: ExecutionPlanTask[];
+  workflow_run_id?: string | null;
+  tasks_completed?: number;
+  tasks_failed?: number;
+  tasks_skipped?: number;
+};
+
 /** Future: Worker SSE `artifact_preview` payloads merged into the assistant bubble (images, query results). */
 export type AgentPreviewArtifactKind = 'sql' | 'diff' | 'code' | 'image' | 'table';
 
@@ -58,6 +89,8 @@ export interface Message {
   attachmentPreviews?: MessageAttachmentPreview[];
   /** When Agent Sam emits `plan_created` with a saved plan map artifact. */
   implementationPlan?: ImplementationPlanChip | null;
+  /** Live plan checklist from plan_* / task_* SSE (compact UI; verbose fields in task.trace). */
+  executionPlan?: ExecutionPlanState | null;
   /** Reserved for structured previews from the Worker (optional; fences use `AgentCodeFencePreview` today). */
   previewArtifacts?: AgentPreviewArtifact[];
 }
