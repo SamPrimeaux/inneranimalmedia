@@ -121,7 +121,10 @@ export async function handlePlaywrightJobApi(request, env, url) {
                 .bind(
                     jobId,
                     targetUrl,
-                    JSON.stringify({ source: 'dashboard_browser_tab' }),
+                    JSON.stringify({
+                        source: 'dashboard_browser_tab',
+                        ...(body.agent_run_id ? { agent_run_id: String(body.agent_run_id) } : {}),
+                    }),
                     authUser.id,
                     workspaceId,
                 )
