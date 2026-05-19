@@ -92,7 +92,12 @@ import { notifySam }                                    from '../core/notificati
 import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
 import { runBuiltinTool, normalizeToolName } from '../tools/ai-dispatch.js';
-import { isImageGenerationTool, streamImageGenerationSse } from '../tools/image_generation.js';
+import {
+  isImageGenerationTool,
+  isDirectImageGenerationIntent,
+  handleDirectImageGenerationChatStream,
+  streamImageGenerationSse,
+} from '../tools/image_generation.js';
 import {
   resolveRoutingArm,
   scheduleRoutingArmBanditUpdate,
@@ -5545,17 +5550,29 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     message,
   );
   const skillCreatorIntake = isSkillCreatorIntakeMessage(message);
+  const directImageIntent = isDirectImageGenerationIntent(message);
 
   let enterLongWorkPlanPipeline = false;
   if (requestedMode === 'plan') {
     enterLongWorkPlanPipeline =
-      !skillCreatorIntake && (isWorkIntent || explicitPlanPhrase) && planWordCount >= 3;
+      !skillCreatorIntake &&
+      !directImageIntent &&
+      (isWorkIntent || explicitPlanPhrase) &&
+      planWordCount >= 3;
   } else if (requestedMode === 'ask') {
     enterLongWorkPlanPipeline =
-      !skillCreatorIntake && explicitPlanPhrase && isWorkIntent && planWordCount >= 5;
+      !skillCreatorIntake &&
+      !directImageIntent &&
+      explicitPlanPhrase &&
+      isWorkIntent &&
+      planWordCount >= 5;
   } else {
     enterLongWorkPlanPipeline =
-      !skillCreatorIntake && !capabilityLedIntent && isWorkIntent && planWordCount >= 5;
+      !skillCreatorIntake &&
+      !directImageIntent &&
+      !capabilityLedIntent &&
+      isWorkIntent &&
+      planWordCount >= 5;
   }
 
   const askConversationalCurve =
@@ -5567,6 +5584,25 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     (wordParts.length < 4 && !looksLikeExplicitCommand) ||
     askConversationalCurve ||
     skillCreatorIntake;
+
+  if (directImageIntent) {
+    console.log(
+      '[agent] image_generation_fast_path',
+      JSON.stringify({
+        message: trimmedMsg.slice(0, 200),
+        mode: requestedMode,
+      }),
+    );
+    return handleDirectImageGenerationChatStream(env, ctx, {
+      request,
+      message: trimmedMsg,
+      userId,
+      tenantId,
+      workspaceId,
+      sessionId,
+      authUser: authUser || { id: userId },
+    });
+  }
 
   if (!isConversational && allowImmediateWorkflowMatch) {
     const workflowMatch = await resolveWorkflowForMessage(

@@ -115,7 +115,11 @@ export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGe
           <span className="iam-image-gen-card__badge">{providerLabel(state.provider, state.model)}</span>
         )}
       </header>
-      {statusLine ? <p className="iam-image-gen-card__status">{statusLine}</p> : null}
+      {statusLine ? (
+        <p key={statusLine} className="iam-image-gen-card__status">
+          {statusLine}
+        </p>
+      ) : null}
       <ProgressiveImagePreview
         phase={state.phase}
         progress={state.progress}

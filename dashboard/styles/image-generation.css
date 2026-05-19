@@ -46,6 +46,18 @@
   font-size: 12px;
   color: color-mix(in srgb, var(--dashboard-text) 88%, var(--dashboard-muted));
   min-height: 1.25rem;
+  animation: iam-image-gen-status-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes iam-image-gen-status-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .iam-image-gen-preview {

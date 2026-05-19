@@ -15,14 +15,160 @@ export const IMAGE_GEN_TOOL_NAMES = new Set(['imgx_generate_image', 'imgx_edit_i
 
 /** @type {ReadonlyArray<{ stage: string; message: string; progress: number }>} */
 export const IMAGE_PROGRESS_TICKS = [
-  { stage: 'initializing', message: 'Sketching composition...', progress: 8 },
-  { stage: 'composition', message: 'Blocking in lighting and layout...', progress: 22 },
-  { stage: 'lighting', message: 'Building the first draft...', progress: 38 },
-  { stage: 'typography', message: 'Refining composition and visual hierarchy...', progress: 52 },
-  { stage: 'refinement', message: 'Polishing details and cinematic lighting...', progress: 68 },
-  { stage: 'polishing', message: 'Enhancing clarity and texture...', progress: 82 },
-  { stage: 'finalizing', message: 'Preparing final render...', progress: 94 },
+  { stage: 'initializing', message: 'Understanding the visual direction...', progress: 8 },
+  { stage: 'composition', message: 'Sketching the composition...', progress: 22 },
+  { stage: 'lighting', message: 'Blocking out lighting...', progress: 38 },
+  { stage: 'refinement', message: 'Refining cinematic details...', progress: 52 },
+  { stage: 'atmosphere', message: 'Enhancing depth and atmosphere...', progress: 68 },
+  { stage: 'polishing', message: 'Polishing textures...', progress: 82 },
+  { stage: 'finalizing', message: 'Finalizing the render...', progress: 94 },
 ];
+
+const IMAGE_NOUN_RE =
+  /\b(images?|heroes?|hero\s+images?|posters?|wallpapers?|illustrations?|artworks?|graphics?|thumbnails?|banners?|logos?|logo\s+concepts?|renders?|concept\s+arts?|covers?|visuals?|backgrounds?|icons?|avatars?|pictures?|art)\b/i;
+const IMAGE_CREATE_VERB_RE =
+  /\b(generate|create|make|design|render|draw|paint|produce|craft|build)\b/i;
+
+/**
+ * User explicitly wants planning/strategy — not an immediate single-image render.
+ * @param {string} message
+ */
+export function isExplicitImagePlanningIntent(message) {
+  const m = String(message || '').trim();
+  if (!m) return false;
+  if (/\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(m)) return true;
+  if (/\b(plan|roadmap|strategy|breakdown)\b.*\b(campaign|branding|workflow|multi[- ]?step)\b/i.test(m)) {
+    return true;
+  }
+  if (/\bmulti[- ]?step\b.*\b(image|generation|workflow|creative|visual)\b/i.test(m)) return true;
+  if (/\b(image\s+generation\s+)?workflow\b/i.test(m) && /\b(plan|design|create|build|draft)\b/i.test(m)) {
+    return true;
+  }
+  if (/\b(create|write|draft|make)\s+(prompts?|a\s+set\s+of\s+prompts?)\s+for\b/i.test(m)) return true;
+  if (/\bprompts?\s+for\s+(a\s+)?(future\s+)?(campaign|project|workflow|brand)\b/i.test(m)) return true;
+  return false;
+}
+
+/**
+ * Natural-language request to render a single image now (bypass long-work plan pipeline).
+ * @param {string} message
+ */
+export function isDirectImageGenerationIntent(message) {
+  const m = String(message || '').trim();
+  if (!m || isExplicitImagePlanningIntent(m)) return false;
+
+  if (/^(what|how|why|when|where|explain|describe|define)\b/i.test(m) && !IMAGE_CREATE_VERB_RE.test(m)) {
+    return false;
+  }
+  if (/\b(edit|modify|change|upscale|remove\s+background|inpaint|outpaint)\b/i.test(m) && IMAGE_NOUN_RE.test(m)) {
+    return true;
+  }
+  if (/\b(hero\s+image|dashboard\s+hero|landing\s+page\s+hero|hero\s+banner|hero\s+section)\b/i.test(m)) {
+    return true;
+  }
+  if (/\bmake\s+me\s+(a\s+)?/i.test(m) && IMAGE_NOUN_RE.test(m)) return true;
+  if (/\b(an?\s+)?(image|illustration|artwork|render|graphic|poster|wallpaper|banner|thumbnail)\s+(of|for|showing)\b/i.test(m)) {
+    return true;
+  }
+  if (IMAGE_CREATE_VERB_RE.test(m) && IMAGE_NOUN_RE.test(m)) return true;
+  if (/\b(sci[- ]?fi|cyberpunk|futuristic|cinematic|neon)\b/i.test(m) && IMAGE_NOUN_RE.test(m)) {
+    return true;
+  }
+  if (/\b(poster|wallpaper|banner|thumbnail|illustration|concept\s+art)\b/i.test(m) && m.split(/\s+/).length >= 3) {
+    return true;
+  }
+  return false;
+}
+
+const SSE_HEADERS = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  Connection: 'keep-alive',
+  'Access-Control-Allow-Origin': '*',
+};
+
+/**
+ * Agent chat fast path: imgx_generate_image + image_generation_* SSE only (no plan pipeline).
+ * @param {unknown} env
+ * @param {unknown} ctx
+ * @param {{
+ *   request?: Request;
+ *   message: string;
+ *   userId?: string | null;
+ *   tenantId?: string | null;
+ *   workspaceId?: string | null;
+ *   sessionId?: string | null;
+ *   authUser?: { id?: string } | null;
+ * }} opts
+ */
+export function handleDirectImageGenerationChatStream(env, ctx, opts) {
+  const message = String(opts.message || '').trim();
+  const userId = opts.userId ?? opts.authUser?.id ?? null;
+  const tenantId = opts.tenantId ?? null;
+  const workspaceId = opts.workspaceId ?? null;
+  const sessionId = opts.sessionId ?? null;
+  const request = opts.request;
+
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const emit = (type, payload) => {
+    try {
+      writer.write(encoder.encode(`data: ${JSON.stringify({ type, ...payload })}\n\n`));
+    } catch (_) {
+      /* stream closed */
+    }
+  };
+
+  let origin = '';
+  try {
+    origin = (env.IAM_ORIGIN || '').replace(/\/$/, '') || '';
+    if (!origin && request?.url) origin = new URL(request.url).origin;
+  } catch (_) {
+    origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
+  }
+
+  (async () => {
+    try {
+      emit('context', {
+        intent: 'image_generation',
+        mode: 'image_generation',
+        runtime_mode: 'image_generation',
+        tool: 'imgx_generate_image',
+        session_id: sessionId,
+      });
+
+      const result = await streamImageGenerationSse(
+        emit,
+        env,
+        'imgx_generate_image',
+        { prompt: message },
+        {
+          authUser: opts.authUser || { id: userId },
+          workspaceId,
+          tenantId,
+          userId,
+          origin,
+        },
+      );
+
+      console.log('[agent] image_generation_fast_path_done', {
+        generation_id: result?.artifact_id,
+        provider: result?.provider,
+        model: result?.model,
+      });
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : String(e);
+      console.warn('[agent] image_generation_fast_path_error', msg.slice(0, 400));
+      emit('error', { error: msg, code: 'image_generation_failed' });
+    } finally {
+      emit('done', {});
+      writer.close().catch(() => {});
+    }
+  })();
+
+  return new Response(readable, { headers: SSE_HEADERS });
+}
 
 const OPENAI_MODEL_PRIORITY = [
   'gpt-image-2',
