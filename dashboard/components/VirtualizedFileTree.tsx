@@ -29,6 +29,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
   onRowClick,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTopRef = useRef(0);
   const [viewportH, setViewportH] = useState(320);
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -45,8 +46,18 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (el) setScrollTop(el.scrollTop);
+    if (!el) return;
+    scrollTopRef.current = el.scrollTop;
+    setScrollTop(el.scrollTop);
   }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (Math.abs(el.scrollTop - scrollTopRef.current) > 1) {
+      el.scrollTop = scrollTopRef.current;
+    }
+  }, [rows]);
 
   const totalH = rows.length * rowHeight;
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
@@ -88,6 +99,24 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
                     className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"
                   >
                     <Loader2 size={12} className="animate-spin shrink-0" aria-hidden />
+                    <span>{row.label}</span>
+                  </div>
+                );
+              }
+
+              if (row.type === 'empty') {
+                return (
+                  <div
+                    key={row.id}
+                    role="treeitem"
+                    aria-disabled
+                    style={{
+                      height: rowHeight,
+                      paddingLeft: `${row.depth * 10 + 8}px`,
+                    }}
+                    className="flex items-center gap-1.5 text-[11px] italic text-[var(--text-muted)] cursor-default select-none"
+                  >
+                    <span className="w-3.5 shrink-0" aria-hidden />
                     <span>{row.label}</span>
                   </div>
                 );

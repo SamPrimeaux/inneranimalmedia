@@ -34,6 +34,12 @@ export type LocalFileTreeRow =
       id: string;
       depth: number;
       label: string;
+    }
+  | {
+      type: 'empty';
+      id: string;
+      depth: number;
+      label: string;
     };
 
 export function nodePathFromParts(pathPrefix: string, name: string): string {
@@ -97,7 +103,15 @@ export function flattenVisibleLocalFileTree(
     return rows;
   }
 
-  if (!node.children?.length) return rows;
+  if (!node.children?.length) {
+    rows.push({
+      type: 'empty',
+      id: `${nodePath}/__empty__`,
+      depth: depth + 1,
+      label: '(empty)',
+    });
+    return rows;
+  }
 
   for (const child of node.children) {
     rows.push(...flattenVisibleLocalFileTree(child, depth + 1, nodePath));

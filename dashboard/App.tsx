@@ -126,6 +126,10 @@ function previewButtonTitle(name: string): string {
   return 'Preview in Browser tab';
 }
 
+/** Preview size thresholds — blob preview above SERVE causes blank/freeze; redirect to PTY. */
+const PREVIEW_WARN_BYTES = 500_000; // 500 KB — warn but still try blob
+const PREVIEW_SERVE_BYTES = 1_500_000; // 1.5 MB — redirect to PTY serve / Vite
+
 /** Shown in the Browser tab address bar instead of a blob: URL when previewing from the editor. */
 function previewAddressBarLabel(file: ActiveFile): string {
   const k = file.r2Key?.trim();
@@ -2105,50 +2109,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  /** Open current buffer in Browser tab: HTML/HTM/SVG blobs; Markdown wrapped in HTML; JSX/TSX info + source. */
-  const openEditorPreview = useCallback(() => {
-    if (!activeFile?.content) return;
-    const name = activeFile.name || '';
-    if (!isRenderablePreviewFilename(name)) return;
-
-    if (htmlPreviewBlobRef.current) {
-      URL.revokeObjectURL(htmlPreviewBlobRef.current);
-      htmlPreviewBlobRef.current = null;
-    }
-
-    let blob: Blob;
-
-    if (/\.(html|htm)$/i.test(name)) {
-      blob = new Blob([activeFile.content], { type: 'text/html; charset=utf-8' });
-    } else if (/\.svg$/i.test(name)) {
-      blob = new Blob([activeFile.content], { type: 'image/svg+xml;charset=utf-8' });
-    } else if (/\.md$/i.test(name)) {
-      const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtmlForPreview(
-        name
-      )}</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:52rem;margin:1rem auto;padding:0 1rem;line-height:1.5;color:var(--text-main, #111)}</style></head><body><pre style="white-space:pre-wrap;font-family:Menlo,Monaco,'Courier New',monospace;font-size:13px">${escapeHtmlForPreview(
-        activeFile.content
-      )}</pre></body></html>`;
-      blob = new Blob([doc], { type: 'text/html; charset=utf-8' });
-    } else if (/\.(jsx|tsx)$/i.test(name)) {
-      const isTsx = /\.tsx$/i.test(name);
-      const srcEsc = escapeHtmlForPreview(activeFile.content.slice(0, 12000));
-      const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtmlForPreview(
-        name
-      )}</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:52rem;margin:2rem auto;padding:1rem;line-height:1.5;color:var(--text-main, #111)}.note{margin-bottom:1rem;padding:0.75rem;border:1px solid #ccc;border-radius:6px;background:#f5f5f5}</style></head><body><p class="note"><strong>React preview requires a build step.</strong> ${isTsx ? 'TSX' : 'JSX'} must be compiled (Vite, webpack, etc.). Use your dev server URL for the real preview.</p><p style="font-size:12px;color:#555">Source (truncated)</p><pre style="white-space:pre-wrap;font-family:Menlo,Monaco,'Courier New',monospace;font-size:12px">${srcEsc}</pre></body></html>`;
-      blob = new Blob([doc], { type: 'text/html; charset=utf-8' });
-    } else {
-      return;
-    }
-
-    const u = URL.createObjectURL(blob);
-    htmlPreviewBlobRef.current = u;
-    setBrowserAddressDisplay(previewAddressBarLabel(activeFile));
-    setBrowserTabTitle(activeFile.name?.trim() ? `Preview · ${activeFile.name.trim()}` : 'Preview');
-    setBrowserUrl(u);
-    setOpenTabs((prev) => (prev.includes('browser') ? prev : [...prev, 'browser']));
-    setActiveTab('browser');
-  }, [activeFile]);
-
   const guessMimeForDrive = (fileName: string) => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
     const map: Record<string, string> = {
@@ -2309,6 +2269,126 @@ const App: React.FC = () => {
     if (!isTerminalOpen) setIsTerminalOpen(true);
     setTimeout(() => terminalRef.current?.writeToTerminal(text), 100);
   }, [isTerminalOpen]);
+
+  const openBrowserTab = useCallback(
+    (url: string, opts?: { addressDisplay?: string | null; tabTitle?: string | null }) => {
+      if (htmlPreviewBlobRef.current && !url.startsWith('blob:')) {
+        URL.revokeObjectURL(htmlPreviewBlobRef.current);
+        htmlPreviewBlobRef.current = null;
+      }
+      setBrowserAddressDisplay(opts?.addressDisplay ?? null);
+      setBrowserTabTitle(opts?.tabTitle ?? null);
+      setBrowserUrl(url);
+      setOpenTabs((prev) => (prev.includes('browser') ? prev : [...prev, 'browser']));
+      setActiveTab('browser');
+    },
+    [],
+  );
+
+  const openPreviewBlob = useCallback(
+    (blob: Blob, file: ActiveFile) => {
+      if (htmlPreviewBlobRef.current) {
+        URL.revokeObjectURL(htmlPreviewBlobRef.current);
+        htmlPreviewBlobRef.current = null;
+      }
+      const u = URL.createObjectURL(blob);
+      htmlPreviewBlobRef.current = u;
+      openBrowserTab(u, {
+        addressDisplay: previewAddressBarLabel(file),
+        tabTitle: file.name?.trim() ? `Preview · ${file.name.trim()}` : 'Preview',
+      });
+    },
+    [openBrowserTab],
+  );
+
+  /** Open current buffer in Browser tab; large files redirect to PTY serve / Vite (no silent blank blob). */
+  const openEditorPreview = useCallback(() => {
+    if (!activeFile?.content) return;
+    const name = activeFile.name || '';
+    if (!isRenderablePreviewFilename(name)) return;
+
+    const ext = name.split('.').pop()?.toLowerCase() ?? '';
+    const bytes = new TextEncoder().encode(activeFile.content).length;
+    const isJsx = ext === 'jsx' || ext === 'tsx';
+    const isHtml = ext === 'html' || ext === 'htm';
+    const isSvg = ext === 'svg';
+    const isMd = ext === 'md';
+
+    const redirectToLocalServer = (reason: string) => {
+      const cmd = isJsx ? 'npm run dev' : 'npx --yes serve . -l 3000';
+      const port = isJsx ? 5173 : 3000;
+      runInTerminal(cmd);
+      window.setTimeout(() => {
+        openBrowserTab(`http://localhost:${port}`, {
+          addressDisplay: `localhost:${port}`,
+          tabTitle: isJsx ? 'Vite dev server' : 'Static serve',
+        });
+      }, 2500);
+      setToastMsg(reason);
+      console.info(`[Preview] ${reason}`);
+    };
+
+    if (bytes >= PREVIEW_SERVE_BYTES || (isJsx && bytes > 12_000)) {
+      redirectToLocalServer(
+        `File is ${(bytes / 1e6).toFixed(1)} MB — opening in local server instead of blob preview.`,
+      );
+      return;
+    }
+
+    if (bytes >= PREVIEW_WARN_BYTES && (isHtml || isMd)) {
+      setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
+    }
+
+    if (isSvg) {
+      if (!activeFile.content.trim()) {
+        setToastMsg('SVG is empty — nothing to preview.');
+        console.warn('[Preview] SVG has no content');
+        return;
+      }
+      openPreviewBlob(
+        new Blob([activeFile.content], { type: 'image/svg+xml;charset=utf-8' }),
+        activeFile,
+      );
+      return;
+    }
+
+    if (isMd) {
+      const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtmlForPreview(
+        name,
+      )}</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:52rem;margin:1rem auto;padding:0 1rem;line-height:1.5}</style></head><body><pre style="white-space:pre-wrap;font-family:Menlo,Monaco,monospace;font-size:13px">${escapeHtmlForPreview(
+        activeFile.content,
+      )}</pre></body></html>`;
+      openPreviewBlob(new Blob([doc], { type: 'text/html; charset=utf-8' }), activeFile);
+      return;
+    }
+
+    if (isHtml) {
+      const hasRelativeAssets =
+        /<script[^>]+src=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']+["']/i.test(activeFile.content) ||
+        /<link[^>]+href=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']*\.(?:css|js)["']/i.test(activeFile.content);
+
+      if (hasRelativeAssets) {
+        setToastMsg(
+          'Relative assets detected — blob preview may be incomplete. Use terminal serve for full fidelity.',
+        );
+      }
+
+      openPreviewBlob(
+        new Blob([activeFile.content], { type: 'text/html; charset=utf-8' }),
+        activeFile,
+      );
+      return;
+    }
+
+    if (isJsx) {
+      const isTsx = ext === 'tsx';
+      const srcEsc = escapeHtmlForPreview(activeFile.content.slice(0, 12_000));
+      const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtmlForPreview(
+        name,
+      )}</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:52rem;margin:2rem auto;padding:1rem;line-height:1.5}.note{margin-bottom:1rem;padding:0.75rem;border:1px solid #ccc;border-radius:6px;background:#f5f5f5}</style></head><body><p class="note"><strong>React preview requires a build step.</strong> ${isTsx ? 'TSX' : 'JSX'} — run <code>npm run dev</code> in the terminal for a live preview.</p><p style="font-size:12px;color:#555">Source (first 12 KB)</p><pre style="white-space:pre-wrap;font-family:Menlo,Monaco,monospace;font-size:12px">${srcEsc}</pre></body></html>`;
+      openPreviewBlob(new Blob([doc], { type: 'text/html; charset=utf-8' }), activeFile);
+    }
+  }, [activeFile, runInTerminal, openBrowserTab, openPreviewBlob]);
 
   useEffect(() => {
     const onInvalidateActiveThemeFetch = () => {

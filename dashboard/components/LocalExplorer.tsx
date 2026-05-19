@@ -779,7 +779,7 @@ export const LocalExplorer: React.FC<{
 
     const onLocalTreeRowClick = useCallback(
         async (row: LocalFileTreeRow) => {
-            if (row.type === 'loading' || !rootDir) return;
+            if (row.type === 'loading' || row.type === 'empty' || !rootDir) return;
 
             const nodePath = row.id;
             const node = findLocalNodeByPath(rootDir, nodePath);
