@@ -29,8 +29,7 @@ function q(sql) {
 }
 
 q(`SELECT id, email, name, tenant_id, supabase_user_id, created_at, updated_at FROM auth_users WHERE LOWER(email) = LOWER('${esc}') LIMIT 5`);
-q(`SELECT id, user_id, expires_at, tenant_id, created_at FROM auth_sessions WHERE user_id IN (SELECT id FROM auth_users WHERE LOWER(email) = LOWER('${esc}')) ORDER BY created_at DESC LIMIT 10`);
-q(`SELECT id, user_id, expires_at, provider FROM sessions WHERE email = '${esc}' OR user_id IN (SELECT id FROM auth_users WHERE LOWER(email) = LOWER('${esc}')) ORDER BY created_at DESC LIMIT 10`);
+q(`SELECT id, user_id, tenant_id, workspace_id, person_uuid, supabase_user_id, email, provider, display_name, expires_at, created_at, last_active_at, work_session_id FROM auth_sessions WHERE user_id IN (SELECT id FROM auth_users WHERE LOWER(email) = LOWER('${esc}')) OR LOWER(COALESCE(email,'')) = LOWER('${esc}') ORDER BY created_at DESC LIMIT 10`);
 q(`SELECT id, user_key, email, auth_id, default_workspace_id FROM users WHERE LOWER(email) = LOWER('${esc}') LIMIT 5`);
 q(`SELECT wm.workspace_id, wm.role, w.name FROM workspace_members wm JOIN workspaces w ON w.id = wm.workspace_id WHERE wm.user_id IN (SELECT id FROM auth_users WHERE LOWER(email) = LOWER('${esc}')) LIMIT 20`);
 q(`SELECT user_id, theme, default_workspace_id FROM user_settings WHERE user_id IN (SELECT id FROM auth_users WHERE LOWER(email) = LOWER('${esc}')) LIMIT 5`);

@@ -393,6 +393,99 @@ export async function assertBrowserOriginTrusted(env, opts) {
   }
 }
 
+/** PRAGMA cache for auth_sessions column drift (e.g. supabase_user_id). */
+let AUTH_SESSIONS_COLUMNS_CACHE = null;
+
+async function authSessionsColumns(env) {
+  if (AUTH_SESSIONS_COLUMNS_CACHE) return AUTH_SESSIONS_COLUMNS_CACHE;
+  if (!env?.DB) {
+    AUTH_SESSIONS_COLUMNS_CACHE = new Set();
+    return AUTH_SESSIONS_COLUMNS_CACHE;
+  }
+  try {
+    const out = await env.DB.prepare('PRAGMA table_info(auth_sessions)').all();
+    const cols = new Set();
+    for (const row of out.results || []) cols.add(String(row.name || '').toLowerCase());
+    AUTH_SESSIONS_COLUMNS_CACHE = cols;
+  } catch {
+    AUTH_SESSIONS_COLUMNS_CACHE = new Set();
+  }
+  return AUTH_SESSIONS_COLUMNS_CACHE;
+}
+
+function trimSessionField(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
+/**
+ * Safe KV payload for iam_sess_v1:* (cache only; D1 auth_sessions is canonical).
+ * @param {string} sessionId
+ * @param {object} fields
+ */
+function buildSessionKvPayload(sessionId, fields = {}) {
+  return {
+    v: 1,
+    session_id: sessionId,
+    user_id: trimSessionField(fields.userId ?? fields.user_id) ?? null,
+    tenant_id: trimSessionField(fields.tenantId ?? fields.tenant_id) ?? null,
+    workspace_id: trimSessionField(fields.workspaceId ?? fields.workspace_id) ?? null,
+    person_uuid: trimSessionField(fields.personUuid ?? fields.person_uuid) ?? null,
+    supabase_user_id: trimSessionField(fields.supabaseUserId ?? fields.supabase_user_id) ?? null,
+    email: trimSessionField(fields.email) ?? null,
+    provider: trimSessionField(fields.provider) ?? null,
+    display_name: trimSessionField(fields.displayName ?? fields.display_name) ?? null,
+    avatar_url: trimSessionField(fields.avatarUrl ?? fields.avatar_url) ?? null,
+    provider_subject: trimSessionField(fields.providerSubject ?? fields.provider_subject) ?? null,
+    work_session_id: trimSessionField(fields.workSessionId ?? fields.work_session_id) ?? null,
+    last_active_at:
+      fields.lastActiveAt ?? fields.last_active_at ?? fields.lastActiveAtMs ?? null,
+    expires_at: fields.expiresAt ?? fields.expires_at ?? fields.expiresAtIso ?? null,
+  };
+}
+
+/** @param {object} row D1 auth_sessions row */
+function authSessionRowToKvPayload(row) {
+  return buildSessionKvPayload(row.id, {
+    userId: row.user_id,
+    tenantId: row.tenant_id,
+    workspaceId: row.workspace_id,
+    personUuid: row.person_uuid,
+    supabaseUserId: row.supabase_user_id,
+    email: row.email,
+    provider: row.provider,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    providerSubject: row.provider_subject,
+    workSessionId: row.work_session_id,
+    lastActiveAt: row.last_active_at,
+    expiresAt: row.expires_at,
+  });
+}
+
+/** Session + KV fields derived from auth_users at login. */
+function sessionFieldsFromAuthUser(userRow, sessionProvider, opts = {}) {
+  const tenantId =
+    trimSessionField(userRow?.active_tenant_id) || trimSessionField(userRow?.tenant_id) || null;
+  const workspaceId =
+    trimSessionField(opts.workspaceId) ||
+    trimSessionField(userRow?.active_workspace_id) ||
+    trimSessionField(userRow?.default_workspace_id) ||
+    null;
+  return {
+    tenantId,
+    personUuid: userRow?.person_uuid ?? null,
+    supabaseUserId: userRow?.supabase_user_id ?? null,
+    email: userRow?.email,
+    provider: sessionProvider || 'email',
+    providerSubject: opts.providerSubject ?? null,
+    displayName: userRow?.display_name ?? userRow?.name ?? 'User',
+    avatarUrl: userRow?.avatar_url ?? null,
+    workspaceId,
+  };
+}
+
 /**
  * Global Session Retrieval (KV + Context)
  */
@@ -422,26 +515,26 @@ export async function getSession(env, request) {
     for (const sessionId of sessionCandidates) {
       try {
         const row = await env.DB.prepare(
-          `SELECT id, user_id, expires_at, tenant_id FROM auth_sessions
+          `SELECT
+             id, user_id, tenant_id, workspace_id, person_uuid, supabase_user_id,
+             email, provider, display_name, avatar_url, provider_subject,
+             work_session_id, last_active_at, expires_at
+           FROM auth_sessions
            WHERE id = ?
              AND datetime(expires_at) > datetime('now')
              AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')
            LIMIT 1`,
-        ).bind(sessionId).first();
+        )
+          .bind(sessionId)
+          .first();
 
         if (row) {
-          const payload = { 
-            v: 1,
-            session_id: row.id,
-            user_id: row.user_id, 
-            tenant_id: row.tenant_id, 
-            expires_at: row.expires_at 
-          };
+          const payload = authSessionRowToKvPayload(row);
           if (env.SESSION_CACHE) {
             await env.SESSION_CACHE.put(
-              IAM_KV_SESSION_KEY_PREFIX + sessionId, 
-              JSON.stringify(payload), 
-              { expirationTtl: 3600 }
+              IAM_KV_SESSION_KEY_PREFIX + sessionId,
+              JSON.stringify(payload),
+              { expirationTtl: 3600 },
             );
           }
           return attachFeatureFlagsToSession(env, payload);
@@ -452,15 +545,22 @@ export async function getSession(env, request) {
   return null;
 }
 
-export async function writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso) {
+/**
+ * @param {*} env
+ * @param {string} sessionId
+ * @param {string} userId auth_users.id
+ * @param {string|null} tenantId
+ * @param {string|null} expiresAtIso
+ * @param {object} [extra] Optional session context (workspace_id, person_uuid, email, …)
+ */
+export async function writeIamSessionToKv(env, sessionId, userId, tenantId, expiresAtIso, extra = {}) {
   if (!env.SESSION_CACHE || !sessionId || !userId) return;
-  const payload = {
-    v: 1,
-    session_id: sessionId,
-    user_id: userId,
-    tenant_id: tenantId || null,
-    expires_at: expiresAtIso || null,
-  };
+  const payload = buildSessionKvPayload(sessionId, {
+    userId,
+    tenantId,
+    expiresAtIso,
+    ...(extra && typeof extra === 'object' ? extra : {}),
+  });
   try {
     const ms = expiresAtIso ? new Date(expiresAtIso).getTime() - Date.now() : 0;
     const ttl = ms > 0 ? Math.max(300, Math.min(AUTH_SESSION_TTL_SECONDS, Math.floor(ms / 1000))) : AUTH_SESSION_TTL_SECONDS;
@@ -509,7 +609,8 @@ export async function getAuthUser(request, env) {
   return {
     id: authId,
     auth_id: authId,
-    email: session._session_user_id || null,
+    user_id: authId,
+    email: session.email || session._session_user_id || null,
     tenant_id: session.tenant_id || null,
     is_superadmin: 0,
     session_id: session.session_id,
@@ -526,29 +627,68 @@ async function insertAuthSessionRow(env, row) {
   const email = String(row.email || '').trim();
   if (!email) throw new Error('auth_sessions.email required');
 
+  const cols = await authSessionsColumns(env);
+  const colNames = [
+    'id',
+    'user_id',
+    'tenant_id',
+    'person_uuid',
+    'email',
+    'provider',
+    'provider_subject',
+    'display_name',
+    'avatar_url',
+    'workspace_id',
+    'expires_at',
+    'created_at',
+    'ip_address',
+    'user_agent',
+    'last_active_at',
+  ];
+  const valueExprs = [
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    "datetime('now')",
+    '?',
+    '?',
+    '?',
+  ];
+  const binds = [
+    row.sessionId,
+    row.userId,
+    row.tenantId ?? null,
+    row.personUuid ?? null,
+    email,
+    row.provider || 'email',
+    row.providerSubject ?? null,
+    row.displayName ?? null,
+    row.avatarUrl ?? null,
+    row.workspaceId ?? null,
+    row.expiresAtIso,
+    row.ip || '',
+    row.ua || '',
+    row.lastActiveAtMs ?? Date.now(),
+  ];
+
+  if (cols.has('supabase_user_id')) {
+    colNames.splice(4, 0, 'supabase_user_id');
+    valueExprs.splice(4, 0, '?');
+    binds.splice(4, 0, row.supabaseUserId ?? null);
+  }
+
   await env.DB.prepare(
-    `INSERT INTO auth_sessions (
-      id, user_id, tenant_id, person_uuid, email, provider, provider_subject,
-      display_name, avatar_url, workspace_id,
-      expires_at, created_at, ip_address, user_agent, last_active_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)`,
+    `INSERT INTO auth_sessions (${colNames.join(', ')}) VALUES (${valueExprs.join(', ')})`,
   )
-    .bind(
-      row.sessionId,
-      row.userId,
-      row.tenantId ?? null,
-      row.personUuid ?? null,
-      email,
-      row.provider || 'email',
-      row.providerSubject ?? null,
-      row.displayName ?? null,
-      row.avatarUrl ?? null,
-      row.workspaceId ?? null,
-      row.expiresAtIso,
-      row.ip || '',
-      row.ua || '',
-      row.lastActiveAtMs ?? Date.now(),
-    )
+    .bind(...binds)
     .run();
 }
 
@@ -569,22 +709,35 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
     return jsonResponse({ error: 'User not found' }, 404);
   }
 
-  const tid = userRow.tenant_id || null;
+  const sessionFields = sessionFieldsFromAuthUser(userRow, sessionProvider);
   await insertAuthSessionRow(env, {
     sessionId,
     userId,
-    tenantId: tid,
-    personUuid: userRow.person_uuid,
-    email: userRow.email,
-    provider: sessionProvider,
-    displayName: userRow.name || 'User',
-    avatarUrl: userRow.avatar_url ?? null,
+    tenantId: sessionFields.tenantId,
+    personUuid: sessionFields.personUuid,
+    supabaseUserId: sessionFields.supabaseUserId,
+    email: sessionFields.email,
+    provider: sessionFields.provider,
+    providerSubject: sessionFields.providerSubject,
+    displayName: sessionFields.displayName,
+    avatarUrl: sessionFields.avatarUrl,
+    workspaceId: sessionFields.workspaceId,
     ip,
     ua,
     expiresAtIso,
   });
 
-  await writeIamSessionToKv(env, sessionId, userId, tid, expiresAtIso);
+  await writeIamSessionToKv(env, sessionId, userId, sessionFields.tenantId, expiresAtIso, {
+    workspaceId: sessionFields.workspaceId,
+    personUuid: sessionFields.personUuid,
+    supabaseUserId: sessionFields.supabaseUserId,
+    email: sessionFields.email,
+    provider: sessionFields.provider,
+    displayName: sessionFields.displayName,
+    avatarUrl: sessionFields.avatarUrl,
+    providerSubject: sessionFields.providerSubject,
+    lastActiveAt: Date.now(),
+  });
 
   const response = jsonResponse(bodyObj);
   response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`);
@@ -626,23 +779,38 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     throw new Error('User not found in auth_users during login finalization');
   }
 
+  const sessionFields = sessionFieldsFromAuthUser(userRow, sessionProvider, {
+    workspaceId: opts.workspaceId,
+    providerSubject: opts.providerSubject,
+  });
   await insertAuthSessionRow(env, {
     sessionId,
     userId,
-    tenantId: userRow.tenant_id,
-    personUuid: userRow.person_uuid,
-    email: userRow.email,
-    provider: sessionProvider,
-    providerSubject: opts.providerSubject ?? null,
-    displayName: userRow.name || 'User',
-    avatarUrl: userRow.avatar_url ?? null,
-    workspaceId: opts.workspaceId ?? userRow.active_workspace_id ?? null,
+    tenantId: sessionFields.tenantId,
+    personUuid: sessionFields.personUuid,
+    supabaseUserId: sessionFields.supabaseUserId,
+    email: sessionFields.email,
+    provider: sessionFields.provider,
+    providerSubject: sessionFields.providerSubject,
+    displayName: sessionFields.displayName,
+    avatarUrl: sessionFields.avatarUrl,
+    workspaceId: sessionFields.workspaceId,
     ip,
     ua,
     expiresAtIso,
   });
 
-  await writeIamSessionToKv(env, sessionId, userId, userRow.tenant_id, expiresAtIso);
+  await writeIamSessionToKv(env, sessionId, userId, sessionFields.tenantId, expiresAtIso, {
+    workspaceId: sessionFields.workspaceId,
+    personUuid: sessionFields.personUuid,
+    supabaseUserId: sessionFields.supabaseUserId,
+    email: sessionFields.email,
+    provider: sessionFields.provider,
+    displayName: sessionFields.displayName,
+    avatarUrl: sessionFields.avatarUrl,
+    providerSubject: sessionFields.providerSubject,
+    lastActiveAt: Date.now(),
+  });
 
   return sessionId;
 }
