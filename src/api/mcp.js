@@ -815,7 +815,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       const lane =
         laneParam != null && String(laneParam).trim() !== ''
           ? String(laneParam).trim()
-          : inferMcpCapabilityLane(message, '', '', mode || 'agent');
+          : await inferMcpCapabilityLane(message, '', '', mode || 'agent', env.DB);
       let tools = [];
       try {
         tools = await queryBrandedMcpCatalog(env.DB, { lane, limit, includeSchema });

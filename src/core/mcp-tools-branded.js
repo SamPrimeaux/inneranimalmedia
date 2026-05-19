@@ -157,14 +157,127 @@ export async function loadWorkspaceTokenEntitlements(db, workspaceId, tenantId) 
   };
 }
 
+/** abstract_capability → lane when capability_lane column is unset. */
+const ABSTRACT_CAPABILITY_TO_LANE = {
+  'code.search': 'develop',
+  'file.read': 'develop',
+  'file.write': 'develop',
+  'd1.read': 'develop',
+  'd1.write': 'develop',
+  'd1.batch_write': 'develop',
+  'database.query': 'develop',
+  'database.write': 'develop',
+  'schema.inspect': 'develop',
+  'terminal.execute': 'develop',
+  'worker.preview': 'develop',
+  'worker.deploy': 'operate',
+  'logs.read': 'observe',
+  'mcp.catalog.read': 'operate',
+  'mcp.tool.inspect': 'operate',
+  'browser.inspect': 'inspect',
+  'context.search': 'research',
+  'memory.read': 'research',
+  'github.read': 'develop',
+  'github.write': 'develop',
+  'r2.read': 'develop',
+  'r2.write': 'develop',
+  'workflow.run': 'operate',
+  'agent.run': 'operate',
+  'cms.template.read': 'develop',
+  'cms.schema.read': 'develop',
+};
+
 /**
- * Map user message + routing hints to a single capability_lane for catalog filtering.
+ * @param {Record<string, unknown>} row
+ * @returns {string|null}
+ */
+function laneFromCapabilityAliasRow(row) {
+  const lane = String(row.capability_lane || '').trim().toLowerCase();
+  if (LANES.has(lane)) return lane;
+  if (String(row.match_kind || '').trim().toLowerCase() === 'capability_lane') {
+    const mv = String(row.match_value || '').trim().toLowerCase();
+    if (LANES.has(mv)) return mv;
+  }
+  const cap = String(row.abstract_capability || '').trim().toLowerCase();
+  const hinted = ABSTRACT_CAPABILITY_TO_LANE[cap];
+  if (hinted && LANES.has(hinted)) return hinted;
+  return null;
+}
+
+/**
+ * D1 agentsam_capability_aliases match (higher priority than regex heuristics).
+ * @param {import('@cloudflare/workers-types').D1Database|null} db
+ * @param {string} message
+ * @returns {Promise<string|null>}
+ */
+async function inferLaneFromCapabilityAliases(db, message) {
+  const m = String(message || '').toLowerCase();
+  if (!db || !m.trim()) return null;
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT abstract_capability, capability_lane, match_kind, match_value, priority, rationale
+         FROM agentsam_capability_aliases
+         WHERE is_active = 1
+           AND (
+             instr(?, lower(abstract_capability)) > 0
+             OR instr(?, lower(replace(abstract_capability, '.', ' '))) > 0
+             OR instr(?, lower(match_value)) > 0
+             OR instr(?, lower(replace(match_value, '_', ' '))) > 0
+           )
+         ORDER BY priority ASC
+         LIMIT 5`,
+      )
+      .bind(m, m, m, m)
+      .all();
+
+    for (const row of results || []) {
+      const lane = laneFromCapabilityAliasRow(row);
+      if (lane) return lane;
+    }
+
+    const words = m.split(/\W+/).filter((w) => w.length >= 4);
+    if (!words.length) return null;
+
+    const { results: broad } = await db
+      .prepare(
+        `SELECT abstract_capability, capability_lane, match_kind, match_value, priority, rationale
+         FROM agentsam_capability_aliases
+         WHERE is_active = 1
+         ORDER BY priority ASC
+         LIMIT 40`,
+      )
+      .all();
+
+    for (const row of broad || []) {
+      const hay = [
+        row.abstract_capability,
+        row.match_value,
+        row.rationale,
+        String(row.abstract_capability || '').replace(/\./g, ' '),
+        String(row.match_value || '').replace(/_/g, ' '),
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (words.some((w) => hay.includes(w))) {
+        const lane = laneFromCapabilityAliasRow(row);
+        if (lane) return lane;
+      }
+    }
+  } catch {
+    /* fall through to regex */
+  }
+  return null;
+}
+
+/**
+ * Keyword regex lane inference (unchanged fallback).
  * @param {string} [message]
  * @param {string} [intentSlug]
  * @param {string} [taskType]
  * @param {string} [modeSlug]
  */
-export function inferMcpCapabilityLane(message, intentSlug, taskType, modeSlug) {
+function inferMcpCapabilityLaneFromRegex(message, intentSlug, taskType, modeSlug) {
   const m = String(message || '').toLowerCase();
   const intent = String(intentSlug || '').toLowerCase();
   const tt = String(taskType || '').toLowerCase();
@@ -191,6 +304,22 @@ export function inferMcpCapabilityLane(message, intentSlug, taskType, modeSlug) 
   }
   if (mode === 'ask' || tt === 'chat' || tt === 'plan') return 'think';
   return 'develop';
+}
+
+/**
+ * Map user message + routing hints to a single capability_lane for catalog filtering.
+ * @param {string} [message]
+ * @param {string} [intentSlug]
+ * @param {string} [taskType]
+ * @param {string} [modeSlug]
+ * @param {import('@cloudflare/workers-types').D1Database|null} [db]
+ */
+export async function inferMcpCapabilityLane(message, intentSlug, taskType, modeSlug, db = null) {
+  if (db) {
+    const fromAliases = await inferLaneFromCapabilityAliases(db, message);
+    if (fromAliases) return fromAliases;
+  }
+  return inferMcpCapabilityLaneFromRegex(message, intentSlug, taskType, modeSlug);
 }
 
 /**
@@ -361,7 +490,13 @@ export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, op
     includeSchema: true,
   });
   if (!branded.length && allowLegacy) {
-    const fallbackLane = inferMcpCapabilityLane(opts.message, opts.intentSlug, opts.taskType, opts.modeSlug);
+    const fallbackLane = await inferMcpCapabilityLane(
+      opts.message,
+      opts.intentSlug,
+      opts.taskType,
+      opts.modeSlug,
+      db,
+    );
     branded = await queryBrandedMcpCatalog(db, {
       lane: fallbackLane,
       limit: catalogLimit * 2,
@@ -579,7 +714,7 @@ export async function selectMcpToolsForChatRuntime(db, runtimeCtx, opts = {}) {
   const catalogLimit = Math.max(outputLimit, Math.min(200, Number(opts.catalogLimit) || 48));
   const lane =
     opts.lane ||
-    inferMcpCapabilityLane(opts.message, opts.intentSlug, opts.taskType, opts.modeSlug);
+    (await inferMcpCapabilityLane(opts.message, opts.intentSlug, opts.taskType, opts.modeSlug, db));
 
   const branded = await queryBrandedMcpCatalog(db, {
     lane,
