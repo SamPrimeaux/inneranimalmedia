@@ -36,6 +36,7 @@ import {
 import { handleGithubWebhook } from './api/webhooks/github.js';
 import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
+import { resolveGitHubToken } from './core/github-token.js';
 
 function getMimeType(key) {
   if (key.endsWith('.js'))    return 'application/javascript';
@@ -648,6 +649,42 @@ export default {
             body: request.body,
           }),
         );
+      }
+
+      // GET /api/github/repos/:owner/:repo/contents — GitHub Contents API proxy (GitHubExplorer)
+      if (methodUpper === 'GET') {
+        const contentsMatch = path.match(/^\/api\/github\/repos\/([^/]+)\/([^/]+)\/contents$/i);
+        if (contentsMatch) {
+          if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+          const owner = decodeURIComponent(contentsMatch[1]);
+          const repo = decodeURIComponent(contentsMatch[2]);
+          const filePath = (url.searchParams.get('path') || '').replace(/^\/+/, '');
+          const ref = url.searchParams.get('ref') || '';
+          const { token, error, status } = await resolveGitHubToken(authUser, env);
+          if (error) return jsonResponse({ error }, status || 401);
+          let ghUrl = `https://api.github.com/repos/${owner}/${repo}/contents`;
+          if (filePath) {
+            ghUrl += `/${filePath.split('/').filter(Boolean).map((s) => encodeURIComponent(s)).join('/')}`;
+          }
+          const ghUrlObj = new URL(ghUrl);
+          if (ref) ghUrlObj.searchParams.set('ref', ref);
+          const ghRes = await fetch(ghUrlObj.toString(), {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'inneranimalmedia-agent/1.0',
+            },
+          });
+          const outHeaders = new Headers();
+          const contentType = ghRes.headers.get('Content-Type');
+          if (contentType) outHeaders.set('Content-Type', contentType);
+          return new Response(ghRes.body, {
+            status: ghRes.status,
+            statusText: ghRes.statusText,
+            headers: outHeaders,
+          });
+        }
       }
 
       // 3. Domain dispatch — single source: src/core/production-dispatch.js (re-exported from router.js).
