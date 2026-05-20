@@ -13,6 +13,16 @@ export type WorkflowUiNodeType =
 
 export type NodeStatus = 'idle' | 'running' | 'completed' | 'failed';
 
+export type WorkflowRunsSummary = {
+  run_count: number;
+  success_count: number;
+  fail_count: number;
+  success_rate: number | null;
+  fail_rate: number | null;
+  avg_cost_usd: number | null;
+  total_tokens?: number;
+};
+
 export type WorkflowListItem = {
   id: string;
   workflow_key: string;
@@ -22,6 +32,27 @@ export type WorkflowListItem = {
   requires_approval?: number | boolean;
   node_count?: number;
   edge_count?: number;
+  run_count?: number;
+  success_count?: number;
+  fail_count?: number;
+  avg_cost_usd?: number | null;
+};
+
+export type McpWorkflowListItem = {
+  id: string;
+  workflow_key: string;
+  display_name?: string;
+  name?: string;
+  description?: string | null;
+  category?: string | null;
+  subagent_slug?: string | null;
+  graph_mode?: number | null;
+  tools_json?: string | null;
+  steps_json?: string | null;
+  run_count?: number;
+  success_count?: number;
+  status?: string | null;
+  total_cost_usd?: number | null;
 };
 
 export type WorkflowGraphNode = {
@@ -32,8 +63,15 @@ export type WorkflowGraphNode = {
   description?: string | null;
   handler_key?: string | null;
   sort_order?: number;
+  risk_level?: string | null;
+  requires_approval?: boolean;
+  pos_x?: number | null;
+  pos_y?: number | null;
   x: number;
   y: number;
+  input_json?: unknown;
+  output_json?: unknown;
+  metadata_json?: unknown;
 };
 
 export type WorkflowGraphEdge = {
@@ -48,11 +86,28 @@ export type WorkflowGraph = {
   workflowKey: string;
   displayName: string;
   description?: string;
+  riskLevel?: string | null;
+  requiresApproval?: boolean;
   dagWorkflowId: string;
+  mcpWorkflowId?: string | null;
+  mcpGraphMode?: number | null;
   nodes: WorkflowGraphNode[];
   edges: WorkflowGraphEdge[];
   executionOrder: string[];
+  runsSummary?: WorkflowRunsSummary | null;
+  registryWorkflow?: Record<string, unknown>;
+  mcpWorkflow?: Record<string, unknown> | null;
 };
+
+export type WorkflowRunDetail = {
+  run: Record<string, unknown>;
+  steps: Record<string, unknown>[];
+  approvals: Record<string, unknown>[];
+  plan?: Record<string, unknown> | null;
+};
+
+export type DrawerMode = 'blocks' | 'library' | 'mcp' | 'connections' | null;
+export type InspectorTab = 'config' | 'run' | 'cost';
 
 export const EXECUTOR_NODE_TYPES: { value: string; label: string; ui: WorkflowUiNodeType }[] = [
   { value: 'agent', label: 'Agent (LLM)', ui: 'agent' },

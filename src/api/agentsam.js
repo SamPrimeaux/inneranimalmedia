@@ -392,6 +392,30 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
 
     // ── Workflow APIs ────────────────────────────────────────────────────────
 
+    // GET /api/agentsam/mcp-workflows — tenant-scoped MCP catalog rows
+    if (path === '/api/agentsam/mcp-workflows' && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const tid = tenantId != null ? String(tenantId) : '';
+        let sql = `SELECT id, workflow_key, display_name, description, category, subagent_slug,
+          graph_mode, tools_json, steps_json, run_count, success_count, status,
+          total_cost_usd, updated_at
+          FROM agentsam_mcp_workflows WHERE COALESCE(is_active, 1) = 1`;
+        const binds = [];
+        if (tid) {
+          sql += ` AND (tenant_id = ? OR tenant_id IS NULL)`;
+          binds.push(tid);
+        }
+        sql += ` ORDER BY updated_at DESC LIMIT 200`;
+        const stmt = env.DB.prepare(sql);
+        const { results } = binds.length ? await stmt.bind(...binds).all() : await stmt.all();
+        return jsonResponse({ workflows: results || [], workspace_id: workspaceId });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
     // GET /api/agentsam/workflows — list active workflows with node/edge counts
     if (path === '/api/agentsam/workflows' && method === 'GET') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
@@ -586,7 +610,14 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         const body = await request.json().catch(() => ({}));
         const positions =
           body.positions && typeof body.positions === 'object' ? body.positions : body;
-        const out = await saveWorkflowCanvasLayout(env.DB, registryId, positions);
+        const { tenantId, workspaceId } = await workflowScope();
+        const out = await saveWorkflowCanvasLayout(
+          env.DB,
+          registryId,
+          positions,
+          tenantId,
+          workspaceId,
+        );
         if (out.error) return jsonResponse({ error: out.error }, out.status);
         return jsonResponse(out);
       } catch (e) {
@@ -693,10 +724,13 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         if (!bundle) return jsonResponse({ error: 'workflow not found' }, 404);
         return jsonResponse({
           workflow: bundle.workflow,
+          mcp_workflow: bundle.mcp_workflow,
+          registry_workflow_id: bundle.registry_workflow_id,
           dag_workflow_id: bundle.dag_workflow_id,
           nodes: bundle.nodes,
           edges: bundle.edges,
           canvas_layout: bundle.canvas_layout,
+          runs_summary: bundle.runs_summary,
         });
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
