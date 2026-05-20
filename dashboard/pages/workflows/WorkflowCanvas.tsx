@@ -1,10 +1,10 @@
 import React, {
-  useState, useRef, useEffect, useCallback, useMemo,
+  useState, useRef, useEffect, useCallback,
 } from 'react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type NodeType = 'trigger' | 'ai' | 'process' | 'gate' | 'output' | 'd1' | 'pty' | 'supabase';
-type NodeStatus = 'idle' | 'running' | 'completed' | 'failed';
+export type NodeStatus = 'idle' | 'running' | 'completed' | 'failed';
 
 interface WFNode  { id: string; label: string; type: NodeType; x: number; y: number; }
 interface WFEdge  { id: string; from: string; to: string; }
@@ -18,6 +18,75 @@ interface NodePos { x: number; y: number; }
 type Drag =
   | { kind: 'node'; id: string; ox: number; oy: number }
   | { kind: 'pan';  sx: number; sy: number };
+
+export type WorkflowCanvasProps = {
+  /** Live run step statuses keyed by workflow node_key */
+  externalStatuses?: Record<string, NodeStatus>;
+  externalActiveEdges?: Set<string>;
+  selectedWorkflowId?: string | null;
+  onWorkflowIdChange?: (id: string) => void;
+  liveRunning?: boolean;
+};
+
+function mapNodeType(nt: string): NodeType {
+  const t = String(nt || '').toLowerCase();
+  if (t === 'agent') return 'ai';
+  if (t === 'mcp_tool' || t === 'eval' || t === 'process') return 'process';
+  if (t === 'terminal') return 'pty';
+  if (t === 'db_query') return 'd1';
+  if (t === 'approval_gate' || t === 'branch') return 'gate';
+  if (t === 'webhook') return 'process';
+  if (t === 'trigger') return 'trigger';
+  if (t === 'output') return 'output';
+  if (t in NODE_META) return t as NodeType;
+  return 'process';
+}
+
+function mapApiWorkflowDetail(payload: {
+  workflow?: Record<string, unknown>;
+  nodes?: Record<string, unknown>[];
+  edges?: Record<string, unknown>[];
+}): WFDef | null {
+  const w = payload?.workflow;
+  const rawNodes = Array.isArray(payload?.nodes) ? payload.nodes : [];
+  const rawEdges = Array.isArray(payload?.edges) ? payload.edges : [];
+  if (!w || !rawNodes.length) return null;
+
+  const nodes: WFNode[] = rawNodes.map((n, i) => {
+    const key = String(n.node_key ?? n.id ?? `n${i + 1}`);
+    const row = Math.floor(i / 3);
+    const col = i % 3;
+    return {
+      id: key,
+      label: String(n.display_name ?? n.label ?? n.node_key ?? key),
+      type: mapNodeType(String(n.node_type ?? 'process')),
+      x: Number(n.pos_x ?? n.position_x ?? 60 + col * 230),
+      y: Number(n.pos_y ?? n.position_y ?? 80 + row * 120),
+    };
+  });
+
+  const edges: WFEdge[] = rawEdges.map((e, i) => ({
+    id: String(e.id ?? e.edge_key ?? `e${i + 1}`),
+    from: String(e.from_node_key ?? e.from ?? ''),
+    to: String(e.to_node_key ?? e.to ?? ''),
+  })).filter((e) => e.from && e.to);
+
+  const order = rawNodes
+    .slice()
+    .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0))
+    .map((n) => String(n.node_key ?? n.id ?? ''));
+
+  return {
+    id: String(w.id ?? ''),
+    key: String(w.workflow_key ?? ''),
+    label: String(w.display_name ?? w.workflow_key ?? w.id ?? 'Workflow'),
+    description: w.description != null ? String(w.description) : undefined,
+    meta: `${nodes.length} nodes · ${edges.length} edges`,
+    nodes,
+    edges,
+    execution_order: order.filter(Boolean),
+  };
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const NW = 172;
@@ -169,21 +238,42 @@ function ePath(src: NodePos, tgt: NodePos): string {
 }
 
 // ─── API hook ─────────────────────────────────────────────────────────────────
-function useWorkflows() {
+function useWorkflowList() {
   const [workflows, setWorkflows] = useState<WFDef[]>(STATIC_WFS);
   useEffect(() => {
-    fetch('/api/agentsam/workflows')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.workflows?.length) setWorkflows(d.workflows); })
+    fetch('/api/agentsam/workflows', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const list = Array.isArray(d) ? d : Array.isArray(d?.workflows) ? d.workflows : [];
+        if (!list.length) return;
+        setWorkflows(
+          list.map((w: Record<string, unknown>, i: number) => ({
+            id: String(w.id ?? i + 1),
+            key: String(w.workflow_key ?? ''),
+            label: String(w.display_name ?? w.workflow_key ?? w.id ?? `Workflow ${i + 1}`),
+            meta: `${w.node_count ?? 0} nodes · ${w.edge_count ?? 0} edges`,
+            nodes: [],
+            edges: [],
+          })),
+        );
+      })
       .catch(() => {});
   }, []);
   return workflows;
 }
 
 // ─── WorkflowCanvas (main export) ────────────────────────────────────────────
-export default function WorkflowCanvas() {
-  const workflows = useWorkflows();
+export function WorkflowCanvas({
+  externalStatuses,
+  externalActiveEdges,
+  selectedWorkflowId,
+  onWorkflowIdChange,
+  liveRunning = false,
+}: WorkflowCanvasProps = {}) {
+  const workflows = useWorkflowList();
   const [curId,     setCurId]     = useState<string | null>(null);
+  const [curWf,     setCurWf]     = useState<WFDef | null>(null);
+  const [graphBusy, setGraphBusy] = useState(false);
   const [nodePos,   setNodePos]   = useState<Record<string, NodePos>>({});
   const [statuses,  setStatuses]  = useState<Record<string, NodeStatus>>({});
   const [activeEdges, setActiveEdges] = useState<Set<string>>(new Set());
@@ -195,26 +285,52 @@ export default function WorkflowCanvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const simGen    = useRef(0);
 
+  const displayStatuses = externalStatuses ?? statuses;
+  const displayActiveEdges = externalActiveEdges ?? activeEdges;
+  const running = liveRunning || isRunning;
+
   // Auto-select first workflow
   useEffect(() => {
-    if (workflows.length && !curId) selectWf(workflows[0].id);
+    if (workflows.length && !curId) void selectWf(workflows[0].id);
   }, [workflows]);
 
-  const curWf = useMemo(() => workflows.find(w => w.id === curId) ?? null, [workflows, curId]);
+  useEffect(() => {
+    if (selectedWorkflowId && selectedWorkflowId !== curId) {
+      void selectWf(selectedWorkflowId);
+    }
+  }, [selectedWorkflowId]);
 
-  function selectWf(id: string) {
-    const wf = workflows.find(w => w.id === id);
-    if (!wf) return;
+  async function selectWf(id: string) {
+    const stub = workflows.find((w) => w.id === id);
+    if (!stub) return;
     simGen.current++;
     setCurId(id);
+    onWorkflowIdChange?.(id);
     setIsRunning(false);
-    setStatuses({});
-    setActiveEdges(new Set());
+    if (!externalStatuses) {
+      setStatuses({});
+      setActiveEdges(new Set());
+    }
     setPan({ x: 50, y: 50 });
     setZoom(1);
-    const pos: Record<string, NodePos> = {};
-    wf.nodes.forEach(n => { pos[n.id] = { x: n.x, y: n.y }; });
-    setNodePos(pos);
+    setGraphBusy(true);
+    try {
+      const res = await fetch(`/api/agentsam/workflows/${encodeURIComponent(id)}`, {
+        credentials: 'same-origin',
+      });
+      const data = res.ok ? await res.json() : null;
+      const mapped = data ? mapApiWorkflowDetail(data) : null;
+      const wf = mapped ?? stub;
+      setCurWf(wf);
+      const pos: Record<string, NodePos> = {};
+      wf.nodes.forEach((n) => { pos[n.id] = { x: n.x, y: n.y }; });
+      setNodePos(pos);
+    } catch {
+      setCurWf(stub);
+      setNodePos({});
+    } finally {
+      setGraphBusy(false);
+    }
   }
 
   // Non-passive wheel (zoom)
@@ -353,13 +469,13 @@ export default function WorkflowCanvas() {
             Reset
           </button>
           <button onClick={simulate}
-            disabled={isRunning || !curWf?.nodes.length}
+            disabled={running || !curWf?.nodes.length || graphBusy}
             style={{ fontSize:11, padding:'4px 14px', fontWeight:600, fontFamily:'inherit',
-                     background: isRunning ? C.bgSecondary : C.accent,
-                     border:'none', color: isRunning ? C.textDim : C.accentFg,
-                     cursor: isRunning ? 'not-allowed' : 'pointer', borderRadius:4,
-                     animation: isRunning ? 'wf-pulse 1s ease-in-out infinite' : 'none' }}>
-            {isRunning ? '● Running…' : '▶ Simulate'}
+                     background: running ? C.bgSecondary : C.bgSecondary,
+                     border:`1px solid ${C.border}`, color: running ? C.textDim : C.textMuted,
+                     cursor: running ? 'not-allowed' : 'pointer', borderRadius:4,
+                     animation: running ? 'wf-pulse 1s ease-in-out infinite' : 'none' }}>
+            {graphBusy ? 'Loading…' : running ? '● Live run…' : '▶ Preview steps'}
           </button>
         </div>
 
@@ -394,7 +510,7 @@ export default function WorkflowCanvas() {
                   const tgt = nodePos[edge.to];
                   if (!src || !tgt) return null;
                   const d = ePath(src, tgt);
-                  const on = activeEdges.has(edge.id);
+                  const on = displayActiveEdges.has(edge.id);
                   return (
                     <g key={edge.id}>
                       <path d={d} fill="none"
@@ -414,7 +530,7 @@ export default function WorkflowCanvas() {
               {curWf.nodes.map(node => {
                 const pos    = nodePos[node.id] ?? { x: node.x, y: node.y };
                 const meta   = NODE_META[node.type] ?? NODE_META.process;
-                const status = statuses[node.id] ?? 'idle';
+                const status = displayStatuses[node.id] ?? 'idle';
                 const bColor = status === 'running'   ? meta.accent
                              : status === 'completed' ? '#10b981'
                              : status === 'failed'    ? '#ef4444'
@@ -472,3 +588,5 @@ export default function WorkflowCanvas() {
     </div>
   );
 }
+
+export default WorkflowCanvas;

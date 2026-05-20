@@ -95,7 +95,6 @@ const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
 const WorkflowsPage = lazy(() => import('./pages/workflows/WorkflowsPage'));
-const WorkflowCanvas = lazy(() => import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
 const MovieModeStudio = lazy(() =>
   import('./features/moviemode/MovieModeStudio').then((m) => ({ default: m.MovieModeStudio })),
 );
@@ -2936,7 +2935,7 @@ const App: React.FC = () => {
                       <Route path="/dashboard/health/:tab" element={<RedirectHealthToAnalytics />} />
                       <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/learn" element={<LearnPage />} />
-                      <Route path="/dashboard/workflows" element={<WorkflowCanvas />} />
+                      <Route path="/dashboard/workflows" element={<WorkflowsPage />} />
                       <Route path="/dashboard/database" element={<DatabasePage />} />
                       <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
                       <Route
