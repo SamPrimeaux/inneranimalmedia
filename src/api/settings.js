@@ -16,6 +16,7 @@ import {
   appendAgentsamSkillRevision,
   skillPatchKeysNeedRevision,
 } from '../core/skill-revision.js';
+import { appendAgentsamRulesRevision } from '../core/rules-revision.js';
 import {
   resolveEffectiveWorkspaceId,
   resolveActiveBootstrap,
@@ -105,6 +106,57 @@ async function resolveCanonicalUserId(env, sessionUserId, email) {
   } catch {
     return { authId: sid || null, userId: null };
   }
+}
+
+function normalizeRulesApplyMode(raw) {
+  const m = raw != null ? String(raw).trim().toLowerCase() : 'always';
+  if (m === 'glob' || m === 'globs' || m === 'path') return 'glob';
+  if (m === 'manual' || m === 'agent_requested') return 'manual';
+  return 'always';
+}
+
+async function insertAgentsamRulesDocument(env, row) {
+  const {
+    id,
+    userId,
+    workspaceId,
+    title,
+    bodyMarkdown,
+    applyMode,
+    globs,
+    sortOrder,
+  } = row;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_rules_document (
+        id, user_id, workspace_id, title, body_markdown, version, is_active,
+        apply_mode, globs, source, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, 'dashboard', ?, datetime('now'), datetime('now'))`,
+    )
+      .bind(id, userId, workspaceId, title, bodyMarkdown, applyMode, globs, sortOrder ?? 0)
+      .run();
+    return { ok: true, extended: true };
+  } catch (e) {
+    const msg = String(e?.message || e);
+    if (!msg.includes('no such column')) throw e;
+    await env.DB.prepare(
+      `INSERT INTO agentsam_rules_document (
+        id, user_id, workspace_id, title, body_markdown, version, is_active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))`,
+    )
+      .bind(id, userId, workspaceId, title, bodyMarkdown)
+      .run();
+    return { ok: true, extended: false };
+  }
+}
+
+function slugifySubagentLabel(label) {
+  const s = String(label || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  return s || 'subagent';
 }
 
 async function resolveRequestWorkspaceId(env, authUser, url) {
@@ -2949,14 +3001,123 @@ export async function handleSettingsRequest(request, env, ctx) {
 
   if (pathLower === '/api/settings/subagents' && method === 'GET') {
     if (!env.DB) return jsonResponse({ subagents: [] });
-    const storedUserId = canonicalAuthId || sessionUserId;
+    const storedUserId = String(canonicalAuthId || sessionUserId || '').trim();
+    const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+    const wsKey = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
     const { results } = await env.DB.prepare(
-      `SELECT * FROM agentsam_subagent_profile WHERE user_id = ? ORDER BY COALESCE(sort_order, 9999)`,
+      `SELECT * FROM agentsam_subagent_profile
+       WHERE user_id = ?
+         AND COALESCE(workspace_id, '') = ?
+         AND COALESCE(is_platform_global, 0) = 0
+       ORDER BY COALESCE(sort_order, 9999), display_name ASC`,
     )
-      .bind(String(storedUserId))
+      .bind(storedUserId, wsKey)
       .all()
       .catch(() => ({ results: [] }));
-    return jsonResponse({ subagents: results || [] });
+    return jsonResponse({ subagents: results || [], workspace_id: wsKey || null });
+  }
+
+  if (pathLower === '/api/settings/subagents' && method === 'POST') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const storedUserId = String(canonicalAuthId || sessionUserId || '').trim();
+    if (!storedUserId) return jsonResponse({ error: 'user required' }, 401);
+    const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+    const wsKey = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+    const body = await request.json().catch(() => ({}));
+    const display_name =
+      typeof body.display_name === 'string' && body.display_name.trim()
+        ? body.display_name.trim().slice(0, 120)
+        : '';
+    if (!display_name) return jsonResponse({ error: 'display_name required' }, 400);
+    const slugRaw =
+      typeof body.slug === 'string' && body.slug.trim() ? body.slug.trim() : slugifySubagentLabel(display_name);
+    const slug = slugifySubagentLabel(slugRaw);
+    const id =
+      typeof body.id === 'string' && body.id.trim() ? body.id.trim() : `asp_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const description = typeof body.description === 'string' ? body.description : '';
+    const instructions_markdown =
+      typeof body.instructions_markdown === 'string' ? body.instructions_markdown : '';
+    const default_model_id =
+      body.default_model_id != null && String(body.default_model_id).trim() !== ''
+        ? String(body.default_model_id).trim()
+        : null;
+    const personality_tone =
+      typeof body.personality_tone === 'string' && body.personality_tone.trim()
+        ? body.personality_tone.trim().slice(0, 64)
+        : 'professional';
+    const sandbox_mode =
+      typeof body.sandbox_mode === 'string' && body.sandbox_mode.trim()
+        ? body.sandbox_mode.trim().slice(0, 64)
+        : 'workspace-write';
+    const model_reasoning_effort =
+      typeof body.model_reasoning_effort === 'string' && body.model_reasoning_effort.trim()
+        ? body.model_reasoning_effort.trim().slice(0, 32)
+        : 'medium';
+    const access_mode =
+      body.access_mode === 'read_only' || body.access_mode === 'read_write' ? body.access_mode : 'read_write';
+    const allowed_tool_globs =
+      typeof body.allowed_tool_globs === 'string'
+        ? body.allowed_tool_globs
+        : Array.isArray(body.allowed_tool_globs)
+          ? JSON.stringify(body.allowed_tool_globs)
+          : null;
+    const agent_type =
+      typeof body.agent_type === 'string' && body.agent_type.trim()
+        ? body.agent_type.trim().slice(0, 64)
+        : 'custom';
+    const run_in_background =
+      body.run_in_background === true || body.run_in_background === 1 || body.run_in_background === '1' ? 1 : 0;
+    const sort_order =
+      body.sort_order != null && Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 100;
+    const tenantId = await resolveAuthTenantId(env, authUser).catch(() => null);
+    try {
+      await env.DB.prepare(
+        `INSERT INTO agentsam_subagent_profile (
+          id, user_id, workspace_id, tenant_id, slug, display_name, description,
+          instructions_markdown, allowed_tool_globs, default_model_id, is_active,
+          personality_tone, access_mode, sandbox_mode, model_reasoning_effort,
+          agent_type, run_in_background, sort_order, is_platform_global,
+          created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+          ?, ?, ?, ?, ?, ?, ?, 0,
+          datetime('now'), datetime('now')
+        )`,
+      )
+        .bind(
+          id,
+          storedUserId,
+          wsKey,
+          tenantId,
+          slug,
+          display_name,
+          description,
+          instructions_markdown,
+          allowed_tool_globs,
+          default_model_id,
+          personality_tone,
+          access_mode,
+          sandbox_mode,
+          model_reasoning_effort,
+          agent_type,
+          run_in_background,
+          sort_order,
+        )
+        .run();
+      const row = await env.DB.prepare(
+        `SELECT * FROM agentsam_subagent_profile WHERE id = ? AND user_id = ? LIMIT 1`,
+      )
+        .bind(id, storedUserId)
+        .first()
+        .catch(() => null);
+      return jsonResponse({ ok: true, id, subagent: row });
+    } catch (e) {
+      const msg = String(e?.message || e);
+      if (msg.includes('UNIQUE') || msg.includes('constraint')) {
+        return jsonResponse({ error: 'A subagent with this slug already exists in this workspace' }, 409);
+      }
+      return jsonResponse({ error: msg }, 500);
+    }
   }
 
   {
@@ -2966,6 +3127,8 @@ export async function handleSettingsRequest(request, env, ctx) {
       const id = decodeURIComponent(m[1] || '').trim();
       if (!id) return jsonResponse({ error: 'id required' }, 400);
       const storedUserId = canonicalAuthId || sessionUserId;
+      const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+      const wsKey = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
       const body = await request.json().catch(() => ({}));
       const allowed = [
         'display_name',
@@ -2976,18 +3139,43 @@ export async function handleSettingsRequest(request, env, ctx) {
         'sandbox_mode',
         'model_reasoning_effort',
         'is_active',
+        'access_mode',
+        'allowed_tool_globs',
+        'run_in_background',
+        'sort_order',
+        'icon',
       ];
       const keys = allowed.filter((k) => body && Object.prototype.hasOwnProperty.call(body, k));
       if (!keys.length) return jsonResponse({ error: 'No fields to update' }, 400);
+      if (keys.includes('access_mode')) {
+        const am = body.access_mode;
+        if (am !== 'read_only' && am !== 'read_write') {
+          return jsonResponse({ error: 'access_mode must be read_only or read_write' }, 400);
+        }
+      }
       const sets = keys.map((k) => `${k} = ?`).join(', ');
-      const vals = keys.map((k) => body[k]);
-      await env.DB.prepare(
+      const vals = keys.map((k) => {
+        if (k === 'is_active' || k === 'run_in_background') {
+          const v = body[k];
+          return v === true || v === 1 || v === '1' ? 1 : 0;
+        }
+        if (k === 'allowed_tool_globs' && Array.isArray(body[k])) return JSON.stringify(body[k]);
+        return body[k];
+      });
+      const n = await env.DB.prepare(
         `UPDATE agentsam_subagent_profile SET ${sets}, updated_at = datetime('now')
-         WHERE id = ? AND user_id = ?`,
+         WHERE id = ? AND user_id = ? AND COALESCE(workspace_id, '') = ? AND COALESCE(is_platform_global, 0) = 0`,
       )
-        .bind(...vals, id, String(storedUserId))
+        .bind(...vals, id, String(storedUserId), wsKey)
         .run();
-      return jsonResponse({ ok: true });
+      if (!n.meta?.changes) return jsonResponse({ error: 'Subagent not found' }, 404);
+      const row = await env.DB.prepare(
+        `SELECT * FROM agentsam_subagent_profile WHERE id = ? AND user_id = ? LIMIT 1`,
+      )
+        .bind(id, String(storedUserId))
+        .first()
+        .catch(() => null);
+      return jsonResponse({ ok: true, subagent: row });
     }
   }
 
@@ -3019,20 +3207,83 @@ export async function handleSettingsRequest(request, env, ctx) {
     }
   }
 
+  const rulesWorkspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+  const rulesWsKey =
+    rulesWorkspaceId != null && String(rulesWorkspaceId).trim() !== ''
+      ? String(rulesWorkspaceId).trim()
+      : '';
+  const rulesUserId = String(canonicalAuthId || sessionUserId || '').trim();
+
   if (pathLower === '/api/settings/rules' && method === 'GET') {
     if (!env.DB) return jsonResponse({ rules: [] });
-    const storedUserId = canonicalAuthId || sessionUserId;
-    const { results } = await env.DB.prepare(
-      `SELECT * FROM agentsam_rules_document
-       WHERE (user_id = ? OR user_id IS NULL)
-         AND (workspace_id = ? OR workspace_id IS NULL)
-         AND COALESCE(is_active, 1) = 1
-       ORDER BY datetime(updated_at) DESC`,
-    )
-      .bind(String(storedUserId), String(wsId))
-      .all()
-      .catch(() => ({ results: [] }));
-    return jsonResponse({ rules: results || [] });
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT *
+         FROM agentsam_rules_document
+         WHERE (user_id = ? OR user_id IS NULL)
+           AND (
+             COALESCE(workspace_id, '') = ?
+             OR workspace_id IS NULL
+             OR TRIM(COALESCE(workspace_id, '')) = ''
+           )
+         ORDER BY COALESCE(sort_order, 0) ASC, datetime(updated_at) DESC`,
+      )
+        .bind(rulesUserId, rulesWsKey)
+        .all();
+      return jsonResponse({ rules: results || [], workspace_id: rulesWsKey || null });
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  if (pathLower === '/api/settings/rules' && method === 'POST') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!rulesUserId) return jsonResponse({ error: 'user required' }, 401);
+    const body = await request.json().catch(() => ({}));
+    const title =
+      typeof body.title === 'string' && body.title.trim()
+        ? body.title.trim().slice(0, 200)
+        : 'Untitled rule';
+    const body_markdown =
+      typeof body.body_markdown === 'string' ? body.body_markdown : String(body.body_markdown ?? '');
+    const apply_mode = normalizeRulesApplyMode(body.apply_mode);
+    const globs =
+      typeof body.globs === 'string' && body.globs.trim() ? body.globs.trim().slice(0, 2000) : null;
+    const id =
+      typeof body.id === 'string' && body.id.trim() ? body.id.trim() : `ard_${crypto.randomUUID()}`;
+    try {
+      await insertAgentsamRulesDocument(env, {
+        id,
+        userId: rulesUserId,
+        workspaceId: rulesWsKey,
+        title,
+        bodyMarkdown: body_markdown,
+        applyMode: apply_mode,
+        globs,
+        sortOrder: 0,
+      });
+      await appendAgentsamRulesRevision(
+        env,
+        {
+          documentId: id,
+          createdBy: rulesUserId,
+          bodyMarkdown: body_markdown,
+          version: 1,
+          workspaceId: rulesWsKey,
+        },
+        ctx,
+      );
+      const row = await env.DB.prepare(`SELECT * FROM agentsam_rules_document WHERE id = ? LIMIT 1`)
+        .bind(id)
+        .first();
+      return jsonResponse({ ok: true, id, rule: row });
+    } catch (e) {
+      const msg = String(e?.message || e);
+      if (msg.includes('UNIQUE') || msg.includes('constraint')) {
+        return jsonResponse({ error: 'Rule already exists' }, 409);
+      }
+      return jsonResponse({ error: msg }, 500);
+    }
   }
 
   {
@@ -3042,30 +3293,111 @@ export async function handleSettingsRequest(request, env, ctx) {
       const id = decodeURIComponent(m[1] || '').trim();
       if (!id) return jsonResponse({ error: 'id required' }, 400);
       const body = await request.json().catch(() => ({}));
-      const hasBody = body && Object.prototype.hasOwnProperty.call(body, 'body_markdown');
-      const hasActive = body && Object.prototype.hasOwnProperty.call(body, 'is_active');
-      if (!hasBody && !hasActive) return jsonResponse({ error: 'No fields to update' }, 400);
+      const allowed = ['title', 'body_markdown', 'is_active', 'apply_mode', 'globs', 'sort_order'];
+      const keys = allowed.filter((k) => body && Object.prototype.hasOwnProperty.call(body, k));
+      if (!keys.length) return jsonResponse({ error: 'No fields to update' }, 400);
+
+      const existing = await env.DB.prepare(
+        `SELECT * FROM agentsam_rules_document WHERE id = ? LIMIT 1`,
+      )
+        .bind(id)
+        .first();
+      if (!existing) return jsonResponse({ error: 'Rule not found' }, 404);
+      if (existing.user_id != null && String(existing.user_id) !== rulesUserId) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+      const docWs = existing.workspace_id != null ? String(existing.workspace_id).trim() : '';
+      if (docWs && rulesWsKey && docWs !== rulesWsKey) {
+        return jsonResponse({ error: 'Wrong workspace for this rule' }, 403);
+      }
+
       const sets = [];
       const vals = [];
-      if (hasBody) {
-        const body_markdown = typeof body.body_markdown === 'string' ? body.body_markdown : String(body.body_markdown ?? '');
-        sets.push('body_markdown = ?');
-        vals.push(body_markdown);
+      for (const k of keys) {
+        if (k === 'title') {
+          sets.push('title = ?');
+          vals.push(String(body.title || '').trim().slice(0, 200) || 'Untitled rule');
+        } else if (k === 'body_markdown') {
+          sets.push('body_markdown = ?');
+          vals.push(
+            typeof body.body_markdown === 'string'
+              ? body.body_markdown
+              : String(body.body_markdown ?? ''),
+          );
+        } else if (k === 'is_active') {
+          sets.push('is_active = ?');
+          vals.push(body.is_active === true || body.is_active === 1 || body.is_active === '1' ? 1 : 0);
+        } else if (k === 'apply_mode') {
+          sets.push('apply_mode = ?');
+          vals.push(normalizeRulesApplyMode(body.apply_mode));
+        } else if (k === 'globs') {
+          sets.push('globs = ?');
+          vals.push(
+            typeof body.globs === 'string' && body.globs.trim()
+              ? body.globs.trim().slice(0, 2000)
+              : null,
+          );
+        } else if (k === 'sort_order') {
+          sets.push('sort_order = ?');
+          vals.push(Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0);
+        }
+      }
+      if (keys.includes('body_markdown')) {
         sets.push('version = COALESCE(version, 1) + 1');
       }
-      if (hasActive) {
-        const ia = body.is_active === true || body.is_active === 1 || body.is_active === '1' ? 1 : 0;
-        sets.push('is_active = ?');
-        vals.push(ia);
+      sets.push("updated_at = datetime('now')");
+
+      try {
+        await env.DB.prepare(
+          `UPDATE agentsam_rules_document SET ${sets.join(', ')} WHERE id = ?`,
+        )
+          .bind(...vals, id)
+          .run();
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+
+      if (keys.includes('body_markdown')) {
+        const nextVer = Number(existing.version || 1) + 1;
+        await appendAgentsamRulesRevision(
+          env,
+          {
+            documentId: id,
+            createdBy: rulesUserId,
+            bodyMarkdown:
+              typeof body.body_markdown === 'string'
+                ? body.body_markdown
+                : String(body.body_markdown ?? ''),
+            version: nextVer,
+            workspaceId: rulesWsKey,
+          },
+          ctx,
+        );
+      }
+
+      const row = await env.DB.prepare(`SELECT * FROM agentsam_rules_document WHERE id = ? LIMIT 1`)
+        .bind(id)
+        .first();
+      return jsonResponse({ ok: true, rule: row });
+    }
+
+    if (m && method === 'DELETE') {
+      if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+      const id = decodeURIComponent(m[1] || '').trim();
+      if (!id) return jsonResponse({ error: 'id required' }, 400);
+      const existing = await env.DB.prepare(
+        `SELECT user_id, workspace_id FROM agentsam_rules_document WHERE id = ? LIMIT 1`,
+      )
+        .bind(id)
+        .first();
+      if (!existing) return jsonResponse({ error: 'Rule not found' }, 404);
+      if (existing.user_id != null && String(existing.user_id) !== rulesUserId) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
       }
       await env.DB.prepare(
-        `UPDATE agentsam_rules_document
-         SET ${sets.join(', ')}, updated_at = datetime('now')
-         WHERE id = ?
-           AND workspace_id = ?
-           AND user_id = ?`,
+        `UPDATE agentsam_rules_document SET is_active = 0, updated_at = datetime('now') WHERE id = ?`,
       )
-        .bind(...vals, id, String(wsId), String(canonicalAuthId || sessionUserId))
+        .bind(id)
         .run();
       return jsonResponse({ ok: true });
     }

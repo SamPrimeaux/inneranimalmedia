@@ -206,7 +206,9 @@ export function useSettingsData({
     setSubagentsLoading(true);
     setSubagentsError(null);
     try {
-      const r = await fetch('/api/settings/subagents', { credentials: 'same-origin' });
+      const ws = workspaceId?.trim();
+      const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+      const r = await fetch(`/api/settings/subagents${qp}`, { credentials: 'same-origin' });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Load failed (${r.status})`);
       setSubagents(Array.isArray(j.subagents) ? j.subagents : []);
@@ -216,7 +218,7 @@ export function useSettingsData({
     } finally {
       setSubagentsLoading(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   const loadCommands2 = useCallback(async () => {
     setCommandsLoading2(true);
@@ -238,9 +240,19 @@ export function useSettingsData({
     setRulesLoading(true);
     setRulesError(null);
     try {
-      const r = await fetch('/api/settings/rules', { credentials: 'same-origin' });
+      const ws = workspaceId?.trim();
+      const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+      const r = await fetch(`/api/settings/rules${qp}`, { credentials: 'same-origin' });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Load failed (${r.status})`);
+      if (!r.ok) {
+        const msg =
+          typeof j.error === 'string'
+            ? j.error
+            : r.status === 500
+              ? 'Server error loading rules'
+              : `Load failed (${r.status})`;
+        throw new Error(msg);
+      }
       setRules(Array.isArray(j.rules) ? j.rules : []);
     } catch (e) {
       setRulesError(e instanceof Error ? e.message : 'Failed to load rules');
@@ -248,7 +260,7 @@ export function useSettingsData({
     } finally {
       setRulesLoading(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   const loadWorkspace = useCallback(async () => {
     setWorkspaceLoading2(true);
@@ -649,7 +661,9 @@ export function useSettingsData({
   const patchSubagentActive = useCallback(
     async (id: string, v: boolean, prev: any[]) => {
       try {
-        await fetch(`/api/settings/subagents/${encodeURIComponent(String(id))}`, {
+        const ws = workspaceId?.trim();
+        const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+        await fetch(`/api/settings/subagents/${encodeURIComponent(String(id))}${qp}`, {
           method: 'PATCH',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
@@ -659,7 +673,7 @@ export function useSettingsData({
         setSubagents(prev);
       }
     },
-    [],
+    [workspaceId],
   );
 
   const patchCommandActive = useCallback(
@@ -681,17 +695,102 @@ export function useSettingsData({
   const patchRuleActive = useCallback(
     async (id: string, v: boolean, prev: any[]) => {
       try {
-        await fetch(`/api/settings/rules/${encodeURIComponent(String(id))}`, {
+        const ws = workspaceId?.trim();
+        const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+        const res = await fetch(`/api/settings/rules/${encodeURIComponent(String(id))}${qp}`, {
           method: 'PATCH',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_active: v ? 1 : 0 }),
         });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Update failed');
       } catch {
         setRules(prev);
       }
     },
-    [],
+    [workspaceId],
+  );
+
+  const openNewRuleDrawer = useCallback(() => {
+    setRuleDraft({
+      title: '',
+      body_markdown: '',
+      apply_mode: 'always',
+      globs: '',
+    });
+    setRuleDrawerOpen(true);
+  }, []);
+
+  const openEditRuleDrawer = useCallback((r: any) => {
+    setRuleDraft({
+      id: r.id,
+      title: r.title || '',
+      body_markdown: r.body_markdown || '',
+      apply_mode: r.apply_mode || 'always',
+      globs: r.globs || '',
+      version: r.version || 1,
+    });
+    setRuleDrawerOpen(true);
+  }, []);
+
+  const saveRuleDrawer = useCallback(async () => {
+    try {
+      const ws = workspaceId?.trim();
+      const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+      const payload = {
+        title: String(ruleDraft.title || '').trim() || 'Untitled rule',
+        body_markdown: ruleDraft.body_markdown || '',
+        apply_mode: ruleDraft.apply_mode || 'always',
+        globs: ruleDraft.globs || '',
+      };
+      if (ruleDraft.id) {
+        const r = await fetch(
+          `/api/settings/rules/${encodeURIComponent(String(ruleDraft.id))}${qp}`,
+          {
+            method: 'PATCH',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        );
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Save failed (${r.status})`);
+      } else {
+        const r = await fetch(`/api/settings/rules${qp}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Create failed (${r.status})`);
+      }
+      setRuleDrawerOpen(false);
+      await loadRules();
+    } catch (e) {
+      setRulesError(e instanceof Error ? e.message : 'Save failed');
+    }
+  }, [ruleDraft, workspaceId, loadRules]);
+
+  const deleteRule = useCallback(
+    async (id: string) => {
+      if (!window.confirm('Deactivate this rule? You can re-enable it from the list if needed.')) return;
+      try {
+        const ws = workspaceId?.trim();
+        const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+        const r = await fetch(`/api/settings/rules/${encodeURIComponent(id)}${qp}`, {
+          method: 'DELETE',
+          credentials: 'same-origin',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Delete failed');
+        await loadRules();
+      } catch (e) {
+        setRulesError(e instanceof Error ? e.message : 'Delete failed');
+      }
+    },
+    [workspaceId, loadRules],
   );
 
   const saveSkillDrawer = useCallback(async () => {
@@ -732,33 +831,65 @@ export function useSettingsData({
     }
   }, [editingSkill?.id, skillDraft, loadSkills]);
 
+  const openNewSubagentDrawer = useCallback(() => {
+    setSubagentDraft({
+      display_name: '',
+      slug: '',
+      description: '',
+      instructions_markdown: '',
+      default_model_id: '',
+      personality_tone: 'professional',
+      sandbox_mode: 'workspace-write',
+      model_reasoning_effort: 'medium',
+      access_mode: 'read_write',
+      agent_type: 'custom',
+    });
+    setSubagentDrawerOpen(true);
+  }, []);
+
   const saveSubagentDrawer = useCallback(async () => {
     try {
-      const id = String(subagentDraft.id || '');
-      if (!id) throw new Error('Missing subagent id');
+      const ws = workspaceId?.trim();
+      const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+      const display_name = String(subagentDraft.display_name || '').trim();
+      if (!display_name) throw new Error('Display name required');
       const payload = {
-        display_name: subagentDraft.display_name || '',
+        display_name,
+        slug: String(subagentDraft.slug || '').trim() || undefined,
         description: subagentDraft.description || '',
         instructions_markdown: subagentDraft.instructions_markdown || '',
         default_model_id: subagentDraft.default_model_id || null,
         personality_tone: subagentDraft.personality_tone || 'professional',
-        sandbox_mode: subagentDraft.sandbox_mode || 'workspace-read',
+        sandbox_mode: subagentDraft.sandbox_mode || 'workspace-write',
         model_reasoning_effort: subagentDraft.model_reasoning_effort || 'medium',
+        access_mode: subagentDraft.access_mode === 'read_only' ? 'read_only' : 'read_write',
       };
-      const r = await fetch(`/api/settings/subagents/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Save failed (${r.status})`);
+      const id = String(subagentDraft.id || '').trim();
+      if (id) {
+        const r = await fetch(`/api/settings/subagents/${encodeURIComponent(id)}${qp}`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Save failed (${r.status})`);
+      } else {
+        const r = await fetch(`/api/settings/subagents${qp}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Create failed (${r.status})`);
+      }
       setSubagentDrawerOpen(false);
       await loadSubagents();
     } catch (e) {
       setSubagentsError(e instanceof Error ? e.message : 'Save failed');
     }
-  }, [subagentDraft, loadSubagents]);
+  }, [subagentDraft, workspaceId, loadSubagents]);
 
   const saveAgentsPolicy = useCallback(async () => {
     if (!agentsPolicy) return;
@@ -1196,6 +1327,7 @@ export function useSettingsData({
     subagentDraft,
     setSubagentDraft,
     patchSubagentActive,
+    openNewSubagentDrawer,
     saveSubagentDrawer,
 
     commandsLoading2,
@@ -1215,6 +1347,10 @@ export function useSettingsData({
     ruleDraft,
     setRuleDraft,
     patchRuleActive,
+    openNewRuleDrawer,
+    openEditRuleDrawer,
+    saveRuleDrawer,
+    deleteRule,
 
     workspaceLoading2,
     workspaceError2,

@@ -246,6 +246,20 @@ export const LS_AGENT_CHAT_MODEL_KEY = 'iam-agent-chat-model-key';
 
 export const LS_AGENT_CHAT_MODE = 'iam-agent-chat-mode';
 
+/** Composer subagent picker — slug from `agentsam_subagent_profile` (empty = default Agent Sam). */
+export const LS_AGENT_CHAT_SUBAGENT_SLUG = 'iam-agent-chat-subagent-slug';
+
+export type ChatSubagentProfileRow = {
+  id: string;
+  slug: string;
+  display_name: string;
+  description?: string;
+  default_model_id?: string | null;
+  agent_type?: string;
+  access_mode?: string;
+  is_platform_global?: number;
+};
+
 export function isAutoModelSelection(modelKey: string | null | undefined): boolean {
   const k = modelKey != null ? String(modelKey).trim().toLowerCase() : '';
   return k === '' || k === AUTO_MODEL_KEY;

@@ -38,7 +38,7 @@ export function useSettingsSections(activeSection: string) {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false,
   );
-  const [rulesSkillsTab, setRulesSkillsTab] = useState<RulesSkillsTabId>('skills');
+  const [rulesSkillsTab, setRulesSkillsTab] = useState<RulesSkillsTabId>('rules');
   const [modelsTab, setModelsTab] = useState<ModelsTabId>('models');
 
   useEffect(() => {

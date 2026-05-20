@@ -6,6 +6,7 @@ import { RulesSkillsSkillsTab } from '../components/rulesSkills/RulesSkillsSkill
 import { RulesSkillsSubagentsTab } from '../components/rulesSkills/RulesSkillsSubagentsTab';
 import { RulesSkillsCommandsTab } from '../components/rulesSkills/RulesSkillsCommandsTab';
 import { RulesSkillsRulesTab } from '../components/rulesSkills/RulesSkillsRulesTab';
+import { Plus } from 'lucide-react';
 
 export type RulesSkillsSectionProps = {
   data: SettingsPanelModel;
@@ -14,47 +15,75 @@ export type RulesSkillsSectionProps = {
 };
 
 export function RulesSkillsSection({ data, rulesSkillsTab, setRulesSkillsTab }: RulesSkillsSectionProps) {
+  const newButton =
+    rulesSkillsTab === 'skills' ? (
+      <button
+        type="button"
+        onClick={() => {
+          data.setEditingSkill(null);
+          data.setSkillDraft({
+            name: '',
+            description: '',
+            content_markdown: '',
+            slash_trigger: '',
+            globs: '',
+            always_apply: false,
+            tags: '',
+          });
+          data.setSkillDrawerOpen(true);
+        }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30"
+      >
+        <Plus size={14} /> New skill
+      </button>
+    ) : rulesSkillsTab === 'rules' ? (
+      <button
+        type="button"
+        onClick={() => data.openNewRuleDrawer()}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30"
+      >
+        <Plus size={14} /> New rule
+      </button>
+    ) : rulesSkillsTab === 'subagents' ? (
+      <button
+        type="button"
+        onClick={() => data.openNewSubagentDrawer()}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30"
+      >
+        <Plus size={14} /> New subagent
+      </button>
+    ) : null;
+
   return (
-    <div className="flex flex-col gap-4 max-w-5xl">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
-          Rules &amp; Skills
-        </h2>
-        <div className="flex items-center gap-2">
-          {rulesSkillsTab === 'skills' ? (
-            <button
-              type="button"
-              onClick={() => {
-                data.setEditingSkill(null);
-                data.setSkillDraft({
-                  name: '',
-                  description: '',
-                  content_markdown: '',
-                  slash_trigger: '',
-                  globs: '',
-                  always_apply: false,
-                  tags: '',
-                });
-                data.setSkillDrawerOpen(true);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30"
-            >
-              New Skill
-            </button>
-          ) : null}
+    <div className="flex flex-col gap-4 max-w-3xl w-full">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[var(--text-heading)] tracking-tight">
+            Rules, Skills, Subagents
+          </h2>
+          <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-xl leading-relaxed">
+            Configure how Agent Sam behaves in this workspace — your IAM equivalent of Cursor rules, skills, and
+            subagents.
+          </p>
         </div>
+        {newButton}
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        {(['skills', 'subagents', 'commands', 'rules'] as const).map((t) => (
+      <div
+        role="tablist"
+        className="flex items-center gap-1 p-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/60 w-fit"
+      >
+        {(['rules', 'skills', 'subagents', 'commands'] as const).map((t) => (
           <button
             key={t}
             type="button"
+            role="tab"
+            aria-selected={rulesSkillsTab === t}
             onClick={() => setRulesSkillsTab(t)}
-            className={`px-3 py-1.5 rounded-lg text-[11px] border transition-colors ${
+            className={`px-3.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
               rulesSkillsTab === t
-                ? 'border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] bg-[var(--solar-cyan)]/10'
-                : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                ? 'bg-[var(--bg-panel)] text-[var(--text-heading)] shadow-sm border border-[var(--border-subtle)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
             }`}
           >
             {t === 'skills'
@@ -68,10 +97,10 @@ export function RulesSkillsSection({ data, rulesSkillsTab, setRulesSkillsTab }: 
         ))}
       </div>
 
+      {rulesSkillsTab === 'rules' && <RulesSkillsRulesTab data={data} />}
       {rulesSkillsTab === 'skills' && <RulesSkillsSkillsTab data={data} />}
       {rulesSkillsTab === 'subagents' && <RulesSkillsSubagentsTab data={data} />}
       {rulesSkillsTab === 'commands' && <RulesSkillsCommandsTab data={data} />}
-      {rulesSkillsTab === 'rules' && <RulesSkillsRulesTab data={data} />}
 
       <RulesSkillsDrawers data={data} />
     </div>

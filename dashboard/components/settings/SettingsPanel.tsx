@@ -63,6 +63,10 @@ export default function SettingsPanel({
     modelsTab: nav.modelsTab,
   });
 
+  useEffect(() => {
+    if (sectionSlug === 'rules') nav.setRulesSkillsTab('rules');
+  }, [sectionSlug, nav.setRulesSkillsTab]);
+
   const sectionBody = () => {
     switch (resolvedLabel) {
       case 'General':

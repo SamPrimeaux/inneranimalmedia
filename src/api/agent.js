@@ -125,6 +125,12 @@ import {
 } from '../core/performance-eto.js';
 import { listPlatformQuickstartTemplates } from '../core/agent-quickstart-templates.js';
 import {
+  resolveSubagentProfileForChat,
+  appendSubagentProfileToSystemPrompt,
+  filterToolsForSubagentProfile,
+  applySubagentDefaultModelToBody,
+} from '../core/subagent-profile-resolve.js';
+import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
   resolveAgentCommand,
@@ -270,21 +276,47 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
   }
 
   try {
-    const rRes = await env.DB.prepare(
-      `SELECT title, body_markdown FROM agentsam_rules_document
-       WHERE is_active = 1
-         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
-         AND (user_id = ? OR user_id IS NULL)
-       ORDER BY updated_at DESC`,
-    )
-      .bind(ws, uid)
-      .all();
-    const rules = rRes.results || [];
+    let rules = [];
+    try {
+      const rRes = await env.DB.prepare(
+        `SELECT title, body_markdown, apply_mode, globs
+         FROM agentsam_rules_document
+         WHERE is_active = 1
+           AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+           AND (user_id = ? OR user_id IS NULL)
+           AND COALESCE(apply_mode, 'always') != 'manual'
+         ORDER BY COALESCE(sort_order, 0) ASC, updated_at DESC`,
+      )
+        .bind(ws, uid)
+        .all();
+      rules = rRes.results || [];
+    } catch (rulesErr) {
+      const rRes = await env.DB.prepare(
+        `SELECT title, body_markdown FROM agentsam_rules_document
+         WHERE is_active = 1
+           AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+           AND (user_id = ? OR user_id IS NULL)
+         ORDER BY updated_at DESC`,
+      )
+        .bind(ws, uid)
+        .all()
+        .catch(() => ({ results: [] }));
+      rules = rRes.results || [];
+      if (rulesErr?.message) console.warn('[agent] rules apply_mode column', rulesErr.message);
+    }
     if (rules.length) {
       const blocks = rules.map((r) => {
         const title = String(r.title || 'Rule');
         const body = String(r.body_markdown || '');
-        return `### ${title}\n${body}`;
+        const mode = r.apply_mode != null ? String(r.apply_mode) : 'always';
+        const globs = r.globs != null && String(r.globs).trim() ? String(r.globs).trim() : '';
+        const scope =
+          mode === 'glob' && globs
+            ? `\n_Apply when working on paths matching:_ \`${globs}\``
+            : mode === 'glob'
+              ? '\n_Apply when relevant file paths match configured globs._'
+              : '';
+        return `### ${title}${scope}\n${body}`;
       });
       extra += `\n## Rules\n${blocks.join('\n\n')}\n`;
     }
@@ -5461,6 +5493,26 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   // All PTY execution paths MUST have an authenticated userId
   if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
 
+  /** Custom / platform subagent profile (composer slug or profile id). */
+  let subagentProfileRow = null;
+  try {
+    subagentProfileRow = await resolveSubagentProfileForChat(env.DB, {
+      userId: String(userId),
+      workspaceId,
+      tenantId,
+      profileId: body.subagent_profile_id ?? body.subagentProfileId,
+      slug: body.subagent_slug ?? body.subagentSlug,
+    });
+    if (subagentProfileRow) {
+      body.subagent_profile_id = subagentProfileRow.id;
+      body.subagent_slug = subagentProfileRow.slug;
+      body.subagent = true;
+      applySubagentDefaultModelToBody(body, subagentProfileRow);
+    }
+  } catch (e) {
+    console.warn('[agent] subagent_profile_resolve', e?.message ?? e);
+  }
+
   const grRoute = await evaluateGuardrails(env, ctx, {
     applies_to: 'route',
     tenant_id: tenantId,
@@ -6149,6 +6201,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     capabilityDecision = null;
   }
 
+  if (subagentProfileRow && tools.length) {
+    const beforeSubagentTools = tools.length;
+    tools = filterToolsForSubagentProfile(tools, subagentProfileRow);
+    if (beforeSubagentTools !== tools.length) {
+      console.log(
+        '[agent] subagent_tool_filter',
+        JSON.stringify({
+          slug: subagentProfileRow.slug,
+          access_mode: subagentProfileRow.access_mode,
+          before: beforeSubagentTools,
+          after: tools.length,
+        }),
+      );
+    }
+  }
+
   const confidence = Number(gate.confidence || 0);
   const threshold = Number(modeConfig?.escalation_threshold);
   const escalationThreshold = Number.isFinite(threshold) ? threshold : 0;
@@ -6659,6 +6727,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
   }
 
+  if (subagentProfileRow) {
+    systemPrompt = appendSubagentProfileToSystemPrompt(systemPrompt, subagentProfileRow);
+  }
+
   if (!minimalAskChat && capabilityDecision) {
     systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
   }
@@ -6726,6 +6798,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     auto_model: isAutoModel,
     tool_count: tools.length,
     routing_arm_id: routingArmIdForRun,
+    ...(subagentProfileRow
+      ? {
+          subagent_profile_id: subagentProfileRow.id,
+          subagent_slug: subagentProfileRow.slug,
+          subagent_display_name: subagentProfileRow.display_name,
+        }
+      : {}),
     ...(chatAgentRunId ? { agent_run_id: chatAgentRunId } : {}),
   });
 
