@@ -12,6 +12,17 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from '../core/bootstrap.js';
 import { executeWorkflowAndStream } from '../core/workflow-executor.js';
+import {
+  loadWorkflowGraphBundle,
+  requireWorkflowGraphContext,
+  saveWorkflowCanvasLayout,
+  createWorkflowNode,
+  updateWorkflowNode,
+  deleteWorkflowNode,
+  createWorkflowEdge,
+  deleteWorkflowEdge,
+  patchWorkflowRegistry,
+} from '../core/agentsam-workflow-graph.js';
 import { insertAgentsamPlanRow, insertAgentsamPlanTaskRows } from '../core/agentsam-plan-insert.js';
 import {
   createPlanExcalidrawArtifact,
@@ -406,28 +417,6 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       }
     }
 
-    // GET /api/agentsam/workflows/:id — single workflow with nodes + edges
-    const wfSingleMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)$/);
-    if (wfSingleMatch && method === 'GET') {
-      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
-      const wfId = wfSingleMatch[1];
-      try {
-        const workflow = await env.DB.prepare(
-          `SELECT * FROM agentsam_workflows WHERE id = ? AND is_active = 1 LIMIT 1`
-        ).bind(wfId).first();
-        if (!workflow) return jsonResponse({ error: 'workflow not found' }, 404);
-        const nodes = (await env.DB.prepare(
-          `SELECT * FROM agentsam_workflow_nodes WHERE workflow_id = ? AND COALESCE(is_active,1)=1 ORDER BY sort_order ASC`
-        ).bind(wfId).all()).results || [];
-        const edges = (await env.DB.prepare(
-          `SELECT * FROM agentsam_workflow_edges WHERE workflow_id = ? ORDER BY priority ASC`
-        ).bind(wfId).all()).results || [];
-        return jsonResponse({ workflow, nodes, edges });
-      } catch (e) {
-        return jsonResponse({ error: e?.message ?? String(e) }, 500);
-      }
-    }
-
     // POST /api/agentsam/workflows/:id/run — start a workflow run, stream SSE
     const wfRunMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/run$/);
     if (wfRunMatch && method === 'POST') {
@@ -558,6 +547,157 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         }
 
         return jsonResponse({ ok: true, decision, run_id: runId, rows_updated: changes });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // ── Workflow graph CRUD (registry id in path; DAG rows use dag_workflow_id) ──
+    async function workflowScope() {
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      const tenantId =
+        authUser?.tenant_id ??
+        (await fetchAuthUserTenantId(env, authUser?.id).catch(() => null)) ??
+        (await fallbackSystemTenantId(env).catch(() => null));
+      return {
+        tenantId: tenantId != null ? String(tenantId) : null,
+        workspaceId: wsRes?.workspaceId ?? null,
+      };
+    }
+
+    const wfLayoutMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/layout$/);
+    if (wfLayoutMatch && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfLayoutMatch[1]);
+      try {
+        const body = await request.json().catch(() => ({}));
+        const positions =
+          body.positions && typeof body.positions === 'object' ? body.positions : body;
+        const out = await saveWorkflowCanvasLayout(env.DB, registryId, positions);
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfNodeKeyMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/nodes\/([^/]+)$/);
+    if (wfNodeKeyMatch && (method === 'PATCH' || method === 'DELETE')) {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfNodeKeyMatch[1]);
+      const nodeKey = decodeURIComponent(wfNodeKeyMatch[2]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const { dag_workflow_id: dagId } = ctx.bundle;
+        if (method === 'DELETE') {
+          const out = await deleteWorkflowNode(env.DB, { dagWorkflowId: dagId, nodeKey });
+          if (out.error) return jsonResponse({ error: out.error }, out.status);
+          return jsonResponse(out);
+        }
+        const body = await request.json().catch(() => ({}));
+        const out = await updateWorkflowNode(env.DB, {
+          dagWorkflowId: dagId,
+          nodeKey,
+          body,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfNodesPostMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/nodes$/);
+    if (wfNodesPostMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfNodesPostMatch[1]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const body = await request.json().catch(() => ({}));
+        const out = await createWorkflowNode(env.DB, {
+          registryId,
+          dagWorkflowId: ctx.bundle.dag_workflow_id,
+          body,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out, 201);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfEdgeIdMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/edges\/([^/]+)$/);
+    if (wfEdgeIdMatch && method === 'DELETE') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfEdgeIdMatch[1]);
+      const edgeId = decodeURIComponent(wfEdgeIdMatch[2]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const out = await deleteWorkflowEdge(env.DB, {
+          dagWorkflowId: ctx.bundle.dag_workflow_id,
+          edgeId,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfEdgesPostMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/edges$/);
+    if (wfEdgesPostMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfEdgesPostMatch[1]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const body = await request.json().catch(() => ({}));
+        const out = await createWorkflowEdge(env.DB, {
+          dagWorkflowId: ctx.bundle.dag_workflow_id,
+          body,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out, 201);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfSingleMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)$/);
+    if (wfSingleMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfSingleMatch[1]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const bundle = await loadWorkflowGraphBundle(env.DB, registryId, tenantId, workspaceId);
+        if (!bundle) return jsonResponse({ error: 'workflow not found' }, 404);
+        return jsonResponse({
+          workflow: bundle.workflow,
+          dag_workflow_id: bundle.dag_workflow_id,
+          nodes: bundle.nodes,
+          edges: bundle.edges,
+          canvas_layout: bundle.canvas_layout,
+        });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    if (wfSingleMatch && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfSingleMatch[1]);
+      try {
+        const body = await request.json().catch(() => ({}));
+        const out = await patchWorkflowRegistry(env.DB, registryId, body);
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
       }

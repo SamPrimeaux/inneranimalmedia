@@ -1,10 +1,16 @@
 /**
- * D1 workflow surface — graph canvas + live SSE runner.
+ * D1 workflow surface — graph editor + live SSE runner.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Network } from 'lucide-react';
-import { WorkflowCanvas, type WorkflowCanvasProps } from './WorkflowCanvas';
-import type { NodeStatus } from './WorkflowCanvas';
+import { WorkflowCanvas, type NodeStatus } from './WorkflowCanvas';
+import { WorkflowEditorPanel } from './WorkflowEditorPanel';
+import {
+  fetchWorkflowGraph,
+  fetchWorkflowList,
+  saveCanvasLayout,
+} from './workflowApi';
+import type { WorkflowGraph, WorkflowListItem } from './workflowTypes';
 import {
   WorkflowPicker,
   WorkflowRunCard,
@@ -52,10 +58,66 @@ function applyWorkflowSseToCanvas(
 }
 
 export const WorkflowsPage: React.FC = () => {
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowListItem[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+
+  const [selectedRegistryId, setSelectedRegistryId] = useState<string | null>(null);
+  const [graph, setGraph] = useState<WorkflowGraph | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphVersion, setGraphVersion] = useState(0);
+
+  const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
+  const [connectFrom, setConnectFrom] = useState<string | null>(null);
+
   const [graphEdges, setGraphEdges] = useState<WfEdgeLite[]>([]);
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, NodeStatus>>({});
   const [activeEdges, setActiveEdges] = useState<Set<string>>(new Set());
+
+  const loadList = useCallback(async () => {
+    setListLoading(true);
+    setListError(null);
+    try {
+      const list = await fetchWorkflowList();
+      setWorkflows(list);
+      if (list.length && !selectedRegistryId) {
+        setSelectedRegistryId(list[0].id);
+      }
+    } catch (e) {
+      setListError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  const loadGraph = useCallback(async (registryId: string) => {
+    setGraphLoading(true);
+    try {
+      const g = await fetchWorkflowGraph(registryId);
+      setGraph(g);
+      setGraphEdges(
+        g.edges.map((e) => ({ id: e.id, from: e.from, to: e.to })),
+      );
+    } catch {
+      setGraph(null);
+      setGraphEdges([]);
+    } finally {
+      setGraphLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadList();
+  }, []);
+
+  useEffect(() => {
+    if (selectedRegistryId) void loadGraph(selectedRegistryId);
+  }, [selectedRegistryId, graphVersion, loadGraph]);
+
+  const bumpGraph = useCallback(() => {
+    setGraphVersion((v) => v + 1);
+    void loadList();
+  }, [loadList]);
 
   const { runState, approvalBusy, startWorkflow, handleApproval } = useWorkflowRunner({
     onSseChunk: (d) => {
@@ -63,47 +125,24 @@ export const WorkflowsPage: React.FC = () => {
     },
   });
 
-  const loadGraphEdges = useCallback(async (workflowId: string) => {
-    try {
-      const res = await fetch(`/api/agentsam/workflows/${encodeURIComponent(workflowId)}`, {
-        credentials: 'same-origin',
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      const raw = Array.isArray(data?.edges) ? data.edges : [];
-      setGraphEdges(
-        raw.map((e: Record<string, unknown>, i: number) => ({
-          id: String(e.id ?? e.edge_key ?? `e${i + 1}`),
-          from: String(e.from_node_key ?? e.from ?? ''),
-          to: String(e.to_node_key ?? e.to ?? ''),
-        })).filter((e: WfEdgeLite) => e.from && e.to),
-      );
-    } catch {
-      setGraphEdges([]);
-    }
-  }, []);
-
   const handleStart = useCallback(
     (workflow: WorkflowRow) => {
-      setSelectedWorkflowId(workflow.id);
+      setSelectedRegistryId(workflow.id);
       setNodeStatuses({});
       setActiveEdges(new Set());
-      void loadGraphEdges(workflow.id);
+      setSelectedNodeKey(null);
       void startWorkflow(workflow);
     },
-    [loadGraphEdges, startWorkflow],
+    [startWorkflow],
   );
 
-  const canvasProps: WorkflowCanvasProps = {
-    externalStatuses: nodeStatuses,
-    externalActiveEdges: activeEdges,
-    selectedWorkflowId,
-    onWorkflowIdChange: (id) => {
-      setSelectedWorkflowId(id);
-      void loadGraphEdges(id);
+  const handleSavePositions = useCallback(
+    async (positions: Record<string, { x: number; y: number }>) => {
+      if (!selectedRegistryId) return;
+      await saveCanvasLayout(selectedRegistryId, positions);
     },
-    liveRunning: runState.status === 'running' || runState.status === 'awaiting_approval',
-  };
+    [selectedRegistryId],
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[var(--dashboard-canvas)] text-[var(--dashboard-text)]">
@@ -111,29 +150,68 @@ export const WorkflowsPage: React.FC = () => {
         <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] text-[var(--solar-cyan)]">
           <Network size={18} strokeWidth={1.75} aria-hidden />
         </div>
-        <div className="min-w-0">
-          <h1 className="text-[15px] font-semibold text-[var(--text-heading)] tracking-tight">Workflows</h1>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[15px] font-semibold text-[var(--text-heading)] tracking-tight">
+            Workflows
+          </h1>
           <p className="text-[11px] text-[var(--dashboard-muted)] mt-0.5">
-            Drag nodes on the graph, run live from D1, and trace steps on the canvas.
+            Edit D1 graph nodes and edges, save layout, and run live with SSE tracing.
           </p>
         </div>
+        {graph?.dagWorkflowId && (
+          <div className="hidden sm:block text-[10px] font-mono text-[var(--dashboard-muted)]">
+            dag: <span className="text-[var(--solar-cyan)]">{graph.dagWorkflowId}</span>
+          </div>
+        )}
       </header>
 
       <div className="flex-1 min-h-0 flex flex-row">
         <div className="flex-1 min-w-0 min-h-0">
-          <WorkflowCanvas {...canvasProps} />
+          <WorkflowCanvas
+            workflows={workflows}
+            listLoading={listLoading}
+            listError={listError}
+            onRefreshList={() => void loadList()}
+            graph={graph}
+            graphLoading={graphLoading}
+            selectedRegistryId={selectedRegistryId}
+            onSelectWorkflow={(id) => {
+              setSelectedRegistryId(id);
+              setSelectedNodeKey(null);
+              setConnectFrom(null);
+            }}
+            selectedNodeKey={selectedNodeKey}
+            onSelectNode={setSelectedNodeKey}
+            connectFrom={connectFrom}
+            onConnectFrom={setConnectFrom}
+            onSavePositions={handleSavePositions}
+            externalStatuses={nodeStatuses}
+            externalActiveEdges={activeEdges}
+            liveRunning={runState.status === 'running' || runState.status === 'awaiting_approval'}
+          />
         </div>
 
-        <aside className="w-[min(100%,22rem)] shrink-0 border-l border-[var(--dashboard-border)] flex flex-col min-h-0 bg-[var(--dashboard-panel)] overflow-hidden">
-          <section className="shrink-0 border-b border-[var(--dashboard-border)] overflow-hidden">
+        <aside className="w-[min(100%,24rem)] shrink-0 border-l border-[var(--dashboard-border)] flex flex-col min-h-0 bg-[var(--dashboard-panel)] overflow-hidden">
+          <section className="shrink-0 border-b border-[var(--dashboard-border)] overflow-y-auto max-h-[38%]">
             <WorkflowPicker
               onStartWorkflow={handleStart}
               isRunning={runState.status === 'running' || runState.status === 'awaiting_approval'}
             />
           </section>
 
+          <section className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <WorkflowEditorPanel
+              graph={graph}
+              selectedNodeKey={selectedNodeKey}
+              onSelectNode={setSelectedNodeKey}
+              onGraphChanged={bumpGraph}
+              connectFrom={connectFrom}
+              onConnectFrom={setConnectFrom}
+            />
+          </section>
+
           {runState.status !== 'idle' && (
-            <section className="flex-1 min-h-0 overflow-y-auto p-3">
+            <section className="flex-1 min-h-0 overflow-y-auto p-3 border-t border-[var(--dashboard-border)]">
               <WorkflowRunCard
                 runState={runState}
                 onApprove={handleApproval}
