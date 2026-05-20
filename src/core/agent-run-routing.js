@@ -439,6 +439,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
           costUsd,
           eventStatus: p.success ? 'completed' : 'failed',
           quickstartBatch: p.quickstartBatch ?? null,
+          qualityScore: p.qualityScore ?? null,
         });
         return;
       }

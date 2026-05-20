@@ -600,6 +600,21 @@ export async function upsertEtoFromAgentRun(env, p) {
         cost_usd: Number(p.costUsd) || 0,
       });
     }
+    // Back-link usage_event_id from agentsam_usage_events
+    if (cols.has('usage_event_id')) {
+      try {
+        const ue = await env.DB.prepare(
+          `SELECT id FROM agentsam_usage_events
+           WHERE ref_table = 'agentsam_agent_run' AND ref_id = ?
+           ORDER BY created_at DESC LIMIT 1`,
+        ).bind(agentRunId).first();
+        if (ue?.id) {
+          await env.DB.prepare(
+            `UPDATE ${TABLE} SET usage_event_id = ? WHERE id = ?`,
+          ).bind(ue.id, id).run();
+        }
+      } catch (_) {}
+    }
     return { ok: true, id, inserted: changes > 0, effective_arm_id: effective || null, trainingEligible, epm_id: epmId };
   } catch (e) {
     console.warn('[eto] upsertEtoFromAgentRun', e?.message ?? e);
