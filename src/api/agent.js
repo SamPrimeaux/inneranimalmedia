@@ -137,6 +137,22 @@ import {
 import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
 
+/** USD from agentsam_model_pricing (via estimateModelRunCostUsd pricing spine). */
+async function fetchModelCostUsd(env, modelKey, inputTokens, outputTokens, cacheReadTokens = 0) {
+  if (!env?.DB || !modelKey || (!inputTokens && !outputTokens)) return 0;
+  try {
+    const priced = await estimateModelRunCostUsd(env.DB, {
+      modelKey: String(modelKey),
+      inputTokens: Math.max(0, Math.floor(Number(inputTokens) || 0)),
+      outputTokens: Math.max(0, Math.floor(Number(outputTokens) || 0)),
+      cacheReadTokens: Math.max(0, Math.floor(Number(cacheReadTokens) || 0)),
+    });
+    return Number(priced?.costUsd) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
 
@@ -7101,6 +7117,28 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           : null) ||
         routingArmIdForRun;
 
+      const finalModelKey =
+        lastLoopStats?.modelKey || tried[tried.length - 1] || fallbackModelKeys[0] || null;
+      const finalInputTokens = lastLoopStats?.totalUsage?.input_tokens ?? 0;
+      const finalOutputTokens = lastLoopStats?.totalUsage?.output_tokens ?? 0;
+      const finalCacheRead = lastLoopStats?.totalUsage?.cache_read_input_tokens ?? 0;
+      const realCostUsd = await fetchModelCostUsd(
+        env,
+        finalModelKey,
+        finalInputTokens,
+        finalOutputTokens,
+        finalCacheRead,
+      );
+      const loopFailureReason = !succeeded
+        ? explicitProviderFailure
+          ? 'provider_error'
+          : tried.length > 1
+            ? 'all_providers_exhausted'
+            : lastLoopStats?.timedOut
+              ? 'timeout'
+              : 'stream_incomplete'
+        : null;
+
       if (outcomeArmId) {
         await recordArmOutcome(env, ctx, outcomeArmId, succeeded, {
           taskType: resolvedRoutingTaskType ?? 'chat',
@@ -7123,9 +7161,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               plan_id: body?.planId ?? body?.plan_id ?? null,
               event_type: 'agent_run_complete',
               reason: resolvedRoutingTaskType ?? 'chat',
-              tokens_in: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-              tokens_out: lastLoopStats?.totalUsage?.output_tokens ?? 0,
-              cost_usd: costUsd ?? 0,
+              tokens_in: finalInputTokens,
+              tokens_out: finalOutputTokens,
+              cost_usd: realCostUsd,
               duration_ms: Date.now() - chatT0,
               status: succeeded ? 'ok' : 'error',
             }).catch(e => console.warn('[usage_events]', e?.message ?? e))
@@ -7141,9 +7179,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               succeeded,
               task_type: resolvedRoutingTaskType ?? 'chat',
               mode: requestedMode ?? 'auto',
-              cost_usd: costUsd ?? 0,
-              input_tokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-              output_tokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+              cost_usd: realCostUsd,
+              input_tokens: finalInputTokens,
+              output_tokens: finalOutputTokens,
             }).catch(e => console.warn('[hook-dispatcher]', e?.message ?? e))
           );
         }
@@ -7179,10 +7217,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         success: succeeded,
         exitCode: null,
         durationMs: Date.now() - chatT0,
-        inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-        outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
-        costUsd: 0,
-        errorMessage: succeeded ? null : 'all_providers_exhausted',
+        inputTokens: finalInputTokens,
+        outputTokens: finalOutputTokens,
+        costUsd: realCostUsd,
+        errorMessage: loopFailureReason,
         selectedCommandId: null,
         selectedCommandSlug: null,
         riskLevel: 'low',
@@ -7190,11 +7228,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         approvalStatus: 'not_required',
         cwd: null,
         filesOpen: [],
-        recentError: succeeded ? null : 'all_providers_exhausted',
+        recentError: loopFailureReason,
         goal: message,
-        contextTokenEstimate:
-          (lastLoopStats?.totalUsage?.input_tokens ?? 0) +
-          (lastLoopStats?.totalUsage?.output_tokens ?? 0),
+        contextTokenEstimate: finalInputTokens + finalOutputTokens,
       });
       if (userId && resolvedWorkspaceId) {
         scheduleAgentsamChatAgentRunInsert(env, ctx, {
@@ -7204,16 +7240,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId: resolvedWorkspaceId,
           conversationId: sessionId ? String(sessionId) : null,
           routingArmId: outcomeArmId ?? routingArmIdForRun,
-          modelKey: lastLoopStats?.modelKey || tried[tried.length - 1] || fallbackModelKeys[0] || null,
+          modelKey: finalModelKey,
           taskType: resolvedRoutingTaskType,
           mode: requestedMode,
           routeKey: routeKeyForRun,
           success: succeeded,
-          inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-          outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
-          costUsd: 0,
+          inputTokens: finalInputTokens,
+          outputTokens: finalOutputTokens,
+          costUsd: realCostUsd,
           durationMs: Date.now() - chatT0,
-          errorMessage: succeeded ? null : 'all_providers_exhausted',
+          errorMessage: loopFailureReason,
           workflowRunId: lastLoopStats?.workflowRunId ?? null,
           chainRootId: lastLoopStats?.chainRootId ?? null,
           timedOut: lastLoopStats?.timedOut === true,
@@ -7234,10 +7270,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           WHERE id = ?
         `).bind(
           succeeded ? 'completed' : 'failed',
-          lastLoopStats?.totalUsage?.input_tokens ?? 0,
-          lastLoopStats?.totalUsage?.output_tokens ?? 0,
+          finalInputTokens,
+          finalOutputTokens,
           Date.now() - chatT0,
-          succeeded ? null : 'all_providers_exhausted',
+          loopFailureReason,
           chatAgentRunId
         ).run().catch(() => {}));
       }
@@ -7246,11 +7282,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         workspaceId,
         userId,
         conversationId: sessionId ? String(sessionId) : null,
-        resolvedProvider: providerForModelKey(lastLoopStats?.modelKey),
-        modelKey: lastLoopStats?.modelKey ?? fallbackModelKeys[0] ?? 'unknown',
-        inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-        outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
-        costUsd: 0,
+        resolvedProvider: providerForModelKey(finalModelKey),
+        modelKey: finalModelKey ?? 'unknown',
+        inputTokens: finalInputTokens,
+        outputTokens: finalOutputTokens,
+        costUsd: realCostUsd,
         streamFailed: !succeeded,
         refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
           routingArmId: outcomeArmId ?? usageRoutingArmId,
@@ -7264,14 +7300,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           tenantId,
           sessionId: sessionId ? String(sessionId) : null,
           routingArmId: outcomeArmId ?? routingArmIdForRun,
-          modelUsed: lastLoopStats?.modelKey || fallbackModelKeys[0] || 'unknown',
-          tokensIn: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-          tokensOut: lastLoopStats?.totalUsage?.output_tokens ?? 0,
-          costUsd: 0,
+          modelUsed: finalModelKey || 'unknown',
+          tokensIn: finalInputTokens,
+          tokensOut: finalOutputTokens,
+          costUsd: realCostUsd,
           taskType: resolvedRoutingTaskType,
           userId: userId ?? null,
           isStreaming: true,
-          errorType: succeeded ? null : 'all_providers_exhausted',
+          errorType: loopFailureReason,
         });
       }
 
@@ -7314,7 +7350,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           operation_name: 'agent.chat_turn',
           kind: 'server',
           status_code: succeeded ? 'ok' : 'error',
-          status_message: succeeded ? null : 'all_providers_exhausted',
+          status_message: loopFailureReason,
           start_time_unix_nano: turnStartNs,
           end_time_unix_nano: Date.now() * 1_000_000,
           attributes_json: JSON.stringify({
@@ -7336,8 +7372,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         (catchIn > 0 || catchOut > 0 || hasStreamedText) && !explicitProviderFailure;
       const catchModelKey =
         lastLoopStats?.modelKey || tried[tried.length - 1] || fallbackModelKeys[0] || null;
+      const catchCacheRead = Math.max(
+        0,
+        Math.floor(Number(partialUsage.cache_read_input_tokens) || 0),
+      );
+      const catchCostUsd =
+        catchIn > 0 || catchOut > 0
+          ? await fetchModelCostUsd(env, catchModelKey, catchIn, catchOut, catchCacheRead)
+          : 0;
       const postStreamErr =
-        e?.message != null ? String(e.message).slice(0, 8000) : 'agent_loop_failed';
+        e?.message != null ? String(e.message).slice(0, 8000) : 'agent_loop_exception';
 
       emit('error', { message: 'Agent loop failed' });
       if (!doneGuard.emitted) {
@@ -7377,7 +7421,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         durationMs: Date.now() - chatT0,
         inputTokens: catchIn,
         outputTokens: catchOut,
-        costUsd: 0,
+        costUsd: catchCostUsd,
         errorMessage: partialSuccess ? `post_stream: ${postStreamErr}` : postStreamErr,
         selectedCommandId: null,
         selectedCommandSlug: null,
@@ -7405,7 +7449,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           success: partialSuccess,
           inputTokens: catchIn,
           outputTokens: catchOut,
-          costUsd: 0,
+          costUsd: catchCostUsd,
           durationMs: Date.now() - chatT0,
           errorMessage: partialSuccess ? `post_stream: ${postStreamErr}` : postStreamErr,
           workflowRunId: lastLoopStats?.workflowRunId ?? null,
@@ -7426,7 +7470,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         modelKey: catchModelKey ?? 'unknown',
         inputTokens: catchIn,
         outputTokens: catchOut,
-        costUsd: 0,
+        costUsd: catchCostUsd,
         streamFailed: !partialSuccess,
         refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
         routingArmId: routingArmIdForRun,
@@ -7440,11 +7484,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           modelUsed: catchModelKey || 'unknown',
           tokensIn: catchIn,
           tokensOut: catchOut,
-          costUsd: 0,
+          costUsd: catchCostUsd,
           taskType: resolvedRoutingTaskType,
           userId: userId ?? null,
           isStreaming: true,
-          errorType: partialSuccess ? 'post_stream_finalize' : 'agent_loop_failed',
+          errorType: partialSuccess ? 'post_stream_finalize' : 'agent_loop_exception',
         });
       }
     } finally {
