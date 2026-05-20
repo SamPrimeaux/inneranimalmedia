@@ -16,18 +16,95 @@ WHERE lower(trim(COALESCE(api_platform, ''))) IN ('google_ai', 'google')
   AND status = 'active'
   AND mode = 'model';
 
--- Scout classify: JSON-only lane (no route_key=chat tool-capable gate)
-INSERT OR IGNORE INTO agentsam_route_requirements (
-  id, route_key, task_type, mode, requires_tools, requires_vision, requires_json_mode,
-  preferred_tier, max_tier, budget_priority, is_active, updated_at
-) VALUES (
-  'req_intent_classification_scout',
+-- FK: agentsam_route_requirements.route_key -> agentsam_prompt_routes.route_key
+INSERT OR IGNORE INTO agentsam_prompt_routes (
+  route_key,
+  display_name,
+  intent_labels,
+  command_categories,
+  trigger_keywords,
+  prompt_layer_keys,
+  tool_categories,
+  tool_keys,
+  max_tools,
+  preferred_model,
+  fallback_model,
+  include_rag,
+  include_active_plan,
+  include_recent_memory,
+  memory_limit,
+  include_workspace_ctx,
+  token_budget,
+  is_active,
+  priority,
+  tenant_id
+)
+VALUES (
+  'intent_classification',
+  'Intent classification (scout)',
+  '["intent_classification","classify","triage"]',
+  '["chat"]',
+  '["classify","intent","triage"]',
+  '["core_identity"]',
+  '[]',
+  '[]',
+  0,
+  'anthropic_haiku_4_5',
+  NULL,
+  0,
+  0,
+  0,
+  0,
+  0,
+  2000,
+  1,
+  50,
+  ''
+);
+
+INSERT INTO agentsam_route_requirements (
+  route_key,
+  task_type,
+  mode,
+  requires_tools,
+  requires_vision,
+  requires_json_mode,
+  requires_streaming,
+  preferred_tier,
+  max_tier,
+  budget_priority,
+  preferred_providers,
+  blocked_providers,
+  allowed_lanes_json,
+  required_capability_keys_json,
+  optional_capability_keys_json,
+  blocked_capability_keys_json,
+  approval_policy_json,
+  max_tools,
+  is_active
+)
+SELECT
   'intent_classification',
   'intent_classification',
   'default',
-  0, 0, 1,
-  'micro', 'standard', 'cost',
-  1, unixepoch()
+  0,
+  0,
+  1,
+  0,
+  'micro',
+  'standard',
+  'cost',
+  '["anthropic"]',
+  '[]',
+  '["think"]',
+  '[]',
+  '[]',
+  '["worker.deploy","terminal.execute"]',
+  '{"default":"allow","read":"allow"}',
+  0,
+  1
+WHERE NOT EXISTS (
+  SELECT 1 FROM agentsam_route_requirements WHERE route_key = 'intent_classification'
 );
 
 UPDATE agentsam_subagent_profile
