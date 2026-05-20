@@ -5,7 +5,7 @@
  * scheduleRoutingArmQualityUpdate to close the Thompson feedback loop.
  */
 import { scheduleRoutingArmQualityUpdate } from './routing.js';
-import { scheduleEtoFromEvalRun } from './performance-eto.js';
+import { applyEtoToRoutingArms, scheduleEtoFromEvalRun } from './performance-eto.js';
 import { completeWithOpenAIResponsesNonStream } from '../integrations/openai.js';
 
 /**
@@ -211,6 +211,27 @@ export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, m
     }
 
     console.log(`[eval-runner] suite=${suite.name} arm=${armId} cases=${cases.length} avgScore=${avgScore?.toFixed(3)}`);
+
+    if (ctx?.waitUntil && env?.DB) {
+      ctx.waitUntil(
+        applyEtoToRoutingArms(env, {})
+          .then((applied) => {
+            const n = Number(applied?.armsUpdated) || 0;
+            if (n > 0) {
+              console.log(
+                '[eval-runner] applyEtoToRoutingArms',
+                JSON.stringify({ armId, suite: suite.name, ...applied }),
+              );
+            } else {
+              console.warn(
+                '[eval-runner] applyEtoToRoutingArms no_arms_updated',
+                JSON.stringify({ armId, suite: suite.name, ...applied }),
+              );
+            }
+          })
+          .catch((e) => console.warn('[eval-runner] applyEtoToRoutingArms', e?.message ?? e)),
+      );
+    }
   } catch (e) {
     console.warn('[eval-runner] failed', e?.message ?? e);
   }

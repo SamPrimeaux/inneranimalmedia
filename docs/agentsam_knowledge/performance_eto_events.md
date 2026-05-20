@@ -28,6 +28,8 @@ One row per canonical source (`UNIQUE(source_table, source_id)`). Not a second r
 | `recordEscalationAttempt` / `upsertEtoFromEscalationAttempt` | same | Each chat model attempt (success + failure) → Thompson training |
 | `buildEtoEventsBatch` | same | Nightly backfill (yesterday) |
 | `applyEtoToRoutingArms` | same | After build; stamps `applied_to_thompson_at` |
+| `applyEtoToRoutingArms` (live) | `agent.js` chat tail + `eval-runner.js` suite end | **Default on** when `model: auto` or quickstart/benchmark batch; opt-out `apply_eto_after_run: false` |
+| `shouldApplyEtoAfterRun` | `performance-eto.js` | Body flag parser for live apply |
 | `runEtoPipeline` | same | `build` + `apply` + `enforceEvalSlosPauseArms` (`eto_pipeline`) |
 | `enforceEvalSlosPauseArms` | `src/core/routing-cron.js` | Hourly + ETO pipeline; pauses arms on D1 eval SLO breach |
 

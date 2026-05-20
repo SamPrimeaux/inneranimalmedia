@@ -26,6 +26,41 @@ export async function isEtoThompsonOwner(env) {
   return etoReadyCache;
 }
 
+/**
+ * Parse chat/benchmark body flags for post-run ETO → arms apply.
+ * @param {Record<string, unknown> | null | undefined} body
+ * @returns {{ explicit: boolean, optOut: boolean }}
+ */
+export function parseApplyEtoAfterRunFromBody(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const raw = b.apply_eto_after_run ?? b.applyEtoAfterRun;
+  if (raw === false || raw === 0) return { explicit: false, optOut: true };
+  if (raw === true || raw === 1) return { explicit: true, optOut: false };
+  const s = raw != null ? String(raw).trim().toLowerCase() : '';
+  if (s === 'false' || s === '0' || s === 'no') return { explicit: false, optOut: true };
+  if (s === 'true' || s === '1' || s === 'yes') return { explicit: true, optOut: false };
+  return { explicit: false, optOut: false };
+}
+
+/**
+ * Whether to flush pending ETO → D1 routing arms immediately after a chat turn.
+ * Defaults on for auto-routing and benchmark/quickstart batches; opt-out via apply_eto_after_run=false.
+ * @param {Record<string, unknown> | null | undefined} body
+ * @param {{ isAutoModel?: boolean, quickstartBatch?: string | null }} [ctx]
+ */
+export function shouldApplyEtoAfterRun(body, ctx = {}) {
+  const { explicit, optOut } = parseApplyEtoAfterRunFromBody(body);
+  if (optOut) return false;
+  if (explicit) return true;
+  if (ctx.isAutoModel) return true;
+  const qs = ctx.quickstartBatch != null ? String(ctx.quickstartBatch).trim() : '';
+  if (qs) return true;
+  const b = body && typeof body === 'object' ? body : {};
+  const bench = b.benchmark ?? b.benchmark_mode;
+  if (bench === true || bench === 1 || String(bench || '').toLowerCase() === 'true') return true;
+  return false;
+}
+
 export function newEtoEventId() {
   return `eto_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }

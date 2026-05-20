@@ -120,6 +120,7 @@ import {
   scheduleEscalationAttempt,
   isEtoThompsonOwner,
   applyEtoToRoutingArms,
+  shouldApplyEtoAfterRun,
 } from '../core/performance-eto.js';
 import { listPlatformQuickstartTemplates } from '../core/agent-quickstart-templates.js';
 import {
@@ -6662,12 +6663,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       'Do not ask them to switch chat mode or pick an image model manually.';
   }
 
-  const applyEtoAfterRun =
-    body?.apply_eto_after_run === true ||
-    body?.apply_eto_after_run === 1 ||
-    String(body?.apply_eto_after_run || '').toLowerCase() === 'true' ||
-    body?.applyEtoAfterRun === true ||
-    String(body?.applyEtoAfterRun || '').toLowerCase() === 'true';
+  const applyEtoAfterRun = shouldApplyEtoAfterRun(body, { isAutoModel, quickstartBatch });
 
   const cacheWriteTtlForChat = (() => {
     const raw = body?.cacheTtl ?? body?.cache_ttl;
@@ -7278,16 +7274,27 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         ctx.waitUntil(
           (async () => {
             try {
+              const owner = await isEtoThompsonOwner(env);
+              if (!owner) {
+                console.log(
+                  '[agent] applyEtoToRoutingArms_after_chat skipped',
+                  JSON.stringify({ reason: 'eto_table_missing', auto_model: isAutoModel }),
+                );
+                return;
+              }
               const applied = await applyEtoToRoutingArms(env, {});
-              console.log(
-                '[agent] applyEtoToRoutingArms_after_chat',
-                JSON.stringify({
-                  quickstart_batch: quickstartBatch || null,
-                  agent_run_id: chatAgentRunId,
-                  routing_arm_id: outcomeArmId,
-                  ...applied,
-                }),
-              );
+              const payload = {
+                quickstart_batch: quickstartBatch || null,
+                agent_run_id: chatAgentRunId,
+                routing_arm_id: outcomeArmId,
+                auto_model: isAutoModel,
+                ...applied,
+              };
+              if (Number(applied?.armsUpdated) > 0) {
+                console.log('[agent] applyEtoToRoutingArms_after_chat', JSON.stringify(payload));
+              } else {
+                console.warn('[agent] applyEtoToRoutingArms_after_chat no_arms_updated', JSON.stringify(payload));
+              }
             } catch (e) {
               console.warn('[agent] applyEtoToRoutingArms_after_chat', e?.message ?? e);
             }
