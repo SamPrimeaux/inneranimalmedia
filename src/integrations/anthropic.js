@@ -63,7 +63,17 @@ export function buildAnthropicMessagesTools(tools, opts = {}) {
         String(t.name || '') === TOOL_SEARCH_BM25.name
       ),
   );
-  const mapped = rest.map((t) => {
+  // Deduplicate by tool name — multiple upstream sources (MCP tools, catalog
+  // enrichment, minimum tool set) can produce the same name more than once.
+  // First occurrence wins; Anthropic returns 400 on any duplicate name.
+  const _seenNames = new Set();
+  const deduped = rest.filter((t) => {
+    const n = String(t?.name || '').trim();
+    if (!n || _seenNames.has(n)) return false;
+    _seenNames.add(n);
+    return true;
+  });
+  const mapped = deduped.map((t) => {
     const schema = t.parameters ?? t.input_schema;
     const out = {
       name: t.name,
