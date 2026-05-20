@@ -288,10 +288,10 @@ export async function finalizeAgentRun(env, run_id, resolvedModel, usage = {}, o
     await env.DB.prepare(`
       UPDATE agentsam_agent_run SET
         status              = ?,
-        provider            = ?,
+        ai_model_ref        = ?,
         model_key           = ?,
+        model_id            = ?,
         model_catalog_id    = ?,
-        api_platform        = ?,
         input_tokens        = ?,
         cached_input_tokens = ?,
         output_tokens       = ?,
@@ -303,10 +303,10 @@ export async function finalizeAgentRun(env, run_id, resolvedModel, usage = {}, o
       WHERE id = ?
     `).bind(
       status,
-      resolvedModel.provider,
       resolvedModel.model_key,
-      resolvedModel.model_catalog_id,
-      resolvedModel.api_platform,
+      resolvedModel.model_key,
+      resolvedModel.model_key,
+      resolvedModel.model_catalog_id ?? null,
       input_tokens,
       cached_input_tokens,
       output_tokens,

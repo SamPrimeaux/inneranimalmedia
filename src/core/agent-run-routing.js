@@ -90,7 +90,7 @@ async function buildChatRoutingDecisionPayload(env, p) {
   if (selectedModel && env?.DB) {
     try {
       catalog = await env.DB.prepare(
-        `SELECT provider, api_platform FROM agentsam_ai_models WHERE model_key = ? LIMIT 1`,
+        `SELECT provider, api_platform FROM agentsam_ai WHERE model_key = ? LIMIT 1`,
       )
         .bind(selectedModel.slice(0, 200))
         .first();
