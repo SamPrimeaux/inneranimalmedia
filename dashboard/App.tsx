@@ -94,7 +94,9 @@ const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
 const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
-const WorkflowsPage = lazy(() => import('./pages/workflows/WorkflowsPage'));
+const WorkflowsPage = lazy(() =>
+  import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })),
+);
 const MovieModeStudio = lazy(() =>
   import('./features/moviemode/MovieModeStudio').then((m) => ({ default: m.MovieModeStudio })),
 );
