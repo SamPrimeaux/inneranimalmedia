@@ -112,6 +112,12 @@ import { writeUsageEvent } from '../core/usage-event-writer.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
 import { triggerEvalAfterNRuns } from '../core/eval-runner.js';
 import {
+  scheduleEscalationAttempt,
+  isEtoThompsonOwner,
+  applyEtoToRoutingArms,
+} from '../core/performance-eto.js';
+import { listPlatformQuickstartTemplates } from '../core/agent-quickstart-templates.js';
+import {
   scheduleAgentsamCommandRunInsert,
   fireForgetAgentToolChainRow,
   resolveAgentCommand,
@@ -2147,20 +2153,32 @@ async function loadGlobalAlwaysApplySkills(env) {
 async function recordArmOutcome(env, ctx, armId, success, routingInfo) {
   if (!env.DB || !armId) return;
   try {
-    await env.DB.prepare(
-      `UPDATE agentsam_routing_arms SET
-        total_executions = total_executions + 1,
-        success_alpha = success_alpha + CASE WHEN ? THEN 0.5 ELSE 0 END,
-        success_beta  = success_beta  + CASE WHEN ? THEN 0 ELSE 0.5 END,
-        decayed_score = (success_alpha + CASE WHEN ? THEN 0.5 ELSE 0 END) /
-          (success_alpha + success_beta + 1.0) *
-          pow(0.995, CAST((unixepoch() - last_decay_at) AS REAL) / 86400.0),
-        last_decay_at = unixepoch(),
-        updated_at = unixepoch()
-      WHERE id = ?`,
-    )
-      .bind(success ? 1 : 0, success ? 1 : 0, success ? 1 : 0, armId)
-      .run();
+    const etoOwner = await isEtoThompsonOwner(env);
+    if (etoOwner) {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms SET
+          total_executions = COALESCE(total_executions, 0) + 1,
+          updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(armId)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms SET
+          total_executions = total_executions + 1,
+          success_alpha = success_alpha + CASE WHEN ? THEN 0.5 ELSE 0 END,
+          success_beta  = success_beta  + CASE WHEN ? THEN 0 ELSE 0.5 END,
+          decayed_score = (success_alpha + CASE WHEN ? THEN 0.5 ELSE 0 END) /
+            (success_alpha + success_beta + 1.0) *
+            pow(0.995, CAST((unixepoch() - last_decay_at) AS REAL) / 86400.0),
+          last_decay_at = unixepoch(),
+          updated_at = unixepoch()
+        WHERE id = ?`,
+      )
+        .bind(success ? 1 : 0, success ? 1 : 0, success ? 1 : 0, armId)
+        .run();
+    }
 
     if (ctx?.waitUntil && routingInfo) {
       ctx.waitUntil(triggerEvalAfterNRuns(env, ctx, {
@@ -5527,6 +5545,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
   const intentResult = await classifyIntent(env, message);
+  const bodyTaskTypePin =
+    body?.task_type != null && String(body.task_type).trim() !== ''
+      ? String(body.task_type).trim()
+      : body?.taskType != null && String(body.taskType).trim() !== ''
+        ? String(body.taskType).trim()
+        : null;
+  if (bodyTaskTypePin) {
+    intentResult.taskType = bodyTaskTypePin;
+  }
   if (
     ['agent', 'debug', 'multitask'].includes(requestedMode) &&
     (!intentResult || typeof intentResult !== 'object')
@@ -5874,12 +5901,37 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     String(intentResult?.taskType || intentSlug)
       .toLowerCase()
       .trim() || 'auto';
-  let promptRouteRow = await resolveAgentsamPromptRoute(
-    env,
-    tenantId,
-    requestedMode,
-    promptRouteIntentSlug,
-  );
+  const bodyRouteKeyPin =
+    body?.route_key != null && String(body.route_key).trim() !== ''
+      ? String(body.route_key).trim()
+      : body?.routeKey != null && String(body.routeKey).trim() !== ''
+        ? String(body.routeKey).trim()
+        : null;
+  let promptRouteRow = null;
+  if (bodyRouteKeyPin && env?.DB) {
+    try {
+      promptRouteRow = await env.DB.prepare(
+        `SELECT * FROM agentsam_prompt_routes
+         WHERE route_key = ?
+           AND is_active = 1
+           AND (tenant_id = ? OR tenant_id IS NULL)
+         ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END, priority ASC
+         LIMIT 1`,
+      )
+        .bind(bodyRouteKeyPin, tenantId, tenantId)
+        .first();
+    } catch (e) {
+      console.warn('[agent] prompt_route_by_key', e?.message ?? e);
+    }
+  }
+  if (!promptRouteRow) {
+    promptRouteRow = await resolveAgentsamPromptRoute(
+      env,
+      tenantId,
+      requestedMode,
+      promptRouteIntentSlug,
+    );
+  }
 
   const skipSimpleAskGreetingRoute =
     body?.tool_required === true ||
@@ -6149,7 +6201,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   });
   const bodyPinsRouting = (() => {
     const b = body && typeof body === 'object' ? body : {};
+    const tt = b.task_type ?? b.taskType;
+    const rk = b.route_key ?? b.routeKey;
     return (
+      (tt != null && String(tt).trim() !== '') ||
+      (rk != null && String(rk).trim() !== '') ||
       b.debug === true ||
       String(b.mode || '').toLowerCase() === 'debug' ||
       b.subagent === true ||
@@ -6327,11 +6383,21 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     return jsonResponse({ error: 'All providers exhausted', tried: [] }, 503);
   }
 
-  const routingArmIdForRun = (() => {
+  let routingArmIdForRun = (() => {
     const fromAuto = routingPick?.armId != null ? String(routingPick.armId).trim() : '';
     if (fromAuto) return fromAuto;
     return explicitRoutingArmId;
   })();
+
+  if (!routingArmIdForRun && fallbackModelKeys[0] && workspaceId) {
+    const armFromFirstModel = await resolveRoutingArmByModelKey(env, {
+      modelKey: fallbackModelKeys[0],
+      taskType: resolvedRoutingTaskType,
+      mode: requestedMode,
+      workspaceId: String(workspaceId).trim(),
+    });
+    routingArmIdForRun = armFromFirstModel?.armId ?? null;
+  }
 
   console.log(
     '[agent] routing_model',
@@ -6489,9 +6555,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       'Do not ask them to switch chat mode or pick an image model manually.';
   }
 
+  const quickstartBatch =
+    body?.quickstart_batch != null && String(body.quickstart_batch).trim() !== ''
+      ? String(body.quickstart_batch).trim()
+      : body?.quickstartBatch != null && String(body.quickstartBatch).trim() !== ''
+        ? String(body.quickstartBatch).trim()
+        : '';
+  const applyEtoAfterRun =
+    body?.apply_eto_after_run === true ||
+    body?.apply_eto_after_run === 1 ||
+    String(body?.apply_eto_after_run || '').toLowerCase() === 'true' ||
+    body?.applyEtoAfterRun === true ||
+    String(body?.applyEtoAfterRun || '').toLowerCase() === 'true';
+
   /** Stable id for D1 `agentsam_agent_run` + SSE `context.agent_run_id` (POST /api/agent/chat). */
   const chatAgentRunId =
-    env.DB && userId && resolvedWorkspaceId ? newChatAgentRunId() : null;
+    env.DB && userId && resolvedWorkspaceId
+      ? newChatAgentRunId(quickstartBatch ? { label: quickstartBatch } : {})
+      : null;
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -6602,9 +6683,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         routingArmId: routingArmIdForRun,
         modelKey: fallbackModelKeys[0] || null,
         selectedModel: fallbackModelKeys[0] || null,
-        taskType: intentResult?.taskType ?? null,
+        taskType: resolvedRoutingTaskType ?? intentResult?.taskType ?? null,
         mode: requestedMode,
         intent: intentSlug,
+        trigger: quickstartBatch || 'chat_sse',
         requestedModel: rawRequestedKey || rawRequestedId || null,
         resolvedRequestedModel: explicitRow?.model_key ?? null,
         provider: chainRows[0]?.provider != null ? String(chainRows[0].provider) : null,
@@ -6696,14 +6778,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
       const tried = [];
       const startIdx = (confidence < escalationThreshold && fallbackModelKeys.length > 1) ? 1 : 0;
-      const maxProviderAttempts = explicitModelFromRequest
-        ? 1
-        : Math.min(3, chainRows.length || 0);
+      const maxProviderAttempts = explicitModelFromRequest ? 1 : 3;
       let providerAttempts = 0;
       let succeeded = false;
       let explicitProviderFailure = false;
       let lastLoopStats = null;
       let lastAssistantStreamText = '';
+      let lastSucceededArmId = routingArmIdForRun || null;
 
       /** TEMP prompt-size audit (see dispatchStream maybeLogAgentChatPromptAudit); no raw prompt content. */
       const promptAuditContext = {
@@ -6718,18 +6799,50 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           : [],
       };
 
-      for (let i = startIdx; i < chainRows.length && providerAttempts < maxProviderAttempts; i++) {
+      while (providerAttempts < maxProviderAttempts && !succeeded) {
         if (Date.now() - runStartedAt > maxRunMsChat) {
           emit('error', { message: 'Agent run timed out', code: 'agent_run_timeout' });
           safeDoneChat({ tool_calls_used: lastLoopStats?.toolCallsUsed ?? 0, code: 'agent_run_timeout' });
           break;
         }
-        const row = chainRows[i];
+
+        let row = null;
+        if (providerAttempts === 0) {
+          row = chainRows[startIdx] ?? chainRows[0] ?? null;
+        } else if (explicitModelFromRequest) {
+          break;
+        } else {
+          const nextPick = await resolveRoutingArm(env, {
+            taskType: resolvedRoutingTaskType,
+            intentSlug,
+            mode: requestedMode,
+            workspaceId: workspaceId || '',
+            routeKey: routeKeyForRun,
+            userId,
+            tenantId,
+            toolRequired: requireTools,
+            excludeModelKeys: tried,
+          });
+          if (!nextPick?.modelKey) break;
+          row = await resolveAgentsamAiRowByModelKey(env, tenantId, nextPick.modelKey);
+          if (row) {
+            const tiered = await filterWorkspaceModelTierPool(env, workspaceId, [row]);
+            row = tiered[0] ?? null;
+          }
+        }
         const modelKey = row?.model_key;
-        if (!modelKey) continue;
+        if (!modelKey) break;
+        if (tried.includes(modelKey)) continue;
         providerAttempts += 1;
         tried.push(modelKey);
         const attemptStart = Date.now();
+        const attemptArmLookup = await resolveRoutingArmByModelKey(env, {
+          modelKey,
+          taskType: resolvedRoutingTaskType,
+          mode: requestedMode,
+          workspaceId: workspaceId || '',
+        });
+        const attemptArmId = attemptArmLookup?.armId ?? null;
         try {
           let textEmitted = 0;
           let streamAccum = '';
@@ -6773,22 +6886,33 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           }
           succeeded = true;
           lastAssistantStreamText = streamAccum;
-          
-          // Log success to escalation table
-          ctx.waitUntil?.(env.DB.prepare(`
-            INSERT INTO agentsam_escalation 
-            (run_group_id, error_event_id, chain_index, model_attempted, succeeded, latency_ms, input_tokens, output_tokens, workspace_id, tenant_id)
-            VALUES (?, 'none', ?, ?, 1, ?, ?, ?, ?, ?)
-          `).bind(
-            chatAgentRunId,
-            i,
+          lastSucceededArmId = attemptArmId || lastSucceededArmId;
+
+          scheduleEscalationAttempt(env, ctx, {
+            agentRunId: chatAgentRunId,
+            tenantId,
+            workspaceId: workspaceId || '',
+            routingArmId: attemptArmId,
             modelKey,
-            Date.now() - attemptStart,
-            lastLoopStats?.totalUsage?.input_tokens ?? 0,
-            lastLoopStats?.totalUsage?.output_tokens ?? 0,
-            workspaceId,
-            tenantId
-          ).run().catch(e => console.warn('[agent] escalation log success failed:', e.message)));
+            provider: row?.provider ?? null,
+            taskType: resolvedRoutingTaskType,
+            mode: requestedMode,
+            chainIndex: providerAttempts - 1,
+            succeeded: true,
+            latencyMs: Date.now() - attemptStart,
+            inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
+            outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+            qualityScore: Number.isFinite(confidence) ? confidence : null,
+          });
+          if (attemptArmId && Number.isFinite(confidence)) {
+            scheduleRoutingArmQualityUpdate(env, ctx, {
+              taskType: resolvedRoutingTaskType ?? 'chat',
+              mode: requestedMode ?? 'auto',
+              modelKey,
+              workspaceId: workspaceId || '',
+              qualityScore: confidence,
+            });
+          }
 
           console.log(
             '[agent] routing_model',
@@ -6800,20 +6924,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           );
           break;
         } catch (e) {
-          // Log failure to escalation table
-          ctx.waitUntil?.(env.DB.prepare(`
-            INSERT INTO agentsam_escalation 
-            (run_group_id, error_event_id, chain_index, model_attempted, succeeded, latency_ms, error_message, workspace_id, tenant_id)
-            VALUES (?, 'none', ?, ?, 0, ?, ?, ?, ?)
-          `).bind(
-            chatAgentRunId,
-            i,
+          scheduleEscalationAttempt(env, ctx, {
+            agentRunId: chatAgentRunId,
+            tenantId,
+            workspaceId: workspaceId || '',
+            routingArmId: attemptArmId,
             modelKey,
-            Date.now() - attemptStart,
-            String(e?.message || '').slice(0, 500),
-            workspaceId,
-            tenantId
-          ).run().catch(e2 => console.warn('[agent] escalation log fail failed:', e2.message)));
+            provider: row?.provider ?? null,
+            taskType: resolvedRoutingTaskType,
+            mode: requestedMode,
+            chainIndex: providerAttempts - 1,
+            succeeded: false,
+            latencyMs: Date.now() - attemptStart,
+            errorMessage: String(e?.message || '').slice(0, 500),
+          });
 
           if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) {
             console.warn('[agent] ollama skipped; trying next model');
@@ -6833,83 +6957,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               model_key: row?.model_key,
               error: e?.detail ?? e?.message,
             });
-            if (!explicitModelFromRequest) {
-              try {
-                const more = await loadToolFallbackChain(env, {
-                  tenantId,
-                  excludeModelKeys: tried,
-                  limit: 3,
-                });
-                const moreFiltered = await filterWorkspaceModelTierPool(env, workspaceId, more);
-                for (let j = moreFiltered.length - 1; j >= 0; j--) {
-                  chainRows.splice(i + 1, 0, moreFiltered[j]);
-                }
-              } catch (_) {
-                /* extra fallbacks are optional */
-              }
-            }
-          }
-        }
-      }
-
-      if (!succeeded) {
-        let finalKey = '';
-        if (modeConfig?.escalation_model) {
-          const escRow = await resolveAiModelRowById(env, modeConfig.escalation_model, tenantId);
-          if (escRow?.model_key) finalKey = escRow.model_key;
-        }
-        if (!finalKey && modeConfig?.gate_model) {
-          const gateRow = await resolveAiModelRowById(env, modeConfig.gate_model, tenantId);
-          if (gateRow?.model_key) finalKey = gateRow.model_key;
-        }
-        const alreadyTried = new Set(tried);
-        if (!explicitModelFromRequest && finalKey && !alreadyTried.has(finalKey)) {
-          tried.push(finalKey);
-          console.log('[agent] routing_model', JSON.stringify({ final_fallback: finalKey }));
-          try {
-            let textEmitted = 0;
-            let streamAccum = '';
-            const emitWrapped = (type, payload) => {
-              if (type === 'text' && payload?.text) {
-                const piece = String(payload.text);
-                textEmitted += piece.length;
-                streamAccum += piece;
-              }
-              emit(type, payload);
-            };
-            lastLoopStats = await withTimeout(
-              runAgentToolLoop(env, ctx, emitWrapped, {
-                request,
-                messages: chatMessages,
-                tools, systemPrompt, modelKey: finalKey,
-                temperature:  modeConfig.temperature || 0.7,
-                maxToolCalls: effectiveMaxTools,
-                mode: requestedMode, modeConfig, userPolicy,
-                sessionId, tenantId, userId,
-                workspaceId,
-                routingTaskType: resolvedRoutingTaskType,
-                qualityScore: confidence,
-                mcpRuntimeContext,
-                routingArmId: routingArmIdForRun,
-                thompsonModelKey: thompsonRow?.model_key ?? null,
-                doneGuard,
-                runStartedAt,
-                maxRuntimeMs: maxRunMsChat,
-                promptAuditContext,
-                chatAgentRunId,
-                chatRouteKey:
-                  promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
-                    ? String(promptRouteRow.route_key).trim()
-                    : null,
-              }),
-              maxRunMsChat + 5000
-            );
-            if (textEmitted > 0) {
-              succeeded = true;
-              lastAssistantStreamText = streamAccum;
-            }
-          } catch (e) {
-            console.warn('[agent] final fallback failed:', { model_key: finalKey, error: e?.message });
           }
         }
       }
@@ -6929,12 +6976,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           ...(succeeded ? {} : { stream_failed: true, provider_error: !!explicitProviderFailure }),
         });
       }
-      if (routingArmIdForRun) {
-        await recordArmOutcome(env, ctx, routingArmIdForRun, succeeded, {
+      const outcomeArmId =
+        lastSucceededArmId ||
+        (lastLoopStats?.modelKey
+          ? (await resolveRoutingArmByModelKey(env, {
+              modelKey: lastLoopStats.modelKey,
+              taskType: resolvedRoutingTaskType ?? 'chat',
+              mode: requestedMode ?? 'auto',
+              workspaceId: workspaceId ?? resolvedWorkspaceId ?? '',
+            }))?.armId
+          : null) ||
+        routingArmIdForRun;
+
+      if (outcomeArmId) {
+        await recordArmOutcome(env, ctx, outcomeArmId, succeeded, {
           taskType: resolvedRoutingTaskType ?? 'chat',
           mode: requestedMode ?? 'auto',
-          modelKey: modelKey ?? lastLoopStats?.modelKey ?? fallbackModelKeys[0],
-          workspaceId: workspaceId ?? resolvedWorkspaceId
+          modelKey: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? fallbackModelKeys[0],
+          workspaceId: workspaceId ?? resolvedWorkspaceId,
         });
         // Write usage event for rollup + billing
         if (ctx?.waitUntil) {
@@ -6944,10 +7003,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               tenant_id: tenantId ?? null,
               user_id: userId,
               session_id: conversationId ?? null,
-              model: modelKey ?? null,
-              model_key: modelKey ?? null,
+              model: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
+              model_key: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
               provider: routingPick?.provider ?? chainRows[0]?.provider ?? null,
-              routing_arm_id: routingArmIdForRun,
+              routing_arm_id: outcomeArmId,
               plan_id: body?.planId ?? body?.plan_id ?? null,
               event_type: 'agent_run_complete',
               reason: resolvedRoutingTaskType ?? 'chat',
@@ -6964,8 +7023,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               tenant_id: tenantId ?? null,
               workspace_id: workspaceId,
               run_id: chatAgentRunId ?? null,
-              model_key: modelKey ?? null,
-              arm_id: routingArmIdForRun,
+              model_key: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
+              arm_id: outcomeArmId,
               succeeded,
               task_type: resolvedRoutingTaskType ?? 'chat',
               mode: requestedMode ?? 'auto',
@@ -6988,16 +7047,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         });
       }
 
-      const usageRoutingArmId = (() => {
-        if (!routingArmIdForRun) return null;
-        const ranKey = String(lastLoopStats?.modelKey || fallbackModelKeys[0] || '').trim();
-        if (!ranKey) return null;
-        if (explicitRow?.model_key && String(explicitRow.model_key) !== ranKey) return null;
-        if (isAutoModel && thompsonRow?.model_key && String(thompsonRow.model_key) !== ranKey) {
-          return null;
-        }
-        return routingArmIdForRun;
-      })();
+      const usageRoutingArmId = outcomeArmId || null;
 
       scheduleAgentsamCommandRunInsert(env, ctx, {
         tenantId,
@@ -7040,18 +7090,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           tenantId,
           workspaceId: resolvedWorkspaceId,
           conversationId: sessionId ? String(sessionId) : null,
-          routingArmId: routingArmIdForRun,
-          modelKey: lastLoopStats?.modelKey || fallbackModelKeys[0] || null,
+          routingArmId: outcomeArmId ?? routingArmIdForRun,
+          modelKey: lastLoopStats?.modelKey || tried[tried.length - 1] || fallbackModelKeys[0] || null,
           taskType: resolvedRoutingTaskType,
+          mode: requestedMode,
+          routeKey: routeKeyForRun,
           success: succeeded,
           inputTokens: lastLoopStats?.totalUsage?.input_tokens ?? 0,
-          output_tokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
+          outputTokens: lastLoopStats?.totalUsage?.output_tokens ?? 0,
           costUsd: 0,
           durationMs: Date.now() - chatT0,
           errorMessage: succeeded ? null : 'all_providers_exhausted',
           workflowRunId: lastLoopStats?.workflowRunId ?? null,
           chainRootId: lastLoopStats?.chainRootId ?? null,
           timedOut: lastLoopStats?.timedOut === true,
+          fallbackUsed: tried.length > 1,
+          fallbackReason: tried.length > 1 ? `models_tried:${tried.join(',')}` : null,
+          modelsTried: tried,
+          quickstartBatch: quickstartBatch || null,
         });
 
         // Wire agentsam_executions finalization
@@ -7084,30 +7140,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         costUsd: 0,
         streamFailed: !succeeded,
         refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
-        routingArmId: usageRoutingArmId,
+          routingArmId: outcomeArmId ?? usageRoutingArmId,
       });
 
-      // Cost/latency Thompson feedback (applyRoutingArmUsageFeedback). Anthropic tool-loop applies
-      // its own feedback on success; this path covers OpenAI, Google, Workers AI, Ollama, etc.
-      if (usageRoutingArmId) {
-        const _armProvider = providerForModelKey(lastLoopStats?.modelKey);
-        if (_armProvider !== 'anthropic') {
-          ctx.waitUntil?.(
-            applyRoutingArmUsageFeedback(env, {
-              armId: usageRoutingArmId,
-              success: succeeded,
-              costUsd: 0,
-              durationMs: Date.now() - chatT0,
-            }).catch(() => {}),
-          );
-        }
-      }
+      // Thompson reward: agentsam_performance_eto_events via scheduleAgentsamChatAgentRunInsert.
+      // applyRoutingArmUsageFeedback is a no-op when the ETO table exists (see performance-eto.js).
       if (tenantId) {
         scheduleInsertAgentCost(env, ctx, {
           workspaceId,
           tenantId,
           sessionId: sessionId ? String(sessionId) : null,
-          routingArmId: routingArmIdForRun,
+          routingArmId: outcomeArmId ?? routingArmIdForRun,
           modelUsed: lastLoopStats?.modelKey || fallbackModelKeys[0] || 'unknown',
           tokensIn: lastLoopStats?.totalUsage?.input_tokens ?? 0,
           tokensOut: lastLoopStats?.totalUsage?.output_tokens ?? 0,
@@ -7117,6 +7160,27 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           isStreaming: true,
           errorType: succeeded ? null : 'all_providers_exhausted',
         });
+      }
+
+      if (applyEtoAfterRun && env?.DB) {
+        ctx.waitUntil(
+          (async () => {
+            try {
+              const applied = await applyEtoToRoutingArms(env, {});
+              console.log(
+                '[agent] applyEtoToRoutingArms_after_chat',
+                JSON.stringify({
+                  quickstart_batch: quickstartBatch || null,
+                  agent_run_id: chatAgentRunId,
+                  routing_arm_id: outcomeArmId,
+                  ...applied,
+                }),
+              );
+            } catch (e) {
+              console.warn('[agent] applyEtoToRoutingArms_after_chat', e?.message ?? e);
+            }
+          })(),
+        );
       }
 
       if (tenantId && resolvedWorkspaceId) {
@@ -7195,6 +7259,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           routingArmId: routingArmIdForRun,
           modelKey: fallbackModelKeys[0] || null,
           taskType: resolvedRoutingTaskType,
+          mode: requestedMode,
+          routeKey: routeKeyForRun,
           success: false,
           inputTokens: 0,
           outputTokens: 0,
@@ -7514,6 +7580,18 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!identity.workspaceId) {
       return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
     }
+  }
+
+  // GET /api/agent/quickstart/templates — platform-global subagent gallery (D1-driven)
+  if (path === '/api/agent/quickstart/templates' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const { templates, source } = await listPlatformQuickstartTemplates(env);
+    return jsonResponse({
+      ok: true,
+      source,
+      count: templates.length,
+      templates,
+    });
   }
 
   if (path === '/api/agent/subagent-profiles' && method === 'GET') {
@@ -9631,6 +9709,20 @@ export async function handleAgentApi(request, url, env, ctx) {
       });
 
       return jsonResponse({ success: false, tool_name: toolName, error: errMsg }, 200);
+    }
+  }
+
+  // ── POST /api/agent/routing/apply-eto — flush pending ETO → Thompson arms (test batches) ──
+  if (path === '/api/agent/routing/apply-eto' && method === 'POST') {
+    if (!identity?.userId) return jsonResponse({ error: 'unauthenticated' }, 401);
+    if (!env?.DB) return jsonResponse({ error: 'D1 unavailable' }, 503);
+    const owner = await isEtoThompsonOwner(env);
+    if (!owner) return jsonResponse({ error: 'eto_table_missing' }, 503);
+    try {
+      const applied = await applyEtoToRoutingArms(env, {});
+      return jsonResponse({ ok: true, ...applied });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e) }, 500);
     }
   }
 
