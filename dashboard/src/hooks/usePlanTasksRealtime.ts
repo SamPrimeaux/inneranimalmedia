@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { bootstrapSupabaseFromSession, getSupabaseClient } from '../lib/supabase';
 
 export interface PlanTask {
   id: string;
@@ -23,10 +23,11 @@ export function usePlanTasksRealtime(planId: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
-    if (!planId || !supabase) return;
+    const sb = getSupabaseClient() ?? (await bootstrapSupabaseFromSession());
+    if (!planId || !sb) return;
     setLoading(true);
     try {
-      const { data, error: err } = await supabase
+      const { data, error: err } = await sb
         .from('agentsam_plan_tasks')
         .select('*')
         .eq('plan_id', planId)
@@ -41,10 +42,14 @@ export function usePlanTasksRealtime(planId: string | null) {
   }, [planId]);
 
   useEffect(() => {
-    fetchTasks();
-    if (!planId || !supabase) return;
+    let cancelled = false;
+    let removeChannel: (() => void) | null = null;
+    void (async () => {
+      await fetchTasks();
+      const sb = getSupabaseClient() ?? (await bootstrapSupabaseFromSession());
+      if (cancelled || !planId || !sb) return;
 
-    const channel = supabase
+      const channel = sb
       .channel(`plan_tasks:${planId}`)
       .on(
         'postgres_changes',
@@ -77,8 +82,14 @@ export function usePlanTasksRealtime(planId: string | null) {
       )
       .subscribe();
 
+      removeChannel = () => {
+        void sb.removeChannel(channel);
+      };
+    })();
+
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      removeChannel?.();
     };
   }, [planId, fetchTasks]);
 

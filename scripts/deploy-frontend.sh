@@ -59,6 +59,9 @@ fi
 
 echo "→ Clean dashboard/dist, then Vite build + cache bump (required before R2 sync)…"
 rm -rf "$REPO_ROOT/$DIST"
+# Vite client reads VITE_*; map from .env.cloudflare SUPABASE_* when VITE_* unset
+export VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
+export VITE_SUPABASE_ANON_KEY="${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY:-}}"
 BUILD_START_EPOCH=$(date +%s)
 (cd "$REPO_ROOT" && npm run build:vite-only)
 (cd "$REPO_ROOT" && node scripts/bump-cache.js)

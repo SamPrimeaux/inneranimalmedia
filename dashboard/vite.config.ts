@@ -5,10 +5,37 @@ import { visualizer } from 'rollup-plugin-visualizer';
 
 const analyze = process.env.ANALYZE === '1' || process.env.ANALYZE === 'true';
 
+function pickSupabaseEnv(env: Record<string, string>) {
+  const url = (
+    env.VITE_SUPABASE_URL ||
+    env.SUPABASE_URL ||
+    env.NEXT_PUBLIC_SUPABASE_URL ||
+    ''
+  )
+    .trim()
+    .replace(/\/$/, '');
+  const anonKey = (
+    env.VITE_SUPABASE_ANON_KEY ||
+    env.SUPABASE_ANON_KEY ||
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+  return { url, anonKey };
+}
+
 export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
+    const repoRoot = path.resolve(__dirname, '..');
+    const env = {
+      ...loadEnv(mode, repoRoot, ''),
+      ...loadEnv(mode, __dirname, ''),
+    };
+    const { url: supabaseUrl, anonKey: supabaseAnonKey } = pickSupabaseEnv(env);
     return {
       base: '/static/dashboard/app/',
+      define: {
+        'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
+        'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
+      },
       server: {
         port: 3000,
         host: '0.0.0.0',
