@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Excalidraw } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 
 /** Scene elements — deep paths under @excalidraw/excalidraw are not resolved by this project's tsc. */
@@ -17,8 +16,17 @@ function getIamWorkspaceId(): string {
 }
 
 export const ExcalidrawView: React.FC = () => {
+    const [ExcalidrawComp, setExcalidrawComp] = useState<React.ComponentType<Record<string, unknown>> | null>(null);
     const [initialElements, setInitialElements] = useState<readonly ExcalidrawElement[]>([]);
     const [initialDataLoaded, setInitialDataLoaded] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        void import('@excalidraw/excalidraw').then((m) => {
+            if (!cancelled) setExcalidrawComp(() => m.Excalidraw as React.ComponentType<Record<string, unknown>>);
+        });
+        return () => { cancelled = true; };
+    }, []);
     const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
     const isLocalChangeRef = useRef(false);
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -139,7 +147,7 @@ export const ExcalidrawView: React.FC = () => {
     };
 
     // Don't render Excalidraw until initial state fetch resolves (avoids overwriting with empty)
-    if (!initialDataLoaded) return null;
+    if (!initialDataLoaded || !ExcalidrawComp) return null;
 
     return (
         <div
@@ -163,7 +171,7 @@ export const ExcalidrawView: React.FC = () => {
                     position: 'relative',
                 }}
             >
-                <Excalidraw
+                <ExcalidrawComp
                     theme="dark"
                     excalidrawAPI={(api) => { excalidrawApiRef.current = api; }}
                     initialData={{ elements: initialElements }}

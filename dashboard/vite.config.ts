@@ -23,12 +23,13 @@ function pickSupabaseEnv(env: Record<string, string>) {
   return { url, anonKey };
 }
 
-/** Heavy vendors — split for caching; do NOT manual-chunk mermaid/cytoscape/excalidraw (stays in lazy route chunks). */
+/** Heavy vendors — split for caching; excalidraw isolated so lazy routes do not land in subset-shared. */
 function manualChunkForNodeModule(id: string): string | undefined {
   if (!id.includes('node_modules')) return undefined;
 
   if (id.includes('@supabase')) return 'vendor-supabase';
-  if (/node_modules[/\\](@excalidraw[/\\]|mermaid[/\\]|cytoscape)/.test(id)) return undefined;
+  if (/node_modules[/\\]@excalidraw[/\\]/.test(id)) return 'vendor-excalidraw';
+  if (/node_modules[/\\](mermaid[/\\]|cytoscape)/.test(id)) return undefined;
   if (
     /node_modules[/\\]mermaid[/\\].*(?:[/\\]locale|[/\\]locales)[/\\]/i.test(id) ||
     /[/\\]locale[s]?[/\\][a-z]{2}-[A-Z]{2}/.test(id)
@@ -59,7 +60,7 @@ function manualChunkForNodeModule(id: string): string | undefined {
 }
 
 const HEAVY_PRELOAD_RE =
-  /(?:^|[/])(?:vendor-(?:three|wardley|remotion|locales|katex|charts)|subset-shared\.chunk|ExcalidrawView)\.js/;
+  /(?:^|[/])(?:vendor-(?:three|wardley|remotion|locales|katex|charts|excalidraw)|subset-shared\.chunk|ExcalidrawView)\.js/;
 
 export default defineConfig(({ mode }) => {
   const repoRoot = path.resolve(__dirname, '..');
