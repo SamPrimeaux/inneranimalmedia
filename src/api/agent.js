@@ -108,6 +108,10 @@ import {
   recordRoutingArmOutcome,
   isAnthropicSmoketestQuickstartBatch,
 } from '../core/routing.js';
+import {
+  BUILDER_TASK_TYPES,
+  SCOUT_TASK_TYPES,
+} from '../core/model-catalog-capabilities.js';
 import { listAgentsamSlashCommands } from '../core/agentsam-command-catalog.js';
 import { writeUsageEvent } from '../core/usage-event-writer.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
@@ -124,7 +128,7 @@ import {
   resolveAgentCommand,
 } from './command-run-telemetry.js';
 import { resolveCanonicalUserId } from './auth.js';
-import { estimateCostUsdFromCatalog } from '../core/model-catalog-cost.js';
+import { estimateModelRunCostUsd } from '../core/model-pricing.js';
 import {
   classifyWorkspaceCapabilities,
   capabilityRouterPromptBlock,
@@ -1937,6 +1941,7 @@ const AI_MODEL_ROW_SQL = `id, name, provider, model_key, api_platform,
   supports_cache, context_max_tokens, output_max_tokens,
   input_rate_per_mtok, output_rate_per_mtok,
   cache_write_rate_per_mtok, cache_read_rate_per_mtok,
+  cache_write_1h_rate_per_mtok, pricing_extras_json,
   size_class, sort_order, tool_invocation_style,
   thinking_mode, effort, system_prompt,
   features_json, picker_group, is_global,
@@ -2724,7 +2729,13 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
       const tout = Math.floor(Number(outputTokens) || 0);
       let computedCost = Number(costUsd) || 0;
       if (!computedCost && (tin > 0 || tout > 0)) {
-        computedCost = await estimateCostUsdFromCatalog(env.DB, mk, tin, tout);
+        const priced = await estimateModelRunCostUsd(env.DB, {
+          modelKey: mk,
+          provider: resolvedProvider,
+          inputTokens: tin,
+          outputTokens: tout,
+        });
+        computedCost = priced.costUsd;
       }
       let uidEv = userId ?? null;
       if (uidEv) {
@@ -3157,7 +3168,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     chatAgentRunId,
     /** @type {Record<string, unknown>|null|undefined} */
     promptAuditContext: promptAuditContextParam,
+    cacheWriteTtl: cacheWriteTtlParam,
   } = params;
+  const cacheWriteTtlForBilling =
+    cacheWriteTtlParam != null && String(cacheWriteTtlParam).trim() !== ''
+      ? String(cacheWriteTtlParam).trim()
+      : '5m';
   const routingWs = workspaceId != null ? String(workspaceId).trim() : '';
   const loopT0 = Date.now();
   const runStartedAt = runStartedAtParam != null ? Number(runStartedAtParam) : loopT0;
@@ -4330,6 +4346,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             outputTokens: totalUsage.output_tokens,
             cacheReadTokens: totalUsage.cache_read_input_tokens,
             cacheWriteTokens: totalUsage.cache_creation_input_tokens,
+            cacheWriteTtl: cacheWriteTtlForBilling,
             toolCallCount: toolCallsUsed,
             success: true,
             routingArmId: aid,
@@ -6177,6 +6194,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     explicitRow = er;
   }
 
+  let promptRoutePreferredRow = null;
   if (!explicitRow && promptRouteRow?.preferred_model) {
     const pref = String(promptRouteRow.preferred_model).trim();
     if (pref) {
@@ -6186,12 +6204,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         if (requireTools && Number(er.supports_tools) !== 1) {
           er = null;
         }
-        explicitRow = er;
+        promptRoutePreferredRow = er;
       }
     }
   }
-
-  const isAutoModel = !explicitRow;
 
   /** User set `model` / `model_id` in the request (not omitted, not `auto`). */
   const explicitModelFromRequest = Boolean(
@@ -6201,6 +6217,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       (rawRequestedKey && String(rawRequestedKey).trim() !== '') ||
       (rawRequestedId && String(rawRequestedId).trim() !== ''),
   );
+
+  if (!explicitRow && explicitModelFromRequest && promptRoutePreferredRow) {
+    explicitRow = promptRoutePreferredRow;
+  }
+
+  /** Auto routing when the client sent `model: auto` — prompt-route preferred_model is a hint, not a pin. */
+  const isAutoModel = !explicitModelFromRequest;
 
   let resolvedRoutingTaskType = resolveRoutingTaskType({
     intentSlug,
@@ -6320,6 +6343,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   let poolRows = dedupeModelsByKey(
     [
       ...(thompsonRow ? [thompsonRow] : []),
+      ...(isAutoModel && promptRoutePreferredRow && !thompsonRow ? [promptRoutePreferredRow] : []),
       escalationRow,
       ...(explicitArmFallbackRow ? [explicitArmFallbackRow] : []),
       ...(lastResort || []),
@@ -6349,10 +6373,58 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   chainRows = await filterWorkspaceModelTierPool(env, workspaceId, chainRows);
 
   if (isAnthropicSmoketestQuickstartBatch(quickstartBatch)) {
+    const ttAnth = String(resolvedRoutingTaskType || '').trim();
+    if (isAutoModel && SCOUT_TASK_TYPES.has(ttAnth)) {
+      const haikuRow = await resolveAgentsamAiRowByModelKey(
+        env,
+        tenantId,
+        'claude-haiku-4-5-20251001',
+      );
+      if (haikuRow?.model_key) {
+        chainRows = dedupeModelsByKey([haikuRow]);
+      }
+    }
     const anthropicOnly = chainRows.filter((r) =>
       /^anthropic_/i.test(String(r?.model_key || '')),
     );
     if (anthropicOnly.length) chainRows = anthropicOnly;
+    const preferKey = SCOUT_TASK_TYPES.has(ttAnth)
+      ? 'claude-haiku-4-5-20251001'
+      : BUILDER_TASK_TYPES.has(ttAnth)
+        ? 'claude-sonnet-4-6'
+        : '';
+    if (preferKey) {
+      chainRows = [
+        ...chainRows.filter((r) => String(r?.model_key || '') === preferKey),
+        ...chainRows.filter((r) => String(r?.model_key || '') !== preferKey),
+      ];
+    }
+    if (
+      isAutoModel &&
+      SCOUT_TASK_TYPES.has(String(resolvedRoutingTaskType || '').trim()) &&
+      !chainRows.some((r) => String(r?.model_key || '') === 'claude-haiku-4-5-20251001')
+    ) {
+      const forcedPick = await resolveRoutingArm(env, {
+        taskType: resolvedRoutingTaskType,
+        intentSlug,
+        mode: requestedMode,
+        workspaceId: String(workspaceId).trim(),
+        routeKey: routeKeyForRun,
+        userId,
+        tenantId,
+        toolRequired: requireTools,
+      });
+      if (forcedPick?.modelKey) {
+        const forcedRow = await resolveAgentsamAiRowByModelKey(
+          env,
+          tenantId,
+          forcedPick.modelKey,
+        );
+        if (forcedRow?.model_key) {
+          chainRows = dedupeModelsByKey([forcedRow, ...chainRows]);
+        }
+      }
+    }
   }
 
   const fallbackModelKeys = chainRows.map((r) => r.model_key).filter(Boolean);
@@ -6418,6 +6490,20 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       workspaceId: String(workspaceId).trim(),
     });
     routingArmIdForRun = armFromFirstModel?.armId ?? null;
+  }
+
+  if (!routingArmIdForRun && isAnthropicSmoketestQuickstartBatch(quickstartBatch) && workspaceId) {
+    const forcedPick = await resolveRoutingArm(env, {
+      taskType: resolvedRoutingTaskType,
+      intentSlug,
+      mode: requestedMode,
+      workspaceId: String(workspaceId).trim(),
+      routeKey: routeKeyForRun,
+      userId,
+      tenantId,
+      toolRequired: requireTools,
+    });
+    if (forcedPick?.armId) routingArmIdForRun = String(forcedPick.armId).trim();
   }
 
   console.log(
@@ -6582,6 +6668,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     String(body?.apply_eto_after_run || '').toLowerCase() === 'true' ||
     body?.applyEtoAfterRun === true ||
     String(body?.applyEtoAfterRun || '').toLowerCase() === 'true';
+
+  const cacheWriteTtlForChat = (() => {
+    const raw = body?.cacheTtl ?? body?.cache_ttl;
+    const t = raw != null ? String(raw).trim().toLowerCase() : '';
+    return t === '1h' ? '1h' : '5m';
+  })();
 
   /** Stable id for D1 `agentsam_agent_run` + SSE `context.agent_run_id` (POST /api/agent/chat). */
   const chatAgentRunId =
@@ -6897,6 +6989,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                 promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
                   ? String(promptRouteRow.route_key).trim()
                   : null,
+              cacheWriteTtl: cacheWriteTtlForChat,
             }),
             maxRunMsChat + 5000
           );

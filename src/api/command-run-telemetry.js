@@ -5,7 +5,8 @@ import { resolveCanonicalUserId } from './auth.js';
 import { isFeatureEnabled } from '../core/features.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { pragmaTableInfo } from '../core/retention.js';
-import { estimateCostUsdFromCatalog, resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
+import { resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
+import { estimateModelRunCostUsd } from '../core/model-pricing.js';
 
 import { thompsonSample, recordCallOutcome } from '../core/thompson.js';
 import { recordSpan } from '../core/tracer.js';
@@ -578,7 +579,12 @@ export function scheduleAgentsamCommandRunInsert(env, ctx, p) {
       let costUsdIns = Number(p.costUsd);
       if (!Number.isFinite(costUsdIns) || costUsdIns <= 0) {
         if (modelIdForRow && (inTok > 0 || outTok > 0)) {
-          costUsdIns = await estimateCostUsdFromCatalog(env.DB, modelIdForRow, inTok, outTok);
+          const priced = await estimateModelRunCostUsd(env.DB, {
+            modelKey: modelIdForRow,
+            inputTokens: inTok,
+            outputTokens: outTok,
+          });
+          costUsdIns = priced.costUsd;
         } else {
           costUsdIns = 0;
         }

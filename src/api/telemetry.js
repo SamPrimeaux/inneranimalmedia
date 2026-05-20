@@ -6,7 +6,12 @@
 import { resolveTelemetryTenantId } from '../core/auth';
 import { resolveCanonicalUserId } from './auth.js';
 import { pragmaTableInfo } from '../core/retention.js';
-import { estimateCostUsdFromCatalog, resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
+import { computeUsdFromAgentsamAiRates } from '../core/model-catalog-cost.js';
+import {
+  estimateModelRunCostUsd,
+  resolveCanonicalModelKey,
+} from '../core/model-pricing.js';
+import { resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
 
 /**
  * Standardizes provider names for the spend ledger.
@@ -49,35 +54,24 @@ export async function recordWorkerAnalyticsError(env, { path = '', method = 'GET
 /**
  * Compute USD cost based on D1 model rates.
  */
-export function computeUsdFromModelRatesRow(modelKey, ratesRow, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens) {
-  if (!ratesRow) return 0;
-  const unit = (ratesRow.pricing_unit || 'usd_per_mtok').toLowerCase();
-
-  if (unit === 'free' || unit === 'subscription') return 0;
-
-  if (unit === 'neurons_per_mtok') {
-    const inRate = Number(ratesRow.input_rate_per_mtok) || 0;
-    const outRate = Number(ratesRow.output_rate_per_mtok) || 0;
-    const inCost = (Number(inputTokens) || 0) * inRate * 0.000011 / 1_000_000;
-    const outCost = (Number(outputTokens) || 0) * outRate * 0.000011 / 1_000_000;
-    return inCost + outCost;
-  }
-
-  if (['per_image', 'per_second', 'per_character'].includes(unit)) {
-    return (Number(outputTokens) || 0) * (Number(ratesRow.cost_per_unit) || 0);
-  }
-
-  const inR = Number(ratesRow.input_rate_per_mtok) || 0;
-  const outR = Number(ratesRow.output_rate_per_mtok) || 0;
-  const cr = Number(ratesRow.cache_read_rate_per_mtok) || 0;
-  const cw = Number(ratesRow.cache_write_rate_per_mtok) || 0;
-  
-  return (
-    (Number(inputTokens) || 0) * inR +
-    (Number(outputTokens) || 0) * outR +
-    (Number(cacheReadTokens) || 0) * cr +
-    (Number(cacheWriteTokens) || 0) * cw
-  ) / 1_000_000;
+/** @deprecated Prefer {@link computeUsdFromAgentsamAiRates} — kept for callers passing preloaded rate maps. */
+export function computeUsdFromModelRatesRow(
+  modelKey,
+  ratesRow,
+  inputTokens,
+  outputTokens,
+  cacheReadTokens,
+  cacheWriteTokens,
+  cacheWriteTtl = '5m',
+) {
+  void modelKey;
+  return computeUsdFromAgentsamAiRates(ratesRow, {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheWriteTtl,
+  });
 }
 
 /**
@@ -95,6 +89,7 @@ export async function writeTelemetry(env, data, modelRates) {
     outputTokens,
     cacheReadTokens,
     cacheWriteTokens,
+    cacheWriteTtl,
     latencyMs,
     success,
     computedCostUsdOverride,
@@ -115,21 +110,26 @@ export async function writeTelemetry(env, data, modelRates) {
   if (computedCostUsdOverride != null && Number.isFinite(Number(computedCostUsdOverride))) {
     estimatedCost = Number(computedCostUsdOverride);
   } else if (rates) {
-    estimatedCost = computeUsdFromModelRatesRow(
-      rawModel && modelRates?.[rawModel] ? rawModel : catalogModelKey,
-      rates,
+    estimatedCost = computeUsdFromAgentsamAiRates(rates, {
       inputTokens,
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
-    );
+      cacheWriteTtl: cacheWriteTtl ?? '5m',
+    });
   } else if (env?.DB && catalogModelKey) {
-    estimatedCost = await estimateCostUsdFromCatalog(
-      env.DB,
-      catalogModelKey,
+    const priced = await estimateModelRunCostUsd(env.DB, {
+      modelKey: catalogModelKey,
+      provider,
       inputTokens,
       outputTokens,
-    );
+      cacheReadTokens,
+      cacheWriteTokens,
+      cacheWriteTtl: cacheWriteTtl ?? '5m',
+      pricingKind: data.pricingKind ?? 'standard',
+    });
+    estimatedCost = priced.costUsd;
+    catalogModelKey = priced.canonicalModelKey || catalogModelKey;
   }
 
   const telemetryId = `tel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

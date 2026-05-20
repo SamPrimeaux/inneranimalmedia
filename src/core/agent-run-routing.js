@@ -8,7 +8,7 @@ import {
   writeSupabaseRoutingDecision,
 } from '../integrations/supabase.js';
 import { deriveProvider } from './memory.js';
-import { estimateCostUsdFromCatalog } from './model-catalog-cost.js';
+import { estimateModelRunCostUsd } from './model-pricing.js';
 import { scheduleEtoFromAgentRun } from './performance-eto.js';
 import { resolveRoutingArmByModelKey } from './routing.js';
 import { pragmaTableInfo } from './retention.js';
@@ -318,7 +318,13 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
       let costUsd = Number(p.costUsd) || 0;
       const mk = p.modelKey != null ? String(p.modelKey).slice(0, 200) : null;
       if (!costUsd && (tin > 0 || tout > 0) && mk) {
-        costUsd = await estimateCostUsdFromCatalog(env.DB, mk, tin, tout);
+        const priced = await estimateModelRunCostUsd(env.DB, {
+          modelKey: mk,
+          provider: p.provider,
+          inputTokens: tin,
+          outputTokens: tout,
+        });
+        costUsd = priced.costUsd;
       }
 
       if (runId) {
