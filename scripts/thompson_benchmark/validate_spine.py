@@ -226,3 +226,29 @@ def validate_tool_chain_gaps(workspace_id: str, model_key: str) -> Dict[str, Any
         "epm_rows": epm_count,
         "issues": issues,
     }
+
+
+def main() -> int:
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Validate agent_run → usage_events → ETO spine for one run id",
+    )
+    parser.add_argument("run_id", help="agentsam_agent_run.id")
+    parser.add_argument("--workspace-id", default="", help="Optional: tool_chain gap check")
+    parser.add_argument("--model-key", default="", help="Optional: tool_chain gap check")
+    args = parser.parse_args()
+
+    spine = validate_run_spine(args.run_id)
+    out: Dict[str, Any] = {"spine": spine}
+    if args.workspace_id and args.model_key:
+        out["tool_chain_gaps"] = validate_tool_chain_gaps(args.workspace_id, args.model_key)
+
+    print(json.dumps(out, indent=2, default=str))
+    return 0 if spine.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

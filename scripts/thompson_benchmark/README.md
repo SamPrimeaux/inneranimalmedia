@@ -4,7 +4,8 @@
 
 | Script | What it does | Use when |
 |--------|----------------|----------|
-| **`live_runner.py`** | Calls production **`POST /api/agent/chat`** per model. Worker writes **real** `input_tokens`, `output_tokens`, `cost_usd`, ETO, Thompson apply. | **Default for Thompson seed data** |
+| **`../pump_thompson_routes.py`** | **Start here.** Auto or pinned live chats + before/after arm snapshot + apply-eto. | **Pump real Thompson metrics** |
+| **`live_runner.py`** | Full catalog matrix (one chat per bench-ready model). | Train many arms in one batch |
 | **`seed.py` / `run_builder.py`** | Python INSERTs with catalog-sampled latency/cost. | Local schema smoke only — **not** true provider metrics |
 
 ## Deploy before live tests
@@ -33,6 +34,10 @@
 
 ```bash
 cd /Users/samprimeaux/inneranimalmedia
+
+# Fastest path — real Thompson auto-routing (costs $)
+python3 scripts/pump_thompson_routes.py --smoke
+python3 scripts/pump_thompson_routes.py --auto --rounds 5
 
 # 1) Infrastructure audit (no API spend) — ~10s
 python3 scripts/thompson_benchmark/live_runner.py --audit-only

@@ -74,11 +74,39 @@ def fetch_latest_agent_run(user_id: str, model_key: str, since_unix: int) -> Opt
         FROM agentsam_agent_run
         WHERE user_id = ?
           AND (ai_model_ref = ? OR model_id = ?)
-          AND created_at_unix >= ?
-        ORDER BY created_at_unix DESC
+          AND (
+            created_at_unix >= ?
+            OR created_at_unix IS NULL
+          )
+        ORDER BY COALESCE(created_at_unix, 0) DESC, id DESC
         LIMIT 1
         """,
         [user_id, model_key, model_key, since_unix],
+    )
+    return dict(rows[0]) if rows else None
+
+
+def fetch_agent_run_by_id(agent_run_id: str) -> Optional[Dict[str, Any]]:
+    rows = query(
+        """
+        SELECT
+          id,
+          status,
+          routing_arm_id,
+          agent_ai_id,
+          input_tokens,
+          output_tokens,
+          cost_usd,
+          quality_score,
+          task_type,
+          timed_out,
+          sla_breach,
+          created_at_unix
+        FROM agentsam_agent_run
+        WHERE id = ?
+        LIMIT 1
+        """,
+        [agent_run_id],
     )
     return dict(rows[0]) if rows else None
 
@@ -94,19 +122,22 @@ def wait_for_agent_run(
     deadline = time.time() + max_wait_sec
     while time.time() < deadline:
         if agent_run_id:
-            rows = query(
-                "SELECT id, status, routing_arm_id, agent_ai_id, input_tokens, output_tokens, "
-                "cost_usd, quality_score, task_type, timed_out, sla_breach, created_at_unix "
-                "FROM agentsam_agent_run WHERE id = ? LIMIT 1",
-                [agent_run_id],
-            )
-            if rows and rows[0].get("input_tokens") is not None:
-                return dict(rows[0])
+            row = fetch_agent_run_by_id(agent_run_id)
+            if row:
+                tin = int(row.get("input_tokens") or 0)
+                tout = int(row.get("output_tokens") or 0)
+                status = str(row.get("status") or "").lower()
+                if tin > 0 or tout > 0:
+                    return row
+                if status in ("completed", "failed", "running"):
+                    return row
         else:
             row = fetch_latest_agent_run(user_id, model_key, since_unix)
-            if row and (row.get("input_tokens") or 0) > 0:
+            if row and (int(row.get("input_tokens") or 0) > 0 or int(row.get("output_tokens") or 0) > 0):
                 return row
         time.sleep(1.5)
+    if agent_run_id:
+        return fetch_agent_run_by_id(agent_run_id)
     return fetch_latest_agent_run(user_id, model_key, since_unix)
 
 
@@ -200,20 +231,14 @@ def run_live_matrix(
             prompt=LIVE_PROMPT,
         )
 
-        if not chat.get("ok"):
-            entry = {
-                "model_key": mk,
-                "provider": prov,
-                "status": "chat_failed",
-                "error": chat.get("error"),
-                "http_status": chat.get("http_status"),
-                "latency_ms": chat.get("latency_ms"),
-            }
-            live_failures.append(entry)
-            print(f"  [FAIL] chat: {entry['error']}")
-            if not continue_on_error:
-                break
-            continue
+        chat_sse_failed = not chat.get("ok")
+        if chat_sse_failed:
+            hint = ""
+            if chat.get("stream_error") and chat.get("agent_run_id"):
+                hint = " (SSE error after text — checking D1 anyway)"
+            elif chat.get("stream_error"):
+                hint = " (Worker emitted stream error — often post-stream bug; check CF logs: Agent loop failed)"
+            print(f"  [WARN] chat SSE not clean{hint}: {(chat.get('error') or '')[:120]}")
 
         time.sleep(2.0)
         ar = wait_for_agent_run(
@@ -226,8 +251,11 @@ def run_live_matrix(
         if not ar:
             entry = {
                 "model_key": mk,
+                "provider": prov,
                 "status": "no_agent_run_row",
+                "error": chat.get("error") if chat_sse_failed else None,
                 "chat": chat,
+                "agent_run_id_hint": chat.get("agent_run_id"),
             }
             live_failures.append(entry)
             print("  [FAIL] no agentsam_agent_run row after chat")
@@ -236,6 +264,23 @@ def run_live_matrix(
             continue
 
         run_id = ar["id"]
+        tin = int(ar.get("input_tokens") or 0)
+        tout = int(ar.get("output_tokens") or 0)
+        if tin <= 0 and tout <= 0:
+            entry = {
+                "model_key": mk,
+                "provider": prov,
+                "status": "agent_run_no_tokens",
+                "agent_run_id": run_id,
+                "error": chat.get("error") if chat_sse_failed else "row exists but input/output tokens are zero",
+                "chat": chat,
+            }
+            live_failures.append(entry)
+            print(f"  [FAIL] agent_run {run_id} has no token usage")
+            if not continue_on_error:
+                break
+            continue
+
         spine = validate_run_spine(run_id)
         tool_gaps = (
             validate_tool_chain_gaps(workspace_id, mk) if check_tools else {"issues": []}
@@ -272,10 +317,15 @@ def run_live_matrix(
             "tool_chain_gaps": tool_gaps,
         }
 
+        if chat_sse_failed:
+            entry["sse_stream_failed"] = True
+            entry["chat_error"] = chat.get("error")
+
         if spine.get("ok") and eto and eto.get("is_training_eligible") == 1:
             live_results.append(entry)
+            tag = "OK (D1 spine despite SSE error)" if chat_sse_failed else "OK"
             print(
-                f"  [OK] run={run_id} tokens={ar.get('input_tokens')}/{ar.get('output_tokens')} "
+                f"  [{tag}] run={run_id} tokens={ar.get('input_tokens')}/{ar.get('output_tokens')} "
                 f"cost=${float(ar.get('cost_usd') or 0):.6f} "
                 f"reward={float(eto.get('reward_score') or 0):.3f} "
                 f"α+{eto.get('alpha_delta')} β+{eto.get('beta_delta')}"

@@ -179,6 +179,8 @@ def post_chat_live(
     err = None
     if not ok:
         err = (body or raw[-400:])[:800] if body or raw else f"curl_rc={proc.returncode} http={http_status}"
+        if stream_error and body and saw_done:
+            err = f"SSE stream_error after response: {err}"
 
     return {
         "ok": ok,
@@ -186,6 +188,8 @@ def post_chat_live(
         "latency_ms": latency_ms,
         "body": body,
         "error": err,
+        "stream_error": stream_error,
+        "saw_done": saw_done,
         "sse_input_tokens": sse_in,
         "sse_output_tokens": sse_out,
         "sse_cost_usd": sse_cost,
