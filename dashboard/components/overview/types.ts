@@ -67,9 +67,11 @@ export type DashboardBundle = {
   top_services?: Array<{ tool_name: string; total_calls: number; success_rate?: number; avg_duration_ms?: number }>;
   tool_waterfall?: {
     run: {
+      id?: string | null;
       workflow_key?: string | null;
       display_name?: string | null;
       duration_ms?: number | null;
+      status?: string | null;
     } | null;
     steps: Array<{
       node_key: string;
@@ -89,6 +91,7 @@ export type DashboardBundle = {
     error_type: string;
     error_message: string;
     source: string;
+    source_id?: string | null;
     resolved: number;
     created_at: number;
     severity: "high" | "medium" | "low";

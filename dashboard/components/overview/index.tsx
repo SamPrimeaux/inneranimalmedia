@@ -17,6 +17,7 @@ import { WorkflowRunsChart } from "./panels/WorkflowRunsChart";
 import { ToolWaterfall } from "./panels/ToolWaterfall";
 import { ErrorInbox } from "./panels/ErrorInbox";
 import { TokensChart } from "./panels/TokensChart";
+import { SystemPulseGrid } from "./panels/SystemPulseGrid";
 import { ModelLeaderboard } from "./panels/ModelLeaderboard";
 import { CostLatency } from "./panels/CostLatency";
 import { RoutingDecisions } from "./panels/RoutingDecisions";
@@ -171,12 +172,20 @@ export default function OverviewPage() {
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>System Pulse / Execution Analytics</span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.2fr 1.5fr 1.1fr", gap: 10, marginBottom: 10 }}>
-          <WorkflowRunsChart workflowTimeseries={bundle?.workflow_timeseries} stackRows={bundle?.workflow_by_day_status} />
-          <ToolWaterfall toolWaterfall={bundle?.tool_waterfall} />
-          <ErrorInbox errorLog={bundle?.error_log} errorSeverityTimeseries={bundle?.error_severity_timeseries} />
-          <TokensChart tokenTimeseries={bundle?.token_timeseries} />
-        </div>
+        <SystemPulseGrid>
+          <div id="workflow-runs">
+            <WorkflowRunsChart workflowTimeseries={bundle?.workflow_timeseries} stackRows={bundle?.workflow_by_day_status} />
+          </div>
+          <div id="tool-waterfall">
+            <ToolWaterfall toolWaterfall={bundle?.tool_waterfall} />
+          </div>
+          <div id="error-inbox">
+            <ErrorInbox errorLog={bundle?.error_log} errorSeverityTimeseries={bundle?.error_severity_timeseries} />
+          </div>
+          <div id="tokens-chart">
+            <TokensChart tokenTimeseries={bundle?.token_timeseries} />
+          </div>
+        </SystemPulseGrid>
 
         <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
           <ModelLeaderboard perfRows={bundle?.model_leaderboard} />

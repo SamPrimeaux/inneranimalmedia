@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { AnalyticsLayoutResponse } from '../types';
 
 type Props = { layout: AnalyticsLayoutResponse | null };
@@ -45,9 +46,11 @@ function fmtUnix(ts: unknown): string {
 }
 
 export default function AdvisorsTab(_props: Props) {
+  const [searchParams] = useSearchParams();
+  const sourceFromUrl = searchParams.get('source')?.trim() || '';
   const [range, setRange] = useState<Range>('7d');
   const [resolved, setResolved] = useState<ResolvedFilter>('open');
-  const [sourceQ, setSourceQ] = useState('');
+  const [sourceQ, setSourceQ] = useState(sourceFromUrl);
   const [main, setMain] = useState<Record<string, unknown> | null>(null);
   const [gr, setGr] = useState<Record<string, unknown> | null>(null);
   const [errLog, setErrLog] = useState<Record<string, unknown> | null>(null);
@@ -74,6 +77,10 @@ export default function AdvisorsTab(_props: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (sourceFromUrl) setSourceQ(sourceFromUrl);
+  }, [sourceFromUrl]);
 
   const findings = (main?.rows as { severity?: string; title?: string; detail?: string; code?: string }[]) || [];
   const grRows = (gr?.rows as Record<string, unknown>[]) || [];

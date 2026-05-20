@@ -1,21 +1,26 @@
 import { useMemo } from "react";
 import type { DashboardBundle } from "../types";
 import { T, STEP_COLORS, wfStepEpochSec } from "../constants";
-import { Card, CardHeader, Ico } from "../primitives";
+import { PulseCard, CardHeader, NavLink, Ico } from "../primitives";
+import { PulseEmpty } from "./PulseEmpty";
+import { OVERVIEW_LINKS, go } from "../overviewLinks";
+
+function statusLabel(status: string | null | undefined) {
+  const s = String(status || "").toLowerCase();
+  if (s === "failed" || s === "error" || s === "timeout") return { text: "Failed", color: T.red };
+  if (s === "running" || s === "started") return { text: "Running", color: T.amber };
+  if (s === "completed" || s === "success") return { text: "Completed", color: T.green };
+  return { text: status ? String(status) : "—", color: T.muted };
+}
 
 export function ToolWaterfall({ toolWaterfall }: { toolWaterfall?: DashboardBundle["tool_waterfall"] }) {
   const rawSteps = toolWaterfall?.steps;
+  const run = toolWaterfall?.run;
+  const runId = run?.id ? String(run.id) : null;
+  const hasLive = Boolean(rawSteps?.length);
+
   const steps = useMemo(() => {
-    const fallback = [
-      { n: 1, tool: "read_file", dur: "1.21s", bar: 0, len: 10, c: T.accent },
-      { n: 2, tool: "search_docs", dur: "2.18s", bar: 10, len: 18, c: T.blue },
-      { n: 3, tool: "code_interpreter", dur: "3.02s", bar: 28, len: 25, c: T.violet },
-      { n: 4, tool: "vector_search", dur: "1.65s", bar: 53, len: 14, c: T.amber },
-      { n: 5, tool: "write_file", dur: "0.87s", bar: 67, len: 7, c: T.green },
-      { n: 6, tool: "deploy_preview", dur: "1.32s", bar: 74, len: 11, c: T.accent },
-      { n: 7, tool: "smoke_test", dur: "0.94s", bar: 85, len: 8, c: T.blue },
-    ];
-    if (!rawSteps?.length) return fallback;
+    if (!rawSteps?.length) return [];
     const runStart = wfStepEpochSec(rawSteps[0].started_at);
     const last = rawSteps[rawSteps.length - 1];
     const runEnd = wfStepEpochSec(last.completed_at ?? last.started_at);
@@ -44,86 +49,174 @@ export function ToolWaterfall({ toolWaterfall }: { toolWaterfall?: DashboardBund
         bar,
         len,
         c,
+        status: st,
       };
     });
   }, [rawSteps]);
+
   const totalS = useMemo(() => {
-    if (!rawSteps?.length) return 11.19;
+    if (!rawSteps?.length) return 0;
     const ms = rawSteps.reduce((s, r) => s + Math.max(0, Number(r.latency_ms) || 0), 0);
     return ms / 1000;
   }, [rawSteps]);
+
   const errN =
     rawSteps?.filter((r) => {
       const st = String(r.status || "").toLowerCase();
       return st.includes("error") || st === "failed" || st === "timeout";
     }).length ?? 0;
-  const runTitle = toolWaterfall?.run?.display_name ? String(toolWaterfall.run.display_name).slice(0, 120) : null;
+
+  const runTitle = run?.display_name ? String(run.display_name).slice(0, 120) : null;
+  const runHref = runId ? OVERVIEW_LINKS.workflowRun(runId) : OVERVIEW_LINKS.workflowRuns;
+  const badge = statusLabel(run?.status);
+
   return (
-    <Card>
+    <PulseCard>
       <CardHeader
         icon={Ico.zap}
         title="Tool Call Waterfall"
         action={
-          <span
-            style={{
-              fontSize: 10,
-              color: T.green,
-              background: "color-mix(in srgb, var(--color-success-strong, var(--solar-green)) 14%, transparent)",
-              padding: "2px 8px",
-              borderRadius: 20,
-            }}
-          >
-            Success
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {hasLive ? (
+              <span
+                style={{
+                  fontSize: 10,
+                  color: badge.color,
+                  background: `color-mix(in srgb, ${badge.color} 14%, transparent)`,
+                  padding: "2px 8px",
+                  borderRadius: 20,
+                }}
+              >
+                {badge.text}
+              </span>
+            ) : null}
+            <NavLink href={runHref} label={runId ? "Open run" : "Agent runs"} />
           </span>
         }
       />
-      {runTitle ? (
-        <div style={{ fontSize: 10, fontWeight: 600, color: T.text, marginTop: -8, marginBottom: 10, lineHeight: 1.35 }}>{runTitle}</div>
-      ) : null}
-      <div
-        style={{
-          fontSize: 9,
-          display: "grid",
-          gridTemplateColumns: "14px 88px 36px 1fr",
-          gap: "0 8px",
-          color: T.muted,
-          paddingBottom: 6,
-          borderBottom: `1px solid ${T.border}`,
-          marginBottom: 8,
-        }}
-      >
-        <span>#</span>
-        <span>Node</span>
-        <span>Dur</span>
-        <span>Timeline</span>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {steps.map((s) => (
-          <div key={s.n} style={{ display: "grid", gridTemplateColumns: "14px 88px 36px 1fr", gap: "0 8px", alignItems: "center" }}>
-            <span style={{ fontSize: 9, color: T.muted }}>{s.n}</span>
-            <span style={{ fontSize: 9, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.tool}</span>
-            <span style={{ fontSize: 9, color: T.muted }}>{s.dur}</span>
-            <div style={{ height: 12, background: T.track, borderRadius: 3, position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", top: 0, bottom: 0, left: `${s.bar}%`, width: `${s.len}%`, background: s.c, borderRadius: 3, opacity: 0.85 }} />
+      <div className="ov-pulse-body">
+        {!hasLive ? (
+          <PulseEmpty
+            message="No execution steps yet. Complete a workflow run in this workspace to see the waterfall."
+            href={OVERVIEW_LINKS.workflowRuns}
+            linkLabel="View agent runs"
+          />
+        ) : (
+          <>
+            {runTitle ? (
+              <button
+                type="button"
+                onClick={() => go(runHref)}
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: T.text,
+                  marginTop: -8,
+                  marginBottom: 10,
+                  lineHeight: 1.35,
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontFamily: T.font,
+                  width: "100%",
+                }}
+              >
+                {runTitle}
+              </button>
+            ) : null}
+            <div
+              style={{
+                fontSize: 9,
+                display: "grid",
+                gridTemplateColumns: "14px minmax(0, 1fr) 36px 1fr",
+                gap: "0 8px",
+                color: T.muted,
+                paddingBottom: 6,
+                borderBottom: `1px solid ${T.border}`,
+                marginBottom: 8,
+              }}
+            >
+              <span>#</span>
+              <span>Node</span>
+              <span>Dur</span>
+              <span>Timeline</span>
             </div>
-          </div>
-        ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {steps.map((s) => (
+                <button
+                  key={s.n}
+                  type="button"
+                  onClick={() => go(runHref)}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "14px minmax(0, 1fr) 36px 1fr",
+                    gap: "0 8px",
+                    alignItems: "center",
+                    background: "none",
+                    border: "none",
+                    padding: "2px 0",
+                    cursor: "pointer",
+                    fontFamily: T.font,
+                    textAlign: "left",
+                    width: "100%",
+                  }}
+                >
+                  <span style={{ fontSize: 9, color: T.muted }}>{s.n}</span>
+                  <span style={{ fontSize: 9, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {s.tool}
+                  </span>
+                  <span style={{ fontSize: 9, color: T.muted }}>{s.dur}</span>
+                  <div style={{ height: 12, background: T.track, borderRadius: 3, position: "relative", overflow: "hidden" }}>
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        bottom: 0,
+                        left: `${s.bar}%`,
+                        width: `${s.len}%`,
+                        background: s.c,
+                        borderRadius: 3,
+                        opacity: 0.85,
+                      }}
+                    />
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: 10,
+                paddingTop: 8,
+                borderTop: `1px solid ${T.border}`,
+                fontSize: 9,
+                color: T.muted,
+              }}
+            >
+              <span>Total: {totalS.toFixed(2)}s</span>
+              <span>{steps.length} steps</span>
+              <button
+                type="button"
+                onClick={() => go(runHref)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: errN > 0 ? T.red : T.muted,
+                  cursor: "pointer",
+                  fontFamily: T.font,
+                  fontSize: 9,
+                }}
+              >
+                {errN} errors
+              </button>
+            </div>
+          </>
+        )}
       </div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          marginTop: 10,
-          paddingTop: 8,
-          borderTop: `1px solid ${T.border}`,
-          fontSize: 9,
-          color: T.muted,
-        }}
-      >
-        <span>Total: {totalS.toFixed(2)}s</span>
-        <span>{steps.length} steps</span>
-        <span>{errN} errors</span>
-      </div>
-    </Card>
+    </PulseCard>
   );
 }

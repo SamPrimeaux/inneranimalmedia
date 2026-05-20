@@ -29,6 +29,49 @@ export function Pill({ label }: { label: string }) {
   );
 }
 
+export function NavLink({
+  href,
+  label,
+  onClick,
+}: {
+  href: string;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        if (onClick) onClick();
+      }}
+      style={{
+        fontSize: 10,
+        color: T.accent,
+        textDecoration: "none",
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </a>
+  );
+}
+
+/** Flex column card shell for System Pulse panels (scrollable body). */
+export function PulseCard({
+  children,
+  style = {},
+}: {
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  return (
+    <Card style={{ display: "flex", flexDirection: "column", padding: 14, ...style }}>
+      {children}
+    </Card>
+  );
+}
+
 export function Skel({ w = "100%", h = 16, r = 4 }: { w?: string | number; h?: number; r?: number }) {
   return <div style={{ width: w, height: h, borderRadius: r, background: T.track, animation: "ovpulse 1.6s ease-in-out infinite" }} />;
 }

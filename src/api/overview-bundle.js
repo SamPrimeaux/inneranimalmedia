@@ -277,7 +277,7 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
   if (workspaceId) {
     const latestRun = await first(
       db,
-      `SELECT id, started_at, completed_at, duration_ms, workflow_key, display_name
+      `SELECT id, started_at, completed_at, duration_ms, workflow_key, display_name, status
        FROM agentsam_workflow_runs
        WHERE tenant_id = ? AND workspace_id = ?
          AND status IN ('completed','failed')
@@ -319,9 +319,11 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
         if (byWrun.length) steps = byWrun;
       }
       toolWaterfall.run = {
+        id: runId,
         workflow_key: latestRun.workflow_key ?? null,
         display_name: latestRun.display_name ?? null,
         duration_ms: latestRun.duration_ms != null ? Number(latestRun.duration_ms) : null,
+        status: latestRun.status != null ? String(latestRun.status) : null,
       };
       toolWaterfall.steps = steps;
     }
@@ -367,6 +369,7 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
       error_type: r.error_type,
       error_message: r.error_message,
       source: r.source,
+      source_id: r.source_id != null ? String(r.source_id) : null,
       resolved: r.resolved,
       created_at: r.created_at,
       severity: mapErrorLogSeverity(r.error_type),

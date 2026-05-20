@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { AnalyticsLayoutResponse } from '../types';
 import { AgentChatPlanTracePanel } from '../panels/AgentChatPlanTracePanel';
 
@@ -50,10 +51,12 @@ function fmtTs(v: unknown): string {
 }
 
 export default function AgentTab(_props: Props) {
+  const [searchParams] = useSearchParams();
+  const runIdFromUrl = searchParams.get('run_id')?.trim() || null;
   const [range, setRange] = useState<Range>('7d');
   const [runs, setRuns] = useState<Record<string, unknown>[] | null>(null);
   const [runSummary, setRunSummary] = useState<Record<string, unknown> | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(runIdFromUrl);
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [graph, setGraph] = useState<Record<string, unknown> | null>(null);
   const [deps, setDeps] = useState<Record<string, unknown> | null>(null);
@@ -76,10 +79,15 @@ export default function AgentTab(_props: Props) {
     setRuns(nextRows);
     setRunSummary(j.summary || {});
     setSelectedRunId((prev) => {
+      if (runIdFromUrl && nextRows.some((r) => String(r.id) === runIdFromUrl)) return runIdFromUrl;
       if (prev && nextRows.some((r) => String(r.id) === prev)) return prev;
       return nextRows[0]?.id ? String(nextRows[0].id) : null;
     });
-  }, [range]);
+  }, [range, runIdFromUrl]);
+
+  useEffect(() => {
+    if (runIdFromUrl) setSelectedRunId(runIdFromUrl);
+  }, [runIdFromUrl]);
 
   useEffect(() => {
     void loadList();
