@@ -6783,6 +6783,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   ;(async () => {
     const chatT0 = Date.now();
+    // Lightweight DB lookups — single queries, never block stream.
+    // resolveModelForTask() full enrichment runs post-stream via ctx.waitUntil.
+    let _timeoutMs = null;
+    let _modelCatalogId = null;
+    try {
+      const _aiRow = await env.DB?.prepare(
+        `SELECT ai.default_timeout_ms, mc.id AS catalog_id
+         FROM agentsam_ai ai
+         LEFT JOIN agentsam_model_catalog mc
+           ON mc.model_key = ai.model_key AND mc.is_active = 1
+         WHERE ai.model_key = ? AND ai.status = 'active'
+         LIMIT 1`,
+      ).bind(fallbackModelKeys[0] || '').first();
+      if (_aiRow?.default_timeout_ms) _timeoutMs = Number(_aiRow.default_timeout_ms);
+      if (_aiRow?.catalog_id) _modelCatalogId = String(_aiRow.catalog_id);
+    } catch (_) {}
     if (chatAgentRunId && userId && resolvedWorkspaceId) {
       scheduleAgentsamChatAgentRunStart(env, ctx, {
         runId: chatAgentRunId,
@@ -6812,7 +6828,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         taskId: body.taskId ?? body.task_id ?? null,
         agentId: body.agentId != null ? String(body.agentId).trim() : null,
         agentAiId: explicitRow?.id ?? chainRows[0]?.id ?? null,
-        modelCatalogId: resolvedModel?.model_catalog_id ?? null,
+        modelCatalogId: _modelCatalogId,
         personUuid,
         commandId:
           body._resolved_command_id != null ? String(body._resolved_command_id).trim() : null,
@@ -6826,17 +6842,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       `).bind(chatAgentRunId, resolvedWorkspaceId, tenantId, userId, routingArmIdForRun, body?.planId ?? body?.plan_id ?? null).run().catch(() => {}));
     }
     const runStartedAt = chatT0;
-    // DB-driven timeout via agentsam_ai.default_timeout_ms — never hardcoded
-    // Timeout from agentsam_ai.default_timeout_ms — single lightweight query, never blocks stream.
-    // resolveModelForTask() runs post-stream via ctx.waitUntil (Thompson cron handles arm updates).
-    let _timeoutMs = null;
-    try {
-      const _aiRow = await env.DB?.prepare(
-        `SELECT default_timeout_ms FROM agentsam_ai
-         WHERE model_key = ? AND status = 'active' LIMIT 1`,
-      ).bind(fallbackModelKeys[0] || '').first();
-      if (_aiRow?.default_timeout_ms) _timeoutMs = Number(_aiRow.default_timeout_ms);
-    } catch (_) {}
     const maxRunMsChat =
       _timeoutMs ||
       Number(modeConfig?.max_runtime_ms) ||
@@ -7275,9 +7280,32 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           modelsTried: tried,
           quickstartBatch: quickstartBatch || null,
           agentAiId: explicitRow?.id ?? chainRows[0]?.id ?? null,
-          modelCatalogId: resolvedModel?.model_catalog_id ?? null,
+          modelCatalogId: _modelCatalogId,
           qualityScore,
         });
+
+        // Post-stream: resolveModelForTask enrichment + ETO arm update via ctx.waitUntil
+        // This is the correct home — never on the critical path.
+        if (ctx?.waitUntil && chatAgentRunId && resolvedWorkspaceId) {
+          ctx.waitUntil(
+            resolveModelForTask(env, {
+              task_type:           resolvedRoutingTaskType ?? 'chat',
+              mode:                requestedMode ?? 'auto',
+              requested_model_key: finalModelKey || rawRequestedKey || null,
+              routing_arm_id:      (outcomeArmId ?? routingArmIdForRun) || null,
+              workspace_id:        resolvedWorkspaceId,
+              tenant_id:           tenantId,
+              require_tools:       requireTools,
+            }).then(async (rm) => {
+              if (!rm?.model_catalog_id) return;
+              await env.DB?.prepare(
+                `UPDATE agentsam_agent_run
+                 SET model_catalog_id = ?, model_key = ?
+                 WHERE id = ? AND model_catalog_id IS NULL`,
+              ).bind(rm.model_catalog_id, rm.model_key, chatAgentRunId).run();
+            }).catch(() => {}),
+          );
+        }
 
         // Wire agentsam_executions finalization
         ctx.waitUntil?.(env.DB.prepare(`

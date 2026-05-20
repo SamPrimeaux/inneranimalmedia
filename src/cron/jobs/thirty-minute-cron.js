@@ -10,6 +10,7 @@ import {
   syncRoutingArmPauseFromDrift,
   runRoutingAnalyticsRollups,
 } from '../../core/routing-cron.js';
+import { applyEtoToRoutingArms } from '../../core/performance-eto.js';
 import { scanErrorLogThresholds } from '../../core/error-log-escalation.js';
 
 const CRON_30 = '*/30 * * * *';
@@ -180,4 +181,5 @@ export async function runHourlyRoutingJobs(env, ctx) {
   ctx.waitUntil(syncRoutingArmPauseFromDrift(env).catch(e => console.warn('[cron/hourly] syncPause', e?.message)));
   ctx.waitUntil(runRoutingAnalyticsRollups(env).catch(e => console.warn('[cron/hourly] analyticsRollup', e?.message)));
   ctx.waitUntil(scanErrorLogThresholds(env).catch(e => console.warn('[cron/hourly] errorLogThresholds', e?.message)));
+  ctx.waitUntil(applyEtoToRoutingArms(env, {}).catch(e => console.warn('[cron/hourly] applyEtoToRoutingArms', e?.message)));
 }
