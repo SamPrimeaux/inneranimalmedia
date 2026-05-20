@@ -32,7 +32,6 @@ import { MonacoEditorView, type EditorModelMeta } from './components/MonacoEdito
 import { LocalExplorer } from './components/LocalExplorer';
 import { BrowserView } from './components/BrowserView';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
-import { ExcalidrawView } from './components/ExcalidrawView';
 import { DatabaseBrowser, type DatabaseExplorerJump } from './components/DatabaseBrowser';
 import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/UnifiedSearchBar';
 import { GitHubActionsPanel } from './components/GitHubActionsPanel';
@@ -75,7 +74,7 @@ import { AuthResetPage } from './components/auth/AuthResetPage';
 import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, LayoutTemplate, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library } from 'lucide-react';
-import ProjectManagement from "./pages/projects/ProjectManagement";
+const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
 const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
@@ -99,6 +98,9 @@ const WorkflowsPage = lazy(() => import('./pages/workflows/WorkflowsPage'));
 const WorkflowCanvas = lazy(() => import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
 const MovieModeStudio = lazy(() =>
   import('./features/moviemode/MovieModeStudio').then((m) => ({ default: m.MovieModeStudio })),
+);
+const ExcalidrawView = lazy(() =>
+  import('./components/ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
 );
 
 function DashboardRoutesFallback() {
@@ -3156,7 +3158,15 @@ const App: React.FC = () => {
 
                   {activeTab === 'excalidraw' && (
                       <div className="absolute inset-0 z-10 flex flex-col">
-                          <ExcalidrawView />
+                          <Suspense
+                            fallback={
+                              <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
+                                Loading canvas…
+                              </div>
+                            }
+                          >
+                            <ExcalidrawView />
+                          </Suspense>
                       </div>
                   )}
                   {activeTab === 'moviemode' && (

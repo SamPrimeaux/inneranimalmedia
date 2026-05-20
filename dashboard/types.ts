@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import * as THREE from 'three';
-
 export enum ProjectType {
   CHESS = 'MEAAUX_GAMES',
   CAD = 'MEAUX_CAD',

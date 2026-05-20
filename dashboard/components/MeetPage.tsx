@@ -4,7 +4,7 @@
  * Fully theme-variable-driven. No hardcoded colors.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   Mic, MicOff, Camera, CameraOff, MonitorUp, ScreenShareOff,
   PhoneOff, MessageSquare, Users, Sparkles, Copy, Send,
@@ -14,7 +14,9 @@ import {
   Maximize2, Volume2, VolumeX, Bot,
 } from 'lucide-react';
 import { MeetCtxValue } from '../src/MeetContext';
-import { ExcalidrawView } from './ExcalidrawView';
+const ExcalidrawView = lazy(() =>
+  import('./ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
+);
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1127,7 +1129,9 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
 
           {showDraw && (
             <div className="draw-overlay" style={{ '--draw-opacity': `${drawOpacity / 100}` } as any}>
-              <ExcalidrawView />
+              <Suspense fallback={<div className="draw-overlay-loading">Loading canvas…</div>}>
+                <ExcalidrawView />
+              </Suspense>
             </div>
           )}
 

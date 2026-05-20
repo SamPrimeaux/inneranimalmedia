@@ -127,8 +127,8 @@ audit_assets() {
   log "Asset hash audit (dist vs dashboard_versions in D1)"
   hr
 
-  local js_file="$DIST_DIR/agent-dashboard.js"
-  local css_file="$DIST_DIR/agent-dashboard.css"
+  local js_file="$DIST_DIR/dashboard.js"
+  local css_file="$DIST_DIR/dashboard.css"
   local html_file="$DASHBOARD_HTML"
 
   local issues=0
@@ -150,8 +150,8 @@ audit_assets() {
   local html_hash; html_hash=$(file_md5 "$html_file")
 
   log "Local hashes:"
-  log "  agent-dashboard.js  → $js_hash ($(file_bytes "$js_file") bytes)"
-  log "  agent-dashboard.css → $css_hash ($(file_bytes "$css_file") bytes)"
+  log "  dashboard.js  → $js_hash ($(file_bytes "$js_file") bytes)"
+  log "  dashboard.css → $css_hash ($(file_bytes "$css_file") bytes)"
   log "  agent.html          → $html_hash ($(file_bytes "$html_file") bytes)"
 
   shopt -s nullglob
@@ -159,7 +159,7 @@ audit_assets() {
     [[ -f "$df" ]] || continue
     local dbn; dbn=$(basename "$df")
     [[ "$dbn" == ".deploy-manifest" ]] && continue
-    [[ "$dbn" == "agent-dashboard.js" || "$dbn" == "agent-dashboard.css" ]] && continue
+    [[ "$dbn" == "dashboard.js" || "$dbn" == "dashboard.css" || "$dbn" == "agent-dashboard.js" || "$dbn" == "agent-dashboard.css" ]] && continue
     local dh; dh=$(file_md5 "$df")
     log "  ${dbn} → $dh ($(file_bytes "$df") bytes)"
   done
@@ -274,8 +274,8 @@ write_dashboard_versions() {
   sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
   page_name_for_fname() {
     case "$1" in
-      agent-dashboard.js)  printf '%s' 'agent' ;;
-      agent-dashboard.css) printf '%s' 'agent-css' ;;
+      dashboard.js|agent-dashboard.js)  printf '%s' 'agent' ;;
+      dashboard.css|agent-dashboard.css) printf '%s' 'agent-css' ;;
       *)                   printf '%s' "agent-dist-$1" ;;
     esac
   }

@@ -1,9 +1,17 @@
 @import './inneranimalmedia.css';
-@import './ops-overview-shell.css';
 @import './styles/image-generation.css';
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 
 @import "tailwindcss";
+@config "./tailwind.config.js";
+@source "./index.html";
+@source "./index.tsx";
+@source "./App.tsx";
+@source "./components/**/*.{js,jsx,ts,tsx}";
+@source "./pages/**/*.{js,jsx,ts,tsx}";
+@source "./features/**/*.{js,jsx,ts,tsx}";
+@source "./src/**/*.{js,jsx,ts,tsx}";
+@source "!./dist/**";
+@source "!./node_modules/**";
 
 :root {
   --font-sans: 'Nunito', system-ui, -apple-system, sans-serif;

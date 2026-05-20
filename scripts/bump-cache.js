@@ -15,7 +15,7 @@ let html = fs.readFileSync(indexPath, "utf8");
 const stamp = `${Date.now()}`;
 
 html = html.replace(
-  /(agent-dashboard\.(?:js|css))(?:\?v=[^"'<> ]+)?/g,
+  /((?:agent-dashboard|dashboard)\.(?:js|css))(?:\?v=[^"'<> ]+)?/g,
   `$1?v=${stamp}`
 );
 

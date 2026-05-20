@@ -23,92 +23,152 @@ function pickSupabaseEnv(env: Record<string, string>) {
   return { url, anonKey };
 }
 
+/** Heavy vendors — split for caching; do NOT manual-chunk mermaid/cytoscape/excalidraw (stays in lazy route chunks). */
+function manualChunkForNodeModule(id: string): string | undefined {
+  if (!id.includes('node_modules')) return undefined;
+
+  if (id.includes('@supabase')) return 'vendor-supabase';
+  if (/node_modules[/\\](@excalidraw[/\\]|mermaid[/\\]|cytoscape)/.test(id)) return undefined;
+  if (
+    /node_modules[/\\]mermaid[/\\].*(?:[/\\]locale|[/\\]locales)[/\\]/i.test(id) ||
+    /[/\\]locale[s]?[/\\][a-z]{2}-[A-Z]{2}/.test(id)
+  ) {
+    return 'vendor-locales';
+  }
+  if (id.includes('/three/') || id.includes('three/addons') || /[/\\]three[/\\]/.test(id)) {
+    return 'vendor-three';
+  }
+  if (id.includes('katex')) return 'vendor-katex';
+  if (id.includes('remotion') || id.includes('@remotion')) return 'vendor-remotion';
+  if (id.includes('wardley') || id.includes('@ward')) return 'vendor-wardley';
+  if (id.includes('/locale/') || id.includes('/locales/')) return 'vendor-locales';
+  if (id.includes('@monaco-editor') || id.includes('monaco-editor')) return 'vendor-editor';
+  if (
+    id.includes('node_modules/react-dom') ||
+    id.includes('node_modules/react-router') ||
+    /node_modules[/\\]react[/\\]/.test(id)
+  ) {
+    return 'vendor-react';
+  }
+  if (id.includes('/recharts/') || /node_modules[/\\]recharts[/\\]/.test(id)) return 'vendor-charts';
+  if (/node_modules[/\\]d3-[^/\\]+[/\\]/.test(id)) return 'vendor-charts';
+  if (id.includes('lucide-react')) return 'vendor-icons';
+  if (id.includes('framer-motion')) return 'vendor-motion';
+
+  return undefined;
+}
+
+const HEAVY_PRELOAD_RE =
+  /(?:^|[/])(?:vendor-(?:three|wardley|remotion|locales|katex|charts)|subset-shared\.chunk|ExcalidrawView)\.js/;
+
 export default defineConfig(({ mode }) => {
-    const repoRoot = path.resolve(__dirname, '..');
-    const env = {
-      ...loadEnv(mode, repoRoot, ''),
-      ...loadEnv(mode, __dirname, ''),
-    };
-    const { url: supabaseUrl, anonKey: supabaseAnonKey } = pickSupabaseEnv(env);
-    return {
-      base: '/static/dashboard/app/',
-      define: {
-        'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
-        'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
+  const repoRoot = path.resolve(__dirname, '..');
+  const env = {
+    ...loadEnv(mode, repoRoot, ''),
+    ...loadEnv(mode, __dirname, ''),
+  };
+  const { url: supabaseUrl, anonKey: supabaseAnonKey } = pickSupabaseEnv(env);
+  return {
+    base: '/static/dashboard/app/',
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
+    },
+    server: {
+      port: 3000,
+      host: '0.0.0.0',
+      proxy: {
+        '/api': 'http://127.0.0.1:8787',
       },
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-        proxy: {
-            '/api': 'http://127.0.0.1:8787'
-        }
-      },
-      plugins: [
-        react(),
-        // Vite joins `base` with root-absolute `/static/dashboard/shell.css` → broken
-        // `/static/dashboard/app/static/dashboard/shell.css`. Shell is served from R2 at
-        // `static/dashboard/shell.css` (site path `/static/dashboard/shell.css`), not under app.
-        {
-          name: 'restore-dashboard-shell-css-href',
-          enforce: 'post',
-          transformIndexHtml(html) {
-            return html.replaceAll(
+    },
+    plugins: [
+      react(),
+      {
+        name: 'restore-dashboard-shell-css-href',
+        enforce: 'post',
+        transformIndexHtml(html) {
+          return html
+            .replaceAll(
               '/static/dashboard/app/static/dashboard/shell.css',
               '/static/dashboard/shell.css',
-            );
-          },
+            )
+            .replaceAll('dashboard2.css', 'dashboard.css');
         },
-        ...(analyze
-          ? [
-              visualizer({
-                filename: 'dist/bundle-stats.html',
-                gzipSize: true,
-                brotliSize: true,
-                open: false,
-                template: 'treemap',
-              }),
-            ]
-          : []),
-      ],
-      resolve: {
-        dedupe: ['react', 'react-dom'],
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
       },
-      optimizeDeps: {
-        include: ['react', 'react-dom', '@excalidraw/excalidraw', 'remotion', '@remotion/player'],
-      },
-      build: {
-        minify: true,
-        sourcemap: true,
-        outDir: 'dist',
-        // Large vendor libs + shared; use ANALYZE=1 on dashboard for entry/subset-shared.
-        chunkSizeWarningLimit: 600,
-        rollupOptions: {
-          output: {
-            entryFileNames: 'agent-dashboard.js',
-            chunkFileNames: '[name].js',
-            assetFileNames: (assetInfo) => {
-              if (assetInfo.name?.endsWith('.css')) return 'agent-dashboard.css';
-              return '[name][extname]';
-            },
-            // Wardley map chunks are lazy-loaded from mermaid internals (no separate `wardley` package).
-            manualChunks: {
-              'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-              'vendor-editor': ['@monaco-editor/react'],
-              'vendor-mermaid': ['mermaid'],
-              'vendor-three': ['three'],
-              'vendor-cytoscape': ['cytoscape'],
-              'vendor-katex': ['katex'],
-              'agent-core': ['./components/ChatAssistant', './components/McpPage'],
-              'settings': ['./components/settings/SettingsPanel'],
-              'learn': ['./components/LearnPage'],
-              'studio': ['./components/DesignStudioPage'],
-              'vendor-remotion': ['remotion', '@remotion/player'],
-            },
+      {
+        name: 'merge-dashboard-entry-css',
+        apply: 'build',
+        enforce: 'post',
+        generateBundle(_options, bundle) {
+          const parts: Array<{ name: string; source: string }> = [];
+          for (const [fileName, item] of Object.entries(bundle)) {
+            if (item.type !== 'asset' || !fileName.endsWith('.css')) continue;
+            if (fileName !== 'dashboard.css' && fileName !== 'dashboard2.css') continue;
+            const src = item.source;
+            parts.push({
+              name: fileName,
+              source: typeof src === 'string' ? src : Buffer.from(src).toString('utf8'),
+            });
+            delete bundle[fileName];
           }
-        }
-      }
-    };
+          if (!parts.length) return;
+          parts.sort((a, b) => (a.name === 'dashboard.css' ? -1 : b.name === 'dashboard.css' ? 1 : 0));
+          const merged = parts.map((p) => p.source).join('\n');
+          this.emitFile({ type: 'asset', fileName: 'dashboard.css', source: merged });
+        },
+      },
+      ...(analyze
+        ? [
+            visualizer({
+              filename: 'dist/bundle-stats.html',
+              gzipSize: true,
+              brotliSize: true,
+              open: false,
+              template: 'treemap',
+            }),
+          ]
+        : []),
+    ],
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+      alias: {
+        '@': path.resolve(__dirname, '.'),
+      },
+    },
+    optimizeDeps: {
+      include: ['react', 'react-dom', 'react-router-dom'],
+      exclude: ['@excalidraw/excalidraw', 'remotion', '@remotion/player', 'mermaid'],
+    },
+    build: {
+      minify: true,
+      sourcemap: true,
+      outDir: 'dist',
+      cssCodeSplit: true,
+      chunkSizeWarningLimit: 600,
+      modulePreload: {
+        polyfill: false,
+        resolveDependencies: (_filename, deps) => deps.filter((dep) => !HEAVY_PRELOAD_RE.test(dep)),
+      },
+      dynamicImportVarsOptions: {
+        warnOnError: false,
+      },
+      rollupOptions: {
+        output: {
+          entryFileNames: (chunk) => (chunk.isEntry ? 'dashboard.js' : '[name].js'),
+          chunkFileNames: '[name].js',
+          assetFileNames: (asset) => {
+            if (!asset.name?.endsWith('.css')) return '[name][extname]';
+            const name = asset.name ?? '';
+            if (/excalidraw|LearnPage|learn\.css/i.test(name)) return 'assets/[name][extname]';
+            const base = name.replace(/\.css$/i, '');
+            if (base === 'index' || base === 'style' || base === 'dashboard' || base.startsWith('dashboard')) {
+              return 'dashboard.css';
+            }
+            return 'assets/[name][extname]';
+          },
+          manualChunks: manualChunkForNodeModule,
+        },
+      },
+    },
+  };
 });

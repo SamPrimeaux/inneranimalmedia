@@ -26,7 +26,7 @@ fi
 DIST="dashboard/dist"
 BUCKET="inneranimalmedia"
 # Vite base is /static/dashboard/app/ (dashboard/vite.config.ts). The live SPA shell loads
-# /static/dashboard/app/agent-dashboard.js — sync app/ first or production keeps stale JS.
+# /static/dashboard/app/dashboard.js — sync app/ first or production keeps stale JS.
 PREFIX="static/dashboard/app"
 MANIFEST_PREVIOUS_KEY="analytics/deploys/previous-manifest.json"
 TOML="wrangler.production.toml"
@@ -189,7 +189,7 @@ else
   echo "✓ Worker deployed (could not parse Current Version ID from wrangler output)"
 fi
 
-CACHE_SNIP="$(grep -oE '(agent-dashboard|agent-core)\.(js|css)\?v=[0-9]+' "$REPO_ROOT/$DIST/index.html" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+CACHE_SNIP="$(grep -oE '(dashboard|agent-dashboard|agent-core)\.(js|css)\?v=[0-9]+' "$REPO_ROOT/$DIST/index.html" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
 R2_LOCAL_OBJECTS="$(find "$REPO_ROOT/$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')"
 GIT_STATUS_URL="https://inneranimalmedia.com/api/agent/git/status"
 GIT_STATUS_TMP="$(mktemp "${TMPDIR:-/tmp}/iam-git-status.XXXXXX")"
