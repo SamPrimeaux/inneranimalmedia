@@ -688,12 +688,15 @@ async function dispatchWorkersAI(env, request, params) {
             const line = buf.slice(0, nl);
             buf = buf.slice(nl + 1);
             const t = line.trim();
-            if (!t) continue;
+            if (!t || t === 'data: [DONE]' || t === 'data:[DONE]') continue;
+            const jsonStr = t.startsWith('data:') ? t.slice(t.indexOf(':') + 1).trim() : t;
             let j;
             try {
-              j = JSON.parse(t);
+              j = JSON.parse(jsonStr);
             } catch {
-              await writeToken(t);
+              if (!t.startsWith('data:') && !t.startsWith('event:') && t[0] !== ':') {
+                await writeToken(t);
+              }
               continue;
             }
             const piece = extractWorkersAiSseToken(j);
