@@ -15,7 +15,7 @@ export function SpendChart({ spendRows }: { spendRows?: DashboardBundle["spend_b
         other: 60 + rand(40),
       }));
   return (
-    <Card style={{ gridColumn: "span 3" }}>
+    <Card>
       <CardHeader icon={Ico.flame} title="AI Spend Over Time" action={<Pill label="Last 7 Days" />} />
       <ResponsiveContainer width="100%" height={168}>
         <AreaChart data={data} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>

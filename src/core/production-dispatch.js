@@ -29,6 +29,7 @@ import { handleDrawApi } from '../api/draw.js';
 import { handleThemesApi } from '../api/themes.js';
 import { handleHubApi } from '../api/hub.js';
 import { handleOverviewApi } from '../api/overview.js';
+import { handleClientConfig } from '../api/config.js';
 import { handleDashboardApi } from '../api/dashboard.js';
 import { handleMailApi } from '../api/mail.js';
 import { handleEmailApi } from '../api/email.js';
@@ -270,6 +271,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/analytics/')) {
     return handleAnalyticsApi(request, url, env, ctx, authUser, identity);
+  }
+
+  if (pathLower === '/api/config/client') {
+    return handleClientConfig(request, env);
   }
 
   if (pathLower.startsWith('/api/overview')) {

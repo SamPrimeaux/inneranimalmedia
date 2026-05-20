@@ -120,6 +120,15 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
        AND created_at >= unixepoch(datetime('now','start of month'))${usageWs}`,
     TW,
   );
+  const priorMonthlyBurn = await first(
+    db,
+    `SELECT COALESCE(SUM(cost_usd), 0) AS v
+     FROM agentsam_usage_events
+     WHERE tenant_id = ?
+       AND created_at >= unixepoch('now', '-60 days')
+       AND created_at < unixepoch('now', '-30 days')${usageWs}`,
+    TW,
+  );
   const agentCalls7d = await first(
     db,
     `SELECT COUNT(*) AS c FROM agentsam_usage_events
@@ -159,7 +168,9 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
   const healthRow = await first(
     db,
     `SELECT
-       SUM(CASE WHEN status = 'healthy' THEN 1 ELSE 0 END) * 1.0 / NULLIF(COUNT(*), 0) AS ratio
+       CASE WHEN COUNT(*) = 0 THEN NULL
+       ELSE SUM(CASE WHEN status = 'healthy' THEN 1 ELSE 0 END) * 1.0 / COUNT(*)
+       END AS ratio
      FROM (
        SELECT dh.status, dh.worker_name, dh.checked_at
        FROM agentsam_deployment_health dh
@@ -195,6 +206,7 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
 
   out.kpis = {
     monthly_burn_usd: Number(monthlyBurn?.v ?? 0) || 0,
+    prior_monthly_burn_usd: Number(priorMonthlyBurn?.v ?? 0) || 0,
     agent_calls_7d: Number(agentCalls7d?.c ?? 0) || 0,
     tokens_7d: Number(tokens7d?.t ?? 0) || 0,
     mcp_calls_today: Number(mcpToday?.c ?? 0) || 0,
@@ -529,7 +541,7 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
        WHERE workspace_id = ? AND tenant_id = ?
        GROUP BY COALESCE(NULLIF(TRIM(ai_model_ref), ''), NULLIF(TRIM(model_id), ''), 'unknown')
        ORDER BY runs DESC
-       LIMIT 10`,
+       LIMIT 12`,
       [workspaceId, tid],
     );
 
@@ -590,7 +602,43 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
     }
     const mergedLb = [...lbByModel.values()]
       .sort((a, b) => (Number(b.runs) || 0) - (Number(a.runs) || 0))
-      .slice(0, 10);
+      .slice(0, 12);
+
+    const lbModelKeys = mergedLb.map((r) => String(r.model_key || '').trim()).filter(Boolean);
+    /** @type {Map<string, Record<string, unknown>>} */
+    const pricingByModel = new Map();
+    if (lbModelKeys.length) {
+      const phMk = lbModelKeys.map(() => '?').join(',');
+      const priceRows = await all(
+        db,
+        `SELECT model_key, provider, input_rate_per_mtok, output_rate_per_mtok, is_active
+         FROM agentsam_model_pricing
+         WHERE pricing_kind = 'standard' AND is_active = 1 AND model_key IN (${phMk})`,
+        lbModelKeys,
+      );
+      for (const p of priceRows) {
+        pricingByModel.set(String(p.model_key), p);
+      }
+    }
+    /** @type {Map<string, Record<string, unknown>>} */
+    const armFlagsByModel = new Map();
+    if (lbModelKeys.length) {
+      const phMk2 = lbModelKeys.map(() => '?').join(',');
+      const flagRows = await all(
+        db,
+        `SELECT model_key,
+                MAX(COALESCE(is_eligible, 0)) AS is_eligible,
+                MAX(COALESCE(is_paused, 0)) AS is_paused,
+                MAX(COALESCE(budget_exhausted, 0)) AS budget_exhausted
+         FROM agentsam_routing_arms
+         WHERE workspace_id = ? AND model_key IN (${phMk2})
+         GROUP BY model_key`,
+        [workspaceId, ...lbModelKeys],
+      );
+      for (const f of flagRows) {
+        armFlagsByModel.set(String(f.model_key), f);
+      }
+    }
 
     const armIds = [...new Set(mergedLb.map((r) => r.routing_arm_id).filter(Boolean).map((x) => String(x)))];
     /** @type {Map<string, Record<string, unknown>>} */
@@ -630,19 +678,41 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
       const mk = String(r.model_key || 'unknown');
       const rid = r.routing_arm_id != null ? String(r.routing_arm_id) : '';
       const arm = rid ? armsById.get(rid) : null;
-      // When `arm` is set: Bayesian success mean = success_alpha / (success_alpha + success_beta)
-      const prov = arm?.provider != null && String(arm.provider).trim() !== '' ? String(arm.provider) : '—';
+      const price = pricingByModel.get(mk);
+      const flags = armFlagsByModel.get(mk);
+      const prov =
+        arm?.provider != null && String(arm.provider).trim() !== ''
+          ? String(arm.provider)
+          : price?.provider != null && String(price.provider).trim() !== ''
+            ? String(price.provider)
+            : '—';
       const ds = arm?.decayed_score;
+      const tok = Number(r.total_tokens) || 0;
+      const spent = Number(r.total_cost_usd) || 0;
+      const realizedPer1k = tok > 0 ? Math.round((spent / tok) * 1000 * 10000) / 10000 : null;
+      const listIn =
+        price?.input_rate_per_mtok != null ? Number(price.input_rate_per_mtok) / 1000 : null;
+      const listOut =
+        price?.output_rate_per_mtok != null ? Number(price.output_rate_per_mtok) / 1000 : null;
+      const isEligible = flags != null ? Number(flags.is_eligible) === 1 : null;
+      const isPaused = flags != null ? Number(flags.is_paused) === 1 : null;
+      const budgetExhausted = flags != null ? Number(flags.budget_exhausted) === 1 : false;
       return {
         model_key: mk,
         provider: prov,
         runs: Number(r.runs) || 0,
         success_pct: Number(r.success_pct) || 0,
         avg_latency_ms: Number(r.avg_latency_ms) || 0,
-        total_cost_usd: Number(r.total_cost_usd) || 0,
-        total_tokens: Number(r.total_tokens) || 0,
+        total_cost_usd: spent,
+        total_tokens: tok,
         decayed_score: ds != null && Number.isFinite(Number(ds)) ? Number(ds) : null,
         score_overall: evalByModel.get(mk) ?? null,
+        realized_per_1k: realizedPer1k,
+        list_in_per_1k: listIn != null && Number.isFinite(listIn) ? listIn : null,
+        list_out_per_1k: listOut != null && Number.isFinite(listOut) ? listOut : null,
+        routing_eligible: isEligible,
+        requires_owner_approval: budgetExhausted ? 1 : 0,
+        is_paused: isPaused,
       };
     });
   } else {
@@ -696,8 +766,9 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
   const raBinds = workspaceId ? [workspaceId] : [];
   out.routing_arms = await all(
     db,
-    `SELECT model_key, provider, total_executions, decayed_score, is_eligible,
-            success_alpha, success_beta, updated_at, workspace_id
+    `SELECT model_key, provider, total_executions, decayed_score, is_eligible, is_paused,
+            success_alpha, success_beta, latency_mean, cost_mean, updated_at, workspace_id,
+            budget_exhausted
      FROM agentsam_routing_arms
      ${raWs}
      ORDER BY decayed_score DESC

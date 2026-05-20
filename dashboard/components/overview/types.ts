@@ -110,6 +110,12 @@ export type DashboardBundle = {
     total_tokens: number;
     decayed_score: number | null;
     score_overall: number | null;
+    realized_per_1k?: number | null;
+    list_in_per_1k?: number | null;
+    list_out_per_1k?: number | null;
+    routing_eligible?: number | null;
+    requires_owner_approval?: number | null;
+    is_paused?: number | null;
   }>;
   eval_scatter?: Array<{
     model_key: string;
@@ -135,8 +141,12 @@ export type DashboardBundle = {
     total_executions?: number;
     decayed_score?: number;
     is_eligible?: number;
+    is_paused?: number;
+    budget_exhausted?: number;
     success_alpha?: number;
     success_beta?: number;
+    latency_mean?: number;
+    cost_mean?: number;
   }>;
   routing_timeseries?: Array<{ date: string; primary: number; fallback: number }>;
   cron_latest?: Array<{ job_name: string; status: string; duration_ms: number; error_message?: string | null; started_at?: number }>;

@@ -1,14 +1,14 @@
 /**
  * Overview — remaster v2 (modular)
  * Inner Animal Media · Agent Sam Observability
- * Layout/typography use the same :root tokens as the rest of the dashboard.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import type { ActivityData, AgentActivity, DashboardBundle, DeployData, KpiDef, KpiStripData, WorkflowData } from "./types";
-import { T, fmt, seedArr, dashboardBundleUrl } from "./constants";
-import { Ico } from "./primitives";
-import { KpiStrip } from "./panels/KpiStrip";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type { ActivityData, AgentActivity, DashboardBundle, DeployData, KpiStripData, WorkflowData } from "./types";
+import { T, dashboardBundleUrl } from "./constants";
+import { OverviewToolbar } from "./OverviewToolbar";
+import { QuickNav } from "./panels/QuickNav";
+import { OpsPillars } from "./panels/OpsPillars";
 import { SpendChart } from "./panels/SpendChart";
 import { WorkflowPanel } from "./panels/WorkflowPanel";
 import { TopServices } from "./panels/TopServices";
@@ -18,14 +18,16 @@ import { ToolWaterfall } from "./panels/ToolWaterfall";
 import { ErrorInbox } from "./panels/ErrorInbox";
 import { TokensChart } from "./panels/TokensChart";
 import { SystemPulseGrid } from "./panels/SystemPulseGrid";
-import { ModelLeaderboard } from "./panels/ModelLeaderboard";
-import { CostLatency } from "./panels/CostLatency";
-import { RoutingDecisions } from "./panels/RoutingDecisions";
+import { ModelIntelligenceCard } from "./panels/ModelIntelligenceCard";
 import { RagHealth } from "./panels/RagHealth";
 import { DeploymentsTimeline } from "./panels/DeploymentsTimeline";
 import { SystemHealth } from "./panels/SystemHealth";
 import { ActiveProjects } from "./panels/ActiveProjects";
-import { QuickNav } from "./panels/QuickNav";
+import { initRealtimeClient, useRealtimeSignal, type SignalTarget } from "../../hooks/useRealtimeSignal";
+
+const DEBOUNCE_MS = 3000;
+const FALLBACK_MS = 90_000;
+const SIGNAL_FLASH_MS = 1500;
 
 export default function OverviewPage() {
   const [kpi, setKpi] = useState<KpiStripData | null>(null);
@@ -35,18 +37,66 @@ export default function OverviewPage() {
   const [dep, setDep] = useState<DeployData | null>(null);
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [ts, setTs] = useState(new Date());
+  const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
+  const [signalActive, setSignalActive] = useState(false);
+  const [signalError, setSignalError] = useState(false);
+  const [lastSignalAt, setLastSignalAt] = useState<Date | null>(null);
+
+  const lastFetch = useRef<Record<SignalTarget, number>>({
+    execution: 0,
+    routing: 0,
+    errors: 0,
+    tools: 0,
+    deploys: 0,
+    plans: 0,
+    stream: 0,
+  });
+  const signalFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashSignal = useCallback(() => {
+    setSignalActive(true);
+    setLastSignalAt(new Date());
+    if (signalFlashTimer.current) clearTimeout(signalFlashTimer.current);
+    signalFlashTimer.current = setTimeout(() => setSignalActive(false), SIGNAL_FLASH_MS);
+  }, []);
+
+  const refetchBundle = useCallback(async () => {
+    try {
+      const r = await fetch(dashboardBundleUrl(), { credentials: "same-origin" });
+      if (r.ok) setBundle((await r.json()) as DashboardBundle);
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+
+  const refetchDeployments = useCallback(async () => {
+    try {
+      const r = await fetch("/api/overview/deployments", { credentials: "same-origin" });
+      if (r.ok) setDep(await r.json());
+    } catch {
+      /* non-fatal */
+    }
+    await refetchBundle();
+  }, [refetchBundle]);
+
+  const refetchSpend = useCallback(async () => {
+    await refetchBundle();
+  }, [refetchBundle]);
+
+  const refetchLeaderboardCounts = useCallback(async () => {
+    await refetchBundle();
+  }, [refetchBundle]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [k, a, ag, w, d, b] = await Promise.allSettled([
-        fetch("/api/overview/kpi-strip").then((r) => r.json()),
-        fetch("/api/overview/activity-strip").then((r) => r.json()),
-        fetch("/api/overview/agent-activity").then((r) => r.json()),
-        fetch("/api/overview/commands-workflows").then((r) => r.json()),
-        fetch("/api/overview/deployments").then((r) => r.json()),
-        fetch(dashboardBundleUrl()).then((r) => r.json()),
+        fetch("/api/overview/kpi-strip", { credentials: "same-origin" }).then((r) => r.json()),
+        fetch("/api/overview/activity-strip", { credentials: "same-origin" }).then((r) => r.json()),
+        fetch("/api/overview/agent-activity", { credentials: "same-origin" }).then((r) => r.json()),
+        fetch("/api/overview/commands-workflows", { credentials: "same-origin" }).then((r) => r.json()),
+        fetch("/api/overview/deployments", { credentials: "same-origin" }).then((r) => r.json()),
+        fetch(dashboardBundleUrl(), { credentials: "same-origin" }).then((r) => r.json()),
       ]);
       if (k.status === "fulfilled") setKpi(k.value);
       if (a.status === "fulfilled") setActivity(a.value);
@@ -56,41 +106,109 @@ export default function OverviewPage() {
       if (b.status === "fulfilled") setBundle(b.value as DashboardBundle);
     } finally {
       setLoading(false);
-      setTs(new Date());
     }
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
+  useEffect(() => {
+    const onWs = () => {
+      void load();
+    };
+    window.addEventListener("iam_workspace_id", onWs);
+    return () => window.removeEventListener("iam_workspace_id", onWs);
+  }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [meRes, cfgRes] = await Promise.all([
+          fetch("/api/auth/me", { credentials: "same-origin" }),
+          fetch("/api/config/client", { credentials: "same-origin" }),
+        ]);
+        if (cancelled) return;
+        if (meRes.ok) {
+          const me = (await meRes.json()) as { user?: { supabase_user_id?: string | null } };
+          const uid = me.user?.supabase_user_id?.trim() || null;
+          setSupabaseUserId(uid);
+        }
+        if (cfgRes.ok) {
+          const cfg = (await cfgRes.json()) as { supabase_url?: string; supabase_anon_key?: string };
+          if (cfg.supabase_url && cfg.supabase_anon_key) {
+            initRealtimeClient(cfg.supabase_url, cfg.supabase_anon_key);
+          }
+        } else if (cfgRes.status === 503 || cfgRes.status === 401) {
+          setSignalError(true);
+        }
+      } catch {
+        if (!cancelled) setSignalError(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSignal = useCallback(
+    (target: SignalTarget) => {
+      const now = Date.now();
+      if (now - lastFetch.current[target] < DEBOUNCE_MS) return;
+      lastFetch.current[target] = now;
+      flashSignal();
+
+      switch (target) {
+        case "execution":
+          void refetchBundle();
+          break;
+        case "routing":
+          void refetchBundle();
+          break;
+        case "errors":
+          void refetchBundle();
+          break;
+        case "tools":
+          void refetchBundle();
+          break;
+        case "deploys":
+          void refetchDeployments();
+          break;
+        case "plans":
+          void refetchBundle();
+          break;
+        case "stream":
+          break;
+        default:
+          break;
+      }
+    },
+    [flashSignal, refetchBundle, refetchDeployments],
+  );
+
+  useRealtimeSignal({
+    onSignal: handleSignal,
+    supabaseUserId,
+    enabled: Boolean(supabaseUserId),
+  });
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void refetchSpend();
+      void refetchLeaderboardCounts();
+    }, FALLBACK_MS);
+    return () => clearInterval(id);
+  }, [refetchSpend, refetchLeaderboardCounts]);
+
+  useEffect(() => {
+    return () => {
+      if (signalFlashTimer.current) clearTimeout(signalFlashTimer.current);
+    };
+  }, []);
+
   const cost = kpi?.cost_usd ?? 0;
-  const calls = activity?.weekly_activity?.agent_calls ?? kpi?.api_calls ?? 0;
-  const hrs = activity?.worked_this_week?.hours_this_week ?? 0;
-  const mcp = kpi?.mcp_calls ?? 0;
   const top = activity?.projects?.top ?? [];
-
-  const BK = bundle?.kpis;
-  const liveKpi = bundle?.ok === true && BK != null;
-
-  const monthlyBurn = liveKpi ? Number(BK.monthly_burn_usd) || 0 : cost || 37245;
-  const agentCalls7 = liveKpi ? Number(BK.agent_calls_7d) || 0 : calls || 128900;
-  const tokens7 = liveKpi ? Number(BK.tokens_7d) || 0 : 1_280_000;
-  const mcpToday = liveKpi ? Number(BK.mcp_calls_today) || 0 : mcp || 5842;
-  const hoursWeekDistinct = liveKpi ? Number(BK.hours_week_distinct) || 0 : Math.round(hrs || 24.6);
-  const openTasksStr = liveKpi ? String(Number(BK.open_tasks) || 0) : "247";
-  const healthRatio = BK?.worker_health_ratio;
-  const healthPct =
-    liveKpi && healthRatio != null && Number.isFinite(Number(healthRatio))
-      ? `${Number(healthRatio).toFixed(1)}%`
-      : liveKpi
-        ? "—"
-        : "95%";
-  const push7dStr = liveKpi ? String(Number(BK.github_push_events_7d) || 0) : "42";
-  const wfRunsToday = liveKpi ? String(Number(BK.workflow_runs_today_total) || 0) : "128";
-  const wfRunsTodayCmp = liveKpi
-    ? `OK ${Number(BK.workflow_runs_today_success) || 0} · fail ${Number(BK.workflow_runs_today_failed) || 0}`
-    : "vs yesterday 112";
 
   const topSvcEvents = useMemo(() => {
     if (bundle?.top_services?.length) {
@@ -102,20 +220,6 @@ export default function OverviewPage() {
     return agent?.events ?? [];
   }, [bundle?.top_services, agent?.events]);
 
-  const kpis: KpiDef[] = [
-    { icon: Ico.flame, label: "Monthly Burn", value: fmt.usd(monthlyBurn), trend: liveKpi ? 0 : 12.4, compare: liveKpi ? "MTD · agentsam_usage_events" : `vs last 7d ${fmt.usd(monthlyBurn * 0.88)}`, spark: seedArr(monthlyBurn, 9), color: T.amber },
-    { icon: Ico.zap, label: "Agent Calls", value: fmt.num(agentCalls7), trend: liveKpi ? 0 : 18.6, compare: liveKpi ? "Last 7d · usage_events" : `vs last 7d ${fmt.num(agentCalls7 * 0.84)}`, spark: seedArr(agentCalls7, 9), color: T.accent },
-    { icon: Ico.cpu, label: "Tokens", value: fmt.tok(tokens7), trend: liveKpi ? 0 : 5.2, compare: liveKpi ? "7d · tokens_in + tokens_out" : "cached + live", spark: seedArr(Math.min(tokens7 / 1e3, 999_999), 9), color: T.blue },
-    { icon: Ico.tool, label: "MCP Calls Today", value: fmt.num(mcpToday), trend: liveKpi ? 0 : 23.1, compare: liveKpi ? "agentsam_mcp_tool_execution" : `vs yesterday ${fmt.num(mcpToday * 0.81)}`, spark: seedArr(mcpToday, 9), color: T.accent },
-    { icon: Ico.route, label: "Workflow Runs Today", value: wfRunsToday, trend: liveKpi ? 0 : 6.2, compare: liveKpi ? wfRunsTodayCmp : "agentsam_workflow_runs", spark: seedArr(Number(wfRunsToday) || 128, 9), color: T.violet },
-    { icon: Ico.clock, label: "Hours This Week", value: fmt.num(hoursWeekDistinct), trend: liveKpi ? 0 : 14.2, compare: liveKpi ? "Distinct hour buckets" : `vs last week ${fmt.hrs((hrs || 24.6) * 0.88)}`, spark: seedArr(hoursWeekDistinct || 24, 9), color: T.green },
-    { icon: Ico.list, label: "Open Tasks", value: openTasksStr, trend: liveKpi ? 0 : 9.8, compare: liveKpi ? "agentsam_plans Σ(tasks_total−done)" : "vs yesterday 225", spark: seedArr(Number(openTasksStr) || 247, 9), color: T.amber },
-    { icon: Ico.pulse, label: "Worker Health", value: healthPct, trend: liveKpi ? 0 : -4.2, compare: liveKpi ? "Latest deployment_health / worker" : "vs last 7d 91%", spark: seedArr(liveKpi && healthRatio != null ? Number(healthRatio) : 95, 9), color: T.green },
-    { icon: Ico.deploy, label: "GitHub Push", value: push7dStr, trend: liveKpi ? 0 : 8.0, compare: liveKpi ? "Webhook push · 7d" : "deploy feed", spark: seedArr(Number(push7dStr) || 42, 9), color: T.violet },
-  ];
-
-  const timeStr = ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
   return (
     <>
       <style>{`
@@ -124,52 +228,32 @@ export default function OverviewPage() {
         .ov-wrap a{color:var(--accent-secondary, var(--solar-cyan, #2dd4bf));}
       `}</style>
       <div className="ov-wrap" style={{ fontFamily: T.font, background: T.bg, color: T.text, minHeight: "100vh", padding: "22px 26px", overflowX: "hidden" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: T.muted, marginBottom: 4 }}>OPS OVERVIEW</div>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em" }}>Overview</h1>
-            <p style={{ margin: "3px 0 0", fontSize: 11, color: T.muted }}>Live cost, health, and execution telemetry</p>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 10, color: T.muted }}>Last refreshed: {timeStr}</span>
-            <a href="/dashboard/analytics" style={{ fontSize: 10, textDecoration: "none" }}>
-              Health dashboard →
-            </a>
-            <button
-              onClick={load}
-              style={{
-                fontSize: 11,
-                color: T.accent,
-                background: "color-mix(in srgb, var(--accent-secondary, var(--solar-cyan)) 12%, transparent)",
-                border: "1px solid color-mix(in srgb, var(--accent-secondary, var(--solar-cyan)) 28%, transparent)",
-                borderRadius: 7,
-                padding: "6px 14px",
-                cursor: "pointer",
-                fontFamily: T.font,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              {Ico.refresh} Refresh
-            </button>
-          </div>
-        </div>
+        <OverviewToolbar
+          onRefresh={load}
+          refreshing={loading}
+          signalActive={signalActive}
+          signalError={signalError}
+          lastSignalAt={lastSignalAt}
+        />
 
         <QuickNav />
 
-        <KpiStrip kpis={kpis} loading={loading} />
+        <OpsPillars bundle={bundle} loading={loading} />
+
+        <ModelIntelligenceCard
+          perfRows={bundle?.model_leaderboard}
+          costLatency={bundle?.cost_latency}
+          arms={bundle?.routing_arms}
+          routingTimeseries={bundle?.routing_timeseries}
+        />
 
         <div style={{ display: "grid", gridTemplateColumns: "3fr 1.1fr 1.1fr 1.1fr", gap: 10, marginBottom: 10 }}>
-          <SpendChart spendRows={bundle?.spend_by_day_provider} />
+          <div id="spend-chart" style={{ gridColumn: "span 3" }}>
+            <SpendChart spendRows={bundle?.spend_by_day_provider} />
+          </div>
           <WorkflowPanel data={wf} workflowStats={bundle?.workflow_stats} />
           <TopServices events={topSvcEvents} />
           <BudgetCard cost={cost} budget={bundle?.budget} />
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 0 12px", borderTop: `1px solid ${T.border}` }}>
-          <span style={{ color: T.muted, display: "flex" }}>{Ico.pulse}</span>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.muted }}>System Pulse / Execution Analytics</span>
         </div>
 
         <SystemPulseGrid>
@@ -187,24 +271,22 @@ export default function OverviewPage() {
           </div>
         </SystemPulseGrid>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
-          <ModelLeaderboard perfRows={bundle?.model_leaderboard} />
-          <CostLatency costLatency={bundle?.cost_latency} />
-          <RoutingDecisions arms={bundle?.routing_arms} routingTimeseries={bundle?.routing_timeseries} />
-        </div>
-
         <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
           <RagHealth />
-          <DeploymentsTimeline
-            data={dep}
-            ghEvents={bundle?.github_push_events}
-            deploymentStats={bundle?.deployment_stats}
-            deploymentTimeseries={bundle?.deployment_timeseries}
-          />
+          <div id="deployments-timeline" style={{ flex: "2 1 380px", minWidth: 0 }}>
+            <DeploymentsTimeline
+              data={dep}
+              ghEvents={bundle?.github_push_events}
+              deploymentStats={bundle?.deployment_stats}
+              deploymentTimeseries={bundle?.deployment_timeseries}
+            />
+          </div>
           <SystemHealth crons={bundle?.cron_latest} cronHeatmap={bundle?.cron_heatmap} />
         </div>
 
-        <ActiveProjects projects={top} plans={bundle?.active_plans} />
+        <div id="active-plans">
+          <ActiveProjects projects={top} plans={bundle?.active_plans} />
+        </div>
       </div>
     </>
   );
