@@ -94,9 +94,9 @@ def sample_latency(arm: Dict[str, Any]) -> int:
         ("openai", "micro"): (800, 2500),
         ("openai", "standard"): (2000, 6000),
         ("openai", "power"): (4000, 12000),
-        ("anthropic", "standard"): (2000, 8000),
-        ("anthropic", "power"): (5000, 18000),
-        ("anthropic", "reasoning"): (8000, 30000),
+        ("anthropic", "standard"): (800, 3000),    # Haiku 4.5 — fast, no effort
+        ("anthropic", "power"): (4000, 14000),     # Sonnet 4.6 / Opus 4.6 with effort
+        ("anthropic", "reasoning"): (6000, 22000), # Opus 4.7 adaptive effort
         ("google", "micro"): (600, 2000),
         ("google", "flash"): (3000, 12000),
         ("google", "standard"): (5000, 20000),
