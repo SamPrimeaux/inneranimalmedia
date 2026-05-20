@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { DashboardBundle } from "../types";
 import { T, fmt, spendPivot } from "../constants";
-import { Sparkline, Skel } from "../primitives";
+import { Sparkline, Skel, Ico } from "../primitives";
 
 const GRID_STYLE = `
 .ov-pillars {
@@ -38,6 +38,43 @@ const GRID_STYLE = `
 .ov-pillar:focus-visible {
   outline: 2px solid var(--accent-secondary, #2dd4bf);
   outline-offset: 2px;
+}
+.ov-pillar-wrap--spend {
+  position: relative;
+  min-width: 0;
+}
+.ov-pillar-wrap--spend > .ov-pillar {
+  width: 100%;
+}
+.ov-pillar-refresh {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dashboard-muted, var(--text-muted, #8aa0aa));
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.ov-pillar-refresh:hover:not(:disabled) {
+  opacity: 1;
+  color: var(--accent-secondary, var(--solar-cyan, #2dd4bf));
+}
+.ov-pillar-refresh:disabled {
+  cursor: wait;
+  opacity: 0.35;
+}
+.ov-pillar-refresh svg {
+  width: 16px;
+  height: 16px;
 }
 `;
 
@@ -88,9 +125,14 @@ function seriesHasNonZero(values: number[]) {
 export function OpsPillars({
   bundle,
   loading,
+  onRefreshSpend,
+  refreshingSpend = false,
 }: {
   bundle: DashboardBundle | null;
   loading: boolean;
+  /** Same handler as the former top-bar Refresh (reloads overview bundle / spend). */
+  onRefreshSpend?: () => void;
+  refreshingSpend?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -190,56 +232,78 @@ export function OpsPillars({
     <>
       <style>{GRID_STYLE}</style>
       <div className="ov-pillars" role="group" aria-label="Operations pillars">
-        {pillars.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className="ov-pillar"
-            onClick={() => handleClick(p)}
-            data-pillar={p.id}
-          >
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: T.muted }}>
-              {p.title}
-            </div>
-            {loading ? (
-              <>
-                <Skel h={22} w="50%" />
-                <Skel h={32} />
-              </>
-            ) : (
-              <>
-                <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 4 }}>
-                  <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{p.primary}</span>
-                  {trendBadge(p.trendPct)}
-                  {p.badge ? (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 600,
-                        color: T.accent,
-                        background: `color-mix(in srgb, ${T.accent} 12%, transparent)`,
-                        padding: "2px 8px",
-                        borderRadius: 20,
-                        marginLeft: "auto",
-                      }}
-                    >
-                      {p.badge}
-                    </span>
+        {pillars.map((p) => {
+          const body = (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: T.muted }}>
+                {p.title}
+              </div>
+              {loading ? (
+                <>
+                  <Skel h={22} w="50%" />
+                  <Skel h={32} />
+                </>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 4 }}>
+                    <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{p.primary}</span>
+                    {trendBadge(p.trendPct)}
+                    {p.badge ? (
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 600,
+                          color: T.accent,
+                          background: `color-mix(in srgb, ${T.accent} 12%, transparent)`,
+                          padding: "2px 8px",
+                          borderRadius: 20,
+                          marginLeft: "auto",
+                        }}
+                      >
+                        {p.badge}
+                      </span>
+                    ) : null}
+                  </div>
+                  {p.spark && p.spark.length >= 2 ? (
+                    <Sparkline data={p.spark} color={T.accent} h={32} w={120} />
                   ) : null}
-                </div>
-                {p.spark && p.spark.length >= 2 ? (
-                  <Sparkline data={p.spark} color={T.accent} h={32} w={120} />
-                ) : null}
-                {p.secondary ? (
-                  <div style={{ fontSize: 10, color: T.muted }}>{p.secondary}</div>
-                ) : null}
-                {p.tertiary ? (
-                  <div style={{ fontSize: 10, color: T.muted }}>{p.tertiary}</div>
-                ) : null}
-              </>
-            )}
-          </button>
-        ))}
+                  {p.secondary ? (
+                    <div style={{ fontSize: 10, color: T.muted }}>{p.secondary}</div>
+                  ) : null}
+                  {p.tertiary ? (
+                    <div style={{ fontSize: 10, color: T.muted }}>{p.tertiary}</div>
+                  ) : null}
+                </>
+              )}
+            </>
+          );
+
+          if (p.id === "spend" && onRefreshSpend) {
+            return (
+              <div key={p.id} className="ov-pillar-wrap--spend" data-pillar={p.id}>
+                <button
+                  type="button"
+                  className="ov-pillar-refresh"
+                  aria-label="Refresh spend and usage"
+                  title="Refresh spend and usage"
+                  disabled={refreshingSpend || loading}
+                  onClick={() => onRefreshSpend()}
+                >
+                  {Ico.refresh}
+                </button>
+                <button type="button" className="ov-pillar" style={{ width: "100%", border: "none" }} onClick={() => handleClick(p)}>
+                  {body}
+                </button>
+              </div>
+            );
+          }
+
+          return (
+            <button key={p.id} type="button" className="ov-pillar" onClick={() => handleClick(p)} data-pillar={p.id}>
+              {body}
+            </button>
+          );
+        })}
       </div>
     </>
   );

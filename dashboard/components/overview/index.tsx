@@ -3,30 +3,26 @@
  * Inner Animal Media · Agent Sam Observability
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import '../../ops-overview-shell.css';
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ActivityData, AgentActivity, DashboardBundle, DeployData, KpiStripData, WorkflowData } from "./types";
 import { T, dashboardBundleUrl } from "./constants";
-import { OverviewToolbar } from "./OverviewToolbar";
 import { QuickNav } from "./panels/QuickNav";
 import { OpsPillars } from "./panels/OpsPillars";
 import { SpendChart } from "./panels/SpendChart";
-import { WorkflowPanel } from "./panels/WorkflowPanel";
-import { TopServices } from "./panels/TopServices";
-import { BudgetCard } from "./panels/BudgetCard";
 import { WorkflowRunsChart } from "./panels/WorkflowRunsChart";
 import { ToolWaterfall } from "./panels/ToolWaterfall";
 import { ErrorInbox } from "./panels/ErrorInbox";
 import { TokensChart } from "./panels/TokensChart";
-import { SystemPulseGrid } from "./panels/SystemPulseGrid";
 import { ModelIntelligenceCard } from "./panels/ModelIntelligenceCard";
-import { RagHealth } from "./panels/RagHealth";
 import { DeploymentsTimeline } from "./panels/DeploymentsTimeline";
 import { SystemHealth } from "./panels/SystemHealth";
-import { ActiveProjects } from "./panels/ActiveProjects";
-import { initRealtimeClient, useRealtimeSignal, type SignalTarget } from "../../hooks/useRealtimeSignal";
+import { OverviewLowerGrid } from "./panels/OverviewLowerGrid";
+import { bootstrapSupabaseFromSession, setSupabaseBootstrap } from "../../src/lib/supabase";
+import { useRealtimeSignal, type SignalTarget } from "../../hooks/useRealtimeSignal";
 
 const DEBOUNCE_MS = 3000;
-const FALLBACK_MS = 90_000;
+const POLL_MS = 30_000;
 const SIGNAL_FLASH_MS = 1500;
 
 export default function OverviewPage() {
@@ -44,12 +40,7 @@ export default function OverviewPage() {
 
   const lastFetch = useRef<Record<SignalTarget, number>>({
     execution: 0,
-    routing: 0,
     errors: 0,
-    tools: 0,
-    deploys: 0,
-    plans: 0,
-    stream: 0,
   });
   const signalFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -136,9 +127,17 @@ export default function OverviewPage() {
           setSupabaseUserId(uid);
         }
         if (cfgRes.ok) {
-          const cfg = (await cfgRes.json()) as { supabase_url?: string; supabase_anon_key?: string };
-          if (cfg.supabase_url && cfg.supabase_anon_key) {
-            initRealtimeClient(cfg.supabase_url, cfg.supabase_anon_key);
+          const cfg = (await cfgRes.json()) as {
+            supabaseUrl?: string;
+            supabaseAnonKey?: string;
+            supabase_url?: string;
+            supabase_anon_key?: string;
+          };
+          const url = String(cfg.supabaseUrl ?? cfg.supabase_url ?? "").trim();
+          const key = String(cfg.supabaseAnonKey ?? cfg.supabase_anon_key ?? "").trim();
+          if (url && key) {
+            setSupabaseBootstrap(url, key);
+            await bootstrapSupabaseFromSession();
           }
         } else if (cfgRes.status === 503 || cfgRes.status === 401) {
           setSignalError(true);
@@ -163,22 +162,8 @@ export default function OverviewPage() {
         case "execution":
           void refetchBundle();
           break;
-        case "routing":
-          void refetchBundle();
-          break;
         case "errors":
           void refetchBundle();
-          break;
-        case "tools":
-          void refetchBundle();
-          break;
-        case "deploys":
-          void refetchDeployments();
-          break;
-        case "plans":
-          void refetchBundle();
-          break;
-        case "stream":
           break;
         default:
           break;
@@ -197,7 +182,7 @@ export default function OverviewPage() {
     const id = setInterval(() => {
       void refetchSpend();
       void refetchLeaderboardCounts();
-    }, FALLBACK_MS);
+    }, POLL_MS);
     return () => clearInterval(id);
   }, [refetchSpend, refetchLeaderboardCounts]);
 
@@ -207,19 +192,6 @@ export default function OverviewPage() {
     };
   }, []);
 
-  const cost = kpi?.cost_usd ?? 0;
-  const top = activity?.projects?.top ?? [];
-
-  const topSvcEvents = useMemo(() => {
-    if (bundle?.top_services?.length) {
-      return bundle.top_services.map((t) => ({
-        type: String(t.tool_name || "tool"),
-        count: Math.round(Number(t.total_calls) || 0),
-      }));
-    }
-    return agent?.events ?? [];
-  }, [bundle?.top_services, agent?.events]);
-
   return (
     <>
       <style>{`
@@ -228,17 +200,9 @@ export default function OverviewPage() {
         .ov-wrap a{color:var(--accent-secondary, var(--solar-cyan, #2dd4bf));}
       `}</style>
       <div className="ov-wrap" style={{ fontFamily: T.font, background: T.bg, color: T.text, minHeight: "100vh", padding: "22px 26px", overflowX: "hidden" }}>
-        <OverviewToolbar
-          onRefresh={load}
-          refreshing={loading}
-          signalActive={signalActive}
-          signalError={signalError}
-          lastSignalAt={lastSignalAt}
-        />
-
         <QuickNav />
 
-        <OpsPillars bundle={bundle} loading={loading} />
+        <OpsPillars bundle={bundle} loading={loading} onRefreshSpend={load} refreshingSpend={loading} />
 
         <ModelIntelligenceCard
           perfRows={bundle?.model_leaderboard}
@@ -247,16 +211,11 @@ export default function OverviewPage() {
           routingTimeseries={bundle?.routing_timeseries}
         />
 
-        <div style={{ display: "grid", gridTemplateColumns: "3fr 1.1fr 1.1fr 1.1fr", gap: 10, marginBottom: 10 }}>
-          <div id="spend-chart" style={{ gridColumn: "span 3" }}>
-            <SpendChart spendRows={bundle?.spend_by_day_provider} />
-          </div>
-          <WorkflowPanel data={wf} workflowStats={bundle?.workflow_stats} />
-          <TopServices events={topSvcEvents} />
-          <BudgetCard cost={cost} budget={bundle?.budget} />
+        <div id="spend-chart" style={{ marginBottom: 10 }}>
+          <SpendChart spendRows={bundle?.spend_by_day_provider} />
         </div>
 
-        <SystemPulseGrid>
+        <OverviewLowerGrid>
           <div id="workflow-runs">
             <WorkflowRunsChart workflowTimeseries={bundle?.workflow_timeseries} stackRows={bundle?.workflow_by_day_status} />
           </div>
@@ -269,11 +228,7 @@ export default function OverviewPage() {
           <div id="tokens-chart">
             <TokensChart tokenTimeseries={bundle?.token_timeseries} />
           </div>
-        </SystemPulseGrid>
-
-        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-          <RagHealth />
-          <div id="deployments-timeline" style={{ flex: "2 1 380px", minWidth: 0 }}>
+          <div id="deployments-timeline">
             <DeploymentsTimeline
               data={dep}
               ghEvents={bundle?.github_push_events}
@@ -282,11 +237,7 @@ export default function OverviewPage() {
             />
           </div>
           <SystemHealth crons={bundle?.cron_latest} cronHeatmap={bundle?.cron_heatmap} />
-        </div>
-
-        <div id="active-plans">
-          <ActiveProjects projects={top} plans={bundle?.active_plans} />
-        </div>
+        </OverviewLowerGrid>
       </div>
     </>
   );

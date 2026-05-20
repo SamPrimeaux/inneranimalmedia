@@ -1,9 +1,18 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DashboardBundle } from "../types";
-import { T, STEP_COLORS, wfStepEpochSec } from "../constants";
-import { PulseCard, CardHeader, NavLink, Ico } from "../primitives";
-import { PulseEmpty } from "./PulseEmpty";
+import { T, STEP_COLORS, wfStepEpochSec, relTime } from "../constants";
+import { PulseCard, CardHeader, NavLink, Ico, Dot } from "../primitives";
 import { OVERVIEW_LINKS, go } from "../overviewLinks";
+
+type McpToolCall = {
+  id?: string;
+  tool_name?: string;
+  tool_display_name?: string;
+  status?: string;
+  invoked_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
+};
 
 function statusLabel(status: string | null | undefined) {
   const s = String(status || "").toLowerCase();
@@ -13,11 +22,49 @@ function statusLabel(status: string | null | undefined) {
   return { text: status ? String(status) : "—", color: T.muted };
 }
 
+function durationMs(row: McpToolCall): number {
+  const direct = Number(row.duration_ms);
+  if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+  const start = Date.parse(String(row.invoked_at || ""));
+  const end = Date.parse(String(row.completed_at || row.invoked_at || ""));
+  if (Number.isFinite(start) && Number.isFinite(end) && end >= start) return end - start;
+  return 0;
+}
+
+function isSuccessStatus(status: string | null | undefined): boolean {
+  const s = String(status || "").toLowerCase();
+  return s === "completed" || s === "success" || s === "ok";
+}
+
 export function ToolWaterfall({ toolWaterfall }: { toolWaterfall?: DashboardBundle["tool_waterfall"] }) {
   const rawSteps = toolWaterfall?.steps;
   const run = toolWaterfall?.run;
   const runId = run?.id ? String(run.id) : null;
   const hasLive = Boolean(rawSteps?.length);
+
+  const [recentCalls, setRecentCalls] = useState<McpToolCall[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+
+  useEffect(() => {
+    if (hasLive) return;
+    let cancelled = false;
+    setCallsLoading(true);
+    void (async () => {
+      try {
+        const r = await fetch("/api/mcp/tool-calls?limit=10&days=7", { credentials: "same-origin" });
+        if (!r.ok) return;
+        const j = (await r.json()) as { calls?: McpToolCall[] };
+        if (!cancelled) setRecentCalls((j.calls || []).slice(0, 10));
+      } catch {
+        /* non-fatal */
+      } finally {
+        if (!cancelled) setCallsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasLive]);
 
   const steps = useMemo(() => {
     if (!rawSteps?.length) return [];
@@ -70,6 +117,8 @@ export function ToolWaterfall({ toolWaterfall }: { toolWaterfall?: DashboardBund
   const runHref = runId ? OVERVIEW_LINKS.workflowRun(runId) : OVERVIEW_LINKS.workflowRuns;
   const badge = statusLabel(run?.status);
 
+  const showRecentList = !hasLive && recentCalls.length > 0;
+
   return (
     <PulseCard>
       <CardHeader
@@ -90,18 +139,79 @@ export function ToolWaterfall({ toolWaterfall }: { toolWaterfall?: DashboardBund
                 {badge.text}
               </span>
             ) : null}
-            <NavLink href={runHref} label={runId ? "Open run" : "Agent runs"} />
+            <NavLink href={runHref} label={runId ? "Open run" : "Open run"} />
           </span>
         }
       />
       <div className="ov-pulse-body">
-        {!hasLive ? (
-          <PulseEmpty
-            message="No execution steps yet. Complete a workflow run in this workspace to see the waterfall."
-            href={OVERVIEW_LINKS.workflowRuns}
-            linkLabel="View agent runs"
-          />
-        ) : (
+        {!hasLive && !showRecentList ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 140,
+              padding: "20px 12px",
+              border: `1px dashed ${T.border}`,
+              borderRadius: 8,
+              textAlign: "center",
+              gap: 10,
+            }}
+          >
+            <span style={{ fontSize: 11, color: T.muted }}>
+              {callsLoading ? "Loading recent tool calls…" : "No runs yet"}
+            </span>
+            <NavLink href={OVERVIEW_LINKS.workflowRuns} label="Open run" />
+          </div>
+        ) : null}
+
+        {showRecentList ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div
+              style={{
+                fontSize: 9,
+                color: T.muted,
+                marginBottom: 8,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              Recent tool calls (D1: agentsam_mcp_tool_execution)
+            </div>
+            {recentCalls.map((row, i) => {
+              const name = String(row.tool_display_name || row.tool_name || "tool").slice(0, 48);
+              const ms = durationMs(row);
+              const ok = isSuccessStatus(row.status);
+              return (
+                <div
+                  key={String(row.id || i)}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto auto",
+                    gap: 8,
+                    alignItems: "center",
+                    padding: "8px 0",
+                    borderBottom: i < recentCalls.length - 1 ? `1px solid ${T.border}` : "none",
+                    fontSize: 10,
+                  }}
+                >
+                  <span style={{ color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>
+                    {name}
+                  </span>
+                  <span style={{ color: T.muted, fontSize: 9 }}>{ms > 0 ? `${ms} ms` : "—"}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 9, color: T.muted }}>{relTime(row.invoked_at)}</span>
+                    <Dot c={ok ? T.green : T.red} />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {hasLive ? (
           <>
             {runTitle ? (
               <button
@@ -215,7 +325,7 @@ export function ToolWaterfall({ toolWaterfall }: { toolWaterfall?: DashboardBund
               </button>
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </PulseCard>
   );

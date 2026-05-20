@@ -11,6 +11,8 @@ type Props = {
   signalActive: boolean;
   signalError?: boolean;
   lastSignalAt?: Date | null;
+  /** When true, render nothing (e.g. /dashboard/overview uses inline refresh on Spend pillar). */
+  hidden?: boolean;
 };
 
 function readWorkspaceId(): string {
@@ -34,7 +36,9 @@ export function OverviewToolbar({
   signalActive,
   signalError = false,
   lastSignalAt,
+  hidden = false,
 }: Props) {
+  if (hidden) return null;
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
   const [workspaceId, setWorkspaceId] = useState(readWorkspaceId);
 

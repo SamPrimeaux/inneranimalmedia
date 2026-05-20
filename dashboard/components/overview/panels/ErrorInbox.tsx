@@ -41,6 +41,10 @@ function errorRowHref(r: { source?: string; source_id?: string | null; error_typ
   return OVERVIEW_LINKS.errors;
 }
 
+function rowKey(r: { source?: string; source_id?: string | null; created_at?: number; error_type?: string }, i: number) {
+  return `${r.source || ""}:${r.source_id || ""}:${r.created_at ?? i}:${r.error_type || ""}`;
+}
+
 export function ErrorInbox({
   errorLog,
   errorSeverityTimeseries,
@@ -48,7 +52,8 @@ export function ErrorInbox({
   errorLog?: DashboardBundle["error_log"];
   errorSeverityTimeseries?: DashboardBundle["error_severity_timeseries"];
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [listExpanded, setListExpanded] = useState(false);
+  const [openRowKey, setOpenRowKey] = useState<string | null>(null);
   const log = errorLog ?? [];
   const hasLive = log.length > 0;
 
@@ -73,17 +78,35 @@ export function ErrorInbox({
     { l: "Low", n: lo, c: T.accent, sev: "low" as const },
   ];
 
-  const rows = log.map((r) => {
+  const rows = log.map((r, i) => {
     const sev = r.severity;
     const c = severityColor(sev);
     const tag = formatErrorTypeTag(String(r.error_type || ""));
     const src = shortErrorSource(String(r.source || ""));
-    const msg = String(r.error_message || "").slice(0, 220);
+    const fullMsg = String(r.error_message || "");
+    const msg = fullMsg.slice(0, 220);
     const time = relTime(r.created_at);
-    return { time, tag, src, msg, c, sev, raw: r, href: errorRowHref(r) };
+    const key = rowKey(r, i);
+    const contextParts: string[] = [];
+    if (r.source) contextParts.push(`Source: ${r.source}`);
+    if (r.source_id) contextParts.push(`ID: ${r.source_id}`);
+    return {
+      key,
+      time,
+      tag,
+      src,
+      msg,
+      fullMsg,
+      context: contextParts.join(" · "),
+      c,
+      sev,
+      raw: r,
+      href: errorRowHref(r),
+      advisorsHref: OVERVIEW_LINKS.errors,
+    };
   });
 
-  const visible = expanded ? rows : rows.slice(0, PREVIEW_ROWS);
+  const visible = listExpanded ? rows : rows.slice(0, PREVIEW_ROWS);
   const hasMore = rows.length > PREVIEW_ROWS;
 
   return (
@@ -96,7 +119,7 @@ export function ErrorInbox({
             {hasMore ? (
               <button
                 type="button"
-                onClick={() => setExpanded((v) => !v)}
+                onClick={() => setListExpanded((v) => !v)}
                 style={{
                   fontSize: 10,
                   color: T.accent,
@@ -107,7 +130,7 @@ export function ErrorInbox({
                   fontFamily: T.font,
                 }}
               >
-                {expanded ? "Show less" : `View all (${rows.length})`}
+                {listExpanded ? "Show less" : `View all (${rows.length})`}
               </button>
             ) : (
               <NavLink href={OVERVIEW_LINKS.errors} label="Advisors" />
@@ -175,55 +198,88 @@ export function ErrorInbox({
               Recent
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {visible.map((e, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => go(e.href)}
-                  style={{
-                    display: "flex",
-                    gap: 7,
-                    alignItems: "flex-start",
-                    padding: "7px 0",
-                    borderBottom: i < visible.length - 1 ? `1px solid ${T.border}` : "none",
-                    background: "none",
-                    borderLeft: "none",
-                    borderRight: "none",
-                    borderTop: "none",
-                    cursor: "pointer",
-                    fontFamily: T.font,
-                    width: "100%",
-                    textAlign: "left",
-                  }}
-                >
-                  <span style={{ fontSize: 9, color: T.muted, width: 52, flexShrink: 0, marginTop: 2 }}>{e.time}</span>
-                  <span
+              {visible.map((e, i) => {
+                const isOpen = openRowKey === e.key;
+                return (
+                  <div
+                    key={e.key}
                     style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: e.c,
-                      background: `color-mix(in srgb, ${e.c} 18%, transparent)`,
-                      padding: "1px 6px",
-                      borderRadius: 3,
-                      flexShrink: 0,
+                      borderBottom: i < visible.length - 1 ? `1px solid ${T.border}` : "none",
                     }}
                   >
-                    {e.tag}
-                  </span>
-                  <span style={{ fontSize: 9, color: T.muted, lineHeight: 1.5, flex: 1, overflow: "hidden" }}>
-                    {e.src ? (
-                      <>
-                        <span style={{ color: T.text, opacity: 0.75 }}>{e.src}</span>
-                        {e.msg ? " · " : ""}
-                      </>
+                    <button
+                      type="button"
+                      onClick={() => setOpenRowKey((k) => (k === e.key ? null : e.key))}
+                      aria-expanded={isOpen}
+                      style={{
+                        display: "flex",
+                        gap: 7,
+                        alignItems: "flex-start",
+                        padding: "7px 0",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontFamily: T.font,
+                        width: "100%",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span style={{ fontSize: 9, color: T.muted, width: 52, flexShrink: 0, marginTop: 2 }}>{e.time}</span>
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: e.c,
+                          background: `color-mix(in srgb, ${e.c} 18%, transparent)`,
+                          padding: "1px 6px",
+                          borderRadius: 3,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {e.tag}
+                      </span>
+                      <span style={{ fontSize: 9, color: T.muted, lineHeight: 1.5, flex: 1, overflow: "hidden" }}>
+                        {e.src ? (
+                          <>
+                            <span style={{ color: T.text, opacity: 0.75 }}>{e.src}</span>
+                            {e.msg ? " · " : ""}
+                          </>
+                        ) : null}
+                        {isOpen ? e.fullMsg : e.msg}
+                      </span>
+                      <Dot c={e.c} />
+                    </button>
+                    {isOpen ? (
+                      <div
+                        style={{
+                          margin: "0 0 10px 59px",
+                          padding: "10px 12px",
+                          background: T.surf2,
+                          borderRadius: 8,
+                          border: `1px solid ${T.border}`,
+                          fontSize: 10,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <div style={{ color: T.text, whiteSpace: "pre-wrap", wordBreak: "break-word", marginBottom: 8 }}>
+                          {e.fullMsg || "—"}
+                        </div>
+                        {e.context ? (
+                          <div style={{ color: T.muted, fontSize: 9, marginBottom: 8 }}>{e.context}</div>
+                        ) : null}
+                        <a
+                          href={e.advisorsHref}
+                          style={{ fontSize: 10, color: T.accent, textDecoration: "none", fontWeight: 600 }}
+                        >
+                          View in Advisors →
+                        </a>
+                      </div>
                     ) : null}
-                    {e.msg}
-                  </span>
-                  <Dot c={e.c} />
-                </button>
-              ))}
+                  </div>
+                );
+              })}
             </div>
-            {!expanded && hasMore ? (
+            {!listExpanded && hasMore ? (
               <button
                 type="button"
                 onClick={() => go(OVERVIEW_LINKS.errors)}

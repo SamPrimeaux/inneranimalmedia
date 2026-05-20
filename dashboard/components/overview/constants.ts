@@ -31,14 +31,34 @@ export const T = {
   radius: "var(--border-radius, 10px)",
 };
 
+/** Provider chart / bar colors — CSS vars only (see ops-overview-shell or theme). */
+export const PROVIDER_COLORS = {
+  anthropic: "var(--color-provider-anthropic, var(--accent-orange, var(--color-warning-strong, var(--solar-yellow, #e6ac00))))",
+  openai: "var(--color-provider-openai, var(--accent-green, var(--color-success-strong, var(--solar-green, #22c55e))))",
+  google: "var(--color-provider-google, var(--accent-blue, var(--color-primary, var(--solar-blue, #3a9fe8))))",
+  workers_ai: "var(--color-provider-workers-ai, var(--accent-purple, var(--solar-violet, #7c83d4)))",
+  meta: "var(--color-provider-meta, var(--accent-blue, var(--solar-blue, #3a9fe8)))",
+  mistral: "var(--color-provider-mistral, var(--accent-orange, var(--solar-yellow, #e6ac00)))",
+  other: "var(--color-provider-other, var(--dashboard-muted, var(--text-muted, #8aa0aa)))",
+} as const;
+
 export const PC: Record<string, string> = {
-  openai: "#10a37f",
-  anthropic: "#d97706",
-  google: "#4285f4",
-  meta: "#1877f2",
-  mistral: "#ff6b35",
-  other: "#6b7280",
+  openai: PROVIDER_COLORS.openai,
+  anthropic: PROVIDER_COLORS.anthropic,
+  google: PROVIDER_COLORS.google,
+  workers_ai: PROVIDER_COLORS.workers_ai,
+  meta: PROVIDER_COLORS.meta,
+  mistral: PROVIDER_COLORS.mistral,
+  other: PROVIDER_COLORS.other,
 };
+
+/** Canonical provider groups for Model Intelligence bar chart (x-axis). */
+export const MODEL_PROVIDER_GROUPS = [
+  { key: "anthropic", label: "Anthropic" },
+  { key: "openai", label: "OpenAI" },
+  { key: "google", label: "Google" },
+  { key: "workers_ai", label: "Workers AI" },
+] as const;
 
 export const DAYS = ["May 8", "May 9", "May 10", "May 11", "May 12", "May 13", "May 14"];
 
@@ -168,6 +188,7 @@ export function provSlug(p: string): string {
   if (x.includes("openai")) return "openai";
   if (x.includes("anthropic")) return "anthropic";
   if (x.includes("google")) return "google";
+  if (x.includes("workers") || x.includes("cloudflare")) return "workers_ai";
   if (x.includes("meta") || x.includes("llama")) return "meta";
   if (x.includes("mistral")) return "mistral";
   return "other";
