@@ -22,7 +22,7 @@ SEARCH_TERMS = [
     "Good afternoon",
     "What are we building today",
     "Plan, Build",
-    "Create Skill",
+    "Quickstart",
     "View Artifacts",
     "Open Project",
     "Open Local Project",

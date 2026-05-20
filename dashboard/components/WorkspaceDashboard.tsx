@@ -23,7 +23,7 @@ interface WorkspaceDashboardProps {
   workspaceRows: Array<{ id: string; name: string }>;
   authWorkspaceId: string | null;
   onSwitchWorkspace: (id: string) => void;
-  onCreateSkill: () => void;
+  onQuickstart: () => void;
   onRunVerificationCommand?: (command: string) => void;
   onOpenEditor?: () => void;
   onOpenRecent: (entry: RecentFileEntry) => void;
@@ -69,7 +69,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   workspaceRows,
   authWorkspaceId,
   onSwitchWorkspace,
-  onCreateSkill,
+  onQuickstart,
   onRunVerificationCommand,
   onOpenRecent,
   workspacePlanTasks = [],
@@ -162,11 +162,11 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         <div className="flex items-center justify-center gap-3 flex-wrap animate-in fade-in slide-in-from-bottom-2 duration-1200 delay-300">
           <button
             type="button"
-            onClick={onCreateSkill}
+            onClick={onQuickstart}
             className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
           >
             <Zap size={14} />
-            <span>Create Skill</span>
+            <span>Quickstart</span>
           </button>
           <button
             type="button"

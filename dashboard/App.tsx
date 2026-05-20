@@ -8,12 +8,22 @@ import React, { useEffect, useRef, useState, useCallback, useMemo, Suspense, laz
 import { useLocation, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
+import { AgentQuickstartPage, type QuickstartTemplate } from './components/AgentQuickstartPage';
+import {
+  AGENT_HOME_PATH,
+  AGENT_QUICKSTART_PATH,
+  isAgentHomePath,
+  isAgentQuickstartPath,
+  isAgentShellPath,
+} from './lib/agentRoutes';
 import { MCPPanel } from './components/MCPPanel';
 import {
-  CREATE_SKILL_SEED_MESSAGE,
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
   LS_AGENT_CHAT_CONVERSATION_ID,
+  QUICKSTART_BATCH_LABEL,
+  QUICKSTART_WORKSPACE_ID,
+  type QuickstartThreadDetail,
 } from './agentChatConstants';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import { XTermShell, XTermShellHandle } from './components/XTermShell';
@@ -288,7 +298,7 @@ const App: React.FC = () => {
   // Monaco deep-link handler (Settings → MCP tool config).
   // Opens a new editor tab with payload content, then clears query params.
   useEffect(() => {
-    if (location.pathname !== '/dashboard/agent') return;
+    if (!isAgentHomePath(location.pathname)) return;
     const search = location.search || '';
     if (!search) return;
     const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
@@ -318,7 +328,7 @@ const App: React.FC = () => {
 
     // Clear query params but stay on the Agent route.
     try {
-      navigate('/dashboard/agent', { replace: true });
+      navigate(AGENT_HOME_PATH, { replace: true });
     } catch {
       // ignore
     }
@@ -582,7 +592,7 @@ const App: React.FC = () => {
   }, [authWorkspaceId]);
 
   useEffect(() => {
-    if (location.pathname !== '/dashboard/agent') return;
+    if (!isAgentHomePath(location.pathname)) return;
     const ws = authWorkspaceId?.trim();
     if (!ws) {
       setWorkspaceSamState(null);
@@ -1297,30 +1307,35 @@ const App: React.FC = () => {
     }
   }, [agentChatTabs.length, workspaceDisplayLine]);
 
-  const pendingNewThreadMessageRef = useRef<string | null>(null);
+  const pendingNewThreadMessageRef = useRef<QuickstartThreadDetail | null>(null);
 
-  const dispatchNewThreadMessage = useCallback((message: string) => {
+  const dispatchNewThreadMessage = useCallback((detail: QuickstartThreadDetail) => {
+    const message = detail.message?.trim();
+    if (!message) return;
     requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent(IAM_AGENT_CHAT_NEW_THREAD, {
-          detail: { message },
+          detail: { ...detail, message },
         }),
       );
     });
   }, []);
 
   const startAgentNewThreadWithMessage = useCallback(
-    (message: string) => {
-      const trimmed = message.trim();
-      if (!trimmed) return;
+    (detail: QuickstartThreadDetail | string) => {
+      const normalized: QuickstartThreadDetail =
+        typeof detail === 'string'
+          ? { message: detail.trim() }
+          : { ...detail, message: detail.message?.trim() ?? '' };
+      if (!normalized.message) return;
 
       const openPanelAndSend = () => {
         createNewAgentChatTab();
-        dispatchNewThreadMessage(trimmed);
+        dispatchNewThreadMessage(normalized);
       };
 
       if (agentPosition === 'off') {
-        pendingNewThreadMessageRef.current = trimmed;
+        pendingNewThreadMessageRef.current = normalized;
         setAgentPosition('right');
         return;
       }
@@ -1337,9 +1352,25 @@ const App: React.FC = () => {
     dispatchNewThreadMessage(pending);
   }, [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage]);
 
-  const startCreateSkillFlow = useCallback(() => {
-    startAgentNewThreadWithMessage(CREATE_SKILL_SEED_MESSAGE);
-  }, [startAgentNewThreadWithMessage]);
+  const openAgentQuickstart = useCallback(() => {
+    navigate(AGENT_QUICKSTART_PATH);
+  }, [navigate]);
+
+  const beginQuickstartTemplate = useCallback(
+    (template: QuickstartTemplate) => {
+      navigate(AGENT_HOME_PATH);
+      startAgentNewThreadWithMessage({
+        message: template.seedMessage,
+        task_type: template.task_type,
+        route_key: template.route_key,
+        quickstart_batch: QUICKSTART_BATCH_LABEL,
+        apply_eto_after_run: true,
+        workspace_id: QUICKSTART_WORKSPACE_ID,
+        modelKey: 'auto',
+      });
+    },
+    [navigate, startAgentNewThreadWithMessage],
+  );
 
   const selectAgentChatTab = useCallback(
     (tabId: string) => {
@@ -1509,8 +1540,8 @@ const App: React.FC = () => {
     const handleOpenR2Palette = (e: Event) => {
       const r2BucketName = (e as CustomEvent<{ bucket?: string }>).detail?.bucket?.trim();
       revealMainWorkspaceIfNarrow();
-      if (location.pathname !== '/dashboard/agent' && location.pathname !== '/dashboard/meet') {
-        navigate('/dashboard/agent');
+      if (!isAgentShellPath(location.pathname) && location.pathname !== '/dashboard/meet') {
+        navigate(AGENT_HOME_PATH);
       }
       setActiveActivity('files');
       if (r2BucketName) {
@@ -1666,8 +1697,8 @@ const App: React.FC = () => {
   ) => {
     if (activity === 'files' && typeof window !== 'undefined') {
       const p = window.location.pathname;
-      if (p !== '/dashboard/agent' && p !== '/dashboard/meet') {
-        navigate('/dashboard/agent');
+      if (!isAgentShellPath(p) && p !== '/dashboard/meet') {
+        navigate(AGENT_HOME_PATH);
       }
     }
     setActiveActivity((prev) => {
@@ -1969,7 +2000,7 @@ const App: React.FC = () => {
   }, [activeActivity, isNarrowViewport]);
 
   useEffect(() => {
-    if (activeActivity === 'files' && location.pathname !== '/dashboard/agent') {
+    if (activeActivity === 'files' && !isAgentShellPath(location.pathname)) {
       setActiveActivity(null);
     }
   }, [location.pathname, activeActivity]);
@@ -1979,12 +2010,12 @@ const App: React.FC = () => {
       const detail = (e as CustomEvent<{ activity?: string; r2Bucket?: string }>).detail;
       const act = detail?.activity;
       if (!act) return;
-      if (act === 'files' && location.pathname !== '/dashboard/agent' && location.pathname !== '/dashboard/meet') {
-        navigate('/dashboard/agent');
+      if (act === 'files' && !isAgentShellPath(location.pathname) && location.pathname !== '/dashboard/meet') {
+        navigate(AGENT_HOME_PATH);
       }
       if (act === 'remote') {
-        if (location.pathname !== '/dashboard/agent' && location.pathname !== '/dashboard/meet') {
-          navigate('/dashboard/agent');
+        if (!isAgentShellPath(location.pathname) && location.pathname !== '/dashboard/meet') {
+          navigate(AGENT_HOME_PATH);
         }
         setActiveActivity('files');
         const paletteBucket = detail?.r2Bucket?.trim();
@@ -2607,7 +2638,7 @@ const App: React.FC = () => {
                               className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
                               onClick={() => {
                                   setTopChromeMoreOpen(false);
-                                  navigate('/dashboard/agent');
+                                  navigate(AGENT_HOME_PATH);
                                   queueMicrotask(() => openTab('excalidraw'));
                               }}
                           >
@@ -2664,7 +2695,7 @@ const App: React.FC = () => {
                 active={location.pathname.startsWith('/dashboard/analytics')}
                 onClick={() => navigate('/dashboard/analytics/overview')}
               />
-              <ActivityRailItem icon={Bot} label="Agent" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/agent'} onClick={() => navigate('/dashboard/agent')} />
+              <ActivityRailItem icon={Bot} label="Agent" expanded={sidebarRailExpanded} active={isAgentShellPath(location.pathname)} onClick={() => navigate(AGENT_HOME_PATH)} />
               <ActivityRailItem
                 icon={Network}
                 label="Workflows"
@@ -2806,7 +2837,7 @@ const App: React.FC = () => {
                       <MeetProvider value={meetCtxValue}>
                         <MeetShellPanel />
                       </MeetProvider>
-                  ) : activeActivity === 'files' && location.pathname === '/dashboard/agent' ? (
+                  ) : activeActivity === 'files' && isAgentHomePath(location.pathname) ? (
                       <LocalExplorer
                           workspace_id={authWorkspaceId}
                           user_id={sessionUserId}
@@ -2853,7 +2884,7 @@ const App: React.FC = () => {
                         <button
                           type="button"
                           className="text-[11px] px-3 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] transition-colors"
-                          onClick={() => navigate('/dashboard/agent')}
+                          onClick={() => navigate(AGENT_HOME_PATH)}
                         >
                           Go to Agent
                         </button>
@@ -2888,7 +2919,7 @@ const App: React.FC = () => {
               onDragOver={handleMainDragOver}
           >
               {/* Dashboard page routes — non-agent pages render here */}
-              {location.pathname !== '/dashboard/agent' ? (
+              {!isAgentShellPath(location.pathname) ? (
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)] flex flex-col">
                   <Suspense fallback={<DashboardRoutesFallback />}>
                     <Routes>
@@ -3045,7 +3076,16 @@ const App: React.FC = () => {
               {/* Editor + optional aux bottom + terminal — flex column so drawer respects drag height */}
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
                   <div className="flex-1 min-h-0 relative flex flex-col">
-                  {location.pathname === '/dashboard/agent' && activeTab === 'Workspace' && (
+                  {isAgentQuickstartPath(location.pathname) && (
+                      <div className="absolute inset-0 z-10">
+                          <AgentQuickstartPage
+                            onBack={() => navigate(AGENT_HOME_PATH)}
+                            onBegin={beginQuickstartTemplate}
+                          />
+                      </div>
+                  )}
+
+                  {isAgentHomePath(location.pathname) && activeTab === 'Workspace' && (
                       <div className="absolute inset-0 z-10">
                           <WorkspaceDashboard 
                             onOpenFolder={() => {
@@ -3062,7 +3102,7 @@ const App: React.FC = () => {
                             workspaceRows={workspaceRows}
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
-                            onCreateSkill={startCreateSkillFlow}
+                            onQuickstart={openAgentQuickstart}
                             onRunVerificationCommand={runVerificationInAgent}
                             onOpenEditor={focusCodeEditorFromChat}
                             workspacePlanTasks={Array.isArray(workspaceSamState?.next_tasks) ? (workspaceSamState!.next_tasks as unknown[]) : []}
@@ -3159,7 +3199,7 @@ const App: React.FC = () => {
               )}
 
               {/* Global terminal drawer — non-agent routes only (/dashboard/agent uses in-layout XTermShell) */}
-              {location.pathname !== '/dashboard/agent' && (
+              {!isAgentShellPath(location.pathname) && (
               <div
                 style={{
                   display: isTerminalOpen ? 'flex' : 'none',

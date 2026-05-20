@@ -43,6 +43,7 @@ import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
   LS_AGENT_CHAT_CONVERSATION_ID,
+  type QuickstartThreadDetail,
 } from '../../agentChatConstants';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
 import type {
@@ -90,6 +91,26 @@ import '../agent-presence/presenceMotion.css';
 import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
 import { derivePresenceState } from '../agent-presence/iamDerivePresenceState';
 
+type ChatRoutingSendOpts = {
+  modelKey?: string;
+  task_type?: string;
+  route_key?: string;
+  quickstart_batch?: string;
+  apply_eto_after_run?: boolean;
+  workspace_id?: string;
+};
+
+function routingSendOptsFromDetail(detail?: QuickstartThreadDetail | null): ChatRoutingSendOpts | undefined {
+  if (!detail) return undefined;
+  const opts: ChatRoutingSendOpts = {};
+  if (detail.modelKey?.trim()) opts.modelKey = detail.modelKey.trim();
+  if (detail.task_type?.trim()) opts.task_type = detail.task_type.trim();
+  if (detail.route_key?.trim()) opts.route_key = detail.route_key.trim();
+  if (detail.quickstart_batch?.trim()) opts.quickstart_batch = detail.quickstart_batch.trim();
+  if (detail.apply_eto_after_run) opts.apply_eto_after_run = true;
+  if (detail.workspace_id?.trim()) opts.workspace_id = detail.workspace_id.trim();
+  return Object.keys(opts).length ? opts : undefined;
+}
 
 export { IAM_AGENT_CHAT_CONVERSATION_CHANGE, IAM_AGENT_CHAT_NEW_THREAD } from '../../agentChatConstants';
 
@@ -392,21 +413,22 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
     
     const onExternalSend = (e: Event) => {
-      const detail = (e as CustomEvent<{ message?: string; modelKey?: string }>).detail;
+      const detail = (e as CustomEvent<QuickstartThreadDetail>).detail;
       const msg = detail?.message?.trim();
       if (!msg) return;
-      void handleSend(msg, detail?.modelKey?.trim() ? { modelKey: detail.modelKey.trim() } : undefined);
+      void handleSend(msg, routingSendOptsFromDetail(detail));
     };
     window.addEventListener('iam-agent-external-send', onExternalSend);
 
     const onNewThreadMessage = (e: Event) => {
-      const msg = (e as CustomEvent<{ message?: string }>).detail?.message?.trim();
+      const detail = (e as CustomEvent<QuickstartThreadDetail>).detail;
+      const msg = detail?.message?.trim();
       if (!msg) return;
       setMobileThreadTab('chat');
       setThreadTitle('New Chat');
       setPythonDraftHint(null);
       queueMicrotask(() => {
-        void handleSend(msg);
+        void handleSend(msg, routingSendOptsFromDetail(detail));
       });
     };
     window.addEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
@@ -1145,7 +1167,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
   }, [pendingToolApproval, setMessages]);
 
-  async function handleSend(overrideMessage?: string, sendOpts?: { modelKey?: string }) {
+  async function handleSend(overrideMessage?: string, sendOpts?: ChatRoutingSendOpts) {
     const text = overrideMessage ?? input;
     const rawModelKey = (sendOpts?.modelKey?.trim() || selectedModelKey || AUTO_MODEL_KEY).trim();
     const useAutoRouting = isAutoModelSelection(rawModelKey);
@@ -1258,6 +1280,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
 
     const effectiveWsId = (() => {
+      const fromQuickstart = sendOpts?.workspace_id?.trim();
+      if (fromQuickstart && fromQuickstart !== 'global') return fromQuickstart;
       const fromProp = workspaceId != null ? String(workspaceId).trim() : '';
       if (fromProp && fromProp !== 'global') return fromProp;
       if (typeof window === 'undefined') return '';
@@ -1280,6 +1304,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     form.append('conversationId', effectiveConvId);
     form.append('contextMode', String(activeProject));
     if (effectiveWsId) form.append('workspace_id', effectiveWsId);
+    if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
+    if (sendOpts?.route_key?.trim()) form.append('route_key', sendOpts.route_key.trim());
+    if (sendOpts?.quickstart_batch?.trim()) {
+      form.append('quickstart_batch', sendOpts.quickstart_batch.trim());
+    }
+    if (sendOpts?.apply_eto_after_run) {
+      form.append('apply_eto_after_run', 'true');
+    }
     try {
       const browserCtxPayload: Record<string, unknown> = {
         ...(browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object' ? browserSurfaceRef.current : {}),
