@@ -223,11 +223,20 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     options.routingTaskType != null ? String(options.routingTaskType).trim() : '';
   const isScoutTask = SCOUT_TASK_TYPES.has(routingTaskType);
 
-  // Effort: Opus 4.7 only via output_config (top-level `effort` → 400; Sonnet scout runs use Haiku).
-  if (isOpus47 && !isHaiku && !isScoutTask && features.effort_scaling !== false) {
+  // Effort — DB-driven via features.supports_effort_scaling.
+  // Sonnet 4.6, Opus 4.6, Opus 4.7 all support effort per /v1/models capabilities.
+  // Haiku does not. Add new models by setting supports_effort_scaling=true
+  // in agentsam_ai.features_json — no code change required.
+  const supportsEffort =
+    features.supports_effort_scaling === true ||
+    features.supports_effort_scaling === 1;
+
+  if (supportsEffort && !isScoutTask) {
     const effortVal =
       options.effort ||
-      (modelData.effort != null && String(modelData.effort).trim() !== '' ? modelData.effort : null);
+      (modelData.effort != null && String(modelData.effort).trim() !== ''
+        ? String(modelData.effort).trim()
+        : null);
     if (effortVal) {
       const existingOut =
         streamParams.output_config && typeof streamParams.output_config === 'object'
@@ -237,33 +246,43 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     }
   }
 
+  // Thinking — driven entirely by agentsam_ai.thinking_mode.
+  // Values (set in DB; never hardcode model names here):
+  //   'none'                 → no thinking param (Haiku scout role)
+  //   'adaptive'             → {type:'adaptive'} only — Opus 4.7 rejects 'enabled'
+  //   'adaptive_and_enabled' → {type:'enabled',budget_tokens} if budget provided,
+  //                            else {type:'adaptive'} — Sonnet 4.6, Opus 4.6
+  // To support a new model: update thinking_mode in agentsam_ai row only.
+  const thinkingMode = String(modelData.thinking_mode || 'none').trim();
+
   if (options.thinking && typeof options.thinking === 'object') {
-    streamParams.thinking = options.thinking;
-  } else if (
-    isHaiku &&
-    (catalogCap?.thinking_policy === 'adaptive_only' || features.thinking_policy === 'adaptive_only')
-  ) {
-    // Haiku 4.5: adaptive thinking enabled; no effort / no code_execution (catalog scout lane).
+    // Explicit object passed by caller — validate against model capability before forwarding.
+    const requestedType = String(options.thinking.type || '');
+    if (thinkingMode === 'none') {
+      // Strip — model not using thinking operationally (e.g. Haiku).
+    } else if (thinkingMode === 'adaptive' && requestedType === 'enabled') {
+      // Downgrade: model only supports adaptive (Opus 4.7 returns 400 on 'enabled').
+      streamParams.thinking = { type: 'adaptive' };
+    } else {
+      streamParams.thinking = options.thinking;
+    }
+  } else if (thinkingMode === 'none' || isScoutTask) {
+    // No thinking — scout task or model has no operational thinking mode.
+  } else if (thinkingMode === 'adaptive') {
+    // Opus 4.7: adaptive only — budget_tokens causes 400.
     streamParams.thinking = { type: 'adaptive' };
-  } else if (isOpus47) {
-    // Opus 4.7: do not set thinking.type = 'enabled' (API error). Adaptive via effort/betas only.
-  } else if (isSonnet46 && !isScoutTask && options.thinkingBudget) {
-    streamParams.thinking = {
-      type: 'enabled',
-      budget_tokens: Number(options.thinkingBudget),
-    };
-  } else if (
-    !isHaiku &&
-    !isScoutTask &&
-    features.thinking &&
-    options.thinkingBudget &&
-    catalogCap?.thinking_policy === 'adaptive_and_enabled'
-  ) {
-    streamParams.thinking = {
-      type: 'enabled',
-      budget_tokens: Number(options.thinkingBudget),
-    };
+  } else if (thinkingMode === 'adaptive_and_enabled') {
+    // Sonnet 4.6 / Opus 4.6: use enabled+budget if provided, else adaptive.
+    if (options.thinkingBudget && Number(options.thinkingBudget) > 0) {
+      streamParams.thinking = {
+        type: 'enabled',
+        budget_tokens: Number(options.thinkingBudget),
+      };
+    } else {
+      streamParams.thinking = { type: 'adaptive' };
+    }
   }
+  // Any unknown future thinking_mode value → no param sent (safe default).
 
   // 3. Structured Output Config (GA moving from legacy output_format)
   if (options.jsonSchema) {
