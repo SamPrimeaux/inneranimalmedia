@@ -6827,22 +6827,18 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
     const runStartedAt = chatT0;
     // DB-driven timeout via agentsam_ai.default_timeout_ms — never hardcoded
-    let resolvedModel = null;
+    // Timeout from agentsam_ai.default_timeout_ms — single lightweight query, never blocks stream.
+    // resolveModelForTask() runs post-stream via ctx.waitUntil (Thompson cron handles arm updates).
+    let _timeoutMs = null;
     try {
-      resolvedModel = await resolveModelForTask(env, {
-        task_type:           resolvedRoutingTaskType ?? 'chat',
-        mode:                requestedMode ?? 'auto',
-        requested_model_key: rawRequestedKey || explicitRow?.model_key || null,
-        routing_arm_id:      routingArmIdForRun || null,
-        workspace_id:        resolvedWorkspaceId,
-        tenant_id:           tenantId,
-        require_tools:       requireTools,
-      });
-    } catch (e) {
-      console.warn('[agent] resolveModelForTask:', e?.message ?? e);
-    }
+      const _aiRow = await env.DB?.prepare(
+        `SELECT default_timeout_ms FROM agentsam_ai
+         WHERE model_key = ? AND status = 'active' LIMIT 1`,
+      ).bind(fallbackModelKeys[0] || '').first();
+      if (_aiRow?.default_timeout_ms) _timeoutMs = Number(_aiRow.default_timeout_ms);
+    } catch (_) {}
     const maxRunMsChat =
-      resolvedModel?.timeout_ms ||
+      _timeoutMs ||
       Number(modeConfig?.max_runtime_ms) ||
       Number(body?.max_runtime_ms) ||
       90000;

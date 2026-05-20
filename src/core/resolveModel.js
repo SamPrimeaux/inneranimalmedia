@@ -54,46 +54,27 @@ export function computeCostUsd(resolvedModel, {
 //    Marsaglia-Tsang gamma + Box-Muller normal. No external deps.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function _normalSample() {
-  // Box-Muller transform
-  let u, v;
-  do { u = Math.random(); } while (u === 0);
-  do { v = Math.random(); } while (v === 0);
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-
-function _gammaSample(alpha) {
-  // Marsaglia & Tsang (2000) for alpha >= 1
-  // Ahrens-Dieter reduction for alpha < 1
-  if (alpha < 1) return _gammaSample(1 + alpha) * Math.pow(Math.random(), 1 / alpha);
-  const d = alpha - 1 / 3;
-  const c = 1 / Math.sqrt(9 * d);
-  for (;;) {
-    let x, v;
-    do {
-      x = _normalSample();
-      v = 1 + c * x;
-    } while (v <= 0);
-    v = v * v * v;
-    const u = Math.random();
-    if (u < 1 - 0.0331 * x * x * x * x) return d * v;
-    if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
-  }
-}
-
 /**
- * Draw a sample from Beta(alpha, beta).
- * Used for Thompson sampling: arm with highest draw wins.
+ * Draw a sample from Beta(alpha, beta) via normal approximation.
+ * No infinite loops — safe for Cloudflare Workers single-threaded runtime.
+ * Accurate enough for Thompson sampling (mean + variance match exactly).
+ *
  * @param {number} alpha - success count + 1 (prior)
  * @param {number} beta  - failure count + 1 (prior)
- * @returns {number} sample in (0, 1)
+ * @returns {number} sample in (0.001, 0.999)
  */
 export function betaSample(alpha, beta) {
-  const a = Math.max(0.01, Number(alpha) || 1);
-  const b = Math.max(0.01, Number(beta)  || 1);
-  const x = _gammaSample(a);
-  const y = _gammaSample(b);
-  return x / (x + y);
+  const a   = Math.max(0.1, Number(alpha) || 1);
+  const b   = Math.max(0.1, Number(beta)  || 1);
+  const sum = a + b;
+  // Exact Beta mean and variance
+  const mean = a / sum;
+  const std  = Math.sqrt((a * b) / (sum * sum * (sum + 1)));
+  // Box-Muller normal sample — O(1), no loops
+  const u1 = Math.max(1e-10, Math.random());
+  const u2 = Math.random();
+  const normal = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return Math.max(0.001, Math.min(0.999, mean + std * normal));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
