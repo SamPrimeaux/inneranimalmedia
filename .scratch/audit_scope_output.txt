@@ -1,0 +1,219 @@
+/Users/samprimeaux/inneranimalmedia/audit_scope_hardcoding.py:54: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  ['grep', '-n', 'loadToolsForRequest\|loadTools\|workspace_scope\|user_id.*tool\|tool.*user_id',
+======================================================================
+1. HARDCODED sam user (au_871d920d1233cbd1) in migrations
+======================================================================
+/Users/samprimeaux/inneranimalmedia/migrations/231_register_time_skills.sql-5-    id, user_id, name, description, is_active, created_at, updated_at, access_mode, sort_order, slash_trigger, tags
+/Users/samprimeaux/inneranimalmedia/migrations/231_register_time_skills.sql-6-) VALUES 
+/Users/samprimeaux/inneranimalmedia/migrations/231_register_time_skills.sql:7:('time.now', 'au_871d920d1233cbd1', 'Get Current Time', 'Retrieves the current ISO, Unix, and local time for a specific timezone.', 1, unixepoch(), unixepoch(), 'read_only', 130, '/now', 'temporal,time,sota'),
+/Users/samprimeaux/inneranimalmedia/migrations/231_register_time_skills.sql:8:('time.convert', 'au_871d920d1233cbd1', 'Convert Timezone', 'Converts a specific time string to a target timezone.', 1, unixepoch(), unixepoch(), 'read_only', 140, '/tz', 'temporal,time,sota');
+--
+/Users/samprimeaux/inneranimalmedia/migrations/230_register_imessage_skills.sql-8-    id, user_id, name, description, is_active, created_at, updated_at, access_mode, sort_order, slash_trigger, tags
+/Users/samprimeaux/inneranimalmedia/migrations/230_register_imessage_skills.sql-9-) VALUES 
+/Users/samprimeaux/inneranimalmedia/migrations/230_register_imessage_skills.sql:10:('imessage.send', 'au_871d920d1233cbd1', 'Send iMessage', 'Sends a text message to a specific chat GUID via BlueBubbles.', 1, unixepoch(), unixepoch(), 'read_write', 100, '/sms', 'communication,imessage,bluebubbles,sota'),
+/Users/samprimeaux/inneranimalmedia/migrations/230_register_imessage_skills.sql:11:('imessage.list', 'au_871d920d1233cbd1', 'List iMessage Chats', 'Retrieves the list of recent conversations from iMessage.', 1, unixepoch(), unixepoch(), 'read_only', 110, '/chats', 'communication,imessage,bluebubbles,sota'),
+/Users/samprimeaux/inneranimalmedia/migrations/230_register_imessage_skills.sql:12:('imessage.history', 'au_871d920d1233cbd1', 'Fetch iMessage History', 'Retrieves the conversation history for a specific chat GUID.', 1, unixepoch(), unixepoch(), 'read_only', 120, '/history', 'communication,imessage,bluebubbles,sota');
+--
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-3--- Step 1: Consolidate legacy user_id formats to canonical au_ format
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-4-UPDATE agentsam_memory
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql:5:SET user_id = 'au_871d920d1233cbd1'
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-6-WHERE user_id IN ('sam_primeaux', 'usr_sam_iam', 'usr_sam_primeaux', 'au_77a622faf006c9e4')
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-7-  AND tenant_id = 'tenant_sam_primeaux';
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-8-
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-9--- Step 2: Recreate table — strip hardcoded defaults, fix UNIQ
+
+--- HARDCODED seed user (au_77a622faf006c9e4) in migrations ---
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-4-UPDATE agentsam_memory
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-5-SET user_id = 'au_871d920d1233cbd1'
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql:6:WHERE user_id IN ('sam_primeaux', 'usr_sam_iam', 'usr_sam_primeaux', 'au_77a622faf006c9e4')
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-7-  AND tenant_id = 'tenant_sam_primeaux';
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-8-
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-9--- Step 2: Recreate table — strip hardcoded defaults, fix UNIQUE key
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-10-CREATE TABLE agentsam_memory_new (
+/Users/samprimeaux/inneranimalmedia/migrations/269_memory_canonical_user_unique.sql-11-  id               TEXT    PRIMARY KEY DEFAULT ('mem_' || lower(hex(randomblob(8)))),
+
+--- HARDCODED workspace (ws_inneranimalmedia) in migrations ---
+/Users/samprimeaux/inneranimalmedia/migrations/202_projects_iam_tools_fix_projects_check.sql-25-  'inneranimalmedia.com',
+/Users/samprimeaux/inneranimalmedia/migrations/202_projects_iam_tools_fix_projects_check.sql-26-  'Monaco, Excalidraw, and shell artifacts in TOOLS R2 (tools.inneranimalmedia.com). Workflows wf_iam_*; CIDI; agentsam_project_context ctx_iam_tools_agent_workspace.',
+/Users/samprimeaux/inneranimalmedia/migrations/202_projects_iam_tools_fix_projects_check.sql:27:  '{"agentsam_project_context_id":"ctx_iam_tools_agent_workspace","workspace_ids":["ws_agentsandbox","ws_inneranimalmedia"],"workspace_project_ids":["wp_agentsandbox_iam_shell","wp_inneranimalmedia"],"vectorize_index_registry_id":"vidx_tools_agent_workspace"}',
+/Users/samprimeaux/inneranimalmedia/migrations/202_projects_iam_tools_fix_projects_check.sql-28-  '["iam","tools","agent-workspace","cidi","workflows"]',
+/Users/samprimeaux/inneranimalmedia/migrations/202_projects_iam_tools_fix_projects_check.sql-29-  88
+/Users/samprimeaux/inneranimalmedia/migrations/202_projects_iam_tools_fix_projects_check.sql-30-);
+--
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql-27-  id,
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql-28-  NULL,
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql:29:  -- normalize: '' → NULL, 'inneranimalmedia' → 'ws_inneranimalmedia'
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql-30-  CASE
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql-31-    WHEN workspace_id = '' OR workspace_id IS NULL THEN NULL
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql:32:    WHEN workspace_id = 'inneranimalmedia' THEN 'ws_inneranimalmedia'
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql-33-    ELSE workspace_id
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignment.sql-34-  END,
+/Users/samprimeaux/inneranimalmedia/migrations/273_hook_alignme
+
+======================================================================
+2. loadToolsForRequest — how it scopes tool rows to the current user
+======================================================================
+/Users/samprimeaux/inneranimalmedia/src/tools/db.js:38:       (tenant_id, session_id, tool_name, status, duration_ms, cost_usd, input_tokens, output_tokens, user_id, workspace_id, error_message, input_summary)
+/Users/samprimeaux/inneranimalmedia/src/tools/db.js-39-       VALUES (?, ?, 'd1_query', 'error', 0, 0, 0, 0, ?, ?, ?, ?)`,
+/Users/samprimeaux/inneranimalmedia/src/tools/db.js-40-    )
+/Users/samprimeaux/inneranimalmedia/src/tools/db.js-41-    .bind(tenantId, sessionId, userId, workspaceId, err, inputSum)
+/Users/samprimeaux/inneranimalmedia/src/tools/db.js-42-    .run()
+/Users/samprimeaux/inneranimalmedia/src/tools/db.js-43-    .catch(() => {});
+--
+/Users/samprimeaux/inneranimalmedia/src/tools/builtin/github-worker.js:16:  if (!u) return { error: 'user_id required for GitHub tools' };
+/Users/samprimeaux/inneranimalmedia/src/tools/builtin/github-worker.js-17-  const row = await getIntegrationToken(env, u.id, 'github', '');
+/Users/samprimeaux/inneranimalmedia/src/tools/builtin/github-worker.js-18-  const token = await resolveOAuthAccessToken(env, row);
+/Users/samprimeaux/inneranimalmedia/src/tools/builtin/github-worker.js-19-  if (!token) return { error: 'GitHub account not linked (connect in Integrations)' };
+/Users/samprimeaux/inneranimalmedia/src/tools/builtin/github-worker.js-20-  return { token, user: u };
+/Users/samprimeaux/inneranimalmedia/src/tools/builtin/github-worker.js-21-}
+--
+/Users/samprimeaux/inneranimalmedia/src/core/auth.js:589:          user_id:       row.id,          // alias for tool / MCP scope resolution
+/Users/samprimeaux/inneranimalmedia/src/core/auth.js-590-          person_uuid:   row.person_uuid,
+/Users/samprimeaux/inneranimalmedia/src/core/auth.js-591-          email:         row.email,
+/Users/samprimeaux/inneranimalmedia/src/core/auth.js-592-          name:          row.name,
+/Users/samprimeaux/inneranimalmedia/src/core/auth.js-593-          display_name:  row.display_name ?? row.name ?? null,
+/Users/samprimeaux/inneranimalmedia/src/core/auth.js-594-          avatar_url:    row.avatar_url ?? null,
+--
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js:340:           (id, tenant_id, workspace_id, user_id, workflow_run_id, tool_name, action_summary,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-341-            input_json, risk_level, approval_type, status, created_at)
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-342-           VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', unixepoch())`,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-343-        ).bind(
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-344-          approvalId,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-345-          meta.tenantId,
+--
+/Users/samprimeaux/inneranimalmedia/src/core/bootstrap.js:69: * Do not hardcode tenant_id, workspace_id, user_id, person_uuid, or auth IDs in runtime API/tool/agent
+/Users/samprimeaux/inneranimalmedia/src/core/boots
+
+======================================================================
+3. agentsam_mcp_tools runtime query — does it filter by user_id/workspace?
+======================================================================
+
+  agent.js line 1675:
+    1673:   if (env.DB && ws) {
+    1674:     const appr = await env.DB.prepare(
+    1675:       `SELECT requires_approval FROM agentsam_mcp_tools
+    1676:        WHERE tool_key = ? AND workspace_id = ? AND COALESCE(is_active, 1) = 1
+    1677:        LIMIT 1`,
+    1678:     )
+    1679:       .bind(name, ws)
+    1680:       .first()
+    1681:       .catch(() => null);
+    1682:     registryRequiresApproval = Number(appr?.requires_approval || 0) === 1;
+
+======================================================================
+4. agentsam_tools runtime query — does it filter by workspace_scope?
+======================================================================
+
+  agent.js line 7110:
+    7108:         const tRow = await env.DB
+    7109:           .prepare(
+    7110:             `SELECT id, requires_approval FROM agentsam_tools
+    7111:              WHERE lower(trim(tool_name)) = ? AND COALESCE(is_active, 1) = 1
+    7112:              LIMIT 1`,
+    7113:           )
+    7114:           .bind(toolName.toLowerCase())
+    7115:           .first();
+    7116:         if (tRow?.id) requiresApproval = Number(tRow.requires_approval || 0) === 1;
+    7117:         if (!tRow?.id) {
+
+======================================================================
+5. agentsam_approval_queue INSERT — session-scoped or hardcoded?
+======================================================================
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js:600:        .prepare(`INSERT INTO agentsam_approval_queue (${ac.join(', ')}) VALUES (${apprPh})`)
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-601-        .bind(...ab)
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-602-        .run();
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-603-
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-604-      if (estepId && approvalPk) {
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-605-        await env.DB
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-606-          .prepare(
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-607-            `UPDATE agentsam_execution_steps SET approval_id = ?, status = 'approval_pending', output_json = ? WHERE id = ?`,
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-608-          )
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-609-          .bind(
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-610-            approvalPk,
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-611-            JSON.stringify({
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-612-              gate_results_json: { approval_required: true, capability_type: cap },
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-613-              approval_required: true,
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-614-            }).slice(0, 16000),
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js-615-            estepId,
+--
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js:339:          `INSERT INTO agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-340-           (id, tenant_id, workspace_id, user_id, workflow_run_id, tool_name, action_summary,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-341-            input_json, risk_level, approval_type, status, created_at)
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-342-           VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', unixepoch())`,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-343-        ).bind(
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-344-          approvalId,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-345-          meta.tenantId,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-346-          meta.workspaceId,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-347-          meta.userId,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-348-          runContext.runId,
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js-349-          `workflow:${String(node.node_key || 'gate').slice(0, 120)}`,
+/Users/samprimeaux/inneranimalmedia/src/
+
+======================================================================
+6. change_sets INSERT — session-scoped?
+======================================================================
+
+  line 116:
+    113:   const changeSetId = newChangeSetId();
+    114: 
+    115:   await env.DB.prepare(
+    116:     `INSERT INTO change_sets (
+    117:       id, tenant_id, workspace_id, user_id, agent_run_id, conversation_id,
+    118:       source, file_path, r2_bucket, r2_key, github_repo, github_path, github_branch,
+    119:       drive_file_id, proposed_content, status
+    120:     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    121:   )
+    122:     .bind(
+    123:       changeSetId,
+    124:       ctx.tenantId,
+    125:       ctx.workspaceId || null,
+    126:       ctx.userId,
+    127:       ctx.agentRunId || null,
+    128:       ctx.conversationId || null,
+    129:       envelope.source,
+    130:       filePath,
+    131:       envelope.r2Bucket || null,
+    132:       envelope.r2Key || null,
+    133:       envelope.githubRepo || null,
+    134:       envelope.githubPath || null,
+    135:       envelope.githubBranch || null,
+
+======================================================================
+7. workspace_scope query logic — how is it used at runtime?
+======================================================================
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js:2: * Scoped resolution for agentsam_mcp_tools — matches user, person, tenant, workspace, or workspace_scope JSON.
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-3- */
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-4-
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-5-/** @typedef {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null, personUuid?: string|null }} McpRuntimeScope */
+--
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js:39:    OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-40-    OR (
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-41-      trim(COALESCE(user_id, '')) = ''
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-42-      AND trim(COALESCE(person_uuid, '')) = ''
+--
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js:92:    OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-93-    OR (
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-94-      trim(COALESCE(user_id, '')) = ''
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-mcp-tools.js-95-      AND trim(COALESCE(person_uuid, '')) = ''
+--
+/Users/samprimeaux/inneranimalmedia/src/core/mcp-tools-branded.js:506:    OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
+/Users/samprimeaux/inneranimalmedia/src/core/mcp-tools-branded.js-507-    OR (
+/Users/samprimeaux/inneranimalmedia/src/core/mcp-tools-branded.js-508-      trim(COALESCE(user_id, '')) = ''
+/Users/samprimeaux/inneranimalmedia/src/core/mcp-tools-branded.js-509-      AND trim(COALESCE(person_uuid, '')) = ''
+--
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js:2543:        // Workspace scoping: tools are visible when workspace_scope contains ws OR tenant_id matches.
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js:2544:        // Fallback (no workspace/tenant): only tools with NULL workspace_scope (rare).
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js-2545-        let toolRows = [];
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js-2546-        try {
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js-2547-          if (workspaceId || tenantId) {
+--
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js:2561:                   (? != '' AND EXISTS (SELECT 1 FROM json_each(COALESCE(workspace_scope, '[]')) WHERE value = ?))
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js-2562-                   OR (? != '' AND tenant_id = ?)
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js-2563-                 )
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js-2564-               ORDER BY COALESCE(sort_priority, 9999), tool_key ASC`,
+--
+/Users/samprimeaux/inneranimalmedia/src/api/setting
+
+======================================================================
+SUMMARY — paste this to understand scope before writing any migration
+======================================================================

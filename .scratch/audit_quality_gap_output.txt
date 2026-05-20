@@ -1,0 +1,502 @@
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:95: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  'tool_done\|tool_name.*screenshot\|screenshot.*tool\|cdt_take_screenshot\|browser_screenshot',
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:104: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  'iam-browser-navigate\|onBrowserNavigate\|handleBrowserNavigate',
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:159: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  print(grep('score_overall\|scoreQuality\|grader\|judge', f_eval, context=4)[:2000])
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:181: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  'modelPicker\|ModelPicker\|model.*picker\|picker.*model\|ModelSelector\|model_selector',
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:188: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  print(grep('selected_model\|selectedModel\|model_override\|override.*model', SRC, context=3)[:1500])
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:194: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  print(grep('subagent.*profile_id\|subagent_profile_id\|subagent === true', SRC, context=5)[:1500])
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:197: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  print(grep('subagent_coder\|subagent_browser\|subagent_toolbox', SRC, context=4)[:1500])
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:206: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  print(grep('session.*end\|conversationEnd\|onSessionEnd\|session_end\|chat.*complete', SRC, context=3)[:1500])
+/Users/samprimeaux/inneranimalmedia/audit_quality_gap.py:210: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  ['grep', '-rn', '--include=*.js', 'context_digest\|writeDigest\|buildDigest',
+
+======================================================================
+S19 — capability_aliases → resolveAgentCommand
+======================================================================
+
+--- resolveAgentCommand definition ---
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-47- * @param {{ message?: string, userId?: string | null, workspaceId?: string | null, tenantId?: string | null, mode?: string }} opts
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-48- */
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:49:export async function resolveAgentCommand(env, opts) {
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-50-  const msg = String(
+
+--- resolveAgentCommand full body (find function start) ---
+         48:  */
+  >>>    49: export async function resolveAgentCommand(env, opts) {
+         50:   const msg = String(opts?.message || '').trim();
+         51:   if (!msg) return unresolvedCommandResult();
+         52: 
+         53:   // Slash commands only — free-text chat (browser element picks, questions) must not hit allowlist/patterns.
+         54:   if (!msg.startsWith('/')) return unresolvedCommandResult();
+         55: 
+         56:   const ws =
+         57:     opts?.workspaceId != null && String(opts.workspaceId).trim() !== ''
+         58:       ? String(opts.workspaceId).trim()
+         59:       : null;
+         60:   if (!ws) return unresolvedCommandResult();
+         61: 
+         62:   if (!env?.DB) return unresolvedCommandResult();
+         63: 
+         64:   const patterns = await env.DB.prepare(
+         65:     `
+         66:     SELECT pattern, pattern_type, mapped_command,
+         67:            risk_level, requires_confirmation
+         68:     FROM agentsam_command_pattern
+         69:     WHERE workspace_id = ? AND is_active = 1
+         70:     ORDER BY use_count DESC, created_at ASC
+         71:   `,
+         72:   )
+         73:     .bind(ws)
+         74:     .all()
+         75:     .catch(() => ({ results: [] }));
+         76: 
+         77:   let mappedCommand = null;
+         78:   let patternRow = null;
+         79:   for (const p of patterns.results || []) {
+         80:     const pt = String(p.pattern_type || 'exact');
+         81:     const pat = String(p.pattern || '');
+         82:     let hit = false;
+         83:     if (pt === 'exact') hit = msg === pat;
+         84:     else if (pt === 'prefix') hit = msg.startsWith(pat);
+         85:     else if (pt === 'regex') {
+         86:       try {
+         87:         hit = new RegExp(pat).test(msg);
+         88:       } catch {
+         89:         hit = false;
+
+--- capability_aliases table structure (sample rows from code) ---
+  no refs
+
+--- where resolveAgentCommand is called ---
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-46- * @param {any} env
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-47- * @param {{ message?: string, userId?: string | null, workspaceId?: string | null, tenantId?: string | null, mode?: string }} opts
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-48- */
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:49:export async function resolveAgentCommand(env, opts) {
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-50-  const msg = String(opts?.message || '').trim();
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-51-  if (!msg) return unresolvedCommandResult();
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js-52-
+--
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-110-import {
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-111-  scheduleAgentsamCommandRunInsert,
+/Users/samprimeaux/inneran
+
+======================================================================
+S20 — context_digest → buildSystemPrompt
+======================================================================
+
+--- buildSystemPrompt definition ---
+        663: 
+  >>>   664: async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null, options = {}) {
+        665:   const _kv = env.SESSION_CACHE ?? null;
+        666:   const _wsId = options?.workspaceId ?? '';
+        667:   const _minimal = options?.minimalAsk ? 'min' : 'full';
+        668:   const _routeKey = promptRouteRow?.route_key ?? 'default';
+        669:   const _ver = _kv ? (await _kv.get(`sp:version:${tenantId}`).catch(() => '0') ?? '0') : '0';
+        670:   const _kvKey = `sp:v1:${tenantId}:${mode}:${_wsId}:${_routeKey}:${_minimal}:${_ver}`;
+        671: 
+        672:   let cachedPrompt = null;
+        673:   if (_kv && !options?._skipCache) {
+        674:     try {
+        675:       const hit = await _kv.get(_kvKey);
+        676:       if (hit) cachedPrompt = hit;
+        677:     } catch (_) {}
+        678:   }
+        679: 
+        680:   const routeDerivedMinimal =
+        681:     promptRouteRow &&
+        682:     Number(promptRouteRow.max_tools ?? 8) === 0 &&
+        683:     Number(promptRouteRow.include_rag ?? 1) === 0 &&
+        684:     Number(promptRouteRow.include_active_plan ?? 1) === 0 &&
+        685:     Number(promptRouteRow.include_recent_memory ?? 1) === 0 &&
+        686:     Number(promptRouteRow.include_workspace_ctx ?? 1) === 0;
+        687: 
+        688:   const minimalAsk = Boolean(options?.minimalAsk) || Boolean(routeDerivedMinimal);
+        689: 
+        690:   const appendVectorContextBlock = async (systemPrompt) => {
+        691:     const includeVectorRag = Number(promptRouteRow?.include_rag ?? 1) === 1;
+        692:     const msg = String(options?.message ?? '').trim();
+        693:     if (!includeVectorRag || !msg) return systemPrompt;
+        694:     const vectorCtx = await resolveVectorContext(env, msg, options?.taskType ?? null);
+
+--- buildSystemPrompt call sites ---
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-488-/** Minimal fallback if D1 has no core row (same intent as legacy single-line base). */
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-489-const FALLBACK_CORE_SYSTEM = 'You are Agent Sam, an autonomous AI coding and operations assistant for Inner Animal Media.';
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-490-
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:491:/** Appended in buildSystemPrompt — Python + parallel tool use (Anthropic guidance). */
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-492-const AGENT_SAM_PYTHON_PARALLEL_BLOCK = `You are a Python professional. When a task involves data processing, scripting, automation, analysis, or any computation that Python handles well, use python_execute without being asked. You write clean, well-commented Python — proper imports at the top, error handling with try/except, f-strings for formatting, and type hints for function signatures. You know the standard library deeply (pathlib, json, csv, datetime, itertools, collections) and reach for pandas, requests, or other packages when they make the solution cleaner. You never apologize for using Python — you use it because it is the right tool.
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-493-
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-494-For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. W
+
+--- context_digest current usage (should be 0) ---
+  (0 refs — unwired)
+
+--- system prompt assembly — where ## sections are injected ---
+  line 241: `SELECT title, body_markdown FROM agentsam_rules_document
+  line 256: extra += `\n## Rules\n${blocks.join('\n\n')}\n`;
+
+======================================================================
+Browser Screenshot — iam-browser-screenshot event wire
+======================================================================
+
+--- iam-browser-screenshot dispatch (should be in SSE handler) ---
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1660-            case 'navigate':
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1661-              if (msg.url) setPrimaryUrl(msg.url);
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1662-              break;
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1663-            case 'screenshot':
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1664-              if (msg.screenshot_url) {
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx:1665:                window.dispatchEvent(new CustomEvent('iam-browser-screenshot', {
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1666-                  detail: { screenshot_url: msg.screenshot_url },
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1667-                }));
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1668-              }
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1669-              break;
+/Users/samprimeaux/inneranimalmedia/dashboard/components/BrowserView.tsx-1670-            case 'agent_active':
+
+--- cdt_take_screenshot / browser_screenshot in SSE tool_done handler ---
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx:884:    } else if (ev.type === 'tool_done' || ev.type === 'workflow_step') {
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-885-      const id = ev.tool_name || '';
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-886-      setThinkingState(prev => {
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-887-        if (!prev) return prev;
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-888-        const exists = prev.steps.find(s => s.id === id);
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-889-        const updated = exists
+--
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.ts:105:  /** Active SSE tool row id for tool_output / tool_done / tool_error pairing. */
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.ts-106-  let activeToolTraceId: string | null = null;
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.ts:107:  /** URL from browser tool `tool_start` input_preview — used on `tool_done`. */
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.ts-108-  let pendingBrowserToolUrl: string | null = null;
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.ts-109-  /** Last `tool_output` chunk for the active browser navigation tool. */
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.ts-110-  let lastBrowserToolOutputChunk: string | null = null;
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.ts-111-  let activeBrowserNavTool = false;
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/hooks/useAgentChatStream.t
+
+--- iam-browser-navigate handler in useAgentChatStream (reference point) ---
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx:2039:  const handleBrowserNavigateFromAgent = useCallback(
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2040-    (event: { type: 'browser_navigate'; url: string }) => {
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2041-      if (event.type !== 'browser_navigate' || !event.url?.trim()) return;
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2042-      const url = event.url.trim();
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2043-      window.dispatchEvent(
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2044-        new CustomEvent('iam:agent-open-surface', {
+--
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx:2049:        new CustomEvent('iam-browser-navigate', {
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2050-          detail: { url },
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2051-        }),
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2052-      );
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2053-      revealMainWorkspaceIfNarrow();
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2054-      setBrowserAddressDisplay(null);
+--
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx:2657:                        onBrowserNavigate={handleBrowserNavigateFromAgent}
+/Users/samprimeaux/inneranimalmedia/dashboard/App.tsx-2658-                        onOpenGitHubIntegration={openGitHubFromChat}
+/Users/samprimeaux/inneranimalmedia/dashboard/
+
+======================================================================
+apply_change_set → agentsam_approval_queue dual write
+======================================================================
+
+--- applyChangeSetImpl — current implementation ---
+        340: 
+  >>>   341: async function applyChangeSetImpl(params, env, runContext = {}) {
+        342:   const ctx = toolContext(params, runContext);
+        343:   const changeSetId = pickFirst(params.change_set_id, params.changeSetId);
+        344:   const action = pickFirst(params.action).toLowerCase();
+        345: 
+        346:   if (!changeSetId) return { error: 'change_set_id required' };
+        347:   if (action !== 'accept' && action !== 'reject') {
+        348:     return { error: "action must be 'accept' or 'reject'" };
+        349:   }
+        350:   if (!env?.DB) return { error: 'Database not configured' };
+        351:   if (!ctx.userId) return { error: 'user_id required' };
+        352: 
+        353:   const row = await env.DB.prepare(
+        354:     `SELECT id, user_id, tenant_id, source, file_path, r2_bucket, r2_key,
+        355:             github_repo, github_path, github_branch, drive_file_id, proposed_content, status
+        356:      FROM change_sets WHERE id = ? LIMIT 1`,
+        357:   )
+        358:     .bind(changeSetId)
+        359:     .first();
+        360: 
+        361:   if (!row) return { error: 'change_set not found' };
+        362:   if (String(row.user_id) !== ctx.userId) {
+        363:     return { error: 'change_set not owned by current user' };
+        364:   }
+        365:   if (String(row.status) !== 'pending') {
+        366:     return { error: `change_set already ${row.status}` };
+        367:   }
+        368: 
+        369:   const now = Math.floor(Date.now() / 1000);
+        370: 
+        371:   if (action === 'reject') {
+        372:     await env.DB.prepare(
+        373:       `UPDATE change_sets SET status = 'rejected', rejected_at = ? WHERE id = ?`,
+        374:     )
+        375:       .bind(now, changeSetId)
+        376:       .run();
+
+--- approval_queue INSERT pattern (from agent.js — use as template) ---
+       2443:     });
+       2444:     await env.DB.prepare(
+  >>>  2445:       `INSERT INTO agentsam_approval_queue
+       2446:        (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,
+       2447:         risk_level, input_json, expires_at, status, approval_type, created_at)
+       2448:        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       2449:     ).bind(
+       2450:       proposalId,
+       2451:       tenantId,
+       2452:       workspaceId,
+       2453:       uid,
+       2454:       sessionId || null,
+       2455:       toolName,
+       2456:       summary,
+       2457:       riskLevel || 'medium',
+       2458:       inputJson,
+       2459:       expiresAt,
+       2460:       'pending',
+       2461:       'tool',
+       2462:       now,
+       2463:     ).run();
+       2464:     scheduleRecordMcpToolExecution(env, ctx, {
+       2465:       tenant_id: tenantId,
+  ---
+
+======================================================================
+S21 — guardrail_rulesets → evaluateGuardrails
+======================================================================
+
+--- evaluateGuardrails definition ---
+/Users/samprimeaux/inneranimalmedia/src/core/guardrails.js-351- * @param {GuardrailEvaluateOpts} opts
+/Users/samprimeaux/inneranimalmedia/src/core/guardrails.js-352- * @returns {Promise<{ decision: { action: string, guardrail_key?: string, reason?: string } | null, events: Array<{ guardrail_key: string, decision: string }>, blocked: boolean }>}
+/Users/samprimeaux/inneranimalmedia/src/core/guardrails.js-353- */
+/Users/samprimeaux/inneranimalmedia/src/core/guardrails.js:354:export async function e
+        353:  */
+  >>>   354: export async function evaluateGuardrails(env, workerCtx, opts) {
+        355:   const empty = { decision: null, events: [], blocked: false };
+        356:   if (!env?.DB || !opts?.applies_to) return empty;
+        357: 
+        358:   let rows = [];
+        359:   try {
+        360:     const applies = String(opts.applies_to);
+        361:     const r = await env.DB.prepare(
+        362:       `SELECT id, scope, tenant_id, workspace_id, user_id,
+        363:               guardrail_key, title, description, category, severity, action,
+        364:               applies_to, matcher_json, policy_json, priority
+        365:        FROM agentsam_guardrails
+        366:        WHERE is_enabled = 1
+        367:          AND (applies_to = ? OR applies_to = 'all')
+        368:        ORDER BY priority DESC`,
+        369:     )
+        370:       .bind(applies)
+        371:       .all();
+        372:     rows = r.results || [];
+        373:   } catch {
+        374:     return empty;
+        375:   }
+        376: 
+        377:   const events = [];
+        378:   let blocked = false;
+        379:   let decision = null;
+        380: 
+        381:   for (const raw of rows) {
+        382:     const g = raw;
+        383:     if (!scopeMatchesGuardrail(g, opts)) continue;
+        384:     if (!matchGuardrail(g, opts)) continue;
+        385: 
+        386:     const act = String(g.action || 'warn').toLowerCase();
+        387:     const decLabel = decisionFromAction(act);
+        388:     const reason =
+        389:       String(g.description || g.title || g.guardrail_key || '').slice(0, 2000) ||
+        390:       `Guardrail ${g.guardrail_key || ''}`;
+        391: 
+        392:     events.push({ guardrail_key: String(g.guardrail_key || ''), decision: decLabel });
+        393:     scheduleGuardrailEvent(env, workerCtx, g, opts, decLabel, reason);
+        394: 
+
+--- guardrail_rulesets current usage ---
+  (0 refs — unwired)
+
+======================================================================
+S17 — LLM-as-judge grader stub in eval-runner.js
+======================================================================
+  line 4: * Writes to agentsam_eval_runs, then feeds score_overall back to
+  line 55: let scoreQuality = 0.5;
+  line 71: scoreQuality = 0.75; // default until LLM grader is wired
+  line 75: scoreQuality = 0.0;
+  line 79: scores.push(scoreQuality);
+  line 85: const colList = ['id', 'suite_id', 'tenant_id', 'model_key', 'provider', 'score_quality', 'score_overall', 'passed', 'latency_ms', 'run_group_id'];
+  line 97: scoreQuality,
+  line 98: scoreQuality,
+
+--- how score_overall is currently set ---
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-1-/**
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-2- * eval-runner.js
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-3- * Autonomous eval suite runner — triggered after N arm executions.
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js:4: * Writes to agentsam_eval_runs, then feeds score_overall back to
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-5- * scheduleRoutingArmQualityUpdate to close the Thompson feedback loop.
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-6- */
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-7-import { scheduleRoutingArmQualityUpdate } from './routing.js';
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-8-
+--
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-51-      let outputText = '';
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-52-      let inputTokens = 0;
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-53-      let outputTokens = 0;
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-54-      let passed = 0;
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js:55:      let scoreQuality = 0.5;
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-56-
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-57-      try {
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-58-        // Use cheapest model for eval grading (haiku/nano)
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js:59:        const graderModel = 'claude-haiku-4-5-20251001';
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js:60:        const graderPrompt = [
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js:61:          `You are an eval grader. Score this response 0.0–1.0.`,
+/Users/samprimeaux/inneranimalmedia/src/core/eval-runner.js-62-          `CRITERIA: ${c.grading_criteria ?? 'general quality and accuracy'}`,
+/Users/s
+
+--- what AI client is available in eval-runner.js ---
+  1: /**
+  2:  * eval-runner.js
+  3:  * Autonomous eval suite runner — triggered after N arm executions.
+  4:  * Writes to agentsam_eval_runs, then feeds score_overall back to
+  5:  * scheduleRoutingArmQualityUpdate to close the Thompson feedback loop.
+  6:  */
+  7: import { scheduleRoutingArmQualityUpdate } from './routing.js';
+  8: 
+  9: /**
+  10:  * Trigger eval suite for a given arm after milestone execution count.
+  11:  * Called from recordArmOutcome when total_executions % EVAL_EVERY === 0.
+  12:  */
+  13: export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, modelKey, workspaceId }) {
+  14:   if (!env?.DB || !armId) return;
+  15: 
+  16:   const EVAL_EVERY = 50; // run eval every 50 arm executions
+  17: 
+  18:   try {
+  19:     const arm = await env.DB.prepare(
+  20:       'SELECT total_executions, model_key, task_type, mode FROM agentsam_routing_arms WHERE id = ? LIMIT 1'
+  21:     ).bind(armId).first();
+  22: 
+  23:     if (!arm) return;
+  24:     if (Number(arm.total_executions) % EVAL_EVERY !== 0) return;
+  25: 
+  26:     const mk    = modelKey ?? arm.model_key;
+  27:     const tt    = taskType ?? arm.task_type ?? 'chat';
+  28:     const md    = mode ?? arm.mode ?? 'auto';
+  29: 
+  30:     // Find matching active suite
+
+======================================================================
+patch_sessions → change_sets consolidation
+======================================================================
+
+--- patch_sessions schema (from sqlite_master if accessible) ---
+  (0 refs in src/)
+
+  Note: 19 rows exist in D1, written by a now-removed code path.
+  change_sets is the canonical table going forward.
+  Consolidation = migration that copies patch_sessions rows into change_sets + drops/renames.
+
+======================================================================
+S23 — model picker suppression
+======================================================================
+
+--- model picker in dashboard ---
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx:148:  const [modelPickerStyle, setModelPickerStyle] = useState<React.CSSProperties | null>(null);
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-149-
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-150-  const [modes] = useState(AGENT_MODES);
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-151-  const [mode, setMode] = useState<AgentMode>('agent');
+--
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx:153:  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-154-  const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-155-
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-156-  const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
+--
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx:520:  const measureModelPickerMenu = useCallback(() => {
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx:521:    setModelPickerStyle(measureAboveAnchor(modeButtonRef.current, 280, 360, 320));
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-522-  }, []);
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-523-
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx-524-  useLayoutEffect(() => {
+--
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx:555:    if (!isModelPickerOpen) {
+/Users/samprimeaux/inneranimalmedia/dashboard/features/agent-chat/ChatAssistant.tsx:556:      setModelPickerStyle(null);
+/Users/samprimeaux/i
+
+--- where model selection bypasses routing ---
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-19-  const runGroupId = p.run_group_id ?? p.runGroupId ?? p.runId ?? null;
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-20-  const tenantId = p.tenantId != null ? String(p.tenantId).trim() : null;
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-21-  const workspaceId = p.workspaceId != null ? String(p.workspaceId).trim() : null;
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js:22:  const selectedModel =
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js:23:    p.selectedModel != null
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js:24:      ? String(p.selectedModel)
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-25-      : p.modelKey != null
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-26-        ? String(p.modelKey)
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-27-        : null;
+--
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-41-  }
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-42-
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-43-  let catalog = null;
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js:44:  if (selectedModel && env?.DB) {
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-45-    try {
+/Users/samprimeaux/inneranimalmedia/src/core/agent-run-routing.js-46-      
+
+======================================================================
+subagent_profile dispatch — end-to-end path
+======================================================================
+
+--- subagent routing entry point ---
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-500- * @param {{ intentSlug?: string, requireTools?: boolean, body?: Record<string, unknown> | null }} ctx
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-501- */
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-502-export function resolveRoutingTaskType(ctx = {}) {
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-503-  const body = ctx.body && typeof ctx.body === 'object' ? ctx.body : {};
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-504-  if (body.debug === true || String(body.mode || '').toLowerCase() === 'debug') return 'debug';
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js:505:  if (body.subagent === true || (body.subagent_profile_id != null && String(body.subagent_profile_id).trim() !== '')) {
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-506-    return 'subagent_dispatch';
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-507-  }
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-508-  if (body.workflow_step === true || body.workflow_run_id != null) return 'workflow_orchestration';
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-509-  if (body.terminal_session_id != null || body.pty_session_id != null) return 'terminal_execution';
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js-510-  if (body.intent_classification_only === true) return 'intent_classification';
+--
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js-5869-  const bodyPins
+
+--- subagent_coder / subagent_browser / subagent_toolbox dispatch ---
+
+
+--- agentsam_subagent_profile SELECT at runtime ---
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-234-async function upsertAgentProfile(env, { userId, displayName, description, personalityTone }) {
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-235-  let id = `asp_${userId.replace(/[^a-z0-9_]/gi, '').slice(0, 24)}_primary`;
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-236-  if (id.length > 48) id = id.slice(0, 48);
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-237-  const existing = await env.DB
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js:238:    .prepare(`SELECT id FROM agentsam_subagent_profile WHERE user_id = ? AND workspace_id = '' AND slug = 'primary' LIMIT 1`)
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-239-    .bind(userId)
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-240-    .first();
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-241-  if (existing?.id) id = existing.id;
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js-2
+
+======================================================================
+context_digest auto-generation — where it should be written
+======================================================================
+
+--- session end / conversation close hooks ---
+/Users/samprimeaux/inneranimalmedia/src/core/provider.js-8-         chatWithToolsOpenAIResponses,
+/Users/samprimeaux/inneranimalmedia/src/core/provider.js-9-         completeWithOpenAI,
+/Users/samprimeaux/inneranimalmedia/src/core/provider.js-10-         completeWithOpenAIResponsesNonStream }  from '../integrations/openai.js';
+/Users/samprimeaux/inneranimalmedia/src/core/provider.js:11:import { chatWithToolsGemini, completeWithGemini } from '../integrations/gemini.js';
+/Users/samprimeaux/inneranimalmedia/src/core/provider.js-12-import { chatWithToolsVertex } from '../integrations/vertex.js';
+/Users/samprimeaux/inneranimalmedia/src/core/provider.js-13-import { jsonResponse }        from './responses.js';
+/Users/samprimeaux/inneranimalmedia/src/core/provider.js-14-import { resolveApiKey }       from './vault.js';
+--
+/Users/samprimeaux/inneranimalmedia/src/api/cicd-event.js-24-      return await handlePostSandbox(payload, env);
+/Users/samprimeaux/inneranimalmedia/src/api/cicd-event.js-25-    case 'session_start':
+/Users/samprimeaux/inneranimalmedia/src/api/cicd-event.js-26-      return await handleSessionStart(payload, env);
+/Users/samprimeaux/inneranimalmedia/src/api/cicd-event.js:27:    case 'session_end':
+/Users/samprimeaux/inneranimalmedia/src/api/cicd-event.js-28-      return await handleSessionEnd(payload, env);
+/Users/samprimeaux/inneranimalmedia/src/api/cicd-event.js-29-    default:
+/Users/samprimeaux/inneranimalmedia/src/api/cicd-event.js-30-      return Response.json({
+
+--- cron jobs that could write digests ---
+  (no digest writer found — needs to be created)
+
+======================================================================
+AUDIT COMPLETE — paste output for precise Cursor prompts
+======================================================================

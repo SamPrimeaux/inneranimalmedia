@@ -1,0 +1,261 @@
+/Users/samprimeaux/inneranimalmedia/audit_agentsam_tables.py:168: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  ['grep', '-rn', 'patch_sessions\|agentsam_patch', '--include=*.js', str(SRC)],
+/Users/samprimeaux/inneranimalmedia/audit_agentsam_tables.py:184: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  ['grep', '-n', 'approval_queue\|appr_\|approve.*tool\|execute.*approved',
+/Users/samprimeaux/inneranimalmedia/audit_agentsam_tables.py:194: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  ['grep', '-rn', 'capability_aliases\|resolveAgentCommand',
+/Users/samprimeaux/inneranimalmedia/audit_agentsam_tables.py:204: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  ['grep', '-rn', 'subagent_profile\|subagent_coder\|subagent_browser\|subagent_toolbox',
+========================================================================
+AGENTSAM_* TABLE WIRING AUDIT
+========================================================================
+
+DEAD (0 src refs) — 4 tables
+--------------------------------------------------
+  ✗  agentsam_capability_aliases
+  ✗  agentsam_context_digest
+  ✗  agentsam_guardrail_rulesets
+  ✗  agentsam_patch_sessions
+
+THIN (1-2 src refs) — 19 tables
+--------------------------------------------------
+  ~  agentsam_artifact_skills (1 file)
+       src/api/agent-artifacts.js
+  ~  agentsam_cad_jobs (2 files)
+       src/api/studio-session.js
+       src/api/cad.js
+  ~  agentsam_compaction_events (2 files)
+       src/core/agentsam-ops-ledger.js
+       src/api/settings-sections.js
+  ~  agentsam_escalation (2 files)
+       src/api/settings-sections.js
+       src/api/agent.js
+  ~  agentsam_eval_cases (1 file)
+       src/core/eval-runner.js
+  ~  agentsam_eval_suites (1 file)
+       src/core/eval-runner.js
+  ~  agentsam_execution_context (1 file)
+       src/api/command-run-telemetry.js
+  ~  agentsam_guardrails (2 files)
+       src/core/guardrails.js
+       src/cron/jobs/financial-command-cron.js
+  ~  agentsam_ignore_pattern (1 file)
+       src/core/auth.js
+  ~  agentsam_model_tier (2 files)
+       src/api/settings.js
+       src/api/agent.js
+  ~  agentsam_prompt_cache_keys (2 files)
+       src/api/agent.js
+       src/api/analytics/boards.js
+  ~  agentsam_prompt_routes (2 files)
+       src/core/agentsam-route-tool-resolver.js
+       src/api/agent.js
+  ~  agentsam_prompt_versions (2 files)
+       src/api/agentsam.js
+       src/api/agent.js
+  ~  agentsam_skill_revision (1 file)
+       src/core/skill-revision.js
+  ~  agentsam_slash_commands (1 file)
+       src/api/agent.js
+  ~  agentsam_subscription_registry (1 file)
+       src/api/settings-sections.js
+  ~  agentsam_task_slos (1 file)
+       src/core/routing-cron.js
+  ~  agentsam_tool_cache (1 file)
+       src/core/mcp-tool-execution.js
+  ~  agentsam_webhook_weekly (1 file)
+       src/api/settings-sections.js
+
+WIRED (3+ src refs) — 61 tables
+--------------------------------------------------
+  ✓  agentsam_workflow_runs                        22 files
+  ✓  agentsam_mcp_tool_execution                   21 files
+  ✓  agentsam_usage_events                         20 files
+  ✓  agentsam_routing_arms                         19 files
+  ✓  agentsam_mcp_tools                            18 files
+  ✓  agentsam_plans                                18 files
+  ✓  agentsam_command_run                          15 files
+  ✓  agentsam_webhook_events                       15 files
+  ✓  agentsam_ai                                   14 files
+  ✓  agentsam_hook                                 14 files
+  ✓  agentsam_execution_steps                      12 files
+  ✓  agentsam_tool_call_log                        12 files
+  ✓  agentsam_approval_queue                       11 files
+  ✓  agentsam_hook_execution                       11 files
+  ✓  agentsam_model_catalog                        11 files
+  ✓  agentsam_plan_tasks                           11 files
+  ✓  agentsam_workspace                            11 files
+  ✓  agentsam_agent_run                            10 files
+  ✓  agentsam_executions                           9 files
+  ✓  agentsam_tool_stats_compacted                 9 files
+  ✓  agentsam_workflows                            9 files
+  ✓  agentsam_commands                             8 files
+  ✓  agentsam_execution_performance_me             8 files
+  ✓  agentsam_memory                               8 files
+  ✓  agentsam_todo                                 8 files
+  ✓  agentsam_cron_runs                            7 files
+  ✓  agentsam_deployment_health                    7 files
+  ✓  agentsam_error_log                            7 files
+  ✓  agentsam_tools                                7 files
+  ✓  agentsam_workflow_nodes                       7 files
+  ✓  agentsam_artifacts                            6 files
+  ✓  agentsam_bootstrap                            6 files
+  ✓  agentsam_mcp_workflows                        6 files
+  ✓  agentsam_analytics                            5 files
+  ✓  agentsam_browser_trusted_origin               5 files
+  ✓  agentsam_eval_runs                            5 files
+  ✓  agentsam_mcp_allowlist                        5 files
+  ✓  agentsam_skill                                5 files
+  ✓  agentsam_subagent_profile                     5 files
+  ✓  agentsam_tool_chain                           5 files
+  ✓  agentsam_command_allowlist                    4 files
+  ✓  agentsam_fetch_domain_allowlist               4 files
+  ✓  agentsam_model_drift_signals                  4 files
+  ✓  agentsam_project_context                      4 files
+  ✓  agentsam_script_runs                          4 files
+  ✓  agentsam_usage_rollups_daily                  4 files
+  ✓  agentsam_workflow_edges                       4 files
+  ✓  agentsam_code_index_job                       3 files
+  ✓  agentsam_command_pattern                      3 files
+  ✓  agentsam_execution_dependency_gra             3 files
+  ✓  agentsam_feature_flag                         3 files
+  ✓  agentsam_health_daily                         3 files
+  ✓  agentsam_mcp_servers                          3 files
+  ✓  agentsam_model_routing_memory                 3 files
+  ✓  agentsam_route_requirements                   3 files
+  ✓  agentsam_rules_document                       3 files
+  ✓  agentsam_scripts                              3 files
+  ✓  agentsam_skill_invocation                     3 files
+  ✓  agentsam_user_feature_override                3 files
+  ✓  agentsam_user_policy                          3 files
+  ✓  agentsam_workspace_state                      3 files
+
+========================================================================
+T008/T009 — agent_run_id gap: tables that log tool activity but lack agent_run_id ref
+========================================================================
+  agentsam_tool_call_log: ✗ NOT stamped with agent_run_id
+  agentsam_tool_chain: ✗ NOT stamped with agent_run_id
+  agentsam_hook_execution: ✗ NOT stamped with agent_run_id
+  agentsam_mcp_tool_execution: ✗ NOT stamped with agent_run_id
+  agentsam_execution_steps: ✗ NOT stamped with agent_run_id
+  agentsam_approval_queue: ✗ NOT stamped with agent_run_id
+
+========================================================================
+patch_sessions vs change_sets — overlap check
+========================================================================
+patch_sessions refs in src/:
+  (none)
+
+change_sets refs in src/:
+  (none — table created in D1 tonight, not yet wired)
+
+========================================================================
+approval_queue — does T003 execute-approved-tool write to it?
+========================================================================
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js:8: *   → agentsam_command_run (risky tasks) → agentsam_plan_tasks → agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js:40:  return `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js:462:  const apprCols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-planner.js:600:        .prepare(`INSERT INTO agentsam_approval_queue (${ac.join(', ')}) VALUES (${apprPh})`)
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js:330:      const approvalId = `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+/Users/samprimeaux/inneranimalmedia/src/core/workflow-executor.js:339:          `INSERT INTO agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:67: * Planner-generated shell: create command_run + approval_queue and attach to the plan task.
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:112:        `SELECT id, status FROM agentsam_approval_queue WHERE command_run_id = ? AND lower(status) = 'pending' LIMIT 1`,
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:135:  const approvalId = 'appr_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:141:  const apprCols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:238:      .prepare(`INSERT INTO agentsam_approval_queue (${ac.join(', ')}) VALUES (${apprPh})`)
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:288:  const qcols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:293:          `SELECT id FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:305:        `SELECT id FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:367:      via: task.execution_step_id ? 'approval_queue' : 'approved_command_run',
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:446:        '[terminal] NOT EXECUTED: planner-linked tasks require an approved agentsam_approval_queue row (not catalog auto-run).',
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-task-executor.js:1109:                `SELECT id FROM agentsam_approval_queue WHERE command_run_id = ? AND lower(status) = 'pending' LIMIT 1`,
+/Users/samprimeaux/inneranimalmedia/src/core/agent-terminal-run.js:153:          `SELECT id FROM agentsam_approval_queue WHERE id = ? AND status = 'approved' AND expires_at > unixepoch() LIMIT 1`,
+/Users/samprimeaux/inneranimalmedia/src/core/agentsam-plan-supabase-public-sync.js:349:            `SELECT * FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/settings-sections.js:360:    'agentsam_approval_queue',
+/Users/samprimeaux/inneranimalmedia/src/api/settings-sections.js:362:     FROM agentsam_approval_queue ORDER BY created_at DESC LIMIT 25`,
+/Users/samprimeaux/inneranimalmedia/src/api/agentsam.js:308:              `SELECT * FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agentsam.js:505:           FROM agentsam_approval_queue WHERE workflow_run_id = ? ORDER BY created_at DESC`
+/Users/samprimeaux/inneranimalmedia/src/api/agentsam.js:536:            `UPDATE agentsam_approval_queue SET status = ?, approved_by = ?, decided_at = unixepoch()
+/Users/samprimeaux/inneranimalmedia/src/api/agentsam.js:541:            `UPDATE agentsam_approval_queue SET status = ?, approved_by = ?, decided_at = unixepoch()
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:814:    !skipApprovalGate && (await isFeatureEnabled(env, 'approval_queue', { userId, tenantId }));
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:825:    const approvalId = 'appr_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:885:        `INSERT INTO agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:1210:      `UPDATE agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:1225:    .prepare(`SELECT * FROM agentsam_approval_queue WHERE id = ? LIMIT 1`)
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:2445:      `INSERT INTO agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:2497:/** Pending row in agentsam_approval_queue blocks duplicate execution until approved/denied. */
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:2501:    `SELECT id, status, expires_at FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:7049:        `SELECT id, status, tool_name, expires_at FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:7081:    const approvedTool = String(row.tool_name || '').trim().toLowerCase();
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:7082:    if (approvedTool !== toolName) {
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8128:      `INSERT INTO agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8487:      `INSERT INTO agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8527:       FROM agentsam_approval_queue q
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8546:      .prepare(`SELECT id, tool_name AS tool, command_run_id FROM agentsam_approval_queue WHERE id = ?`)
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8553:      .prepare(`UPDATE agentsam_approval_queue SET status='approved', approved_by=?, decided_at=? WHERE id=?`)
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8575:      .prepare(`SELECT id, command_run_id, input_json, execution_step_id FROM agentsam_approval_queue WHERE id = ?`)
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8582:      `UPDATE agentsam_approval_queue SET status='denied', approved_by=?, decided_at=? WHERE id=?`,
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8664:      `SELECT COUNT(*) AS c FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8676:       FROM agentsam_approval_queue q
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8713:      .prepare(`SELECT command_run_id FROM agentsam_approval_queue WHERE id = ?`)
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8718:      .prepare(`UPDATE agentsam_approval_queue SET status=?, decided_at=unixepoch(), approved_by=? WHERE id=?`)
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8816:         FROM agentsam_approval_queue q
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8967:      `UPDATE agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:8982:    const apRow = await env.DB.prepare(`SELECT workflow_run_id FROM agentsam_approval_queue WHERE id = ?`)
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:9141:  // ── POST /api/agent/chat/execute-approved-tool ───────────────────────────
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:9143:  if (path === '/api/agent/chat/execute-approved-tool' && method === 'POST') {
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:9162:    console.log('[execute-approved-tool] tool_name:', toolName);
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:9163:    console.log('[execute-approved-tool] tool_input:', JSON.stringify(toolInput).slice(0, 2000));
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:9188:      console.log('[execute-approved-tool] result:', JSON.stringify(result).slice(0, 2000));
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:9213:      console.warn('[execute-approved-tool] tool_error', toolName, errMsg);
+/Users/samprimeaux/inneranimalmedia/src/cron/jobs/daily-plan-email.js:45:      env.DB.prepare(`SELECT tool_name AS command_name, action_summary AS rationale, risk_level FROM agentsam_approval_queue
+/Users/samprimeaux/inneranimalmedia/src/cron/jobs/thirty-minute-cron.js:49:    jobName: 'agentsam_approval_queue_expiry_sweep',
+/Users/samprimeaux/inneranimalmedia/src/cron/jobs/thirty-minute-cron.js:58:      `UPDATE agentsam_approval_queue SET status='expired'
+
+========================================================================
+capability_aliases — wiring status (carried task s19)
+========================================================================
+/Users/samprimeaux/inneranimalmedia/src/api/command-run-telemetry.js:49:export async function resolveAgentCommand(env, opts) {
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:113:  resolveAgentCommand,
+/Users/samprimeaux/inneranimalmedia/src/api/agent.js:5186:    : await resolveAgentCommand(env, {
+
+========================================================================
+subagent_profile — 42 rows, how used?
+========================================================================
+/Users/samprimeaux/inneranimalmedia/src/core/routing.js:505:  if (body.subagent === true || (body.subagent_profile_id != null && String(body.subagent_profile_id).trim() !== '')) {
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js:238:    .prepare(`SELECT id FROM agentsam_subagent_profile WHERE user_id = ? AND workspace_id = '' AND slug = 'primary' LIMIT 1`)
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js:245:        `INSERT INTO agentsam_subagent_profile
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js:261:        `UPDATE agentsam_subagent_profile SET personality_tone = ?, description = ?, updated_at = datetime('now')
+/Users/samprimeaux/inneranimalmedia/src/api/onboarding.js:362:  await warnDb('agentsam_subagent_profile', async () => {
+/Users/samprimeaux/inneranimalmedia/src/api/oauth-login-callbacks.js:151:      .prepare(`SELECT id FROM agentsam_subagent_profile WHERE user_id = ? LIMIT 1`)
+/Users/samprimeaux/inneranimalmedia/src/api/oauth-login-callbacks.js:158:          `INSERT INTO agentsam_subagent_profile
+/Users/samprimeaux/inneranimalmedia/src/api/mcp.js:319:          `SELECT * FROM agentsam_subagent_profile WHERE slug = ? AND is_active = 1 LIMIT 1`,
+/Users/samprimeaux/inneranimalmedia/src/api/mcp.js:374:          `SELECT * FROM agentsam_subagent_profile WHERE slug = ? AND is_active = 1 LIMIT 1`,
+/Users/samprimeaux/inneranimalmedia/src/api/mcp.js:741:          FROM agentsam_subagent_profile
+/Users/samprimeaux/inneranimalmedia/src/api/mcp.js:766:              FROM agentsam_subagent_profile
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js:1472:        `SELECT * FROM agentsam_subagent_profile
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js:1538:        `UPDATE agentsam_subagent_profile SET ${sets.join(', ')}
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js:1545:        `SELECT * FROM agentsam_subagent_profile WHERE id = ? AND user_id = ? LIMIT 1`,
+/Users/samprimeaux/inneranimalmedia/src/api/settings.js:2954:      `
+
+========================================================================
+SUMMARY — actionable items
+========================================================================
+  Dead tables:         4 — schema only, no runtime cost, low priority
+  Thin-wired tables:   19 — worth reviewing for completeness
+  Healthy tables:      61 — actively used
+
+  HIGH PRIORITY (blocking plan tasks):
+  - agentsam_tool_call_log: add agent_run_id column (T008/T009)
+  - agentsam_approval_queue: confirm T003 writes here on approval
+  - change_sets: wired in T004/T006 (table exists, code not yet)
+
+  CARRIED TASKS (from plan_session_20260514_agentsam_quality):
+  - capability_aliases → resolveAgentCommand (s19)
+  - context_digest → buildSystemPrompt (s20)
+  - guardrail_rulesets → evaluateGuardrails (s21)
+
+  INTERESTING / INVESTIGATE:
+  - patch_sessions: 19 rows of real patch history — does this overlap change_sets?
+  - subagent_profile: 42 rows — are subagents (coder/browser/toolbox) actually dispatched?
+  - approval_queue: 19 rows of real approvals — T003 should write here

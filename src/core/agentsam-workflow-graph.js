@@ -2,7 +2,7 @@
  * Workflow graph load + CRUD helpers (agentsam_workflows registry + DAG on workflow_id).
  */
 
-async function resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId) {
+export async function resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId) {
   if (!db) return null;
   const key = String(workflowKey || '').trim();
   if (!key) return null;
@@ -102,6 +102,12 @@ export async function loadWorkflowGraphBundle(db, registryId, tenantId, workspac
     .first();
   if (!workflow) return null;
 
+  const mcpWorkflow = await loadMcpWorkflowFull(
+    db,
+    String(workflow.workflow_key || ''),
+    tenantId,
+    workspaceId,
+  );
   const dagWorkflowId = await resolveDagWorkflowId(db, workflow, tenantId, workspaceId);
   const nodes =
     (
@@ -127,12 +133,58 @@ export async function loadWorkflowGraphBundle(db, registryId, tenantId, workspac
     ).results || [];
 
   const meta = parseJsonObject(workflow.metadata_json);
+  const runsSummary = await loadWorkflowRunsSummary(db, String(workflow.workflow_key || ''));
   return {
     workflow,
+    mcp_workflow: mcpWorkflow,
+    registry_workflow_id: String(workflow.id ?? ''),
     dag_workflow_id: dagWorkflowId,
     nodes,
     edges,
     canvas_layout: meta.canvas_layout && typeof meta.canvas_layout === 'object' ? meta.canvas_layout : {},
+    runs_summary: runsSummary,
+  };
+}
+
+async function loadMcpWorkflowFull(db, workflowKey, tenantId, workspaceId) {
+  const row = await resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId);
+  if (!row?.id) return null;
+  return db
+    .prepare(`SELECT * FROM agentsam_mcp_workflows WHERE id = ? LIMIT 1`)
+    .bind(row.id)
+    .first()
+    .catch(() => null);
+}
+
+async function loadWorkflowRunsSummary(db, workflowKey) {
+  const key = String(workflowKey || '').trim();
+  if (!key) return null;
+  const row = await db
+    .prepare(
+      `SELECT
+         COUNT(*) AS run_count,
+         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS fail_count,
+         AVG(COALESCE(cost_usd, 0)) AS avg_cost_usd,
+         SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) AS total_tokens
+       FROM agentsam_workflow_runs
+       WHERE workflow_key = ?`,
+    )
+    .bind(key)
+    .first()
+    .catch(() => null);
+  if (!row) return null;
+  const runCount = Number(row.run_count ?? 0);
+  const successCount = Number(row.success_count ?? 0);
+  const failCount = Number(row.fail_count ?? 0);
+  return {
+    run_count: runCount,
+    success_count: successCount,
+    fail_count: failCount,
+    success_rate: runCount > 0 ? successCount / runCount : null,
+    fail_rate: runCount > 0 ? failCount / runCount : null,
+    avg_cost_usd: row.avg_cost_usd != null ? Number(row.avg_cost_usd) : null,
+    total_tokens: Number(row.total_tokens ?? 0),
   };
 }
 
@@ -153,22 +205,58 @@ export async function requireWorkflowGraphContext(db, registryId, tenantId, work
  * @param {string} registryId
  * @param {Record<string, {x?: number, y?: number}>} positions
  */
-export async function saveWorkflowCanvasLayout(db, registryId, positions) {
-  const workflow = await db
-    .prepare(`SELECT id, metadata_json FROM agentsam_workflows WHERE id = ? LIMIT 1`)
-    .bind(registryId)
-    .first();
-  if (!workflow) return { error: 'workflow not found', status: 404 };
+export async function saveWorkflowCanvasLayout(
+  db,
+  registryId,
+  positions,
+  tenantId = null,
+  workspaceId = null,
+) {
+  const ctx = await requireWorkflowGraphContext(db, registryId, tenantId, workspaceId);
+  if (ctx.error) return { error: ctx.error, status: ctx.status };
+  const dagId = ctx.bundle.dag_workflow_id;
+  const entries = Object.entries(positions && typeof positions === 'object' ? positions : {});
+  if (!entries.length) return { ok: true, dag_workflow_id: dagId, updated: 0 };
 
-  const meta = parseJsonObject(workflow.metadata_json);
-  meta.canvas_layout = { ...(meta.canvas_layout || {}), ...positions };
-  await db
-    .prepare(
-      `UPDATE agentsam_workflows SET metadata_json = ?, updated_at = datetime('now') WHERE id = ?`,
-    )
-    .bind(JSON.stringify(meta), registryId)
-    .run();
-  return { ok: true, canvas_layout: meta.canvas_layout };
+  let updated = 0;
+  let usedNodeColumns = true;
+  for (const [nodeKey, pos] of entries) {
+    const x = Math.round(Number(pos?.x ?? 0));
+    const y = Math.round(Number(pos?.y ?? 0));
+    try {
+      const res = await db
+        .prepare(
+          `UPDATE agentsam_workflow_nodes
+           SET pos_x = ?, pos_y = ?, updated_at = datetime('now')
+           WHERE workflow_id = ? AND node_key = ? AND COALESCE(is_active, 1) = 1`,
+        )
+        .bind(x, y, dagId, String(nodeKey))
+        .run();
+      updated += Number(res?.meta?.changes ?? res?.changes ?? 0);
+    } catch {
+      usedNodeColumns = false;
+      break;
+    }
+  }
+
+  if (!usedNodeColumns) {
+    const workflow = await db
+      .prepare(`SELECT id, metadata_json FROM agentsam_workflows WHERE id = ? LIMIT 1`)
+      .bind(registryId)
+      .first();
+    if (!workflow) return { error: 'workflow not found', status: 404 };
+    const meta = parseJsonObject(workflow.metadata_json);
+    meta.canvas_layout = { ...(meta.canvas_layout || {}), ...positions };
+    await db
+      .prepare(
+        `UPDATE agentsam_workflows SET metadata_json = ?, updated_at = datetime('now') WHERE id = ?`,
+      )
+      .bind(JSON.stringify(meta), registryId)
+      .run();
+    return { ok: true, dag_workflow_id: dagId, canvas_layout: meta.canvas_layout, fallback: 'metadata_json' };
+  }
+
+  return { ok: true, dag_workflow_id: dagId, updated };
 }
 
 const ALLOWED_NODE_TYPES = new Set([

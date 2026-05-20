@@ -401,12 +401,25 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
             w.id, w.workflow_key, w.display_name, w.description,
             w.risk_level, w.requires_approval, w.is_active,
             COUNT(DISTINCT n.id) AS node_count,
-            COUNT(DISTINCT e.id) AS edge_count
+            COUNT(DISTINCT e.id) AS edge_count,
+            COALESCE(rs.run_count, 0) AS run_count,
+            COALESCE(rs.success_count, 0) AS success_count,
+            COALESCE(rs.fail_count, 0) AS fail_count,
+            rs.avg_cost_usd
           FROM agentsam_workflows w
           LEFT JOIN agentsam_workflow_nodes n
             ON n.workflow_id = w.id AND COALESCE(n.is_active, 1) = 1
           LEFT JOIN agentsam_workflow_edges e
             ON e.workflow_id = w.id
+          LEFT JOIN (
+            SELECT workflow_key,
+              COUNT(*) AS run_count,
+              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
+              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS fail_count,
+              AVG(COALESCE(cost_usd, 0)) AS avg_cost_usd
+            FROM agentsam_workflow_runs
+            GROUP BY workflow_key
+          ) rs ON rs.workflow_key = w.workflow_key
           WHERE w.is_active = 1
           GROUP BY w.id
           ORDER BY w.display_name ASC

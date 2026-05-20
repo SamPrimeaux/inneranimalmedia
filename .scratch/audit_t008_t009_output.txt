@@ -1,0 +1,230 @@
+/Users/samprimeaux/inneranimalmedia/audit_t008_t009.py:77: SyntaxWarning: "\|" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\|"? A raw string is also an option.
+  run_id_hits = grep_agent('agent_run_id\|agentRunId\|insertAgentRun\|createAgentRun')
+======================================================================
+T008 — playwright_jobs INSERT sites
+======================================================================
+
+======================================================================
+T008 — agent_run_id / agentRunId availability near playwright INSERT
+======================================================================
+
+======================================================================
+T009 — all 'triggered_by' write sites in agent.js
+======================================================================
+  7614:                  triggered_by, git_hash, timestamp AS created_at
+  7668:        const trig = r.triggered_by != null ? String(r.triggered_by) : '';
+  9037:    await env.DB.prepare(`INSERT INTO workflow_runs (id, tenant_id, workflow_id, workflow_name, trigger_source, triggered_by, status, input_data, created_at, updated_at) VALUES (?,?,?,?,'api','iam_agent','pending',?,datetime('now'),datetime('now'))`).bind(runId, tenantId, body.workflow_id||null, workflowName, body.input_data ? JSON.stringify(body.input_data) : null).run();
+
+  --- Sites with hardcoded triggered_by = 'agent' ---
+
+======================================================================
+agent_run_id — how/where it is set in agent.js request handling
+======================================================================
+  5044:        ...(chatAgentRunId ? { agent_run_id: chatAgentRunId } : {}),
+  6149:  /** Stable id for D1 `agentsam_agent_run` + SSE `context.agent_run_id` (POST /api/agent/chat). */
+  6194:    ...(chatAgentRunId ? { agent_run_id: chatAgentRunId } : {}),
+
+======================================================================
+agentsam_agent_run INSERT — how run ID is generated
+======================================================================
+  6149:  /** Stable id for D1 `agentsam_agent_run` + SSE `context.agent_run_id` (POST /api/agent/chat). */
+
+======================================================================
+T003 execute-approved-tool — does it have agent_run_id in scope?
+======================================================================
+
+  line 9141:
+       9138:     return handleAgentBootstrapRequest(request, env, ctx, identity);
+       9139:   }
+       9140: 
+  >>>  9141:   // ── POST /api/agent/chat/execute-approved-tool ───────────────────────────
+       9142:   // Non-plan tool approval path (ChatAssistant.tsx). User already approved in UI.
+       9143:   if (path === '/api/agent/chat/execute-approved-tool' && method === 'POST') {
+       9144:     const body = await request.json().catch(() => ({}));
+       9145:     const toolName = normalizeToolName(String(body.tool_name ?? body.name ?? '').trim());
+       9146:     if (!toolName) {
+       9147:       return jsonResponse({ success: false, error: 'tool_name required' }, 400);
+       9148:     }
+       9149:     const toolInput =
+       9150:       body.tool_input && typeof body.tool_input === 'object'
+       9151:         ? body.tool_input
+       9152:         : body.parameters && typeof body.parameters === 'object'
+       9153:           ? body.parameters
+       9154:           : body.input && typeof body.input === 'object'
+       9155:             ? body.input
+       9156:             : {};
+       9157:     const conversationId =
+       9158:       body.conversation_id != null && String(body.conversation_id).trim() !== ''
+       9159:         ? String(body.conversation_id).trim()
+       9160:         : null;
+       9161: 
+       9162:     console.log('[execute-approved-tool] tool_name:', toolName);
+       9163:     console.log('[execute-approved-tool] tool_input:', JSON.stringify(toolInput).slice(0, 2000));
+       9164: 
+       9165:     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+       9166:     const sessionId = conversationId ?? identity?.sessionId ?? actorCtx?.sessionId ?? null;
+
+  line 9143:
+       9140: 
+       9141:   // ── POST /api/agent/chat/execute-approved-tool ───────────────────────────
+       9142:   // Non-plan tool approval path (ChatAssistant.tsx). User already approved in UI.
+  >>>  9143:   if (path === '/api/agent/chat/execute-approved-tool' && method === 'POST') {
+       9144:     const body = await request.json().catch(() => ({}));
+       9145:     const toolName = normalizeToolName(String(body.tool_name ?? body.name ?? '').trim());
+       9146:     if (!toolName) {
+       9147:       return jsonResponse({ success: false, error: 'tool_name required' }, 400);
+       9148:     }
+       9149:     const toolInput =
+       9150:       body.tool_input && typeof body.tool_input === 'object'
+       9151:         ? body.tool_input
+       9152:         : body.parameters && typeof body.parameters === 'object'
+       9153:           ? body.parameters
+       9154:           : body.input && typeof body.input === 'object'
+       9155:             ? body.input
+       9156:             : {};
+       9157:     const conversationId =
+       9158:       body.conversation_id != null && String(body.conversation_id).trim() !== ''
+       9159:         ? String(body.conversation_id).trim()
+       9160:         : null;
+       9161: 
+       9162:     console.log('[execute-approved-tool] tool_name:', toolName);
+       9163:     console.log('[execute-approved-tool] tool_input:', JSON.stringify(toolInput).slice(0, 2000));
+       9164: 
+       9165:     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+       9166:     const sessionId = conversationId ?? identity?.sessionId ?? actorCtx?.sessionId ?? null;
+       9167:     const context = {
+       9168:       sessionId,
+
+  line 9162:
+       9159:         ? String(body.conversation_id).trim()
+       9160:         : null;
+       9161: 
+  >>>  9162:     console.log('[execute-approved-tool] tool_name:', toolName);
+       9163:     console.log('[execute-approved-tool] tool_input:', JSON.stringify(toolInput).slice(0, 2000));
+       9164: 
+       9165:     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+       9166:     const sessionId = conversationId ?? identity?.sessionId ?? actorCtx?.sessionId ?? null;
+       9167:     const context = {
+       9168:       sessionId,
+       9169:       tenantId: identity?.tenantId ?? actorCtx?.tenantId ?? null,
+       9170:       userId: identity?.userId ?? actorCtx?.userId ?? null,
+       9171:       workspaceId: identity?.workspaceId ?? actorCtx?.workspaceId ?? null,
+       9172:       personUuid: identity?.personUuid ?? actorCtx?.personUuid ?? null,
+       9173:       isSuperadmin: !!(identity?.isSuperadmin ?? actorCtx?.isSuperadmin),
+       9174:       request,
+       9175:     };
+       9176: 
+       9177:     const toolBudgetMs = resolveToolExecutionBudgetMs(toolName, toolInput);
+       9178:     const execT0 = Date.now();
+       9179:     try {
+       9180:       const result = await dispatchToolCallWithBudget(
+       9181:         env,
+       9182:         toolName,
+       9183:         toolInput,
+       9184:         context,
+       9185:         toolBudgetMs,
+       9186:       );
+       9187:       const execMs = Math.max(0, Date.now() - execT0);
+
+  line 9163:
+       9160:         : null;
+       9161: 
+       9162:     console.log('[execute-approved-tool] tool_name:', toolName);
+  >>>  9163:     console.log('[execute-approved-tool] tool_input:', JSON.stringify(toolInput).slice(0, 2000));
+       9164: 
+       9165:     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+       9166:     const sessionId = conversationId ?? identity?.sessionId ?? actorCtx?.sessionId ?? null;
+       9167:     const context = {
+       9168:       sessionId,
+       9169:       tenantId: identity?.tenantId ?? actorCtx?.tenantId ?? null,
+       9170:       userId: identity?.userId ?? actorCtx?.userId ?? null,
+       9171:       workspaceId: identity?.workspaceId ?? actorCtx?.workspaceId ?? null,
+       9172:       personUuid: identity?.personUuid ?? actorCtx?.personUuid ?? null,
+       9173:       isSuperadmin: !!(identity?.isSuperadmin ?? actorCtx?.isSuperadmin),
+       9174:       request,
+       9175:     };
+       9176: 
+       9177:     const toolBudgetMs = resolveToolExecutionBudgetMs(toolName, toolInput);
+       9178:     const execT0 = Date.now();
+       9179:     try {
+       9180:       const result = await dispatchToolCallWithBudget(
+       9181:         env,
+       9182:         toolName,
+       9183:         toolInput,
+       9184:         context,
+       9185:         toolBudgetMs,
+       9186:       );
+       9187:       const execMs = Math.max(0, Date.now() - execT0);
+       9188:       console.log('[execute-approved-tool] result:', JSON.stringify(result).slice(0, 2000));
+
+  line 9188:
+       9185:         toolBudgetMs,
+       9186:       );
+       9187:       const execMs = Math.max(0, Date.now() - execT0);
+  >>>  9188:       console.log('[execute-approved-tool] result:', JSON.stringify(result).slice(0, 2000));
+       9189: 
+       9190:       scheduleRecordMcpToolExecution(env, ctx, {
+       9191:         tenant_id: context.tenantId,
+       9192:         workspace_id: context.workspaceId,
+       9193:         session_id: sessionId,
+       9194:         tool_name: toolName,
+       9195:         tool_id: null,
+       9196:         input_json: JSON.stringify(toolInput || {}),
+       9197:         output_json: JSON.stringify(result ?? null).slice(0, 50000),
+       9198:         success: true,
+       9199:         error_message: null,
+       9200:         duration_ms: execMs,
+       9201:         user_id: context.userId,
+       9202:         invoked_by: context.userId || 'iam_agent',
+       9203:         status: 'completed',
+       9204:       });
+       9205: 
+       9206:       return jsonResponse({ success: true, tool_name: toolName, result });
+       9207:     } catch (e) {
+       9208:       const execMs = Math.max(0, Date.now() - execT0);
+       9209:       const errMsg =
+       9210:         e && typeof e === 'object' && 'message' in e && typeof e.message === 'string'
+       9211:           ? e.message
+       9212:           : String(e ?? 'unknown_error');
+       9213:       console.warn('[execute-approved-tool] tool_error', toolName, errMsg);
+
+  line 9213:
+       9210:         e && typeof e === 'object' && 'message' in e && typeof e.message === 'string'
+       9211:           ? e.message
+       9212:           : String(e ?? 'unknown_error');
+  >>>  9213:       console.warn('[execute-approved-tool] tool_error', toolName, errMsg);
+       9214: 
+       9215:       scheduleRecordMcpToolExecution(env, ctx, {
+       9216:         tenant_id: context.tenantId,
+       9217:         workspace_id: context.workspaceId,
+       9218:         session_id: sessionId,
+       9219:         tool_name: toolName,
+       9220:         tool_id: null,
+       9221:         input_json: JSON.stringify(toolInput || {}),
+       9222:         output_json: null,
+       9223:         success: false,
+       9224:         error_message: errMsg.slice(0, 4000),
+       9225:         duration_ms: execMs,
+       9226:         user_id: context.userId,
+       9227:         invoked_by: context.userId || 'iam_agent',
+       9228:         status: 'error',
+       9229:       });
+       9230: 
+       9231:       return jsonResponse({ success: false, tool_name: toolName, error: errMsg }, 200);
+       9232:     }
+       9233:   }
+       9234: 
+       9235:   // ── /api/agent/chat ───────────────────────────────────────────────────────
+       9236:   if (path === '/api/agent/chat' && method === 'POST') {
+       9237:     const ingestBypass = isIngestSecretAuthorized(request, env);
+       9238:     return agentChatSseHandler(env, request, ctx, { ingestBypass, identity });
+
+======================================================================
+SUMMARY
+======================================================================
+  playwright_jobs INSERT sites: 0
+  triggered_by hardcoded 'agent' sites: 0
+  agent_run_id references in agent.js: 3
+  agentsam_agent_run INSERT sites: 0
+
+  Paste output — patches will target exact line numbers.
