@@ -28,6 +28,8 @@ export async function handleClientConfig(request, env) {
   }
 
   return jsonResponse({
+    supabaseUrl,
+    supabaseAnonKey,
     supabase_url: supabaseUrl,
     supabase_anon_key: supabaseAnonKey,
   });

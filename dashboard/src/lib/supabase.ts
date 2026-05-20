@@ -1,5 +1,12 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+declare global {
+  interface Window {
+    __SUPABASE_URL__?: string;
+    __SUPABASE_ANON_KEY__?: string;
+  }
+}
+
 /** Build-time (Vite define / SUPABASE_* from .env.cloudflare) or runtime /api/config/client */
 function resolveBuildCredentials(): { url: string; anonKey: string } | null {
   const url = String(import.meta.env.VITE_SUPABASE_URL || '')
@@ -14,10 +21,29 @@ let _client: SupabaseClient | null = null;
 let _bootstrapPromise: Promise<SupabaseClient | null> | null = null;
 let _warnedMissing = false;
 
+export function setSupabaseBootstrap(url: string, anonKey: string): void {
+  const u = url.trim().replace(/\/$/, '');
+  const k = anonKey.trim();
+  if (typeof window !== 'undefined') {
+    window.__SUPABASE_URL__ = u;
+    window.__SUPABASE_ANON_KEY__ = k;
+  }
+}
+
+function readBootstrapCredentials(): { url: string; anonKey: string } | null {
+  const fromBuild = resolveBuildCredentials();
+  if (fromBuild) return fromBuild;
+  if (typeof window === 'undefined') return null;
+  const url = String(window.__SUPABASE_URL__ || '').trim().replace(/\/$/, '');
+  const anonKey = String(window.__SUPABASE_ANON_KEY__ || '').trim();
+  if (!url || !anonKey) return null;
+  return { url, anonKey };
+}
+
 function attachClient(url: string, anonKey: string): SupabaseClient {
   if (!_client) {
     _client = createClient(url, anonKey, {
-      realtime: { params: { eventsPerSecond: 4 } },
+      realtime: { params: { eventsPerSecond: 2 } },
     });
   }
   return _client;
@@ -25,7 +51,24 @@ function attachClient(url: string, anonKey: string): SupabaseClient {
 
 const built = resolveBuildCredentials();
 if (built) {
+  setSupabaseBootstrap(built.url, built.anonKey);
   attachClient(built.url, built.anonKey);
+}
+
+type ClientConfigJson = {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  supabase_url?: string;
+  supabase_anon_key?: string;
+};
+
+function parseClientConfig(cfg: ClientConfigJson): { url: string; anonKey: string } | null {
+  const url = String(cfg.supabaseUrl ?? cfg.supabase_url ?? '')
+    .trim()
+    .replace(/\/$/, '');
+  const anonKey = String(cfg.supabaseAnonKey ?? cfg.supabase_anon_key ?? '').trim();
+  if (!url || !anonKey) return null;
+  return { url, anonKey };
 }
 
 /**
@@ -36,18 +79,18 @@ export async function bootstrapSupabaseFromSession(): Promise<SupabaseClient | n
   if (_bootstrapPromise) return _bootstrapPromise;
 
   _bootstrapPromise = (async () => {
-    const fromBuild = resolveBuildCredentials();
-    if (fromBuild) return attachClient(fromBuild.url, fromBuild.anonKey);
+    const existing = readBootstrapCredentials();
+    if (existing) return attachClient(existing.url, existing.anonKey);
 
     try {
       const res = await fetch('/api/config/client', { credentials: 'same-origin' });
       if (res.ok) {
-        const cfg = (await res.json()) as { supabase_url?: string; supabase_anon_key?: string };
-        const url = String(cfg.supabase_url || '')
-          .trim()
-          .replace(/\/$/, '');
-        const anonKey = String(cfg.supabase_anon_key || '').trim();
-        if (url && anonKey) return attachClient(url, anonKey);
+        const cfg = (await res.json()) as ClientConfigJson;
+        const parsed = parseClientConfig(cfg);
+        if (parsed) {
+          setSupabaseBootstrap(parsed.url, parsed.anonKey);
+          return attachClient(parsed.url, parsed.anonKey);
+        }
       }
     } catch {
       /* non-fatal */
