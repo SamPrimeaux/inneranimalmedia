@@ -6826,6 +6826,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     };
     const turnStartNs = chatT0 * 1_000_000;
     let routingArmOutcomeLogged = false;
+    let succeeded = false;
+    let explicitProviderFailure = false;
+    let lastLoopStats = null;
+    let lastAssistantStreamText = '';
+    let tried = [];
     const providerForModelKey = (mk) => {
       const k = mk != null ? String(mk) : '';
       const r = chainRows.find((x) => String(x.model_key || '') === k);
@@ -6879,7 +6884,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             ]
           : chatMessagesBase;
 
-      const tried = [];
+      tried = [];
       const startIdx = isAnthropicSmoketestQuickstartBatch(quickstartBatch)
         ? 0
         : confidence < escalationThreshold && fallbackModelKeys.length > 1
@@ -6887,10 +6892,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           : 0;
       const maxProviderAttempts = explicitModelFromRequest ? 1 : 3;
       let providerAttempts = 0;
-      let succeeded = false;
-      let explicitProviderFailure = false;
-      let lastLoopStats = null;
-      let lastAssistantStreamText = '';
+      succeeded = false;
+      explicitProviderFailure = false;
+      lastLoopStats = null;
+      lastAssistantStreamText = '';
       let lastSucceededArmId = routingArmIdForRun || null;
 
       /** TEMP prompt-size audit (see dispatchStream maybeLogAgentChatPromptAudit); no raw prompt content. */
@@ -7323,16 +7328,33 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       }
     } catch (e) {
       console.warn('[agent] Agent loop failed', e?.message ?? e);
+      const partialUsage = lastLoopStats?.totalUsage ?? {};
+      const catchIn = Math.max(0, Math.floor(Number(partialUsage.input_tokens) || 0));
+      const catchOut = Math.max(0, Math.floor(Number(partialUsage.output_tokens) || 0));
+      const hasStreamedText = String(lastAssistantStreamText || '').trim().length > 0;
+      const partialSuccess =
+        (catchIn > 0 || catchOut > 0 || hasStreamedText) && !explicitProviderFailure;
+      const catchModelKey =
+        lastLoopStats?.modelKey || tried[tried.length - 1] || fallbackModelKeys[0] || null;
+      const postStreamErr =
+        e?.message != null ? String(e.message).slice(0, 8000) : 'agent_loop_failed';
+
       emit('error', { message: 'Agent loop failed' });
       if (!doneGuard.emitted) {
-        safeDoneChat({ stream_failed: true, fatal: true });
+        safeDoneChat({
+          stream_failed: !partialSuccess,
+          fatal: !partialSuccess,
+          input_tokens: catchIn,
+          output_tokens: catchOut,
+          agent_run_id: chatAgentRunId ?? undefined,
+        });
       }
       if (routingArmIdForRun && !routingArmOutcomeLogged) {
-        await recordArmOutcome(env, ctx, routingArmIdForRun, false, {
+        await recordArmOutcome(env, ctx, routingArmIdForRun, partialSuccess, {
           taskType: resolvedRoutingTaskType ?? 'chat',
           mode: requestedMode ?? 'auto',
-          modelKey: fallbackModelKeys[0],
-          workspaceId: resolvedWorkspaceId ?? ''
+          modelKey: catchModelKey ?? fallbackModelKeys[0],
+          workspaceId: resolvedWorkspaceId ?? '',
         });
         routingArmOutcomeLogged = true;
       }
@@ -7345,18 +7367,18 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         userInput: message,
         normalizedIntent: intentSlug,
         intentCategory: 'chat',
-        modelKey: fallbackModelKeys[0] || null,
-        commandsExecuted: [],
-        result: { fatal: true },
+        modelKey: catchModelKey,
+        commandsExecuted: lastLoopStats?.executedToolNames || [],
+        result: { fatal: !partialSuccess, partial: partialSuccess },
         outputText: null,
         confidenceScore: confidence,
-        success: false,
+        success: partialSuccess,
         exitCode: null,
         durationMs: Date.now() - chatT0,
-        inputTokens: 0,
-        outputTokens: 0,
+        inputTokens: catchIn,
+        outputTokens: catchOut,
         costUsd: 0,
-        errorMessage: e?.message != null ? String(e.message).slice(0, 8000) : 'agent_loop_failed',
+        errorMessage: partialSuccess ? `post_stream: ${postStreamErr}` : postStreamErr,
         selectedCommandId: null,
         selectedCommandSlug: null,
         riskLevel: 'low',
@@ -7364,9 +7386,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         approvalStatus: 'not_required',
         cwd: null,
         filesOpen: [],
-        recentError: e?.message != null ? String(e.message).slice(0, 2000) : null,
+        recentError: postStreamErr.slice(0, 2000),
         goal: message,
-        contextTokenEstimate: 0,
+        contextTokenEstimate: catchIn + catchOut,
       });
       if (userId && resolvedWorkspaceId) {
         scheduleAgentsamChatAgentRunInsert(env, ctx, {
@@ -7376,19 +7398,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId: resolvedWorkspaceId,
           conversationId: sessionId ? String(sessionId) : null,
           routingArmId: routingArmIdForRun,
-          modelKey: fallbackModelKeys[0] || null,
+          modelKey: catchModelKey,
           taskType: resolvedRoutingTaskType,
           mode: requestedMode,
           routeKey: routeKeyForRun,
-          success: false,
-          inputTokens: 0,
-          outputTokens: 0,
+          success: partialSuccess,
+          inputTokens: catchIn,
+          outputTokens: catchOut,
           costUsd: 0,
           durationMs: Date.now() - chatT0,
-          errorMessage: e?.message != null ? String(e.message).slice(0, 8000) : 'agent_loop_failed',
-          workflowRunId: null,
-          chainRootId: null,
-          timedOut: false,
+          errorMessage: partialSuccess ? `post_stream: ${postStreamErr}` : postStreamErr,
+          workflowRunId: lastLoopStats?.workflowRunId ?? null,
+          chainRootId: lastLoopStats?.chainRootId ?? null,
+          timedOut: lastLoopStats?.timedOut === true,
+          fallbackUsed: tried.length > 1,
+          fallbackReason: tried.length > 1 ? `models_tried:${tried.join(',')}` : null,
+          modelsTried: tried,
+          quickstartBatch: quickstartBatch || null,
         });
       }
       scheduleAgentsamUsageEventFromChat(env, ctx, {
@@ -7396,14 +7422,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         workspaceId,
         userId,
         conversationId: sessionId ? String(sessionId) : null,
-        resolvedProvider: providerForModelKey(fallbackModelKeys[0]),
-        modelKey: fallbackModelKeys[0] ?? 'unknown',
-        inputTokens: 0,
-        outputTokens: 0,
+        resolvedProvider: providerForModelKey(catchModelKey),
+        modelKey: catchModelKey ?? 'unknown',
+        inputTokens: catchIn,
+        outputTokens: catchOut,
         costUsd: 0,
-        streamFailed: true,
+        streamFailed: !partialSuccess,
         refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
-        routingArmId: null,
+        routingArmId: routingArmIdForRun,
       });
       if (tenantId) {
         scheduleInsertAgentCost(env, ctx, {
@@ -7411,14 +7437,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           tenantId,
           sessionId: sessionId ? String(sessionId) : null,
           routingArmId: routingArmIdForRun,
-          modelUsed: fallbackModelKeys[0] || 'unknown',
-          tokensIn: 0,
-          tokensOut: 0,
+          modelUsed: catchModelKey || 'unknown',
+          tokensIn: catchIn,
+          tokensOut: catchOut,
           costUsd: 0,
           taskType: resolvedRoutingTaskType,
           userId: userId ?? null,
           isStreaming: true,
-          errorType: 'agent_loop_failed',
+          errorType: partialSuccess ? 'post_stream_finalize' : 'agent_loop_failed',
         });
       }
     } finally {

@@ -141,6 +141,11 @@ async function buildChatRoutingDecisionPayload(env, p) {
 /**
  * @param {{ label?: string | null }} [opts] Optional stable prefix (e.g. anthropic_smoketest_quickstart).
  */
+/** Unix seconds for D1 `agentsam_agent_run.created_at_unix` (benchmark + rollups). */
+function agentRunUnixNow() {
+  return Math.floor(Date.now() / 1000);
+}
+
 export function newChatAgentRunId(opts = {}) {
   const hex = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const raw = opts?.label != null ? String(opts.label).trim() : '';
@@ -245,6 +250,7 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
       add('work_session_id', p.workSessionId != null ? String(p.workSessionId).slice(0, 200) : null);
 
       const isoNow = new Date().toISOString();
+      const unixNow = agentRunUnixNow();
       if (cols.has('started_at')) {
         parts.push('started_at');
         binds.push(isoNow);
@@ -253,6 +259,7 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
         parts.push('created_at');
         binds.push(isoNow);
       }
+      add('created_at_unix', unixNow);
 
       if (parts.length < 3) return;
 
@@ -375,6 +382,10 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
           sets.push('completed_at = ?');
           binds.push(isoNow);
         }
+        if (cols.has('created_at_unix')) {
+          sets.push('created_at_unix = COALESCE(created_at_unix, ?)');
+          binds.push(agentRunUnixNow());
+        }
         if (!sets.length) return;
         binds.push(runId);
         try {
@@ -465,6 +476,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         parts.push('created_at');
         binds.push(isoNow);
       }
+      add('created_at_unix', agentRunUnixNow());
 
       if (parts.length < 3) return;
 
