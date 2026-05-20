@@ -19,6 +19,7 @@
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
 import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/provider.js';
+import { resolveModelForTask, ResolutionError, computeCostUsd as computeModelCostUsd } from '../core/resolveModel.js';
 import {
   resolveWorkspaceCapabilityShellWorkflowId,
   isWorkspaceCapabilityActionIntent,
@@ -6390,52 +6391,43 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   chainRows = await filterWorkspaceModelTierPool(env, workspaceId, chainRows);
 
   if (isAnthropicSmoketestQuickstartBatch(quickstartBatch)) {
-    const ttAnth = String(resolvedRoutingTaskType || '').trim();
-    if (isAutoModel && SCOUT_TASK_TYPES.has(ttAnth)) {
-      const haikuRow = await resolveAgentsamAiRowByModelKey(
-        env,
-        tenantId,
-        'claude-haiku-4-5-20251001',
-      );
-      if (haikuRow?.model_key) {
-        chainRows = dedupeModelsByKey([haikuRow]);
-      }
-    }
+    // DB-driven: Thompson arms decide which model to prefer — no hardcoded model strings.
+    // resolveRoutingArm queries agentsam_routing_arms with Beta(alpha,beta) scoring.
+    const armPick = isAutoModel
+      ? await resolveRoutingArm(env, {
+          taskType: resolvedRoutingTaskType,
+          intentSlug,
+          mode: requestedMode,
+          workspaceId: String(workspaceId || '').trim(),
+          routeKey: routeKeyForRun,
+          userId,
+          tenantId,
+          toolRequired: requireTools,
+        })
+      : null;
+
+    const preferKey = armPick?.modelKey || '';
+
+    // Smoketest batches are Anthropic-only
     const anthropicOnly = chainRows.filter((r) =>
-      /^anthropic_/i.test(String(r?.model_key || '')),
+      /^anthropic_/i.test(String(r?.model_key || '')) ||
+      String(r?.provider || '').toLowerCase() === 'anthropic',
     );
     if (anthropicOnly.length) chainRows = anthropicOnly;
-    const preferKey = SCOUT_TASK_TYPES.has(ttAnth)
-      ? 'claude-haiku-4-5-20251001'
-      : BUILDER_TASK_TYPES.has(ttAnth)
-        ? 'claude-sonnet-4-6'
-        : '';
+
+    // Promote Thompson-selected model to front of chain
     if (preferKey) {
       chainRows = [
         ...chainRows.filter((r) => String(r?.model_key || '') === preferKey),
         ...chainRows.filter((r) => String(r?.model_key || '') !== preferKey),
       ];
-    }
-    if (
-      isAutoModel &&
-      SCOUT_TASK_TYPES.has(String(resolvedRoutingTaskType || '').trim()) &&
-      !chainRows.some((r) => String(r?.model_key || '') === 'claude-haiku-4-5-20251001')
-    ) {
-      const forcedPick = await resolveRoutingArm(env, {
-        taskType: resolvedRoutingTaskType,
-        intentSlug,
-        mode: requestedMode,
-        workspaceId: String(workspaceId).trim(),
-        routeKey: routeKeyForRun,
-        userId,
-        tenantId,
-        toolRequired: requireTools,
-      });
-      if (forcedPick?.modelKey) {
+
+      // If not in chain, resolve from DB and prepend
+      if (isAutoModel && !chainRows.some((r) => String(r?.model_key || '') === preferKey)) {
         const forcedRow = await resolveAgentsamAiRowByModelKey(
           env,
           tenantId,
-          forcedPick.modelKey,
+          preferKey,
         );
         if (forcedRow?.model_key) {
           chainRows = dedupeModelsByKey([forcedRow, ...chainRows]);
@@ -6820,6 +6812,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         taskId: body.taskId ?? body.task_id ?? null,
         agentId: body.agentId != null ? String(body.agentId).trim() : null,
         agentAiId: explicitRow?.id ?? chainRows[0]?.id ?? null,
+        modelCatalogId: resolvedModel?.model_catalog_id ?? null,
         personUuid,
         commandId:
           body._resolved_command_id != null ? String(body._resolved_command_id).trim() : null,
@@ -6833,8 +6826,26 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       `).bind(chatAgentRunId, resolvedWorkspaceId, tenantId, userId, routingArmIdForRun, body?.planId ?? body?.plan_id ?? null).run().catch(() => {}));
     }
     const runStartedAt = chatT0;
+    // DB-driven timeout via agentsam_ai.default_timeout_ms — never hardcoded
+    let resolvedModel = null;
+    try {
+      resolvedModel = await resolveModelForTask(env, {
+        task_type:           resolvedRoutingTaskType ?? 'chat',
+        mode:                requestedMode ?? 'auto',
+        requested_model_key: rawRequestedKey || explicitRow?.model_key || null,
+        routing_arm_id:      routingArmIdForRun || null,
+        workspace_id:        resolvedWorkspaceId,
+        tenant_id:           tenantId,
+        require_tools:       requireTools,
+      });
+    } catch (e) {
+      console.warn('[agent] resolveModelForTask:', e?.message ?? e);
+    }
     const maxRunMsChat =
-      Number(modeConfig?.max_runtime_ms) || Number(body?.max_runtime_ms) || 90000;
+      resolvedModel?.timeout_ms ||
+      Number(modeConfig?.max_runtime_ms) ||
+      Number(body?.max_runtime_ms) ||
+      90000;
     const doneGuard = { emitted: false };
     const safeDoneChat = (payload) => {
       if (doneGuard.emitted) return;
@@ -7268,6 +7279,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           modelsTried: tried,
           quickstartBatch: quickstartBatch || null,
           agentAiId: explicitRow?.id ?? chainRows[0]?.id ?? null,
+          modelCatalogId: resolvedModel?.model_catalog_id ?? null,
           qualityScore,
         });
 

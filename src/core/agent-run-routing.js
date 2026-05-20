@@ -249,6 +249,7 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
       add('command_id', p.commandId != null ? String(p.commandId).trim().slice(0, 200) : null);
       add('work_session_id', p.workSessionId != null ? String(p.workSessionId).slice(0, 200) : null);
       add('agent_ai_id', p.agentAiId != null ? String(p.agentAiId).trim().slice(0, 200) : null);
+      add('model_catalog_id', p.modelCatalogId != null ? String(p.modelCatalogId).trim().slice(0, 200) : null);
 
       const isoNow = new Date().toISOString();
       const unixNow = agentRunUnixNow();
