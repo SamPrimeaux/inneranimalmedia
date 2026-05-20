@@ -70,6 +70,7 @@ export function parseCostNotesCapabilities(raw) {
  *   supports_effort_scaling: boolean,
  *   thinking_policy: string,
  *   max_context_tokens: number,
+ *   supports_prompt_cache: boolean,
  * }}
  */
 export function catalogCapabilitiesFromRow(row) {
@@ -112,6 +113,9 @@ export function catalogCapabilitiesFromRow(row) {
           0,
       ),
     ),
+    supports_prompt_cache:
+      num('supports_cache', 'supports_prompt_cache', 0) === 1 ||
+      num('supports_prompt_cache', 'supports_prompt_cache', 0) === 1,
   };
 }
 
@@ -164,6 +168,8 @@ export async function loadCatalogCapabilities(env, modelKey) {
     'supports_compaction',
     'supports_effort_scaling',
     'thinking_policy',
+    'supports_cache',
+    'supports_prompt_cache',
   ]) {
     if (cols.has(c)) select.push(c);
   }
@@ -202,6 +208,8 @@ export async function filterArmsByCatalogCapabilities(env, arms, q) {
     'supports_compaction',
     'supports_effort_scaling',
     'thinking_policy',
+    'supports_cache',
+    'supports_prompt_cache',
   ]) {
     if (cols.has(c)) select.push(c);
   }
@@ -248,5 +256,7 @@ export function anthropicFeaturesFromCatalogCapabilities(cap) {
     effort_scaling: cap.supports_effort_scaling,
     thinking_policy: cap.thinking_policy,
     routing_lane: cap.routing_lane,
+    /** Top-level automatic cache_control when agentsam_ai.supports_cache or features_json enables it. */
+    prompt_caching: cap.supports_prompt_cache === true,
   };
 }

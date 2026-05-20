@@ -1,3 +1,5 @@
+import { pragmaTableInfo } from './retention.js';
+
 /** Informal / UI ids that should resolve to catalog model_key rows. */
 const INFORMAL_TO_CATALOG_KEY = {
   'claude-haiku-4.5': 'claude-haiku-4-5-20251001',
@@ -83,14 +85,107 @@ export async function resolveModelKeyFromProviderId(db, provider, rawModelId) {
 }
 
 /**
- * Estimate USD spend from agentsam_model_catalog (cost_per_1k_in / cost_per_1k_out).
- * Returns 0 when the model row is missing or DB errors.
- *
+ * Load billing rates from agentsam_ai (PRAGMA-safe).
  * @param {import('@cloudflare/workers-types').D1Database | null | undefined} db
  * @param {string | null | undefined} modelKey
- * @param {number | null | undefined} inputTokens
- * @param {number | null | undefined} outputTokens
  */
+export async function loadAgentsamAiPricingRow(db, modelKey) {
+  const mk = modelKey != null ? String(modelKey).trim() : '';
+  if (!mk || !db) return null;
+  const cols = await pragmaTableInfo(db, 'agentsam_ai');
+  if (!cols.has('model_key')) return null;
+  const want = [
+    'model_key',
+    'pricing_unit',
+    'input_rate_per_mtok',
+    'output_rate_per_mtok',
+    'cache_read_rate_per_mtok',
+    'cache_write_rate_per_mtok',
+    'cache_write_1h_rate_per_mtok',
+    'pricing_extras_json',
+  ];
+  const select = want.filter((c) => cols.has(c));
+  if (!select.length) return null;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ${select.join(', ')} FROM agentsam_ai
+         WHERE model_key = ? AND mode = 'model' AND status = 'active'
+         LIMIT 1`,
+      )
+      .bind(mk)
+      .first();
+    return row ? mergeAgentsamAiPricingExtras(row) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge pricing_extras_json into a flat rate row for cost math.
+ * @param {Record<string, unknown>} row
+ */
+export function mergeAgentsamAiPricingExtras(row) {
+  const out = { ...row };
+  let extras = {};
+  try {
+    extras = row?.pricing_extras_json
+      ? JSON.parse(String(row.pricing_extras_json))
+      : {};
+  } catch {
+    extras = {};
+  }
+  if (extras && typeof extras === 'object') {
+    for (const [k, v] of Object.entries(extras)) {
+      if (out[k] == null && v != null) out[k] = v;
+    }
+  }
+  /** Documented alias: cache_write_rate_per_mtok is always 5m write. */
+  if (out.cache_write_5m_rate_per_mtok == null && out.cache_write_rate_per_mtok != null) {
+    out.cache_write_5m_rate_per_mtok = out.cache_write_rate_per_mtok;
+  }
+  return out;
+}
+
+/**
+ * USD cost from agentsam_ai rate row. Does not double-bill cache reads at full input rate.
+ * @param {Record<string, unknown> | null | undefined} ratesRow
+ * @param {{ inputTokens?: number, outputTokens?: number, cacheReadTokens?: number, cacheWriteTokens?: number, cacheWriteTtl?: string }} u
+ */
+export function computeUsdFromAgentsamAiRates(ratesRow, u = {}) {
+  if (!ratesRow) return 0;
+  const unit = String(ratesRow.pricing_unit || 'usd_per_mtok').toLowerCase();
+  if (unit === 'free' || unit === 'subscription') return 0;
+
+  const inR = Number(ratesRow.input_rate_per_mtok) || 0;
+  const outR = Number(ratesRow.output_rate_per_mtok) || 0;
+  const cr = Number(ratesRow.cache_read_rate_per_mtok) || 0;
+  const cw5 =
+    Number(ratesRow.cache_write_5m_rate_per_mtok ?? ratesRow.cache_write_rate_per_mtok) || 0;
+  const cw1h = Number(ratesRow.cache_write_1h_rate_per_mtok) || 0;
+  const rawIn = Number(u.inputTokens) || 0;
+  const crTok = Number(u.cacheReadTokens) || 0;
+  const cwTok = Number(u.cacheWriteTokens) || 0;
+  const outTok = Number(u.outputTokens) || 0;
+  const uncachedIn = Math.max(0, rawIn - crTok - cwTok);
+
+  const ttl = String(u.cacheWriteTtl || '5m').trim().toLowerCase();
+  const cw5Tok = ttl === '1h' ? 0 : cwTok;
+  const cw1hTok = ttl === '1h' ? cwTok : 0;
+  const cw5Rate = cw5;
+  const cw1hRate = cw1h;
+
+  if (unit === 'neurons_per_mtok') {
+    const inCost = uncachedIn * inR * 0.000011;
+    const outCost = outTok * outR * 0.000011;
+    return (inCost + outCost) / 1_000_000;
+  }
+
+  return (
+    uncachedIn * inR + outTok * outR + crTok * cr + cw5Tok * cw5Rate + cw1hTok * cw1hRate
+  ) / 1_000_000;
+}
+
 export async function estimateCostUsdFromCatalog(db, modelKey, inputTokens, outputTokens) {
   if (!db || modelKey == null) return 0;
   const mk = String(modelKey).trim();
