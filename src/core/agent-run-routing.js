@@ -248,6 +248,7 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
       add('person_uuid', p.personUuid != null ? String(p.personUuid).trim().slice(0, 120) : null);
       add('command_id', p.commandId != null ? String(p.commandId).trim().slice(0, 200) : null);
       add('work_session_id', p.workSessionId != null ? String(p.workSessionId).slice(0, 200) : null);
+      add('agent_ai_id', p.agentAiId != null ? String(p.agentAiId).trim().slice(0, 200) : null);
 
       const isoNow = new Date().toISOString();
       const unixNow = agentRunUnixNow();
@@ -373,6 +374,12 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         }
         if (p.chainRootId != null && String(p.chainRootId).trim() !== '') {
           pushSet('chain_root_id', String(p.chainRootId).trim().slice(0, 120));
+        }
+        if (p.agentAiId != null && String(p.agentAiId).trim() !== '') {
+          pushSet('agent_ai_id', String(p.agentAiId).trim().slice(0, 200));
+        }
+        if (typeof p.qualityScore === 'number' && !isNaN(p.qualityScore)) {
+          pushSet('quality_score', Math.max(0, Math.min(1, p.qualityScore)));
         }
         if (p.timedOut === true && cols.has('timed_out')) {
           pushSet('timed_out', 1);

@@ -2777,7 +2777,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
                'iam_agent',?,?${midExtraPh},?,?${tokExtraPh},
-               ?,?${postStatusPh}, 'agent_chat_sse', ?, ?, unixepoch())
+               ?,?${postStatusPh}, 'agentsam_agent_run', ?, ?, unixepoch())
           `).bind(
             tenantId,
             workspaceId,
@@ -2804,7 +2804,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
                'iam_agent',?,?${midExtraPh},?,?${tokExtraPh},
-               ?,?${postStatusPh}, 'agent_chat_sse', ?, unixepoch())
+               ?,?${postStatusPh}, 'agentsam_agent_run', ?, unixepoch())
           `).bind(
             tenantId,
             workspaceId,
@@ -6819,6 +6819,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         planId: body.planId ?? body.plan_id ?? null,
         taskId: body.taskId ?? body.task_id ?? null,
         agentId: body.agentId != null ? String(body.agentId).trim() : null,
+        agentAiId: explicitRow?.id ?? chainRows[0]?.id ?? null,
         personUuid,
         commandId:
           body._resolved_command_id != null ? String(body._resolved_command_id).trim() : null,
@@ -7153,7 +7154,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               workspace_id: workspaceId,
               tenant_id: tenantId ?? null,
               user_id: userId,
-              session_id: conversationId ?? null,
+              session_id: sessionId ?? null,
               model: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
               model_key: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
               provider: routingPick?.provider ?? chainRows[0]?.provider ?? null,
@@ -7233,6 +7234,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         contextTokenEstimate: finalInputTokens + finalOutputTokens,
       });
       if (userId && resolvedWorkspaceId) {
+        const qualityScore = (() => {
+          if (!finalOutputTokens || finalOutputTokens < 5) return 0.0;
+          const completionScore = succeeded ? 0.5 : 0.0;
+          const elapsed = Date.now() - chatT0;
+          const latencyScore = elapsed < 5000 ? 0.25 : elapsed < 30000 ? 0.15 : 0.05;
+          const efficiencyScore = Math.min(0.25,
+            (finalOutputTokens / Math.max(1, finalInputTokens + finalOutputTokens)) * 0.5);
+          return Math.round((completionScore + latencyScore + efficiencyScore) * 100) / 100;
+        })();
         scheduleAgentsamChatAgentRunInsert(env, ctx, {
           runId: chatAgentRunId,
           userId,
@@ -7257,6 +7267,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           fallbackReason: tried.length > 1 ? `models_tried:${tried.join(',')}` : null,
           modelsTried: tried,
           quickstartBatch: quickstartBatch || null,
+          agentAiId: explicitRow?.id ?? chainRows[0]?.id ?? null,
+          qualityScore,
         });
 
         // Wire agentsam_executions finalization
@@ -7288,7 +7300,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         outputTokens: finalOutputTokens,
         costUsd: realCostUsd,
         streamFailed: !succeeded,
-        refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
+        refId: chatAgentRunId ?? 'na',
           routingArmId: outcomeArmId ?? usageRoutingArmId,
       });
 
@@ -7472,7 +7484,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         outputTokens: catchOut,
         costUsd: catchCostUsd,
         streamFailed: !partialSuccess,
-        refId: `${chatAgentRunId ? `${chatAgentRunId}_` : ''}sse_${chatT0}_${String(sessionId || userId || '').slice(0, 80)}`,
+        refId: chatAgentRunId ?? 'na',
         routingArmId: routingArmIdForRun,
       });
       if (tenantId) {

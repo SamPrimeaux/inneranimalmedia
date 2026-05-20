@@ -281,6 +281,7 @@ def run_live_matrix(
                 break
             continue
 
+        time.sleep(5.0)  # wait for ctx.waitUntil ETO/usage writes to commit
         spine = validate_run_spine(run_id)
         tool_gaps = (
             validate_tool_chain_gaps(workspace_id, mk) if check_tools else {"issues": []}
