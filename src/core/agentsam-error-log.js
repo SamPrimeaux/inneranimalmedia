@@ -3,6 +3,7 @@
  */
 
 import { pragmaTableInfo } from './retention.js';
+import { scheduleErrorLogEscalation } from './error-log-escalation.js';
 
 /**
  * @param {any} env
@@ -63,6 +64,16 @@ export function scheduleAgentsamErrorLog(env, ctx, o) {
         )
           .bind(...binds)
           .run();
+
+        scheduleErrorLogEscalation(env, ctx, {
+          id,
+          tenant_id: tid,
+          workspace_id: ws,
+          error_type: String(o.errorType || 'unknown').slice(0, 120),
+          error_message: msg,
+          source_id: o.sourceId != null ? String(o.sourceId).slice(0, 200) : null,
+          context_json: o.contextJson != null ? String(o.contextJson).slice(0, 50000) : null,
+        });
       } catch (e) {
         console.warn('[agentsam_error_log]', e?.message ?? e);
       }

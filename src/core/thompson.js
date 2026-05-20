@@ -8,12 +8,24 @@ import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
  * Thompson-style pick from pre-fetched routing arm rows (cost/latency penalties).
  * @param {Array<Record<string, unknown>> | null | undefined} results
  */
-export function pickRoutingArmByThompson(results) {
+/**
+ * @param {Array<Record<string, unknown>> | null | undefined} results
+ * @param {{ excludeModelKeys?: string[] }} [opts]
+ */
+export function pickRoutingArmByThompson(results, opts = {}) {
   if (!results?.length) return null;
+  const exclude = new Set(
+    (opts.excludeModelKeys || []).map((k) => String(k || '').trim()).filter(Boolean),
+  );
+  const pool = exclude.size
+    ? results.filter((a) => !exclude.has(String(a.model_key || '').trim()))
+    : results;
+  if (!pool.length) return null;
+
   let best = null;
   let bestUtility = -1;
 
-  for (const arm of results) {
+  for (const arm of pool) {
     // 1. Probabilistic success draw
     const successProb = betaSample(arm.success_alpha, arm.success_beta);
 
@@ -45,6 +57,9 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '', opts
   const tt = taskType != null ? String(taskType).trim() : 'chat';
   const m = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'auto';
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  const excludeModelKeys = Array.isArray(opts.excludeModelKeys)
+    ? opts.excludeModelKeys.map((k) => String(k || '').trim()).filter(Boolean)
+    : [];
   const catalogOk =
     ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
   const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
@@ -73,7 +88,13 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '', opts
       userId: opts.userId,
       tenantId: opts.tenantId,
     });
-    return useThompson ? pickRoutingArmByThompson(results) : results[0] ?? null;
+    const filtered = excludeModelKeys.length
+      ? results.filter((a) => !excludeModelKeys.includes(String(a.model_key || '').trim()))
+      : results;
+    if (!filtered.length) return null;
+    return useThompson
+      ? pickRoutingArmByThompson(filtered, { excludeModelKeys })
+      : filtered[0] ?? null;
   } catch {
     return null;
   }
@@ -81,6 +102,10 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '', opts
 
 export async function updateArmsFromMetrics(env) {
   if (!env?.DB) return;
+  const { isEtoThompsonOwner } = await import('./performance-eto.js');
+  if (await isEtoThompsonOwner(env)) {
+    return { skipped: true, reason: 'eto_thompson_owner' };
+  }
   const { results: metrics } = await env.DB
     .prepare(
       `

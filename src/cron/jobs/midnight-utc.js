@@ -8,6 +8,7 @@ import {
   rollupUsageEventsDaily,
   runAgentsamMemoryDecay,
 } from '../../core/memory.js';
+import { runEtoPipeline } from '../../core/performance-eto.js';
 import { runRetentionPurge } from '../retention-purge.js';
 import { archiveOldConversations } from './archive-old-conversations.js';
 import { sendDailyDigest } from './daily-digest.js';
@@ -137,12 +138,16 @@ export function scheduleOneAmMaintenance(env, ctx) {
     ),
   );
   ctx.waitUntil(
-    cronLedgerWrap(env, 'execution_performance_rollup', CRON_ONE_AM, () =>
-      rollupExecutionPerformanceMetrics(env).catch((e) => {
+    cronLedgerWrap(env, 'execution_performance_rollup', CRON_ONE_AM, async () => {
+      await rollupExecutionPerformanceMetrics(env).catch((e) => {
         console.warn('[cron] agentsam_execution_performance_metrics', e?.message ?? e);
         throw e;
-      }),
-    ),
+      });
+      await runEtoPipeline(env).catch((e) => {
+        console.warn('[cron] agentsam_performance_eto_events', e?.message ?? e);
+        throw e;
+      });
+    }),
   );
   ctx.waitUntil(
     cronLedgerWrap(env, 'otlp_traces_rollup_daily', CRON_ONE_AM, () =>

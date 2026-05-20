@@ -4,6 +4,7 @@
  */
 
 import { decayRoutingArms, updateArmsFromMetrics } from './thompson.js';
+import { isEtoThompsonOwner } from './performance-eto.js';
 import { startCronRun, completeCronRun, failCronRun } from './cron-run-ledger.js';
 import { finalizeStaleDeployEventsFromWorker } from './supabase-finalize-stale-deploy-events.js';
 
@@ -911,7 +912,9 @@ export async function runMasterDailyRetention(env) {
     workspace_usage_metrics: await rollupWorkspaceUsageMetrics(env),
     agentsam_model_drift_signals: await rollupModelPerformanceScores(env),
     agentsam_routing_arms: await updateModelRoutingRulesFromScores(env),
-    thompson_arm_update: await updateArmsFromMetrics(env),
+    thompson_arm_update: (await isEtoThompsonOwner(env))
+      ? { skipped: true, reason: 'eto_thompson_owner' }
+      : await updateArmsFromMetrics(env),
     thompson_decay: await decayRoutingArms(env),
     agentsam_health_daily: await rollupAgentsamHealthDaily(env),
     deployments_weekly_rollup: await rollupDeploymentsWeekly(env),

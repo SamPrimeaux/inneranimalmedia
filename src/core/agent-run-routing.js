@@ -9,7 +9,45 @@ import {
 } from '../integrations/supabase.js';
 import { deriveProvider } from './memory.js';
 import { estimateCostUsdFromCatalog } from './model-catalog-cost.js';
+import { scheduleEtoFromAgentRun } from './performance-eto.js';
+import { resolveRoutingArmByModelKey } from './routing.js';
 import { pragmaTableInfo } from './retention.js';
+
+/**
+ * Canonical D1 `agentsam_routing_arms.id` for Supabase mirror + learning views.
+ * Never synthesize arm_* hashes — resolve from explicit id or model_key lookup.
+ *
+ * @param {any} env
+ * @param {{
+ *   routingArmId?: string | null,
+ *   modelKey?: string | null,
+ *   selectedModel?: string | null,
+ *   taskType?: string | null,
+ *   mode?: string | null,
+ *   workspaceId?: string | null,
+ * }} p
+ */
+export async function resolveD1RoutingArmIdForDecision(env, p) {
+  const direct = p.routingArmId != null ? String(p.routingArmId).trim() : '';
+  if (direct) return direct;
+
+  const mk =
+    p.selectedModel != null && String(p.selectedModel).trim() !== ''
+      ? String(p.selectedModel).trim()
+      : p.modelKey != null && String(p.modelKey).trim() !== ''
+        ? String(p.modelKey).trim()
+        : '';
+  if (!mk || !env?.DB) return null;
+
+  const ws = p.workspaceId != null ? String(p.workspaceId).trim() : '';
+  const lookup = await resolveRoutingArmByModelKey(env, {
+    modelKey: mk,
+    taskType: p.taskType != null && String(p.taskType).trim() !== '' ? String(p.taskType).trim() : 'chat',
+    mode: p.mode != null && String(p.mode).trim() !== '' ? String(p.mode).trim() : 'agent',
+    workspaceId: ws,
+  });
+  return lookup?.armId != null ? String(lookup.armId).trim() : null;
+}
 
 /**
  * @param {any} env
@@ -26,8 +64,16 @@ async function buildChatRoutingDecisionPayload(env, p) {
         ? String(p.modelKey)
         : null;
 
+  const armId = await resolveD1RoutingArmIdForDecision(env, {
+    routingArmId: p.routingArmId,
+    modelKey: p.modelKey,
+    selectedModel: p.selectedModel,
+    taskType: p.taskType ?? p.task_type,
+    mode: p.mode,
+    workspaceId,
+  });
+
   let arm = null;
-  const armId = p.routingArmId != null ? String(p.routingArmId).trim() : '';
   if (armId && env?.DB) {
     try {
       arm = await env.DB.prepare(
@@ -92,8 +138,21 @@ async function buildChatRoutingDecisionPayload(env, p) {
   };
 }
 
-export function newChatAgentRunId() {
-  return `arun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+/**
+ * @param {{ label?: string | null }} [opts] Optional stable prefix (e.g. anthropic_smoketest_quickstart).
+ */
+export function newChatAgentRunId(opts = {}) {
+  const hex = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  const raw = opts?.label != null ? String(opts.label).trim() : '';
+  const label = raw
+    ? raw
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 48)
+    : '';
+  if (label) return `arun_${label}_${hex}`;
+  return `arun_${hex}`;
 }
 
 /**
@@ -233,6 +292,12 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
  *   workflowRunId?: string | null,
  *   chainRootId?: string | null,
  *   timedOut?: boolean,
+ *   mode?: string | null,
+ *   routeKey?: string | null,
+ *   fallbackUsed?: boolean,
+ *   fallbackReason?: string | null,
+ *   modelsTried?: string[],
+ *   quickstartBatch?: string | null,
  * }} p
  */
 export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
@@ -257,6 +322,15 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
       }
 
       if (runId) {
+        const outcomeArmId = await resolveD1RoutingArmIdForDecision(env, {
+          routingArmId: p.routingArmId,
+          modelKey: mk,
+          selectedModel: mk,
+          taskType: p.taskType,
+          mode: p.mode,
+          workspaceId: ws,
+        });
+
         const sets = [];
         const binds = [];
         const pushSet = (name, val) => {
@@ -271,7 +345,14 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         pushSet('output_tokens', tout);
         pushSet('cost_usd', costUsd);
         pushSet('error_message', p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : null);
-        pushSet('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
+        pushSet(
+          'routing_arm_id',
+          outcomeArmId != null
+            ? String(outcomeArmId).slice(0, 120)
+            : p.routingArmId != null
+              ? String(p.routingArmId).slice(0, 120)
+              : null,
+        );
         pushSet('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
         pushSet('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
         if (p.workflowRunId != null && String(p.workflowRunId).trim() !== '') {
@@ -295,14 +376,46 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         } catch (e) {
           console.warn('[agentsam_agent_run] chat finalize update', e?.message ?? e);
         }
+        const supabasePatch = {
+          success: !!p.success,
+          routing_arm_id: outcomeArmId,
+          selected_model: mk,
+          fallback_used: !!p.fallbackUsed,
+          fallback_reason: p.fallbackReason != null ? String(p.fallbackReason).slice(0, 500) : null,
+        };
         if (!p.success) {
-          const failureReason =
+          supabasePatch.failure_reason =
             p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : 'agent_run_failed';
-          patchSupabaseRoutingDecision(env, runId, {
-            success: false,
-            failure_reason: failureReason,
-          }).catch(() => {});
         }
+        if (Array.isArray(p.modelsTried) && p.modelsTried.length) {
+          supabasePatch.metadata = {
+            models_tried: p.modelsTried.map((m) => String(m)).slice(0, 12),
+          };
+        }
+        patchSupabaseRoutingDecision(env, runId, supabasePatch).catch(() => {});
+
+        scheduleEtoFromAgentRun(env, ctx, {
+          tenantId: p.tenantId,
+          workspaceId: ws,
+          userId: uid,
+          agentRunId: runId,
+          routingArmId: outcomeArmId ?? p.routingArmId,
+          routeKey: p.routeKey,
+          taskType: p.taskType,
+          mode: p.mode,
+          modelKey: mk,
+          workflowRunId: p.workflowRunId,
+          executionId: runId,
+          success: !!p.success,
+          timedOut: p.timedOut === true,
+          slaBreach: false,
+          latencyMs: Math.max(0, Math.floor(Number(p.durationMs) || 0)),
+          inputTokens: tin,
+          outputTokens: tout,
+          costUsd,
+          eventStatus: p.success ? 'completed' : 'failed',
+          quickstartBatch: p.quickstartBatch ?? null,
+        });
         return;
       }
 

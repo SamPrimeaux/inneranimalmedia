@@ -5,10 +5,12 @@ import { runOvernightCronStep } from './overnight-progress.js';
 import {
   reconcileRoutingArmsFromAgentRuns,
   rollupAgentsamModelRoutingMemory,
+  enforceEvalSlosPauseArms,
   enforceTaskSlosFromRoutingMemory,
   syncRoutingArmPauseFromDrift,
   runRoutingAnalyticsRollups,
 } from '../../core/routing-cron.js';
+import { scanErrorLogThresholds } from '../../core/error-log-escalation.js';
 
 const CRON_30 = '*/30 * * * *';
 
@@ -174,6 +176,8 @@ export async function runHourlyRoutingJobs(env, ctx) {
   ctx.waitUntil(reconcileRoutingArmsFromAgentRuns(env).catch(e => console.warn('[cron/hourly] reconcileRoutingArms', e?.message)));
   ctx.waitUntil(rollupAgentsamModelRoutingMemory(env).catch(e => console.warn('[cron/hourly] rollupRoutingMemory', e?.message)));
   ctx.waitUntil(enforceTaskSlosFromRoutingMemory(env).catch(e => console.warn('[cron/hourly] enforceSlos', e?.message)));
+  ctx.waitUntil(enforceEvalSlosPauseArms(env, { lookbackDays: 7 }).catch(e => console.warn('[cron/hourly] enforceEvalSlos', e?.message)));
   ctx.waitUntil(syncRoutingArmPauseFromDrift(env).catch(e => console.warn('[cron/hourly] syncPause', e?.message)));
   ctx.waitUntil(runRoutingAnalyticsRollups(env).catch(e => console.warn('[cron/hourly] analyticsRollup', e?.message)));
+  ctx.waitUntil(scanErrorLogThresholds(env).catch(e => console.warn('[cron/hourly] errorLogThresholds', e?.message)));
 }

@@ -610,6 +610,10 @@ export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, 
  */
 export function resolveRoutingTaskType(ctx = {}) {
   const body = ctx.body && typeof ctx.body === 'object' ? ctx.body : {};
+  const fromBody = body.task_type ?? body.taskType;
+  if (fromBody != null && String(fromBody).trim() !== '') {
+    return String(fromBody).trim();
+  }
   if (body.debug === true || String(body.mode || '').toLowerCase() === 'debug') return 'debug';
   if (body.subagent === true || (body.subagent_profile_id != null && String(body.subagent_profile_id).trim() !== '')) {
     return 'subagent_dispatch';
@@ -764,12 +768,30 @@ export async function getDefaultModelForTask(env, ctx = {}) {
  * @returns {Promise<{ source: 'thompson', modelId: string, modelKey: string, provider: string|null,
  *                     armId: string, taskType: string } | null>}
  */
-export async function resolveRoutingArm(env, { taskType, intentSlug, mode, workspaceId, routeKey, userId, tenantId, toolRequired } = {}) {
+export async function resolveRoutingArm(
+  env,
+  {
+    taskType,
+    intentSlug,
+    mode,
+    workspaceId,
+    routeKey,
+    userId,
+    tenantId,
+    toolRequired,
+    excludeModelKeys,
+  } = {},
+) {
   if (!env?.DB || !taskType || !workspaceId) return null;
   const tt = String(taskType).trim();
   const md = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
   const ws = String(workspaceId).trim();
   const intent = String(intentSlug || '').trim().toLowerCase();
+  const exclude = new Set(
+    (Array.isArray(excludeModelKeys) ? excludeModelKeys : [])
+      .map((k) => String(k || '').trim())
+      .filter(Boolean),
+  );
   try {
     let arms = await queryRoutingArmsCandidates(env, {
       taskType: tt,
@@ -793,8 +815,15 @@ export async function resolveRoutingArm(env, { taskType, intentSlug, mode, works
 
     arms = await mergeModelRoutingMemoryPriors(env, ws, tt, arms);
 
+    if (exclude.size) {
+      arms = arms.filter((a) => !exclude.has(String(a.model_key || '').trim()));
+    }
+    if (!arms.length) return null;
+
     const useThompson = await isThompsonRoutingSamplingEnabled(env, { userId, tenantId });
-    const arm = useThompson ? pickRoutingArmByThompson(arms) : (arms[0] ?? null);
+    const arm = useThompson
+      ? pickRoutingArmByThompson(arms, { excludeModelKeys: [...exclude] })
+      : (arms[0] ?? null);
     if (!arm?.model_key) return null;
 
     const mk = String(arm.model_key).trim();
@@ -859,6 +888,8 @@ export async function applyRoutingArmUsageFeedback(env, o) {
   const db = env?.DB;
   const armId = o?.armId != null ? String(o.armId).trim() : '';
   if (!db || !armId) return;
+  const { isEtoThompsonOwner } = await import('./performance-eto.js');
+  if (await isEtoThompsonOwner(env)) return;
   const success = !!o.success;
   const costUsd = Number(o.costUsd) || 0;
   const durationMs = Math.max(0, Math.floor(Number(o.durationMs) || 0));
@@ -966,6 +997,8 @@ export function scheduleRoutingArmBanditUpdate(env, ctx, o) {
 
   ctx.waitUntil(
     (async () => {
+      const { isEtoThompsonOwner } = await import('./performance-eto.js');
+      if (await isEtoThompsonOwner(env)) return;
       try {
         await env.DB.prepare(
           `UPDATE ${TABLE}
@@ -1009,16 +1042,17 @@ export function scheduleRoutingArmQualityUpdate(env, ctx, o) {
   ctx.waitUntil(
     (async () => {
       try {
-        await env.DB.prepare(
-          `UPDATE ${TABLE}
+        const sql = `UPDATE ${TABLE}
            SET avg_quality_score =
                  ((COALESCE(avg_quality_score, 0) * COALESCE(quality_n, 0)) + ?)
                  / (COALESCE(quality_n, 0) + 1),
                quality_n = COALESCE(quality_n, 0) + 1,
                updated_at = unixepoch()
-           WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`,
-        )
-          .bind(q, taskType, mode, modelKey, workspaceId)
+           WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`;
+        const r1 = await env.DB.prepare(sql).bind(q, taskType, mode, modelKey, workspaceId).run();
+        if ((Number(r1.meta?.changes ?? r1.changes ?? 0) || 0) > 0) return;
+        await env.DB.prepare(sql)
+          .bind(q, taskType, mode, modelKey, '')
           .run();
       } catch (e) {
         console.warn('[routing_arms] quality update failed', e?.message ?? e);

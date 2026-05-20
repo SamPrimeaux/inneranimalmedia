@@ -5,6 +5,7 @@
  * scheduleRoutingArmQualityUpdate to close the Thompson feedback loop.
  */
 import { scheduleRoutingArmQualityUpdate } from './routing.js';
+import { scheduleEtoFromEvalRun } from './performance-eto.js';
 import { completeWithOpenAIResponsesNonStream } from '../integrations/openai.js';
 
 /**
@@ -14,16 +15,16 @@ import { completeWithOpenAIResponsesNonStream } from '../integrations/openai.js'
 export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, modelKey, workspaceId }) {
   if (!env?.DB || !armId) return;
 
-  const totalExec = Number(arm.total_executions);
-  const EVAL_EVERY = totalExec < 20 ? 5 : totalExec < 100 ? 10 : 50;
-
   try {
     const arm = await env.DB.prepare(
       'SELECT total_executions, model_key, task_type, mode FROM agentsam_routing_arms WHERE id = ? LIMIT 1'
     ).bind(armId).first();
 
     if (!arm) return;
-    if (Number(arm.total_executions) % EVAL_EVERY !== 0) return;
+
+    const totalExec = Number(arm.total_executions);
+    const EVAL_EVERY = totalExec < 20 ? 5 : totalExec < 100 ? 10 : 50;
+    if (totalExec % EVAL_EVERY !== 0) return;
 
     const mk    = modelKey ?? arm.model_key;
     const tt    = taskType ?? arm.task_type ?? 'chat';
@@ -121,10 +122,11 @@ export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, m
       const colListFiltered = colList.filter(c => cols.has(c));
       const provider = mk.startsWith('claude') ? 'anthropic' : mk.startsWith('gpt') ? 'openai' : 'unknown';
 
+      const evalRunRowId = runId + '_' + c.id.slice(-4);
       await env.DB.prepare(
         `INSERT INTO agentsam_eval_runs (${colListFiltered.join(', ')}) VALUES (${colListFiltered.map(() => '?').join(', ')})`
       ).bind(
-        runId + '_' + c.id.slice(-4),
+        evalRunRowId,
         suite.id,
         workspaceId ?? '',
         mk,
@@ -135,6 +137,58 @@ export async function triggerEvalAfterNRuns(env, ctx, { armId, taskType, mode, m
         Date.now() - t0,
         armId,
       ).run().catch(e => console.warn('[eval-runner] insert', e?.message));
+
+      if (ctx?.waitUntil) {
+        const slo = await env.DB.prepare(
+          `SELECT sla_min_quality FROM agentsam_task_slos WHERE task_type = ? LIMIT 1`,
+        )
+          .bind(tt)
+          .first()
+          .catch(() => null);
+        const minQ = slo?.sla_min_quality != null ? Number(slo.sla_min_quality) : null;
+        const slaBreach =
+          minQ != null && Number.isFinite(minQ) && Number.isFinite(scoreQuality) && scoreQuality < minQ;
+
+        let resolvedWorkspaceId =
+          workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+        let tenantId = null;
+        if (resolvedWorkspaceId) {
+          const ws = await env.DB.prepare(
+            `SELECT tenant_id FROM agentsam_workspace WHERE id = ? LIMIT 1`,
+          )
+            .bind(resolvedWorkspaceId)
+            .first()
+            .catch(() => null);
+          tenantId = ws?.tenant_id != null ? String(ws.tenant_id) : null;
+        } else {
+          const ws = await env.DB.prepare(
+            `SELECT id, tenant_id FROM agentsam_workspace ORDER BY id LIMIT 1`,
+          )
+            .first()
+            .catch(() => null);
+          resolvedWorkspaceId = ws?.id != null ? String(ws.id) : '';
+          tenantId = ws?.tenant_id != null ? String(ws.tenant_id) : null;
+        }
+
+        scheduleEtoFromEvalRun(env, ctx, {
+          evalRunId: evalRunRowId,
+          tenantId,
+          workspaceId: resolvedWorkspaceId || null,
+          suiteId: suite.id,
+          caseId: c.id,
+          modelKey: mk,
+          provider,
+          taskType: tt,
+          mode: md,
+          routingArmId: armId,
+          runGroupId: armId,
+          passed,
+          scoreOverall: scoreQuality,
+          scoreQuality,
+          latencyMs: Date.now() - t0,
+          slaBreach,
+        });
+      }
     }
 
     // Average score across cases → feed back to Thompson

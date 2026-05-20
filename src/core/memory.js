@@ -338,8 +338,9 @@ export function deriveProvider(modelKey, fallback = null) {
 }
 
 /**
- * Called by applyRoutingArmUsageFeedback after every run to keep
- * agentsam_model_routing_memory populated for cold-start Thompson priors.
+ * Called after each training-eligible outcome to keep agentsam_model_routing_memory
+ * populated for cold-start Thompson priors (applyRoutingArmUsageFeedback when ETO
+ * table is absent; agentsam_performance_eto_events → syncRoutingMemoryPriorFromEto when present).
  *
  * Uses INSERT OR REPLACE with an Welford running average so each row stays
  * lightweight and never grows unbounded.
