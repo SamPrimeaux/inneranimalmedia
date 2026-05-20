@@ -18,7 +18,20 @@ This doc is for **agents writing test flows** (manual QA, eval scripts, Playwrig
 
 **Retired for routing:** Sonnet 4.5, Opus 4.5/4.6, dot-notation Haiku keys, and any arm not using the three `anthropic_*` keys above.
 
-Policy metadata lives in `agentsam_model_catalog.cost_notes` (parseable `key=value;` pairs) and `agentsam_routing_arms.workflow_agent`.
+Policy metadata lives in **`agentsam_model_catalog`** columns (migration **354**):
+
+| Column | Haiku | Sonnet | Opus |
+|--------|-------|--------|------|
+| `routing_lane` | `scout` | `workhorse` | `orchestrator` |
+| `context_window` | 200000 | 1000000 | 1000000 |
+| `supports_code_execution` | 0 | 1 | 1 |
+| `supports_compaction` | 0 | 1 | 1 |
+| `supports_effort_scaling` | 0 | 1 | 1 |
+| `thinking_policy` | `omitted` | `adaptive_and_enabled` | `adaptive_only` |
+
+`cost_notes` mirrors the same facts. Thompson filters via `src/core/model-catalog-capabilities.js` — Haiku cannot win `agentic_code_patch` / deploy builder task types.
+
+**Dispatch:** `src/integrations/anthropic.js` never sends `thinking: { type: 'enabled' }` for Opus 4.7; Haiku gets no compaction beta and no code_execution tool.
 
 ---
 

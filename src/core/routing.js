@@ -16,6 +16,7 @@ import { triggerEvalAfterNRuns } from './eval-runner.js';
  */
 
 import { pickRoutingArmByThompson } from './thompson.js';
+import { filterArmsByCatalogCapabilities } from './model-catalog-capabilities.js';
 import { pragmaTableInfo } from './retention.js';
 import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 
@@ -275,8 +276,17 @@ export async function queryRoutingArmsCandidates(env, q) {
   const toolsClause = toolReq ? ' AND ra.supports_tools = 1' : '';
   const ws = q.workspaceId != null ? String(q.workspaceId).trim() : '';
 
-  const catalogOk =
-    ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
+  const catalogCols = await pragmaTableInfo(db, 'agentsam_model_catalog');
+  const builderToolGate =
+    toolReq && catalogCols.has('supports_code_execution')
+      ? ` AND EXISTS (
+           SELECT 1 FROM agentsam_model_catalog mc
+           WHERE mc.model_key = ra.model_key AND mc.is_active = 1
+             AND COALESCE(mc.supports_tools, 0) = 1
+             AND COALESCE(mc.supports_code_execution, 0) = 1
+         )`
+      : ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
+  const catalogOk = builderToolGate;
   /** Base-only ban; `gpt-5.5-pro` is allowed through only when catalog marks it active. */
   const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
   const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${toolsClause}${catalogOk}${blockGpt55Base}`;
@@ -811,6 +821,12 @@ export async function resolveRoutingArm(
     if (!arms.length) return null;
 
     arms = await filterArmsForRouteKey(env, routeKey ?? null, arms);
+    if (!arms.length) return null;
+
+    arms = await filterArmsByCatalogCapabilities(env, arms, {
+      taskType: tt,
+      toolRequired: !!toolRequired,
+    });
     if (!arms.length) return null;
 
     arms = await mergeModelRoutingMemoryPriors(env, ws, tt, arms);

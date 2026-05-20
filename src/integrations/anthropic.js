@@ -6,6 +6,10 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  anthropicFeaturesFromCatalogCapabilities,
+  loadCatalogCapabilities,
+} from '../core/model-catalog-capabilities.js';
 import { handlers as dbHandlers } from '../tools/db.js';
 import { resolveApiKey } from '../core/vault.js';
 
@@ -25,10 +29,10 @@ export const ANTHROPIC_CODE_EXECUTION_BETA = 'code-execution-2025-08-25';
  * @returns {{ type: string, name: string } | null}
  */
 export function anthropicCodeExecutionToolForModel(modelKey) {
-  const mk = String(modelKey || '');
-  if (!mk.includes('claude')) return null;
+  const mk = String(modelKey || '').toLowerCase();
+  if (!mk.includes('claude') && !mk.includes('anthropic_')) return null;
   if (mk.includes('haiku')) {
-    return { type: 'code_execution_20250825', name: 'code_execution' };
+    return null;
   }
   const is45PlusFamily =
     (mk.includes('sonnet') || mk.includes('opus')) &&
@@ -116,7 +120,11 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   );
   
   const modelData = modelInfo.results?.[0] || {};
-  const features = JSON.parse(modelData.features_json || '{}');
+  const catalogCap = await loadCatalogCapabilities(env, logicalModelKey);
+  const features = {
+    ...anthropicFeaturesFromCatalogCapabilities(catalogCap),
+    ...JSON.parse(modelData.features_json || '{}'),
+  };
   const betas = [...(options.betas || [])];
   if (Array.isArray(features.betas)) {
     for (const b of features.betas) {
@@ -159,26 +167,33 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     // betas sent via client.beta path below, not in body
   };
 
-  // 2. Adaptive Thinking & Effort (v4.6 GA Path)
-  const isSotaModel =
-    (logicalModelKey.includes('4-6') || logicalModelKey.includes('4-5')) &&
-    !logicalModelKey.includes('haiku');
-  if (isSotaModel) {
-    // Claude 4 models use effort param directly, not inside thinking object
-    // 'adaptive' is not a valid type — valid: 'enabled' (with budget_tokens) or 'disabled'
-    if (options.effort) {
-      streamParams.effort = options.effort; // 'max', 'high', 'medium', 'low'
-    }
-    // Only enable explicit thinking budget if caller specifically requested it
-    if (options.thinkingBudget) {
-      streamParams.thinking = { type: 'enabled', budget_tokens: Number(options.thinkingBudget) };
-    }
-  } else if (options.thinking) {
+  const lk = logicalModelKey.toLowerCase();
+  const apiId = String(modelForApi).toLowerCase();
+  const isHaiku = lk.includes('haiku') || apiId.includes('haiku');
+  const isOpus47 = lk.includes('opus_4_7') || apiId.includes('opus-4-7');
+  const isSonnet46 = lk.includes('sonnet_4_6') || apiId.includes('sonnet-4-6');
+
+  // Effort + thinking: catalog-driven (Opus 4.7 = adaptive only — never type=enabled)
+  if (!isHaiku && features.effort_scaling !== false) {
+    const effortVal =
+      options.effort ||
+      (modelData.effort != null && String(modelData.effort).trim() !== '' ? modelData.effort : null);
+    if (effortVal) streamParams.effort = effortVal;
+  }
+
+  if (options.thinking && typeof options.thinking === 'object') {
     streamParams.thinking = options.thinking;
-  } else if (features.thinking && options.thinkingBudget) {
-    streamParams.thinking = { 
-      type: 'enabled', 
-      budget_tokens: Number(options.thinkingBudget) 
+  } else if (isOpus47) {
+    // Opus 4.7: do not set thinking.type = 'enabled' (API error). Adaptive via effort/betas only.
+  } else if (isSonnet46 && options.thinkingBudget) {
+    streamParams.thinking = {
+      type: 'enabled',
+      budget_tokens: Number(options.thinkingBudget),
+    };
+  } else if (!isHaiku && features.thinking && options.thinkingBudget && catalogCap?.thinking_policy === 'adaptive_and_enabled') {
+    streamParams.thinking = {
+      type: 'enabled',
+      budget_tokens: Number(options.thinkingBudget),
     };
   }
 
