@@ -16,8 +16,27 @@ import { triggerEvalAfterNRuns } from './eval-runner.js';
  */
 
 import { pickRoutingArmByThompson } from './thompson.js';
-import { filterArmsByCatalogCapabilities } from './model-catalog-capabilities.js';
+import { filterArmsByCatalogCapabilities, SCOUT_TASK_TYPES } from './model-catalog-capabilities.js';
 import { pragmaTableInfo } from './retention.js';
+
+/** Labeled Anthropic smoketest batches — provider chain must not fall through to Gemini/OpenAI. */
+export function isAnthropicSmoketestQuickstartBatch(batch) {
+  return /anthropic_smoketest_quickstart|anthropic_quickstart_seed/i.test(String(batch || ''));
+}
+
+/**
+ * Scout arms are seeded with routing `mode=auto`; dashboard/curl often sends `agent`.
+ * @param {string} taskType
+ * @param {string} mode
+ * @returns {string[]}
+ */
+export function routingModesForArmLookup(taskType, mode) {
+  const tt = String(taskType || '').trim();
+  const m = String(mode || 'agent').trim() || 'agent';
+  const modes = [m];
+  if (m === 'agent' && SCOUT_TASK_TYPES.has(tt) && !modes.includes('auto')) modes.push('auto');
+  return modes;
+}
 import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 
 const TABLE = 'agentsam_routing_arms';
@@ -265,6 +284,25 @@ function shouldEscalateFromNano(q) {
  * `gpt-5.5-pro` may exist in catalog; eligibility is governed by `agentsam_model_catalog.is_active` (keep off until smoke-tested).
  * Workers AI (`provider` / `wai-*` / `@cf/*`) is sorted last unless the route/task explicitly allows it.
  */
+function filterNanoEscalation(results, q, tt, toolReq) {
+  if (!results?.length) return results || [];
+  const first = results[0];
+  if (
+    first.model_key === 'gpt-5.4-nano' &&
+    shouldEscalateFromNano({
+      modelKey: first.model_key,
+      toolRequired: toolReq,
+      taskType: tt,
+      mutates: q.mutates,
+      estimatedSteps: q.estimatedSteps,
+    })
+  ) {
+    console.log('[routing] escalating from nano due to task complexity', { taskType: tt });
+    return results.filter((r) => r.model_key !== 'gpt-5.4-nano');
+  }
+  return results;
+}
+
 export async function queryRoutingArmsCandidates(env, q) {
   const db = env?.DB;
   if (!db) return [];
@@ -299,41 +337,23 @@ export async function queryRoutingArmsCandidates(env, q) {
              OR ra.model_key LIKE 'wai-%' OR ra.model_key LIKE '@cf/%' THEN 1 ELSE 0 END) ASC,
        ${orderCore}`;
 
+  const modesToTry = routingModesForArmLookup(tt, m);
+
   try {
-    if (ws) {
-      const sqlWs = `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
-      const r1 = await db.prepare(sqlWs).bind(tt, m, ws).all();
-      let results = r1.results || [];
-      if (results.length) {
-        // Apply Nano complexity gate
-        const first = results[0];
-        if (
-          first.model_key === 'gpt-5.4-nano' &&
-          shouldEscalateFromNano({ modelKey: first.model_key, toolRequired: toolReq, taskType: tt, mutates: q.mutates, estimatedSteps: q.estimatedSteps })
-        ) {
-          console.log('[routing] escalating from nano due to task complexity', { taskType: tt });
-          results = results.filter((r) => r.model_key !== 'gpt-5.4-nano');
-        }
+    for (const modeTry of modesToTry) {
+      if (ws) {
+        const sqlWs = `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
+        const r1 = await db.prepare(sqlWs).bind(tt, modeTry, ws).all();
+        let results = filterNanoEscalation(r1.results || [], q, tt, toolReq);
         if (results.length) return results;
       }
+      const sqlGlobal =
+        `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
+      const r2 = await db.prepare(sqlGlobal).bind(tt, modeTry).all();
+      const globalResults = filterNanoEscalation(r2.results || [], q, tt, toolReq);
+      if (globalResults.length) return globalResults;
     }
-    const sqlGlobal =
-      `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
-    const r2 = await db.prepare(sqlGlobal).bind(tt, m).all();
-    let globalResults = r2.results || [];
-
-    if (globalResults.length) {
-      const first = globalResults[0];
-      if (
-        first.model_key === 'gpt-5.4-nano' &&
-        shouldEscalateFromNano({ modelKey: first.model_key, toolRequired: toolReq, taskType: tt, mutates: q.mutates, estimatedSteps: q.estimatedSteps })
-      ) {
-        console.log('[routing] escalating from nano (global) due to task complexity', { taskType: tt });
-        globalResults = globalResults.filter((r) => r.model_key !== 'gpt-5.4-nano');
-      }
-    }
-
-    return globalResults;
+    return [];
   } catch {
     return [];
   }
@@ -504,18 +524,53 @@ export function mergeAiRowWithRoutingArmForPolicy(aiRow, armRow) {
  * Cursor-style explicit pick gate: reject when model cannot satisfy agentsam_route_requirements.
  * @returns {Promise<{ ok: true } | { ok: false, code: string, message: string }>}
  */
-export async function validateModelAgainstRouteRequirements(env, { routeKey, aiRow, armRow }) {
+export async function validateModelAgainstRouteRequirements(
+  env,
+  { routeKey, aiRow, armRow, taskType, modelKey } = {},
+) {
   const rk = routeKey != null ? String(routeKey).trim() : '';
   if (!rk) return { ok: true };
   const req = await loadRouteRequirementsRow(env, rk);
   if (!req) return { ok: true };
-  const policyRow = mergeAiRowWithRoutingArmForPolicy(aiRow, armRow);
+  let policyRow = mergeAiRowWithRoutingArmForPolicy(aiRow, armRow);
+  const mk =
+    modelKey != null && String(modelKey).trim() !== ''
+      ? String(modelKey).trim()
+      : policyRow.model_key != null
+        ? String(policyRow.model_key).trim()
+        : '';
+  if (Number(req.requires_tools) === 1 && Number(policyRow.supports_tools) !== 1 && env?.DB && mk) {
+    try {
+      const cat = await env.DB.prepare(
+        `SELECT supports_tools, supports_json_mode
+         FROM agentsam_model_catalog WHERE model_key = ? AND is_active = 1 LIMIT 1`,
+      )
+        .bind(mk)
+        .first();
+      if (cat) {
+        policyRow = {
+          ...policyRow,
+          model_key: mk,
+          supports_tools: cat.supports_tools ?? policyRow.supports_tools,
+          supports_structured_output:
+            cat.supports_json_mode ?? policyRow.supports_structured_output,
+        };
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+  const tt = taskType != null ? String(taskType).trim() : '';
+  if (SCOUT_TASK_TYPES.has(tt) && rk === 'chat') {
+    const relaxed = { ...req, requires_tools: 0 };
+    if (armMatchesRouteRequirements(policyRow, relaxed)) return { ok: true };
+  }
   if (armMatchesRouteRequirements(policyRow, req)) return { ok: true };
-  const mk = policyRow.model_key != null ? String(policyRow.model_key) : 'model';
+  const label = mk || 'model';
   return {
     ok: false,
     code: 'route_model_requirements_not_met',
-    message: buildRouteRejectMessage(req, mk, rk),
+    message: buildRouteRejectMessage(req, label, rk),
   };
 }
 
@@ -534,27 +589,30 @@ export async function resolveRoutingArmByModelKey(
   if (!env?.DB || !mk) return null;
   try {
     let arm = null;
-    if (ws) {
-      arm = await env.DB.prepare(
-        `SELECT * FROM ${TABLE}
+    for (const modeTry of routingModesForArmLookup(tt, md)) {
+      if (ws) {
+        arm = await env.DB.prepare(
+          `SELECT * FROM ${TABLE}
          WHERE model_key = ? AND task_type = ? AND mode = ?
            AND workspace_id = ?
            AND is_active = 1 AND is_eligible = 1 AND is_paused = 0
          LIMIT 1`,
-      )
-        .bind(mk, tt, md, ws)
-        .first();
-    }
-    if (!arm?.id) {
-      arm = await env.DB.prepare(
-        `SELECT * FROM ${TABLE}
+        )
+          .bind(mk, tt, modeTry, ws)
+          .first();
+      }
+      if (!arm?.id) {
+        arm = await env.DB.prepare(
+          `SELECT * FROM ${TABLE}
          WHERE model_key = ? AND task_type = ? AND mode = ?
            AND COALESCE(TRIM(workspace_id), '') = ''
            AND is_active = 1 AND is_eligible = 1 AND is_paused = 0
          LIMIT 1`,
-      )
-        .bind(mk, tt, md)
-        .first();
+        )
+          .bind(mk, tt, modeTry)
+          .first();
+      }
+      if (arm?.id) break;
     }
     if (!arm?.id) return null;
     const armId = arm.id != null ? String(arm.id).trim() : '';

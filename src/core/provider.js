@@ -154,9 +154,11 @@ function deriveApiPlatformFromProvider(provider, rawPlatform) {
 
 /** Catalog api_platform with provider-derived fallback (never default to anthropic). */
 function resolveDispatchPlatform(meta) {
-  return String(
+  let plat = String(
     meta?.api_platform ? meta.api_platform : deriveApiPlatformFromProvider(meta?.provider || '', ''),
   ).toLowerCase();
+  if (plat === 'google_ai') plat = 'gemini_api';
+  return plat;
 }
 
 /**

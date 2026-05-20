@@ -106,6 +106,7 @@ import {
   resolveRoutingTaskType,
   selectAutoModel,
   recordRoutingArmOutcome,
+  isAnthropicSmoketestQuickstartBatch,
 } from '../core/routing.js';
 import { listAgentsamSlashCommands } from '../core/agentsam-command-catalog.js';
 import { writeUsageEvent } from '../core/usage-event-writer.js';
@@ -5314,6 +5315,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   let message = (body.message || '').trim();
   if (!message) return jsonResponse({ error: 'message required' }, 400);
 
+  const quickstartBatch =
+    body?.quickstart_batch != null && String(body.quickstart_batch).trim() !== ''
+      ? String(body.quickstart_batch).trim()
+      : body?.quickstartBatch != null && String(body.quickstartBatch).trim() !== ''
+        ? String(body.quickstartBatch).trim()
+        : '';
+
   const runtimeMode = normalizeAgentRuntimeMode(
     body.mode ?? body.agent_mode ?? body.runtime_intent_mode ?? body.execution_mode,
   );
@@ -6242,11 +6250,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     });
     explicitRoutingArmId = armLookup?.armId ?? null;
 
-    if (explicitModelFromRequest && routeKeyForRun) {
+    if (
+      explicitModelFromRequest &&
+      routeKeyForRun &&
+      !isAnthropicSmoketestQuickstartBatch(quickstartBatch)
+    ) {
       const routeCheck = await validateModelAgainstRouteRequirements(env, {
         routeKey: routeKeyForRun,
         aiRow: explicitRow,
         armRow: armLookup?.arm ?? null,
+        taskType: resolvedRoutingTaskType,
+        modelKey: explicitRow.model_key,
       });
       if (!routeCheck.ok) {
         return jsonResponse(
@@ -6333,6 +6347,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const chainRowsBeforeTierFilter = chainRows;
   chainRows = await filterWorkspaceModelTierPool(env, workspaceId, chainRows);
+
+  if (isAnthropicSmoketestQuickstartBatch(quickstartBatch)) {
+    const anthropicOnly = chainRows.filter((r) =>
+      /^anthropic_/i.test(String(r?.model_key || '')),
+    );
+    if (anthropicOnly.length) chainRows = anthropicOnly;
+  }
 
   const fallbackModelKeys = chainRows.map((r) => r.model_key).filter(Boolean);
   if (!fallbackModelKeys.length) {
@@ -6555,12 +6576,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       'Do not ask them to switch chat mode or pick an image model manually.';
   }
 
-  const quickstartBatch =
-    body?.quickstart_batch != null && String(body.quickstart_batch).trim() !== ''
-      ? String(body.quickstart_batch).trim()
-      : body?.quickstartBatch != null && String(body.quickstartBatch).trim() !== ''
-        ? String(body.quickstartBatch).trim()
-        : '';
   const applyEtoAfterRun =
     body?.apply_eto_after_run === true ||
     body?.apply_eto_after_run === 1 ||
@@ -6777,7 +6792,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           : chatMessagesBase;
 
       const tried = [];
-      const startIdx = (confidence < escalationThreshold && fallbackModelKeys.length > 1) ? 1 : 0;
+      const startIdx = isAnthropicSmoketestQuickstartBatch(quickstartBatch)
+        ? 0
+        : confidence < escalationThreshold && fallbackModelKeys.length > 1
+          ? 1
+          : 0;
       const maxProviderAttempts = explicitModelFromRequest ? 1 : 3;
       let providerAttempts = 0;
       let succeeded = false;

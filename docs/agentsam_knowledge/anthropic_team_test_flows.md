@@ -60,12 +60,15 @@ Policy metadata lives in **`agentsam_model_catalog`** columns (migration **354**
 
 ```
 task_type=intent_classification
-mode=auto
+route_key=intent_classification
+mode=agent
 workspace_id=ws_inneranimalmedia
 model=auto
 quickstart_batch=anthropic_smoketest_quickstart
 apply_eto_after_run=true
 ```
+
+With `quickstart_batch=anthropic_smoketest_quickstart`, the Worker **restricts the provider chain to `anthropic_*` only** (no Gemini/OpenAI fallback). Scout arms use routing `mode=auto`; requests with `mode=agent` still resolve via mode alias.
 
 Or use Quickstart card **Anthropic Scout (Haiku 4.5)** from `GET /api/agent/quickstart/templates`.
 
