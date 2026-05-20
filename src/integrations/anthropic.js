@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   anthropicFeaturesFromCatalogCapabilities,
   loadCatalogCapabilities,
+  SCOUT_TASK_TYPES,
 } from '../core/model-catalog-capabilities.js';
 import { handlers as dbHandlers } from '../tools/db.js';
 import { resolveApiKey } from '../core/vault.js';
@@ -24,7 +25,7 @@ export const ANTHROPIC_CODE_EXECUTION_BETA = 'code-execution-2025-08-25';
 
 /**
  * Anthropic server-side sandbox tool — not deferred (always visible; avoids tool-search-only discovery).
- * Haiku 4.5: `code_execution_20250825` only. Sonnet/Opus 4.5+: prefer `code_execution_20260120` (REPL + programmatic tools).
+ * Haiku 4.5: no server-side code execution. Sonnet/Opus 4.5+: prefer `code_execution_20260120`.
  * @param {string} modelKey
  * @returns {{ type: string, name: string } | null}
  */
@@ -86,6 +87,35 @@ export function buildAnthropicMessagesTools(tools, opts = {}) {
  * `code-execution-2025-08-25` beta applies to `code_execution_20250825` / legacy `20250522` only.
  * `code_execution_20260120` is first-party GA — sending the 08-25 beta with it can cause 400.
  */
+/**
+ * Top-level automatic prompt caching (Anthropic moves breakpoint to last cacheable block).
+ * @see https://platform.claude.com/docs/en/build-with-claude/prompt-caching#automatic-caching
+ * @param {Record<string, unknown>} features
+ * @param {{ promptCaching?: boolean, cacheTtl?: string, systemPrompt?: string }} options
+ * @returns {{ type: 'ephemeral', ttl?: string } | null}
+ */
+export function resolveAnthropicAutomaticCacheControl(features, options = {}) {
+  const feats = features && typeof features === 'object' ? features : {};
+  if (options.promptCaching === false || feats.prompt_caching === false) return null;
+
+  const explicitOn =
+    options.promptCaching === true ||
+    feats.prompt_caching === true ||
+    feats.prompt_caching === 1;
+  const systemLen =
+    options.systemPrompt != null ? String(options.systemPrompt).length : 0;
+  /** Agent Sam layered prompts are typically 8k+ chars — worth caching on multi-turn chat. */
+  const largeStaticPrefix = systemLen >= 8192;
+
+  if (!explicitOn && !largeStaticPrefix) return null;
+
+  const out = { type: 'ephemeral' };
+  const ttlRaw = options.cacheTtl ?? feats.cache_ttl;
+  const ttl = ttlRaw != null ? String(ttlRaw).trim() : '';
+  if (ttl === '1h' || ttl === '5m') out.ttl = ttl;
+  return out;
+}
+
 export function anthropicCodeExecutionNeeds202508Beta(tools) {
   const list = Array.isArray(tools) ? tools : [];
   return list.some(
@@ -134,12 +164,28 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   const compactionEnabled = features.compaction === true || features.compaction === 1;
   if (compactionEnabled) betas.push('compact-2026-01-12');
 
-  /** Betas Anthropic no longer accepts on current Sonnet / Haiku (400 extra inputs / retired headers). */
-  const RETIRED_ANTHROPIC_BETAS = new Set(['context-1m-2025-08-07']);
+  /** Betas Anthropic no longer accepts on current models (400 invalid_request_error). */
+  const RETIRED_ANTHROPIC_BETAS = new Set([
+    'context-1m-2025-08-07',
+    'thinking-2024-10-22',
+  ]);
 
-  // Feature-driven betas only (plus merged features.betas above): no unconditional fast-mode / extended-thinking here — add via features_json.betas if needed.
-  if (features.prompt_caching) betas.push('prompt-caching-2024-07-31');
-  if (features.thinking) betas.push('thinking-2024-10-22');
+  const automaticCacheControl = resolveAnthropicAutomaticCacheControl(features, {
+    promptCaching:
+      options.promptCaching === true
+        ? true
+        : options.promptCaching === false
+          ? false
+          : Number(modelData.supports_cache) === 1
+            ? true
+            : undefined,
+    cacheTtl: options.cacheTtl,
+    systemPrompt: options.systemPrompt,
+  });
+
+  // Feature-driven betas only (plus merged features.betas above).
+  if (automaticCacheControl) betas.push('prompt-caching-2024-07-31');
+  // Do not send thinking-2024-10-22 — Sonnet 4.6 / Opus 4.7 use effort + adaptive thinking in-body, not this beta.
 
   const builtTools = buildAnthropicMessagesTools(tools, { modelKey: logicalModelKey, features });
   if (anthropicCodeExecutionNeeds202508Beta(builtTools)) {
@@ -157,6 +203,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     model: modelForApi,
     max_tokens: options.max_tokens || 4096,
     system: options.systemPrompt || 'You are Agent Sam, a high-performance coding assistant.',
+    ...(automaticCacheControl ? { cache_control: automaticCacheControl } : {}),
     messages: messages.map(m => ({
       role: m.role,
       content: Array.isArray(m.content) ? m.content : m.content
@@ -172,25 +219,46 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   const isHaiku = lk.includes('haiku') || apiId.includes('haiku');
   const isOpus47 = lk.includes('opus_4_7') || apiId.includes('opus-4-7');
   const isSonnet46 = lk.includes('sonnet_4_6') || apiId.includes('sonnet-4-6');
+  const routingTaskType =
+    options.routingTaskType != null ? String(options.routingTaskType).trim() : '';
+  const isScoutTask = SCOUT_TASK_TYPES.has(routingTaskType);
 
-  // Effort + thinking: catalog-driven (Opus 4.7 = adaptive only — never type=enabled)
-  if (!isHaiku && features.effort_scaling !== false) {
+  // Effort: Opus 4.7 only via output_config (top-level `effort` → 400; Sonnet scout runs use Haiku).
+  if (isOpus47 && !isHaiku && !isScoutTask && features.effort_scaling !== false) {
     const effortVal =
       options.effort ||
       (modelData.effort != null && String(modelData.effort).trim() !== '' ? modelData.effort : null);
-    if (effortVal) streamParams.effort = effortVal;
+    if (effortVal) {
+      const existingOut =
+        streamParams.output_config && typeof streamParams.output_config === 'object'
+          ? streamParams.output_config
+          : {};
+      streamParams.output_config = { ...existingOut, effort: effortVal };
+    }
   }
 
   if (options.thinking && typeof options.thinking === 'object') {
     streamParams.thinking = options.thinking;
+  } else if (
+    isHaiku &&
+    (catalogCap?.thinking_policy === 'adaptive_only' || features.thinking_policy === 'adaptive_only')
+  ) {
+    // Haiku 4.5: adaptive thinking enabled; no effort / no code_execution (catalog scout lane).
+    streamParams.thinking = { type: 'adaptive' };
   } else if (isOpus47) {
     // Opus 4.7: do not set thinking.type = 'enabled' (API error). Adaptive via effort/betas only.
-  } else if (isSonnet46 && options.thinkingBudget) {
+  } else if (isSonnet46 && !isScoutTask && options.thinkingBudget) {
     streamParams.thinking = {
       type: 'enabled',
       budget_tokens: Number(options.thinkingBudget),
     };
-  } else if (!isHaiku && features.thinking && options.thinkingBudget && catalogCap?.thinking_policy === 'adaptive_and_enabled') {
+  } else if (
+    !isHaiku &&
+    !isScoutTask &&
+    features.thinking &&
+    options.thinkingBudget &&
+    catalogCap?.thinking_policy === 'adaptive_and_enabled'
+  ) {
     streamParams.thinking = {
       type: 'enabled',
       budget_tokens: Number(options.thinkingBudget),
@@ -199,7 +267,14 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
 
   // 3. Structured Output Config (GA moving from legacy output_format)
   if (options.jsonSchema) {
-    streamParams.output_config = { format: { type: 'json_schema', schema: options.jsonSchema } };
+    const existingOut =
+      streamParams.output_config && typeof streamParams.output_config === 'object'
+        ? streamParams.output_config
+        : {};
+    streamParams.output_config = {
+      ...existingOut,
+      format: { type: 'json_schema', schema: options.jsonSchema },
+    };
   }
 
   // 4. Data Residency — inference_geo is not a standard Anthropic field; skip

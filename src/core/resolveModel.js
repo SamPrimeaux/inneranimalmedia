@@ -185,7 +185,7 @@ export async function resolveModelForTask(env, {
       max_output_tokens:        row.max_output_tokens,
       // Convert per-1k to per-1M for consistent math
       input_price_per_1m:       (row.cost_per_1k_in  || 0) * 1000,
-      cached_input_price_per_1m:(row.cost_per_1k_in  || 0) * 100,  // 10% of input by default
+      cached_input_price_per_1m:(row.cost_per_1k_in  || 0) * 100,  // prefer agentsam_ai.cache_read_rate_per_mtok for billing
       output_price_per_1m:      (row.cost_per_1k_out || 0) * 1000,
       supports_tools:           !!row.supports_tools,
       supports_vision:          !!row.supports_vision,

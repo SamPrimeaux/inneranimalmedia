@@ -486,6 +486,11 @@ export async function dispatchStream(env, request, params) {
           model: modelForUpstream,
           catalogModelKey: modelKey,
           systemPrompt,
+          ...(params.taskType != null && String(params.taskType).trim() !== ''
+            ? { routingTaskType: String(params.taskType).trim() }
+            : {}),
+          ...(params.promptCaching != null ? { promptCaching: params.promptCaching } : {}),
+          ...(params.cacheTtl != null ? { cacheTtl: params.cacheTtl } : {}),
           ...options,
           ...(anthropicContainerId != null && String(anthropicContainerId).trim() !== ''
             ? { container: String(anthropicContainerId).trim() }
