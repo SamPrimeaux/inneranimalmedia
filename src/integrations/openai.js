@@ -430,15 +430,17 @@ export async function completeWithOpenAI(env, params) {
  * Returns { url, revised_prompt } or throws on error.
  */
 export async function generateImageOpenAI(env, params) {
-  const { modelKey = 'dall-e-3', prompt, size = '1024x1024', quality = 'standard', n = 1, userId } = params;
+  const { modelKey, prompt, size = '1024x1024', quality = 'standard', n = 1, userId } = params;
+  const resolvedModelKey = modelKey != null ? String(modelKey).trim() : '';
+  if (!resolvedModelKey) throw new Error('modelKey required for OpenAI image generation');
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
+  const apiKey = await resolveModelApiKey(env, 'openai', resolvedModelKey, userId);
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
   const res = await fetch(`${OPENAI_BASE}/images/generations`, {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ model: modelKey, prompt, size, quality, n }),
+    body:    JSON.stringify({ model: resolvedModelKey, prompt, size, quality, n }),
   });
 
   if (!res.ok) {

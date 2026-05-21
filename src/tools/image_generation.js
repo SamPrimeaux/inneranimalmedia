@@ -129,6 +129,136 @@ export function isDirectImageGenerationIntent(message) {
   return isPrimaryImageGenerationIntent(message);
 }
 
+/**
+ * @param {string} message
+ * @param {boolean} [hasReferenceImage]
+ */
+export function resolveImageLane(message, hasReferenceImage = false) {
+  if (
+    hasReferenceImage ||
+    /\b(edit|modify|change|update|adjust|alter)\b.*\b(image|photo|pic)\b/i.test(message)
+  ) {
+    return 'edit_reference';
+  }
+  if (/\b(draft|rough|quick|sketch|thumbnail|preview|cheap|fast)\b/i.test(message)) {
+    return 'fast_draft';
+  }
+  if (
+    /\b(logo|brand|identity|mockup|hero|banner|campaign|professional|client)\b/i.test(message)
+  ) {
+    return 'brand_mockup';
+  }
+  if (/\b(final|high.?res|ultra|best|quality|print|production)\b/i.test(message)) {
+    return 'high_quality';
+  }
+  return 'brand_mockup';
+}
+
+/**
+ * @param {unknown} env
+ * @param {string} lane
+ * @param {string} workspaceId
+ */
+export async function pickImageModelFromDb(env, lane, workspaceId) {
+  const ws = String(workspaceId || '').trim();
+  if (!env?.DB || !ws) return null;
+  const rows = await env.DB.prepare(
+    `SELECT id, model_key, provider, api_platform, secret_key_name, cost_per_unit
+     FROM ai_models
+     WHERE is_active = 1
+       AND billing_unit = 'per_image'
+       AND json_extract(features_json, '$.image_lanes') LIKE ?
+     ORDER BY sort_order DESC`,
+  )
+    .bind(`%${lane}%`)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  if (!rows.results?.length) return null;
+
+  const period = new Date().toISOString().slice(0, 10);
+  const keys = rows.results.map((r) => r.model_key);
+  const placeholders = keys.map(() => '?').join(',');
+  const scores = await env.DB.prepare(
+    `SELECT model_key, alpha, beta
+     FROM model_performance_scores
+     WHERE model_key IN (${placeholders})
+       AND workspace_id = ?
+       AND period_start = ?`,
+  )
+    .bind(...keys, ws, period)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  const scoreMap = Object.fromEntries((scores.results || []).map((s) => [s.model_key, s]));
+
+  function betaSample(a, b) {
+    const x = Math.pow(Math.random(), 1 / Math.max(a, 1));
+    const y = Math.pow(Math.random(), 1 / Math.max(b, 1));
+    return x / (x + y);
+  }
+
+  let best = null;
+  let bestScore = -1;
+  for (const row of rows.results) {
+    if (row.secret_key_name && !env[row.secret_key_name]) continue;
+    if (row.api_platform === 'workers_ai' && !env.AI) continue;
+    const s = scoreMap[row.model_key];
+    const score = betaSample(s?.alpha ?? 1, s?.beta ?? 1);
+    if (score > bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+  return best;
+}
+
+/**
+ * @param {unknown} env
+ * @param {string} modelKey
+ * @param {string} workspaceId
+ * @param {boolean} success
+ * @param {number} latencyMs
+ */
+export async function recordImageModelOutcome(env, modelKey, workspaceId, success, latencyMs) {
+  const ws = String(workspaceId || '').trim();
+  const mk = String(modelKey || '').trim();
+  if (!env?.DB || !ws || !mk) return;
+  const period = new Date().toISOString().slice(0, 10);
+  await env.DB.prepare(
+    `INSERT INTO model_performance_scores
+       (model_key, workspace_id, period_start, alpha, beta,
+        avg_latency_ms, success_count, failure_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (model_key, workspace_id, period_start) DO UPDATE SET
+       alpha         = alpha + ?,
+       beta          = beta  + ?,
+       success_count = success_count + ?,
+       failure_count = failure_count + ?,
+       avg_latency_ms = CAST(
+         (avg_latency_ms * (success_count + failure_count) + ?)
+         / (success_count + failure_count + 1) AS INTEGER
+       )`,
+  )
+    .bind(
+      mk,
+      ws,
+      period,
+      success ? 2 : 1,
+      success ? 1 : 2,
+      latencyMs,
+      success ? 1 : 0,
+      success ? 0 : 1,
+      success ? 1 : 0,
+      success ? 0 : 1,
+      success ? 1 : 0,
+      success ? 0 : 1,
+      latencyMs,
+    )
+    .run()
+    .catch((e) => console.warn('[image_generation] recordImageModelOutcome', e?.message ?? e));
+}
+
 /** Tool names injected when {@link hasImageGenerationIntent} is true. */
 export const IMAGE_CAPABILITY_TOOL_NAMES = ['imgx_generate_image', 'imgx_edit_image'];
 
@@ -190,25 +320,61 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
         session_id: sessionId,
       });
 
-      const result = await streamImageGenerationSse(
-        emit,
-        env,
-        'imgx_generate_image',
-        { prompt: message },
-        {
-          authUser: opts.authUser || { id: userId },
-          workspaceId,
-          tenantId,
-          userId,
-          origin,
-        },
-      );
+      const referenceImageB64 = opts.referenceImageB64 ?? opts.referenceImage ?? null;
+      const lane = resolveImageLane(message, !!referenceImageB64);
+      const ws = workspaceId != null ? String(workspaceId).trim() : '';
+      const imageModel = ws ? await pickImageModelFromDb(env, lane, ws) : null;
+      const sseCtx = {
+        authUser: opts.authUser || { id: userId },
+        workspaceId,
+        tenantId,
+        userId,
+        origin,
+      };
+      const sseParams = imageModel
+        ? {
+            prompt: message,
+            model: imageModel.model_key,
+            provider: imageModel.api_platform || imageModel.provider,
+          }
+        : { prompt: message };
 
-      console.log('[agent] image_generation_fast_path_done', {
-        generation_id: result?.artifact_id,
-        provider: result?.provider,
-        model: result?.model,
-      });
+      const t0 = Date.now();
+      try {
+        if (imageModel) {
+          emit('image_generation_started', {
+            provider: imageModel.provider,
+            model: imageModel.model_key,
+          });
+        }
+        const result = await streamImageGenerationSse(
+          emit,
+          env,
+          'imgx_generate_image',
+          sseParams,
+          sseCtx,
+        );
+        if (imageModel && ws) {
+          await recordImageModelOutcome(env, imageModel.model_key, ws, true, Date.now() - t0);
+        }
+        console.log('[agent] image_generation_fast_path_done', {
+          generation_id: result?.artifact_id,
+          provider: result?.provider,
+          model: result?.model,
+        });
+      } catch (err) {
+        if (imageModel && ws) {
+          await recordImageModelOutcome(env, imageModel.model_key, ws, false, Date.now() - t0);
+          emit('image_generation_complete', {
+            type: 'image_generation_complete',
+            failed: true,
+            provider: imageModel.provider,
+            model: imageModel.model_key,
+            error: err?.message != null ? String(err.message) : String(err),
+          });
+        }
+        throw err;
+      }
     } catch (e) {
       const msg = e?.message != null ? String(e.message) : String(e);
       console.warn('[agent] image_generation_fast_path_error', msg.slice(0, 400));
@@ -221,16 +387,6 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
 
   return new Response(readable, { headers: SSE_HEADERS });
 }
-
-const OPENAI_MODEL_PRIORITY = [
-  'gpt-image-2',
-  'gpt-image-1',
-  'chatgpt-image-latest',
-  'gpt-image-1-mini',
-  'dall-e-3',
-];
-
-const GOOGLE_IMAGE_MODELS = ['imagen-3.0-generate-002', 'imagen-3.0-fast-generate-001'];
 
 /**
  * @param {string} name
@@ -258,39 +414,6 @@ export function parseImageDimensions(size) {
     return { width: 1024, height: 1792, openAiSize: '1024x1792' };
   }
   return { width: 1024, height: 1024, openAiSize: '1024x1024' };
-}
-
-/**
- * @param {unknown} env
- * @param {string | undefined} preferred
- * @returns {Promise<Array<'openai' | 'google' | 'workers_ai'>>}
- */
-export async function pickImageProviderChain(env, preferred) {
-  const pref = String(preferred || '')
-    .trim()
-    .toLowerCase()
-    .replace(/-/g, '_');
-  const chain = [];
-  const push = (p) => {
-    if (!chain.includes(p)) chain.push(p);
-  };
-
-  if (pref === 'openai') push('openai');
-  else if (pref === 'google' || pref === 'gemini') push('google');
-  else if (pref === 'workers_ai' || pref === 'workersai') push('workers_ai');
-
-  const openaiKey = await resolveModelApiKey(env, 'openai', 'gpt-image-1', null);
-  const googleKey = await resolveModelApiKey(env, 'google', 'imagen-3.0-generate-002', null);
-  if (openaiKey) push('openai');
-  if (googleKey) push('google');
-  if (env?.AI) push('workers_ai');
-
-  if (!chain.length) {
-    if (openaiKey) push('openai');
-    if (googleKey) push('google');
-    if (env?.AI) push('workers_ai');
-  }
-  return chain;
 }
 
 /**
@@ -344,54 +467,43 @@ async function fetchImageBytes(url) {
  * @param {{ model?: string; prompt: string; size?: string; quality?: string; userId?: string | null }} opts
  */
 async function generateOpenAI(env, opts) {
+  const modelKey = String(opts.model || '').trim();
+  if (!modelKey) throw new Error('OpenAI image model required');
   const dims = parseImageDimensions(opts.size);
-  const models = opts.model
-    ? [String(opts.model).trim(), ...OPENAI_MODEL_PRIORITY]
-    : OPENAI_MODEL_PRIORITY;
-  const seen = new Set();
-  let lastErr = null;
-  for (const modelKey of models) {
-    if (!modelKey || seen.has(modelKey)) continue;
-    seen.add(modelKey);
-    try {
-      const row = await generateImageOpenAI(env, {
-        modelKey,
-        prompt: opts.prompt,
-        size: dims.openAiSize,
-        quality: opts.quality || 'standard',
-        n: 1,
-        userId: opts.userId,
-      });
-      if (!row) continue;
-      const url = typeof row.url === 'string' ? row.url : null;
-      const b64 = typeof row.b64_json === 'string' ? row.b64_json : null;
-      if (url) {
-        const fetched = await fetchImageBytes(url);
-        return {
-          provider: 'openai',
-          model: modelKey,
-          bytes: fetched.bytes,
-          contentType: fetched.contentType,
-          preview_urls: [url],
-          metadata: { revised_prompt: row.revised_prompt },
-        };
-      }
-      if (b64) {
-        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-        return {
-          provider: 'openai',
-          model: modelKey,
-          bytes,
-          contentType: 'image/png',
-          preview_urls: [],
-          metadata: { revised_prompt: row.revised_prompt },
-        };
-      }
-    } catch (e) {
-      lastErr = e;
-    }
+  const row = await generateImageOpenAI(env, {
+    modelKey,
+    prompt: opts.prompt,
+    size: dims.openAiSize,
+    quality: opts.quality || 'standard',
+    n: 1,
+    userId: opts.userId,
+  });
+  if (!row) throw new Error('OpenAI image generation returned no data');
+  const url = typeof row.url === 'string' ? row.url : null;
+  const b64 = typeof row.b64_json === 'string' ? row.b64_json : null;
+  if (url) {
+    const fetched = await fetchImageBytes(url);
+    return {
+      provider: 'openai',
+      model: modelKey,
+      bytes: fetched.bytes,
+      contentType: fetched.contentType,
+      preview_urls: [url],
+      metadata: { revised_prompt: row.revised_prompt },
+    };
   }
-  throw lastErr || new Error('OpenAI image generation failed');
+  if (b64) {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return {
+      provider: 'openai',
+      model: modelKey,
+      bytes,
+      contentType: 'image/png',
+      preview_urls: [],
+      metadata: { revised_prompt: row.revised_prompt },
+    };
+  }
+  throw new Error('OpenAI image generation returned no image bytes');
 }
 
 /**
@@ -399,56 +511,48 @@ async function generateOpenAI(env, opts) {
  * @param {{ model?: string; prompt: string; size?: string; userId?: string | null }} opts
  */
 async function generateGoogle(env, opts) {
+  const modelKey = String(opts.model || '').trim();
+  if (!modelKey) throw new Error('Google image model required');
   const dims = parseImageDimensions(opts.size);
-  const apiKey = await resolveModelApiKey(env, 'google', opts.model || GOOGLE_IMAGE_MODELS[0], opts.userId);
+  const apiKey = await resolveModelApiKey(env, 'google', modelKey, opts.userId);
   if (!apiKey) throw new Error('Google AI API key not configured');
 
-  const models = opts.model ? [String(opts.model)] : GOOGLE_IMAGE_MODELS;
-  let lastErr = null;
-  for (const modelKey of models) {
-    try {
-      const aspect =
-        dims.width > dims.height ? '16:9' : dims.height > dims.width ? '9:16' : '1:1';
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelKey)}:predict`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
-          body: JSON.stringify({
-            instances: [{ prompt: opts.prompt }],
-            parameters: { sampleCount: 1, aspectRatio: aspect },
-          }),
-        },
-      );
-      if (!res.ok) {
-        const err = await res.text().catch(() => '');
-        throw new Error(`Imagen error ${res.status}: ${err.slice(0, 300)}`);
-      }
-      const data = await res.json();
-      const pred = data?.predictions?.[0] || data?.generatedImages?.[0];
-      const b64 =
-        pred?.bytesBase64Encoded ||
-        pred?.image?.bytesBase64Encoded ||
-        pred?.b64_json ||
-        data?.bytesBase64Encoded;
-      if (!b64 || typeof b64 !== 'string') throw new Error('Imagen returned no image bytes');
-      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-      return {
-        provider: 'google',
-        model: modelKey,
-        bytes,
-        contentType: 'image/png',
-        preview_urls: [],
-        metadata: {},
-      };
-    } catch (e) {
-      lastErr = e;
-    }
+  const aspect = dims.width > dims.height ? '16:9' : dims.height > dims.width ? '9:16' : '1:1';
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelKey)}:predict`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        instances: [{ prompt: opts.prompt }],
+        parameters: { sampleCount: 1, aspectRatio: aspect },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    throw new Error(`Imagen error ${res.status}: ${err.slice(0, 300)}`);
   }
-  throw lastErr || new Error('Google image generation failed');
+  const data = await res.json();
+  const pred = data?.predictions?.[0] || data?.generatedImages?.[0];
+  const b64 =
+    pred?.bytesBase64Encoded ||
+    pred?.image?.bytesBase64Encoded ||
+    pred?.b64_json ||
+    data?.bytesBase64Encoded;
+  if (!b64 || typeof b64 !== 'string') throw new Error('Imagen returned no image bytes');
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return {
+    provider: 'google',
+    model: modelKey,
+    bytes,
+    contentType: 'image/png',
+    preview_urls: [],
+    metadata: {},
+  };
 }
 
 /**
@@ -505,41 +609,42 @@ export async function generateImage(env, params) {
   const prompt = String(params.prompt || '').trim();
   if (!prompt) throw new Error('prompt required');
 
-  const chain = await pickImageProviderChain(env, params.provider);
-  if (!chain.length) throw new Error('No image provider configured');
+  const provider = String(params.provider || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+  const model = params.model ? String(params.model).trim() : '';
 
-  let lastErr = null;
-  for (const provider of chain) {
-    try {
-      if (provider === 'openai') {
-        return await generateOpenAI(env, {
-          model: params.model,
-          prompt,
-          size: params.size,
-          quality: params.quality,
-          userId: params.userId,
-        });
-      }
-      if (provider === 'google') {
-        return await generateGoogle(env, {
-          model: params.model,
-          prompt,
-          size: params.size,
-          userId: params.userId,
-        });
-      }
-      if (provider === 'workers_ai') {
-        return await generateWorkersAi(env, {
-          model: params.model,
-          prompt,
-          tenantId: params.tenantId,
-        });
-      }
-    } catch (e) {
-      lastErr = e;
-    }
+  if (provider === 'openai' || provider === 'openai_compatible') {
+    return await generateOpenAI(env, {
+      model,
+      prompt,
+      size: params.size,
+      quality: params.quality,
+      userId: params.userId,
+    });
   }
-  throw lastErr || new Error('Image generation failed');
+  if (provider === 'google' || provider === 'gemini') {
+    return await generateGoogle(env, {
+      model,
+      prompt,
+      size: params.size,
+      userId: params.userId,
+    });
+  }
+  if (provider === 'workers_ai' || provider === 'workersai') {
+    return await generateWorkersAi(env, {
+      model,
+      prompt,
+      tenantId: params.tenantId,
+    });
+  }
+
+  return await generateWorkersAi(env, {
+    model,
+    prompt,
+    tenantId: params.tenantId,
+  });
 }
 
 /**
@@ -553,7 +658,8 @@ export async function editImage(env, params) {
   const src = String(params.image_url || params.image || '').trim();
   if (!src) throw new Error('image_url required');
 
-  const modelKey = params.model || 'gpt-image-1';
+  const modelKey = String(params.model || '').trim();
+  if (!modelKey) throw new Error('OpenAI edit model required');
   const apiKey = await resolveModelApiKey(env, 'openai', modelKey, params.userId);
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
@@ -671,9 +777,27 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
   const dims = parseImageDimensions(params.size);
   const isEdit = toolName === 'imgx_edit_image';
 
-  const chain = isEdit ? ['openai'] : await pickImageProviderChain(env, params.provider);
-  const providerGuess = chain[0] || 'openai';
-  const modelGuess = params.model || (providerGuess === 'openai' ? OPENAI_MODEL_PRIORITY[0] : '');
+  const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
+  let providerGuess = 'workers_ai';
+  let modelGuess = params.model ? String(params.model).trim() : '';
+  let scoredModelKey = null;
+
+  if (isEdit) {
+    providerGuess = 'openai';
+  } else if (!modelGuess && ws) {
+    const lane = resolveImageLane(prompt, false);
+    const picked = await pickImageModelFromDb(env, lane, ws);
+    if (picked) {
+      scoredModelKey = picked.model_key;
+      providerGuess = String(picked.api_platform || picked.provider || 'workers_ai');
+      modelGuess = scoredModelKey;
+      params = {
+        ...params,
+        model: scoredModelKey,
+        provider: providerGuess,
+      };
+    }
+  }
 
   emit('image_generation_started', {
     type: 'image_generation_started',
@@ -712,8 +836,12 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
   });
   tickIndex = 1;
 
+  const scoredT0 = Date.now();
   try {
     const result = await runImageGenerationForTool(env, toolName, params, ctx);
+    if (scoredModelKey && ws) {
+      await recordImageModelOutcome(env, scoredModelKey, ws, true, Date.now() - scoredT0);
+    }
 
     for (const previewUrl of result.preview_urls || []) {
       if (!previewUrl) continue;
@@ -747,6 +875,9 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
 
     return result;
   } catch (e) {
+    if (scoredModelKey && ws) {
+      await recordImageModelOutcome(env, scoredModelKey, ws, false, Date.now() - scoredT0);
+    }
     const msg = e?.message != null ? String(e.message) : String(e);
     emit('image_generation_progress', {
       type: 'image_generation_progress',
