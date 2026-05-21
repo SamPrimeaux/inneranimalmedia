@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import '@excalidraw/excalidraw/index.css';
 
 /** Scene elements — deep paths under @excalidraw/excalidraw are not resolved by this project's tsc. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -22,7 +21,10 @@ export const ExcalidrawView: React.FC = () => {
 
     useEffect(() => {
         let cancelled = false;
-        void import('@excalidraw/excalidraw').then((m) => {
+        void Promise.all([
+            import('@excalidraw/excalidraw'),
+            import('@excalidraw/excalidraw/index.css'),
+        ]).then(([m]) => {
             if (!cancelled) setExcalidrawComp(() => m.Excalidraw as React.ComponentType<Record<string, unknown>>);
         });
         return () => { cancelled = true; };
@@ -146,8 +148,13 @@ export const ExcalidrawView: React.FC = () => {
         }, DEBOUNCE_MS);
     };
 
-    // Don't render Excalidraw until initial state fetch resolves (avoids overwriting with empty)
-    if (!initialDataLoaded || !ExcalidrawComp) return null;
+    if (!initialDataLoaded || !ExcalidrawComp) {
+        return (
+            <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
+                Loading canvas…
+            </div>
+        );
+    }
 
     return (
         <div

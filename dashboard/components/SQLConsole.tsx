@@ -124,14 +124,6 @@ export const SQLConsole: React.FC<SQLConsoleProps> = ({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [runQuery]);
 
-  const sqlFile = useMemo(
-    () => ({
-      name: dialect === 'd1' ? 'query.sql' : 'query.pgsql',
-      content: sql,
-    }),
-    [dialect, sql],
-  );
-
   const approxBytes = useMemo(() => {
     if (!results || !results.length) return 0;
     try {
@@ -193,14 +185,12 @@ export const SQLConsole: React.FC<SQLConsoleProps> = ({
         className="flex-1 flex flex-col min-h-0 border-b border-[var(--border-subtle)] overflow-hidden"
       >
         <MonacoEditorView
-          fileData={sqlFile}
           onChange={(newContent) => {
             const next = newContent ?? '';
             sqlRef.current = next;
             setSql(next);
           }}
           onSave={(content) => void runQuery(content)}
-          isDirty={false}
           onCursorPositionChange={() => {}}
           onEditorModelMeta={() => {}}
         />

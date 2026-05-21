@@ -1,29 +1,26 @@
 import React, { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
-import Editor, { type Monaco } from '@monaco-editor/react';
+import Editor, { useMonaco, type Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { applyMonacoThemeFromDocument } from '../../MonacoSurface';
+import { IAM_HC_BLACK_THEME_ID } from '../../../src/lib/monacoThemes';
+import {
+  getOrCreateMonacoModel,
+  monacoLanguageForFilename,
+  resolveMonacoModelPath,
+} from '../../../src/lib/monacoModelRegistry';
 
 /** Choose Monaco language id from a filename (extension-based). */
 export function monacoLangFromFilename(filename: string): string {
-  const ext = filename?.split('.').pop()?.toLowerCase();
-  const map: Record<string, string> = {
-    py: 'python',
-    js: 'javascript',
-    ts: 'typescript',
-    jsx: 'javascript',
-    tsx: 'typescript',
-    sql: 'sql',
-    json: 'json',
-    sh: 'shell',
-    md: 'markdown',
-    css: 'css',
-    html: 'html',
-  };
-  return map[ext ?? ''] ?? 'plaintext';
+  return monacoLanguageForFilename(filename);
 }
 
 function readMonacoThemeIdFromDom(): string {
-  return document.documentElement.getAttribute('data-monaco-theme')?.trim() || 'vs';
+  return document.documentElement.getAttribute('data-monaco-theme')?.trim() || IAM_HC_BLACK_THEME_ID;
+}
+
+function mcpDocumentPath(filename: string | null | undefined): string {
+  const base = filename?.trim() || 'config.json';
+  return resolveMonacoModelPath({ id: base, name: base, workspacePath: `inmemory://agent-sam/mcp/${base}` });
 }
 
 export type McpMonacoHostProps = {
@@ -33,12 +30,14 @@ export type McpMonacoHostProps = {
 };
 
 /**
- * Single Monaco surface for MCP config / tool JSON. Uncontrolled document; parent swaps models via setModel.
+ * Monaco surface for MCP config / tool JSON.
+ * One model per document URI; tab switches use editor.setModel() (undo preserved per doc).
  */
 export const McpMonacoHost = forwardRef<editor.IStandaloneCodeEditor | null, McpMonacoHostProps>(function McpMonacoHost(
   { onEditorReady, documentFilename },
   ref,
 ) {
+  const monaco = useMonaco();
   const [editorThemeProp, setEditorThemeProp] = useState(readMonacoThemeIdFromDom);
   const bridgeRef = useRef<{ monaco: Monaco } | null>(null);
   const edRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -47,9 +46,9 @@ export const McpMonacoHost = forwardRef<editor.IStandaloneCodeEditor | null, Mcp
 
   const syncFromDom = useCallback(() => {
     setEditorThemeProp(readMonacoThemeIdFromDom());
-    const monaco = bridgeRef.current?.monaco;
+    const monacoBridge = bridgeRef.current?.monaco;
     const ed = edRef.current;
-    if (monaco) applyMonacoThemeFromDocument(monaco, ed);
+    if (monacoBridge) applyMonacoThemeFromDocument(monacoBridge, ed);
   }, []);
 
   useEffect(() => {
@@ -72,22 +71,43 @@ export const McpMonacoHost = forwardRef<editor.IStandaloneCodeEditor | null, Mcp
     };
   }, [syncFromDom]);
 
-  const handleBeforeMount = useCallback((monaco: Monaco) => {
-    applyMonacoThemeFromDocument(monaco, null);
+  const handleBeforeMount = useCallback((monacoApi: Monaco) => {
+    applyMonacoThemeFromDocument(monacoApi, null);
   }, []);
 
   const handleMount = useCallback(
-    (ed: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+    (ed: editor.IStandaloneCodeEditor, monacoApi: Monaco) => {
       edRef.current = ed;
-      bridgeRef.current = { monaco };
+      bridgeRef.current = { monaco: monacoApi };
+      const bootstrap = ed.getModel();
+      if (bootstrap) bootstrap.dispose();
+
       if (typeof ref === 'function') ref(ed);
       else if (ref && typeof ref === 'object') (ref as React.MutableRefObject<editor.IStandaloneCodeEditor | null>).current = ed;
-      applyMonacoThemeFromDocument(monaco, ed);
+      applyMonacoThemeFromDocument(monacoApi, ed);
       setEditorThemeProp(readMonacoThemeIdFromDom());
-      onReadyRef.current?.(ed, monaco);
+      onReadyRef.current?.(ed, monacoApi);
     },
     [ref],
   );
+
+  useEffect(() => {
+    const ed = edRef.current;
+    const monacoApi = monaco ?? bridgeRef.current?.monaco;
+    if (!ed || !monacoApi) return;
+
+    const path = mcpDocumentPath(documentFilename);
+    const lang = documentFilename ? monacoLangFromFilename(documentFilename) : 'json';
+    const model = getOrCreateMonacoModel({
+      monaco: monacoApi,
+      path,
+      content: ed.getValue() || '',
+      language: lang,
+    });
+    if (ed.getModel() !== model) {
+      ed.setModel(model);
+    }
+  }, [monaco, documentFilename]);
 
   useEffect(() => {
     return () => {
@@ -100,11 +120,9 @@ export const McpMonacoHost = forwardRef<editor.IStandaloneCodeEditor | null, Mcp
 
   return (
     <Editor
-      key={documentFilename ?? 'default-json'}
       height="100%"
       defaultLanguage={editorLang}
       theme={editorThemeProp}
-      defaultValue=""
       beforeMount={handleBeforeMount}
       onMount={handleMount}
       options={{

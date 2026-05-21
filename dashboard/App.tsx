@@ -76,7 +76,7 @@ import { AuthForgotPage } from './components/auth/AuthForgotPage';
 import { AuthResetPage } from './components/auth/AuthResetPage';
 import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library } from 'lucide-react';
+import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library, FileCode2 } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
@@ -3009,7 +3009,7 @@ const App: React.FC = () => {
                   {openTabs.includes('Workspace') && (
                       <Tab
                           title="Workspace"
-                          icon={<Layers size={13} className="text-[var(--solar-cyan)]"/>}
+                          icon={<FolderCode size={13} className="text-[var(--solar-cyan)]"/>}
                           active={activeTab === 'Workspace'}
                           onClick={() => setActiveTab('Workspace')}
                           onClose={(e) => closeTab('Workspace', e)}
@@ -3028,7 +3028,7 @@ const App: React.FC = () => {
                             activeFile ? (
                               <SetiFileIcon filename={activeFile.name} size={14} />
                             ) : (
-                              <SetiFileIcon filename="untitled.ts" size={14} className="opacity-60" />
+                              <FileCode2 size={14} className="text-[var(--solar-cyan)] opacity-60" />
                             )
                           }
                           active={activeTab === 'code'}
@@ -3157,8 +3157,6 @@ const App: React.FC = () => {
                   {activeTab === 'code' && (
                       <div className="absolute inset-0 z-10">
                           <MonacoEditorView
-                              fileData={activeFile}
-                              isDirty={isDirty}
                               onSave={handleSaveFile}
                               onCursorPositionChange={handleEditorCursorPosition}
                               onEditorModelMeta={setEditorMeta}

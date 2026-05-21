@@ -21,9 +21,13 @@ import {
   buildStandaloneEditorOptions,
   resolveMonacoThemeId,
 } from '../src/lib/monacoThemes';
+import {
+  disposeMonacoModelForPath,
+  getOrCreateMonacoModel,
+  monacoLanguageForFilename,
+  resolveMonacoModelPath,
+} from '../src/lib/monacoModelRegistry';
 import { X } from 'lucide-react';
-
-type FileData = ActiveFile;
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif'];
 const isImageKey = (key: string) => IMAGE_EXTS.some((e) => key.toLowerCase().endsWith(e));
@@ -37,39 +41,13 @@ export type EditorModelMeta = {
 };
 
 interface MonacoEditorViewProps {
-  fileData: FileData | null;
   onChange?: (val?: string) => void;
   onSave?: (content: string) => void;
-  isDirty?: boolean;
   /** Live cursor for status bar (IDE parity). */
   onCursorPositionChange?: (line: number, column: number) => void;
   /** Indent / EOL / encoding for status bar (from the live Monaco model). */
   onEditorModelMeta?: (meta: EditorModelMeta) => void;
 }
-
-const LANG_MAP: Record<string, string> = {
-  ts: 'typescript', tsx: 'typescript',
-  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
-  json: 'json', jsonc: 'json',
-  css: 'css', scss: 'scss', less: 'less',
-  html: 'html', htm: 'html',
-  md: 'markdown', mdx: 'markdown',
-  py: 'python',
-  sh: 'shell', bash: 'shell', zsh: 'shell',
-  toml: 'toml',
-  yaml: 'yaml', yml: 'yaml',
-  go: 'go',
-  rs: 'rust',
-  sql: 'sql',
-  pgsql: 'sql',
-  graphql: 'graphql', gql: 'graphql',
-  env: 'plaintext',
-  txt: 'plaintext',
-  text: 'plaintext',
-  tf: 'hcl',
-  xml: 'xml',
-  wrangler: 'toml',
-};
 
 const LARGE_FILE_CHAR_THRESHOLD = 100_000;
 
@@ -208,7 +186,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     return () => window.removeEventListener('keydown', handler);
   }, [activeFile, onSave]);
 
-  // Create Monaco once per text-editor mount; content updates use setValue in a separate effect.
+  // Create Monaco once per text-editor mount; tab switches use setModel (per-file undo stacks).
   useLayoutEffect(() => {
     if (!monaco || !showMonacoBody) {
       contentListenerRef.current?.dispose?.();
@@ -229,6 +207,9 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
         buildStandaloneEditorOptions(false, false),
       );
       editorRef.current = editor;
+
+      const bootstrap = editor.getModel();
+      if (bootstrap) bootstrap.dispose();
 
       const push = () => {
         const p = editor.getPosition();
@@ -267,17 +248,23 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     const editor = editorRef.current;
     if (!editor || !monaco || !activeFile) return;
 
-    const ext = activeFile.name.split('.').pop()?.toLowerCase() || 'txt';
-    const lang = LANG_MAP[ext] || 'plaintext';
-    const model = editor.getModel();
-    if (model) {
-      monaco.editor.setModelLanguage(model, lang);
+    const modelPath = resolveMonacoModelPath(activeFile);
+    const lang = monacoLanguageForFilename(activeFile.name);
+    const fileModel = getOrCreateMonacoModel({
+      monaco,
+      path: modelPath,
+      content: activeFile.content ?? '',
+      language: lang,
+    });
+
+    if (editor.getModel() !== fileModel) {
+      editor.setModel(fileModel);
+    } else {
       const next = activeFile.content ?? '';
-      const current = model.getValue();
-      if (current !== next) {
+      if (fileModel.getValue() !== next) {
         syncingContentRef.current = true;
         try {
-          editor.setValue(next);
+          fileModel.setValue(next);
         } finally {
           syncingContentRef.current = false;
         }
@@ -302,8 +289,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   // Monaco Completions Integration
   useEffect(() => {
     if (!monaco || !activeFile) return;
-    const ext = activeFile.name.split('.').pop()?.toLowerCase() || 'txt';
-    const lang = LANG_MAP[ext] || 'plaintext';
+    const lang = monacoLanguageForFilename(activeFile.name);
     const disposable = monaco.languages.registerCompletionItemProvider(lang, {
       triggerCharacters: ['.', '(', '[', '{', ' ', ':', '='],
       provideCompletionItems: async (model, position) => {
@@ -414,8 +400,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     );
   }
 
-  const ext = activeFile.name.split('.').pop()?.toLowerCase() || 'txt';
-  const language = LANG_MAP[ext] || 'plaintext';
+  const language = monacoLanguageForFilename(activeFile.name);
 
   const previewUrl =
     activeFile.previewUrl ||
@@ -453,7 +438,13 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
             <X 
               size={12} 
               className="text-inherit opacity-0 group-hover:opacity-100 hover:text-[var(--solar-red)] transition-all" 
-              onClick={(e) => { e.stopPropagation(); closeFile(tab.id); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (monaco) {
+                  disposeMonacoModelForPath(monaco, resolveMonacoModelPath(tab));
+                }
+                closeFile(tab.id);
+              }}
             />
           </div>
         ))}
