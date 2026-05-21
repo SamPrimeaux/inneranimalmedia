@@ -189,21 +189,22 @@ export async function pickImageModelFromDb(env, lane, workspaceId) {
 
   if (!rows.results?.length) return null;
 
-  const period = new Date().toISOString().slice(0, 10);
   const keys = rows.results.map((r) => r.model_key);
   const placeholders = keys.map(() => '?').join(',');
-  const scores = await env.DB.prepare(
-    `SELECT model_key, alpha, beta
-     FROM model_performance_scores
+  const arms = await env.DB.prepare(
+    `SELECT model_key, success_alpha, success_beta
+     FROM agentsam_routing_arms
      WHERE model_key IN (${placeholders})
        AND workspace_id = ?
-       AND period_start = ?`,
+       AND task_type = 'image_generation'
+       AND is_paused = 0
+       AND is_active = 1`,
   )
-    .bind(...keys, ws, period)
+    .bind(...keys, ws)
     .all()
     .catch(() => ({ results: [] }));
 
-  const scoreMap = Object.fromEntries((scores.results || []).map((s) => [s.model_key, s]));
+  const scoreMap = Object.fromEntries((arms.results || []).map((s) => [s.model_key, s]));
 
   function betaSample(a, b) {
     const x = Math.pow(Math.random(), 1 / Math.max(a, 1));
@@ -216,8 +217,8 @@ export async function pickImageModelFromDb(env, lane, workspaceId) {
   for (const row of rows.results) {
     if (row.secret_key_name && !env[row.secret_key_name]) continue;
     if (row.api_platform === 'workers_ai' && !env.AI) continue;
-    const s = scoreMap[row.model_key];
-    const score = betaSample(s?.alpha ?? 1, s?.beta ?? 1);
+    const arm = scoreMap[row.model_key];
+    const score = betaSample(arm?.success_alpha ?? 1, arm?.success_beta ?? 1);
     if (score > bestScore) {
       bestScore = score;
       best = row;
@@ -237,37 +238,20 @@ export async function recordImageModelOutcome(env, modelKey, workspaceId, succes
   const ws = String(workspaceId || '').trim();
   const mk = String(modelKey || '').trim();
   if (!env?.DB || !ws || !mk) return;
-  const period = new Date().toISOString().slice(0, 10);
   await env.DB.prepare(
-    `INSERT INTO model_performance_scores
-       (model_key, workspace_id, period_start, alpha, beta,
-        avg_latency_ms, success_count, failure_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (model_key, workspace_id, period_start) DO UPDATE SET
-       alpha         = alpha + ?,
-       beta          = beta  + ?,
-       success_count = success_count + ?,
-       failure_count = failure_count + ?,
-       avg_latency_ms = CAST(
-         (avg_latency_ms * (success_count + failure_count) + ?)
-         / (success_count + failure_count + 1) AS INTEGER
-       )`,
+    `UPDATE agentsam_routing_arms SET
+       success_alpha    = success_alpha + ?,
+       success_beta     = success_beta  + ?,
+       latency_n        = latency_n + 1,
+       latency_mean     = CAST((latency_mean * latency_n + ?) / (latency_n + 1) AS REAL),
+       total_executions = total_executions + 1,
+       updated_at       = unixepoch()
+     WHERE model_key    = ?
+       AND workspace_id = ?
+       AND task_type    = 'image_generation'
+       AND is_paused    = 0`,
   )
-    .bind(
-      mk,
-      ws,
-      period,
-      success ? 2 : 1,
-      success ? 1 : 2,
-      latencyMs,
-      success ? 1 : 0,
-      success ? 0 : 1,
-      success ? 1 : 0,
-      success ? 0 : 1,
-      success ? 1 : 0,
-      success ? 0 : 1,
-      latencyMs,
-    )
+    .bind(success ? 1 : 0, success ? 0 : 1, latencyMs, mk, ws)
     .run()
     .catch((e) => console.warn('[image_generation] recordImageModelOutcome', e?.message ?? e));
 }
