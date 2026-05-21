@@ -2,6 +2,10 @@
  * Supabase database webhooks — shared-secret verification + durable audit + routing hooks (D1).
  */
 import { jsonResponse } from '../../core/auth.js';
+import {
+  overviewDirtySectionsForWebhook,
+  setOverviewBundleDirty,
+} from '../../core/overview-bundle-kv.js';
 
 /** @param {string} a @param {string} b */
 function timingSafeEqualUtf8(a, b) {
@@ -37,6 +41,28 @@ export async function handleSupabaseWebhook(request, env, ctx) {
     body = raw ? JSON.parse(raw) : {};
   } catch {
     return jsonResponse({ error: 'invalid JSON' }, 400);
+  }
+
+  const record = body.record && typeof body.record === 'object' ? body.record : body;
+
+  const webhookTenant =
+    (typeof record?.tenant_id === 'string' && record.tenant_id.trim())
+      ? record.tenant_id.trim()
+      : (typeof env?.SUPABASE_WEBHOOK_TENANT_ID === 'string' && env.SUPABASE_WEBHOOK_TENANT_ID.trim())
+        ? env.SUPABASE_WEBHOOK_TENANT_ID.trim()
+        : (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim())
+          ? env.TENANT_ID.trim()
+          : 'system';
+
+  const dirtySections = overviewDirtySectionsForWebhook(body.table, body.type);
+  if (dirtySections.length && ctx?.waitUntil) {
+    ctx.waitUntil(
+      (async () => {
+        for (const section of dirtySections) {
+          await setOverviewBundleDirty(env, section, webhookTenant);
+        }
+      })(),
+    );
   }
 
   if (env?.DB && ctx?.waitUntil) {

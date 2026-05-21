@@ -1,4 +1,5 @@
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
+import { d1SessionContext, maybeSummarizeThreadAfterCompaction } from '../../core/summarize-thread.js';
 
 const RAG_COMPACT_MAX_MSG_CHARS = 800;
 const RAG_COMPACT_HOURS = 48;
@@ -106,6 +107,15 @@ export async function compactAgentChatsToR2(env) {
         `DELETE FROM agent_messages WHERE conversation_id = ? AND created_at < ?`
       ).bind(cid, cutoff).run();
       deleted += del.changes ?? 0;
+
+      const msgCount = msgs?.length ?? 0;
+      const sessCtx = await d1SessionContext(env.DB, cid);
+      await maybeSummarizeThreadAfterCompaction(env, {
+        sessionId: cid,
+        messageCount: msgCount,
+        tenantId: sessCtx?.tenant_id ?? null,
+        workspaceId: sessCtx?.workspace_id ?? null,
+      });
     } catch (e) {
       console.warn("[compact] archive/delete failed for", cid, e?.message);
     }

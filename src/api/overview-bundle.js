@@ -3,6 +3,7 @@
  * per platform audit (usage_events, workflow_runs, tool_stats_compacted, webhook_events, etc.).
  */
 import { jsonResponse } from '../core/auth.js';
+import { consumeOverviewBundleDirtyFlags } from '../core/overview-bundle-kv.js';
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
 async function first(db, sql, binds = []) {
@@ -106,6 +107,12 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
   if (!tid) {
     out._meta.warnings.push('no_tenant_id; returning empty agentsam slices');
     return jsonResponse(out);
+  }
+
+  const dirtySections = await consumeOverviewBundleDirtyFlags(env, tid);
+  if (dirtySections.length) {
+    out._meta.dirty_sections = dirtySections;
+    out._meta.refresh_recommended = true;
   }
 
   const T = [tid];

@@ -152,8 +152,9 @@ export default function OverviewPage() {
     (_target: SignalTarget) => {
       bundleDirty.current = true;
       flashSignal();
+      void refetchBundle({ force: true });
     },
-    [flashSignal],
+    [flashSignal, refetchBundle],
   );
 
   useRealtimeSignal({
@@ -165,8 +166,9 @@ export default function OverviewPage() {
   useEffect(() => {
     const tick = () => {
       if (typeof document !== "undefined" && document.hidden) return;
+      const force = bundleDirty.current;
       bundleDirty.current = false;
-      void refetchBundle();
+      void refetchBundle(force ? { force: true } : undefined);
     };
 
     const startPoll = () => {

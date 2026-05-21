@@ -45,6 +45,11 @@ export interface KpiDef {
 }
 
 /** `/api/overview/dashboard-bundle` — D1-backed slices (see `src/api/overview-bundle.js`). */
+export type DashboardBundleMeta = {
+  warnings?: string[];
+  dirty_sections?: Array<'deploy' | 'errors' | 'workflows' | 'plans'>;
+  refresh_recommended?: boolean;
+};
 export type DashboardBundle = {
   ok?: boolean;
   kpis?: Record<string, number | null | undefined>;
@@ -178,6 +183,7 @@ export type DashboardBundle = {
     plan_date?: string;
     cost_usd?: number;
   }>;
+  _meta?: DashboardBundleMeta;
 };
 
 export type CostLatencyPoint = {

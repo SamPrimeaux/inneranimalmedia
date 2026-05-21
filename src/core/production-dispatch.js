@@ -223,6 +223,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleTriggerWorkersBuild(request, env, ctx);
   }
 
+  if (pathLower === '/api/internal/summarize-backfill' && methodUpper === 'POST') {
+    const { handleSummarizeBackfill } = await import('../api/summarize-backfill.js');
+    return handleSummarizeBackfill(request, env);
+  }
+
   if (pathLower.startsWith('/api/internal/designstudio/') || pathLower.startsWith('/api/designstudio/')) {
     return handleDesignStudioApi(request, url, env, ctx);
   }
