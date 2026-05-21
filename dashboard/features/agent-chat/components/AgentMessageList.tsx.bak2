@@ -22,7 +22,6 @@ import { ArtifactChipList } from '../execution/ArtifactChipList';
 import { AgentPresenceLogo } from '../../agent-presence/AgentPresenceLogo';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
-import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
 
 const getLangMeta = (lang: string) => {
   const map: Record<string, { ext: string; icon: React.ReactNode }> = {
@@ -437,11 +436,6 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                         state={msg.imageGenerationState}
                         onImagePreview={onImagePreview}
                       />
-                    </div>
-                  ) : null}
-                  {msg.emailArtifact ? (
-                    <div className="mb-3">
-                      <EmailArtifactCard artifact={msg.emailArtifact} />
                     </div>
                   ) : null}
                   {msg.previewArtifacts &&

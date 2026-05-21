@@ -359,22 +359,3 @@ export function normalizeImageGenerationEvent(
 
   return null;
 }
-
-// ── Email draft event ────────────────────────────────────────────────────────
-export interface EmailDraftEvent {
-  type: 'email_draft';
-  subject: string;
-  body: string;
-  to?: string;
-  from?: string;
-}
-
-export function isEmailDraftEvent(data: unknown): data is EmailDraftEvent {
-  if (!data || typeof data !== 'object') return false;
-  const d = data as Record<string, unknown>;
-  return (
-    d.type === 'email_draft' &&
-    typeof d.subject === 'string' &&
-    typeof d.body === 'string'
-  );
-}

@@ -115,13 +115,6 @@ export type ImageGenerationState = {
   failed?: boolean;
 };
 
-export interface EmailArtifact {
-  subject: string;
-  body: string;
-  to?: string;
-  from?: string;
-}
-
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -135,8 +128,6 @@ export interface Message {
   previewArtifacts?: AgentPreviewArtifact[];
   /** Cinematic progressive image generation (SSE `image_generation_*`). */
   imageGenerationState?: ImageGenerationState | null;
-  /** Email draft artifact from Agent Sam email composition (SSE `email_draft`). */
-  emailArtifact?: EmailArtifact | null;
 }
 
 /** Host-managed chat tab strip (e.g. App.tsx multi-session). */
