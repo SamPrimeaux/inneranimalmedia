@@ -21,8 +21,8 @@ import { OverviewLowerGrid } from "./panels/OverviewLowerGrid";
 import { bootstrapSupabaseFromSession, setSupabaseBootstrap } from "../../src/lib/supabase";
 import { useRealtimeSignal, type SignalTarget } from "../../hooks/useRealtimeSignal";
 
-const DEBOUNCE_MS = 3000;
-const POLL_MS = 30_000;
+/** Min interval between `/api/overview/dashboard-bundle` fetches (poll + Supabase signals). */
+const BUNDLE_REFRESH_MS = 60_000;
 const SIGNAL_FLASH_MS = 1500;
 
 export default function OverviewPage() {
@@ -38,11 +38,9 @@ export default function OverviewPage() {
   const [signalError, setSignalError] = useState(false);
   const [lastSignalAt, setLastSignalAt] = useState<Date | null>(null);
 
-  const lastFetch = useRef<Record<SignalTarget, number>>({
-    execution: 0,
-    errors: 0,
-  });
+  const lastBundleFetchAt = useRef(0);
   const signalFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bundlePollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const flashSignal = useCallback(() => {
     setSignalActive(true);
@@ -51,7 +49,10 @@ export default function OverviewPage() {
     signalFlashTimer.current = setTimeout(() => setSignalActive(false), SIGNAL_FLASH_MS);
   }, []);
 
-  const refetchBundle = useCallback(async () => {
+  const refetchBundle = useCallback(async (opts?: { force?: boolean }) => {
+    const now = Date.now();
+    if (!opts?.force && now - lastBundleFetchAt.current < BUNDLE_REFRESH_MS) return;
+    lastBundleFetchAt.current = now;
     try {
       const r = await fetch(dashboardBundleUrl(), { credentials: "same-origin" });
       if (r.ok) setBundle((await r.json()) as DashboardBundle);
@@ -67,14 +68,6 @@ export default function OverviewPage() {
     } catch {
       /* non-fatal */
     }
-    await refetchBundle();
-  }, [refetchBundle]);
-
-  const refetchSpend = useCallback(async () => {
-    await refetchBundle();
-  }, [refetchBundle]);
-
-  const refetchLeaderboardCounts = useCallback(async () => {
     await refetchBundle();
   }, [refetchBundle]);
 
@@ -94,7 +87,10 @@ export default function OverviewPage() {
       if (ag.status === "fulfilled") setAgent(ag.value);
       if (w.status === "fulfilled") setWf(w.value);
       if (d.status === "fulfilled") setDep(d.value);
-      if (b.status === "fulfilled") setBundle(b.value as DashboardBundle);
+      if (b.status === "fulfilled") {
+        setBundle(b.value as DashboardBundle);
+        lastBundleFetchAt.current = Date.now();
+      }
     } finally {
       setLoading(false);
     }
@@ -152,24 +148,11 @@ export default function OverviewPage() {
   }, []);
 
   const handleSignal = useCallback(
-    (target: SignalTarget) => {
-      const now = Date.now();
-      if (now - lastFetch.current[target] < DEBOUNCE_MS) return;
-      lastFetch.current[target] = now;
+    (_target: SignalTarget) => {
       flashSignal();
-
-      switch (target) {
-        case "execution":
-          void refetchBundle();
-          break;
-        case "errors":
-          void refetchBundle();
-          break;
-        default:
-          break;
-      }
+      void refetchBundle();
     },
-    [flashSignal, refetchBundle, refetchDeployments],
+    [flashSignal, refetchBundle],
   );
 
   useRealtimeSignal({
@@ -179,12 +162,32 @@ export default function OverviewPage() {
   });
 
   useEffect(() => {
-    const id = setInterval(() => {
-      void refetchSpend();
-      void refetchLeaderboardCounts();
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [refetchSpend, refetchLeaderboardCounts]);
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void refetchBundle();
+    };
+
+    const startPoll = () => {
+      if (bundlePollTimer.current) clearInterval(bundlePollTimer.current);
+      bundlePollTimer.current = setInterval(tick, BUNDLE_REFRESH_MS);
+    };
+
+    const stopPoll = () => {
+      if (bundlePollTimer.current) {
+        clearInterval(bundlePollTimer.current);
+        bundlePollTimer.current = null;
+      }
+    };
+
+    startPoll();
+    const onVis = () => (document.hidden ? stopPoll() : startPoll());
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      stopPoll();
+    };
+  }, [refetchBundle]);
 
   useEffect(() => {
     return () => {

@@ -16,7 +16,8 @@ type UseRealtimeSignalOpts = {
 
 /**
  * Free-tier Supabase: one channel, two postgres_changes handlers (workflow runs + error inbox).
- * All other overview slices poll on an interval from the parent page.
+ * Dashboard bundle refresh is throttled in the parent (60s); signals only schedule a
+ * bundle refetch when that gate allows — not every postgres_changes row.
  */
 export function useRealtimeSignal({ onSignal, supabaseUserId, enabled = true }: UseRealtimeSignalOpts) {
   const onSignalRef = useRef(onSignal);
