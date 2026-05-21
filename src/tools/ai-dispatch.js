@@ -5,6 +5,7 @@ import { handlers as termHandlers } from './terminal.js';
 import { handlers as builtinFsHandlers } from './builtin/fs.js';
 import { handlers as webHandlers } from './builtin/web.js';
 import { handlers as mediaHandlers } from './builtin/media.js';
+import { handlers as moviemodeHandlers } from './builtin/moviemode.js';
 import { handlers as contextHandlers } from './builtin/context.js';
 import { handlers as deployHandlers } from './builtin/deploy.js';
 import { handlers as telemetryHandlers } from './builtin/telemetry.js';
@@ -97,6 +98,11 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName.startsWith('meshyai_'):
         case toolName.startsWith('imgx_'):
             return await mediaHandlers[toolName]?.(params, env);
+
+        case toolName === 'moviemode_render':
+        case toolName === 'moviemode_export':
+        case toolName === 'veo_generate_video':
+            return await moviemodeHandlers[toolName]?.(env, params);
 
         // ── CATEGORY: context / RAG (11 Tools) ───────────────────────────
         case toolName.startsWith('context_'):
