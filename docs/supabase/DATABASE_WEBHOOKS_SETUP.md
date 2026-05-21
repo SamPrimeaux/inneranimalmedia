@@ -55,13 +55,39 @@ Sets KV `overview:bundle:dirty:workflows:{tenant}`.
 
 `iam_routing_decisions` on `agentsam_routing_decisions` INSERT → Worker (Thompson arm updates).
 
+## `public.codebase_chunks` schema (RAG)
+
+| # | Column | Type | Notes |
+|---|--------|------|--------|
+| 1 | `id` | uuid | PK |
+| 2 | `snapshot_id` | text | Index scope |
+| 3 | `file_id` | uuid | Optional FK to `codebase_files` |
+| 4 | `workspace_id` | text | Tenant scope |
+| 5 | `tenant_id` | text | Tenant scope |
+| 6 | `file_path` | text | Source path |
+| 7 | `chunk_index` | integer | Order within file |
+| 8 | `chunk_type` | text | e.g. markdown / other |
+| 9 | `content` | text | Chunk text |
+| 10 | `embedding` | vector | pgvector (1024-dim in prod) |
+| 11 | `line_start` | integer | Optional AST range |
+| 12 | `line_end` | integer | Optional AST range |
+| 13 | `symbol_name` | text | Optional symbol |
+| 14 | `language` | text | File/language hint |
+| 15 | `metadata` | jsonb | Extra ingest metadata |
+| 16 | `embed_model` | text | Model that produced `embedding` (e.g. `@cf/baai/bge-large-en-v1.5` from embed-on-ingest) |
+| 17 | `created_at` | timestamptz | |
+| 18 | `token_count` | integer | ~`ceil(len(content)/4)` on backfill |
+
+Forward path: **INSERT** webhook → `embed-on-ingest` sets `embedding` (+ usually `embed_model`).  
+Backfill: `POST /api/internal/embed-codebase-chunks-backfill` fills NULL `embedding` and/or `token_count`, PATCHes `token_count` + `embed_model` when needed.
+
 ## After webhooks — embedding backfill (8k+ chunks)
 
 `backfill-embeddings` does **not** include `codebase_chunks` in its supported tables. Use the Worker route that calls `embed-on-ingest` per row:
 
 ```bash
 cd /Users/samprimeaux/inneranimalmedia
-# Repeat until remaining_null_embedding → 0
+# Repeat until remaining_null_embedding and remaining_null_token_count → 0
 curl -X POST https://inneranimalmedia.com/api/internal/embed-codebase-chunks-backfill \
   -H "Authorization: Bearer $INTERNAL_API_SECRET" \
   -H "Content-Type: application/json" \
