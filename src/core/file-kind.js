@@ -13,6 +13,32 @@ const TEXT_EXT = new Set([
 ]);
 
 const LARGE_BINARY_BYTES = 512 * 1024;
+const MAX_PREVIEW_BYTES = 500_000;
+
+const BINARY_ONLY_EXT = new Set([
+  'sqlite', 'db', 'sqlite-shm', 'sqlite-wal',
+  'wasm', 'bin', 'exe', 'dmg', 'pkg',
+  'zip', 'tar', 'gz', 'tgz', 'bz2', '7z', 'rar',
+  'woff', 'woff2', 'eot', 'ttf', 'otf',
+]);
+
+const BINARY_EXTENSIONS = new Set([
+  '.sqlite', '.db', '.sqlite-shm', '.sqlite-wal',
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.ico', '.bmp', '.svg',
+  '.pdf', '.zip', '.tar', '.gz', '.wasm', '.bin', '.exe',
+  '.mp4', '.mp3', '.mov', '.wav', '.ogg', '.webm',
+  '.ttf', '.woff', '.woff2', '.eot',
+]);
+
+export function isBinaryFile(filename, fileSize) {
+  const dot = String(filename || '').lastIndexOf('.');
+  if (dot >= 0) {
+    const ext = String(filename).slice(dot).toLowerCase();
+    if (BINARY_EXTENSIONS.has(ext)) return true;
+  }
+  if (fileSize != null && fileSize > MAX_PREVIEW_BYTES) return true;
+  return false;
+}
 
 function extFromName(name, key) {
   const raw = String(name || key || '').split(/[?#]/)[0];
@@ -30,6 +56,9 @@ export function detectFileKind({ key, name, contentType, size }) {
   const ext = extFromName(name, key);
   const ct = ctBase(contentType);
 
+  if (BINARY_ONLY_EXT.has(ext)) return 'binary';
+  if (isBinaryFile(name || key || '', size ?? null)) return 'binary';
+
   if (ct.startsWith('image/') || IMAGE_EXT.has(ext)) return 'image';
   if (ct.startsWith('video/') || VIDEO_EXT.has(ext)) return 'video';
   if (ct.startsWith('audio/') || AUDIO_EXT.has(ext)) return 'audio';
@@ -43,7 +72,7 @@ export function detectFileKind({ key, name, contentType, size }) {
     ct === 'application/typescript' ||
     ct === 'application/x-yaml' ||
     ct === 'application/yaml' ||
-    ct === 'application/sql' ||
+    (ct === 'application/sql' && TEXT_EXT.has(ext)) ||
     TEXT_EXT.has(ext)
   ) {
     return 'text';

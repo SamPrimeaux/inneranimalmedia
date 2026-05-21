@@ -43,6 +43,7 @@ import { KnowledgeSearchPanel } from './components/KnowledgeSearchPanel';
 import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
 import { SourcePanel } from './components/SourcePanel';
 import { ProjectType, type ActiveFile } from './types';
+import { prepareActiveFileForEditor } from './src/lib/mediaPreview';
 import { SHELL_VERSION } from './src/shellVersion';
 import {
   fetchAndApplyActiveCmsTheme,
@@ -1445,7 +1446,7 @@ const App: React.FC = () => {
 
   const openInMonacoFromChat = useCallback(
     (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => {
-      const opened: ActiveFile = {
+      const opened = prepareActiveFileForEditor({
         name: file.name,
         content: file.content,
         originalContent: file.originalContent !== undefined ? file.originalContent : file.content ?? '',
@@ -1462,7 +1463,7 @@ const App: React.FC = () => {
         githubSha: file.githubSha,
         r2Key: file.r2Key,
         r2Bucket: file.r2Bucket,
-      };
+      });
       setActiveFile(opened);
       setRecentFiles((prev) => mergeRecentFromActiveFile(prev, opened));
       revealMainWorkspaceIfNarrow();
@@ -1485,11 +1486,7 @@ const App: React.FC = () => {
 
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
-      const originalContent =
-        file.fileKind && file.fileKind !== 'text'
-          ? file.originalContent ?? ''
-          : file.originalContent ?? file.content;
-      openFile({ ...file, originalContent });
+      openFile(prepareActiveFileForEditor(file));
       openTab('code');
       revealMainWorkspaceIfNarrow();
     },
@@ -2886,19 +2883,11 @@ const App: React.FC = () => {
                           workspace_id={authWorkspaceId}
                           expandRepoFullName={githubExpandRepo}
                           onExpandRepoConsumed={consumeGithubExpandRepo}
-                          onOpenInEditor={(file) => {
-                              setActiveFile(file);
-                              openTab('code');
-                              revealMainWorkspaceIfNarrow();
-                          }}
+                          onOpenInEditor={openInEditorFromExplorer}
                       />
                   ) : activeActivity === 'drive' ? (
                       <GoogleDriveExplorer
-                          onOpenInEditor={(file) => {
-                              setActiveFile(file);
-                              openTab('code');
-                              revealMainWorkspaceIfNarrow();
-                          }}
+                          onOpenInEditor={openInEditorFromExplorer}
                       />
                   ) : activeActivity === 'debug' ? (
                       <div className="p-4 text-xs text-[var(--text-muted)]">Redirecting to terminal problems...</div>

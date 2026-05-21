@@ -332,12 +332,31 @@ export const GitHubExplorer: React.FC<{
       );
       const data = await res.json();
       if (!res.ok || data.type !== 'file' || typeof data.content !== 'string') return;
+      const baseName = filePath.split('/').pop() || filePath;
+      const fileSize = typeof data.size === 'number' ? data.size : null;
+      const { isBinaryFile } = await import('../src/lib/fileKind');
+      const { activeFileFromPreview } = await import('../src/lib/mediaPreview');
+      if (isBinaryFile(baseName, fileSize)) {
+        onOpenInEditor({
+          ...activeFileFromPreview({
+            name: data.name || baseName,
+            kind: 'binary',
+            previewUrl: '',
+            size: fileSize ?? undefined,
+            binaryMessage: 'Binary file — preview not available in the editor.',
+          }),
+          githubPath: filePath,
+          githubRepo: fullName,
+          githubSha: typeof data.sha === 'string' ? data.sha : undefined,
+          githubBranch: branch,
+        });
+        return;
+      }
       const raw = String(data.content).replace(/\n/g, '');
       const binary = atob(raw);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const text = new TextDecoder().decode(bytes);
-      const baseName = filePath.split('/').pop() || filePath;
       onOpenInEditor({
         name: data.name || baseName,
         content: text,
@@ -346,8 +365,10 @@ export const GitHubExplorer: React.FC<{
         githubRepo: fullName,
         githubSha: typeof data.sha === 'string' ? data.sha : undefined,
         githubBranch: branch,
+        size: fileSize ?? undefined,
       });
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return;
       console.error(e);
     }
   };

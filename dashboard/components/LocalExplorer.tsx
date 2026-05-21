@@ -625,6 +625,7 @@ export const LocalExplorer: React.FC<{
             const { openR2KeyInEditor } = await import('../src/lib/mediaPreview');
             await openR2KeyInEditor(bucket, key, onOpenInEditor);
         } catch (e) {
+            if (e instanceof Error && e.name === 'AbortError') return;
             console.error(e);
         } finally {
             setR2Loading(false);
@@ -765,6 +766,7 @@ export const LocalExplorer: React.FC<{
             }
             setLocalResumeHint(null);
         } catch (err) {
+            if (err instanceof Error && err.name === 'AbortError') return;
             console.error('Failed to open directory:', err);
         }
     }, [onWorkspaceRootChange, localResumeHint]);

@@ -204,7 +204,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       }));
     });
 
-    return () => disposable.dispose();
+    return () => disposable?.dispose?.();
   }, [monaco, activeFile]);
 
   const pushModelMeta = useCallback(
@@ -247,6 +247,12 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [activeFile, onSave]);
+
+  useEffect(() => {
+    return () => {
+      editorRef.current = null;
+    };
+  }, [activeFile?.id]);
 
   useEffect(() => {
     setShowDiff(false);
@@ -304,7 +310,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
         }
       },
     });
-    return () => disposable.dispose();
+    return () => disposable?.dispose?.();
   }, [monaco, activeFile?.id]);
 
   const handleCopy = useCallback(() => {
@@ -474,11 +480,11 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
       {/* ── Editor Body ── */}
       <div className="flex-1 overflow-hidden">
-        {showMediaPreview && previewUrl ? (
+        {showMediaPreview ? (
           <FilePreview
-            kind={resolvedKind}
+            kind={resolvedKind === 'unknown' ? 'binary' : resolvedKind}
             name={activeFile.name}
-            url={previewUrl}
+            url={previewUrl || ''}
             contentType={activeFile.contentType}
             size={activeFile.size}
             message={activeFile.binaryMessage}

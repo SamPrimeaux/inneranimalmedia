@@ -333,6 +333,7 @@ export const GoogleDriveExplorer: React.FC<{
         driveFileId: f.id,
       });
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return;
       console.error(e);
       window.open(`/api/integrations/gdrive/raw?fileId=${encodeURIComponent(f.id)}`, '_blank', 'noopener,noreferrer');
     }

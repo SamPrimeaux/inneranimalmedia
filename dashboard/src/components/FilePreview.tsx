@@ -58,11 +58,15 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
     };
   }, [onRevokeObjectUrl]);
 
+  const hasUrl = Boolean(url?.trim());
+
   const openExternal = () => {
+    if (!hasUrl) return;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const download = () => {
+    if (!hasUrl) return;
     const a = document.createElement('a');
     a.href = url;
     a.download = name;
@@ -142,24 +146,26 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
               <dd className="inline">{formatBytes(size)}</dd>
             </div>
           </dl>
-          <div className="flex gap-2 justify-center pt-2">
-            <button
-              type="button"
-              onClick={download}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-[var(--dashboard-border)] hover:border-[var(--solar-cyan)]"
-            >
-              <Download size={14} />
-              Download
-            </button>
-            <button
-              type="button"
-              onClick={openExternal}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-[var(--solar-cyan)] text-black font-semibold"
-            >
-              <ExternalLink size={14} />
-              Open
-            </button>
-          </div>
+          {hasUrl ? (
+            <div className="flex gap-2 justify-center pt-2">
+              <button
+                type="button"
+                onClick={download}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-[var(--dashboard-border)] hover:border-[var(--solar-cyan)]"
+              >
+                <Download size={14} />
+                Download
+              </button>
+              <button
+                type="button"
+                onClick={openExternal}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-[var(--solar-cyan)] text-black font-semibold"
+              >
+                <ExternalLink size={14} />
+                Open
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </PreviewShell>

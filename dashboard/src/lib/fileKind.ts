@@ -20,6 +20,33 @@ const TEXT_EXT = new Set([
 ]);
 
 const LARGE_BINARY_BYTES = 512 * 1024;
+export const MAX_PREVIEW_BYTES = 500_000;
+
+/** Extensions that must never open in Monaco (even when MIME suggests text). */
+const BINARY_ONLY_EXT = new Set([
+  'sqlite', 'db', 'sqlite-shm', 'sqlite-wal',
+  'wasm', 'bin', 'exe', 'dmg', 'pkg',
+  'zip', 'tar', 'gz', 'tgz', 'bz2', '7z', 'rar',
+  'woff', 'woff2', 'eot', 'ttf', 'otf',
+]);
+
+export const BINARY_EXTENSIONS = new Set([
+  '.sqlite', '.db', '.sqlite-shm', '.sqlite-wal',
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.ico', '.bmp', '.svg',
+  '.pdf', '.zip', '.tar', '.gz', '.wasm', '.bin', '.exe',
+  '.mp4', '.mp3', '.mov', '.wav', '.ogg', '.webm',
+  '.ttf', '.woff', '.woff2', '.eot',
+]);
+
+export function isBinaryFile(filename: string, fileSize?: number | null): boolean {
+  const dot = filename.lastIndexOf('.');
+  if (dot >= 0) {
+    const ext = filename.slice(dot).toLowerCase();
+    if (BINARY_EXTENSIONS.has(ext)) return true;
+  }
+  if (fileSize != null && fileSize > MAX_PREVIEW_BYTES) return true;
+  return false;
+}
 
 function extFromName(name?: string, key?: string): string {
   const raw = (name || key || '').split(/[?#]/)[0];
@@ -42,6 +69,9 @@ export function detectFileKind(input: {
   const ct = ctBase(input.contentType);
   const size = input.size ?? null;
 
+  if (BINARY_ONLY_EXT.has(ext)) return 'binary';
+  if (isBinaryFile(input.name || input.key || '', size)) return 'binary';
+
   if (ct.startsWith('image/') || IMAGE_EXT.has(ext)) return 'image';
   if (ct.startsWith('video/') || VIDEO_EXT.has(ext)) return 'video';
   if (ct.startsWith('audio/') || AUDIO_EXT.has(ext)) return 'audio';
@@ -55,7 +85,7 @@ export function detectFileKind(input: {
     ct === 'application/typescript' ||
     ct === 'application/x-yaml' ||
     ct === 'application/yaml' ||
-    ct === 'application/sql' ||
+    (ct === 'application/sql' && TEXT_EXT.has(ext)) ||
     TEXT_EXT.has(ext)
   ) {
     return 'text';
