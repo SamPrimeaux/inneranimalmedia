@@ -14,12 +14,20 @@ import {
 
 import styles from './DatabasesTab.module.css';
 import {
-  HOURS_24, kpiCards, miniStats,
-  heroSeriesMap, p50Series, latencyMultipliers,
   queryRows, largestTables, mostReadTables, mostWrittenTables,
   largeObjects, timelineEvents,
-  type QueryRow, type HotTable,
+  type QueryRow,
 } from './mockDatabasesObservability';
+import {
+  useDatabasesObservability,
+  formatCompact,
+  formatTrend,
+  type DatabasesDs,
+  type DatabasesRange,
+  type HotTable,
+  type KpiMetric,
+  type MiniStat,
+} from './useDatabasesObservability';
 
 // ── recharts color tokens (canvas cannot use CSS vars) ─────────────────────
 const C = {
@@ -39,11 +47,19 @@ const tooltipStyle = {
 };
 
 // ── small helpers ──────────────────────────────────────────────────────────
-type DsSrc   = 'all' | 'd1' | 'supabase';
-type TimeRange = '1h' | '24h' | '7d' | '30d';
-type Env     = 'production' | 'staging';
+type Env = 'production' | 'staging';
 type ChartSeries = 'total' | 'reads' | 'writes' | 'errors';
-type LatencyKey  = keyof typeof latencyMultipliers;
+type LatencyKey = 'p50' | 'p95' | 'p99';
+
+function SectionNotice({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <div className={styles.sectionNotice}>
+      <AlertCircle size={12} />
+      <span>{message}</span>
+    </div>
+  );
+}
 
 function CtrlGroup<T extends string>({
   options, value, onChange,
@@ -110,35 +126,87 @@ const sparkColors: Record<string, string> = {
   errors:      C.err,
 };
 
-function KpiStrip() {
+const KPI_DEFS: { id: string; label: string; metricKey: 'queries' | 'rowsRead' | 'rowsWritten' | 'p95' | 'errors' }[] = [
+  { id: 'queries', label: 'Total queries', metricKey: 'queries' },
+  { id: 'rowsRead', label: 'Rows read', metricKey: 'rowsRead' },
+  { id: 'rowsWritten', label: 'Rows written', metricKey: 'rowsWritten' },
+  { id: 'p95', label: 'P95 latency', metricKey: 'p95' },
+  { id: 'errors', label: 'Errors', metricKey: 'errors' },
+];
+
+function kpiDisplay(id: string, m?: KpiMetric, spark?: number[]): { value: string; trend: string; dir: 'up' | 'down' | 'neutral'; spark: number[] } {
+  if (!m?.wired) {
+    return { value: '—', trend: '—', dir: 'neutral', spark: spark ?? [] };
+  }
+  if (id === 'p95') {
+    return {
+      value: `${(m.valueMs ?? m.value ?? 0).toFixed(m.valueMs && m.valueMs < 10 ? 2 : 0)}ms`,
+      trend: formatTrend(m.trendPct, m.dir),
+      dir: m.dir,
+      spark: spark ?? [],
+    };
+  }
+  return {
+    value: formatCompact(m.value),
+    trend: formatTrend(m.trendPct, m.dir),
+    dir: m.dir,
+    spark: spark ?? [],
+  };
+}
+
+function KpiStrip({
+  kpis,
+  miniStats,
+  sparks,
+  loading,
+}: {
+  kpis?: {
+    queries?: KpiMetric;
+    rowsRead?: KpiMetric;
+    rowsWritten?: KpiMetric;
+    p95?: KpiMetric;
+    errors?: KpiMetric;
+  };
+  miniStats?: MiniStat[];
+  sparks: Record<string, number[]>;
+  loading: boolean;
+}) {
   return (
     <>
       <div className={styles.kpiGrid}>
-        {kpiCards.map(card => (
-          <div key={card.id} className={styles.kpiCard}>
-            <div className={styles.kpiLabel}>
-              {kpiIcons[card.id]}
-              {card.label}
+        {KPI_DEFS.map(def => {
+          const m = kpis?.[def.metricKey];
+          const d = kpiDisplay(def.id, m, sparks[def.id]);
+          const trendClass =
+            d.dir === 'up' ? styles.trendUp : d.dir === 'down' ? styles.trendDown : styles.trendNeutral;
+          return (
+            <div key={def.id} className={styles.kpiCard}>
+              <div className={styles.kpiLabel}>
+                {kpiIcons[def.id]}
+                {def.label}
+              </div>
+              <div className={styles.kpiValue}>{loading ? '…' : d.value}</div>
+              <div className={styles.kpiMeta}>
+                <span className={trendClass}>
+                  {d.dir === 'up' ? <TrendingUp size={10} /> : d.dir === 'down' ? <TrendingDown size={10} /> : null}
+                  {loading ? '…' : d.trend}
+                </span>
+                <span style={{ color: 'var(--db-text-dim)', fontSize: 11 }}>vs prev period</span>
+              </div>
+              {d.spark.length > 0 ? <Sparkline data={d.spark} color={sparkColors[def.id]} /> : null}
             </div>
-            <div className={styles.kpiValue}>{card.value}</div>
-            <div className={styles.kpiMeta}>
-              <span className={card.dir === 'up' ? styles.trendUp : styles.trendDown}>
-                {card.dir === 'up' ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                {card.trend}
-              </span>
-              <span style={{ color: 'var(--db-text-dim)', fontSize: 11 }}>vs prev</span>
-            </div>
-            <Sparkline data={card.spark} color={sparkColors[card.id]} />
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className={styles.miniGrid}>
-        {miniStats.map(s => (
-          <div key={s.label} className={styles.miniStat}>
+        {(miniStats ?? []).map(s => (
+          <div key={s.key} className={styles.miniStat}>
             <div className={styles.miniLabel}>{s.label}</div>
-            <div className={`${styles.miniVal} ${s.status === 'healthy' ? styles.miniValHealthy : ''}`}>
-              {s.value}
+            <div
+              className={`${styles.miniVal} ${s.status === 'healthy' ? styles.miniValHealthy : ''} ${!s.wired ? styles.miniValDim : ''}`}
+            >
+              {loading ? '…' : s.value ?? '—'}
             </div>
           </div>
         ))}
@@ -148,14 +216,30 @@ function KpiStrip() {
 }
 
 // ── Hero chart ────────────────────────────────────────────────────────────
-function HeroChart() {
+function HeroChart({
+  hero,
+  loading,
+  live,
+}: {
+  hero: ReturnType<typeof useDatabasesObservability>['hero'];
+  loading: boolean;
+  live: boolean;
+}) {
   const [series, setSeries] = useState<ChartSeries>('total');
 
-  const data = HOURS_24.map((h, i) => ({
-    h,
-    D1:      heroSeriesMap[series].d1[i],
-    Supabase: heroSeriesMap[series].sup[i],
-  }));
+  const data = useMemo(() => {
+    if (!hero?.labels?.length) return [];
+    const src =
+      series === 'reads' ? hero.reads
+        : series === 'writes' ? hero.writes
+          : series === 'errors' ? hero.errors
+            : hero.total;
+    return hero.labels.map((h, i) => ({
+      h,
+      D1: src.d1[i] ?? 0,
+      Supabase: src.supabase[i] ?? 0,
+    }));
+  }, [hero, series]);
 
   return (
     <div className={styles.chartPanel}>
@@ -177,8 +261,11 @@ function HeroChart() {
         </div>
       </div>
       <div className={styles.chartBody}>
+        {!live && !loading ? (
+          <div className={styles.chartEmpty}>No query volume in this window yet.</div>
+        ) : null}
         <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barCategoryGap="20%">
+          <BarChart data={data.length ? data : [{ h: '—', D1: 0, Supabase: 0 }]} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barCategoryGap="20%">
             <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
             <XAxis dataKey="h" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.25)' }} tickLine={false} axisLine={false} interval={3} />
             <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.25)' }} tickLine={false} axisLine={false} width={36} />
@@ -193,11 +280,24 @@ function HeroChart() {
 }
 
 // ── Latency chart ─────────────────────────────────────────────────────────
-function LatencyChart() {
+function LatencyChart({
+  latency,
+  loading,
+  live,
+}: {
+  latency: ReturnType<typeof useDatabasesObservability>['latency'];
+  loading: boolean;
+  live: boolean;
+}) {
   const [key, setKey] = useState<LatencyKey>('p50');
-  const mult = latencyMultipliers[key];
-  const data = HOURS_24.map((h, i) => ({ h, ms: +(p50Series[i] * mult).toFixed(2) }));
-  const display = +(0.34 * mult).toFixed(2);
+
+  const series = key === 'p95' ? latency?.p95 : key === 'p99' ? latency?.p99 : latency?.p50;
+  const data = useMemo(() => {
+    if (!latency?.labels?.length || !series?.length) return [];
+    return latency.labels.map((h, i) => ({ h, ms: series[i] ?? 0 }));
+  }, [latency, series]);
+
+  const display = latency?.headlineMs?.[key] ?? 0;
 
   return (
     <div className={styles.chartPanel}>
@@ -207,10 +307,14 @@ function LatencyChart() {
       </div>
       <div className={styles.chartBody}>
         <div className={styles.latencyHero}>
-          {display} ms<span className={styles.latencyHeroLabel}>{key.toUpperCase()}</span>
+          {loading ? '…' : live ? `${display < 10 ? display.toFixed(2) : Math.round(display)} ms` : '—'}
+          <span className={styles.latencyHeroLabel}>{key.toUpperCase()}</span>
         </div>
+        {!live && !loading ? (
+          <div className={styles.chartEmpty}>Latency needs database tool_call_log or OTLP spans.</div>
+        ) : null}
         <ResponsiveContainer width="100%" height={130}>
-          <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <LineChart data={data.length ? data : [{ h: '—', ms: 0 }]} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
             <XAxis dataKey="h" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.2)' }} tickLine={false} axisLine={false} interval={5} />
             <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.2)' }} tickLine={false} axisLine={false} width={36} />
@@ -224,12 +328,28 @@ function LatencyChart() {
 }
 
 // ── Error rate chart ───────────────────────────────────────────────────────
-function ErrorChart() {
-  const errData = HOURS_24.map((h, i) => ({
-    h,
-    D1:      heroSeriesMap.errors.d1[i],
-    Supabase: heroSeriesMap.errors.sup[i],
-  }));
+function ErrorChart({
+  errorChart,
+  loading,
+  live,
+}: {
+  errorChart: ReturnType<typeof useDatabasesObservability>['errorChart'];
+  loading: boolean;
+  live: boolean;
+}) {
+  const errData = useMemo(() => {
+    if (!errorChart?.labels?.length) return [];
+    return errorChart.labels.map((h, i) => ({
+      h,
+      D1: errorChart.d1[i] ?? 0,
+      Supabase: errorChart.supabase[i] ?? 0,
+    }));
+  }, [errorChart]);
+
+  const rateStr =
+    errorChart && live
+      ? `${errorChart.ratePct < 0.01 ? '<0.01' : errorChart.ratePct.toFixed(2)}%`
+      : '—';
 
   return (
     <div className={styles.chartPanel}>
@@ -239,10 +359,11 @@ function ErrorChart() {
       </div>
       <div className={styles.chartBody}>
         <div className={styles.latencyHero} style={{ color: 'var(--db-status-error, #e05555)' }}>
-          0.016%<span className={styles.latencyHeroLabel}>error rate</span>
+          {loading ? '…' : rateStr}
+          <span className={styles.latencyHeroLabel}>error rate</span>
         </div>
         <ResponsiveContainer width="100%" height={130}>
-          <BarChart data={errData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <BarChart data={errData.length ? errData : [{ h: '—', D1: 0, Supabase: 0 }]} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
             <XAxis dataKey="h" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.2)' }} tickLine={false} axisLine={false} interval={5} />
             <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.2)' }} tickLine={false} axisLine={false} width={24} />
@@ -392,23 +513,29 @@ function QueryTable() {
 
 // ── Hot table list ─────────────────────────────────────────────────────────
 function HotTableList({
-  title, icon, tables,
-}: { title: string; icon: React.ReactNode; tables: HotTable[] }) {
+  title, icon, tables, emptyLabel = 'No tables for this filter',
+}: { title: string; icon: React.ReactNode; tables: HotTable[]; emptyLabel?: string }) {
   return (
     <div className={styles.tableList}>
       <div className={styles.tableListHeader}>{icon} {title}</div>
-      {tables.map(t => (
-        <div
-          key={t.name}
-          className={styles.tableRow}
-          onClick={() => window.location.href =
-            `/dashboard/database?source=${t.ds}&table=${t.name}&tab=data`}
-        >
-          <span className={styles.tableRowName}>{t.name}</span>
-          <DsBadge ds={t.ds} />
-          <span className={styles.tableRowVal}>{t.val}</span>
+      {tables.length === 0 ? (
+        <div className={styles.emptyState} style={{ padding: '12px 10px', fontSize: 11 }}>
+          {emptyLabel}
         </div>
-      ))}
+      ) : (
+        tables.map(t => (
+          <div
+            key={`${t.ds}:${t.name}`}
+            className={styles.tableRow}
+            onClick={() => window.location.href =
+              `/dashboard/database?source=${t.ds}&table=${encodeURIComponent(t.name)}&tab=data`}
+          >
+            <span className={styles.tableRowName}>{t.name}</span>
+            <DsBadge ds={t.ds} />
+            <span className={styles.tableRowVal}>{t.val}</span>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -423,32 +550,76 @@ const tlDotClass: Record<string, string> = {
 
 // ── Main component ────────────────────────────────────────────────────────
 export default function DatabasesTab() {
-  const [ds, setDs]       = useState<DsSrc>('all');
-  const [range, setRange] = useState<TimeRange>('24h');
-  const [env, setEnv]     = useState<Env>('production');
+  const [ds, setDs] = useState<DatabasesDs>('all');
+  const [range, setRange] = useState<DatabasesRange>('24h');
+  const [env, setEnv] = useState<Env>('production');
   const [spinning, setSpinning] = useState(false);
+
+  const obs = useDatabasesObservability(ds, range);
 
   const handleRefresh = useCallback(() => {
     setSpinning(true);
-    setTimeout(() => setSpinning(false), 800);
-  }, []);
+    void obs.refresh().finally(() => setSpinning(false));
+  }, [obs]);
+
+  const sparks = useMemo(() => {
+    const q = obs.hero?.total.d1.map((v, i) => v + (obs.hero?.total.supabase[i] ?? 0)) ?? [];
+    const rr = obs.hero?.reads.d1 ?? [];
+    const rw = obs.hero?.writes.d1 ?? [];
+    const err = obs.hero?.errors.d1 ?? [];
+    return {
+      queries: q,
+      rowsRead: rr,
+      rowsWritten: rw,
+      p95: obs.latency?.p50 ?? [],
+      errors: err,
+    };
+  }, [obs.hero, obs.latency]);
+
+  const topWarnings = obs.warnings.filter((w) => !w.code.startsWith('SECTION_'));
+  const envWarning = topWarnings.find((w) => w.code === 'ENV_FILTER_NOT_WIRED');
+
+  const hot = obs.hotTables;
+  const largestDisplay = hot.wired ? hot.largest : largestTables;
+  const mostReadDisplay = hot.wired ? hot.mostRead : mostReadTables;
+  const mostWrittenDisplay = hot.wired ? hot.mostWritten : mostWrittenTables;
+
+  const inventoryCaption = useMemo(() => {
+    const c = hot.counts;
+    if (!c) return null;
+    const parts: string[] = [];
+    if (c.d1 != null && c.d1 > 0) parts.push(`${c.d1} D1 tables`);
+    if (c.supabase != null && c.supabase > 0) parts.push(`${c.supabase} Postgres tables`);
+    return parts.length ? parts.join(' · ') : null;
+  }, [hot.counts]);
+
+  const d1StorageTableCount =
+    hot.counts?.d1 != null ? String(hot.counts.d1) : '—';
 
   return (
     <div className={styles['analytics-databases']}>
 
-      {/* ── Mock data banner ── */}
-      <div className={styles.mockBanner}>
-        <AlertCircle size={13} />
-        <span>
-          <strong>Telemetry wiring in progress.</strong> Charts show mock data from Phase 1 staging.
-          Live feed: <code>/api/analytics/databases/summary</code> — not yet wired.
-        </span>
-      </div>
+      {(obs.error || topWarnings.length > 0) && (
+        <div className={styles.mockBanner}>
+          <AlertCircle size={13} />
+          <span>
+            {obs.error ? (
+              <strong>{obs.error}</strong>
+            ) : (
+              <>
+                <strong>Live telemetry (P0).</strong>{' '}
+                {topWarnings.slice(0, 2).map((w) => w.message).join(' ')}
+                {obs.live.kpis ? ' KPIs and charts use D1 OTLP + tool_call_log.' : ' Waiting for database activity in this window.'}
+              </>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* ── Filter bar ── */}
       <div className={styles.filterBar}>
-        <CtrlGroup options={['all', 'd1', 'supabase'] as DsSrc[]} value={ds} onChange={setDs} />
-        <CtrlGroup options={['1h', '24h', '7d', '30d'] as TimeRange[]} value={range} onChange={setRange} />
+        <CtrlGroup options={['all', 'd1', 'supabase'] as DatabasesDs[]} value={ds} onChange={setDs} />
+        <CtrlGroup options={['1h', '24h', '7d', '30d'] as DatabasesRange[]} value={range} onChange={setRange} />
         <CtrlGroup options={['production', 'staging'] as Env[]} value={env} onChange={setEnv} />
         <IconBtn onClick={handleRefresh} title="Refresh data">
           <RefreshCw size={13} style={{ transform: spinning ? 'rotate(360deg)' : 'none', transition: spinning ? 'transform 0.8s linear' : 'none' }} />
@@ -457,29 +628,63 @@ export default function DatabasesTab() {
           <Table2 size={13} /> Open Database Studio
         </a>
       </div>
+      {env !== 'production' ? (
+        <div className={styles.sectionNotice}>
+          <AlertCircle size={12} />
+          <span>Environment filter not wired — showing all telemetry in range.</span>
+        </div>
+      ) : null}
 
       {/* ── KPI strip ── */}
-      <KpiStrip />
+      <KpiStrip
+        kpis={obs.summary?.kpis}
+        miniStats={obs.summary?.miniStats}
+        sparks={sparks}
+        loading={obs.loading}
+      />
 
       {/* ── Hero chart ── */}
-      <HeroChart />
+      <HeroChart hero={obs.hero} loading={obs.loading} live={obs.live.charts} />
 
       {/* ── Latency + Errors ── */}
       <div className={styles.twoCol}>
-        <LatencyChart />
-        <ErrorChart />
+        <LatencyChart latency={obs.latency} loading={obs.loading} live={obs.live.charts} />
+        <ErrorChart errorChart={obs.errorChart} loading={obs.loading} live={obs.live.charts} />
       </div>
 
       {/* ── Query table ── */}
+      <SectionNotice message={obs.sectionWarnings.get('SECTION_QUERY_TABLE_NOT_WIRED')} />
       <QueryTable />
 
       {/* ── Hot tables ── */}
       <div>
-        <div className={styles.sectionTitle}>Hot tables</div>
+        <div className={styles.sectionTitle}>
+          Hot tables
+          {inventoryCaption ? (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: 'var(--db-text-muted)' }}>
+              {inventoryCaption}
+            </span>
+          ) : null}
+        </div>
         <div className={styles.hotGrid}>
-          <HotTableList title="Largest"    icon={<Database size={11} />}  tables={largestTables} />
-          <HotTableList title="Most read"  icon={<Eye size={11} />}       tables={mostReadTables} />
-          <HotTableList title="Most written" icon={<Pencil size={11} />}  tables={mostWrittenTables} />
+          <HotTableList
+            title="Largest"
+            icon={<Database size={11} />}
+            tables={largestDisplay}
+            emptyLabel={hot.wired ? 'No size data (dbstat/pg_stat)' : 'Loading table inventory…'}
+          />
+          <HotTableList
+            title="Most read"
+            icon={<Eye size={11} />}
+            tables={mostReadDisplay}
+            emptyLabel={hot.wired ? 'No read signal in this window' : 'Loading read ranks…'}
+          />
+          <HotTableList
+            title="Most written"
+            icon={<Pencil size={11} />}
+            tables={mostWrittenDisplay}
+            emptyLabel={hot.wired ? 'No write signal in this window' : 'Loading write ranks…'}
+          />
         </div>
 
         {/* Schema health */}
@@ -519,6 +724,7 @@ export default function DatabasesTab() {
       {/* ── Storage & capacity ── */}
       <div>
         <div className={styles.sectionTitle}>Storage &amp; capacity</div>
+        <SectionNotice message={obs.sectionWarnings.get('SECTION_STORAGE_NOT_WIRED')} />
         <div className={styles.storageGrid}>
           {/* D1 */}
           <div className={styles.chartPanel}>
@@ -528,7 +734,7 @@ export default function DatabasesTab() {
             </div>
             <div className={styles.chartBody}>
               <div className={styles.storageMetaRow}>
-                {[['Used', '52.1 MB'], ['Tables', '612'], ['Max', '2 GB']].map(([l, v]) => (
+                {[['Used', '52.1 MB'], ['Tables', d1StorageTableCount], ['Max', '2 GB']].map(([l, v]) => (
                   <div key={l} className={styles.storageMetaItem}>
                     <div className={styles.storageMetaLabel}>{l}</div>
                     <div className={styles.storageMetaVal}>{v}</div>
@@ -574,52 +780,66 @@ export default function DatabasesTab() {
       <div>
         <div className={styles.sectionTitle}>Health &amp; incidents</div>
         <div className={styles.healthGrid}>
-          {[
-            {
-              icon: <CloudLightning size={13} style={{ color: 'var(--db-accent)' }} />,
-              name: 'D1',
-              status: 'healthy' as const,
-              lines: ['Latency: 0.34 ms', 'Last check: 12s ago', 'Instance: ENAM / 1'],
-            },
-            {
-              icon: <Cloud size={13} style={{ color: 'var(--db-accent-3)' }} />,
-              name: 'Hyperdrive',
-              status: 'healthy' as const,
-              lines: ['Pool: 18 / 60 conns', 'Last check: 18s ago', 'ID: 08183bb9...'],
-            },
-            {
-              icon: <Database size={13} style={{ color: 'var(--db-accent-2)' }} />,
-              name: 'Supabase Postgres',
-              status: 'healthy' as const,
-              lines: ['CPU: 0.54%', 'Memory: 411 MB', 'Disk: 422 MB / 8 GB'],
-            },
-            {
-              icon: <CircleAlert size={13} />,
-              name: 'Last events',
-              status: 'healthy' as const,
-              lines: ['Last success: 3s ago', 'Last failure: 54m ago', 'API error rate: 0.016%'],
-              badge: 'operational',
-            },
-          ].map(card => (
-            <div key={card.name} className={styles.healthCard}>
-              <div className={styles.healthCardTop}>
-                <div className={styles.healthCardName}>{card.icon} {card.name}</div>
-                {card.badge
-                  ? <span className={`${styles.healthBadge} ${styles.healthBadgeHealthy}`}>{card.badge}</span>
-                  : <span className={`${styles.statusLabel} ${styles.statusLabelHealthy}`}>{card.status}</span>
-                }
+          {(
+            [
+              {
+                key: 'd1' as const,
+                icon: <CloudLightning size={13} style={{ color: 'var(--db-accent)' }} />,
+                name: 'D1',
+                card: obs.summary?.healthCards?.d1,
+              },
+              {
+                key: 'hyperdrive' as const,
+                icon: <Cloud size={13} style={{ color: 'var(--db-accent-3)' }} />,
+                name: 'Hyperdrive',
+                card: obs.summary?.healthCards?.hyperdrive,
+              },
+              {
+                key: 'supabase' as const,
+                icon: <Database size={13} style={{ color: 'var(--db-accent-2)' }} />,
+                name: 'Supabase Postgres',
+                card: obs.summary?.healthCards?.supabase,
+              },
+              {
+                key: 'lastEvents' as const,
+                icon: <CircleAlert size={13} />,
+                name: 'Last events',
+                card: obs.summary?.healthCards?.lastEvents,
+              },
+            ]
+          ).map(({ key, icon, name, card }) => {
+            const status = card?.status ?? 'unknown';
+            const statusClass =
+              status === 'healthy'
+                ? styles.statusLabelHealthy
+                : status === 'error'
+                  ? styles.statusLabelError
+                  : styles.statusLabelDegraded;
+            return (
+              <div key={key} className={styles.healthCard}>
+                <div className={styles.healthCardTop}>
+                  <div className={styles.healthCardName}>{icon} {name}</div>
+                  {card?.badge ? (
+                    <span className={`${styles.healthBadge} ${styles.healthBadgeHealthy}`}>{card.badge}</span>
+                  ) : (
+                    <span className={`${styles.statusLabel} ${statusClass}`}>{status}</span>
+                  )}
+                </div>
+                <div className={styles.healthCardBody}>
+                  {(card?.lines ?? ['Not wired']).map((l) => (
+                    <div key={l}>{l}</div>
+                  ))}
+                </div>
               </div>
-              <div className={styles.healthCardBody}>
-                {card.lines.map(l => <div key={l}>{l}</div>)}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
       {/* ── Recent events ── */}
       <div>
         <div className={styles.sectionTitle}>Recent database events</div>
+        <SectionNotice message={obs.sectionWarnings.get('SECTION_EVENTS_NOT_WIRED')} />
         <div className={styles.timeline}>
           {timelineEvents.map((e, i) => (
             <div key={i} className={styles.timelineItem}>

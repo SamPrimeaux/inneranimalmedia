@@ -62,6 +62,37 @@
 
 .mockBanner strong { font-weight: 600; }
 
+.sectionNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--db-text-muted);
+  background: var(--db-surface);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-radius-md);
+}
+
+.chartEmpty {
+  font-size: 11px;
+  color: var(--db-text-muted);
+  padding: 8px 0 4px;
+}
+
+.miniValDim {
+  opacity: 0.55;
+}
+
+.trendNeutral {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--db-text-muted);
+  font-weight: 500;
+}
+
 /* ── filter bar ── */
 .filterBar {
   display: flex;

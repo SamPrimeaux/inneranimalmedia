@@ -10,6 +10,11 @@ import {
   handleAgentAnalyticsRuns,
 } from './agent.js';
 import {
+  handleDatabasesSummary,
+  handleDatabasesTables,
+  handleDatabasesTimeseries,
+} from './databases.js';
+import {
   handleAnalyticsAdvisors,
   handleAnalyticsAdvisorsGuardrails,
   handleAnalyticsErrorLogD1,
@@ -150,6 +155,18 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/advisors/guardrails' && request.method === 'GET') {
     return handleAnalyticsAdvisorsGuardrails(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/databases/summary' && request.method === 'GET') {
+    return handleDatabasesSummary(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/databases/timeseries' && request.method === 'GET') {
+    return handleDatabasesTimeseries(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/databases/tables' && request.method === 'GET') {
+    return handleDatabasesTables(request, url, env, { tenantId, workspaceId });
   }
 
   // Stub endpoints for now — return standard AnalyticsResponse shape.
