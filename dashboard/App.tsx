@@ -434,6 +434,9 @@ const App: React.FC = () => {
   });
   const [agentNotifications, setAgentNotifications] = useState<AgentNotificationRow[]>([]);
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+  const handleEditorCursorPosition = useCallback((line: number, col: number) => {
+    setCursorPos((prev) => (prev.line === line && prev.col === col ? prev : { line, col }));
+  }, []);
   /** Increment to trigger File System Access picker from Welcome "Open Folder" after files panel mounts. */
   const [nativeFolderOpenSignal, setNativeFolderOpenSignal] = useState(0);
   /** ≤768px: secondary rail actions (sheet above bottom tab bar). */
@@ -3157,17 +3160,8 @@ const App: React.FC = () => {
                               fileData={activeFile}
                               isDirty={isDirty}
                               onSave={handleSaveFile}
-                              onCursorPositionChange={(line, col) => setCursorPos({ line, col })}
+                              onCursorPositionChange={handleEditorCursorPosition}
                               onEditorModelMeta={setEditorMeta}
-                              onChange={(val) => {
-                                  if (activeFile && val !== undefined) {
-                                      setActiveFile(prev => prev ? {
-                                          ...prev,
-                                          content: val,
-                                          originalContent: prev.originalContent ?? prev.content
-                                      } : null);
-                                  }
-                              }}
                           />
                       </div>
                   )}

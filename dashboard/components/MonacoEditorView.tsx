@@ -87,6 +87,15 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   activeFileRef.current = activeFile;
   const [editorThemeId, setEditorThemeId] = useState(resolveMonacoThemeId);
   const contentListenerRef = useRef<{ dispose?: () => void } | null>(null);
+  const onChangeRef = useRef(onChange);
+  const onCursorRef = useRef(onCursorPositionChange);
+  const onEditorModelMetaRef = useRef(onEditorModelMeta);
+  const updateActiveContentRef = useRef(updateActiveContent);
+  const syncingContentRef = useRef(false);
+  onChangeRef.current = onChange;
+  onCursorRef.current = onCursorPositionChange;
+  onEditorModelMetaRef.current = onEditorModelMeta;
+  updateActiveContentRef.current = updateActiveContent;
   const [showDiff, setShowDiff] = useState(false);
   const [copied, setCopied] = useState(false);
   const [gitActionHint, setGitActionHint] = useState<string | null>(null);
@@ -117,7 +126,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     if (!monaco) return;
     const syncTheme = () => {
       const id = applyMonacoTheme(monaco);
-      setEditorThemeId(id);
+      setEditorThemeId((prev) => (prev === id ? prev : id));
     };
     syncTheme();
     window.addEventListener('iam:cms-theme-applied', syncTheme);
@@ -158,19 +167,20 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
   const pushModelMeta = useCallback(
     (editor: { getModel: () => { getOptions: () => { tabSize: number; insertSpaces: boolean }; getEOL: () => string } | null }) => {
-      if (!onEditorModelMeta) return;
+      const onMeta = onEditorModelMetaRef.current;
+      if (!onMeta) return;
       const m = editor.getModel();
       if (!m) return;
       const o = m.getOptions();
       const raw = m.getEOL();
-      onEditorModelMeta({
+      onMeta({
         tabSize: o.tabSize,
         insertSpaces: o.insertSpaces,
         eol: raw === '\r\n' ? 'CRLF' : 'LF',
         encoding: 'UTF-8',
       });
     },
-    [onEditorModelMeta],
+    [],
   );
 
   useEffect(() => {
@@ -222,15 +232,17 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
       const push = () => {
         const p = editor.getPosition();
-        if (p && onCursorPositionChange) onCursorPositionChange(p.lineNumber, p.column);
+        const onCursor = onCursorRef.current;
+        if (p && onCursor) onCursor(p.lineNumber, p.column);
       };
       cursorDisposable = editor.onDidChangeCursorPosition(() => push());
 
       contentListenerRef.current = editor.onDidChangeModelContent(() => {
+        if (syncingContentRef.current) return;
         if (activeFileRef.current?.fileKind === 'truncated') return;
         const v = editor.getValue();
-        updateActiveContent(v);
-        onChange?.(v);
+        updateActiveContentRef.current(v);
+        onChangeRef.current?.(v);
       });
 
       pushModelMeta(editor);
@@ -249,7 +261,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       editorRef.current?.dispose?.();
       editorRef.current = null;
     };
-  }, [monaco, showMonacoBody, onChange, onCursorPositionChange, pushModelMeta, updateActiveContent]);
+  }, [monaco, showMonacoBody, pushModelMeta]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -260,9 +272,15 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     const model = editor.getModel();
     if (model) {
       monaco.editor.setModelLanguage(model, lang);
+      const next = activeFile.content ?? '';
       const current = model.getValue();
-      if (current !== (activeFile.content ?? '')) {
-        editor.setValue(activeFile.content ?? '');
+      if (current !== next) {
+        syncingContentRef.current = true;
+        try {
+          editor.setValue(next);
+        } finally {
+          syncingContentRef.current = false;
+        }
       }
     }
 
@@ -274,7 +292,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
   useEffect(() => {
     setShowDiff(false);
-  }, [activeFile?.name]);
+  }, [activeFile?.id]);
 
   useEffect(() => {
     const ed = editorRef.current;
