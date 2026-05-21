@@ -24,6 +24,7 @@ export const AnalyticsPage: React.FC = () => {
   const navigate = useNavigate();
   const params = useParams<{ tab?: string }>();
   const requestedTab = coerceTabId(params.tab);
+  const resolvedTab = requestedTab === 'd1' ? 'databases' : requestedTab;
 
   const fallbackTabIds = useMemo(() => new Set<string>(ANALYTICS_TABS.map((t) => t.id)), []);
   const [layout, setLayout] = useState<AnalyticsLayoutResponse | null>(null);
@@ -51,21 +52,30 @@ export const AnalyticsPage: React.FC = () => {
   const effectiveTabIds = useMemo(() => {
     const fromCms = Array.isArray(layout?.tabs) && layout?.tabs?.length ? layout.tabs.map((t) => t.id) : [];
     const keys = fromCms.length ? fromCms : ANALYTICS_TABS.map((t) => t.id);
-    return new Set<string>(keys.map((k) => String(k).toLowerCase()));
+    return new Set<string>(
+      keys.map((k) => {
+        const id = String(k).toLowerCase();
+        return id === 'd1' ? 'databases' : id;
+      }),
+    );
   }, [layout]);
 
   useEffect(() => {
-    if (!requestedTab) {
+    if (requestedTab === 'd1') {
+      navigate('/dashboard/analytics/databases', { replace: true });
+      return;
+    }
+    if (!resolvedTab) {
       navigate(`/dashboard/analytics/${effectiveDefaultTab}`, { replace: true });
       return;
     }
-    if (!effectiveTabIds.has(requestedTab)) {
+    if (!effectiveTabIds.has(resolvedTab) && resolvedTab !== 'd1') {
       navigate(`/dashboard/analytics/${effectiveDefaultTab}`, { replace: true });
     }
-  }, [requestedTab, effectiveDefaultTab, effectiveTabIds, navigate]);
+  }, [requestedTab, resolvedTab, effectiveDefaultTab, effectiveTabIds, navigate]);
 
-  const tab: AnalyticsTabId = (requestedTab && fallbackTabIds.has(requestedTab)
-    ? (requestedTab as AnalyticsTabId)
+  const tab: AnalyticsTabId = (resolvedTab && fallbackTabIds.has(resolvedTab)
+    ? (resolvedTab as AnalyticsTabId)
     : (effectiveDefaultTab as AnalyticsTabId)) || 'overview';
 
   const active = useMemo(() => ANALYTICS_TABS.find((t) => t.id === tab) || ANALYTICS_TABS[0], [tab]);
@@ -73,7 +83,7 @@ export const AnalyticsPage: React.FC = () => {
 
   return (
     <AnalyticsShell
-      tabId={requestedTab || effectiveDefaultTab}
+      tabId={resolvedTab || effectiveDefaultTab}
       layout={layout}
       layoutLoadedAt={layoutLoadedAt}
       onTab={(next) => navigate(`/dashboard/analytics/${next}`)}

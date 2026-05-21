@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 function mapHealthTabToAnalyticsTab(tab: string): string {
   const t = String(tab || '').trim().toLowerCase();
   if (!t) return 'overview';
-  if (t === 'database') return 'd1';
+  if (t === 'database' || t === 'd1') return 'databases';
   return t;
 }
 

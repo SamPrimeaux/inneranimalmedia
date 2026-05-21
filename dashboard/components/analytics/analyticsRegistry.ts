@@ -14,6 +14,7 @@ export type AnalyticsTabId =
   | 'workers'
   | 'mcp'
   | 'models'
+  | 'databases'
   | 'd1'
   | 'advisors'
   | 'deploys'
@@ -65,11 +66,11 @@ export const ANALYTICS_TABS: Array<AnalyticsTab & { id: AnalyticsTabId }> = [
     component: lazy(() => import('./tabs/ModelsTab')),
   },
   {
-    id: 'd1',
-    label: 'D1 Telemetry',
-    status: 'live',
+    id: 'databases',
+    label: 'Databases',
+    status: 'beta',
     dataSources: ['executionPerf', 'dataHealth'],
-    component: lazy(() => import('./tabs/D1TelemetryTab')),
+    component: lazy(() => import('./tabs/DatabasesTab')),
   },
   {
     id: 'advisors',
