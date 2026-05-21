@@ -47,6 +47,8 @@ import {
 } from '../src/lib/databaseTableFilters';
 import { DatabaseSqlConfirmModal, type SqlConfirmPayload } from './database/DatabaseSqlConfirmModal';
 import { DatabaseCellDetailDrawer, type CellDetailPayload } from './database/DatabaseCellDetailDrawer';
+import { DatabaseResultsGrid } from './database/DatabaseResultsGrid';
+import { rowKeyForRow, type SelectedGridCell } from './database/databaseGridTypes';
 import '../components/database/database-page.css';
 
 type Datasource = 'd1' | 'hyperdrive';
@@ -317,7 +319,7 @@ export const DatabasePage: React.FC = () => {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [deleteRowsModal, setDeleteRowsModal] = useState(false);
   const [sqlConfirmModal, setSqlConfirmModal] = useState<SqlConfirmPayload | null>(null);
-  const [selectedCell, setSelectedCell] = useState<{ rowKey: string; col: string } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<SelectedGridCell | null>(null);
   const [cellDetail, setCellDetail] = useState<CellDetailPayload | null>(null);
 
   const [queryTabs, setQueryTabs] = useState<SqlQueryTab[]>(INITIAL_SQL_WORKSPACE.tabs);
@@ -938,13 +940,12 @@ export const DatabasePage: React.FC = () => {
   useEffect(() => {
     const dialect = datasource === 'hyperdrive' ? 'postgresql' : 'sqlite';
     const selectedRow =
-      selectedCell && pk
-        ? data.rows.find((r, i) => String(r[pk] ?? i) === selectedCell.rowKey)
-        : null;
-    const cellRow =
-      selectedCell && selectedTable
-        ? data.rows.find((r, i) => String(r[pk] ?? i) === selectedCell.rowKey)
-        : null;
+      selectedCell?.source === 'data_tab' && pk
+        ? data.rows.find((r, i) => rowKeyForRow(r, pk, i) === selectedCell.rowKey)
+        : selectedCell?.source === 'data_tab'
+          ? selectedCell.row
+          : null;
+    const cellRow = selectedCell?.source === 'data_tab' ? selectedCell.row : null;
     const payload: DatabaseSurfaceContext = {
       route: '/dashboard/database',
       surface: 'database',
@@ -962,13 +963,13 @@ export const DatabasePage: React.FC = () => {
         runState: sqlRunState,
       },
       selectedCellSummary:
-        selectedCell && selectedTable
+        selectedCell
           ? {
-              table: selectedTable,
-              column: selectedCell.col,
+              table: selectedCell.table || selectedTable || (selectedCell.source === 'sql_result' ? 'query' : ''),
+              column: selectedCell.columnKey,
               rowKey: selectedCell.rowKey,
               valuePreview: (() => {
-                const v = cellRow?.[selectedCell.col];
+                const v = cellRow?.[selectedCell.columnKey] ?? selectedCell.value;
                 if (v == null) return 'NULL';
                 return typeof v === 'object' ? JSON.stringify(v).slice(0, 200) : String(v).slice(0, 200);
               })(),
@@ -1063,24 +1064,6 @@ export const DatabasePage: React.FC = () => {
     setActiveMainTab('sql');
   };
 
-  const commitCell = async () => {
-    if (!canEditDataCell || !editingCell || !selectedTable || !pk) return;
-    const row = data.rows.find((r) => String(r[pk]) === editingCell.rowKey);
-    if (!row) return;
-    if (editingCell.col === pk) return;
-    try {
-      await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pk_col: pk, pk_val: row[pk], updates: { [editingCell.col]: editingCell.value } }),
-      });
-      setEditingCell(null);
-      await loadData(selectedTable, page);
-    } catch (e) {
-      setDataError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const insertRow = async () => {
     if (!canInsertRow || !selectedTable) return;
     const missing = schema.filter((c) => isNotNull(c) && !isPrimaryKey(c) && columnDefault(c) == null && !insertValues[c.name]);
@@ -1119,20 +1102,51 @@ export const DatabasePage: React.FC = () => {
     }
   };
 
-  const openCellDetail = useCallback(
-    (rowKey: string, col: string) => {
-      if (!selectedTable) return;
-      const row = data.rows.find((r, i) => String(r[pk] ?? i) === rowKey);
-      if (!row) return;
-      setCellDetail({
-        datasourceLabel,
-        tableName: selectedTable,
-        columnName: col,
-        rowKey: pk ? String(row[pk]) : rowKey,
-        rawValue: row[col],
-      });
+  const getDataCellEditable = useCallback(
+    (row: Record<string, unknown>, col: string) => {
+      const isPkCol = Boolean(pk && col === pk);
+      if (isPkCol) return { editable: false, reason: 'Primary key columns cannot be edited inline.' };
+      if (!canEditDataCell) return { editable: false, reason: editDisabledReason };
+      return { editable: true };
     },
-    [data.rows, datasourceLabel, pk, selectedTable],
+    [canEditDataCell, editDisabledReason, pk],
+  );
+
+  const openCellDetail = useCallback((cell: SelectedGridCell) => {
+    setSelectedCell(cell);
+    const tableLabel =
+      cell.source === 'sql_result' ? (selectedTable ? `Query result · ${selectedTable}` : 'Query result') : cell.table || 'Table';
+    setCellDetail({
+      datasourceLabel,
+      tableName: tableLabel,
+      columnName: cell.columnKey,
+      rowKey: cell.source === 'data_tab' && pk && cell.row[pk] != null ? String(cell.row[pk]) : cell.rowKey,
+      rowIndex: cell.rowIndex,
+      rawValue: cell.value,
+      editable: cell.editable,
+      reasonIfNotEditable: cell.reasonIfNotEditable,
+    });
+  }, [datasourceLabel, pk, selectedTable]);
+
+  const applyCellEdit = useCallback(
+    async (cell: SelectedGridCell, nextValue: string) => {
+      if (!canEditDataCell || !selectedTable || !pk || cell.columnKey === pk) return;
+      const pkVal = cell.row[pk];
+      if (pkVal == null) return;
+      try {
+        await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pk_col: pk, pk_val: pkVal, updates: { [cell.columnKey]: nextValue } }),
+        });
+        setEditingCell(null);
+        setCellDetail(null);
+        await loadData(selectedTable, page);
+      } catch (e) {
+        setDataError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [canEditDataCell, page, pk, selectedTable],
   );
 
   const exportRows = useCallback((rows: Record<string, unknown>[], filename: string) => {
@@ -1150,6 +1164,12 @@ export const DatabasePage: React.FC = () => {
     exportRows(data.rows, `${selectedTable || 'table'}-page.csv`);
   }, [data.rows, exportRows, selectedTable]);
 
+  const exportSqlResultsCsv = useCallback(() => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const base = selectedTable || 'query';
+    exportRows(sqlResults, `${datasource}-${base}-${stamp}.csv`);
+  }, [datasource, exportRows, selectedTable, sqlResults]);
+
   const copyRowJson = useCallback(
     (row: Record<string, unknown>) => {
       void copyToClipboard(JSON.stringify(row, null, 2));
@@ -1158,7 +1178,7 @@ export const DatabasePage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (activeMainTab !== 'data') return;
+    if (activeMainTab !== 'data' && activeMainTab !== 'sql') return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setCellDetail(null);
@@ -1166,8 +1186,10 @@ export const DatabasePage: React.FC = () => {
         return;
       }
       if (event.key === 'Enter' && selectedCell && !editingCell) {
+        const tag = (event.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
         event.preventDefault();
-        openCellDetail(selectedCell.rowKey, selectedCell.col);
+        openCellDetail(selectedCell);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1385,6 +1407,21 @@ export const DatabasePage: React.FC = () => {
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden">
+          <DatabaseCellDetailDrawer
+            payload={cellDetail}
+            onClose={() => setCellDetail(null)}
+            onCopy={(t) => void copyToClipboard(t)}
+            onCopyRowJson={
+              selectedCell
+                ? () => void copyToClipboard(JSON.stringify(selectedCell.row, null, 2))
+                : undefined
+            }
+            onApplyEdit={
+              selectedCell?.editable && selectedCell.source === 'data_tab'
+                ? (nextValue) => applyCellEdit(selectedCell, nextValue)
+                : undefined
+            }
+          />
           {setupContent}
 
           {!setupContent && activeMainTab === 'sql' && (
@@ -1496,8 +1533,19 @@ export const DatabasePage: React.FC = () => {
                 className="database-results-pane--mobile flex shrink-0 flex-col border-t border-[var(--database-border)] md:max-h-[75%]"
                 style={{ height: resultsPaneHeight, minHeight: MIN_RESULTS_PANE_H }}
               >
-                <div className="shrink-0 border-b border-[var(--database-border)] px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--database-text-muted)]">
-                  {sqlRunState === 'error' ? 'Query error' : 'Results'}
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--database-border)] px-4 py-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[var(--database-text-muted)]">
+                    {sqlRunState === 'error' ? 'Query error' : 'Results'}
+                  </span>
+                  {sqlResults.length > 0 && sqlRunState !== 'error' && (
+                    <button
+                      type="button"
+                      onClick={() => exportSqlResultsCsv()}
+                      className="inline-flex items-center gap-1 rounded border border-[var(--database-border)] px-2 py-0.5 text-[10px] font-bold hover:bg-[var(--database-row-hover-bg)]"
+                    >
+                      <Download size={11} /> Export CSV
+                    </button>
+                  )}
                 </div>
                 <div className="min-h-0 flex-1 overflow-auto">
                   {sqlRunState === 'error' && sqlError ? (
@@ -1531,28 +1579,20 @@ export const DatabasePage: React.FC = () => {
                       </div>
                     </div>
                   ) : sqlResults.length ? (
-                    <table className="w-full min-w-max border-collapse text-left text-[12px]">
-                      <thead className="sticky top-0 bg-[var(--database-bg)]">
-                        <tr className="border-b border-[var(--database-border)] text-[10px] uppercase tracking-widest text-[var(--database-text-muted)]">
-                          {(sqlColumns.length ? sqlColumns : Object.keys(sqlResults[0] || {})).map((h) => (
-                            <th key={h} className="whitespace-nowrap px-3 py-2 font-semibold">
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sqlResults.map((row, i) => (
-                          <tr key={i} className="border-b border-[var(--database-border)]/50 hover:bg-[var(--database-row-hover-bg)]">
-                            {(sqlColumns.length ? sqlColumns : Object.keys(row)).map((k) => (
-                              <td key={k} className="max-w-[320px] truncate px-3 py-1.5 font-mono">
-                                {formatValue((row as Record<string, unknown>)[k], k)}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <DatabaseResultsGrid
+                      rows={sqlResults}
+                      columns={sqlColumns.length ? sqlColumns : Object.keys(sqlResults[0] || {})}
+                      source="sql_result"
+                      datasource={datasource}
+                      table={selectedTable || undefined}
+                      selectedCell={selectedCell?.source === 'sql_result' ? selectedCell : null}
+                      onSelectCell={(cell) => {
+                        setSelectedCell(cell);
+                        setCellDetail(null);
+                      }}
+                      onOpenCellDetail={openCellDetail}
+                      onCopyCell={(text) => void copyToClipboard(text)}
+                    />
                   ) : (
                     <p className="p-4 text-[12px] text-[var(--database-text-muted)]">
                       {sqlRunState === 'running' ? 'Running query…' : 'Run a query to see results.'}
@@ -1679,9 +1719,14 @@ export const DatabasePage: React.FC = () => {
                   >
                     <Download size={12} /> Copy CSV
                   </button>
+                  {selectedRows.size > 0 && (
+                    <span className="rounded bg-[var(--database-cell-selected-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--database-accent)]">
+                      {selectedRows.size} selected
+                    </span>
+                  )}
                   {editDisabledReason && activeMainTab === 'data' && (
-                    <span className="text-[10px] text-[var(--text-muted)]" title={editDisabledReason}>
-                      {datasource === 'hyperdrive' ? 'Edit: Hyperdrive disabled (v1)' : !pk ? 'Edit: no PK' : ''}
+                    <span className="max-w-[220px] truncate text-[10px] text-[var(--text-muted)]" title={editDisabledReason}>
+                      {datasource === 'hyperdrive' ? 'Edit: Hyperdrive disabled (v1)' : !pk ? 'Edit: no PK' : !canWriteRows ? 'Edit: read-only' : ''}
                     </span>
                   )}
                 </div>
@@ -1728,116 +1773,77 @@ export const DatabasePage: React.FC = () => {
               </div>
               {dataError && <div className="border-b border-[var(--solar-red)]/20 bg-[var(--solar-red)]/10 px-4 py-2 text-[12px] text-[var(--solar-red)]">{dataError}</div>}
               <div className="min-h-0 flex-1 overflow-auto">
-                <table className="w-full min-w-max border-collapse text-left text-[12px]">
-                  <thead className="sticky top-0 bg-[var(--bg-app)]">
-                    <tr className="border-b border-[var(--border-subtle)] text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
-                      <th className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          disabled={!isSuperadmin}
-                          checked={data.rows.length > 0 && selectedRows.size === data.rows.length}
-                          onChange={(e) =>
-                            setSelectedRows(e.target.checked ? new Set(data.rows.map((r, i) => String(r[pk] ?? i))) : new Set())
-                          }
-                        />
-                      </th>
-                      {columns.map((col) => (
-                        <th
-                          key={col}
-                          className="cursor-pointer px-3 py-2"
-                          onClick={() => {
-                            setSortCol(col);
-                            setSortDir(sortCol === col && sortDir === 'asc' ? 'desc' : 'asc');
-                            selectedTable && loadData(selectedTable, 1);
-                          }}
-                        >
-                          {col}
-                          {sortCol === col ? ` ${sortDir}` : ''}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.rows.map((row, i) => {
-                      const key = String(row[pk] ?? i);
-                      return (
-                        <tr key={key} className="group border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-hover)]">
-                          <td className="px-3 py-1.5">
-                            <input
-                              type="checkbox"
-                              disabled={!isSuperadmin}
-                              checked={selectedRows.has(key)}
-                              onChange={(e) =>
-                                setSelectedRows((prev) => {
-                                  const next = new Set(prev);
-                                  e.target.checked ? next.add(key) : next.delete(key);
-                                  return next;
-                                })
-                              }
-                            />
-                          </td>
-                          {columns.map((col) => {
-                            const isSelected = selectedCell?.rowKey === key && selectedCell.col === col;
-                            const isPkCol = col === pk;
-                            const canEditThis =
-                              canEditDataCell && !isPkCol && editingCell?.rowKey === key && editingCell.col === col;
-                            return (
-                              <td
-                                key={col}
-                                className={`max-w-[300px] truncate border-r border-[var(--border-subtle)]/40 px-3 py-1.5 font-mono ${
-                                  isSelected ? 'database-data-cell--selected' : ''
-                                }`}
-                                title={
-                                  canEditDataCell && !isPkCol
-                                    ? 'Click to select · double-click to edit · Enter for detail'
-                                    : editDisabledReason || 'Click to select · double-click for detail'
-                                }
-                                onClick={() => setSelectedCell({ rowKey: key, col })}
-                                onDoubleClick={() => {
-                                  if (canEditDataCell && !isPkCol) {
-                                    setEditingCell({ rowKey: key, col, value: row[col] == null ? '' : String(row[col]) });
-                                    return;
-                                  }
-                                  openCellDetail(key, col);
-                                }}
-                              >
-                                {canEditThis ? (
-                                  <input
-                                    autoFocus
-                                    value={editingCell.value}
-                                    onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') void commitCell();
-                                      if (e.key === 'Escape') setEditingCell(null);
-                                    }}
-                                    onBlur={() => void commitCell()}
-                                    className="w-full rounded border border-[var(--color-accent,var(--solar-cyan))] bg-[var(--bg-panel)] px-2 py-1 outline-none"
-                                  />
-                                ) : (
-                                  <div className="flex items-center gap-1">
-                                    <span className="min-w-0 flex-1 truncate">{formatValue(row[col], col)}</span>
-                                    <button
-                                      type="button"
-                                      title="Copy cell"
-                                      className="shrink-0 rounded p-0.5 opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100 [.database-data-cell--selected+&]:opacity-100"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const v = row[col];
-                                        void copyToClipboard(v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
-                                      }}
-                                    >
-                                      <ClipboardCopy size={10} />
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <DatabaseResultsGrid
+                  rows={data.rows}
+                  columns={columns}
+                  source="data_tab"
+                  datasource={datasource}
+                  table={selectedTable || undefined}
+                  pk={pk || undefined}
+                  selectedCell={selectedCell?.source === 'data_tab' ? selectedCell : null}
+                  onSelectCell={(cell) => {
+                    setSelectedCell(cell);
+                    setCellDetail(null);
+                  }}
+                  onOpenCellDetail={openCellDetail}
+                  onCopyCell={(text) => void copyToClipboard(text)}
+                  showRowSelector
+                  selectedRows={selectedRows}
+                  rowSelectorDisabled={!isSuperadmin}
+                  onToggleRow={(rowKey, checked) =>
+                    setSelectedRows((prev) => {
+                      const next = new Set(prev);
+                      checked ? next.add(rowKey) : next.delete(rowKey);
+                      return next;
+                    })
+                  }
+                  onToggleAllRows={(checked) =>
+                    setSelectedRows(
+                      checked ? new Set(data.rows.map((r, i) => rowKeyForRow(r, pk, i))) : new Set(),
+                    )
+                  }
+                  editingCell={editingCell}
+                  getCellEditable={(row, col, rowIndex) => getDataCellEditable(row, col)}
+                  onBeginInlineEdit={(cell) => {
+                    setSelectedCell(cell);
+                    setEditingCell({
+                      rowKey: cell.rowKey,
+                      col: cell.columnKey,
+                      value: cell.value == null ? '' : String(cell.value),
+                    });
+                  }}
+                  onEditingValueChange={(value) => setEditingCell((prev) => (prev ? { ...prev, value } : prev))}
+                  onCommitInlineEdit={() => {
+                    if (!editingCell) return;
+                    const rowIndex = data.rows.findIndex((r, i) => rowKeyForRow(r, pk, i) === editingCell.rowKey);
+                    if (rowIndex < 0) return;
+                    const row = data.rows[rowIndex];
+                    const editMeta = getDataCellEditable(row, editingCell.col);
+                    void applyCellEdit(
+                      {
+                        source: 'data_tab',
+                        datasource,
+                        table: selectedTable || undefined,
+                        rowIndex,
+                        rowKey: editingCell.rowKey,
+                        columnKey: editingCell.col,
+                        value: row[editingCell.col],
+                        row,
+                        editable: editMeta.editable,
+                        reasonIfNotEditable: editMeta.reason,
+                      },
+                      editingCell.value,
+                    );
+                  }}
+                  onCancelInlineEdit={() => setEditingCell(null)}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSortColumn={(col) => {
+                    setSortCol(col);
+                    setSortDir(sortCol === col && sortDir === 'asc' ? 'desc' : 'asc');
+                    selectedTable && loadData(selectedTable, 1);
+                  }}
+                />
               </div>
               <div className="flex items-center justify-between border-t border-[var(--border-subtle)] px-4 py-2 text-[11px] text-[var(--text-muted)]">
                 <span>
@@ -1876,7 +1882,6 @@ export const DatabasePage: React.FC = () => {
                   </button>
                 </div>
               </div>
-              <DatabaseCellDetailDrawer payload={cellDetail} onClose={() => setCellDetail(null)} onCopy={(t) => void copyToClipboard(t)} />
             </div>
           )}
 
