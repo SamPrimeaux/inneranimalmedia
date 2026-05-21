@@ -13,6 +13,7 @@ import {
   History as HistoryIcon,
 } from 'lucide-react';
 import type { RecentFileEntry } from '../src/ideWorkspace';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { usePlanTasksRealtime } from '../src/hooks/usePlanTasksRealtime';
 
 interface WorkspaceDashboardProps {
@@ -313,8 +314,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
                 }}
               >
                 <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors">
-                    <Terminal size={14} />
+                  <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center group-hover:opacity-90 transition-opacity">
+                    <SetiFileIcon filename={file.name} size={16} />
                   </div>
                   <div className="min-w-0">
                     <div className="text-[13px] font-bold text-[var(--dashboard-text)] truncate">{file.name}</div>

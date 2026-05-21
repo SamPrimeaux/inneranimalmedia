@@ -3,7 +3,6 @@ import {
   Github, 
   GitBranch, 
   GitCommit, 
-  FileCode, 
   AlertCircle, 
   CheckCircle2, 
   Clock, 
@@ -11,6 +10,7 @@ import {
   ArrowRight,
   Sparkles
 } from 'lucide-react';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 
 interface GitStatus {
   branch: string;
@@ -190,7 +190,7 @@ const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean }> =
          {status.includes('?') ? 'U' : status[0]}
        </div>
        <div className="p-1 px-1.5 rounded bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-subtle)] group-hover:border-[var(--solar-cyan)]/30 transition-colors">
-          <FileCode size={12} />
+          <SetiFileIcon filename={name} size={13} />
        </div>
        <div className="min-w-0">
           <div className="text-[12px] font-medium text-[var(--text-main)] truncate" style={{ fontFamily: mono }}>{name}</div>

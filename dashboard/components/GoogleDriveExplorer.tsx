@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Cloud,
   Folder,
-  File,
   ChevronDown,
   Plus,
   Upload,
@@ -17,6 +16,7 @@ import {
   Download,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 
 type DriveFolderFrame = { id: string; name: string };
 
@@ -543,7 +543,7 @@ const FileRow = ({
       onOpen ? 'hover:bg-[var(--bg-hover)] cursor-pointer' : ''
     }`}
   >
-    {type === 'folder' ? <Folder size={12} className="text-[var(--solar-blue)] shrink-0" /> : <File size={12} className="text-[var(--text-muted)] shrink-0" />}
+    {type === 'folder' ? <Folder size={12} className="text-[var(--solar-blue)] shrink-0" /> : <SetiFileIcon filename={name} size={13} />}
     <span className="truncate">{name}</span>
     <MoreVertical size={10} className="ml-auto opacity-0 group-hover:opacity-40 shrink-0" />
   </button>

@@ -15,6 +15,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from '../agentChatConstants';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import {
   WRANGLER_CATEGORY_LABELS,
   filterWranglerCatalog,
@@ -1133,11 +1134,19 @@ export const UnifiedSearchBar: React.FC<{
                           selected ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]/70'
                         }`}
                       >
-                        <Icon
-                          size={14}
-                          className={`shrink-0 ${item.category === 'r2' || item.category === 'resource' ? 'text-amber-500/90' : 'text-[var(--text-muted)]'}`}
-                          aria-hidden
-                        />
+                        {item.category === 'file' ? (
+                          <SetiFileIcon
+                            filename={item.filePath || item.title}
+                            size={14}
+                            className="shrink-0"
+                          />
+                        ) : (
+                          <Icon
+                            size={14}
+                            className={`shrink-0 ${item.category === 'r2' || item.category === 'resource' ? 'text-amber-500/90' : 'text-[var(--text-muted)]'}`}
+                            aria-hidden
+                          />
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-[12px] font-medium text-[var(--text-main)] truncate">{item.title}</span>

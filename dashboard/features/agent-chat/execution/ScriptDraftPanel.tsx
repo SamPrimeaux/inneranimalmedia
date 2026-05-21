@@ -8,7 +8,8 @@
  */
 
 import React from 'react';
-import { FileCode, Play, Terminal, Wand2 } from 'lucide-react';
+import { Play, Terminal, Wand2 } from 'lucide-react';
+import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 
 export type ScriptDraftPanelProps = {
   fileName: string | null;
@@ -39,7 +40,7 @@ export const ScriptDraftPanel: React.FC<ScriptDraftPanelProps> = ({
     <div className="mb-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-3 py-2.5 space-y-2">
       <div className="flex items-start gap-2">
         <div className="mt-0.5 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] p-1.5 text-[var(--solar-cyan)]">
-          <FileCode size={16} strokeWidth={1.75} aria-hidden />
+          <SetiFileIcon filename={fileName || 'script.py'} size={16} />
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Script draft</div>

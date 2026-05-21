@@ -19,7 +19,6 @@ import {
   AtSign,
   Slash,
   FileText,
-  FileCode,
   X,
   ChevronDown,
   ChevronLeft,
@@ -40,6 +39,7 @@ import {
 } from 'lucide-react';
 import { ProjectType } from '../../types';
 import type { ActiveFile } from '../../types';
+import { SetiFileIcon } from '../../src/components/SetiFileIcon';
 import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
@@ -1900,7 +1900,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   aria-label="Open code editor"
                   className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-[var(--dashboard-muted)]"
                 >
-                  <FileCode size={16} />
+                  <SetiFileIcon filename={activeFile?.name || 'code.ts'} size={16} />
                 </button>
                 <button
                   type="button"

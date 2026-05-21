@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Editor, { type Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
+import { applyMonacoTheme } from '../src/lib/monacoThemes';
 
 const THEME_DEBUG =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('theme_debug');
@@ -43,6 +44,7 @@ export function applyMonacoThemeFromDocument(
 
   monaco.editor.defineTheme(themeId, parsed as editor.IStandaloneThemeData);
   monaco.editor.setTheme(themeId);
+  // keep in sync with monacoThemes registry
 
   if (bg && editor) {
     editor.updateOptions({});
@@ -148,6 +150,7 @@ export const MonacoSurface: React.FC<MonacoSurfaceProps> = ({
   void monacoBg;
 
   const handleBeforeMount = useCallback((monaco: Monaco) => {
+    applyMonacoTheme(monaco);
     applyMonacoThemeFromDocument(monaco, null);
   }, []);
 
@@ -155,6 +158,7 @@ export const MonacoSurface: React.FC<MonacoSurfaceProps> = ({
     (ed: editor.IStandaloneCodeEditor, monaco: Monaco) => {
       bridgeRef.current = { monaco };
       editorRef.current = ed;
+      applyMonacoTheme(monaco);
       applyMonacoThemeFromDocument(monaco, ed);
       setEditorThemeProp(readMonacoThemeIdFromDom());
       onMountRef.current?.(ed, monaco);

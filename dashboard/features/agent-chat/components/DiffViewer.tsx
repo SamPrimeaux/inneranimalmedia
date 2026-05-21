@@ -4,8 +4,13 @@
  * @license SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
+import {
+  applyMonacoTheme,
+  buildDiffEditorOptions,
+  resolveMonacoThemeId,
+} from '../../../src/lib/monacoThemes';
 
 const LANG_MAP: Record<string, string> = {
   ts: 'typescript',
@@ -55,6 +60,13 @@ export function DiffViewer({
   className = '',
 }: DiffViewerProps) {
   const monacoLang = useMemo(() => monacoLanguage(language, path), [language, path]);
+  const [themeId, setThemeId] = useState(resolveMonacoThemeId);
+
+  useEffect(() => {
+    const sync = () => setThemeId(resolveMonacoThemeId());
+    window.addEventListener('iam:cms-theme-applied', sync);
+    return () => window.removeEventListener('iam:cms-theme-applied', sync);
+  }, []);
 
   return (
     <div
@@ -64,19 +76,16 @@ export function DiffViewer({
       <DiffEditor
         height="100%"
         language={monacoLang}
-        theme="meauxcad-dark"
+        theme={themeId}
         original={before}
         modified={after}
+        beforeMount={(m) => {
+          applyMonacoTheme(m);
+        }}
         options={{
+          ...buildDiffEditorOptions({ isLarge: false, modifiedEditable: false }),
           readOnly: true,
-          renderSideBySide: true,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
           fontSize: 12,
-          lineNumbers: 'on',
-          folding: false,
-          renderOverviewRuler: false,
-          automaticLayout: true,
           padding: { top: 8, bottom: 8 },
         }}
       />

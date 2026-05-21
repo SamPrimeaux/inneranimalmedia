@@ -9,7 +9,6 @@ import {
     Cloud,
     Github,
     Box,
-    FileCode2,
     Loader2,
     Upload,
     Trash2,
@@ -34,6 +33,7 @@ import {
     type R2ObjectRow,
 } from '../src/lib/r2Listing';
 import { VirtualizedFileTree } from './VirtualizedFileTree';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import {
     flattenVisibleLocalFileTree,
     findLocalNodeByPath,
@@ -1260,7 +1260,7 @@ export const LocalExplorer: React.FC<{
                                                                   void openR2Key(b, o.key);
                                                               }}
                                                           >
-                                                              <FileCode2 size={11} />
+                                                              <SetiFileIcon filename={node.name} size={12} />
                                                           </button>
                                                       )}
                                                       <button

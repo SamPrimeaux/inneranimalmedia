@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { User, Bot, Loader2, ChevronRight, FileText, FileCode } from 'lucide-react';
+import { User, Bot, Loader2, ChevronRight } from 'lucide-react';
+import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import type {
   Message,
@@ -24,34 +25,48 @@ import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
 
+const LANG_TO_EXT: Record<string, string> = {
+  sql: 'sql',
+  postgres: 'sql',
+  postgresql: 'sql',
+  mysql: 'sql',
+  sqlite: 'sql',
+  plpgsql: 'sql',
+  graphql: 'graphql',
+  diff: 'diff',
+  patch: 'patch',
+  yaml: 'yaml',
+  yml: 'yml',
+  toml: 'toml',
+  md: 'md',
+  markdown: 'md',
+  mermaid: 'mmd',
+  tsx: 'tsx',
+  jsx: 'jsx',
+  ts: 'ts',
+  js: 'js',
+  css: 'css',
+  html: 'html',
+  json: 'json',
+  py: 'py',
+  sh: 'sh',
+  bash: 'sh',
+  zsh: 'sh',
+  shell: 'sh',
+  rust: 'rs',
+  go: 'go',
+  java: 'java',
+  php: 'php',
+  vue: 'vue',
+  svelte: 'svelte',
+};
+
 const getLangMeta = (lang: string) => {
-  const map: Record<string, { ext: string; icon: React.ReactNode }> = {
-    sql: { ext: 'sql', icon: <FileText size={15} /> },
-    postgres: { ext: 'sql', icon: <FileText size={15} /> },
-    postgresql: { ext: 'sql', icon: <FileText size={15} /> },
-    mysql: { ext: 'sql', icon: <FileText size={15} /> },
-    sqlite: { ext: 'sql', icon: <FileText size={15} /> },
-    plpgsql: { ext: 'sql', icon: <FileText size={15} /> },
-    graphql: { ext: 'graphql', icon: <FileCode size={15} /> },
-    diff: { ext: 'diff', icon: <FileCode size={15} /> },
-    patch: { ext: 'patch', icon: <FileCode size={15} /> },
-    yaml: { ext: 'yaml', icon: <FileText size={15} /> },
-    yml: { ext: 'yml', icon: <FileText size={15} /> },
-    toml: { ext: 'toml', icon: <FileText size={15} /> },
-    md: { ext: 'md', icon: <FileText size={15} /> },
-    markdown: { ext: 'md', icon: <FileText size={15} /> },
-    mermaid: { ext: 'mmd', icon: <FileCode size={15} /> },
-    tsx: { ext: 'tsx', icon: <FileCode size={15} /> },
-    jsx: { ext: 'jsx', icon: <FileCode size={15} /> },
-    ts: { ext: 'ts', icon: <FileCode size={15} /> },
-    js: { ext: 'js', icon: <FileCode size={15} /> },
-    css: { ext: 'css', icon: <FileText size={15} /> },
-    html: { ext: 'html', icon: <FileText size={15} /> },
-    json: { ext: 'json', icon: <FileText size={15} /> },
-    py: { ext: 'py', icon: <FileCode size={15} /> },
-    sh: { ext: 'sh', icon: <FileText size={15} /> },
+  const ext = LANG_TO_EXT[lang.toLowerCase()] ?? (lang || 'txt');
+  return {
+    ext,
+    icon: <SetiFileIcon filename={`preview.${ext}`} size={15} />,
   };
-  return map[lang.toLowerCase()] ?? { ext: lang || 'txt', icon: <FileText size={15} /> };
 };
 
 /** Fenced blocks that always use the preview workstation (even when short). */

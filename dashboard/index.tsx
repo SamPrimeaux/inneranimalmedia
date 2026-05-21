@@ -1,4 +1,6 @@
 import './index.css';
+import './src/seti-icons.css';
+import './src/monaco-diff.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

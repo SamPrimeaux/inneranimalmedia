@@ -5,7 +5,8 @@
  */
 
 import React, { useCallback } from 'react';
-import { ExternalLink, FileCode2 } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
+import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import { DiffViewer } from './DiffViewer';
 
@@ -51,7 +52,7 @@ export function AgentCodeDiffPreview({
     >
       <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-white/[0.06] bg-[var(--dashboard-panel)]/60">
         <div className="flex items-center gap-2 min-w-0">
-          <FileCode2 size={14} className="shrink-0 text-[var(--solar-cyan)]" aria-hidden />
+          <SetiFileIcon filename={path || 'diff.patch'} size={14} className="shrink-0" />
           <span className="truncate text-[0.75rem] font-mono font-medium text-[var(--dashboard-text)]">
             {path || name}
           </span>

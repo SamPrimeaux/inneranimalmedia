@@ -8,12 +8,12 @@ import {
   Lock,
   ChevronRight,
   ChevronDown,
-  File as FileIcon,
   Trash2,
   FilePlus,
   Search,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 
 type GhItem = {
   name: string;
@@ -608,7 +608,7 @@ export const GitHubExplorer: React.FC<{
                             {it.type === 'dir' ? (
                               <Folder size={12} className="text-[var(--solar-cyan)] shrink-0" />
                             ) : (
-                              <FileIcon size={12} className="text-[var(--text-muted)] shrink-0" />
+                              <SetiFileIcon filename={it.name} size={13} />
                             )}
                             <span className="truncate">{it.name}</span>
                           </button>

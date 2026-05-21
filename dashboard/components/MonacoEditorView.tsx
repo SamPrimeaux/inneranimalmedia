@@ -5,7 +5,6 @@ import {
   GitCompare,
   Copy,
   Check,
-  FileCode2,
   RotateCcw,
   GitBranch,
 } from 'lucide-react';
@@ -13,8 +12,15 @@ import {
 import type { ActiveFile } from '../types';
 import { useEditor } from '../src/EditorContext';
 import { FilePreview } from '../src/components/FilePreview';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { detectFileKind, isEditableTextKind } from '../src/lib/fileKind';
 import { buildR2ObjectUrl } from '../src/lib/mediaPreview';
+import {
+  applyMonacoTheme,
+  buildDiffEditorOptions,
+  buildStandaloneEditorOptions,
+  resolveMonacoThemeId,
+} from '../src/lib/monacoThemes';
 import { X } from 'lucide-react';
 
 type FileData = ActiveFile;
@@ -65,105 +71,7 @@ const LANG_MAP: Record<string, string> = {
   wrangler: 'toml',
 };
 
-/** Append RRGGBBAA alpha when value is #RRGGBB (Monaco). */
-function hexWithAlpha(hex: string, alphaHex2: string, fallback: string): string {
-  const t = hex.trim();
-  if (/^#[0-9a-fA-F]{6}$/i.test(t)) return `${t}${alphaHex2}`;
-  return fallback;
-}
-
-/** Resolve :root CSS custom properties (cms_themes / inneranimalmedia.css) for Monaco. */
-function monacoColorsFromDocument(): Record<string, string> {
-  if (typeof window === 'undefined') {
-    return {};
-  }
-  const st = getComputedStyle(document.documentElement);
-  const g = (name: string, fallback: string) => {
-    const raw = st.getPropertyValue(name).trim();
-    return raw || fallback;
-  };
-  const scene = g('--scene-bg', '#060e14');
-  const panel = g('--dashboard-panel', g('--bg-panel', '#0a2d38'));
-  const border = g('--dashboard-border', g('--border-subtle', '#1e3e4a'));
-  const cyan = g('--solar-cyan', '#2dd4bf');
-  const fg = g('--solar-base0', '#839496');
-  const lineNum = g('--text-chrome-muted', '#2a4d58');
-  const green = g('--solar-green', '#859900');
-  const red = g('--solar-red', '#dc322f');
-  const yellow = g('--solar-yellow', '#b58900');
-  const selection = g('--editor-selection-bg', '#0a4a5c');
-  const scrollThumb = g('--monaco-scrollbar-thumb', hexWithAlpha(border, '80', `${border}80`));
-  const scrollHover = g('--monaco-scrollbar-hover', hexWithAlpha(cyan, '40', `${cyan}40`));
-  return {
-    'editor.background': scene,
-    'editor.foreground': fg,
-    'editor.lineHighlightBackground': panel,
-    'editorCursor.foreground': cyan,
-    'editorWhitespace.foreground': border,
-    'editorIndentGuide.background1': border,
-    'editorIndentGuide.activeBackground1': cyan,
-    'editor.selectionBackground': selection,
-    'editorGutter.background': scene,
-    'editorLineNumber.foreground': lineNum,
-    'editorLineNumber.activeForeground': cyan,
-    'scrollbarSlider.background': scrollThumb,
-    'scrollbarSlider.hoverBackground': scrollHover,
-    'minimap.background': scene,
-    'editorOverviewRuler.addedForeground': green,
-    'editorOverviewRuler.deletedForeground': red,
-    'editorOverviewRuler.modifiedForeground': yellow,
-    'diffEditor.insertedTextBackground': hexWithAlpha(green, '20', 'rgba(133,153,0,0.125)'),
-    'diffEditor.removedTextBackground': hexWithAlpha(red, '20', 'rgba(220,50,47,0.125)'),
-    'diffEditor.insertedLineBackground': hexWithAlpha(green, '10', 'rgba(133,153,0,0.063)'),
-    'diffEditor.removedLineBackground': hexWithAlpha(red, '10', 'rgba(220,50,47,0.063)'),
-  };
-}
-
-const MONACO_THEME_BASE = {
-  base: 'vs-dark' as const,
-  inherit: true,
-  rules: [
-    { token: 'comment', foreground: '586e75', fontStyle: 'italic' },
-    { token: 'keyword', foreground: '859900' },
-    { token: 'string', foreground: '2aa198' },
-    { token: 'number', foreground: 'd33682' },
-    { token: 'type', foreground: 'b58900' },
-    { token: 'operator', foreground: '93a1a1' },
-    { token: 'delimiter', foreground: '657b83' },
-  ],
-};
-
 const LARGE_FILE_CHAR_THRESHOLD = 100_000;
-
-function buildEditorOptions(isLarge: boolean, readOnly: boolean) {
-  return {
-    minimap: { enabled: !isLarge, renderCharacters: false, scale: 0.75 },
-    fontSize: 13,
-    fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
-    fontLigatures: true,
-    lineHeight: 22,
-    padding: { top: 12 },
-    scrollBeyondLastLine: false,
-    smoothScrolling: true,
-    cursorBlinking: 'smooth' as const,
-    cursorSmoothCaretAnimation: 'on' as const,
-    renderLineHighlight: 'gutter' as const,
-    bracketPairColorization: { enabled: true },
-    guides: { bracketPairs: true, indentation: true },
-    wordWrap: 'off' as const,
-    renderWhitespace: 'none' as const,
-    tabSize: 2,
-    insertSpaces: true,
-    folding: !isLarge,
-    largeFileOptimizations: isLarge,
-    maxTokenizationLineLength: isLarge ? 400 : 10_000,
-    suggest: { showSnippets: true },
-    quickSuggestions: { other: true, comments: true, strings: false },
-    formatOnPaste: true,
-    formatOnType: false,
-    readOnly,
-  };
-}
 
 export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   onChange, onSave, onCursorPositionChange, onEditorModelMeta
@@ -177,7 +85,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
   const activeFileRef = useRef(activeFile);
   activeFileRef.current = activeFile;
-  const isThemeReady = useRef(false);
+  const [editorThemeId, setEditorThemeId] = useState(resolveMonacoThemeId);
   const contentListenerRef = useRef<{ dispose?: () => void } | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -205,16 +113,23 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     activeFile && !showMediaPreview && !(showDiff && hasDiffData),
   );
 
-  // Custom theme from :root CSS vars
   useEffect(() => {
-    if (monaco && !isThemeReady.current) {
-      monaco.editor.defineTheme('meauxcad-dark', {
-        ...MONACO_THEME_BASE,
-        colors: monacoColorsFromDocument(),
-      });
-      monaco.editor.setTheme('meauxcad-dark');
-      isThemeReady.current = true;
-    }
+    if (!monaco) return;
+    const syncTheme = () => {
+      const id = applyMonacoTheme(monaco);
+      setEditorThemeId(id);
+    };
+    syncTheme();
+    window.addEventListener('iam:cms-theme-applied', syncTheme);
+    const mo = new MutationObserver(syncTheme);
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-monaco-theme', 'data-monaco-theme-data'],
+    });
+    return () => {
+      window.removeEventListener('iam:cms-theme-applied', syncTheme);
+      mo.disconnect();
+    };
   }, [monaco]);
 
   // Agent Cmd+I Handler
@@ -301,7 +216,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
       const editor = monaco.editor.create(
         containerRef.current,
-        buildEditorOptions(false, false),
+        buildStandaloneEditorOptions(false, false),
       );
       editorRef.current = editor;
 
@@ -353,7 +268,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
     const isLarge = (activeFile.content?.length ?? 0) > LARGE_FILE_CHAR_THRESHOLD;
     const isTruncated = activeFile.fileKind === 'truncated';
-    editor.updateOptions(buildEditorOptions(isLarge, isTruncated));
+    editor.updateOptions(buildStandaloneEditorOptions(isLarge, isTruncated));
     pushModelMeta(editor);
   }, [activeFile?.id, activeFile?.content, activeFile?.fileKind, activeFile?.name, monaco, pushModelMeta]);
 
@@ -471,7 +386,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     return (
       <div className="flex-1 bg-[var(--scene-bg)] flex items-center justify-center select-none h-full">
         <div className="flex flex-col items-center gap-4 text-[var(--text-muted)] text-center px-8">
-          <FileCode2 size={40} className="opacity-20" />
+          <SetiFileIcon filename="untitled.txt" size={40} className="opacity-30" />
           <p className="text-[13px] font-medium">No files open</p>
           <p className="text-[11px] opacity-60 max-w-xs leading-relaxed">
             Open a file from the Explorer panel to begin. Multi-tab editing enabled.
@@ -512,7 +427,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
                 : 'text-[var(--text-muted)] hover:bg-[var(--dashboard-canvas)]'
             }`}
           >
-            <FileCode2 size={12} className={activeTabId === tab.id ? 'text-[var(--solar-cyan)]' : 'text-inherit'} />
+            <SetiFileIcon filename={tab.name} size={14} />
             <span className="text-[11px] font-mono truncate flex-1">{tab.name}</span>
             {tab.isDirty && (
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--solar-yellow)] shrink-0" />
@@ -602,10 +517,13 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
           <DiffEditor
             height="100%"
             language={language}
-            theme="meauxcad-dark"
+            theme={editorThemeId}
             original={activeFile.originalContent ?? ''}
             modified={activeFile.content}
-            options={{ ...buildEditorOptions(false, false), readOnly: false }}
+            beforeMount={(m) => {
+              applyMonacoTheme(m);
+            }}
+            options={buildDiffEditorOptions({ modifiedEditable: !isTruncated })}
           />
         ) : (
           <div className="flex flex-col h-full w-full min-h-0">

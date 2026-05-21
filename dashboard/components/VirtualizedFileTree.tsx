@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
-  File as FileIcon,
   Folder,
   Loader2,
 } from 'lucide-react';
@@ -10,6 +9,7 @@ import {
   LOCAL_TREE_ROW_HEIGHT_PX,
   type LocalFileTreeRow,
 } from '../src/lib/localFileTree';
+import { SetiFileIcon } from '../src/components/SetiFileIcon';
 
 const OVERSCAN = 10;
 
@@ -150,7 +150,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
                   ) : (
                     <>
                       <span className="w-3.5 shrink-0" aria-hidden />
-                      <FileIcon size={14} className="shrink-0 text-[var(--text-muted)]" aria-hidden />
+                      <SetiFileIcon filename={node.name} size={14} />
                     </>
                   )}
                   <span className="truncate" title={node.name}>
