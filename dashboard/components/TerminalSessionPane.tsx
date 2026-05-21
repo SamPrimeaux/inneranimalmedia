@@ -27,6 +27,18 @@ const RETRYABLE_STATES: ReadonlySet<TerminalConnectionStatus> = new Set([
   'disconnected',
 ]);
 
+/** Close without triggering reconnect (superseded connect or unmount). */
+function closeSocketQuietly(ws: WebSocket | null) {
+  if (!ws) return;
+  ws.onopen = null;
+  ws.onmessage = null;
+  ws.onerror = null;
+  ws.onclose = null;
+  if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+    ws.close(1000, 'superseded');
+  }
+}
+
 export interface TerminalSessionPaneHandle {
   writeToTerminal: (text: string) => void;
   writeAnsi: (text: string) => void;
@@ -80,7 +92,12 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
     const intentionalCloseRef = useRef(false);
     const activeConnectRef = useRef<() => void>(() => {});
     const connectInFlightRef = useRef(false);
+    const connectSeqRef = useRef(0);
+    const connectDebounceRef = useRef<number | null>(null);
     const bootstrapInFlightRef = useRef<Promise<void> | null>(null);
+    const refreshBootstrapRef = useRef<() => Promise<void>>(async () => {});
+    const scheduleReconnectRef = useRef<(reason: string) => void>(() => {});
+    const appendBufferRef = useRef<(text: string) => void>(() => {});
 
     const _doBootstrap = useCallback(async () => {
       cachedBootstrapRef.current = null;
@@ -175,44 +192,61 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
     }, []);
 
     useEffect(() => {
+      refreshBootstrapRef.current = refreshBootstrap;
+      scheduleReconnectRef.current = scheduleReconnect;
+      appendBufferRef.current = appendBuffer;
+    }, [refreshBootstrap, scheduleReconnect, appendBuffer]);
+
+    useEffect(() => {
       let isMounted = true;
 
       const connect = () => {
         if (connectInFlightRef.current || !isMounted || intentionalCloseRef.current) return;
         if (statusRef.current === 'offline') return;
+        const wsId = workspaceId?.trim() ?? '';
+        if (!wsId) return;
+
         connectInFlightRef.current = true;
+        const seq = ++connectSeqRef.current;
         setStatus(retryCountRef.current > 0 ? 'reconnecting' : 'connecting');
         void (async () => {
           try {
             ptySessionIdRef.current = null;
 
             if (!cachedBootstrapRef.current) {
-              await refreshBootstrap();
+              await refreshBootstrapRef.current();
             }
-            if (!isMounted || intentionalCloseRef.current) return;
+            if (!isMounted || intentionalCloseRef.current || seq !== connectSeqRef.current) return;
 
             const boot = cachedBootstrapRef.current;
             if (!boot || boot.cfgOk !== true) {
               setStatus('disconnected');
-              scheduleReconnect('config-status failed');
+              scheduleReconnectRef.current('config-status failed');
               return;
             }
             if (boot.terminalConfigured !== true) {
               setStatus('backend_unavailable');
-              scheduleReconnect('Terminal backend unavailable');
+              scheduleReconnectRef.current('Terminal backend unavailable');
               return;
             }
 
             const resumeJson = boot.resumeJson ?? { resumable: false };
 
+            closeSocketQuietly(socketRef.current);
+            if (!isMounted || intentionalCloseRef.current || seq !== connectSeqRef.current) return;
+
             const wsHttpUrl = new URL('/api/agent/terminal/ws', window.location.origin);
-            if (workspaceId) wsHttpUrl.searchParams.set('workspace_id', workspaceId);
+            wsHttpUrl.searchParams.set('workspace_id', wsId);
             wsHttpUrl.searchParams.set('execution_mode', 'pty');
             if (ptySlot) wsHttpUrl.searchParams.set('pty_slot', ptySlot);
             if (shell?.trim()) wsHttpUrl.searchParams.set('shell', shell.trim());
             const wsUrl = wsHttpUrl.href.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
 
             const ws = new WebSocket(wsUrl);
+            if (seq !== connectSeqRef.current) {
+              closeSocketQuietly(ws);
+              return;
+            }
             socketRef.current = ws;
             if (retryTimerRef.current) {
               clearTimeout(retryTimerRef.current);
@@ -222,16 +256,17 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
             const disposeListeners: Array<() => void> = [];
             let closeHandled = false;
             const handleSocketDrop = (reason: string) => {
-              if (closeHandled) return;
+              if (closeHandled || seq !== connectSeqRef.current) return;
               closeHandled = true;
               disposeListeners.forEach((fn) => fn());
               if (!isMounted || intentionalCloseRef.current) return;
               ptySessionIdRef.current = null;
               setSessionIdState(null);
-              scheduleReconnect(reason);
+              scheduleReconnectRef.current(reason);
             };
 
             ws.onopen = () => {
+              if (seq !== connectSeqRef.current) return;
               retryCountRef.current = 0;
               setStatus('connected');
               if (!isMounted || intentionalCloseRef.current) return;
@@ -277,6 +312,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
             };
 
             ws.onmessage = (event) => {
+              if (seq !== connectSeqRef.current) return;
               try {
                 const msg = JSON.parse(event.data as string) as {
                   type?: string;
@@ -302,25 +338,26 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
                 }
                 if (msg.type === 'output') {
                   const text = msg.data ?? '';
-                  appendBuffer(text);
+                  appendBufferRef.current(text);
                   xtermRef.current?.write(text);
                   return;
                 }
               } catch (_) {
                 /* binary passthrough */
               }
-              appendBuffer(event.data as string);
+              appendBufferRef.current(event.data as string);
               xtermRef.current?.write(event.data as string);
             };
 
             ws.onerror = () => {
-              if (!isMounted || intentionalCloseRef.current) return;
+              if (!isMounted || intentionalCloseRef.current || seq !== connectSeqRef.current) return;
               setStatus('disconnected');
               handleSocketDrop('Connection error');
             };
 
             ws.onclose = (evt) => {
-              if (!isMounted || intentionalCloseRef.current) return;
+              if (!isMounted || intentionalCloseRef.current || seq !== connectSeqRef.current) return;
+              if (evt.code === 1000 && evt.reason === 'superseded') return;
               if (evt.code === 4401) {
                 setStatus('session_expired');
                 return;
@@ -337,30 +374,65 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
               handleSocketDrop(`Connection closed (${evt.code || 'no-code'})`);
             };
           } catch (e: unknown) {
-            if (!isMounted || intentionalCloseRef.current) return;
+            if (!isMounted || intentionalCloseRef.current || seq !== connectSeqRef.current) return;
             setStatus('disconnected');
-            scheduleReconnect(`Connection bootstrap failed: ${e instanceof Error ? e.message : String(e)}`);
+            scheduleReconnectRef.current(
+              `Connection bootstrap failed: ${e instanceof Error ? e.message : String(e)}`,
+            );
           } finally {
-            connectInFlightRef.current = false;
+            if (seq === connectSeqRef.current) connectInFlightRef.current = false;
           }
         })();
       };
 
       activeConnectRef.current = connect;
 
-      if (visible && (!socketRef.current || socketRef.current.readyState > 1)) {
-        intentionalCloseRef.current = false;
-        connect();
+      if (connectDebounceRef.current) {
+        clearTimeout(connectDebounceRef.current);
+        connectDebounceRef.current = null;
       }
+
+      if (!visible) {
+        intentionalCloseRef.current = true;
+        connectSeqRef.current += 1;
+        connectInFlightRef.current = false;
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        closeSocketQuietly(socketRef.current);
+        socketRef.current = null;
+        return () => {
+          isMounted = false;
+        };
+      }
+
+      intentionalCloseRef.current = false;
+      const wsId = workspaceId?.trim() ?? '';
+      if (!wsId) return () => {
+        isMounted = false;
+      };
+
+      connectDebounceRef.current = window.setTimeout(() => {
+        connectDebounceRef.current = null;
+        if (!isMounted || intentionalCloseRef.current) return;
+        const existing = socketRef.current;
+        if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+          return;
+        }
+        connect();
+      }, 120) as unknown as number;
 
       return () => {
         isMounted = false;
-        intentionalCloseRef.current = true;
+        connectSeqRef.current += 1;
+        connectInFlightRef.current = false;
+        if (connectDebounceRef.current) {
+          clearTimeout(connectDebounceRef.current);
+          connectDebounceRef.current = null;
+        }
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-        socketRef.current?.close();
+        closeSocketQuietly(socketRef.current);
         socketRef.current = null;
       };
-    }, [visible, workspaceId, ptySlot, shell, refreshBootstrap, appendBuffer, scheduleReconnect]);
+    }, [visible, workspaceId, ptySlot, shell]);
 
     useEffect(() => {
       const observer = new MutationObserver(() => {
@@ -442,7 +514,10 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       reconnectClean: () => {
         intentionalCloseRef.current = false;
         retryCountRef.current = 0;
-        void refreshBootstrap().finally(() => {
+        connectSeqRef.current += 1;
+        closeSocketQuietly(socketRef.current);
+        socketRef.current = null;
+        void refreshBootstrapRef.current().finally(() => {
           setStatus('connecting');
           activeConnectRef.current();
         });
