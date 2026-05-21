@@ -1,7 +1,8 @@
 /**
  * DatabasePage — /dashboard/database
  *
- * D1 Studio–style explorer: flat table list, multi-buffer SQL workspace, schema/data/DDL tabs.
+ * D1 Studio–style explorer: searchable table sidebar, single SQL editor, results grid.
+ * Schema / indexes / relations open from per-table context menu (not top-level tabs).
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,12 +12,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCopy,
-  Database,
   Download,
   Filter,
   Key,
   Link2,
   Loader2,
+  MoreHorizontal,
   Play,
   Plus,
   RefreshCw,
@@ -52,14 +53,13 @@ import { rowKeyForRow, type SelectedGridCell } from './database/databaseGridType
 import '../components/database/database-page.css';
 
 type Datasource = 'd1' | 'hyperdrive';
-type MainTab = 'schema' | 'data' | 'sql' | 'indexes' | 'relations';
+type MetaPanel = 'schema' | 'indexes' | 'relations';
 type SortDir = 'asc' | 'desc';
 type LoadStatus = 'idle' | 'loading' | 'ok' | 'error';
 type SqlRunState = 'idle' | 'running' | 'success' | 'error';
 
 const LS_DATASOURCE = 'iam.database.datasource';
 const LS_TABLE = 'iam.database.selectedTable';
-const LS_TAB = 'iam.database.activeTab';
 const LS_RESULTS_H = 'iam.database.resultsPaneHeight';
 const DEFAULT_RESULTS_PANE_H = 220;
 const MIN_RESULTS_PANE_H = 160;
@@ -110,12 +110,6 @@ type DataResponse = {
 };
 
 
-type SqlQueryTab = {
-  id: string;
-  title: string;
-  sql: string;
-};
-
 const PAGE_SIZE = 50;
 const FILTER_OPS: DatabaseFilterUiOp[] = DATABASE_FILTER_UI_OPS;
 
@@ -131,16 +125,6 @@ function readStoredDatasource(): Datasource {
     /* ignore */
   }
   return 'd1';
-}
-
-function readStoredMainTab(): MainTab {
-  try {
-    const v = localStorage.getItem(LS_TAB);
-    if (v === 'schema' || v === 'data' || v === 'sql' || v === 'indexes' || v === 'relations') return v;
-  } catch {
-    /* ignore */
-  }
-  return 'schema';
 }
 
 function readStoredResultsHeight(): number {
@@ -183,43 +167,6 @@ function columnDefault(col: SchemaColumn) {
   return col.dflt_value ?? col.column_default ?? null;
 }
 
-function formatValue(value: unknown, columnName = '') {
-  if (value === null || value === undefined) return <span className="database-null-chip">NULL</span>;
-  if (typeof value === 'number') {
-    const isLikelyEpoch = /(_at|time|date|timestamp)$/i.test(columnName) && value > 946684800 && value < 4102444800;
-    if (isLikelyEpoch) {
-      const d = new Date(value * 1000);
-      return <span title={String(value)}>{d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>;
-    }
-    return <span className="font-mono text-right tabular-nums">{value}</span>;
-  }
-  if (typeof value === 'boolean' || value === 0 || value === 1) {
-    return (
-      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${value ? 'bg-[var(--solar-green)]/15 text-[var(--solar-green)]' : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'}`}>
-        {value ? 'true' : 'false'}
-      </span>
-    );
-  }
-  const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
-  const trimmed = text.trim();
-  if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && trimmed.length > 1) {
-    try {
-      JSON.parse(trimmed);
-      return (
-        <details className="max-w-[280px]">
-          <summary className="cursor-pointer text-[var(--solar-cyan)]">JSON</summary>
-          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-[var(--border-subtle)] bg-[var(--bg-app)] p-2 text-[10px]">
-            {JSON.stringify(JSON.parse(trimmed), null, 2)}
-          </pre>
-        </details>
-      );
-    } catch {
-      return <span title={text}>{text}</span>;
-    }
-  }
-  return <span title={text}>{text.length > 80 ? `${text.slice(0, 80)}...` : text}</span>;
-}
-
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { credentials: 'same-origin', ...init });
   const data = await res.json().catch(() => ({}));
@@ -259,18 +206,6 @@ function Drawer({
   );
 }
 
-function newTabId() {
-  return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `q_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-const INITIAL_SQL_WORKSPACE = (() => {
-  const id = newTabId();
-  return {
-    tabs: [{ id, title: 'Query', sql: "-- SQL\nSELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name LIMIT 50;" }] as SqlQueryTab[],
-    activeId: id,
-  };
-})();
-
 function SetupCard({ title, body, to }: { title: string; body: string; to: string }) {
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-6 shadow-sm">
@@ -303,7 +238,8 @@ export const DatabasePage: React.FC = () => {
       return null;
     }
   });
-  const [activeMainTab, setActiveMainTab] = useState<MainTab>(readStoredMainTab);
+  const [metaPanel, setMetaPanel] = useState<MetaPanel | null>(null);
+  const [tableMenu, setTableMenu] = useState<{ table: string; x: number; y: number } | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
 
   const [schema, setSchema] = useState<SchemaColumn[]>([]);
@@ -322,10 +258,12 @@ export const DatabasePage: React.FC = () => {
   const [selectedCell, setSelectedCell] = useState<SelectedGridCell | null>(null);
   const [cellDetail, setCellDetail] = useState<CellDetailPayload | null>(null);
 
-  const [queryTabs, setQueryTabs] = useState<SqlQueryTab[]>(INITIAL_SQL_WORKSPACE.tabs);
-  const [activeQueryTabId, setActiveQueryTabId] = useState(INITIAL_SQL_WORKSPACE.activeId);
-  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState('');
+  const [sql, setSql] = useState('');
+  const [browseMeta, setBrowseMeta] = useState<{ page: number; total_pages: number; total_count: number }>({
+    page: 1,
+    total_pages: 1,
+    total_count: 0,
+  });
 
   const [sqlResults, setSqlResults] = useState<Record<string, unknown>[]>([]);
   const [sqlColumns, setSqlColumns] = useState<string[]>([]);
@@ -350,8 +288,8 @@ export const DatabasePage: React.FC = () => {
   const sqlStackRef = useRef<HTMLDivElement | null>(null);
   const resultsPaneHeightRef = useRef(resultsPaneHeight);
   resultsPaneHeightRef.current = resultsPaneHeight;
-  const activeQueryTabIdRef = useRef(activeQueryTabId);
-  activeQueryTabIdRef.current = activeQueryTabId;
+  const sqlRef = useRef(sql);
+  sqlRef.current = sql;
   const runSqlRef = useRef<(statement: string) => Promise<void>>(async () => {});
 
   const sqlRunning = sqlRunState === 'running';
@@ -391,14 +329,12 @@ export const DatabasePage: React.FC = () => {
         : !pk
           ? 'Editing requires a primary key so this row can be updated safely.'
           : !selectedTable
-            ? 'Select a table on the Data tab.'
+            ? 'Select a table first.'
             : '';
   const filteredTables = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
     return q ? activeTables.filter((t) => t.name.toLowerCase().includes(q)) : activeTables;
   }, [activeTables, tableSearch]);
-  const columns = data.columns?.length ? data.columns : Object.keys(data.rows[0] || {});
-
   const insertSql = useMemo(() => {
     if (!selectedTable) return '';
     const pairs = schema
@@ -410,7 +346,10 @@ export const DatabasePage: React.FC = () => {
     return `INSERT INTO ${selectedTableSqlName} (${cols}) VALUES (${vals});`;
   }, [insertValues, schema, selectedTable, selectedTableSqlName]);
 
-  const activeSql = useMemo(() => queryTabs.find((t) => t.id === activeQueryTabId)?.sql ?? '', [queryTabs, activeQueryTabId]);
+  const selectedTableMeta = useMemo(
+    () => (selectedTable ? activeTables.find((t) => t.name === selectedTable) : undefined),
+    [activeTables, selectedTable],
+  );
 
   const loadThemeAccent = useCallback(async () => {
     const root = document.documentElement;
@@ -514,29 +453,6 @@ export const DatabasePage: React.FC = () => {
     [datasource],
   );
 
-  const loadData = useCallback(
-    async (table: string, nextPage = page) => {
-      setLoadingMain(true);
-      setDataError(null);
-      try {
-        const base = datasource === 'd1' ? '/api/d1/table' : '/api/hyperdrive/table';
-        const qs = new URLSearchParams({ page: String(nextPage), limit: String(PAGE_SIZE) });
-        if (sortCol) qs.set('sort', sortCol);
-        if (sortCol) qs.set('dir', sortDir);
-        if (filters.length) qs.set('filter', serializeDatabaseFilters(filters));
-        const payload = await fetchJson<DataResponse>(`${base}/${encodeURIComponent(table)}/data?${qs.toString()}`);
-        setData(payload);
-        setSelectedRows(new Set());
-      } catch (e) {
-        setDataError(e instanceof Error ? e.message : String(e));
-        setData({ rows: [], total_count: 0, page: nextPage, total_pages: 1 });
-      } finally {
-        setLoadingMain(false);
-      }
-    },
-    [datasource, filters, page, sortCol, sortDir],
-  );
-
   useEffect(() => {
     void loadThemeAccent();
   }, [loadThemeAccent]);
@@ -593,14 +509,6 @@ export const DatabasePage: React.FC = () => {
 
   useEffect(() => {
     try {
-      localStorage.setItem(LS_TAB, activeMainTab);
-    } catch {
-      /* ignore */
-    }
-  }, [activeMainTab]);
-
-  useEffect(() => {
-    try {
       if (selectedTable) localStorage.setItem(LS_TABLE, selectedTable);
       else localStorage.removeItem(LS_TABLE);
     } catch {
@@ -623,15 +531,16 @@ export const DatabasePage: React.FC = () => {
     }
   }, [resultsPaneHeight]);
 
-  useEffect(() => {
-    if (!selectedTable || activeMainTab === 'sql') return;
-    void loadSchema(selectedTable);
-    void loadData(selectedTable, 1);
-  }, [datasource, loadData, loadSchema, selectedTable, activeMainTab]);
-
-  const setActiveSql = useCallback((text: string) => {
-    const id = activeQueryTabIdRef.current;
-    setQueryTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, sql: text } : t)));
+  const syncDataResponseToGrid = useCallback((payload: DataResponse) => {
+    setSqlResults(payload.rows);
+    const cols = payload.columns?.length ? payload.columns : Object.keys(payload.rows[0] || {});
+    setSqlColumns(cols);
+    setBrowseMeta({
+      page: payload.page,
+      total_pages: payload.total_pages,
+      total_count: payload.total_count,
+    });
+    setSqlRunState('success');
   }, []);
 
   const copyToClipboard = useCallback(async (text: string) => {
@@ -693,7 +602,7 @@ export const DatabasePage: React.FC = () => {
 
   const requestRunSql = useCallback(
     (statement?: string) => {
-      const raw = (statement ?? queryTabs.find((t) => t.id === activeQueryTabId)?.sql ?? '').trim();
+      const raw = (statement ?? sqlRef.current).trim();
       if (!raw) {
         setSqlError('Empty query');
         setSqlResults([]);
@@ -729,7 +638,7 @@ export const DatabasePage: React.FC = () => {
       }
       void executeSqlInternal(raw, { studioApproved: true, destructiveConfirmed: gate.requiresConfirmTyping });
     },
-    [activeQueryTabId, datasourceLabel, executeSqlInternal, isSuperadmin, queryTabs],
+    [datasourceLabel, executeSqlInternal, isSuperadmin],
   );
 
   const confirmSqlModalRun = useCallback(() => {
@@ -750,7 +659,6 @@ export const DatabasePage: React.FC = () => {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (activeMainTab !== 'sql') return;
       if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
       if (event.shiftKey) return;
       event.preventDefault();
@@ -758,7 +666,7 @@ export const DatabasePage: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeMainTab, runSql]);
+  }, [runSql]);
 
   const beginResultsPaneResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) return;
@@ -820,7 +728,6 @@ export const DatabasePage: React.FC = () => {
 
   useEffect(() => {
     const onFmt = (event: KeyboardEvent) => {
-      if (activeMainTab !== 'sql' || renamingTabId) return;
       if (!event.altKey || event.metaKey || event.ctrlKey) return;
       if (event.key.toLowerCase() !== 'f') return;
       event.preventDefault();
@@ -828,17 +735,26 @@ export const DatabasePage: React.FC = () => {
     };
     window.addEventListener('keydown', onFmt);
     return () => window.removeEventListener('keydown', onFmt);
-  }, [activeMainTab, renamingTabId]);
+  }, []);
 
   const selectTableSql = useCallback(
-    (name: string) => {
+    (name: string, pageNum = 1) => {
+      const offset = (Math.max(1, pageNum) - 1) * PAGE_SIZE;
       if (datasource === 'd1') {
-        return `SELECT * FROM ${quoteIdent(name)} LIMIT 50;`;
+        return `SELECT * FROM ${quoteIdent(name)} LIMIT ${PAGE_SIZE} OFFSET ${offset};`;
       }
-      return `SELECT * FROM public.${quoteIdent(name)} LIMIT 50;`;
+      return `SELECT * FROM public.${quoteIdent(name)} LIMIT ${PAGE_SIZE} OFFSET ${offset};`;
     },
     [datasource],
   );
+
+  const tableBrowseTotalPages = useMemo(() => {
+    if (filters.length && browseMeta.total_pages) return browseMeta.total_pages;
+    const count = selectedTableMeta?.row_count;
+    if (count != null && Number.isFinite(count)) return Math.max(1, Math.ceil(count / PAGE_SIZE));
+    if (sqlResults.length < PAGE_SIZE) return Math.max(1, page);
+    return Math.max(browseMeta.total_pages, page + 1);
+  }, [browseMeta.total_pages, filters.length, page, selectedTableMeta?.row_count, sqlResults.length]);
 
   useEffect(() => {
     const sqlForTable = (name: string, ds: Datasource) => {
@@ -862,22 +778,13 @@ export const DatabasePage: React.FC = () => {
         setSidebarSource(targetDs);
       }
 
-      setActiveMainTab('sql');
       const mode = e.detail?.mode ?? 'replace';
       const shouldRun = e.detail?.run === true || e.detail?.autorun === true;
 
-      if (mode === 'new_tab') {
-        const id = newTabId();
-        setQueryTabs((tabs) => [...tabs, { id, title: 'Agent query', sql: text }]);
-        setActiveQueryTabId(id);
-      } else if (mode === 'append') {
-        const id = activeQueryTabIdRef.current;
-        setQueryTabs((tabs) =>
-          tabs.map((t) => (t.id === id ? { ...t, sql: t.sql.trim() ? `${t.sql.trim()}\n\n${text}` : text } : t)),
-        );
+      if (mode === 'append') {
+        setSql((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
       } else {
-        const id = activeQueryTabIdRef.current;
-        setQueryTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, sql: text } : t)));
+        setSql(text);
       }
 
       if (shouldRun) {
@@ -886,18 +793,24 @@ export const DatabasePage: React.FC = () => {
     };
 
     const onOpenTable = (ev: Event) => {
-      const e = ev as CustomEvent<{ datasource?: DatabaseDatasource; table?: string; tab?: MainTab }>;
+      const e = ev as CustomEvent<{ datasource?: DatabaseDatasource; table?: string; tab?: MetaPanel | 'data' | 'sql' }>;
       const name = String(e.detail?.table ?? '').trim();
       if (!name) return;
       const ds: Datasource = e.detail?.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
       setSidebarSource(ds);
-      setSelectedTable(name);
       setPage(1);
-      const tab = e.detail?.tab ?? 'schema';
-      setActiveMainTab(tab);
-      if (tab === 'sql') {
-        setActiveSql(sqlForTable(name, ds));
+      const tab = e.detail?.tab;
+      if (tab === 'schema' || tab === 'indexes' || tab === 'relations') {
+        setSelectedTable(name);
+        setMetaPanel(tab);
+        void loadSchema(name);
+        return;
       }
+      const sqlText = sqlForTable(name, ds);
+      setSelectedTable(name);
+      setSql(sqlText);
+      setMetaPanel(null);
+      queueMicrotask(() => runSqlRef.current(sqlText));
     };
 
     const onQueryAnalysis = (ev: Event) => {
@@ -908,18 +821,7 @@ export const DatabasePage: React.FC = () => {
       const sqlText = String(e.detail?.sql ?? lastAttemptedSql ?? '').trim();
       const errText = e.detail?.error != null ? String(e.detail.error) : '';
       if (sqlText) {
-        setActiveMainTab('sql');
-        const id = activeQueryTabIdRef.current;
-        setQueryTabs((tabs) =>
-          tabs.map((t) =>
-            t.id === id
-              ? {
-                  ...t,
-                  sql: errText ? `${sqlText}\n\n-- Last error:\n-- ${errText.replace(/\n/g, '\n-- ')}` : sqlText,
-                }
-              : t,
-          ),
-        );
+        setSql(errText ? `${sqlText}\n\n-- Last error:\n-- ${errText.replace(/\n/g, '\n-- ')}` : sqlText);
       }
       if (errText) {
         setSqlError(errText);
@@ -935,26 +837,25 @@ export const DatabasePage: React.FC = () => {
       window.removeEventListener('db:open-table', onOpenTable as EventListener);
       window.removeEventListener('db:open-query-analysis', onQueryAnalysis as EventListener);
     };
-  }, [isSuperadmin, lastAttemptedSql, setActiveSql]);
+  }, [isSuperadmin, lastAttemptedSql, loadSchema]);
 
   useEffect(() => {
     const dialect = datasource === 'hyperdrive' ? 'postgresql' : 'sqlite';
+    const gridRows = sqlResults.length ? sqlResults : data.rows;
     const selectedRow =
-      selectedCell?.source === 'data_tab' && pk
-        ? data.rows.find((r, i) => rowKeyForRow(r, pk, i) === selectedCell.rowKey)
-        : selectedCell?.source === 'data_tab'
-          ? selectedCell.row
-          : null;
-    const cellRow = selectedCell?.source === 'data_tab' ? selectedCell.row : null;
+      selectedCell && pk
+        ? gridRows.find((r, i) => rowKeyForRow(r, pk, i) === selectedCell.rowKey)
+        : selectedCell?.row ?? null;
+    const cellRow = selectedCell?.row ?? null;
     const payload: DatabaseSurfaceContext = {
       route: '/dashboard/database',
       surface: 'database',
       datasource,
       dialect,
       selectedTable,
-      activeMainTab,
-      currentSqlBuffer: activeSql ? activeSql.slice(0, 4000) : '',
-      selectedSql: activeSql ? activeSql.slice(0, 2000) : '',
+      activeMainTab: 'sql',
+      currentSqlBuffer: sql ? sql.slice(0, 4000) : '',
+      selectedSql: sql ? sql.slice(0, 2000) : '',
       lastAttemptedSql: lastAttemptedSql ? lastAttemptedSql.slice(0, 4000) : '',
       lastError: sqlError,
       lastResultMeta: {
@@ -988,10 +889,10 @@ export const DatabasePage: React.FC = () => {
           }
         : null,
       dataSummary: {
-        page: data.page,
-        totalPages: data.total_pages,
-        totalCount: data.total_count,
-        rowsOnPage: data.rows.length,
+        page: filters.length ? browseMeta.page : page,
+        totalPages: filters.length ? browseMeta.total_pages : tableBrowseTotalPages,
+        totalCount: filters.length ? browseMeta.total_count : (selectedTableMeta?.row_count ?? browseMeta.total_count),
+        rowsOnPage: sqlResults.length,
       },
       activeFilters: filters.map(({ col, op, val }) => ({ col, op, val })),
       capabilities: {
@@ -1004,31 +905,77 @@ export const DatabasePage: React.FC = () => {
     };
     publishDatabaseSurfaceContext(payload);
   }, [
-    activeMainTab,
-    activeSql,
-    data.page,
+    browseMeta,
     data.rows,
-    data.total_count,
-    data.total_pages,
     datasource,
-    filters,
+    filters.length,
     isSuperadmin,
     lastAttemptedSql,
     lastQueryMs,
     lastRowsRead,
+    page,
     pk,
     schema,
     selectedCell,
     selectedTable,
+    selectedTableMeta?.row_count,
+    sql,
     sqlError,
+    sqlResults,
     sqlRunState,
+    tableBrowseTotalPages,
   ]);
+
+  const refreshTableRows = useCallback(
+    async (nextPage = page) => {
+      if (!selectedTable) return;
+      setPage(nextPage);
+      if (filters.length) {
+        setLoadingMain(true);
+        setDataError(null);
+        try {
+          const base = datasource === 'd1' ? '/api/d1/table' : '/api/hyperdrive/table';
+          const qs = new URLSearchParams({ page: String(nextPage), limit: String(PAGE_SIZE) });
+          if (sortCol) qs.set('sort', sortCol);
+          if (sortCol) qs.set('dir', sortDir);
+          qs.set('filter', serializeDatabaseFilters(filters));
+          const payload = await fetchJson<DataResponse>(
+            `${base}/${encodeURIComponent(selectedTable)}/data?${qs.toString()}`,
+          );
+          setData(payload);
+          syncDataResponseToGrid(payload);
+          setSelectedRows(new Set());
+        } catch (e) {
+          setDataError(e instanceof Error ? e.message : String(e));
+        } finally {
+          setLoadingMain(false);
+        }
+        return;
+      }
+      const statement = selectTableSql(selectedTable, nextPage);
+      setSql(statement);
+      await requestRunSql(statement);
+    },
+    [datasource, filters, page, requestRunSql, selectedTable, selectTableSql, sortCol, sortDir, syncDataResponseToGrid],
+  );
 
   const onPickTable = (name: string) => {
     setSelectedTable(name);
     setPage(1);
-    setActiveMainTab('sql');
-    setActiveSql(selectTableSql(name));
+    setMetaPanel(null);
+    setFilters([]);
+    setSelectedRows(new Set());
+    void loadSchema(name);
+    const statement = selectTableSql(name, 1);
+    setSql(statement);
+    void requestRunSql(statement);
+  };
+
+  const openTableMeta = (name: string, panel: MetaPanel) => {
+    setSelectedTable(name);
+    setMetaPanel(panel);
+    setTableMenu(null);
+    void loadSchema(name);
   };
 
   const toggleColumns = async (table: string, ev: React.MouseEvent) => {
@@ -1053,17 +1000,6 @@ export const DatabasePage: React.FC = () => {
     }
   };
 
-  const addQueryTab = () => {
-    const id = newTabId();
-    const starter =
-      datasource === 'd1'
-        ? "-- New query\nSELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name LIMIT 20;"
-        : '-- New query\nSELECT table_name FROM information_schema.tables WHERE table_schema = \'public\' ORDER BY table_name LIMIT 20;';
-    setQueryTabs((t) => [...t, { id, title: 'Query', sql: starter }]);
-    setActiveQueryTabId(id);
-    setActiveMainTab('sql');
-  };
-
   const insertRow = async () => {
     if (!canInsertRow || !selectedTable) return;
     const missing = schema.filter((c) => isNotNull(c) && !isPrimaryKey(c) && columnDefault(c) == null && !insertValues[c.name]);
@@ -1079,7 +1015,7 @@ export const DatabasePage: React.FC = () => {
       });
       setDrawer(null);
       setInsertValues({});
-      await loadData(selectedTable, page);
+      await refreshTableRows(page);
     } catch (e) {
       setDataError(e instanceof Error ? e.message : String(e));
     }
@@ -1087,7 +1023,8 @@ export const DatabasePage: React.FC = () => {
 
   const deleteSelectedRows = async () => {
     if (!canDeleteRows || !selectedTable || !pk) return;
-    const pkVals = data.rows.filter((r) => selectedRows.has(String(r[pk]))).map((r) => r[pk]);
+    const gridRows = sqlResults.length ? sqlResults : data.rows;
+    const pkVals = gridRows.filter((r, i) => selectedRows.has(rowKeyForRow(r, pk, i))).map((r) => r[pk]);
     try {
       await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/rows`, {
         method: 'DELETE',
@@ -1096,7 +1033,7 @@ export const DatabasePage: React.FC = () => {
       });
       setDeleteRowsModal(false);
       setSelectedRows(new Set());
-      await loadData(selectedTable, page);
+      await refreshTableRows(page);
     } catch (e) {
       setDataError(e instanceof Error ? e.message : String(e));
     }
@@ -1141,12 +1078,12 @@ export const DatabasePage: React.FC = () => {
         });
         setEditingCell(null);
         setCellDetail(null);
-        await loadData(selectedTable, page);
+        await refreshTableRows(page);
       } catch (e) {
         setDataError(e instanceof Error ? e.message : String(e));
       }
     },
-    [canEditDataCell, page, pk, selectedTable],
+    [canEditDataCell, page, pk, refreshTableRows, selectedTable],
   );
 
   const exportRows = useCallback((rows: Record<string, unknown>[], filename: string) => {
@@ -1161,8 +1098,9 @@ export const DatabasePage: React.FC = () => {
   }, []);
 
   const copyVisibleDataCsv = useCallback(() => {
-    exportRows(data.rows, `${selectedTable || 'table'}-page.csv`);
-  }, [data.rows, exportRows, selectedTable]);
+    const rows = sqlResults.length ? sqlResults : data.rows;
+    exportRows(rows, `${selectedTable || 'table'}-page.csv`);
+  }, [data.rows, exportRows, selectedTable, sqlResults]);
 
   const exportSqlResultsCsv = useCallback(() => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1170,15 +1108,7 @@ export const DatabasePage: React.FC = () => {
     exportRows(sqlResults, `${datasource}-${base}-${stamp}.csv`);
   }, [datasource, exportRows, selectedTable, sqlResults]);
 
-  const copyRowJson = useCallback(
-    (row: Record<string, unknown>) => {
-      void copyToClipboard(JSON.stringify(row, null, 2));
-    },
-    [copyToClipboard],
-  );
-
   useEffect(() => {
-    if (activeMainTab !== 'data' && activeMainTab !== 'sql') return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setCellDetail(null);
@@ -1194,7 +1124,24 @@ export const DatabasePage: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeMainTab, editingCell, openCellDetail, selectedCell]);
+  }, [editingCell, openCellDetail, selectedCell]);
+
+  useEffect(() => {
+    if (!tableMenu) return;
+    const close = () => setTableMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [tableMenu]);
+
+  const applyFiltersToTable = useCallback(() => {
+    if (!selectedTable) return;
+    setPage(1);
+    void refreshTableRows(1);
+  }, [refreshTableRows, selectedTable]);
 
   const onboardingEligible = capLoaded && pageReady && !isSuperadmin;
   const showD1Setup = onboardingEligible && d1Status === 'error';
@@ -1202,17 +1149,6 @@ export const DatabasePage: React.FC = () => {
   const dsNeedsSetup = datasource === 'd1' ? showD1Setup : showHyperSetup;
   const bothDisconnected = showD1Setup && showHyperSetup;
   const sidebarEmptyMuted = onboardingEligible && (datasource === 'd1' ? showD1Setup : showHyperSetup);
-
-  const mainPlaceholder =
-    !selectedTable && activeMainTab !== 'sql' ? (
-      <div className="flex h-full items-center justify-center text-center">
-        <div>
-          <Database size={34} className="mx-auto mb-3 text-[var(--text-muted)] opacity-40" />
-          <p className="text-sm font-semibold">Select a table</p>
-          <p className="mt-1 text-[12px] text-[var(--text-muted)]">Pick a table in the sidebar or open the SQL tab.</p>
-        </div>
-      </div>
-    ) : null;
 
   const setupContent =
     !pageReady || isSuperadmin
@@ -1299,11 +1235,17 @@ export const DatabasePage: React.FC = () => {
             </button>
             <button
               type="button"
-              title="New query tab"
-              onClick={addQueryTab}
+              title="Clear SQL editor"
+              onClick={() => {
+                setSql('');
+                setSqlResults([]);
+                setSqlColumns([]);
+                setSqlRunState('idle');
+                setSqlError(null);
+              }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
             >
-              <Plus size={14} />
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -1326,7 +1268,14 @@ export const DatabasePage: React.FC = () => {
             const cols = columnCache[table.name];
             const loadingCols = columnLoading[table.name];
             return (
-              <div key={table.name} className="border-b border-[var(--border-subtle)]/40">
+              <div
+                key={table.name}
+                className="border-b border-[var(--border-subtle)]/40"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setTableMenu({ table: table.name, x: e.clientX, y: e.clientY });
+                }}
+              >
                 <div className="flex items-stretch">
                   <button
                     type="button"
@@ -1339,12 +1288,25 @@ export const DatabasePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => onPickTable(table.name)}
-                    className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 text-left font-mono text-[11px] ${
+                    className={`flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-0 pr-1 text-left font-mono text-[11px] ${
                       selectedTable === table.name ? 'bg-[var(--color-accent,var(--solar-cyan))]/10 text-[var(--color-accent,var(--solar-cyan))]' : 'hover:bg-[var(--bg-hover)]'
                     }`}
                   >
                     <TableIcon size={12} className="shrink-0 opacity-70" />
                     <span className="min-w-0 truncate">{highlightSearchMatchAll(table.name, tableSearch)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="Table actions"
+                    aria-label={`Actions for ${table.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setTableMenu({ table: table.name, x: rect.right, y: rect.bottom });
+                    }}
+                    className="flex w-7 shrink-0 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                  >
+                    <MoreHorizontal size={13} />
                   </button>
                 </div>
                 {open && (
@@ -1378,31 +1340,36 @@ export const DatabasePage: React.FC = () => {
         </div>
       </aside>
 
+      {tableMenu && (
+        <div
+          className="database-table-menu"
+          style={{ top: tableMenu.y, left: tableMenu.x }}
+          role="menu"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button type="button" role="menuitem" onClick={() => onPickTable(tableMenu.table)}>
+            Query table
+          </button>
+          <button type="button" role="menuitem" onClick={() => openTableMeta(tableMenu.table, 'schema')}>
+            View schema
+          </button>
+          <button type="button" role="menuitem" onClick={() => openTableMeta(tableMenu.table, 'indexes')}>
+            View indexes
+          </button>
+          <button type="button" role="menuitem" onClick={() => openTableMeta(tableMenu.table, 'relations')}>
+            View relations
+          </button>
+        </div>
+      )}
+
       <main className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)] px-4 py-2">
           <div className="min-w-0">
-            <p className="truncate font-mono text-sm font-semibold">{selectedTable || 'Database'}</p>
+            <p className="truncate font-mono text-sm font-semibold">{selectedTable || 'Query'}</p>
             <p className="text-[11px] text-[var(--text-muted)]">
               {datasource === 'd1' ? 'Cloudflare D1 (SQLite)' : 'Supabase via Hyperdrive (Postgres)'}
               {!isSuperadmin ? ' · read-only SQL' : ''}
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-1">
-            {(['schema', 'data', 'sql', 'indexes', 'relations'] as MainTab[]).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => {
-                  setActiveMainTab(tab);
-                  if (tab === 'data' && selectedTable) void loadData(selectedTable, page);
-                }}
-                className={`rounded-md px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
-                  activeMainTab === tab ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -1417,63 +1384,15 @@ export const DatabasePage: React.FC = () => {
                 : undefined
             }
             onApplyEdit={
-              selectedCell?.editable && selectedCell.source === 'data_tab'
+              selectedCell?.editable && selectedTable && pk
                 ? (nextValue) => applyCellEdit(selectedCell, nextValue)
                 : undefined
             }
           />
           {setupContent}
 
-          {!setupContent && activeMainTab === 'sql' && (
+          {!setupContent && (
             <div ref={sqlStackRef} className="flex h-full min-h-0 flex-col">
-              <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--database-border)] bg-[var(--database-panel)] px-2 py-1">
-                {queryTabs.map((tab) => (
-                  <div
-                    key={tab.id}
-                    className={`flex max-w-[160px] shrink-0 items-center rounded-md border px-2 py-1 text-[11px] ${
-                      tab.id === activeQueryTabId ? 'border-[var(--color-accent,var(--solar-cyan))]/40 bg-[var(--color-accent,var(--solar-cyan))]/10' : 'border-transparent hover:bg-[var(--bg-hover)]'
-                    }`}
-                  >
-                    {renamingTabId === tab.id ? (
-                      <input
-                        autoFocus
-                        value={renameDraft}
-                        onChange={(e) => setRenameDraft(e.target.value)}
-                        onBlur={() => {
-                          const t = renameDraft.trim() || tab.title;
-                          setQueryTabs((q) => q.map((x) => (x.id === tab.id ? { ...x, title: t } : x)));
-                          setRenamingTabId(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                          if (e.key === 'Escape') setRenamingTabId(null);
-                        }}
-                        className="w-full min-w-0 bg-transparent font-mono text-[11px] outline-none"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 truncate text-left font-mono"
-                        onClick={() => setActiveQueryTabId(tab.id)}
-                        onDoubleClick={() => {
-                          setRenamingTabId(tab.id);
-                          setRenameDraft(tab.title);
-                        }}
-                      >
-                        {tab.title}
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={addQueryTab}
-                  className="shrink-0 rounded-md px-2 py-1 text-[10px] font-bold text-[var(--color-accent,var(--solar-cyan))] hover:bg-[var(--bg-hover)]"
-                >
-                  + New
-                </button>
-              </div>
-
               <div
                 className="min-h-0 flex-1"
                 style={{ minHeight: MIN_SQL_EDITOR_H, background: 'var(--database-monaco-bg)' }}
@@ -1481,11 +1400,8 @@ export const DatabasePage: React.FC = () => {
                 <MonacoSurface
                   height="100%"
                   language="sql"
-                  value={activeSql}
-                  onChange={(v) => {
-                    const id = activeQueryTabId;
-                    setQueryTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, sql: v } : t)));
-                  }}
+                  value={sql}
+                  onChange={setSql}
                   onMount={(ed) => {
                     sqlEditorRef.current = ed;
                   }}
@@ -1533,11 +1449,101 @@ export const DatabasePage: React.FC = () => {
                 className="database-results-pane--mobile flex shrink-0 flex-col border-t border-[var(--database-border)] md:max-h-[75%]"
                 style={{ height: resultsPaneHeight, minHeight: MIN_RESULTS_PANE_H }}
               >
+                {selectedTable && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--database-border)] bg-[var(--database-panel)] px-4 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!canInsertRow}
+                        title={!canInsertRow ? insertDisabledReason : 'Insert a new row'}
+                        onClick={() => canInsertRow && setDrawer('insert')}
+                        className="flex items-center gap-1 rounded-lg border border-[var(--database-border)] px-3 py-1.5 text-[11px] font-bold text-[var(--database-accent)] hover:bg-[var(--database-row-hover-bg)] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Plus size={12} /> Insert Row
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canDeleteRows}
+                        title={!canDeleteRows ? deleteDisabledReason : `Delete ${selectedRows.size} selected row(s)`}
+                        onClick={() => canDeleteRows && setDeleteRowsModal(true)}
+                        className="flex items-center gap-1 rounded-lg border border-[var(--database-border)] px-3 py-1.5 text-[11px] font-bold text-[var(--database-error-text)] hover:bg-[var(--database-row-hover-bg)] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Trash2 size={12} /> Delete Row
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void refreshTableRows(page)}
+                        className="rounded-lg border border-[var(--database-border)] p-1.5 text-[var(--database-text-muted)] hover:bg-[var(--database-row-hover-bg)]"
+                      >
+                        <RefreshCw size={13} className={loadingMain || sqlRunning ? 'animate-spin' : ''} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyVisibleDataCsv()}
+                        className="flex items-center gap-1 rounded-lg border border-[var(--database-border)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--database-row-hover-bg)]"
+                      >
+                        <Download size={12} /> Export CSV
+                      </button>
+                      {selectedRows.size > 0 && (
+                        <span className="rounded bg-[var(--database-cell-selected-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--database-accent)]">
+                          {selectedRows.size} selected
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Filter size={12} className="text-[var(--database-text-muted)]" />
+                      <select
+                        value={filters[0]?.col || ''}
+                        onChange={(e) =>
+                          setFilters(e.target.value ? [{ id: 'f1', col: e.target.value, op: 'contains', val: '' }] : [])
+                        }
+                        className="rounded border border-[var(--database-border)] bg-[var(--database-bg)] px-2 py-1 text-[11px]"
+                      >
+                        <option value="">Filter</option>
+                        {schema.map((c) => (
+                          <option key={c.name} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      {filters[0] && (
+                        <select
+                          value={filters[0].op}
+                          onChange={(e) => setFilters([{ ...filters[0], op: e.target.value as DatabaseFilterUiOp }])}
+                          className="rounded border border-[var(--database-border)] bg-[var(--database-bg)] px-2 py-1 text-[11px]"
+                        >
+                          {FILTER_OPS.map((op) => (
+                            <option key={op} value={op}>
+                              {DATABASE_FILTER_UI_LABELS[op]}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {filters[0] && !['is_null', 'is_not_null'].includes(filters[0].op) && (
+                        <input
+                          value={filters[0].val}
+                          onChange={(e) => setFilters([{ ...filters[0], val: e.target.value }])}
+                          onKeyDown={(e) => e.key === 'Enter' && applyFiltersToTable()}
+                          className="w-28 rounded border border-[var(--database-border)] bg-[var(--database-bg)] px-2 py-1 text-[11px]"
+                        />
+                      )}
+                      {filters.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => applyFiltersToTable()}
+                          className="rounded border border-[var(--database-border)] px-2 py-1 text-[10px] font-bold hover:bg-[var(--database-row-hover-bg)]"
+                        >
+                          Apply
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--database-border)] px-4 py-1.5">
                   <span className="text-[10px] font-black uppercase tracking-widest text-[var(--database-text-muted)]">
                     {sqlRunState === 'error' ? 'Query error' : 'Results'}
                   </span>
-                  {sqlResults.length > 0 && sqlRunState !== 'error' && (
+                  {!selectedTable && sqlResults.length > 0 && sqlRunState !== 'error' && (
                     <button
                       type="button"
                       onClick={() => exportSqlResultsCsv()}
@@ -1585,6 +1591,7 @@ export const DatabasePage: React.FC = () => {
                       source="sql_result"
                       datasource={datasource}
                       table={selectedTable || undefined}
+                      pk={pk || undefined}
                       selectedCell={selectedCell?.source === 'sql_result' ? selectedCell : null}
                       onSelectCell={(cell) => {
                         setSelectedCell(cell);
@@ -1592,6 +1599,62 @@ export const DatabasePage: React.FC = () => {
                       }}
                       onOpenCellDetail={openCellDetail}
                       onCopyCell={(text) => void copyToClipboard(text)}
+                      showRowSelector={Boolean(selectedTable)}
+                      selectedRows={selectedRows}
+                      rowSelectorDisabled={!isSuperadmin}
+                      onToggleRow={(rowKey, checked) =>
+                        setSelectedRows((prev) => {
+                          const next = new Set(prev);
+                          checked ? next.add(rowKey) : next.delete(rowKey);
+                          return next;
+                        })
+                      }
+                      onToggleAllRows={(checked) =>
+                        setSelectedRows(
+                          checked ? new Set(sqlResults.map((r, i) => rowKeyForRow(r, pk, i))) : new Set(),
+                        )
+                      }
+                      editingCell={editingCell}
+                      getCellEditable={(row, col, rowIndex) => getDataCellEditable(row, col)}
+                      onBeginInlineEdit={(cell) => {
+                        setSelectedCell(cell);
+                        setEditingCell({
+                          rowKey: cell.rowKey,
+                          col: cell.columnKey,
+                          value: cell.value == null ? '' : String(cell.value),
+                        });
+                      }}
+                      onEditingValueChange={(value) => setEditingCell((prev) => (prev ? { ...prev, value } : prev))}
+                      onCommitInlineEdit={() => {
+                        if (!editingCell) return;
+                        const rowIndex = sqlResults.findIndex((r, i) => rowKeyForRow(r, pk, i) === editingCell.rowKey);
+                        if (rowIndex < 0) return;
+                        const row = sqlResults[rowIndex];
+                        const editMeta = getDataCellEditable(row, editingCell.col);
+                        void applyCellEdit(
+                          {
+                            source: 'sql_result',
+                            datasource,
+                            table: selectedTable || undefined,
+                            rowIndex,
+                            rowKey: editingCell.rowKey,
+                            columnKey: editingCell.col,
+                            value: row[editingCell.col],
+                            row,
+                            editable: editMeta.editable,
+                            reasonIfNotEditable: editMeta.reason,
+                          },
+                          editingCell.value,
+                        );
+                      }}
+                      onCancelInlineEdit={() => setEditingCell(null)}
+                      sortCol={sortCol}
+                      sortDir={sortDir}
+                      onSortColumn={(col) => {
+                        setSortCol(col);
+                        setSortDir(sortCol === col && sortDir === 'asc' ? 'desc' : 'asc');
+                        if (selectedTable) void refreshTableRows(1);
+                      }}
                     />
                   ) : (
                     <p className="p-4 text-[12px] text-[var(--database-text-muted)]">
@@ -1599,333 +1662,163 @@ export const DatabasePage: React.FC = () => {
                     </p>
                   )}
                 </div>
-                <div className="shrink-0 border-t border-[var(--database-border)] px-4 py-1.5 font-mono text-[10px] text-[var(--database-text-muted)]">
-                  Query Time: {lastQueryMs != null ? `${lastQueryMs}ms` : '—'} | Rows: {lastRowsRead != null ? lastRowsRead : '—'} |{' '}
-                  {datasource}
+                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--database-border)] px-4 py-1.5 font-mono text-[10px] text-[var(--database-text-muted)]">
+                  <span>
+                    Query {lastQueryMs != null ? `${lastQueryMs}ms` : '—'} · {lastRowsRead != null ? lastRowsRead : '—'} rows on page
+                    {selectedTable && (
+                      <>
+                        {' '}
+                        ·{' '}
+                        {(filters.length ? browseMeta.total_count : selectedTableMeta?.row_count)?.toLocaleString() ?? '—'} total
+                      </>
+                    )}
+                  </span>
+                  {selectedTable && (
+                    <div className="flex items-center gap-2">
+                      <span>
+                        Page {page} of {tableBrowseTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={page <= 1}
+                        onClick={() => void refreshTableRows(Math.max(1, page - 1))}
+                        className="rounded border border-[var(--database-border)] px-2 py-1 disabled:opacity-40"
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={page >= tableBrowseTotalPages}
+                        onClick={() => void refreshTableRows(Math.min(tableBrowseTotalPages, page + 1))}
+                        className="rounded border border-[var(--database-border)] px-2 py-1 disabled:opacity-40"
+                        aria-label="Next page"
+                      >
+                        <ChevronRight size={12} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
-          {!setupContent && activeMainTab !== 'sql' && !selectedTable && mainPlaceholder}
-
-          {!setupContent && activeMainTab === 'schema' && selectedTable && (
-            <div className="flex h-full flex-col overflow-hidden">
-              <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-3">
-                <div>
-                  <h2 className="font-mono text-lg">{selectedTable}</h2>
-                  <p className="text-[11px] text-[var(--text-muted)]">
-                    {schema.length} columns · {data.total_count.toLocaleString()} rows
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={!isSuperadmin}
-                    onClick={() => {
-                      setActiveSql(`ALTER TABLE ${selectedTableSqlName}\nADD COLUMN new_column TEXT;`);
-                      setActiveMainTab('sql');
-                    }}
-                    className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Add Column
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!isSuperadmin}
-                    onClick={() => {
-                      setActiveSql(`ALTER TABLE ${selectedTableSqlName}\nRENAME TO ${quoteIdent(`${selectedTable}_new`)};`);
-                      setActiveMainTab('sql');
-                    }}
-                    className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Edit Table
-                  </button>
-                </div>
-              </div>
-              <div className="min-h-0 flex-1 overflow-auto">
-                <table className="w-full min-w-[760px] border-collapse text-left text-[12px]">
-                  <thead className="sticky top-0 bg-[var(--bg-app)]">
-                    <tr className="border-b border-[var(--border-subtle)] text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
-                      {['#', 'Column name', 'Type', 'Nullable', 'Default', 'Constraints'].map((h) => (
-                        <th key={h} className="px-4 py-2">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {schema.map((col, index) => (
-                      <tr key={col.name} className="border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-hover)]">
-                        <td className="px-4 py-2 font-mono text-[var(--text-muted)]">{index + 1}</td>
-                        <td className="px-4 py-2 font-mono font-semibold">
-                          {isPrimaryKey(col) && <Key size={12} className="mr-1 inline text-[var(--solar-yellow)]" />}
-                          {relations.some((r) => (r.from || r.source_column) === col.name) && <Link2 size={12} className="mr-1 inline text-[var(--color-accent,var(--solar-cyan))]" />}
-                          {col.name}
-                        </td>
-                        <td className="px-4 py-2 font-mono text-[var(--color-accent,var(--solar-cyan))]">{col.type || 'TEXT'}</td>
-                        <td className="px-4 py-2">
-                          {isNotNull(col) ? (
-                            <span className="rounded bg-[var(--solar-red)]/10 px-2 py-0.5 text-[10px] font-black text-[var(--solar-red)]">NOT NULL</span>
-                          ) : (
-                            <span className="text-[var(--text-muted)]">nullable</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 font-mono text-[var(--text-muted)]">{columnDefault(col) ?? '-'}</td>
-                        <td className="px-4 py-2">
-                          {isPrimaryKey(col) && <span className="rounded border border-[var(--solar-yellow)]/30 px-2 py-0.5 text-[10px] text-[var(--solar-yellow)]">primary key</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {!setupContent && activeMainTab === 'data' && selectedTable && (
-            <div className="relative flex h-full flex-col overflow-hidden">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={!canInsertRow}
-                    title={!canInsertRow ? insertDisabledReason : 'Insert a new row'}
-                    onClick={() => canInsertRow && setDrawer('insert')}
-                    className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold text-[var(--color-accent,var(--solar-cyan))] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Plus size={12} /> Insert Row
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canDeleteRows}
-                    title={!canDeleteRows ? deleteDisabledReason : `Delete ${selectedRows.size} selected row(s)`}
-                    onClick={() => canDeleteRows && setDeleteRowsModal(true)}
-                    className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold text-[var(--solar-red)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Trash2 size={12} /> Delete Row
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => selectedTable && loadData(selectedTable, page)}
-                    className="rounded-lg border border-[var(--border-subtle)] p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
-                  >
-                    <RefreshCw size={13} className={loadingMain ? 'animate-spin' : ''} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => copyVisibleDataCsv()}
-                    className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--bg-hover)]"
-                  >
-                    <Download size={12} /> Copy CSV
-                  </button>
-                  {selectedRows.size > 0 && (
-                    <span className="rounded bg-[var(--database-cell-selected-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--database-accent)]">
-                      {selectedRows.size} selected
-                    </span>
-                  )}
-                  {editDisabledReason && activeMainTab === 'data' && (
-                    <span className="max-w-[220px] truncate text-[10px] text-[var(--text-muted)]" title={editDisabledReason}>
-                      {datasource === 'hyperdrive' ? 'Edit: Hyperdrive disabled (v1)' : !pk ? 'Edit: no PK' : !canWriteRows ? 'Edit: read-only' : ''}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Filter size={12} className="text-[var(--text-muted)]" />
-                  <select
-                    value={filters[0]?.col || ''}
-                    onChange={(e) =>
-                      setFilters(e.target.value ? [{ id: 'f1', col: e.target.value, op: 'contains', val: '' }] : [])
-                    }
-                    className="rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-[11px]"
-                  >
-                    <option value="">Filter</option>
-                    {schema.map((c) => (
-                      <option key={c.name} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  {filters[0] && (
-                    <select
-                      value={filters[0].op}
-                      onChange={(e) =>
-                        setFilters([{ ...filters[0], op: e.target.value as DatabaseFilterUiOp }])
-                      }
-                      className="rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-[11px]"
-                    >
-                      {FILTER_OPS.map((op) => (
-                        <option key={op} value={op}>
-                          {DATABASE_FILTER_UI_LABELS[op]}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {filters[0] && !['is_null', 'is_not_null'].includes(filters[0].op) && (
-                    <input
-                      value={filters[0].val}
-                      onChange={(e) => setFilters([{ ...filters[0], val: e.target.value }])}
-                      onKeyDown={(e) => e.key === 'Enter' && selectedTable && loadData(selectedTable, 1)}
-                      className="w-28 rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-[11px]"
-                    />
-                  )}
-                </div>
-              </div>
-              {dataError && <div className="border-b border-[var(--solar-red)]/20 bg-[var(--solar-red)]/10 px-4 py-2 text-[12px] text-[var(--solar-red)]">{dataError}</div>}
-              <div className="min-h-0 flex-1 overflow-auto">
-                <DatabaseResultsGrid
-                  rows={data.rows}
-                  columns={columns}
-                  source="data_tab"
-                  datasource={datasource}
-                  table={selectedTable || undefined}
-                  pk={pk || undefined}
-                  selectedCell={selectedCell?.source === 'data_tab' ? selectedCell : null}
-                  onSelectCell={(cell) => {
-                    setSelectedCell(cell);
-                    setCellDetail(null);
-                  }}
-                  onOpenCellDetail={openCellDetail}
-                  onCopyCell={(text) => void copyToClipboard(text)}
-                  showRowSelector
-                  selectedRows={selectedRows}
-                  rowSelectorDisabled={!isSuperadmin}
-                  onToggleRow={(rowKey, checked) =>
-                    setSelectedRows((prev) => {
-                      const next = new Set(prev);
-                      checked ? next.add(rowKey) : next.delete(rowKey);
-                      return next;
-                    })
-                  }
-                  onToggleAllRows={(checked) =>
-                    setSelectedRows(
-                      checked ? new Set(data.rows.map((r, i) => rowKeyForRow(r, pk, i))) : new Set(),
-                    )
-                  }
-                  editingCell={editingCell}
-                  getCellEditable={(row, col, rowIndex) => getDataCellEditable(row, col)}
-                  onBeginInlineEdit={(cell) => {
-                    setSelectedCell(cell);
-                    setEditingCell({
-                      rowKey: cell.rowKey,
-                      col: cell.columnKey,
-                      value: cell.value == null ? '' : String(cell.value),
-                    });
-                  }}
-                  onEditingValueChange={(value) => setEditingCell((prev) => (prev ? { ...prev, value } : prev))}
-                  onCommitInlineEdit={() => {
-                    if (!editingCell) return;
-                    const rowIndex = data.rows.findIndex((r, i) => rowKeyForRow(r, pk, i) === editingCell.rowKey);
-                    if (rowIndex < 0) return;
-                    const row = data.rows[rowIndex];
-                    const editMeta = getDataCellEditable(row, editingCell.col);
-                    void applyCellEdit(
-                      {
-                        source: 'data_tab',
-                        datasource,
-                        table: selectedTable || undefined,
-                        rowIndex,
-                        rowKey: editingCell.rowKey,
-                        columnKey: editingCell.col,
-                        value: row[editingCell.col],
-                        row,
-                        editable: editMeta.editable,
-                        reasonIfNotEditable: editMeta.reason,
-                      },
-                      editingCell.value,
-                    );
-                  }}
-                  onCancelInlineEdit={() => setEditingCell(null)}
-                  sortCol={sortCol}
-                  sortDir={sortDir}
-                  onSortColumn={(col) => {
-                    setSortCol(col);
-                    setSortDir(sortCol === col && sortDir === 'asc' ? 'desc' : 'asc');
-                    selectedTable && loadData(selectedTable, 1);
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between border-t border-[var(--border-subtle)] px-4 py-2 text-[11px] text-[var(--text-muted)]">
-                <span>
-                  {data.total_count.toLocaleString()} rows · page {data.page} of {data.total_pages}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={page <= 1}
-                    onClick={() => {
-                      const next = Math.max(1, page - 1);
-                      setPage(next);
-                      selectedTable && loadData(selectedTable, next);
-                    }}
-                    className="rounded border border-[var(--border-subtle)] px-2 py-1 disabled:opacity-40"
-                  >
-                    <ChevronLeft size={12} />
-                  </button>
-                  <input
-                    value={page}
-                    onChange={(e) => setPage(Math.max(1, Number(e.target.value) || 1))}
-                    onKeyDown={(e) => e.key === 'Enter' && selectedTable && loadData(selectedTable, page)}
-                    className="w-14 rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-center font-mono"
-                  />
-                  <button
-                    type="button"
-                    disabled={page >= data.total_pages}
-                    onClick={() => {
-                      const next = Math.min(data.total_pages, page + 1);
-                      setPage(next);
-                      selectedTable && loadData(selectedTable, next);
-                    }}
-                    className="rounded border border-[var(--border-subtle)] px-2 py-1 disabled:opacity-40"
-                  >
-                    <ChevronRight size={12} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!setupContent && activeMainTab === 'indexes' && selectedTable && (
-            <div className="h-full overflow-auto p-5">
-              <button
-                type="button"
-                disabled={!isSuperadmin}
-                onClick={() => {
-                  setActiveSql(`CREATE INDEX idx_${selectedTable}_column\nON ${selectedTableSqlName} (column_name);`);
-                  setActiveMainTab('sql');
-                }}
-                className="mb-4 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-[11px] font-bold text-[var(--color-accent,var(--solar-cyan))] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Plus size={12} className="mr-1 inline" /> Add Index
-              </button>
-              {indexes.map((idx) => (
-                <div key={idx.name} className="mb-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
-                  <div className="font-mono text-sm">{idx.name}</div>
-                  <pre className="mt-2 whitespace-pre-wrap text-[11px] text-[var(--text-muted)]">{idx.sql || 'auto index'}</pre>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!setupContent && activeMainTab === 'relations' && selectedTable && (
-            <div className="h-full overflow-auto p-5">
-              {relations.length ? (
-                relations.map((rel, i) => (
-                  <div
-                    key={`${rel.from}-${rel.to}-${i}`}
-                    className="mb-3 flex items-center gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 font-mono text-[12px]"
-                  >
-                    <Link2 size={14} className="text-[var(--color-accent,var(--solar-cyan))]" />
-                    <span>{rel.source_column || rel.from}</span>
-                    <span className="text-[var(--text-muted)]">to</span>
-                    <span>
-                      {rel.target_table || rel.table}.{rel.target_column || rel.to}
-                    </span>
+          {metaPanel && selectedTable && !setupContent && (
+            <div className="database-meta-overlay" role="dialog" aria-modal="true">
+              <div className="database-meta-panel">
+                <div className="flex items-start justify-between gap-3 border-b border-[var(--database-border)] px-4 py-3">
+                  <div>
+                    <h2 className="font-mono text-sm font-semibold">
+                      {selectedTable} · {metaPanel}
+                    </h2>
+                    <p className="text-[11px] text-[var(--database-text-muted)]">{datasourceLabel}</p>
                   </div>
-                ))
-              ) : (
-                <p className="text-[12px] text-[var(--text-muted)]">No foreign keys found for this table.</p>
-              )}
+                  <button
+                    type="button"
+                    onClick={() => setMetaPanel(null)}
+                    className="rounded-lg p-1.5 text-[var(--database-text-muted)] hover:bg-[var(--database-row-hover-bg)]"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto p-4">
+                  {metaPanel === 'schema' && (
+                    <>
+                      <div className="mb-3 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={!isSuperadmin}
+                          onClick={() => {
+                            setSql(`ALTER TABLE ${selectedTableSqlName}\nADD COLUMN new_column TEXT;`);
+                            setMetaPanel(null);
+                          }}
+                          className="rounded-lg border border-[var(--database-border)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--database-row-hover-bg)] disabled:opacity-40"
+                        >
+                          Add Column
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!isSuperadmin}
+                          onClick={() => {
+                            setSql(`ALTER TABLE ${selectedTableSqlName}\nRENAME TO ${quoteIdent(`${selectedTable}_new`)};`);
+                            setMetaPanel(null);
+                          }}
+                          className="rounded-lg border border-[var(--database-border)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--database-row-hover-bg)] disabled:opacity-40"
+                        >
+                          Edit Table
+                        </button>
+                      </div>
+                      <table className="w-full min-w-[560px] border-collapse text-left text-[12px]">
+                        <thead>
+                          <tr className="border-b border-[var(--database-border)] text-[10px] uppercase tracking-widest text-[var(--database-text-muted)]">
+                            {['#', 'Column', 'Type', 'Nullable', 'Default'].map((h) => (
+                              <th key={h} className="px-3 py-2">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {schema.map((col, index) => (
+                            <tr key={col.name} className="border-b border-[var(--database-border)]/50">
+                              <td className="px-3 py-2 font-mono text-[var(--database-text-muted)]">{index + 1}</td>
+                              <td className="px-3 py-2 font-mono font-semibold">
+                                {isPrimaryKey(col) && <Key size={12} className="mr-1 inline text-[var(--solar-yellow)]" />}
+                                {col.name}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[var(--database-accent)]">{col.type || 'TEXT'}</td>
+                              <td className="px-3 py-2">{isNotNull(col) ? 'NOT NULL' : 'nullable'}</td>
+                              <td className="px-3 py-2 font-mono text-[var(--database-text-muted)]">{columnDefault(col) ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  )}
+                  {metaPanel === 'indexes' && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!isSuperadmin}
+                        onClick={() => {
+                          setSql(`CREATE INDEX idx_${selectedTable}_column\nON ${selectedTableSqlName} (column_name);`);
+                          setMetaPanel(null);
+                        }}
+                        className="mb-4 rounded-lg border border-[var(--database-border)] px-3 py-2 text-[11px] font-bold text-[var(--database-accent)] hover:bg-[var(--database-row-hover-bg)] disabled:opacity-40"
+                      >
+                        <Plus size={12} className="mr-1 inline" /> Add Index
+                      </button>
+                      {indexes.map((idx) => (
+                        <div key={idx.name} className="mb-3 rounded-lg border border-[var(--database-border)] bg-[var(--database-bg)] p-3">
+                          <div className="font-mono text-sm">{idx.name}</div>
+                          <pre className="mt-2 whitespace-pre-wrap text-[11px] text-[var(--database-text-muted)]">{idx.sql || 'auto index'}</pre>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {metaPanel === 'relations' && (
+                    <>
+                      {relations.length ? (
+                        relations.map((rel, i) => (
+                          <div
+                            key={`${rel.from}-${rel.to}-${i}`}
+                            className="mb-3 flex items-center gap-3 rounded-lg border border-[var(--database-border)] bg-[var(--database-bg)] p-3 font-mono text-[12px]"
+                          >
+                            <Link2 size={14} className="text-[var(--database-accent)]" />
+                            <span>{rel.source_column || rel.from}</span>
+                            <span className="text-[var(--database-text-muted)]">→</span>
+                            <span>
+                              {rel.target_table || rel.table}.{rel.target_column || rel.to}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-[12px] text-[var(--database-text-muted)]">No foreign keys found for this table.</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
