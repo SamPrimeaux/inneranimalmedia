@@ -1403,6 +1403,49 @@ async function finalizeChatToolSessionLedger(_env, _ctx, emit, ledger, { ok, err
   }
 }
 
+/**
+ * Workspace MCP tool library: global rows (workspace_id IS NULL) + workspace overrides.
+ * Workspace-specific rows win on duplicate tool_name.
+ */
+async function loadAgentsamMcpToolsWorkspaceLibrary(env, workspaceId, limit = 200) {
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!env?.DB || !ws) return [];
+  const lim = Math.max(1, Math.min(500, Number(limit) || 200));
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT tool_name, description, input_schema, tool_category, requires_approval, workspace_id
+       FROM agentsam_mcp_tools
+       WHERE (workspace_id = ? OR workspace_id IS NULL)
+         AND is_active = 1
+         AND enabled = 1
+       ORDER BY tool_name ASC
+       LIMIT ?`,
+    )
+      .bind(ws, lim * 4)
+      .all();
+    const rows = results || [];
+    const byName = new Map();
+    for (const r of rows) {
+      const key = String(r.tool_name || '').trim();
+      if (!key) continue;
+      const rowWs = r.workspace_id != null ? String(r.workspace_id).trim() : '';
+      if (!rowWs) {
+        if (!byName.has(key)) byName.set(key, r);
+      }
+    }
+    for (const r of rows) {
+      const key = String(r.tool_name || '').trim();
+      if (!key) continue;
+      const rowWs = r.workspace_id != null ? String(r.workspace_id).trim() : '';
+      if (rowWs === ws) byName.set(key, r);
+    }
+    return [...byName.values()].slice(0, lim);
+  } catch (e) {
+    console.warn('[agent] loadAgentsamMcpToolsWorkspaceLibrary', e?.message ?? e);
+    return [];
+  }
+}
+
 async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   const lim = Math.max(0, Math.min(200, Number(opts.limit ?? 20) || 20));
   if (!env.DB) return { tools: [], toolRoutingError: null, routeToolRequirements: null };
@@ -1490,7 +1533,10 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       modeSlug,
     });
   } else {
-    rows = await selectAgentsamMcpToolsList(env.DB, mcpScope, lim);
+    const wsForLibrary = mcpScope.workspaceId != null ? String(mcpScope.workspaceId).trim() : '';
+    rows = wsForLibrary
+      ? await loadAgentsamMcpToolsWorkspaceLibrary(env, wsForLibrary, lim)
+      : await selectAgentsamMcpToolsList(env.DB, mcpScope, lim);
   }
 
   if (!toolRoutingError && opts.agentChat && opts.taskType && routeToolRequirements?.max_tools != null) {
