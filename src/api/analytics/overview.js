@@ -1,9 +1,38 @@
 import { parseRange, analyticsResponse } from './sources/normalize.js';
 import { supabaseQuery } from './sources/supabase.js';
-import { isHyperdriveBindingPresent, isHyperdriveUsable } from '../../core/hyperdrive-query.js';
+import {
+  hyperdriveConnectionStringAvailable,
+  isHyperdriveBindingPresent,
+  isHyperdriveUsable,
+} from '../../core/hyperdrive-query.js';
 import { tableExists, pragmaTableInfo } from '../../core/retention.js';
 import { handleAnalyticsCodebase } from './codebase.js';
 import { handleAnalyticsRag } from './rag.js';
+
+/** @type {{ hasHyperdrive: boolean; hasQueryable: boolean; hasConnectionString: boolean } | null} */
+let lastHyperdriveHealthSnapshot = null;
+
+/** @param {any} env @param {string} route */
+function logHyperdriveHealthOnChange(env, route) {
+  const snapshot = {
+    hasHyperdrive: isHyperdriveBindingPresent(env),
+    hasQueryable: isHyperdriveUsable(env),
+    hasConnectionString: hyperdriveConnectionStringAvailable(env),
+  };
+  const prev = lastHyperdriveHealthSnapshot;
+  const changed =
+    !prev ||
+    prev.hasHyperdrive !== snapshot.hasHyperdrive ||
+    prev.hasQueryable !== snapshot.hasQueryable ||
+    prev.hasConnectionString !== snapshot.hasConnectionString;
+  if (!changed) return;
+  console.debug('[hyperdrive.health]', {
+    ...snapshot,
+    route,
+    runtime: 'cloudflare-worker',
+  });
+  lastHyperdriveHealthSnapshot = snapshot;
+}
 
 function safePct(n) {
   const v = Number(n);
@@ -213,15 +242,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
   const tid = tenantId && String(tenantId).trim() ? String(tenantId).trim() : null;
   const wid = workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null;
 
-  console.log('[hyperdrive.health]', {
-    hasHyperdrive: hasBindingShell,
-    hasQueryable: typeof env?.HYPERDRIVE?.query === 'function',
-    hasConnectionString: !!(
-      env?.HYPERDRIVE?.connectionString && String(env.HYPERDRIVE.connectionString).trim()
-    ),
-    route: url.pathname,
-    runtime: 'cloudflare-worker',
-  });
+  logHyperdriveHealthOnChange(env, url.pathname);
 
   const ctx = {
     sourceStatus: { live: [], empty: [], blocked: [], errors: [] },

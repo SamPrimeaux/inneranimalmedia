@@ -21,8 +21,8 @@ import { OverviewLowerGrid } from "./panels/OverviewLowerGrid";
 import { bootstrapSupabaseFromSession, setSupabaseBootstrap } from "../../src/lib/supabase";
 import { useRealtimeSignal, type SignalTarget } from "../../hooks/useRealtimeSignal";
 
-/** Min interval between `/api/overview/dashboard-bundle` fetches (poll + Supabase signals). */
-const BUNDLE_REFRESH_MS = 60_000;
+/** Interval for the sole `/api/overview/dashboard-bundle` poll scheduler (Realtime only sets dirty). */
+const BUNDLE_REFRESH_MS = 120_000;
 const SIGNAL_FLASH_MS = 1500;
 
 export default function OverviewPage() {
@@ -39,6 +39,7 @@ export default function OverviewPage() {
   const [lastSignalAt, setLastSignalAt] = useState<Date | null>(null);
 
   const lastBundleFetchAt = useRef(0);
+  const bundleDirty = useRef(false);
   const signalFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bundlePollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -149,10 +150,10 @@ export default function OverviewPage() {
 
   const handleSignal = useCallback(
     (_target: SignalTarget) => {
+      bundleDirty.current = true;
       flashSignal();
-      void refetchBundle();
     },
-    [flashSignal, refetchBundle],
+    [flashSignal],
   );
 
   useRealtimeSignal({
@@ -164,6 +165,7 @@ export default function OverviewPage() {
   useEffect(() => {
     const tick = () => {
       if (typeof document !== "undefined" && document.hidden) return;
+      bundleDirty.current = false;
       void refetchBundle();
     };
 
