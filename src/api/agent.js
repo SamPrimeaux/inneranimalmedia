@@ -1921,7 +1921,14 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
         cmd = null;
       }
       const router = String(cmd?.router_type || 'tool').toLowerCase();
-      if (cmd?.mapped_command && router === 'tool') {
+      const tn = String(toolName || '').toLowerCase();
+      const blockTerminalDbShortcut =
+        tn.startsWith('d1_') ||
+        tn.startsWith('hyperdrive_') ||
+        tn === 'd1_query' ||
+        tn === 'd1_schema' ||
+        tn === 'hyperdrive_query';
+      if (cmd?.mapped_command && router === 'tool' && !blockTerminalDbShortcut) {
         resolved = await runBuiltinTool(
           env,
           'terminal_run',
@@ -7145,10 +7152,30 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         }
       }
 
-      const chatMessagesBase =
+      let chatMessagesBase =
         Array.isArray(body.messages) && body.messages.length
           ? [...body.messages]
           : [{ role: 'user', content: gate.rewritten_query || message }];
+
+      const dbSurfaceCtx =
+        browserContextPayload?.databaseContext &&
+        typeof browserContextPayload.databaseContext === 'object'
+          ? browserContextPayload.databaseContext
+          : null;
+      if (dbSurfaceCtx) {
+        try {
+          const { formatDatabaseContextForAgent } = await import('../core/database-studio-context.js');
+          const dbCtxText = formatDatabaseContextForAgent(
+            /** @type {Record<string, unknown>} */ (dbSurfaceCtx),
+          );
+          if (dbCtxText) {
+            chatMessagesBase = [...chatMessagesBase, { role: 'user', content: dbCtxText }];
+          }
+        } catch (dbCtxErr) {
+          console.warn('[agent] database_context_format', dbCtxErr?.message ?? dbCtxErr);
+        }
+      }
+
       const chatMessages =
         capabilityArtifactForModel
           ? [

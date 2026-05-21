@@ -6,60 +6,12 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, authUserIsSuperadmin } from '../core/auth.js';
 import { iamD1QuoteIdent } from '../core/d1.js';
-
-/** @param {string} sql */
-function iamSqlStatementKind(sql) {
-  const trimmed = String(sql || '')
-    .trim()
-    .replace(/^--.*$/gm, '')
-    .trim();
-  const first = (trimmed.match(/^[a-z]+/i)?.[0] || '').toUpperCase();
-  if (['CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'REINDEX', 'VACUUM'].includes(first)) return 'ddl';
-  if (['INSERT', 'UPDATE', 'DELETE', 'REPLACE'].includes(first)) return 'dml';
-  return 'read';
-}
-
-/** @param {unknown} raw */
-function iamParseDatabaseFilters(raw) {
-  if (!raw) return [];
-  try {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-/** @param {unknown[]} filters */
-function iamBuildD1FilterWhere(filters) {
-  const clauses = [];
-  const values = [];
-  for (const f of filters || []) {
-    const col = String(f?.col || '').trim();
-    const op = String(f?.op || '').trim();
-    if (!col) continue;
-    const qcol = iamD1QuoteIdent(col);
-    if (op === 'is_null') clauses.push(`${qcol} IS NULL`);
-    else if (op === 'not_null') clauses.push(`${qcol} IS NOT NULL`);
-    else if (op === 'eq') {
-      clauses.push(`${qcol} = ?`);
-      values.push(f.val);
-    } else if (op === 'neq') {
-      clauses.push(`${qcol} != ?`);
-      values.push(f.val);
-    } else if (op === 'gt') {
-      clauses.push(`${qcol} > ?`);
-      values.push(f.val);
-    } else if (op === 'lt') {
-      clauses.push(`${qcol} < ?`);
-      values.push(f.val);
-    } else if (op === 'like') {
-      clauses.push(`${qcol} LIKE ?`);
-      values.push(`%${String(f.val ?? '')}%`);
-    }
-  }
-  return { where: clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '', values };
-}
+import { getDatabaseSqlRunGate } from '../core/database-sql-safety.js';
+import {
+  buildAllowlistedOrderBy,
+  buildD1FilterWhere,
+  parseDatabaseFiltersJson,
+} from '../core/database-table-filters.js';
 
 /**
  * @param {Request} request
@@ -92,25 +44,34 @@ export async function handleD1DashboardRoutes(request, url, env) {
   if (pathLower === '/api/d1/query' && method === 'POST') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
-      const { sql, params } = await request.json();
+      const body = await request.json().catch(() => ({}));
+      const sql = body?.sql;
+      const params = body?.params;
       if (!sql || typeof sql !== 'string') return jsonResponse({ error: 'sql required' }, 400);
       if (/^\s*DROP\s+DATABASE\b/i.test(sql.trim())) {
         return jsonResponse({ error: 'DROP DATABASE is not permitted via this API' }, 403);
       }
       const trimmed = sql.trim();
-      const kind = iamSqlStatementKind(trimmed);
-      if (kind === 'ddl' && !authUserIsSuperadmin(authUser)) {
-        return jsonResponse({ error: 'Superadmin required for DDL statements' }, 403);
+      const isSuperadmin = authUserIsSuperadmin(authUser);
+      const gate = getDatabaseSqlRunGate(trimmed, {
+        isSuperadmin,
+        studioApproved: body?.studio_approved === true || body?.studioApproved === true,
+        destructiveConfirmed:
+          body?.destructive_confirmed === true || body?.destructiveConfirmed === true,
+      });
+      if (!gate.canExecute) {
+        return jsonResponse(
+          {
+            error: gate.error || 'SQL not permitted',
+            statement_kind: gate.kind,
+            risk_level: gate.riskLevel,
+            requires_studio_approval: gate.requiresApproval === true && !gate.requiresConfirmTyping,
+            requires_destructive_confirm: gate.requiresConfirmTyping === true,
+          },
+          gate.kind === 'unknown' ? 400 : 403,
+        );
       }
-      if (!authUserIsSuperadmin(authUser) && kind !== 'read') {
-        return jsonResponse({ error: 'Read-only: only SELECT queries allowed' }, 403);
-      }
-      const upper = trimmed.toUpperCase();
-      const isRead =
-        upper.startsWith('SELECT') ||
-        upper.startsWith('PRAGMA') ||
-        upper.startsWith('WITH') ||
-        upper.startsWith('EXPLAIN');
+      const isRead = gate.kind === 'read' || gate.kind === 'explain';
       const bindings = Array.isArray(params) ? params : [];
       if (isRead) {
         const _t0 = Date.now();
@@ -184,15 +145,30 @@ export async function handleD1DashboardRoutes(request, url, env) {
       const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') || '50')));
       const sort = String(url.searchParams.get('sort') || '').trim();
       const dir = String(url.searchParams.get('dir') || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-      const filters = iamParseDatabaseFilters(url.searchParams.get('filter'));
-      const built = iamBuildD1FilterWhere(filters);
+      const filters = parseDatabaseFiltersJson(url.searchParams.get('filter'));
+      let columnAllowlist = null;
+      try {
+        const colRows = await env.DB.prepare(`PRAGMA table_info(${qtable})`).all();
+        columnAllowlist = new Set(
+          (colRows.results || []).map((r) => String(r.name || '').trim()).filter(Boolean),
+        );
+      } catch {
+        columnAllowlist = null;
+      }
+      let built = { where: '', values: [] };
+      try {
+        built = buildD1FilterWhere(filters, {
+          quoteIdent: iamD1QuoteIdent,
+          allowColumns: columnAllowlist,
+        });
+      } catch (filterErr) {
+        return jsonResponse({ error: filterErr?.message || 'Invalid filter' }, 400);
+      }
       let order = '';
-      if (sort) {
-        try {
-          order = ` ORDER BY ${iamD1QuoteIdent(sort)} ${dir}`;
-        } catch {
-          order = '';
-        }
+      try {
+        order = buildAllowlistedOrderBy(sort, dir, columnAllowlist, iamD1QuoteIdent);
+      } catch {
+        order = '';
       }
       const offset = (pageNum - 1) * limit;
       const countRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM ${qtable}${built.where}`)

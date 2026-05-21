@@ -60,6 +60,9 @@ export function normalizeToolName(toolName) {
         fs_edit_file: 'write_file',
         fs_read_file: 'read_file',
         fs_list_files: 'list_files',
+
+        d1_schema: 'd1_schema_introspect',
+        schema_inspect: 'd1_schema_introspect',
     };
     return aliases[n] || n;
 }
@@ -74,9 +77,9 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
 
     // High-priority tools that normally require frontend approval gates
     const requiresApproval = [
-        'cdt_evaluate_script', 'cdt_upload_file', 'd1_write', 
+        'cdt_evaluate_script', 'cdt_upload_file', 'd1_write', 'd1_batch_write',
         'worker_deploy', 'resend_send_broadcast', 'resend_create_api_key',
-        'meshyai_image_to_3d', 'meshyai_text_to_3d', 'agentsam_run_agent'
+        'meshyai_image_to_3d', 'meshyai_text_to_3d', 'agentsam_run_agent',
     ];
 
     if (requiresApproval.includes(toolName)) {
@@ -112,8 +115,9 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName === 'attached_file_content':
             return await contextHandlers[toolName]?.(params, env);
 
-        // ── CATEGORY: db (3 Tools) ───────────────────────────────────────
+        // ── CATEGORY: db (D1 + Hyperdrive) ───────────────────────────────
         case toolName.startsWith('d1_'):
+        case toolName.startsWith('hyperdrive_'):
             return await dbHandlers[toolName]?.(params, env);
 
         // ── CATEGORY: memory (4 Tools) ─────────────────────────────────────────

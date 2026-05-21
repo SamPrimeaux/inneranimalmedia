@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  ClipboardCopy,
   Database,
   Download,
   Filter,
@@ -26,11 +27,41 @@ import {
 } from 'lucide-react';
 
 import { MonacoSurface } from './MonacoSurface';
+import { highlightSearchMatchAll } from '../src/lib/highlightSearchMatch';
+import {
+  evaluateDatabaseSqlSafety,
+  getDatabaseSqlRunGate,
+} from '../src/lib/databaseSqlSafety';
+import {
+  publishDatabaseSurfaceContext,
+  type DatabaseDatasource,
+  type DatabaseSurfaceContext,
+  type DbApplySqlMode,
+} from '../src/lib/databaseStudioEvents';
+import {
+  DATABASE_FILTER_UI_OPS,
+  DATABASE_FILTER_UI_LABELS,
+  serializeDatabaseFilters,
+  type DatabaseFilterRule,
+  type DatabaseFilterUiOp,
+} from '../src/lib/databaseTableFilters';
+import { DatabaseSqlConfirmModal, type SqlConfirmPayload } from './database/DatabaseSqlConfirmModal';
+import { DatabaseCellDetailDrawer, type CellDetailPayload } from './database/DatabaseCellDetailDrawer';
+import '../components/database/database-page.css';
 
 type Datasource = 'd1' | 'hyperdrive';
 type MainTab = 'schema' | 'data' | 'sql' | 'indexes' | 'relations';
 type SortDir = 'asc' | 'desc';
 type LoadStatus = 'idle' | 'loading' | 'ok' | 'error';
+type SqlRunState = 'idle' | 'running' | 'success' | 'error';
+
+const LS_DATASOURCE = 'iam.database.datasource';
+const LS_TABLE = 'iam.database.selectedTable';
+const LS_TAB = 'iam.database.activeTab';
+const LS_RESULTS_H = 'iam.database.resultsPaneHeight';
+const DEFAULT_RESULTS_PANE_H = 220;
+const MIN_RESULTS_PANE_H = 160;
+const MIN_SQL_EDITOR_H = 120;
 
 type TableMeta = {
   name: string;
@@ -76,12 +107,6 @@ type DataResponse = {
   total_pages: number;
 };
 
-type FilterRule = {
-  id: string;
-  col: string;
-  op: 'eq' | 'neq' | 'gt' | 'lt' | 'like' | 'is_null' | 'not_null';
-  val: string;
-};
 
 type SqlQueryTab = {
   id: string;
@@ -90,43 +115,40 @@ type SqlQueryTab = {
 };
 
 const PAGE_SIZE = 50;
-const OPS: FilterRule['op'][] = ['eq', 'neq', 'gt', 'lt', 'like', 'is_null', 'not_null'];
-
-const MUTATING_RE = /\b(insert|update|delete|merge|truncate|drop|create|alter|grant|revoke|replace|attach|detach|pragma)\b/i;
+const FILTER_OPS: DatabaseFilterUiOp[] = DATABASE_FILTER_UI_OPS;
 
 function quoteIdent(name: string) {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function stripSqlComments(input: string): string {
-  let s = input.replace(/\/\*[\s\S]*?\*\//g, ' ');
-  s = s.replace(/--[^\n]*/g, ' ');
-  return s;
+function readStoredDatasource(): Datasource {
+  try {
+    const v = localStorage.getItem(LS_DATASOURCE);
+    if (v === 'd1' || v === 'hyperdrive') return v;
+  } catch {
+    /* ignore */
+  }
+  return 'd1';
 }
 
-/** Non-superadmin: read-only SQL (SELECT / EXPLAIN, and WITH when no mutating keywords). */
-function isAllowedReadOnlySql(sql: string): boolean {
-  const stripped = stripSqlComments(sql);
-  const parts = stripped
-    .split(';')
-    .map((p) => p.trim())
-    .filter(Boolean);
-  if (!parts.length) return false;
-  for (const part of parts) {
-    const head = part.slice(0, 120).trimStart();
-    if (/^\s*pragma\b/i.test(head)) return false;
-    if (/^\s*(select|explain)\b/i.test(head)) {
-      if (MUTATING_RE.test(part)) return false;
-      continue;
-    }
-    if (/^\s*with\b/i.test(head)) {
-      if (/\b(insert|update|delete|merge)\b/i.test(part)) return false;
-      if (MUTATING_RE.test(part)) return false;
-      continue;
-    }
-    return false;
+function readStoredMainTab(): MainTab {
+  try {
+    const v = localStorage.getItem(LS_TAB);
+    if (v === 'schema' || v === 'data' || v === 'sql' || v === 'indexes' || v === 'relations') return v;
+  } catch {
+    /* ignore */
   }
-  return true;
+  return 'schema';
+}
+
+function readStoredResultsHeight(): number {
+  try {
+    const n = Number(localStorage.getItem(LS_RESULTS_H));
+    if (Number.isFinite(n) && n >= MIN_RESULTS_PANE_H) return Math.round(n);
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_RESULTS_PANE_H;
 }
 
 function normalizeTables(payload: unknown): TableMeta[] {
@@ -160,7 +182,7 @@ function columnDefault(col: SchemaColumn) {
 }
 
 function formatValue(value: unknown, columnName = '') {
-  if (value === null || value === undefined) return <span className="italic text-[var(--text-muted)] opacity-60">null</span>;
+  if (value === null || value === undefined) return <span className="database-null-chip">NULL</span>;
   if (typeof value === 'number') {
     const isLikelyEpoch = /(_at|time|date|timestamp)$/i.test(columnName) && value > 946684800 && value < 4102444800;
     if (isLikelyEpoch) {
@@ -263,7 +285,7 @@ function SetupCard({ title, body, to }: { title: string; body: string; to: strin
 }
 
 export const DatabasePage: React.FC = () => {
-  const [sidebarSource, setSidebarSource] = useState<Datasource>('d1');
+  const [sidebarSource, setSidebarSource] = useState<Datasource>(readStoredDatasource);
   const datasource: Datasource = sidebarSource;
   const [tables, setTables] = useState<Record<Datasource, TableMeta[]>>({ d1: [], hyperdrive: [] });
   const [d1Status, setD1Status] = useState<LoadStatus>('idle');
@@ -272,8 +294,14 @@ export const DatabasePage: React.FC = () => {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [columnCache, setColumnCache] = useState<Record<string, SchemaColumn[]>>({});
   const [columnLoading, setColumnLoading] = useState<Record<string, boolean>>({});
-  const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [activeMainTab, setActiveMainTab] = useState<MainTab>('schema');
+  const [selectedTable, setSelectedTable] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(LS_TABLE);
+    } catch {
+      return null;
+    }
+  });
+  const [activeMainTab, setActiveMainTab] = useState<MainTab>(readStoredMainTab);
   const [loadingTables, setLoadingTables] = useState(false);
 
   const [schema, setSchema] = useState<SchemaColumn[]>([]);
@@ -284,10 +312,13 @@ export const DatabasePage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [sortCol, setSortCol] = useState('');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [filters, setFilters] = useState<FilterRule[]>([]);
+  const [filters, setFilters] = useState<DatabaseFilterRule[]>([]);
   const [loadingMain, setLoadingMain] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [inlineConfirmDelete, setInlineConfirmDelete] = useState(false);
+  const [deleteRowsModal, setDeleteRowsModal] = useState(false);
+  const [sqlConfirmModal, setSqlConfirmModal] = useState<SqlConfirmPayload | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{ rowKey: string; col: string } | null>(null);
+  const [cellDetail, setCellDetail] = useState<CellDetailPayload | null>(null);
 
   const [queryTabs, setQueryTabs] = useState<SqlQueryTab[]>(INITIAL_SQL_WORKSPACE.tabs);
   const [activeQueryTabId, setActiveQueryTabId] = useState(INITIAL_SQL_WORKSPACE.activeId);
@@ -297,9 +328,12 @@ export const DatabasePage: React.FC = () => {
   const [sqlResults, setSqlResults] = useState<Record<string, unknown>[]>([]);
   const [sqlColumns, setSqlColumns] = useState<string[]>([]);
   const [sqlError, setSqlError] = useState<string | null>(null);
-  const [sqlRunning, setSqlRunning] = useState(false);
+  const [sqlRunState, setSqlRunState] = useState<SqlRunState>('idle');
+  const [lastAttemptedSql, setLastAttemptedSql] = useState('');
   const [lastQueryMs, setLastQueryMs] = useState<number | null>(null);
   const [lastRowsRead, setLastRowsRead] = useState<number | null>(null);
+  const [resultsPaneHeight, setResultsPaneHeight] = useState(readStoredResultsHeight);
+  const [splitterDragging, setSplitterDragging] = useState(false);
 
   const [drawer, setDrawer] = useState<'insert' | null>(null);
   const [insertValues, setInsertValues] = useState<Record<string, string>>({});
@@ -311,13 +345,52 @@ export const DatabasePage: React.FC = () => {
   const [hyperHealthBad, setHyperHealthBad] = useState(false);
 
   const sqlEditorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
+  const sqlStackRef = useRef<HTMLDivElement | null>(null);
+  const resultsPaneHeightRef = useRef(resultsPaneHeight);
+  resultsPaneHeightRef.current = resultsPaneHeight;
   const activeQueryTabIdRef = useRef(activeQueryTabId);
   activeQueryTabIdRef.current = activeQueryTabId;
   const runSqlRef = useRef<(statement: string) => Promise<void>>(async () => {});
 
+  const sqlRunning = sqlRunState === 'running';
+
   const activeTables = tables[datasource];
+  const datasourceLabel = datasource === 'd1' ? 'Cloudflare D1 (SQLite)' : 'Supabase via Hyperdrive (Postgres)';
   const selectedTableSqlName = selectedTable ? quoteIdent(selectedTable) : '';
-  const pk = useMemo(() => schema.find(isPrimaryKey)?.name || schema[0]?.name || '', [schema]);
+  const pk = useMemo(() => schema.find(isPrimaryKey)?.name || '', [schema]);
+  const canWriteRows = isSuperadmin && capLoaded;
+  const canEditDataCell = canWriteRows && datasource === 'd1' && Boolean(pk) && Boolean(selectedTable);
+  const canInsertRow = canWriteRows && Boolean(selectedTable) && datasource === 'd1';
+  const canDeleteRows =
+    canWriteRows && datasource === 'd1' && Boolean(selectedTable) && Boolean(pk) && selectedRows.size > 0;
+  const insertDisabledReason =
+    !canWriteRows
+      ? 'Insert requires write access (superadmin).'
+      : !selectedTable
+        ? 'Select a table first.'
+        : datasource === 'hyperdrive'
+          ? 'Insert row is D1-only for v1. Use the SQL tab for Hyperdrive mutations after confirmation.'
+          : '';
+  const deleteDisabledReason =
+    !canWriteRows
+      ? 'Delete requires write access (superadmin).'
+      : datasource === 'hyperdrive'
+        ? 'Row delete is D1-only for v1. Use the SQL tab for Hyperdrive deletes after confirmation.'
+        : !pk
+          ? 'Deleting requires a primary key so rows can be targeted safely.'
+          : selectedRows.size === 0
+            ? 'Select one or more rows to delete.'
+            : '';
+  const editDisabledReason =
+    !canWriteRows
+      ? 'Editing requires write access (superadmin).'
+      : datasource === 'hyperdrive'
+        ? 'Hyperdrive inline edit is disabled until safe parameterized row updates exist.'
+        : !pk
+          ? 'Editing requires a primary key so this row can be updated safely.'
+          : !selectedTable
+            ? 'Select a table on the Data tab.'
+            : '';
   const filteredTables = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
     return q ? activeTables.filter((t) => t.name.toLowerCase().includes(q)) : activeTables;
@@ -338,13 +411,29 @@ export const DatabasePage: React.FC = () => {
   const activeSql = useMemo(() => queryTabs.find((t) => t.id === activeQueryTabId)?.sql ?? '', [queryTabs, activeQueryTabId]);
 
   const loadThemeAccent = useCallback(async () => {
+    const root = document.documentElement;
+    const cmsReady =
+      root.getAttribute('data-dashboard-theme-ready') === 'true' || Boolean(root.getAttribute('data-cms-theme'));
+    if (cmsReady) {
+      const hasMonacoBg =
+        root.style.getPropertyValue('--database-monaco-bg').trim() || root.getAttribute('data-monaco-bg')?.trim();
+      if (hasMonacoBg) return;
+    }
     try {
-      const theme = await fetchJson<{ theme?: { config?: Record<string, unknown>; monaco_bg?: string }; variables?: Record<string, string> }>('/api/workspace/settings');
-      const config = theme.theme?.config || {};
-      const variables = theme.variables || {};
-      const accent = String((config.accent_color || config.accentColor || variables['--color-accent'] || variables['--solar-cyan'] || '') ?? '').trim();
-      if (accent) document.documentElement.style.setProperty('--color-accent', accent);
-      if (theme.theme?.monaco_bg) document.documentElement.style.setProperty('--database-monaco-bg', String(theme.theme.monaco_bg));
+      const theme = await fetchJson<{
+        theme?: { config?: Record<string, unknown>; monaco_bg?: string };
+        variables?: Record<string, string>;
+      }>('/api/workspace/settings');
+      if (!cmsReady) {
+        const config = theme.theme?.config || {};
+        const variables = theme.variables || {};
+        const accent = String((config.accent_color || config.accentColor || variables['--color-accent'] || variables['--solar-cyan'] || '') ?? '').trim();
+        if (accent) root.style.setProperty('--color-accent', accent);
+      }
+      const monacoBg = theme.theme?.monaco_bg;
+      if (monacoBg && !root.style.getPropertyValue('--database-monaco-bg').trim()) {
+        root.style.setProperty('--database-monaco-bg', String(monacoBg));
+      }
     } catch {
       /* ignore */
     }
@@ -432,7 +521,7 @@ export const DatabasePage: React.FC = () => {
         const qs = new URLSearchParams({ page: String(nextPage), limit: String(PAGE_SIZE) });
         if (sortCol) qs.set('sort', sortCol);
         if (sortCol) qs.set('dir', sortDir);
-        if (filters.length) qs.set('filter', JSON.stringify(filters.map(({ col, op, val }) => ({ col, op, val }))));
+        if (filters.length) qs.set('filter', serializeDatabaseFilters(filters));
         const payload = await fetchJson<DataResponse>(`${base}/${encodeURIComponent(table)}/data?${qs.toString()}`);
         setData(payload);
         setSelectedRows(new Set());
@@ -493,6 +582,46 @@ export const DatabasePage: React.FC = () => {
   }, [datasource]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(LS_DATASOURCE, datasource);
+    } catch {
+      /* ignore */
+    }
+  }, [datasource]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_TAB, activeMainTab);
+    } catch {
+      /* ignore */
+    }
+  }, [activeMainTab]);
+
+  useEffect(() => {
+    try {
+      if (selectedTable) localStorage.setItem(LS_TABLE, selectedTable);
+      else localStorage.removeItem(LS_TABLE);
+    } catch {
+      /* ignore */
+    }
+  }, [selectedTable]);
+
+  useEffect(() => {
+    if (!pageReady || !selectedTable || loadingTables) return;
+    if (!activeTables.length) return;
+    const exists = activeTables.some((t) => t.name === selectedTable);
+    if (!exists) setSelectedTable(null);
+  }, [pageReady, activeTables, selectedTable, loadingTables]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_RESULTS_H, String(resultsPaneHeight));
+    } catch {
+      /* ignore */
+    }
+  }, [resultsPaneHeight]);
+
+  useEffect(() => {
     if (!selectedTable || activeMainTab === 'sql') return;
     void loadSchema(selectedTable);
     void loadData(selectedTable, 1);
@@ -503,22 +632,21 @@ export const DatabasePage: React.FC = () => {
     setQueryTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, sql: text } : t)));
   }, []);
 
-  const runSql = useCallback(
-    async (statement?: string) => {
-      const raw = (statement ?? queryTabs.find((t) => t.id === activeQueryTabId)?.sql ?? '').trim();
-      if (!raw) {
-        setSqlError('Empty query');
-        setSqlResults([]);
-        setSqlColumns([]);
-        return;
-      }
-      if (!isSuperadmin && !isAllowedReadOnlySql(raw)) {
-        setSqlError('Read-only mode: only SELECT queries are allowed.');
-        setSqlResults([]);
-        setSqlColumns([]);
-        return;
-      }
-      setSqlRunning(true);
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const executeSqlInternal = useCallback(
+    async (
+      raw: string,
+      opts: { studioApproved?: boolean; destructiveConfirmed?: boolean } = {},
+    ) => {
+      setLastAttemptedSql(raw);
+      setSqlRunState('running');
       setSqlError(null);
       const t0 = performance.now();
       try {
@@ -526,41 +654,167 @@ export const DatabasePage: React.FC = () => {
         const payload = await fetchJson<{ rows?: Record<string, unknown>[]; results?: Record<string, unknown>[]; error?: string }>(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sql: raw, params: [] }),
+          body: JSON.stringify({
+            sql: raw,
+            params: [],
+            studio_approved: opts.studioApproved === true,
+            destructive_confirmed: opts.destructiveConfirmed === true,
+          }),
         });
+        if (payload.error) {
+          setSqlError(payload.error);
+          setSqlResults([]);
+          setSqlColumns([]);
+          setSqlRunState('error');
+          setLastQueryMs(Math.round(performance.now() - t0));
+          setLastRowsRead(0);
+          return;
+        }
         const rows = payload.rows || payload.results || [];
         setSqlResults(Array.isArray(rows) ? rows : []);
         const keys = rows.length && typeof rows[0] === 'object' && rows[0] ? Object.keys(rows[0] as object) : [];
         setSqlColumns(keys);
         setLastQueryMs(Math.round(performance.now() - t0));
         setLastRowsRead(Array.isArray(rows) ? rows.length : 0);
-        if (payload.error) setSqlError(payload.error);
+        setSqlRunState('success');
       } catch (e) {
         setSqlError(e instanceof Error ? e.message : String(e));
         setSqlResults([]);
         setSqlColumns([]);
+        setSqlRunState('error');
         setLastQueryMs(Math.round(performance.now() - t0));
         setLastRowsRead(0);
-      } finally {
-        setSqlRunning(false);
       }
     },
-    [datasource, isSuperadmin, queryTabs, activeQueryTabId],
+    [datasource],
   );
 
+  const requestRunSql = useCallback(
+    (statement?: string) => {
+      const raw = (statement ?? queryTabs.find((t) => t.id === activeQueryTabId)?.sql ?? '').trim();
+      if (!raw) {
+        setSqlError('Empty query');
+        setSqlResults([]);
+        setSqlColumns([]);
+        setSqlRunState('error');
+        return;
+      }
+      const safety = evaluateDatabaseSqlSafety(raw, { isSuperadmin });
+      if (!safety.allowed) {
+        setSqlError(safety.error || 'SQL not permitted');
+        setSqlResults([]);
+        setSqlColumns([]);
+        setSqlRunState('error');
+        return;
+      }
+      const gate = getDatabaseSqlRunGate(raw, { isSuperadmin });
+      if (!gate.canExecute) {
+        if (gate.requiresApproval || gate.requiresRunModal) {
+          setSqlConfirmModal({
+            sql: raw,
+            kind: gate.kind,
+            riskLevel: gate.riskLevel,
+            requiresConfirmTyping: gate.requiresConfirmTyping,
+            datasourceLabel,
+          });
+          return;
+        }
+        setSqlError(gate.error || 'SQL not permitted');
+        setSqlResults([]);
+        setSqlColumns([]);
+        setSqlRunState('error');
+        return;
+      }
+      void executeSqlInternal(raw, { studioApproved: true, destructiveConfirmed: gate.requiresConfirmTyping });
+    },
+    [activeQueryTabId, datasourceLabel, executeSqlInternal, isSuperadmin, queryTabs],
+  );
+
+  const confirmSqlModalRun = useCallback(() => {
+    if (!sqlConfirmModal) return;
+    const raw = sqlConfirmModal.sql;
+    setSqlConfirmModal(null);
+    void executeSqlInternal(raw, {
+      studioApproved: true,
+      destructiveConfirmed: sqlConfirmModal.requiresConfirmTyping,
+    });
+  }, [executeSqlInternal, sqlConfirmModal]);
+
+  const runSql = requestRunSql;
+
   useEffect(() => {
-    runSqlRef.current = (statement: string) => runSql(statement);
-  }, [runSql]);
+    runSqlRef.current = (statement: string) => requestRunSql(statement);
+  }, [requestRunSql]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter' || activeMainTab !== 'sql') return;
+      if (activeMainTab !== 'sql') return;
+      if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
+      if (event.shiftKey) return;
       event.preventDefault();
       void runSql();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [activeMainTab, runSql]);
+
+  const beginResultsPaneResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    try {
+      el.setPointerCapture(pointerId);
+    } catch {
+      /* ignore */
+    }
+    setSplitterDragging(true);
+    document.body.classList.add('is-resizing-row');
+    const startY = e.clientY;
+    const startH = resultsPaneHeightRef.current;
+    const stackH = sqlStackRef.current?.getBoundingClientRect().height ?? 600;
+    const maxResults = Math.max(MIN_RESULTS_PANE_H, stackH - MIN_SQL_EDITOR_H - 8);
+
+    let finished = false;
+    const endDrag = () => {
+      if (finished) return;
+      finished = true;
+      setSplitterDragging(false);
+      document.body.classList.remove('is-resizing-row');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      try {
+        el.releasePointerCapture(pointerId);
+      } catch {
+        /* ignore */
+      }
+      try {
+        localStorage.setItem(LS_RESULTS_H, String(resultsPaneHeightRef.current));
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const onMove = (pe: PointerEvent) => {
+      if (pe.pointerId !== pointerId) return;
+      const delta = startY - pe.clientY;
+      const next = Math.max(MIN_RESULTS_PANE_H, Math.min(maxResults, startH + delta));
+      setResultsPaneHeight(next);
+    };
+    const onEnd = (pe: PointerEvent) => {
+      if (pe.pointerId !== pointerId) return;
+      endDrag();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  }, []);
+
+  const resetResultsPaneHeight = useCallback(() => {
+    setResultsPaneHeight(DEFAULT_RESULTS_PANE_H);
+  }, []);
 
   useEffect(() => {
     const onFmt = (event: KeyboardEvent) => {
@@ -574,21 +828,6 @@ export const DatabasePage: React.FC = () => {
     return () => window.removeEventListener('keydown', onFmt);
   }, [activeMainTab, renamingTabId]);
 
-  useEffect(() => {
-    const onApply = (ev: Event) => {
-      const e = ev as CustomEvent<{ sql?: string; autorun?: boolean }>;
-      const text = e.detail?.sql ?? '';
-      setActiveMainTab('sql');
-      const id = activeQueryTabIdRef.current;
-      setQueryTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, sql: text } : t)));
-      if (e.detail?.autorun) {
-        queueMicrotask(() => void runSqlRef.current(text));
-      }
-    };
-    window.addEventListener('db:apply-sql', onApply as EventListener);
-    return () => window.removeEventListener('db:apply-sql', onApply as EventListener);
-  }, []);
-
   const selectTableSql = useCallback(
     (name: string) => {
       if (datasource === 'd1') {
@@ -598,6 +837,191 @@ export const DatabasePage: React.FC = () => {
     },
     [datasource],
   );
+
+  useEffect(() => {
+    const sqlForTable = (name: string, ds: Datasource) => {
+      if (ds === 'd1') return `SELECT * FROM ${quoteIdent(name)} LIMIT 50;`;
+      return `SELECT * FROM public.${quoteIdent(name)} LIMIT 50;`;
+    };
+
+    const onApply = (ev: Event) => {
+      const e = ev as CustomEvent<{
+        sql?: string;
+        run?: boolean;
+        autorun?: boolean;
+        mode?: DbApplySqlMode;
+        datasource?: DatabaseDatasource;
+      }>;
+      const text = String(e.detail?.sql ?? '').trim();
+      if (!text) return;
+
+      const targetDs = e.detail?.datasource;
+      if (targetDs === 'd1' || targetDs === 'hyperdrive') {
+        setSidebarSource(targetDs);
+      }
+
+      setActiveMainTab('sql');
+      const mode = e.detail?.mode ?? 'replace';
+      const shouldRun = e.detail?.run === true || e.detail?.autorun === true;
+
+      if (mode === 'new_tab') {
+        const id = newTabId();
+        setQueryTabs((tabs) => [...tabs, { id, title: 'Agent query', sql: text }]);
+        setActiveQueryTabId(id);
+      } else if (mode === 'append') {
+        const id = activeQueryTabIdRef.current;
+        setQueryTabs((tabs) =>
+          tabs.map((t) => (t.id === id ? { ...t, sql: t.sql.trim() ? `${t.sql.trim()}\n\n${text}` : text } : t)),
+        );
+      } else {
+        const id = activeQueryTabIdRef.current;
+        setQueryTabs((tabs) => tabs.map((t) => (t.id === id ? { ...t, sql: text } : t)));
+      }
+
+      if (shouldRun) {
+        queueMicrotask(() => runSqlRef.current(text));
+      }
+    };
+
+    const onOpenTable = (ev: Event) => {
+      const e = ev as CustomEvent<{ datasource?: DatabaseDatasource; table?: string; tab?: MainTab }>;
+      const name = String(e.detail?.table ?? '').trim();
+      if (!name) return;
+      const ds: Datasource = e.detail?.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
+      setSidebarSource(ds);
+      setSelectedTable(name);
+      setPage(1);
+      const tab = e.detail?.tab ?? 'schema';
+      setActiveMainTab(tab);
+      if (tab === 'sql') {
+        setActiveSql(sqlForTable(name, ds));
+      }
+    };
+
+    const onQueryAnalysis = (ev: Event) => {
+      const e = ev as CustomEvent<{ sql?: string; error?: string; datasource?: DatabaseDatasource }>;
+      if (e.detail?.datasource === 'd1' || e.detail?.datasource === 'hyperdrive') {
+        setSidebarSource(e.detail.datasource);
+      }
+      const sqlText = String(e.detail?.sql ?? lastAttemptedSql ?? '').trim();
+      const errText = e.detail?.error != null ? String(e.detail.error) : '';
+      if (sqlText) {
+        setActiveMainTab('sql');
+        const id = activeQueryTabIdRef.current;
+        setQueryTabs((tabs) =>
+          tabs.map((t) =>
+            t.id === id
+              ? {
+                  ...t,
+                  sql: errText ? `${sqlText}\n\n-- Last error:\n-- ${errText.replace(/\n/g, '\n-- ')}` : sqlText,
+                }
+              : t,
+          ),
+        );
+      }
+      if (errText) {
+        setSqlError(errText);
+        setSqlRunState('error');
+      }
+    };
+
+    window.addEventListener('db:apply-sql', onApply as EventListener);
+    window.addEventListener('db:open-table', onOpenTable as EventListener);
+    window.addEventListener('db:open-query-analysis', onQueryAnalysis as EventListener);
+    return () => {
+      window.removeEventListener('db:apply-sql', onApply as EventListener);
+      window.removeEventListener('db:open-table', onOpenTable as EventListener);
+      window.removeEventListener('db:open-query-analysis', onQueryAnalysis as EventListener);
+    };
+  }, [isSuperadmin, lastAttemptedSql, setActiveSql]);
+
+  useEffect(() => {
+    const dialect = datasource === 'hyperdrive' ? 'postgresql' : 'sqlite';
+    const selectedRow =
+      selectedCell && pk
+        ? data.rows.find((r, i) => String(r[pk] ?? i) === selectedCell.rowKey)
+        : null;
+    const cellRow =
+      selectedCell && selectedTable
+        ? data.rows.find((r, i) => String(r[pk] ?? i) === selectedCell.rowKey)
+        : null;
+    const payload: DatabaseSurfaceContext = {
+      route: '/dashboard/database',
+      surface: 'database',
+      datasource,
+      dialect,
+      selectedTable,
+      activeMainTab,
+      currentSqlBuffer: activeSql ? activeSql.slice(0, 4000) : '',
+      selectedSql: activeSql ? activeSql.slice(0, 2000) : '',
+      lastAttemptedSql: lastAttemptedSql ? lastAttemptedSql.slice(0, 4000) : '',
+      lastError: sqlError,
+      lastResultMeta: {
+        rowsRead: lastRowsRead,
+        durationMs: lastQueryMs,
+        runState: sqlRunState,
+      },
+      selectedCellSummary:
+        selectedCell && selectedTable
+          ? {
+              table: selectedTable,
+              column: selectedCell.col,
+              rowKey: selectedCell.rowKey,
+              valuePreview: (() => {
+                const v = cellRow?.[selectedCell.col];
+                if (v == null) return 'NULL';
+                return typeof v === 'object' ? JSON.stringify(v).slice(0, 200) : String(v).slice(0, 200);
+              })(),
+            }
+          : null,
+      selectedRowSummary: selectedRow ? { ...selectedRow } : null,
+      schemaSummary: schema.length
+        ? {
+            columnCount: schema.length,
+            primaryKeys: schema.filter(isPrimaryKey).map((c) => c.name),
+            columns: schema.slice(0, 40).map((c) => ({
+              name: c.name,
+              type: c.type,
+              pk: isPrimaryKey(c),
+            })),
+          }
+        : null,
+      dataSummary: {
+        page: data.page,
+        totalPages: data.total_pages,
+        totalCount: data.total_count,
+        rowsOnPage: data.rows.length,
+      },
+      activeFilters: filters.map(({ col, op, val }) => ({ col, op, val })),
+      capabilities: {
+        canRead: true,
+        canWrite: isSuperadmin,
+        isSuperadmin,
+      },
+      sqlRunState,
+      updatedAt: Date.now(),
+    };
+    publishDatabaseSurfaceContext(payload);
+  }, [
+    activeMainTab,
+    activeSql,
+    data.page,
+    data.rows,
+    data.total_count,
+    data.total_pages,
+    datasource,
+    filters,
+    isSuperadmin,
+    lastAttemptedSql,
+    lastQueryMs,
+    lastRowsRead,
+    pk,
+    schema,
+    selectedCell,
+    selectedTable,
+    sqlError,
+    sqlRunState,
+  ]);
 
   const onPickTable = (name: string) => {
     setSelectedTable(name);
@@ -640,23 +1064,16 @@ export const DatabasePage: React.FC = () => {
   };
 
   const commitCell = async () => {
-    if (!isSuperadmin) return;
-    if (!editingCell || !selectedTable || !pk) return;
+    if (!canEditDataCell || !editingCell || !selectedTable || !pk) return;
     const row = data.rows.find((r) => String(r[pk]) === editingCell.rowKey);
     if (!row) return;
-    const endpoint = datasource === 'd1' ? `/api/d1/table/${encodeURIComponent(selectedTable)}/row` : '/api/hyperdrive/query';
+    if (editingCell.col === pk) return;
     try {
-      if (datasource === 'd1') {
-        await fetchJson(endpoint, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pk_col: pk, pk_val: row[pk], updates: { [editingCell.col]: editingCell.value } }),
-        });
-      } else {
-        await runSql(
-          `UPDATE public.${quoteIdent(selectedTable)} SET ${quoteIdent(editingCell.col)} = '${editingCell.value.replace(/'/g, "''")}' WHERE ${quoteIdent(pk)} = '${String(row[pk]).replace(/'/g, "''")}';`,
-        );
-      }
+      await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pk_col: pk, pk_val: row[pk], updates: { [editingCell.col]: editingCell.value } }),
+      });
       setEditingCell(null);
       await loadData(selectedTable, page);
     } catch (e) {
@@ -665,22 +1082,18 @@ export const DatabasePage: React.FC = () => {
   };
 
   const insertRow = async () => {
-    if (!isSuperadmin || !selectedTable) return;
+    if (!canInsertRow || !selectedTable) return;
     const missing = schema.filter((c) => isNotNull(c) && !isPrimaryKey(c) && columnDefault(c) == null && !insertValues[c.name]);
     if (missing.length) {
       setDataError(`Required fields missing: ${missing.map((c) => c.name).join(', ')}`);
       return;
     }
     try {
-      if (datasource === 'd1') {
-        await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ columns: insertValues }),
-        });
-      } else {
-        await runSql(insertSql);
-      }
+      await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ columns: insertValues }),
+      });
       setDrawer(null);
       setInsertValues({});
       await loadData(selectedTable, page);
@@ -690,27 +1103,39 @@ export const DatabasePage: React.FC = () => {
   };
 
   const deleteSelectedRows = async () => {
-    if (!isSuperadmin || !selectedTable || !pk || selectedRows.size === 0) return;
+    if (!canDeleteRows || !selectedTable || !pk) return;
     const pkVals = data.rows.filter((r) => selectedRows.has(String(r[pk]))).map((r) => r[pk]);
     try {
-      if (datasource === 'd1') {
-        await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/rows`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pk_col: pk, pk_vals: pkVals, confirm: true }),
-        });
-      } else {
-        const list = pkVals.map((v) => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-        await runSql(`DELETE FROM public.${quoteIdent(selectedTable)} WHERE ${quoteIdent(pk)} IN (${list});`);
-      }
-      setInlineConfirmDelete(false);
+      await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/rows`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pk_col: pk, pk_vals: pkVals, confirm: true }),
+      });
+      setDeleteRowsModal(false);
+      setSelectedRows(new Set());
       await loadData(selectedTable, page);
     } catch (e) {
       setDataError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  const exportRows = (rows: Record<string, unknown>[], filename: string) => {
+  const openCellDetail = useCallback(
+    (rowKey: string, col: string) => {
+      if (!selectedTable) return;
+      const row = data.rows.find((r, i) => String(r[pk] ?? i) === rowKey);
+      if (!row) return;
+      setCellDetail({
+        datasourceLabel,
+        tableName: selectedTable,
+        columnName: col,
+        rowKey: pk ? String(row[pk]) : rowKey,
+        rawValue: row[col],
+      });
+    },
+    [data.rows, datasourceLabel, pk, selectedTable],
+  );
+
+  const exportRows = useCallback((rows: Record<string, unknown>[], filename: string) => {
     const cols = Object.keys(rows[0] || {});
     const csv = [cols.join(','), ...rows.map((row) => cols.map((col) => JSON.stringify(row[col] ?? '')).join(','))].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -719,7 +1144,35 @@ export const DatabasePage: React.FC = () => {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, []);
+
+  const copyVisibleDataCsv = useCallback(() => {
+    exportRows(data.rows, `${selectedTable || 'table'}-page.csv`);
+  }, [data.rows, exportRows, selectedTable]);
+
+  const copyRowJson = useCallback(
+    (row: Record<string, unknown>) => {
+      void copyToClipboard(JSON.stringify(row, null, 2));
+    },
+    [copyToClipboard],
+  );
+
+  useEffect(() => {
+    if (activeMainTab !== 'data') return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setCellDetail(null);
+        setEditingCell(null);
+        return;
+      }
+      if (event.key === 'Enter' && selectedCell && !editingCell) {
+        event.preventDefault();
+        openCellDetail(selectedCell.rowKey, selectedCell.col);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeMainTab, editingCell, openCellDetail, selectedCell]);
 
   const onboardingEligible = capLoaded && pageReady && !isSuperadmin;
   const showD1Setup = onboardingEligible && d1Status === 'error';
@@ -784,8 +1237,8 @@ export const DatabasePage: React.FC = () => {
           : null;
 
   return (
-    <div className="relative flex h-full min-h-0 overflow-hidden bg-[var(--bg-app)] text-[var(--text-main)]">
-      <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-panel)]">
+    <div className="database-page relative flex h-full min-h-0 overflow-hidden">
+      <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--database-border)] bg-[var(--database-panel)]">
         <div className="border-b border-[var(--border-subtle)] p-3">
           <div className="flex rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-0.5">
             <button
@@ -869,7 +1322,7 @@ export const DatabasePage: React.FC = () => {
                     }`}
                   >
                     <TableIcon size={12} className="shrink-0 opacity-70" />
-                    <span className="min-w-0 truncate">{table.name}</span>
+                    <span className="min-w-0 truncate">{highlightSearchMatchAll(table.name, tableSearch)}</span>
                   </button>
                 </div>
                 {open && (
@@ -935,8 +1388,8 @@ export const DatabasePage: React.FC = () => {
           {setupContent}
 
           {!setupContent && activeMainTab === 'sql' && (
-            <div className="flex h-full min-h-0 flex-col">
-              <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1">
+            <div ref={sqlStackRef} className="flex h-full min-h-0 flex-col">
+              <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--database-border)] bg-[var(--database-panel)] px-2 py-1">
                 {queryTabs.map((tab) => (
                   <div
                     key={tab.id}
@@ -984,7 +1437,10 @@ export const DatabasePage: React.FC = () => {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1" style={{ background: 'var(--database-monaco-bg,var(--scene-bg))' }}>
+              <div
+                className="min-h-0 flex-1"
+                style={{ minHeight: MIN_SQL_EDITOR_H, background: 'var(--database-monaco-bg)' }}
+              >
                 <MonacoSurface
                   height="100%"
                   language="sql"
@@ -999,34 +1455,85 @@ export const DatabasePage: React.FC = () => {
                 />
               </div>
 
-              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)] px-4 py-2">
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-valuenow={resultsPaneHeight}
+                title="Drag to resize results · double-click to reset"
+                className="database-splitter hidden md:block"
+                data-dragging={splitterDragging ? 'true' : undefined}
+                onPointerDown={beginResultsPaneResize}
+                onDoubleClick={resetResultsPaneHeight}
+              />
+
+              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--database-border)] bg-[var(--database-panel)] px-4 py-2">
                 <button
                   type="button"
                   onClick={() => void sqlEditorRef.current?.getAction('editor.action.formatDocument')?.run()}
-                  className="text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                  className="text-[11px] font-medium text-[var(--database-text-muted)] hover:text-[var(--database-text)]"
                 >
                   Format <span className="font-mono text-[10px] opacity-70">(⌥F)</span>
                 </button>
-                <button
-                  type="button"
-                  disabled={sqlRunning}
-                  onClick={() => void runSql()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--color-accent,var(--solar-cyan))] px-4 py-1.5 text-[11px] font-bold text-[var(--scene-bg,#060e14)] shadow-sm disabled:opacity-50"
-                >
-                  {sqlRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
-                  Run
-                </button>
+                <div className="flex items-center gap-2">
+                  {sqlRunState === 'success' && lastQueryMs != null && (
+                    <span className="font-mono text-[10px] text-[var(--database-text-muted)]">
+                      {lastQueryMs}ms · {lastRowsRead ?? 0} rows · {datasource}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    disabled={sqlRunning}
+                    onClick={() => void runSql()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[var(--database-accent)] px-4 py-1.5 text-[11px] font-bold text-[var(--database-bg)] shadow-sm disabled:opacity-50"
+                  >
+                    {sqlRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
+                    {sqlRunning ? 'Running…' : 'Run'}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex min-h-[180px] shrink-0 flex-col border-t border-[var(--border-subtle)]" style={{ height: '34%', maxHeight: '50%' }}>
-                <div className="shrink-0 border-b border-[var(--border-subtle)] px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">Results</div>
+              <div
+                className="database-results-pane--mobile flex shrink-0 flex-col border-t border-[var(--database-border)] md:max-h-[75%]"
+                style={{ height: resultsPaneHeight, minHeight: MIN_RESULTS_PANE_H }}
+              >
+                <div className="shrink-0 border-b border-[var(--database-border)] px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--database-text-muted)]">
+                  {sqlRunState === 'error' ? 'Query error' : 'Results'}
+                </div>
                 <div className="min-h-0 flex-1 overflow-auto">
-                  {sqlError ? (
-                    <div className="m-3 rounded border border-[var(--solar-red)]/20 bg-[var(--solar-red)]/10 p-3 font-mono text-[12px] text-[var(--solar-red)]">{sqlError}</div>
+                  {sqlRunState === 'error' && sqlError ? (
+                    <div className="database-sql-error-panel">
+                      <p className="font-semibold">{sqlError}</p>
+                      <p className="mt-2 text-[10px] opacity-90">
+                        Datasource: <span className="font-mono">{datasourceLabel}</span>
+                      </p>
+                      {lastAttemptedSql ? (
+                        <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-[var(--database-border)] bg-[var(--database-bg)] p-2 text-[11px] text-[var(--database-text)]">
+                          {lastAttemptedSql}
+                        </pre>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void copyToClipboard(sqlError)}
+                          className="inline-flex items-center gap-1 rounded border border-[var(--database-border)] px-2 py-1 text-[10px] font-bold hover:bg-[var(--database-row-hover-bg)]"
+                        >
+                          <ClipboardCopy size={12} /> Copy error
+                        </button>
+                        {lastAttemptedSql ? (
+                          <button
+                            type="button"
+                            onClick={() => void copyToClipboard(lastAttemptedSql)}
+                            className="inline-flex items-center gap-1 rounded border border-[var(--database-border)] px-2 py-1 text-[10px] font-bold hover:bg-[var(--database-row-hover-bg)]"
+                          >
+                            <ClipboardCopy size={12} /> Copy SQL
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                   ) : sqlResults.length ? (
                     <table className="w-full min-w-max border-collapse text-left text-[12px]">
-                      <thead className="sticky top-0 bg-[var(--bg-app)]">
-                        <tr className="border-b border-[var(--border-subtle)] text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+                      <thead className="sticky top-0 bg-[var(--database-bg)]">
+                        <tr className="border-b border-[var(--database-border)] text-[10px] uppercase tracking-widest text-[var(--database-text-muted)]">
                           {(sqlColumns.length ? sqlColumns : Object.keys(sqlResults[0] || {})).map((h) => (
                             <th key={h} className="whitespace-nowrap px-3 py-2 font-semibold">
                               {h}
@@ -1036,7 +1543,7 @@ export const DatabasePage: React.FC = () => {
                       </thead>
                       <tbody>
                         {sqlResults.map((row, i) => (
-                          <tr key={i} className="border-b border-[var(--border-subtle)]/50">
+                          <tr key={i} className="border-b border-[var(--database-border)]/50 hover:bg-[var(--database-row-hover-bg)]">
                             {(sqlColumns.length ? sqlColumns : Object.keys(row)).map((k) => (
                               <td key={k} className="max-w-[320px] truncate px-3 py-1.5 font-mono">
                                 {formatValue((row as Record<string, unknown>)[k], k)}
@@ -1047,11 +1554,14 @@ export const DatabasePage: React.FC = () => {
                       </tbody>
                     </table>
                   ) : (
-                    <p className="p-4 text-[12px] text-[var(--text-muted)]">Run a query to see results.</p>
+                    <p className="p-4 text-[12px] text-[var(--database-text-muted)]">
+                      {sqlRunState === 'running' ? 'Running query…' : 'Run a query to see results.'}
+                    </p>
                   )}
                 </div>
-                <div className="shrink-0 border-t border-[var(--border-subtle)] px-4 py-1.5 font-mono text-[10px] text-[var(--text-muted)]">
-                  Query Time: {lastQueryMs != null ? `${lastQueryMs}ms` : '—'} | Rows Read: {lastRowsRead != null ? lastRowsRead : '—'}
+                <div className="shrink-0 border-t border-[var(--database-border)] px-4 py-1.5 font-mono text-[10px] text-[var(--database-text-muted)]">
+                  Query Time: {lastQueryMs != null ? `${lastQueryMs}ms` : '—'} | Rows: {lastRowsRead != null ? lastRowsRead : '—'} |{' '}
+                  {datasource}
                 </div>
               </div>
             </div>
@@ -1134,22 +1644,24 @@ export const DatabasePage: React.FC = () => {
           )}
 
           {!setupContent && activeMainTab === 'data' && selectedTable && (
-            <div className="flex h-full flex-col overflow-hidden">
+            <div className="relative flex h-full flex-col overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    disabled={!isSuperadmin}
-                    onClick={() => setDrawer('insert')}
+                    disabled={!canInsertRow}
+                    title={!canInsertRow ? insertDisabledReason : 'Insert a new row'}
+                    onClick={() => canInsertRow && setDrawer('insert')}
                     className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold text-[var(--color-accent,var(--solar-cyan))] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Plus size={12} /> Insert Row
                   </button>
                   <button
                     type="button"
-                    disabled={!isSuperadmin || selectedRows.size === 0}
-                    onClick={() => setInlineConfirmDelete(true)}
-                    className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold text-[var(--solar-red)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                    disabled={!canDeleteRows}
+                    title={!canDeleteRows ? deleteDisabledReason : `Delete ${selectedRows.size} selected row(s)`}
+                    onClick={() => canDeleteRows && setDeleteRowsModal(true)}
+                    className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold text-[var(--solar-red)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Trash2 size={12} /> Delete Row
                   </button>
@@ -1162,20 +1674,14 @@ export const DatabasePage: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => exportRows(data.rows, `${selectedTable || 'table'}.csv`)}
+                    onClick={() => copyVisibleDataCsv()}
                     className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--bg-hover)]"
                   >
-                    <Download size={12} /> Export CSV
+                    <Download size={12} /> Copy CSV
                   </button>
-                  {inlineConfirmDelete && (
-                    <span className="rounded-lg border border-[var(--solar-red)]/30 bg-[var(--solar-red)]/10 px-2 py-1 text-[11px] text-[var(--solar-red)]">
-                      Delete {selectedRows.size} rows?{' '}
-                      <button type="button" className="ml-2 font-bold" onClick={() => void deleteSelectedRows()}>
-                        confirm
-                      </button>{' '}
-                      <button type="button" className="ml-2" onClick={() => setInlineConfirmDelete(false)}>
-                        cancel
-                      </button>
+                  {editDisabledReason && activeMainTab === 'data' && (
+                    <span className="text-[10px] text-[var(--text-muted)]" title={editDisabledReason}>
+                      {datasource === 'hyperdrive' ? 'Edit: Hyperdrive disabled (v1)' : !pk ? 'Edit: no PK' : ''}
                     </span>
                   )}
                 </div>
@@ -1183,7 +1689,9 @@ export const DatabasePage: React.FC = () => {
                   <Filter size={12} className="text-[var(--text-muted)]" />
                   <select
                     value={filters[0]?.col || ''}
-                    onChange={(e) => setFilters(e.target.value ? [{ id: 'f1', col: e.target.value, op: 'like', val: '' }] : [])}
+                    onChange={(e) =>
+                      setFilters(e.target.value ? [{ id: 'f1', col: e.target.value, op: 'contains', val: '' }] : [])
+                    }
                     className="rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-[11px]"
                   >
                     <option value="">Filter</option>
@@ -1196,17 +1704,19 @@ export const DatabasePage: React.FC = () => {
                   {filters[0] && (
                     <select
                       value={filters[0].op}
-                      onChange={(e) => setFilters([{ ...filters[0], op: e.target.value as FilterRule['op'] }])}
+                      onChange={(e) =>
+                        setFilters([{ ...filters[0], op: e.target.value as DatabaseFilterUiOp }])
+                      }
                       className="rounded border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2 py-1 text-[11px]"
                     >
-                      {OPS.map((op) => (
-                        <option key={op}>
-                          {op}
+                      {FILTER_OPS.map((op) => (
+                        <option key={op} value={op}>
+                          {DATABASE_FILTER_UI_LABELS[op]}
                         </option>
                       ))}
                     </select>
                   )}
-                  {filters[0] && !['is_null', 'not_null'].includes(filters[0].op) && (
+                  {filters[0] && !['is_null', 'is_not_null'].includes(filters[0].op) && (
                     <input
                       value={filters[0].val}
                       onChange={(e) => setFilters([{ ...filters[0], val: e.target.value }])}
@@ -1251,7 +1761,7 @@ export const DatabasePage: React.FC = () => {
                     {data.rows.map((row, i) => {
                       const key = String(row[pk] ?? i);
                       return (
-                        <tr key={key} className="border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-hover)]">
+                        <tr key={key} className="group border-b border-[var(--border-subtle)]/50 hover:bg-[var(--bg-hover)]">
                           <td className="px-3 py-1.5">
                             <input
                               type="checkbox"
@@ -1266,31 +1776,63 @@ export const DatabasePage: React.FC = () => {
                               }
                             />
                           </td>
-                          {columns.map((col) => (
-                            <td
-                              key={col}
-                              className="max-w-[300px] truncate border-r border-[var(--border-subtle)]/40 px-3 py-1.5 font-mono"
-                              onDoubleClick={() =>
-                                isSuperadmin && setEditingCell({ rowKey: key, col, value: row[col] == null ? '' : String(row[col]) })
-                              }
-                            >
-                              {editingCell?.rowKey === key && editingCell.col === col ? (
-                                <input
-                                  autoFocus
-                                  value={editingCell.value}
-                                  onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') void commitCell();
-                                    if (e.key === 'Escape') setEditingCell(null);
-                                  }}
-                                  onBlur={() => void commitCell()}
-                                  className="w-full rounded border border-[var(--color-accent,var(--solar-cyan))] bg-[var(--bg-panel)] px-2 py-1 outline-none"
-                                />
-                              ) : (
-                                formatValue(row[col], col)
-                              )}
-                            </td>
-                          ))}
+                          {columns.map((col) => {
+                            const isSelected = selectedCell?.rowKey === key && selectedCell.col === col;
+                            const isPkCol = col === pk;
+                            const canEditThis =
+                              canEditDataCell && !isPkCol && editingCell?.rowKey === key && editingCell.col === col;
+                            return (
+                              <td
+                                key={col}
+                                className={`max-w-[300px] truncate border-r border-[var(--border-subtle)]/40 px-3 py-1.5 font-mono ${
+                                  isSelected ? 'database-data-cell--selected' : ''
+                                }`}
+                                title={
+                                  canEditDataCell && !isPkCol
+                                    ? 'Click to select · double-click to edit · Enter for detail'
+                                    : editDisabledReason || 'Click to select · double-click for detail'
+                                }
+                                onClick={() => setSelectedCell({ rowKey: key, col })}
+                                onDoubleClick={() => {
+                                  if (canEditDataCell && !isPkCol) {
+                                    setEditingCell({ rowKey: key, col, value: row[col] == null ? '' : String(row[col]) });
+                                    return;
+                                  }
+                                  openCellDetail(key, col);
+                                }}
+                              >
+                                {canEditThis ? (
+                                  <input
+                                    autoFocus
+                                    value={editingCell.value}
+                                    onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') void commitCell();
+                                      if (e.key === 'Escape') setEditingCell(null);
+                                    }}
+                                    onBlur={() => void commitCell()}
+                                    className="w-full rounded border border-[var(--color-accent,var(--solar-cyan))] bg-[var(--bg-panel)] px-2 py-1 outline-none"
+                                  />
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <span className="min-w-0 flex-1 truncate">{formatValue(row[col], col)}</span>
+                                    <button
+                                      type="button"
+                                      title="Copy cell"
+                                      className="shrink-0 rounded p-0.5 opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100 [.database-data-cell--selected+&]:opacity-100"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const v = row[col];
+                                        void copyToClipboard(v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+                                      }}
+                                    >
+                                      <ClipboardCopy size={10} />
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
                         </tr>
                       );
                     })}
@@ -1334,6 +1876,7 @@ export const DatabasePage: React.FC = () => {
                   </button>
                 </div>
               </div>
+              <DatabaseCellDetailDrawer payload={cellDetail} onClose={() => setCellDetail(null)} onCopy={(t) => void copyToClipboard(t)} />
             </div>
           )}
 
@@ -1382,6 +1925,37 @@ export const DatabasePage: React.FC = () => {
           )}
         </div>
       </main>
+
+      <DatabaseSqlConfirmModal
+        payload={sqlConfirmModal}
+        onCancel={() => setSqlConfirmModal(null)}
+        onConfirm={() => confirmSqlModalRun()}
+      />
+
+      {deleteRowsModal && selectedTable && (
+        <div className="database-modal-overlay" role="dialog" aria-modal="true">
+          <div className="database-modal-panel">
+            <div className="border-b border-[var(--database-border)] px-4 py-3">
+              <h2 className="text-sm font-semibold text-[var(--database-text)]">Delete rows</h2>
+              <p className="mt-1 text-[11px] text-[var(--database-text-muted)]">
+                Delete {selectedRows.size} row(s) from <span className="font-mono">{selectedTable}</span>? This cannot be undone.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3">
+              <button type="button" onClick={() => setDeleteRowsModal(false)} className="rounded-lg border border-[var(--database-border)] px-3 py-2 text-[11px] font-bold">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteSelectedRows()}
+                className="rounded-lg border border-[var(--database-error-text)]/40 bg-[var(--database-error-bg)] px-3 py-2 text-[11px] font-bold text-[var(--database-error-text)]"
+              >
+                Delete {selectedRows.size} row(s)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {drawer === 'insert' && (
         <Drawer title="Insert Row" subtitle={selectedTable || undefined} onClose={() => setDrawer(null)}>

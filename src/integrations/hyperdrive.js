@@ -1,5 +1,11 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, authUserIsSuperadmin } from '../core/auth.js';
+import { getDatabaseSqlRunGate } from '../core/database-sql-safety.js';
+import {
+  buildAllowlistedOrderBy,
+  buildPostgresFilterWhere,
+  parseDatabaseFiltersJson,
+} from '../core/database-table-filters.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 
 /** @param {string} ident */
@@ -11,19 +17,8 @@ function pgQuoteIdent(ident) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
-/** @param {string} sql */
-function sqlStatementKind(sql) {
-  const t = String(sql || '')
-    .trim()
-    .replace(/^\(/, '')
-    .replace(/^WITH\s+[\s\S]+?\)\s*/i, '');
-  const u = t.toUpperCase();
-  if (/^(CREATE|ALTER|DROP)\s+/i.test(u)) return 'ddl';
-  return 'dml';
-}
-
 /**
- * Generic POST body executor — SELECT, INSERT, UPDATE, DELETE, DDL (superadmin only).
+ * Generic POST body executor — read-only for non-superadmin; DML/DDL superadmin only.
  * @param {Request} request
  * @param {any} env
  * @param {{ requireSuperadminForDdl?: boolean }} [opts]
@@ -48,8 +43,26 @@ async function executeHyperdriveSqlFromRequest(request, env) {
   if (/^\s*DROP\s+DATABASE\b/i.test(trimmed)) {
     return jsonResponse({ error: 'DROP DATABASE is not permitted via this API' }, 403);
   }
-  if (sqlStatementKind(trimmed) === 'ddl' && !authUserIsSuperadmin(authUser)) {
-    return jsonResponse({ error: 'Superadmin required for DDL statements' }, 403);
+
+  const isSuperadmin = authUserIsSuperadmin(authUser);
+  const gate = getDatabaseSqlRunGate(trimmed, {
+    isSuperadmin,
+    studioApproved: body?.studio_approved === true || body?.studioApproved === true,
+    destructiveConfirmed:
+      body?.destructive_confirmed === true || body?.destructiveConfirmed === true,
+  });
+  if (!gate.canExecute) {
+    return jsonResponse(
+      {
+        error: gate.error || 'SQL not permitted',
+        code: gate.requiresConfirmTyping ? 'hyperdrive_destructive_confirm' : 'hyperdrive_read_only',
+        statement_kind: gate.kind,
+        risk_level: gate.riskLevel,
+        requires_studio_approval: gate.requiresApproval === true && !gate.requiresConfirmTyping,
+        requires_destructive_confirm: gate.requiresConfirmTyping === true,
+      },
+      gate.kind === 'unknown' ? 400 : 403,
+    );
   }
 
   const t0 = Date.now();
@@ -235,27 +248,54 @@ export async function handleHyperdriveRoutes(request, url, env) {
     const sort = String(url.searchParams.get('sort') || '').trim();
     const dir = String(url.searchParams.get('dir') || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
     const identQuoted = pgQuoteIdent(tableRaw);
-    let order = '';
-    if (sort) {
-      try {
-        order = ` ORDER BY ${pgQuoteIdent(sort)} ${dir}`;
-      } catch {
-        order = '';
-      }
+    const filters = parseDatabaseFiltersJson(url.searchParams.get('filter'));
+
+    const colsR = await runHyperdriveQuery(
+      env,
+      `SELECT column_name AS name
+         FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+        ORDER BY ordinal_position`,
+      [tableRaw],
+    );
+    if (!colsR.ok) throw new Error(colsR.error || 'schema_columns_failed');
+    const columnAllowlist = new Set(
+      (colsR.rows ?? []).map((r) => String(r.name || '').trim()).filter(Boolean),
+    );
+
+    let built = { where: '', values: [] };
+    try {
+      built = buildPostgresFilterWhere(filters, {
+        quoteIdent: pgQuoteIdent,
+        allowColumns: columnAllowlist,
+      });
+    } catch (filterErr) {
+      return jsonResponse({ error: filterErr?.message || 'Invalid filter' }, 400);
     }
+
+    let order = '';
+    try {
+      order = buildAllowlistedOrderBy(sort, dir, columnAllowlist, pgQuoteIdent);
+    } catch {
+      order = '';
+    }
+
     const offset = (pageNum - 1) * limit;
+    const filterValues = built.values;
+    const limitParam = `$${filterValues.length + 1}`;
+    const offsetParam = `$${filterValues.length + 2}`;
     try {
       const countRes = await runHyperdriveQuery(
         env,
-        `SELECT COUNT(*)::int AS count FROM public.${identQuoted}`,
-        [],
+        `SELECT COUNT(*)::int AS count FROM public.${identQuoted}${built.where}`,
+        filterValues,
       );
       if (!countRes.ok) throw new Error(countRes.error || 'count_failed');
       const total = Number(countRes.rows?.[0]?.count ?? 0);
       const rowsRes = await runHyperdriveQuery(
         env,
-        `SELECT * FROM public.${identQuoted}${order} LIMIT $1 OFFSET $2`,
-        [limit, offset],
+        `SELECT * FROM public.${identQuoted}${built.where}${order} LIMIT ${limitParam} OFFSET ${offsetParam}`,
+        [...filterValues, limit, offset],
       );
       if (!rowsRes.ok) throw new Error(rowsRes.error || 'select_failed');
       const rowList = rowsRes.rows ?? [];

@@ -92,6 +92,10 @@ import { AgentMessageList } from './components/AgentMessageList';
 import { ThinkingCard } from '../../src/components/ThinkingCard';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
 import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
+import {
+  parseAndDispatchDatabaseStudioActions,
+  tryDispatchDbApplyFromAssistantMessage,
+} from '../../src/lib/databaseStudioEvents';
 import '../agent-presence/presenceMotion.css';
 import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
 import { derivePresenceState } from '../agent-presence/iamDerivePresenceState';
@@ -217,6 +221,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);
   /** Latest `iam-browser-surface-context` from BrowserView (URL, route, viewport). */
   const browserSurfaceRef = useRef<Record<string, unknown> | null>(null);
+  /** Latest `iam-database-surface-context` from DatabasePage. */
+  const databaseSurfaceRef = useRef<Record<string, unknown> | null>(null);
+  const messagesRef = useRef<Message[]>(messages);
+  messagesRef.current = messages;
   /** Optional workflow run stream (`agent_universal_autonomous_run` / graph SSE). */
   const [workflowLedger, setWorkflowLedger] = useState<{
     runId: string | null;
@@ -294,8 +302,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object') browserSurfaceRef.current = d;
     };
+    const onDatabaseSurface = (ev: Event) => {
+      const d = (ev as CustomEvent<Record<string, unknown>>).detail;
+      if (d && typeof d === 'object') databaseSurfaceRef.current = d;
+    };
     window.addEventListener('iam-browser-surface-context', onSurface as EventListener);
-    return () => window.removeEventListener('iam-browser-surface-context', onSurface as EventListener);
+    window.addEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
+    return () => {
+      window.removeEventListener('iam-browser-surface-context', onSurface as EventListener);
+      window.removeEventListener('iam-database-surface-context', onDatabaseSurface as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -1446,6 +1462,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       if (snap && typeof snap === 'object') {
         browserCtxPayload.selected_element = snap;
       }
+      if (databaseSurfaceRef.current && typeof databaseSurfaceRef.current === 'object') {
+        browserCtxPayload.databaseContext = databaseSurfaceRef.current;
+      }
       form.append('browserContext', JSON.stringify(browserCtxPayload));
     } catch {
       /* ignore */
@@ -1574,6 +1593,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       setIsLoading(false);
       clearAttachments();
       abortControllerRef.current = null;
+
+      const lastMsg = messagesRef.current[messagesRef.current.length - 1];
+      if (lastMsg?.role === 'assistant' && typeof lastMsg.content === 'string') {
+        const ds =
+          databaseSurfaceRef.current?.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
+        const isSa = agentsamPolicy?.is_superadmin === true || agentsamPolicy?.is_superadmin === 1;
+        parseAndDispatchDatabaseStudioActions(lastMsg.content, { datasource: ds, isSuperadmin: isSa });
+        tryDispatchDbApplyFromAssistantMessage(lastMsg.content, {
+          datasource: ds,
+          isSuperadmin: isSa,
+        });
+      }
+
       if (messageQueue.length > 0) {
         const next = messageQueue[0];
         setMessageQueue((prev) => prev.slice(1));

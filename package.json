@@ -36,6 +36,8 @@
     "smoke:ai": "node scripts/ai-smoke-report.mjs",
     "smoke:mcp": "node scripts/mcp-smoke.mjs",
     "smoke:code-execution-e2e": "node scripts/test-code-execution-e2e.mjs",
+    "smoke:database-sql-safety": "node scripts/database-sql-safety-smoke.mjs",
+    "smoke:database-table-filters": "node scripts/database-table-filters-smoke.mjs",
     "smoke:post-deploy": "./scripts/post-deploy-smoke.sh",
     "verify:agentsam-telemetry": "./scripts/verify-agentsam-telemetry-after-deploy.sh",
     "smoke:mcp-actor": "node scripts/mcp-actor-authorization-smoke.mjs",

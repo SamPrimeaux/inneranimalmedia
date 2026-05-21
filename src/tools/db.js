@@ -1,13 +1,38 @@
 /**
- * Tool: Database (db)
- * D1 execution: d1_query uses shared read-only gate; d1_write stays approval-gated upstream.
+ * Tool: Database (D1 + Hyperdrive/Postgres)
+ * Shared SQL safety: src/core/database-sql-safety.js
  */
 
 import { d1_query as d1QueryCore } from '../core/d1.js';
 import { assertD1ReadOnlySelect } from '../core/d1-read-validator.js';
+import { evaluateDatabaseSqlSafety } from '../core/database-sql-safety.js';
+import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 import { recordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { scheduleToolCallLog } from '../core/agentsam-ops-ledger.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
+
+/** @param {any} env @param {string | null | undefined} user_id */
+async function resolveIsSuperadmin(env, user_id) {
+  if (!user_id || !env?.DB) return false;
+  try {
+    const uid = await resolveCanonicalUserId(String(user_id).trim(), env);
+    const row = await env.DB.prepare(`SELECT COALESCE(is_superadmin, 0) AS is_superadmin FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(uid)
+      .first();
+    return row?.is_superadmin === 1;
+  } catch {
+    return false;
+  }
+}
+
+/** @param {string} ident */
+function pgQuoteIdent(ident) {
+  const s = String(ident || '').trim();
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)) {
+    throw new Error('invalid table or column identifier');
+  }
+  return `"${s.replace(/"/g, '""')}"`;
+}
 
 async function logPolicyBlock(env, fields) {
   if (!env?.DB) return;
@@ -21,6 +46,7 @@ async function logPolicyBlock(env, fields) {
   const sqlSnippet = String(fields.sql || '').slice(0, 2000);
   const err = String(fields.error || 'policy_block');
   const inputSum = JSON.stringify({ sql: sqlSnippet }).slice(0, 200);
+  const toolName = fields.tool_name || 'd1_query';
   const spine = {
     agent_run_id:
       fields.agent_run_id != null && String(fields.agent_run_id).trim() !== ''
@@ -39,7 +65,7 @@ async function logPolicyBlock(env, fields) {
     tenant_id: tenantId,
     workspace_id: workspaceId,
     session_id: sessionId,
-    tool_name: 'd1_query',
+    tool_name: toolName,
     input_json: JSON.stringify({ sql: sqlSnippet }),
     success: false,
     error_message: err,
@@ -53,7 +79,7 @@ async function logPolicyBlock(env, fields) {
     workspaceId,
     sessionId,
     userId,
-    toolName: 'd1_query',
+    toolName,
     status: 'error',
     durationMs: 0,
     errorMessage: err,
@@ -62,74 +88,100 @@ async function logPolicyBlock(env, fields) {
   });
 }
 
-export const handlers = {
-  /**
-   * d1_query: read-only SELECT / WITH via src/core/d1.js
-   */
-  async d1_query(
-    {
+/**
+ * @param {any} params
+ * @param {any} env
+ * @param {{ toolName: string, allowKinds?: string[] }} opts
+ */
+async function assertMutationToolAllowed(params, env, opts) {
+  const { sql, user_id, workspace_id } = params;
+  if (user_id && (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')) {
+    return { error: 'WORKSPACE_CONTEXT_MISSING' };
+  }
+  if (!sql) return { error: 'SQL query required' };
+  const isSuperadmin = await resolveIsSuperadmin(env, user_id);
+  const safety = evaluateDatabaseSqlSafety(sql, { isSuperadmin });
+  if (!safety.allowed) {
+    await logPolicyBlock(env, {
+      ...params,
       sql,
-      params = [],
-      tenant_id,
-      user_id,
-      workspace_id,
-      session_id,
-      agent_run_id,
-      agentRunId,
-      conversation_id,
-      conversationId,
-    },
-    env,
-  ) {
+      error: safety.error || 'policy_block',
+      tool_name: opts.toolName,
+    });
+    return { error: safety.error || 'SQL not permitted' };
+  }
+  const allowKinds = opts.allowKinds || ['mutation', 'schema', 'destructive'];
+  if (!allowKinds.includes(safety.kind)) {
+    const msg = `${opts.toolName} does not allow statement kind: ${safety.kind}`;
+    await logPolicyBlock(env, { ...params, sql, error: msg, tool_name: opts.toolName });
+    return { error: msg };
+  }
+  if (safety.requiresApproval) {
+    return {
+      error: `${opts.toolName} requires dashboard approval before execution.`,
+      requires_approval: true,
+      statement_kind: safety.kind,
+    };
+  }
+  return { ok: true, safety, isSuperadmin };
+}
+
+export const handlers = {
+  async d1_query(params, env) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
+    const { sql, params: bindings = [] } = params;
     if (!sql) return { error: 'SQL query required' };
-    if (user_id && (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')) {
+    if (params.user_id && (!params.workspace_id || String(params.workspace_id).trim() === '' || String(params.workspace_id).trim() === '__tenant__')) {
       return { error: 'WORKSPACE_CONTEXT_MISSING' };
     }
 
     const gate = assertD1ReadOnlySelect(sql);
     if (!gate.ok) {
-      await logPolicyBlock(env, {
-        sql,
-        error: gate.error || 'policy_block',
-        tenant_id: tenant_id ?? null,
-        user_id: user_id ?? null,
-        workspace_id: workspace_id ?? null,
-        session_id: session_id ?? null,
-        agent_run_id: agent_run_id ?? agentRunId ?? null,
-        conversation_id: conversation_id ?? conversationId ?? session_id ?? null,
-      });
+      await logPolicyBlock(env, { ...params, tool_name: 'd1_query' });
       return {
         error: `${gate.error} For mutations, use d1_write after dashboard approval.`,
       };
     }
 
     try {
-      const rows = await d1QueryCore({ sql, params }, env);
+      const rows = await d1QueryCore({ sql, params: bindings }, env);
       return { success: true, results: rows || [], meta: {} };
     } catch (e) {
       return { error: `D1 Query Failed: ${e.message}` };
     }
   },
 
-  /**
-   * d1_write: INSERT/UPDATE/DELETE with safety checks.
-   */
-  async d1_write({ sql, params = [] }, env) {
+  async d1_write(params, env) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
+    const check = await assertMutationToolAllowed(params, env, {
+      toolName: 'd1_write',
+      allowKinds: ['mutation', 'schema', 'destructive'],
+    });
+    if (check.error) return check;
+
     try {
-      const res = await env.DB.prepare(sql).bind(...params).run();
-      return { success: true, meta: res.meta };
+      const bindings = Array.isArray(params.params) ? params.params : [];
+      const res = await env.DB.prepare(params.sql).bind(...bindings).run();
+      return { success: true, meta: res.meta, statement_kind: check.safety?.kind };
     } catch (e) {
       return { error: `D1 Write Failed: ${e.message}` };
     }
   },
 
-  /**
-   * d1_batch_write: Atomic multi-statement execution.
-   */
-  async d1_batch_write({ queries }, env) {
+  async d1_batch_write(params, env) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
+    const queries = Array.isArray(params.queries) ? params.queries : [];
+    if (!queries.length) return { error: 'queries array required' };
+
+    for (const q of queries) {
+      const check = await assertMutationToolAllowed(
+        { ...params, sql: q?.sql },
+        env,
+        { toolName: 'd1_batch_write', allowKinds: ['mutation', 'schema', 'destructive'] },
+      );
+      if (check.error) return check;
+    }
+
     try {
       const statements = queries.map((q) => env.DB.prepare(q.sql).bind(...(q.params || [])));
       const results = await env.DB.batch(statements);
@@ -139,46 +191,21 @@ export const handlers = {
     }
   },
 
-  /**
-   * EXPLAIN QUERY PLAN for a read-only SELECT / WITH (same gate as d1_query).
-   */
-  async d1_explain(
-    {
-      sql,
-      tenant_id,
-      user_id,
-      workspace_id,
-      session_id,
-      agent_run_id,
-      agentRunId,
-      conversation_id,
-      conversationId,
-    },
-    env,
-  ) {
+  async d1_explain(params, env) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
+    const { sql } = params;
     if (!sql) return { error: 'SQL query required' };
-    if (
-      user_id &&
-      (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')
-    ) {
+    if (params.user_id && (!params.workspace_id || String(params.workspace_id).trim() === '' || String(params.workspace_id).trim() === '__tenant__')) {
       return { error: 'WORKSPACE_CONTEXT_MISSING' };
     }
+
     const gate = assertD1ReadOnlySelect(sql);
     if (!gate.ok) {
-      await logPolicyBlock(env, {
-        sql,
-        error: gate.error || 'policy_block',
-        tenant_id: tenant_id ?? null,
-        user_id: user_id ?? null,
-        workspace_id: workspace_id ?? null,
-        session_id: session_id ?? null,
-        agent_run_id: agent_run_id ?? agentRunId ?? null,
-        conversation_id: conversation_id ?? conversationId ?? session_id ?? null,
-      });
+      await logPolicyBlock(env, { ...params, tool_name: 'd1_explain' });
       return { error: `${gate.error} EXPLAIN is read-only.` };
     }
-    const explainSql = `EXPLAIN QUERY PLAN ${sql}`;
+
+    const explainSql = /^\s*EXPLAIN\b/i.test(sql) ? sql : `EXPLAIN QUERY PLAN ${sql}`;
     try {
       const res = await env.DB.prepare(explainSql).all();
       return { success: true, results: res?.results || [], meta: {} };
@@ -187,18 +214,16 @@ export const handlers = {
     }
   },
 
-  /**
-   * List tables/views or PRAGMA table_info for one validated identifier.
-   */
-  async d1_schema_introspect({ table, tenant_id, user_id, workspace_id, session_id }, env) {
+  async d1_schema(params, env) {
+    return handlers.d1_schema_introspect(params, env);
+  },
+
+  async d1_schema_introspect(params, env) {
     if (!env.DB) return { error: 'D1 binding (env.DB) not configured' };
-    if (
-      user_id &&
-      (!workspace_id || String(workspace_id).trim() === '' || String(workspace_id).trim() === '__tenant__')
-    ) {
+    if (params.user_id && (!params.workspace_id || String(params.workspace_id).trim() === '' || String(params.workspace_id).trim() === '__tenant__')) {
       return { error: 'WORKSPACE_CONTEXT_MISSING' };
     }
-    const tbl = table != null ? String(table).trim() : '';
+    const tbl = params.table != null ? String(params.table).trim() : '';
     try {
       if (tbl) {
         if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tbl)) {
@@ -216,5 +241,112 @@ export const handlers = {
     } catch (e) {
       return { error: `d1_schema_introspect failed: ${e.message}` };
     }
+  },
+
+  async hyperdrive_query(params, env) {
+    if (!isHyperdriveUsable(env)) {
+      return { error: 'Hyperdrive binding not configured or not usable' };
+    }
+    const { sql, params: bindings = [] } = params;
+    if (!sql) return { error: 'SQL query required' };
+    const trimmed = String(sql).trim();
+    if (/^\s*DROP\s+DATABASE\b/i.test(trimmed)) {
+      return { error: 'DROP DATABASE is not permitted via this API' };
+    }
+
+    const isSuperadmin = await resolveIsSuperadmin(env, params.user_id);
+    const safety = evaluateDatabaseSqlSafety(trimmed, { isSuperadmin });
+    if (!safety.allowed) {
+      await logPolicyBlock(env, { ...params, tool_name: 'hyperdrive_query' });
+      return { error: safety.error || 'SQL not permitted', code: 'hyperdrive_read_only' };
+    }
+    if (safety.requiresApproval) {
+      return {
+        error: 'hyperdrive_query mutation requires dashboard approval.',
+        requires_approval: true,
+        statement_kind: safety.kind,
+      };
+    }
+
+    const result = await runHyperdriveQuery(env, trimmed, Array.isArray(bindings) ? bindings : []);
+    if (!result.ok) {
+      return { error: result.error || 'Hyperdrive query failed', results: [] };
+    }
+    return {
+      success: true,
+      results: result.rows ?? [],
+      meta: result.meta ?? { rows_read: (result.rows ?? []).length },
+    };
+  },
+
+  async hyperdrive_schema(params, env) {
+    if (!isHyperdriveUsable(env)) {
+      return { error: 'Hyperdrive binding not configured or not usable' };
+    }
+    const table = params.table != null ? String(params.table).trim() : '';
+    try {
+      if (table) {
+        pgQuoteIdent(table);
+        const colsR = await runHyperdriveQuery(
+          env,
+          `SELECT c.column_name AS name, c.data_type AS type,
+                  CASE WHEN c.is_nullable = 'NO' THEN 1 ELSE 0 END AS notnull,
+                  c.column_default AS dflt_value,
+                  CASE WHEN pk.column_name IS NOT NULL THEN 1 ELSE 0 END AS pk
+             FROM information_schema.columns c
+             LEFT JOIN (
+               SELECT kcu.column_name
+                 FROM information_schema.table_constraints tc
+                 JOIN information_schema.key_column_usage kcu
+                   ON kcu.constraint_name = tc.constraint_name
+                  AND kcu.table_schema = tc.table_schema
+                WHERE tc.table_schema = 'public'
+                  AND tc.table_name = $1
+                  AND tc.constraint_type = 'PRIMARY KEY'
+             ) pk ON pk.column_name = c.column_name
+            WHERE c.table_schema = 'public' AND c.table_name = $1
+            ORDER BY c.ordinal_position`,
+          [table],
+        );
+        if (!colsR.ok) throw new Error(colsR.error || 'schema_failed');
+        return { success: true, table, columns: colsR.rows ?? [] };
+      }
+
+      const tablesR = await runHyperdriveQuery(
+        env,
+        `SELECT table_name AS name, table_type AS type
+           FROM information_schema.tables
+          WHERE table_schema = 'public'
+          ORDER BY table_name`,
+        [],
+      );
+      if (!tablesR.ok) throw new Error(tablesR.error || 'tables_failed');
+      return { success: true, tables: tablesR.rows ?? [] };
+    } catch (e) {
+      return { error: `hyperdrive_schema failed: ${e.message}` };
+    }
+  },
+
+  async hyperdrive_explain(params, env) {
+    if (!isHyperdriveUsable(env)) {
+      return { error: 'Hyperdrive binding not configured or not usable' };
+    }
+    const { sql } = params;
+    if (!sql) return { error: 'SQL query required' };
+
+    const inner = String(sql).trim().replace(/^\s*EXPLAIN\s+(?:ANALYZE\s+)?/i, '');
+    const isSuperadmin = await resolveIsSuperadmin(env, params.user_id);
+    const safety = evaluateDatabaseSqlSafety(inner, { isSuperadmin });
+    if (safety.kind !== 'read' && safety.kind !== 'explain') {
+      await logPolicyBlock(env, { ...params, sql, tool_name: 'hyperdrive_explain' });
+      return { error: safety.error || 'Only read-only statements can be explained' };
+    }
+
+    const explainSql = /^\s*EXPLAIN\b/i.test(sql) ? sql : `EXPLAIN ${inner}`;
+    const result = await runHyperdriveQuery(env, explainSql, []);
+    if (!result.ok) {
+      return { error: result.error || 'hyperdrive_explain failed', results: [] };
+    }
+    return { success: true, results: result.rows ?? [], meta: result.meta ?? {} };
   },
 };
