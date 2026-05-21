@@ -269,8 +269,21 @@ export const LocalExplorer: React.FC<{
     const [googleDriveOAuthRefresh, setGoogleDriveOAuthRefresh] = useState(0);
 
     useEffect(() => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('connected') === 'google' && params.get('success') === 'true') {
+                setExpandedSections((s) => ({ ...s, drive: true }));
+                setGoogleDriveOAuthRefresh((n) => n + 1);
+            }
+        } catch {
+            /* ignore */
+        }
+    }, []);
+
+    useEffect(() => {
         const handler = (e: MessageEvent) => {
             if (e.data?.type === 'oauth_success' && e.data?.provider === 'google') {
+                setExpandedSections((s) => ({ ...s, drive: true }));
                 setGoogleDriveOAuthRefresh((n) => n + 1);
             }
         };

@@ -58,7 +58,27 @@ export const GoogleDriveExplorer: React.FC<{
 
   const currentFolderId = folderStack[folderStack.length - 1]?.id === 'root' ? 'root' : folderStack[folderStack.length - 1].id;
   const integrationReadyRef = useRef(false);
-  const oauthHandledRef = useRef(false);
+
+  const isGoogleOAuthReturn = useCallback(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('connected') === 'google' && params.get('success') === 'true';
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const stripGoogleOAuthQueryParams = useCallback(() => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('connected');
+      url.searchParams.delete('success');
+      const qs = url.searchParams.toString();
+      window.history.replaceState({}, '', `${url.pathname}${qs ? `?${qs}` : ''}${url.hash}`);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const fetchIntegrationStatus = useCallback(async (): Promise<boolean> => {
     try {
@@ -112,43 +132,51 @@ export const GoogleDriveExplorer: React.FC<{
     }
   }, []);
 
-  /** OAuth return: worker redirects with ?connected=google&success=true (see oauth callback). */
+  /** Mount + OAuth return: worker redirects with ?connected=google&success=true (see oauth callback). */
   useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('connected') !== 'google' || params.get('success') !== 'true') return;
+    let cancelled = false;
+    const oauthReturn = isGoogleOAuthReturn();
 
-      oauthHandledRef.current = true;
-      const url = new URL(window.location.href);
-      url.searchParams.delete('connected');
-      url.searchParams.delete('success');
-      const qs = url.searchParams.toString();
-      window.history.replaceState({}, '', `${url.pathname}${qs ? `?${qs}` : ''}${url.hash}`);
+    if (oauthReturn) {
+      stripGoogleOAuthQueryParams();
+      setIsAuthenticated(true);
+    }
 
-      void (async () => {
+    void (async () => {
+      if (oauthReturn) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (cancelled) return;
         try {
           await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
         } catch {
           /* non-fatal */
         }
-        integrationReadyRef.current = await fetchIntegrationStatus();
-        if (integrationReadyRef.current) await fetchDriveFiles(currentFolderId);
-      })();
-    } catch {
-      /* ignore */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      }
 
-  useEffect(() => {
-    if (oauthHandledRef.current) {
-      oauthHandledRef.current = false;
-      return;
-    }
-    void (async () => {
-      integrationReadyRef.current = await fetchIntegrationStatus();
-      if (integrationReadyRef.current) await fetchDriveFiles(currentFolderId);
+      let ready = await fetchIntegrationStatus();
+      if (cancelled) return;
+
+      if (!ready && oauthReturn) {
+        try {
+          const probe = await fetch('/api/integrations/gdrive/files?folderId=root', {
+            credentials: 'same-origin',
+          });
+          if (probe.ok) {
+            ready = true;
+            setIsAuthenticated(true);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      integrationReadyRef.current = ready;
+      if (ready) await fetchDriveFiles(currentFolderId);
     })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -782,7 +782,7 @@ async function handleLegacyStatus(env, authUser) {
     let github = false;
     const githubAccounts = [];
     for (const r of rows.results || []) {
-        if (r.provider === 'google_drive') google = true;
+        if (r.provider === 'google_drive' || r.provider === 'google') google = true;
         if (r.provider === 'github') {
             github = true;
             if (r.account_identifier) githubAccounts.push({ account_identifier: r.account_identifier });
