@@ -132,53 +132,71 @@ export const GoogleDriveExplorer: React.FC<{
     }
   }, []);
 
-  /** Mount + OAuth return: worker redirects with ?connected=google&success=true (see oauth callback). */
-  useEffect(() => {
-    let cancelled = false;
-    const oauthReturn = isGoogleOAuthReturn();
-
+  const runConnectedBootstrap = useCallback(async (oauthReturn: boolean) => {
     if (oauthReturn) {
       stripGoogleOAuthQueryParams();
       setIsAuthenticated(true);
     }
 
+    if (oauthReturn) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    let ready = await fetchIntegrationStatus();
+    if (!ready && oauthReturn) {
+      try {
+        const probe = await fetch('/api/integrations/gdrive/files?folderId=root', {
+          credentials: 'same-origin',
+        });
+        if (probe.ok) {
+          ready = true;
+          setIsAuthenticated(true);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    integrationReadyRef.current = ready;
+    if (ready) await fetchDriveFiles(currentFolderId);
+  }, [
+    currentFolderId,
+    fetchDriveFiles,
+    fetchIntegrationStatus,
+    stripGoogleOAuthQueryParams,
+  ]);
+
+  /** Mount + OAuth return: redirect query or popup postMessage (see oauth callback). */
+  useEffect(() => {
+    let cancelled = false;
+    const oauthReturn = isGoogleOAuthReturn();
+
     void (async () => {
-      if (oauthReturn) {
-        await new Promise((r) => setTimeout(r, 500));
-        if (cancelled) return;
-        try {
-          await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
-        } catch {
-          /* non-fatal */
-        }
-      }
-
-      let ready = await fetchIntegrationStatus();
       if (cancelled) return;
-
-      if (!ready && oauthReturn) {
-        try {
-          const probe = await fetch('/api/integrations/gdrive/files?folderId=root', {
-            credentials: 'same-origin',
-          });
-          if (probe.ok) {
-            ready = true;
-            setIsAuthenticated(true);
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-
-      integrationReadyRef.current = ready;
-      if (ready) await fetchDriveFiles(currentFolderId);
+      await runConnectedBootstrap(oauthReturn);
     })();
 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isGoogleOAuthReturn, runConnectedBootstrap]);
+
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === 'oauth_success' && e.data?.provider === 'google') {
+        setIsAuthenticated(true);
+        void runConnectedBootstrap(true);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [runConnectedBootstrap]);
 
   useEffect(() => {
     if (!integrationReadyRef.current) return;

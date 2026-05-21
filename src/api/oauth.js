@@ -119,7 +119,9 @@ async function loginGoogleOAuthStart(_request, url, env) {
   }
   const returnTo = url.searchParams.get('return_to') || url.searchParams.get('next') || '';
   const connectDrive =
-    url.searchParams.get('connect') === 'drive' || (returnTo && returnTo.includes('agent'));
+    url.searchParams.get('connectDrive') === '1' ||
+    url.searchParams.get('connect') === 'drive' ||
+    (returnTo && returnTo.includes('/dashboard/agent'));
   const safeReturn =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
       ? returnTo
@@ -224,8 +226,23 @@ export function supabaseManagementOAuthRedirectUri(request, env) {
   }
 }
 
+/** Match `user_oauth_tokens.user_id` — `auth_users.id` from session (see integrations.js). */
 function integrationUserId(authUser) {
-  return authUser?.id;
+  const sid = authUser?.id != null && String(authUser.id).trim() !== '' ? String(authUser.id).trim() : '';
+  if (sid) return sid;
+  return String(authUser?.email || authUser?._session_user_id || '').trim();
+}
+
+function isGoogleDriveConnectRequest(url) {
+  const connectDrive =
+    url.searchParams.get('connectDrive') === '1' || url.searchParams.get('connect') === 'drive';
+  const returnTo = String(url.searchParams.get('return_to') || url.searchParams.get('next') || '');
+  return connectDrive || returnTo.includes('/dashboard/agent');
+}
+
+function oauthPopupCompleteHtml(provider) {
+  const p = JSON.stringify(String(provider || 'google'));
+  return `<!DOCTYPE html><html><body><script>try{window.opener?.postMessage({type:'oauth_success',provider:${p}},window.location.origin);}catch(e){}window.close();</script><p>Connected. You can close this window.</p></body></html>`;
 }
 
 /** Workspace-scoped Supabase OAuth row key (multi-workspace per user). */
@@ -1108,7 +1125,7 @@ export async function handleOAuthApi(request, env, ctx) {
 
     const authUser = await getAuthUser(request, env);
     // Login/sign-up OAuth (no session): same behavior as worker.js handleGoogleOAuthStart / handleGitHubOAuthStart.
-    if (!authUser && provider === 'google') {
+    if (provider === 'google' && (!authUser || isGoogleDriveConnectRequest(url))) {
       return loginGoogleOAuthStart(request, url, env);
     }
     if (!authUser && provider === 'github') {
@@ -1255,13 +1272,13 @@ export async function handleOAuthApi(request, env, ctx) {
           user_id: userId,
           tenant_id: tenantId,
           person_uuid: personUuid,
-          provider: 'google',
+          provider: 'google_drive',
           access_token: tok.access_token,
           refresh_token: tok.refresh_token || null,
           scope: tok.scope || null,
           expires_at: tok.expires_in ? nowSeconds() + Number(tok.expires_in) : null,
-          account_identifier: info.email || userId,
-          account_email: info.email,
+          account_identifier: '',
+          account_email: info.email || null,
           account_display: info.email || null,
         });
       } else if (provider === 'cloudflare') {
@@ -1330,7 +1347,16 @@ export async function handleOAuthApi(request, env, ctx) {
     }
 
     await kvDeleteIntegrationOAuthState(env, provider, state);
-    const _abs642 = returnTo.startsWith("http") ? returnTo : new URL(request.url).origin + returnTo; return Response.redirect(`${_abs642}?connected=${encodeURIComponent(provider)}&success=true`, 302);
+    const absReturn = returnTo.startsWith('http') ? returnTo : new URL(request.url).origin + returnTo;
+    if (provider === 'google' && absReturn.includes('/dashboard/agent')) {
+      return new Response(oauthPopupCompleteHtml('google'), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+    return Response.redirect(
+      `${absReturn}?connected=${encodeURIComponent(provider)}&success=true`,
+      302,
+    );
   }
 
   return jsonResponse({ error: 'not_found' }, 404);

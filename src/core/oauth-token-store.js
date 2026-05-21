@@ -105,9 +105,15 @@ export async function upsertOauthToken(
   const refreshPlain = cols.has('refresh_token') && refresh_token ? refresh_token : null;
 
   const scopesVal = scope || null;
-  const accountIdVal = account_identifier || account_email || '';
+  const driveCanonicalEmpty =
+    providerForDb === 'google_drive' &&
+    (account_identifier === '' ||
+      (account_identifier == null && !(account_email && String(account_email).trim())));
+  const accountIdVal = driveCanonicalEmpty
+    ? ''
+    : String(account_identifier ?? account_email ?? '').trim();
 
-  if (!accountIdVal) {
+  if (!accountIdVal && !driveCanonicalEmpty) {
     throw new Error(`account_identifier missing for provider ${provider}`);
   }
 

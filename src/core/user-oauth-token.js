@@ -104,6 +104,17 @@ async function fetchOAuthRow(env, userId, provider, accountIdentifier) {
     )
       .bind(String(userId))
       .first();
+  } else if (prov === 'google_drive' && aid === '') {
+    // Drive rows may use account_identifier '' (canonical) or legacy email keys.
+    row = await DB.prepare(
+      `SELECT ${parts.join(', ')} FROM user_oauth_tokens
+       WHERE user_id = ? AND provider IN ('google_drive','google')
+       ORDER BY CASE WHEN account_identifier = '' THEN 0 ELSE 1 END,
+                COALESCE(updated_at, 0) DESC
+       LIMIT 1`,
+    )
+      .bind(String(userId))
+      .first();
   } else {
     row = await DB.prepare(
       `SELECT ${parts.join(', ')} FROM user_oauth_tokens
