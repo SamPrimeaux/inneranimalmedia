@@ -324,6 +324,30 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             streamFinalizedRef.current = true;
             setIsLoading(false);
           }
+          // emailArtifactFromText: render email card from assistant text, no tool call needed
+          try {
+            const _subjMatch = assistantContent.match(/^subject[:\s]+(.+)$/im);
+            if (_subjMatch && assistantContent.length > 100) {
+              const _subj = _subjMatch[1].trim();
+              const _subjLineEnd = assistantContent.indexOf(_subjMatch[0]) + _subjMatch[0].length;
+              const _body = assistantContent.slice(_subjLineEnd).replace(/^[\n\r]+/, '').trim();
+              const _toMatch = assistantContent.match(/^to[:\s]+([^\n]+)/im);
+              const _to = _toMatch ? _toMatch[1].trim() : undefined;
+              if (_body.length > 20) {
+                setMessages((prev) => {
+                  const _last = [...prev];
+                  const _lm = _last[_last.length - 1];
+                  if (_lm && _lm.role === 'assistant' && !_lm.emailArtifact) {
+                    _last[_last.length - 1] = {
+                      ..._lm,
+                      emailArtifact: { subject: _subj, body: _body, to: _to },
+                    };
+                  }
+                  return _last;
+                });
+              }
+            }
+          } catch (_) { /* non-fatal */ }
           continue;
         }
         if (streamFinalizedRef.current && evType === 'error') {
