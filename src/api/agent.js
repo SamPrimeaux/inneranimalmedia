@@ -91,7 +91,6 @@ import {
   isImageGenerationTool,
   isPrimaryImageGenerationIntent,
   hasImageGenerationIntent,
-  IMAGE_CAPABILITY_TOOL_NAMES,
   handleDirectImageGenerationChatStream,
   streamImageGenerationSse,
 } from '../tools/image_generation.js';
@@ -1193,8 +1192,32 @@ const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
   'cdt_take_screenshot',
 ];
 
-const AGENT_CHAT_IMAGE_CAPABILITY_TOOLS = [...IMAGE_CAPABILITY_TOOL_NAMES];
 const TOOL_OUTPUT_SSE_MAX = 12000;
+
+async function getCapabilityTools(env, workspaceId, mode, intentCategoryTag) {
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!env?.DB || !ws) return [];
+  const modeSlug = String(mode || 'agent').trim();
+  const tag = String(intentCategoryTag || '').trim();
+  if (!tag) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT tool_name
+       FROM agentsam_mcp_tools
+       WHERE intent_category_tags = ?
+         AND (workspace_id = ? OR workspace_id IS NULL)
+         AND is_active = 1
+         AND enabled = 1
+         AND modes_json LIKE ?`,
+    )
+      .bind(tag, ws, `%${modeSlug}%`)
+      .all();
+    return (results || []).map((r) => String(r.tool_name || '').trim()).filter(Boolean);
+  } catch (e) {
+    console.warn('[agent] getCapabilityTools', e?.message ?? e);
+    return [];
+  }
+}
 
 function inputSchemaFromAgentsamToolRow(row) {
   const parsed = parseJsonSafe(row?.input_schema, null);
@@ -1253,11 +1276,15 @@ function shouldOpenChatToolSessionLedger({ chatAgentRunId, mode, tools, chatTool
 async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTools, opts = {}) {
   if (!chatModeUsesToolLoop(mode) || !env?.DB) return tools;
   const nameSet = new Set(tools.map((t) => String(t.name)));
+  const imageCapabilityTools =
+    opts.imageCapabilityIntent && opts.workspaceId
+      ? await getCapabilityTools(env, opts.workspaceId, mode, 'image_capability')
+      : [];
   const fetchNames = [
     ...new Set([
       ...nameSet,
       ...AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS,
-      ...(opts.imageCapabilityIntent ? AGENT_CHAT_IMAGE_CAPABILITY_TOOLS : []),
+      ...imageCapabilityTools,
     ]),
   ];
   const rows = await fetchAgentsamToolRowsByName(env, fetchNames);
@@ -1278,8 +1305,8 @@ async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTool
   }
   const seen = new Set(out.map((x) => x.name));
   const minimumBar = [...AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS];
-  if (opts.imageCapabilityIntent) {
-    for (const t of AGENT_CHAT_IMAGE_CAPABILITY_TOOLS) {
+  if (opts.imageCapabilityIntent && imageCapabilityTools.length) {
+    for (const t of imageCapabilityTools) {
       if (!minimumBar.includes(t)) minimumBar.unshift(t);
     }
   }
@@ -1301,10 +1328,18 @@ async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTool
 }
 
 /** Guarantee imgx tools survive capability narrowing when the user asked for images. */
-async function ensureImageCapabilityTools(env, tools, imageCapabilityIntent, effectiveMaxTools) {
+async function ensureImageCapabilityTools(
+  env,
+  tools,
+  imageCapabilityIntent,
+  effectiveMaxTools,
+  workspaceId,
+  mode,
+) {
   if (!imageCapabilityIntent || !env?.DB || !Array.isArray(tools)) return tools;
   const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
-  const missing = AGENT_CHAT_IMAGE_CAPABILITY_TOOLS.filter((n) => !have.has(n));
+  const capabilityTools = await getCapabilityTools(env, workspaceId, mode, 'image_capability');
+  const missing = capabilityTools.filter((n) => !have.has(n));
   if (!missing.length) return tools;
   const rows = await fetchAgentsamToolRowsByName(env, missing);
   const out = [...tools];
@@ -6183,6 +6218,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (agentLikeTooling && env.DB) {
     tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools, {
       imageCapabilityIntent,
+      workspaceId,
     });
 
     tools = filterAgentToolsForRequest(env, tools, message, intentResult).slice(0, effectiveMaxTools);
@@ -6190,7 +6226,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   if (imageCapabilityIntent && agentLikeTooling && env.DB) {
     const beforeImg = tools.map(agentToolNameOf).filter(Boolean);
-    tools = await ensureImageCapabilityTools(env, tools, imageCapabilityIntent, effectiveMaxTools);
+    tools = await ensureImageCapabilityTools(
+      env,
+      tools,
+      imageCapabilityIntent,
+      effectiveMaxTools,
+      workspaceId,
+      requestedMode,
+    );
     const afterImg = tools.map(agentToolNameOf).filter(Boolean);
     const injected = afterImg.filter((n) => !beforeImg.includes(n));
     if (injected.length) {
@@ -6232,7 +6275,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         requestedMode,
       });
       if (imageCapabilityIntent) {
-        tools = await ensureImageCapabilityTools(env, tools, imageCapabilityIntent, effectiveMaxTools);
+        tools = await ensureImageCapabilityTools(
+          env,
+          tools,
+          imageCapabilityIntent,
+          effectiveMaxTools,
+          workspaceId,
+          requestedMode,
+        );
       }
       if (shouldStripA11yForPlainSurfaceMessage(message, requestedMode)) {
         tools = stripSurfaceA11yTools(tools);
@@ -6877,7 +6927,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       const beforeCapTools = tools.length;
       tools = filterAgentToolsForRequest(env, tools, message, intentResult, capabilityDecision).slice(0, effectiveMaxTools);
       if (imageCapabilityIntent) {
-        tools = await ensureImageCapabilityTools(env, tools, imageCapabilityIntent, effectiveMaxTools);
+        tools = await ensureImageCapabilityTools(
+          env,
+          tools,
+          imageCapabilityIntent,
+          effectiveMaxTools,
+          workspaceId,
+          requestedMode,
+        );
       }
       if (agentToolDebugEnabled(env) || beforeCapTools !== tools.length) {
         console.log('[agent-tools] capability_scope', JSON.stringify({
