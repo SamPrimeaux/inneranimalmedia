@@ -23,17 +23,19 @@ export function usePlanTasksRealtime(planId: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
-    const sb = getSupabaseClient() ?? (await bootstrapSupabaseFromSession());
-    if (!planId || !sb) return;
+    if (!planId) return;
     setLoading(true);
     try {
-      const { data, error: err } = await sb
-        .from('agentsam_plan_tasks')
-        .select('*')
-        .eq('plan_id', planId)
-        .order('order_index', { ascending: true });
-      if (err) throw err;
-      setTasks((data ?? []) as PlanTask[]);
+      const r = await fetch(`/api/agentsam/plans/${encodeURIComponent(planId)}/tasks`, {
+        credentials: 'same-origin',
+      });
+      if (!r.ok) {
+        const body = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || `HTTP ${r.status}`);
+      }
+      const data = (await r.json()) as { tasks?: PlanTask[] };
+      setTasks((data.tasks ?? []) as PlanTask[]);
+      setError(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -46,41 +48,26 @@ export function usePlanTasksRealtime(planId: string | null) {
     let removeChannel: (() => void) | null = null;
     void (async () => {
       await fetchTasks();
+      if (cancelled || !planId) return;
+
       const sb = getSupabaseClient() ?? (await bootstrapSupabaseFromSession());
-      if (cancelled || !planId || !sb) return;
+      if (!sb) return;
 
       const channel = sb
-      .channel(`plan_tasks:${planId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'agentsam_plan_tasks',
-          filter: `plan_id=eq.${planId}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setTasks((prev) => {
-              const exists = prev.some((t) => t.id === payload.new.id);
-              return exists
-                ? prev
-                : [...prev, payload.new as PlanTask].sort(
-                    (a, b) => a.order_index - b.order_index
-                  );
-            });
-          } else if (payload.eventType === 'UPDATE') {
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === payload.new.id ? (payload.new as PlanTask) : t
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setTasks((prev) => prev.filter((t) => t.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+        .channel(`plan_tasks:${planId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'agentsam_plan_tasks',
+            filter: `plan_id=eq.${planId}`,
+          },
+          () => {
+            void fetchTasks();
+          },
+        )
+        .subscribe();
 
       removeChannel = () => {
         void sb.removeChannel(channel);

@@ -48,6 +48,44 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
     const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
+    const planTasksMatch = path.match(/^\/api\/agentsam\/plans\/([^/]+)\/tasks$/);
+    if (planTasksMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const planId = decodeURIComponent(planTasksMatch[1] || '').trim();
+      if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+
+      let tenantId =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const plan = await env.DB.prepare(
+        `SELECT id, tenant_id FROM agentsam_plans WHERE id = ? LIMIT 1`,
+      )
+        .bind(planId)
+        .first()
+        .catch(() => null);
+      if (!plan?.id) return jsonResponse({ error: 'plan not found' }, 404);
+      if (String(plan.tenant_id || '') !== tenantId) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+
+      const { results } = await env.DB.prepare(
+        `SELECT id, plan_id, order_index, title, description, priority, category, status,
+                blocked_reason, notes, estimated_minutes, actual_minutes, completed_at
+         FROM agentsam_plan_tasks
+         WHERE plan_id = ?
+         ORDER BY order_index ASC, id ASC`,
+      )
+        .bind(planId)
+        .all()
+        .catch(() => ({ results: [] }));
+
+      return jsonResponse({ ok: true, plan_id: planId, tasks: results || [] });
+    }
+
     // POST /api/agentsam/plans — create plan + optional plan_tasks (D1; pragma-safe columns)
     if (path === '/api/agentsam/plans' && method === 'POST') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
