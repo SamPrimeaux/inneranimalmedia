@@ -167,61 +167,80 @@ export function resolveImageLane(message, hasReferenceImage = false) {
   return 'brand_mockup';
 }
 
+function betaSampleRouting(a, b) {
+  const x = Math.pow(Math.random(), 1 / Math.max(a, 1));
+  const y = Math.pow(Math.random(), 1 / Math.max(b, 1));
+  return x / (x + y);
+}
+
 /**
+ * Resolve env secret binding for a catalog+routing row (matches resolveModel.js join shape).
  * @param {unknown} env
- * @param {string} lane
+ * @param {Record<string, unknown>} row
+ */
+function secretKeyNameForCatalogRow(env, row) {
+  const fromAi = row.secret_key_name != null ? String(row.secret_key_name).trim() : '';
+  if (fromAi) return fromAi;
+  const plat = String(row.resolved_platform || row.api_platform || '').toLowerCase();
+  if (plat.startsWith('openai')) return 'OPENAI_API_KEY';
+  if (plat.startsWith('google') || plat.startsWith('gemini')) return 'GOOGLE_API_KEY';
+  if (plat.startsWith('anthropic')) return 'ANTHROPIC_API_KEY';
+  return '';
+}
+
+/**
+ * Thompson sample over image_generation arms (catalog + agentsam_ai; no ai_models).
+ * @param {unknown} env
  * @param {string} workspaceId
  */
-export async function pickImageModelFromDb(env, lane, workspaceId) {
+export async function pickImageModelFromDb(env, workspaceId) {
   const ws = String(workspaceId || '').trim();
   if (!env?.DB || !ws) return null;
+
   const rows = await env.DB.prepare(
-    `SELECT id, model_key, provider, api_platform, secret_key_name, cost_per_unit
-     FROM ai_models
-     WHERE is_active = 1
-       AND billing_unit = 'per_image'
-       AND json_extract(features_json, '$.image_lanes') LIKE ?
-     ORDER BY sort_order DESC`,
+    `SELECT
+       ra.id              AS arm_id,
+       ra.model_key,
+       ra.success_alpha,
+       ra.success_beta,
+       ra.max_cost_per_call_usd,
+       mc.api_platform,
+       mc.google_model_id,
+       mc.openai_model_id,
+       COALESCE(ai.api_platform, mc.api_platform)    AS resolved_platform,
+       COALESCE(ai.secret_key_name, '')              AS secret_key_name
+     FROM agentsam_routing_arms ra
+     INNER JOIN agentsam_model_catalog mc
+       ON  mc.model_key = ra.model_key
+       AND mc.is_active = 1
+     LEFT JOIN agentsam_ai ai
+       ON  ai.model_key = mc.model_key
+       AND ai.status    = 'active'
+       AND (ai.mode = 'model' OR ai.model_key IS NOT NULL)
+     WHERE ra.task_type    = 'image_generation'
+       AND ra.workspace_id = ?
+       AND ra.is_paused    = 0
+       AND ra.is_active    = 1
+       AND (mc.deprecated_after IS NULL OR mc.deprecated_after > date('now'))`,
   )
-    .bind(`%${lane}%`)
+    .bind(ws)
     .all()
     .catch(() => ({ results: [] }));
 
   if (!rows.results?.length) return null;
 
-  const keys = rows.results.map((r) => r.model_key);
-  const placeholders = keys.map(() => '?').join(',');
-  const arms = await env.DB.prepare(
-    `SELECT model_key, success_alpha, success_beta
-     FROM agentsam_routing_arms
-     WHERE model_key IN (${placeholders})
-       AND workspace_id = ?
-       AND task_type = 'image_generation'
-       AND is_paused = 0
-       AND is_active = 1`,
-  )
-    .bind(...keys, ws)
-    .all()
-    .catch(() => ({ results: [] }));
-
-  const scoreMap = Object.fromEntries((arms.results || []).map((s) => [s.model_key, s]));
-
-  function betaSample(a, b) {
-    const x = Math.pow(Math.random(), 1 / Math.max(a, 1));
-    const y = Math.pow(Math.random(), 1 / Math.max(b, 1));
-    return x / (x + y);
-  }
-
   let best = null;
   let bestScore = -1;
   for (const row of rows.results) {
-    if (row.secret_key_name && !env[row.secret_key_name]) continue;
-    if (row.api_platform === 'workers_ai' && !env.AI) continue;
-    const arm = scoreMap[row.model_key];
-    const score = betaSample(arm?.success_alpha ?? 1, arm?.success_beta ?? 1);
+    const keyName = secretKeyNameForCatalogRow(env, row);
+    if (keyName && !env[keyName]) continue;
+    const plat = String(row.resolved_platform || '').toLowerCase();
+    if (plat === 'workers_ai' && !env.AI) continue;
+
+    const score = betaSampleRouting(row.success_alpha ?? 1, row.success_beta ?? 1);
     if (score > bestScore) {
       bestScore = score;
-      best = row;
+      best = { ...row, keyName: keyName || null };
     }
   }
   return best;
@@ -317,19 +336,24 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
       const referenceImageB64 = opts.referenceImageB64 ?? opts.referenceImage ?? null;
       const lane = resolveImageLane(message, !!referenceImageB64);
       const ws = workspaceId != null ? String(workspaceId).trim() : '';
-      const imageModel = ws ? await pickImageModelFromDb(env, lane, ws) : null;
+      const imageModel = ws ? await pickImageModelFromDb(env, ws) : null;
+      if (lane && imageModel) {
+        console.log('[image_generation] inferred_lane', { lane, model_key: imageModel.model_key });
+      }
       const sseCtx = {
         authUser: opts.authUser || { id: userId },
         workspaceId,
         tenantId,
         userId,
         origin,
+        secretKeyName: imageModel?.keyName ?? null,
       };
       const sseParams = imageModel
         ? {
             prompt: message,
             model: imageModel.model_key,
-            provider: imageModel.api_platform || imageModel.provider,
+            provider: imageModel.resolved_platform,
+            secretKeyName: imageModel.keyName,
           }
         : { prompt: message };
 
@@ -337,8 +361,9 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
       try {
         if (imageModel) {
           emit('image_generation_started', {
-            provider: imageModel.provider,
+            provider: imageModel.resolved_platform,
             model: imageModel.model_key,
+            lane,
           });
         }
         const result = await streamImageGenerationSse(
@@ -362,7 +387,7 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
           emit('image_generation_complete', {
             type: 'image_generation_complete',
             failed: true,
-            provider: imageModel.provider,
+            provider: imageModel.resolved_platform,
             model: imageModel.model_key,
             error: err?.message != null ? String(err.message) : String(err),
           });
@@ -780,15 +805,19 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
     providerGuess = 'openai';
   } else if (!modelGuess && ws) {
     const lane = resolveImageLane(prompt, false);
-    const picked = await pickImageModelFromDb(env, lane, ws);
+    const picked = await pickImageModelFromDb(env, ws);
     if (picked) {
+      if (lane) {
+        console.log('[image_generation] inferred_lane', { lane, model_key: picked.model_key });
+      }
       scoredModelKey = picked.model_key;
-      providerGuess = String(picked.api_platform || picked.provider || 'workers_ai');
+      providerGuess = String(picked.resolved_platform || 'workers_ai');
       modelGuess = scoredModelKey;
       params = {
         ...params,
         model: scoredModelKey,
         provider: providerGuess,
+        secretKeyName: picked.keyName,
       };
     }
   }

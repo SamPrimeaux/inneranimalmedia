@@ -23,78 +23,69 @@ function betaSample(a, b) {
   return x / (x + y);
 }
 
+function secretKeyNameForCatalogRow(env, row) {
+  const fromAi = row.secret_key_name != null ? String(row.secret_key_name).trim() : '';
+  if (fromAi) return fromAi;
+  const plat = String(row.resolved_platform || row.api_platform || '').toLowerCase();
+  if (plat.startsWith('openai')) return 'OPENAI_API_KEY';
+  if (plat.startsWith('google') || plat.startsWith('gemini')) return 'GOOGLE_API_KEY';
+  if (plat.startsWith('anthropic')) return 'ANTHROPIC_API_KEY';
+  return '';
+}
+
 /**
+ * Thompson sample over video_generation arms (catalog + agentsam_ai; no ai_models).
  * @param {unknown} env
  * @param {string} workspaceId
- * @param {string} quality
  */
-async function pickVeoModelFromDb(env, workspaceId, quality) {
+async function pickVeoModelFromDb(env, workspaceId) {
   const ws = String(workspaceId || '').trim();
   if (!env?.DB || !ws) return null;
 
-  const routingMap = {
-    lite: 'cheap_default',
-    fast: 'balanced_default',
-    standard: 'premium',
-    ultra: 'premium',
-  };
-  const routing = routingMap[String(quality || 'fast').toLowerCase()] || 'balanced_default';
-
   const rows = await env.DB.prepare(
-    `SELECT model_key, provider, api_platform, secret_key_name, cost_per_unit, features_json
-     FROM ai_models
-     WHERE is_active = 1
-       AND billing_unit = 'per_second'
-       AND json_extract(features_json, '$.routing') = ?
-     ORDER BY sort_order ASC
-     LIMIT 10`,
+    `SELECT
+       ra.id              AS arm_id,
+       ra.model_key,
+       ra.success_alpha,
+       ra.success_beta,
+       ra.max_cost_per_call_usd,
+       mc.api_platform,
+       mc.google_model_id,
+       mc.openai_model_id,
+       COALESCE(ai.api_platform, mc.api_platform)    AS resolved_platform,
+       COALESCE(ai.secret_key_name, '')              AS secret_key_name
+     FROM agentsam_routing_arms ra
+     INNER JOIN agentsam_model_catalog mc
+       ON  mc.model_key = ra.model_key
+       AND mc.is_active = 1
+     LEFT JOIN agentsam_ai ai
+       ON  ai.model_key = mc.model_key
+       AND ai.status    = 'active'
+       AND (ai.mode = 'model' OR ai.model_key IS NOT NULL)
+     WHERE ra.task_type    = 'video_generation'
+       AND ra.workspace_id = ?
+       AND ra.is_paused    = 0
+       AND ra.is_active    = 1
+       AND (mc.deprecated_after IS NULL OR mc.deprecated_after > date('now'))`,
   )
-    .bind(routing)
+    .bind(ws)
     .all()
     .catch(() => ({ results: [] }));
 
-  if (!rows.results?.length) {
-    const fallback = await env.DB.prepare(
-      `SELECT model_key, provider, api_platform, secret_key_name, cost_per_unit, features_json
-       FROM ai_models
-       WHERE is_active = 1
-         AND billing_unit = 'per_second'
-         AND COALESCE(json_extract(features_json, '$.routing'), '') != 'avoid_primary'
-       ORDER BY sort_order ASC
-       LIMIT 10`,
-    )
-      .all()
-      .catch(() => ({ results: [] }));
-    if (!fallback.results?.length) return null;
-    rows.results = fallback.results;
-  }
-
-  const keys = rows.results.map((r) => r.model_key);
-  const placeholders = keys.map(() => '?').join(',');
-  const arms = await env.DB.prepare(
-    `SELECT model_key, success_alpha, success_beta
-     FROM agentsam_routing_arms
-     WHERE model_key IN (${placeholders})
-       AND workspace_id = ?
-       AND task_type = 'video_generation'
-       AND is_paused = 0
-       AND is_active = 1`,
-  )
-    .bind(...keys, ws)
-    .all()
-    .catch(() => ({ results: [] }));
-
-  const armMap = Object.fromEntries((arms.results || []).map((s) => [s.model_key, s]));
+  if (!rows.results?.length) return null;
 
   let best = null;
   let bestScore = -1;
   for (const row of rows.results) {
-    if (row.secret_key_name && !env[row.secret_key_name]) continue;
-    const arm = armMap[row.model_key];
-    const score = betaSample(arm?.success_alpha ?? 1, arm?.success_beta ?? 1);
+    const keyName = secretKeyNameForCatalogRow(env, row);
+    if (keyName && !env[keyName]) continue;
+    const plat = String(row.resolved_platform || '').toLowerCase();
+    if (plat === 'workers_ai' && !env.AI) continue;
+
+    const score = betaSample(row.success_alpha ?? 1, row.success_beta ?? 1);
     if (score > bestScore) {
       bestScore = score;
-      best = row;
+      best = { ...row, keyName: keyName || null };
     }
   }
   return best;
@@ -321,18 +312,20 @@ export async function handleVeoGenerate(env, params) {
   const { tenantId, workspaceId } = resolveScope(params);
   if (!workspaceId) return { ok: false, error: 'workspace_id required' };
 
-  const model = await pickVeoModelFromDb(env, workspaceId, quality);
+  const model = await pickVeoModelFromDb(env, workspaceId);
   if (!model) return { ok: false, error: 'no active Veo model in catalog' };
 
-  const apiKey =
-    (model.secret_key_name && env[model.secret_key_name]) ||
-    env.GOOGLE_API_KEY ||
-    env.GEMINI_API_KEY;
+  const keyName = model.keyName || secretKeyNameForCatalogRow(env, model);
+  const apiKey = keyName ? env[keyName] : env.GOOGLE_API_KEY || env.GEMINI_API_KEY;
   if (!apiKey) return { ok: false, error: 'Google API key not configured' };
 
   const project = env.GOOGLE_CLOUD_PROJECT || env.GCP_PROJECT_ID || 'inneranimalmedia';
-  const modelKey = String(model.model_key);
-  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(project)}/locations/us-central1/publishers/google/models/${encodeURIComponent(modelKey)}:predictLongRunning`;
+  const catalogModelKey = String(model.model_key);
+  const vertexModelId =
+    model.google_model_id != null && String(model.google_model_id).trim() !== ''
+      ? String(model.google_model_id).trim()
+      : catalogModelKey;
+  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(project)}/locations/us-central1/publishers/google/models/${encodeURIComponent(vertexModelId)}:predictLongRunning`;
 
   const instance = { prompt: text };
   if (negative_prompt) instance.negative_prompt = String(negative_prompt);
@@ -362,24 +355,24 @@ export async function handleVeoGenerate(env, params) {
     return {
       ok: false,
       error: `Veo API ${res.status}: ${errText.slice(0, 400)}`,
-      model_used: modelKey,
+      model_used: catalogModelKey,
     };
   }
 
   const data = await res.json().catch(() => ({}));
   const operationName = data?.name ? String(data.name) : null;
   if (!operationName) {
-    return { ok: false, error: 'Veo returned no operation name', model_used: modelKey };
+    return { ok: false, error: 'Veo returned no operation name', model_used: catalogModelKey };
   }
 
   const jobId = `veojob_${crypto.randomUUID().slice(0, 12)}`;
-  const costPer = Number(model.cost_per_unit) || 0;
-  const estimatedCostUsd = (Number(duration_seconds) || 5) * costPer;
+  const costPer = Number(model.max_cost_per_call_usd) || 0;
+  const estimatedCostUsd = costPer > 0 ? costPer : (Number(duration_seconds) || 5) * 0.05;
 
   const jobRow = {
     job_id: jobId,
     operation_name: operationName,
-    model_key: modelKey,
+    model_key: catalogModelKey,
     workspace_id: workspaceId,
     tenant_id: tenantId,
     prompt: text.slice(0, 2000),
@@ -417,7 +410,7 @@ export async function handleVeoGenerate(env, params) {
   return {
     ok: true,
     job_id: jobId,
-    model_used: modelKey,
+    model_used: catalogModelKey,
     status: 'queued',
     operation_name: operationName,
     estimated_cost_usd: estimatedCostUsd,
