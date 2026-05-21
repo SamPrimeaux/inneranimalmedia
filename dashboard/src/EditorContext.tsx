@@ -35,7 +35,9 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const openFile = useCallback((file: ActiveFile) => {
     const id = getFileId(file);
-    const isMedia = Boolean(file.fileKind && file.fileKind !== 'text');
+    const isMedia = Boolean(
+      file.fileKind && file.fileKind !== 'text' && file.fileKind !== 'truncated',
+    );
     setTabs(prev => {
       const existing = prev.find((t) => t.id === id);
       if (existing) {

@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import Editor, { DiffEditor, useMonaco } from '@monaco-editor/react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import { DiffEditor, useMonaco } from '@monaco-editor/react';
 import {
   Save,
   GitCompare,
@@ -133,29 +133,37 @@ const MONACO_THEME_BASE = {
   ],
 };
 
-const EDITOR_OPTIONS = {
-  minimap: { enabled: true, renderCharacters: false, scale: 0.75 },
-  fontSize: 13,
-  fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
-  fontLigatures: true,
-  lineHeight: 22,
-  padding: { top: 12 },
-  scrollBeyondLastLine: false,
-  smoothScrolling: true,
-  cursorBlinking: 'smooth' as const,
-  cursorSmoothCaretAnimation: 'on' as const,
-  renderLineHighlight: 'gutter' as const,
-  bracketPairColorization: { enabled: true },
-  guides: { bracketPairs: true, indentation: true },
-  wordWrap: 'off' as const,
-  tabSize: 2,
-  insertSpaces: true,
-  folding: true,
-  suggest: { showSnippets: true },
-  quickSuggestions: { other: true, comments: true, strings: false },
-  formatOnPaste: true,
-  formatOnType: false,
-};
+const LARGE_FILE_CHAR_THRESHOLD = 100_000;
+
+function buildEditorOptions(isLarge: boolean, readOnly: boolean) {
+  return {
+    minimap: { enabled: !isLarge, renderCharacters: false, scale: 0.75 },
+    fontSize: 13,
+    fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
+    fontLigatures: true,
+    lineHeight: 22,
+    padding: { top: 12 },
+    scrollBeyondLastLine: false,
+    smoothScrolling: true,
+    cursorBlinking: 'smooth' as const,
+    cursorSmoothCaretAnimation: 'on' as const,
+    renderLineHighlight: 'gutter' as const,
+    bracketPairColorization: { enabled: true },
+    guides: { bracketPairs: true, indentation: true },
+    wordWrap: 'off' as const,
+    renderWhitespace: 'none' as const,
+    tabSize: 2,
+    insertSpaces: true,
+    folding: !isLarge,
+    largeFileOptimizations: isLarge,
+    maxTokenizationLineLength: isLarge ? 400 : 10_000,
+    suggest: { showSnippets: true },
+    quickSuggestions: { other: true, comments: true, strings: false },
+    formatOnPaste: true,
+    formatOnType: false,
+    readOnly,
+  };
+}
 
 export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   onChange, onSave, onCursorPositionChange, onEditorModelMeta
@@ -165,11 +173,37 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   const isDirty = activeFile?.isDirty;
 
   const monaco = useMonaco();
-  const editorRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
+  const activeFileRef = useRef(activeFile);
+  activeFileRef.current = activeFile;
   const isThemeReady = useRef(false);
+  const contentListenerRef = useRef<{ dispose?: () => void } | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [copied, setCopied] = useState(false);
   const [gitActionHint, setGitActionHint] = useState<string | null>(null);
+
+  const resolvedKind =
+    activeFile?.fileKind ||
+    (activeFile?.isImage
+      ? 'image'
+      : activeFile?.isBinary
+        ? 'binary'
+        : activeFile
+          ? detectFileKind({
+              name: activeFile.name,
+              key: activeFile.r2Key,
+              contentType: activeFile.contentType,
+              size: activeFile.size,
+            })
+          : 'text');
+  const showMediaPreview = Boolean(activeFile && !isEditableTextKind(resolvedKind));
+  const hasDiffData =
+    activeFile?.originalContent !== undefined &&
+    activeFile.originalContent !== activeFile.content;
+  const showMonacoBody = Boolean(
+    activeFile && !showMediaPreview && !(showDiff && hasDiffData),
+  );
 
   // Custom theme from :root CSS vars
   useEffect(() => {
@@ -239,6 +273,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
+        if (activeFile?.fileKind === 'truncated') return;
         if (activeFile && onSave) {
           onSave(activeFile.content);
         }
@@ -248,11 +283,79 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     return () => window.removeEventListener('keydown', handler);
   }, [activeFile, onSave]);
 
-  useEffect(() => {
+  // Create Monaco once per text-editor mount; content updates use setValue in a separate effect.
+  useLayoutEffect(() => {
+    if (!monaco || !showMonacoBody) {
+      contentListenerRef.current?.dispose?.();
+      contentListenerRef.current = null;
+      editorRef.current?.dispose?.();
+      editorRef.current = null;
+      return;
+    }
+
+    let cursorDisposable: { dispose?: () => void } | null = null;
+    let cancelled = false;
+
+    const mountEditor = () => {
+      if (cancelled || editorRef.current || !containerRef.current) return;
+
+      const editor = monaco.editor.create(
+        containerRef.current,
+        buildEditorOptions(false, false),
+      );
+      editorRef.current = editor;
+
+      const push = () => {
+        const p = editor.getPosition();
+        if (p && onCursorPositionChange) onCursorPositionChange(p.lineNumber, p.column);
+      };
+      cursorDisposable = editor.onDidChangeCursorPosition(() => push());
+
+      contentListenerRef.current = editor.onDidChangeModelContent(() => {
+        if (activeFileRef.current?.fileKind === 'truncated') return;
+        const v = editor.getValue();
+        updateActiveContent(v);
+        onChange?.(v);
+      });
+
+      pushModelMeta(editor);
+      push();
+    };
+
+    mountEditor();
+    const raf = requestAnimationFrame(mountEditor);
+
     return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      cursorDisposable?.dispose?.();
+      contentListenerRef.current?.dispose?.();
+      contentListenerRef.current = null;
+      editorRef.current?.dispose?.();
       editorRef.current = null;
     };
-  }, [activeFile?.id]);
+  }, [monaco, showMonacoBody, onChange, onCursorPositionChange, pushModelMeta, updateActiveContent]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !monaco || !activeFile) return;
+
+    const ext = activeFile.name.split('.').pop()?.toLowerCase() || 'txt';
+    const lang = LANG_MAP[ext] || 'plaintext';
+    const model = editor.getModel();
+    if (model) {
+      monaco.editor.setModelLanguage(model, lang);
+      const current = model.getValue();
+      if (current !== (activeFile.content ?? '')) {
+        editor.setValue(activeFile.content ?? '');
+      }
+    }
+
+    const isLarge = (activeFile.content?.length ?? 0) > LARGE_FILE_CHAR_THRESHOLD;
+    const isTruncated = activeFile.fileKind === 'truncated';
+    editor.updateOptions(buildEditorOptions(isLarge, isTruncated));
+    pushModelMeta(editor);
+  }, [activeFile?.id, activeFile?.content, activeFile?.fileKind, activeFile?.name, monaco, pushModelMeta]);
 
   useEffect(() => {
     setShowDiff(false);
@@ -381,16 +484,6 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   const ext = activeFile.name.split('.').pop()?.toLowerCase() || 'txt';
   const language = LANG_MAP[ext] || 'plaintext';
 
-  const resolvedKind =
-    activeFile.fileKind ||
-    (activeFile.isImage ? 'image' : activeFile.isBinary ? 'binary' : detectFileKind({
-      name: activeFile.name,
-      key: activeFile.r2Key,
-      contentType: activeFile.contentType,
-      size: activeFile.size,
-    }));
-
-  const showMediaPreview = !isEditableTextKind(resolvedKind);
   const previewUrl =
     activeFile.previewUrl ||
     (activeFile.localObjectUrl ? activeFile.localObjectUrl : null) ||
@@ -398,7 +491,12 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       ? buildR2ObjectUrl(activeFile.r2Bucket, activeFile.r2Key)
       : null);
 
-  const hasDiffData = activeFile?.originalContent !== undefined && activeFile.originalContent !== activeFile.content;
+  const isTruncated = resolvedKind === 'truncated';
+  const totalKb = activeFile.originalSize
+    ? (activeFile.originalSize / 1024).toFixed(0)
+    : activeFile.size
+      ? (activeFile.size / 1024).toFixed(0)
+      : null;
 
   return (
     <div className="flex flex-col h-full w-full bg-[var(--scene-bg)] overflow-hidden">
@@ -467,7 +565,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
                </button>
              </>
            )}
-           {isDirty && (
+           {isDirty && !isTruncated && (
              <button 
                 onClick={() => onSave?.(activeFile.content)}
                 className="px-3 py-0.5 bg-[var(--solar-cyan)] text-black rounded font-bold shadow-[0_0_10px_rgba(45,212,191,0.2)]"
@@ -507,26 +605,23 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
             theme="meauxcad-dark"
             original={activeFile.originalContent ?? ''}
             modified={activeFile.content}
-            options={{ ...EDITOR_OPTIONS, readOnly: false }}
+            options={{ ...buildEditorOptions(false, false), readOnly: false }}
           />
         ) : (
-          <Editor
-            height="100%"
-            language={language}
-            theme="meauxcad-dark"
-            value={activeFile.content}
-            onChange={(v) => updateActiveContent(v ?? '')}
-            onMount={(editor) => {
-              editorRef.current = editor;
-              const push = () => {
-                const p = editor.getPosition();
-                if (p && onCursorPositionChange) onCursorPositionChange(p.lineNumber, p.column);
-              };
-              editor.onDidChangeCursorPosition(() => push());
-              pushModelMeta(editor);
-            }}
-            options={EDITOR_OPTIONS}
-          />
+          <div className="flex flex-col h-full w-full min-h-0">
+            {isTruncated && (
+              <div
+                className="px-3 py-1.5 text-xs bg-[var(--accent-warning)] text-[var(--bg-primary,#060e14)] flex items-center gap-2 shrink-0 border-b border-[var(--dashboard-border)]"
+                role="status"
+              >
+                <span>
+                  Showing first 500KB of {activeFile.name}
+                  {totalKb ? ` (${totalKb}KB total)` : ''} — save disabled
+                </span>
+              </div>
+            )}
+            <div ref={containerRef} className="flex-1 min-h-0 w-full" />
+          </div>
         )}
       </div>
     </div>

@@ -1,11 +1,15 @@
 export type FileKind =
   | 'text'
+  | 'truncated'
   | 'image'
   | 'video'
   | 'audio'
   | 'pdf'
   | 'binary'
   | 'unknown';
+
+/** Max characters passed to Monaco; larger text files are sliced with fileKind `truncated`. */
+export const MAX_MONACO_CHARS = 500_000;
 
 const IMAGE_EXT = new Set([
   'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp', 'ico',
@@ -44,7 +48,8 @@ export function isBinaryFile(filename: string, fileSize?: number | null): boolea
     const ext = filename.slice(dot).toLowerCase();
     if (BINARY_EXTENSIONS.has(ext)) return true;
   }
-  if (fileSize != null && fileSize > MAX_PREVIEW_BYTES) return true;
+  const ext = extFromName(filename);
+  if (fileSize != null && fileSize > MAX_PREVIEW_BYTES && !TEXT_EXT.has(ext)) return true;
   return false;
 }
 
@@ -108,13 +113,35 @@ export function detectFileKind(input: {
   return 'unknown';
 }
 
+export function truncateContentForMonaco(content: string): {
+  content: string;
+  truncated: boolean;
+  originalSize?: number;
+} {
+  if (!content || content.length <= MAX_MONACO_CHARS) {
+    return { content: content ?? '', truncated: false };
+  }
+  return {
+    content: content.slice(0, MAX_MONACO_CHARS),
+    truncated: true,
+    originalSize: content.length,
+  };
+}
+
 export function isEditableTextKind(kind: FileKind): boolean {
-  return kind === 'text';
+  return kind === 'text' || kind === 'truncated';
 }
 
 export function fileKindToMediaKind(kind: FileKind): string {
-  if (kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'text' || kind === 'binary') {
-    return kind;
+  if (
+    kind === 'image' ||
+    kind === 'video' ||
+    kind === 'audio' ||
+    kind === 'text' ||
+    kind === 'truncated' ||
+    kind === 'binary'
+  ) {
+    return kind === 'truncated' ? 'text' : kind;
   }
   if (kind === 'pdf') return 'binary';
   return 'unknown';

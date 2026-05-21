@@ -127,4 +127,6 @@ export type ActiveFile = {
   contentType?: string;
   size?: number;
   binaryMessage?: string;
+  /** Full byte/char length when content was truncated for Monaco */
+  originalSize?: number;
 };

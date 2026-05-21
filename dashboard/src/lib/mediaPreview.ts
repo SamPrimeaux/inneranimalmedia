@@ -1,5 +1,5 @@
 import type { ActiveFile } from '../../types';
-import { detectFileKind, isBinaryFile, type FileKind } from './fileKind';
+import { detectFileKind, isBinaryFile, truncateContentForMonaco, type FileKind } from './fileKind';
 
 const BINARY_PREVIEW_MESSAGE = 'Binary file — preview not available in the editor.';
 
@@ -16,7 +16,17 @@ export function prepareActiveFileForEditor(file: ActiveFile): ActiveFile {
 
   if (kind === 'text' && !isBinaryFile(file.name, file.size ?? null)) {
     const originalContent = file.originalContent ?? file.content;
-    return { ...file, fileKind: 'text', originalContent };
+    const { content, truncated, originalSize } = truncateContentForMonaco(file.content ?? '');
+    if (truncated) {
+      return {
+        ...file,
+        fileKind: 'truncated',
+        content,
+        originalContent,
+        originalSize: originalSize ?? file.originalSize,
+      };
+    }
+    return { ...file, fileKind: 'text', originalContent, content };
   }
 
   const previewKind: FileKind =
