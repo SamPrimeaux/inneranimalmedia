@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { ChevronDown, ChevronRight, Pencil, Save } from 'lucide-react';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
