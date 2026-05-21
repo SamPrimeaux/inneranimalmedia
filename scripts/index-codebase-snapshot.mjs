@@ -16,8 +16,14 @@ import {
   DEPLOY_CODEBASE_INDEX_STATS_FILE,
 } from './lib/supabase-deploy-paths.mjs';
 import { collectAllPriorityRelPaths, AGENT_SAM_CANONICAL_KNOWLEDGE_EDGES } from './lib/priority-codebase-sources.mjs';
+import {
+  shouldIgnoreCodebaseIndexPath,
+  isCodebaseIndexSourcePath,
+  CODEBASE_INDEX_WALK_DIRS,
+} from '../src/lib/codebase-index-ignore.js';
 
-const MODEL = '@cf/baai/bge-large-en-v1.5';
+const MODEL = process.env.RAG_OPENAI_EMBEDDING_MODEL?.trim() || 'text-embedding-3-large';
+const EMBED_DIM = 1024;
 
 const argv = process.argv.slice(2);
 const apply = argv.includes('--apply');
@@ -32,8 +38,6 @@ const SKIP_DIR = new Set([
   'analytics/deploys',
 ]);
 
-const EXT_OK = /\.(js|mjs|cjs|ts|tsx|jsx|md)$/i;
-
 function walkFiles(dir, root, out = []) {
   let ents;
   try {
@@ -43,11 +47,11 @@ function walkFiles(dir, root, out = []) {
   }
   for (const e of ents) {
     const p = join(dir, e.name);
-    const rel = relative(root, p);
+    const rel = relative(root, p).replace(/\\/g, '/');
     if (e.isDirectory()) {
-      if (SKIP_DIR.has(e.name)) continue;
+      if (SKIP_DIR.has(e.name) || shouldIgnoreCodebaseIndexPath(`${rel}/`)) continue;
       walkFiles(p, root, out);
-    } else if (e.isFile() && EXT_OK.test(e.name) && !rel.startsWith('analytics/deploys')) {
+    } else if (e.isFile() && isCodebaseIndexSourcePath(rel)) {
       out.push(p);
     }
   }
@@ -102,19 +106,23 @@ function parseRouteMapSymbols(content, filePath) {
   return out.map((s) => ({ ...s, file_path: filePath }));
 }
 
-async function embedText(token, accountId, text) {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${MODEL}`;
-  const r = await fetch(url, {
+async function embedText(openaiKey, text) {
+  const base = String(process.env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
+  const r = await fetch(`${base}/embeddings`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${openaiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text: String(text).slice(0, 8000) }),
+    body: JSON.stringify({
+      model: MODEL,
+      input: String(text).slice(0, 8000),
+      dimensions: EMBED_DIM,
+    }),
   });
   const j = await r.json().catch(() => ({}));
-  const vec = j?.result?.data?.[0] ?? j?.result?.[0];
-  if (!Array.isArray(vec) || vec.length !== 1024) return null;
+  const vec = j?.data?.[0]?.embedding;
+  if (!Array.isArray(vec) || vec.length !== EMBED_DIM) return null;
   return vec;
 }
 
@@ -240,8 +248,7 @@ async function main() {
     process.exit(0);
   }
 
-  const token = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
-  const accountId = (process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const openaiKey = (process.env.OPENAI_API_KEY || '').trim();
 
   const repoUrl =
     process.env.GITHUB_REPOSITORY || 'https://github.com/SamPrimeaux/inneranimalmedia';
@@ -258,7 +265,7 @@ async function main() {
     })
     .trim();
 
-  const roots = ['src', 'docs', 'scripts'].map((d) => join(root, d)).filter((p) => existsSync(p));
+  const roots = CODEBASE_INDEX_WALK_DIRS.map((d) => join(root, d)).filter((p) => existsSync(p));
   let paths = [];
   for (const r0 of roots) walkFiles(r0, root, paths);
   const priorityRelSet = new Set(collectAllPriorityRelPaths(root));
@@ -410,7 +417,7 @@ async function main() {
     }
 
     let chunkTotal = 0;
-    if (priorityFiles.length && token && accountId) {
+    if (priorityFiles.length && openaiKey) {
       outer: for (const fp of priorityFiles) {
         const rel = relative(root, fp).replace(/\\/g, '/');
         const body = readFileSync(fp, 'utf8');
@@ -420,7 +427,7 @@ async function main() {
         for (const part of parts) {
           if (perFile >= MAX_CHUNKS_PER_PRIORITY_FILE) break;
           if (chunkTotal >= MAX_PRIORITY_EMBEDDED_CHUNKS) break outer;
-          const vec = await embedText(token, accountId, part);
+          const vec = await embedText(openaiKey, part);
           await new Promise((r) => setTimeout(r, Number(process.env.INGEST_DELAY_MS || 120)));
           const row = {
             snapshot_id: snapshotId,
@@ -447,8 +454,8 @@ async function main() {
           idx += 1;
         }
       }
-    } else if (!token || !accountId) {
-      console.warn('[index-codebase] No CLOUDFLARE_API_TOKEN/ACCOUNT_ID — skipped chunk embeddings');
+    } else if (!openaiKey) {
+      console.warn('[index-codebase] No OPENAI_API_KEY — skipped chunk embeddings');
     }
 
     await setSnapshotUploadStatus('complete', { chunk_count: chunkTotal });

@@ -12,6 +12,8 @@ import {
   ClipboardCheck,
   CircleDot,
   Workflow,
+  FileCode2,
+  Cog,
 } from 'lucide-react';
 import type { WorkflowUiNodeType } from './workflowTypes';
 
@@ -21,10 +23,12 @@ const NODE_ICON: Record<WorkflowUiNodeType, { Icon: LucideIcon; accent: string }
   mcp_tool: { Icon: Wrench, accent: '#3b82f6' },
   terminal: { Icon: Terminal, accent: '#f97316' },
   db_query: { Icon: Database, accent: '#6366f1' },
+  script: { Icon: FileCode2, accent: '#eab308' },
   approval_gate: { Icon: ShieldAlert, accent: '#ec4899' },
   branch: { Icon: GitBranch, accent: '#a855f7' },
   webhook: { Icon: Webhook, accent: '#0ea5e9' },
   eval: { Icon: ClipboardCheck, accent: '#14b8a6' },
+  process: { Icon: Cog, accent: '#64748b' },
   output: { Icon: CircleDot, accent: '#10b981' },
 };
 

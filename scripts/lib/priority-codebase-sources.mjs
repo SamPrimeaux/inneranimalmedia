@@ -106,12 +106,11 @@ export function collectSqlPriorityRelPaths(repoRoot, opts = {}) {
 }
 
 /**
+ * Priority paths for RAG (source only — no migrations/scripts SQL).
  * @param {string} repoRoot
  */
 export function collectAllPriorityRelPaths(repoRoot) {
-  const sql = collectSqlPriorityRelPaths(repoRoot);
-  const set = new Set([...PRIORITY_EXACT_REL_PATHS, ...sql]);
-  return [...set].filter((rel) => {
+  return PRIORITY_EXACT_REL_PATHS.filter((rel) => {
     const p = join(repoRoot, rel);
     return existsSync(p);
   });

@@ -264,6 +264,7 @@ const ALLOWED_NODE_TYPES = new Set([
   'mcp_tool',
   'terminal',
   'db_query',
+  'script',
   'eval',
   'branch',
   'approval_gate',
@@ -271,6 +272,9 @@ const ALLOWED_NODE_TYPES = new Set([
   'trigger',
   'process',
   'output',
+  'join',
+  'retry',
+  'parallel',
 ]);
 
 /**

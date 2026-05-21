@@ -2,6 +2,15 @@
  * Executes agentsam_workflow_nodes / agentsam_workflow_edges as a directed graph.
  * Persists state to agentsam_workflow_runs row by row.
  */
+import {
+  executeWorkflowDbQuery,
+  executeWorkflowScript,
+  executeWorkflowUiEmit,
+  executeWorkflowEval,
+  executeWorkflowBranch,
+  executeWorkflowMcpTool,
+  flattenWorkflowInput,
+} from './workflow-node-handlers.js';
 import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
@@ -215,37 +224,7 @@ async function dispatchNode(env, node, input, runContext) {
         return { ok: false, error: `mcp_tool not found in agentsam_mcp_tools: ${handlerKey}` };
       }
 
-      // Builtin/proxy/r2/terminal handlers — dispatch internally
-      if (['builtin', 'r2', 'terminal', 'proxy'].includes(toolRow.handler_type)) {
-        // These are handled by the existing tool dispatch system
-        // Emit a tool call event and let the agent handler execute it
-        return {
-          ok: true,
-          output: {
-            tool_dispatched: toolRow.tool_key,
-            handler_type: toolRow.handler_type,
-            handler_config: JSON.parse(toolRow.handler_config || '{}'),
-            input,
-          },
-        };
-      }
-
-      // HTTP/MCP server tools
-      if (!toolRow.mcp_service_url) {
-        return { ok: false, error: `no mcp_service_url for tool: ${handlerKey}` };
-      }
-
-      const mcpRes = await fetch(toolRow.mcp_service_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: toolRow.tool_key, params: input }),
-      }).catch(() => null);
-
-      if (!mcpRes?.ok) {
-        return { ok: false, error: `mcp_tool HTTP ${mcpRes?.status}: ${handlerKey}` };
-      }
-
-      return { ok: true, output: await mcpRes.json().catch(() => ({})) };
+      return executeWorkflowMcpTool(env, toolRow, input, runContext, hk);
     }
 
     case 'terminal': {
@@ -294,29 +273,46 @@ async function dispatchNode(env, node, input, runContext) {
     }
 
     case 'db_query': {
-      return { ok: true, output: { logged: false, note: 'db_query noop — use dedicated analytics pipeline' } };
+      return executeWorkflowDbQuery(env, hk, input, runContext, node);
+    }
+
+    case 'script': {
+      return executeWorkflowScript(env, hk, input, runContext, node);
     }
 
     case 'eval': {
-      let qg = {};
-      try {
-        qg = JSON.parse(node.quality_gate_json || '{}');
-      } catch (_) {
-        qg = {};
-      }
-      const assertions = qg.assertions || [];
-      const passed = assertions.every((a) => {
-        const val = input?.[a.field];
-        if (a.op === 'exists') return val != null;
-        if (a.op === 'eq') return val === a.value;
-        if (a.op === 'gt') return Number(val) > Number(a.value);
-        return true;
-      });
-      return { ok: true, output: { passed, assertion_count: assertions.length } };
+      return executeWorkflowEval(env, hk, input, runContext, node);
     }
 
     case 'branch': {
-      return { ok: true, output: { passed: true, branch: 'default' } };
+      return executeWorkflowBranch(input, node);
+    }
+
+    case 'trigger': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+      const flat = flattenWorkflowInput(input);
+      return { ok: true, output: { triggered: true, payload: flat } };
+    }
+
+    case 'process': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+      const flat = flattenWorkflowInput(input);
+      if (hk) {
+        const scriptOut = await executeWorkflowScript(env, hk, input, runContext, node);
+        if (scriptOut.ok) return scriptOut;
+      }
+      return { ok: true, output: { processed: true, ...flat } };
+    }
+
+    case 'output': {
+      const flat = flattenWorkflowInput(input);
+      return { ok: true, output: { final: flat, node_key: node.node_key } };
+    }
+
+    case 'join': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+      const flat = flattenWorkflowInput(input);
+      return { ok: true, output: { joined: true, final: flat, node_key: node.node_key } };
     }
 
     case 'approval_gate': {
@@ -364,6 +360,9 @@ async function dispatchNode(env, node, input, runContext) {
         try { return JSON.parse(node.handler_config || node.config_json || '{}'); } catch { return {}; }
       })();
       const url = config.url || config.endpoint;
+      if (!url && (hk.startsWith('ui.') || hk.startsWith('ui_'))) {
+        return executeWorkflowUiEmit(env, hk, input, runContext, node);
+      }
       if (!url) return { ok: false, error: `webhook node "${node.node_key}" missing url in handler_config` };
       const timeout = node.timeout_ms ?? 15_000;
       const ctrl = new AbortController();
@@ -426,7 +425,15 @@ function evaluateEdge(edge, nodeOutput) {
     }
     case 'output': {
       const val = nodeOutput?.output?.[cond.field];
-      return cond.op === 'eq' ? val === cond.value : val != null;
+      if (cond.op === 'eq') return val === cond.value;
+      if (cond.op === 'neq') return val !== cond.value;
+      return val != null;
+    }
+    case 'branch': {
+      const branch = nodeOutput?.output?.branch ?? nodeOutput?.output?.[cond.field];
+      if (cond.op === 'eq' || !cond.op) return branch === cond.value;
+      if (cond.op === 'neq') return branch !== cond.value;
+      return branch != null;
     }
     default:
       return false;

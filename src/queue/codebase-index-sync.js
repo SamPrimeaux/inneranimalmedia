@@ -3,7 +3,10 @@
  * Pull latest route-map + index-priority artifacts from R2 → Supabase `codebase_files` + `codebase_chunks`.
  *
  * Skips `file-inventory.json` (large); optional `repo-snapshot.json` / `manifests/latest.json` for snapshot_id.
+ * Skips migration/SQL/build paths via {@link shouldIgnoreCodebaseIndexPath} (see codebase-index-ignore.js).
  */
+
+import { shouldIgnoreCodebaseIndexPath } from '../lib/codebase-index-ignore.js';
 
 const CHARS_PER_TOKEN = 4;
 
@@ -227,6 +230,10 @@ export async function handleCodebaseIndexSyncFromQueue(env, body, _ctx) {
       const file_path = ent.path || ent.file_path || ent.name;
       const content = ent.content || ent.source || ent.text;
       if (!file_path || !content || String(content).length < 8) continue;
+      if (shouldIgnoreCodebaseIndexPath(String(file_path))) {
+        console.warn('[codebase_index_sync] skip ignored path', file_path);
+        continue;
+      }
       const text = String(content);
       if (text.length > 120_000) {
         console.warn('[codebase_index_sync] skip oversized priority file', file_path, text.length);

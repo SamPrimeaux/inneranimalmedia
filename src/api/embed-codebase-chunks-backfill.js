@@ -11,8 +11,16 @@ import { jsonResponse, verifyInternalApiSecret, getAuthUser } from '../core/auth
 import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 import { supabasePatchJson } from './health/supabaseRest.js';
 
-/** Workers AI model used by embed-on-ingest for codebase_chunks (audit / re-embed). */
-const CODEBASE_CHUNK_EMBED_MODEL = '@cf/baai/bge-large-en-v1.5';
+/** Target embed model for codebase_chunks (OpenAI @ 1024 dims — see CODEBASE_RAG_MODEL_MIGRATION.md). */
+const CODEBASE_CHUNK_EMBED_MODEL_DEFAULT = 'text-embedding-3-large';
+
+/** @param {any} env */
+function codebaseChunkEmbedModelFromEnv(env, embedResult) {
+  const fromResult = pickEmbedModelFromEmbedResult(embedResult);
+  if (fromResult) return fromResult;
+  const fromEnv = env?.RAG_OPENAI_EMBEDDING_MODEL && String(env.RAG_OPENAI_EMBEDDING_MODEL).trim();
+  return fromEnv || CODEBASE_CHUNK_EMBED_MODEL_DEFAULT;
+}
 
 /** Rough token estimate (~4 chars per token). */
 function approxTokenCount(content) {
@@ -105,10 +113,6 @@ function pickEmbedModelFromEmbedResult(result) {
   return null;
 }
 
-/** Audit label — must match embed-on-ingest, not OpenAI / bge-m3 env vars. */
-function codebaseChunkEmbedModel(embedResult) {
-  return pickEmbedModelFromEmbedResult(embedResult) || CODEBASE_CHUNK_EMBED_MODEL;
-}
 
 /** @param {Record<string, unknown>} row */
 function buildEmbedIngestRecord(row, token_count) {
@@ -204,9 +208,9 @@ export async function handleEmbedCodebaseChunksBackfill(request, env) {
         embedStatus = out.status;
         const embedding = pickEmbeddingFromEmbedResult(out.result);
         if (embedding) patch.embedding = embedding;
-        if (!row.embed_model) patch.embed_model = codebaseChunkEmbedModel(out.result);
+        if (!row.embed_model) patch.embed_model = codebaseChunkEmbedModelFromEnv(env, out.result);
       } else if (!row.embed_model) {
-        patch.embed_model = codebaseChunkEmbedModel(null);
+        patch.embed_model = codebaseChunkEmbedModelFromEnv(env, null);
       }
 
       const patchOut = await supabasePatchJson(env, 'codebase_chunks', 'id', String(row.id), patch);

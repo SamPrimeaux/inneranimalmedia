@@ -11,6 +11,7 @@ import { join } from 'path';
 import { repoRoot, DEPLOY_CONTEXT_FILE } from './lib/supabase-deploy-paths.mjs';
 import { loadDotEnvCloudflare } from './lib/supabase-deploy-context.mjs';
 import { collectAllPriorityRelPaths } from './lib/priority-codebase-sources.mjs';
+import { shouldIgnoreCodebaseIndexPath } from '../src/lib/codebase-index-ignore.js';
 
 const root = repoRoot();
 loadDotEnvCloudflare(root);
@@ -31,7 +32,7 @@ if (!workspaceId) {
   process.exit(0);
 }
 
-const rels = collectAllPriorityRelPaths(root);
+const rels = collectAllPriorityRelPaths(root).filter((rel) => !shouldIgnoreCodebaseIndexPath(rel));
 const files = [];
 for (const rel of rels) {
   const abs = join(root, rel);

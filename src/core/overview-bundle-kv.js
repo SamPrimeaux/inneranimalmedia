@@ -24,13 +24,73 @@ export function overviewBundleDirtyKey(section, tenantId) {
  * @param {OverviewDirtySection} section
  * @param {string} [tenantId]
  */
+/**
+ * @param {string|null|undefined} value
+ * @param {Record<string, unknown>|null|undefined} [metadata]
+ * @returns {number|null} age in seconds, or null if unknown
+ */
+export function overviewBundleDirtyAgeSeconds(value, metadata) {
+  if (value == null || value === '') return null;
+  let setAt = null;
+  try {
+    const j = JSON.parse(String(value));
+    if (j && typeof j === 'object' && j.set_at != null) {
+      const n = Number(j.set_at);
+      if (Number.isFinite(n) && n > 0) setAt = n;
+    }
+  } catch {
+    const n = Number(String(value).trim());
+    if (Number.isFinite(n) && n > 1_000_000_000_000) setAt = n;
+  }
+  if (setAt == null && metadata && metadata.set_at != null) {
+    const n = Number(metadata.set_at);
+    if (Number.isFinite(n) && n > 0) setAt = n;
+  }
+  if (setAt == null) return null;
+  return Math.max(0, Math.floor((Date.now() - setAt) / 1000));
+}
+
 export async function setOverviewBundleDirty(env, section, tenantId) {
   if (!env?.KV?.put) return;
   const key = overviewBundleDirtyKey(section, tenantId);
+  const setAt = Date.now();
   try {
-    await env.KV.put(key, String(Date.now()), { expirationTtl: 60 * 30 });
+    await env.KV.put(key, JSON.stringify({ set_at: setAt }), {
+      expirationTtl: 60 * 30,
+      metadata: { set_at: setAt },
+    });
   } catch (e) {
     console.debug('[overview-bundle-kv] set failed', key, e?.message ?? e);
+  }
+}
+
+/**
+ * Read dirty flag without clearing (for health probes).
+ * @param {any} env
+ * @param {OverviewDirtySection} section
+ * @param {string} [tenantId]
+ * @returns {Promise<{ set: boolean, age_seconds?: number }>}
+ */
+export async function readOverviewBundleDirtyFlag(env, section, tenantId) {
+  if (!env?.KV?.get) return { set: false };
+  const key = overviewBundleDirtyKey(section, tenantId);
+  try {
+    let value = null;
+    /** @type {Record<string, unknown>|null} */
+    let metadata = null;
+    if (typeof env.KV.getWithMetadata === 'function') {
+      const row = await env.KV.getWithMetadata(key);
+      value = row?.value ?? null;
+      metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata : null;
+    } else {
+      value = await env.KV.get(key);
+    }
+    if (value == null || value === '') return { set: false };
+    const age = overviewBundleDirtyAgeSeconds(value, metadata);
+    return age != null ? { set: true, age_seconds: age } : { set: true };
+  } catch (e) {
+    console.debug('[overview-bundle-kv] read failed', key, e?.message ?? e);
+    return { set: false };
   }
 }
 

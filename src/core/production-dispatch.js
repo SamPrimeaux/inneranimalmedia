@@ -228,6 +228,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleSummarizeBackfill(request, env);
   }
 
+  if (pathLower === '/api/internal/health-kv-dirty' && methodUpper === 'GET') {
+    const { handleHealthKvDirty } = await import('../api/health-kv-dirty.js');
+    return handleHealthKvDirty(request, env);
+  }
+
   if (pathLower === '/api/internal/embed-codebase-chunks-backfill' && methodUpper === 'POST') {
     const { handleEmbedCodebaseChunksBackfill } = await import('../api/embed-codebase-chunks-backfill.js');
     return handleEmbedCodebaseChunksBackfill(request, env);

@@ -5,10 +5,12 @@ export type WorkflowUiNodeType =
   | 'mcp_tool'
   | 'terminal'
   | 'db_query'
+  | 'script'
   | 'approval_gate'
   | 'branch'
   | 'webhook'
   | 'eval'
+  | 'process'
   | 'output';
 
 export type NodeStatus = 'idle' | 'running' | 'completed' | 'failed';
@@ -110,10 +112,14 @@ export type DrawerMode = 'blocks' | 'library' | 'mcp' | 'connections' | null;
 export type InspectorTab = 'config' | 'run' | 'cost';
 
 export const EXECUTOR_NODE_TYPES: { value: string; label: string; ui: WorkflowUiNodeType }[] = [
+  { value: 'trigger', label: 'Trigger', ui: 'trigger' },
+  { value: 'process', label: 'Process', ui: 'process' },
+  { value: 'output', label: 'Output', ui: 'output' },
   { value: 'agent', label: 'Agent (LLM)', ui: 'agent' },
   { value: 'mcp_tool', label: 'MCP tool', ui: 'mcp_tool' },
   { value: 'terminal', label: 'Terminal', ui: 'terminal' },
   { value: 'db_query', label: 'D1 query', ui: 'db_query' },
+  { value: 'script', label: 'Script (R2 / audit)', ui: 'script' },
   { value: 'approval_gate', label: 'Approval gate', ui: 'approval_gate' },
   { value: 'branch', label: 'Branch', ui: 'branch' },
   { value: 'webhook', label: 'Webhook', ui: 'webhook' },
@@ -126,11 +132,14 @@ export function apiNodeTypeToUi(nt: string): WorkflowUiNodeType {
   if (t === 'mcp_tool') return 'mcp_tool';
   if (t === 'terminal') return 'terminal';
   if (t === 'db_query') return 'db_query';
+  if (t === 'script') return 'script';
+  if (t === 'process') return 'process';
   if (t === 'approval_gate') return 'approval_gate';
   if (t === 'branch') return 'branch';
   if (t === 'webhook') return 'webhook';
   if (t === 'eval') return 'eval';
   if (t === 'trigger') return 'trigger';
   if (t === 'output') return 'output';
+  if (t === 'join') return 'output';
   return 'agent';
 }
