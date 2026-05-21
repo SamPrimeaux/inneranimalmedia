@@ -43,7 +43,9 @@ import type { ActiveFile } from '../../types';
 import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
+  IAM_AGENT_CHAT_COMPOSE,
   LS_AGENT_CHAT_CONVERSATION_ID,
+  type AgentChatComposeDetail,
   type QuickstartThreadDetail,
 } from '../../agentChatConstants';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
@@ -448,12 +450,42 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     };
     window.addEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
 
+    const onCompose = (e: Event) => {
+      const detail = (e as CustomEvent<AgentChatComposeDetail>).detail;
+      const msg = detail?.message ?? '';
+      if (!msg) return;
+      if (detail?.send) {
+        void handleSend(msg.trim(), routingSendOptsFromDetail(detail as QuickstartThreadDetail));
+        return;
+      }
+      setMobileThreadTab('chat');
+      setInput(msg);
+      const start = detail.selectionStart ?? msg.length;
+      const end = detail.selectionEnd ?? start;
+      queueMicrotask(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        try {
+          el.setSelectionRange(start, end);
+        } catch {
+          /* ignore */
+        }
+        syncComposerTextareaHeight(
+          el,
+          isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+        );
+      });
+    };
+    window.addEventListener(IAM_AGENT_CHAT_COMPOSE, onCompose);
+
     return () => {
       window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onExternal);
       window.removeEventListener('iam-agent-external-send', onExternalSend);
       window.removeEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadMessage);
+      window.removeEventListener(IAM_AGENT_CHAT_COMPOSE, onCompose);
     };
-  }, [handleSend]);
+  }, [handleSend, isNarrow]);
 
   const [pendingToolApproval, setPendingToolApproval] = useState<{
     tool: ToolApprovalPayload;

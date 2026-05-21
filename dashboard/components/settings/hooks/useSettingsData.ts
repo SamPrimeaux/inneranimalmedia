@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RulesSkillsTabId, ModelsTabId } from './useSettingsSections';
+import {
+  CREATE_SUBAGENT_COMPOSE_MESSAGE,
+  IAM_AGENT_CHAT_COMPOSE,
+} from '../../../agentChatConstants';
 import type {
   AgentsamUserPolicy,
   AgentsSettingsResponse,
@@ -78,7 +82,7 @@ export function useSettingsData({
   const [subagentsLoading, setSubagentsLoading] = useState(false);
   const [subagentsError, setSubagentsError] = useState<string | null>(null);
   const [subagents, setSubagents] = useState<any[]>([]);
-  const [subagentDrawerOpen, setSubagentDrawerOpen] = useState(false);
+  const [editingSubagentId, setEditingSubagentId] = useState<string | null>(null);
   const [subagentDraft, setSubagentDraft] = useState<any>({});
 
   const [commandsLoading2, setCommandsLoading2] = useState(false);
@@ -831,31 +835,45 @@ export function useSettingsData({
     }
   }, [editingSkill?.id, skillDraft, loadSkills]);
 
-  const openNewSubagentDrawer = useCallback(() => {
-    setSubagentDraft({
-      display_name: '',
-      slug: '',
-      description: '',
-      instructions_markdown: '',
-      default_model_id: '',
-      personality_tone: 'professional',
-      sandbox_mode: 'workspace-write',
-      model_reasoning_effort: 'medium',
-      access_mode: 'read_write',
-      agent_type: 'custom',
-    });
-    setSubagentDrawerOpen(true);
+  const closeSubagentEdit = useCallback(() => {
+    setEditingSubagentId(null);
+    setSubagentDraft({});
   }, []);
 
-  const saveSubagentDrawer = useCallback(async () => {
+  const openEditSubagent = useCallback((sa: Record<string, unknown>) => {
+    const id = String(sa.id || '').trim();
+    if (!id) return;
+    setEditingSubagentId(id);
+    setSubagentDraft({ ...sa });
+  }, []);
+
+  const startCreateSubagentViaChat = useCallback(() => {
+    closeSubagentEdit();
+    const message = CREATE_SUBAGENT_COMPOSE_MESSAGE;
+    const cursor = message.length;
+    window.dispatchEvent(
+      new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+        detail: {
+          message,
+          selectionStart: cursor,
+          selectionEnd: cursor,
+          ensureAgentPanel: true,
+          send: false,
+        },
+      }),
+    );
+  }, [closeSubagentEdit]);
+
+  const saveSubagentEdit = useCallback(async () => {
     try {
+      const id = String(subagentDraft.id || editingSubagentId || '').trim();
+      if (!id) throw new Error('No subagent selected');
       const ws = workspaceId?.trim();
       const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
       const display_name = String(subagentDraft.display_name || '').trim();
       if (!display_name) throw new Error('Display name required');
       const payload = {
         display_name,
-        slug: String(subagentDraft.slug || '').trim() || undefined,
         description: subagentDraft.description || '',
         instructions_markdown: subagentDraft.instructions_markdown || '',
         default_model_id: subagentDraft.default_model_id || null,
@@ -864,32 +882,20 @@ export function useSettingsData({
         model_reasoning_effort: subagentDraft.model_reasoning_effort || 'medium',
         access_mode: subagentDraft.access_mode === 'read_only' ? 'read_only' : 'read_write',
       };
-      const id = String(subagentDraft.id || '').trim();
-      if (id) {
-        const r = await fetch(`/api/settings/subagents/${encodeURIComponent(id)}${qp}`, {
-          method: 'PATCH',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Save failed (${r.status})`);
-      } else {
-        const r = await fetch(`/api/settings/subagents${qp}`, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Create failed (${r.status})`);
-      }
-      setSubagentDrawerOpen(false);
+      const r = await fetch(`/api/settings/subagents/${encodeURIComponent(id)}${qp}`, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Save failed (${r.status})`);
+      closeSubagentEdit();
       await loadSubagents();
     } catch (e) {
       setSubagentsError(e instanceof Error ? e.message : 'Save failed');
     }
-  }, [subagentDraft, workspaceId, loadSubagents]);
+  }, [subagentDraft, editingSubagentId, workspaceId, loadSubagents, closeSubagentEdit]);
 
   const saveAgentsPolicy = useCallback(async () => {
     if (!agentsPolicy) return;
@@ -1322,13 +1328,14 @@ export function useSettingsData({
     subagentsError,
     subagents,
     setSubagents,
-    subagentDrawerOpen,
-    setSubagentDrawerOpen,
+    editingSubagentId,
     subagentDraft,
     setSubagentDraft,
+    openEditSubagent,
+    closeSubagentEdit,
     patchSubagentActive,
-    openNewSubagentDrawer,
-    saveSubagentDrawer,
+    startCreateSubagentViaChat,
+    saveSubagentEdit,
 
     commandsLoading2,
     commandsError2,

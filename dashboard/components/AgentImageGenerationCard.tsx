@@ -4,6 +4,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
+import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
 import type { ImageGenerationState } from '../features/agent-chat/types';
 import { ProgressiveImagePreview } from './ProgressiveImagePreview';
 import '../styles/image-generation.css';
@@ -91,7 +92,7 @@ export function AgentImageGenerationCard({ state, onImagePreview }: AgentImageGe
     const prompt = window.prompt('Describe how to edit this image:', state.prompt || '');
     if (!prompt?.trim()) return;
     window.dispatchEvent(
-      new CustomEvent('iam:agent-chat-compose', {
+      new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
         detail: {
           message: `Edit this image: ${prompt.trim()}\n\nImage URL: ${url}`,
         },

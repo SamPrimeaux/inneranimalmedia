@@ -47,7 +47,7 @@ export function RulesSkillsSection({ data, rulesSkillsTab, setRulesSkillsTab }: 
     ) : rulesSkillsTab === 'subagents' ? (
       <button
         type="button"
-        onClick={() => data.openNewSubagentDrawer()}
+        onClick={() => data.startCreateSubagentViaChat()}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30"
       >
         <Plus size={14} /> New subagent

@@ -20,9 +20,11 @@ import { MCPPanel } from './components/MCPPanel';
 import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
+  IAM_AGENT_CHAT_COMPOSE,
   LS_AGENT_CHAT_CONVERSATION_ID,
   QUICKSTART_BATCH_LABEL,
   QUICKSTART_WORKSPACE_ID,
+  type AgentChatComposeDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
@@ -1311,6 +1313,13 @@ const App: React.FC = () => {
   }, [agentChatTabs.length, workspaceDisplayLine]);
 
   const pendingNewThreadMessageRef = useRef<QuickstartThreadDetail | null>(null);
+  const pendingAgentChatComposeRef = useRef<AgentChatComposeDetail | null>(null);
+
+  const dispatchAgentChatCompose = useCallback((detail: AgentChatComposeDetail) => {
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_COMPOSE, { detail }));
+    });
+  }, []);
 
   const dispatchNewThreadMessage = useCallback((detail: QuickstartThreadDetail) => {
     const message = detail.message?.trim();
@@ -1354,6 +1363,26 @@ const App: React.FC = () => {
     createNewAgentChatTab();
     dispatchNewThreadMessage(pending);
   }, [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage]);
+
+  useEffect(() => {
+    const onComposeRequest = (e: Event) => {
+      const detail = (e as CustomEvent<AgentChatComposeDetail>).detail;
+      if (!detail?.message) return;
+      if (detail.ensureAgentPanel === false) return;
+      if (agentPosition !== 'off') return;
+      pendingAgentChatComposeRef.current = detail;
+      setAgentPosition('right');
+    };
+    window.addEventListener(IAM_AGENT_CHAT_COMPOSE, onComposeRequest);
+    return () => window.removeEventListener(IAM_AGENT_CHAT_COMPOSE, onComposeRequest);
+  }, [agentPosition]);
+
+  useEffect(() => {
+    const pending = pendingAgentChatComposeRef.current;
+    if (!pending || agentPosition === 'off') return;
+    pendingAgentChatComposeRef.current = null;
+    dispatchAgentChatCompose(pending);
+  }, [agentPosition, dispatchAgentChatCompose]);
 
   const openAgentQuickstart = useCallback(() => {
     navigate(AGENT_QUICKSTART_PATH);
