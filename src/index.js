@@ -639,6 +639,61 @@ export default {
         return jsonResponse(result);
       }
 
+
+      // POST /api/agentsam/telemetry/ingest — receive ETO events from tenant AgentSams
+      if (pathLower === '/api/agentsam/telemetry/ingest' && methodUpper === 'POST') {
+        const bridgeKey = request.headers.get('Authorization')?.replace('Bearer ', '').trim();
+        if (!bridgeKey || !env.AGENTSAM_BRIDGE_KEY || bridgeKey !== env.AGENTSAM_BRIDGE_KEY) {
+          return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+        const body = await request.json().catch(() => null);
+        if (!body?.events?.length) return jsonResponse({ error: 'No events' }, 400);
+
+        const tenantId  = request.headers.get('X-Tenant-ID')  || 'unknown';
+        const wsId      = request.headers.get('X-Workspace-ID') || 'unknown';
+        const received  = [];
+        const skipped   = [];
+
+        for (const ev of body.events.slice(0, 50)) {
+          if (!ev.routing_arm_id || !ev.model_key) { skipped.push(ev.id || '?'); continue; }
+          try {
+            // Upsert into IAM agentsam_performance_eto_events
+            await env.DB.prepare(`
+              INSERT OR IGNORE INTO agentsam_performance_eto_events
+                (id, tenant_id, workspace_id, source_table, source_id,
+                 routing_arm_id, task_type, mode, model_key, provider,
+                 success, failure, latency_ms, input_tokens, output_tokens,
+                 cost_usd, quality_score, reward_score, alpha_delta, beta_delta,
+                 reward_reason, is_training_eligible, evidence_json,
+                 applied_to_thompson_at)
+              VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,datetime('now'))
+            `).bind(
+              ev.id, tenantId, wsId,
+              ev.source_table || 'agentsam_agent_run',
+              ev.source_id    || ev.id,
+              ev.routing_arm_id, ev.task_type || 'general', ev.mode || 'ask',
+              ev.model_key, ev.provider || ev.model_key.split('/')[0],
+              ev.success ? 1 : 0, ev.failure ? 1 : 0,
+              ev.latency_ms || 0, ev.input_tokens || 0, ev.output_tokens || 0,
+              ev.cost_usd || 0, ev.quality_score ?? null,
+              ev.reward_score || 0, ev.alpha_delta || 0, ev.beta_delta || 0,
+              ev.reward_reason || '', 1,
+              JSON.stringify(ev.evidence_json || {})
+            ).run();
+            received.push(ev.id);
+          } catch (e) {
+            skipped.push(ev.id || '?');
+          }
+        }
+
+        return jsonResponse({
+          ok: true,
+          received: received.length,
+          skipped: skipped.length,
+          tenant_id: tenantId,
+        });
+      }
+
       // 2b. Dashboard shell: require session before HTML/SPA
       if (!pathLower.startsWith('/api/')) {
         const needsDashAuth =
