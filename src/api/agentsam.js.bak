@@ -548,23 +548,7 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       }
     }
 
-    
-  // GET /api/agentsam/workflow-node-handlers
-  // DB-driven palette for Workflow Studio. Replaces hardcoded EXECUTOR_NODE_TYPES.
-  if (path === '/api/agentsam/workflow-node-handlers' && method === 'GET') {
-    const { listHandlers } = await import('../core/workflow-handler-registry.js');
-    const node_type    = url.searchParams.get('node_type')    || undefined;
-    const executor_kind = url.searchParams.get('executor_kind') || undefined;
-    const rows = await listHandlers(env, { node_type, executor_kind });
-    const palette = {};
-    for (const row of rows) {
-      if (!palette[row.node_type]) palette[row.node_type] = [];
-      palette[row.node_type].push(row);
-    }
-    return jsonResponse({ handlers: rows, palette, total: rows.length });
-  }
-
-// GET /api/agentsam/workflow-runs/:id — run status + steps + approvals
+    // GET /api/agentsam/workflow-runs/:id — run status + steps + approvals
     const wfRunStatusMatch = path.match(/^\/api\/agentsam\/workflow-runs\/([^/]+)$/);
     if (wfRunStatusMatch && method === 'GET') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);

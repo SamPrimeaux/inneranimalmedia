@@ -128,3 +128,4 @@ scripts/audit/*.ndjson
 scripts/audit_results/
 *.audit.json
 scripts/audit/auth_audit_results.json
+*.bak2

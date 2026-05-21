@@ -1,0 +1,3304 @@
+======================================================================
+WORKFLOW REMASTER — FILE CONTEXT DUMP
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+// FILE: src/core/workflow-executor.js  (1200 lines, 40,059 bytes)
+──────────────────────────────────────────────────────────────────────
+/**
+ * Executes agentsam_workflow_nodes / agentsam_workflow_edges as a directed graph.
+ * Persists state to agentsam_workflow_runs row by row.
+ */
+import {
+  executeWorkflowDbQuery,
+  executeWorkflowScript,
+  executeWorkflowUiEmit,
+  executeWorkflowEval,
+  executeWorkflowBranch,
+  executeWorkflowMcpTool,
+  flattenWorkflowInput,
+} from './workflow-node-handlers.js';
+import { pragmaTableInfo } from './retention.js';
+import { resolveCanonicalUserId } from '../api/auth.js';
+import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
+
+const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
+
+const TRIGGER_TYPES_SAFE = new Set([
+  'manual',
+  'agent',
+  'cursor',
+  'github_push',
+  'scheduled',
+  'cicd',
+  'deploy',
+  'api',
+  'smoke',
+]);
+
+/**
+ * MCP catalog row that owns agentsam_workflow_nodes.workflow_id (D1 FK).
+ * Prefers tenant + workspace match, then tenant-scoped, then platform-global rows.
+ */
+async function resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId) {
+  if (!db) return null;
+  const key = String(workflowKey || '').trim();
+  if (!key) return null;
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  const wid = workspaceId != null ? String(workspaceId).trim() : '';
+
+  const first = async (sql, binds) =>
+    db
+      .prepare(sql)
+      .bind(...binds)
+      .first()
+      .catch(() => null);
+
+  if (tid && wid) {
+    const exact = await first(
+      `SELECT * FROM agentsam_mcp_workflows
+       WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1
+         AND tenant_id = ? AND (workspace_id = ? OR workspace_id IS NULL)
+       ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END, updated_at DESC
+       LIMIT 1`,
+      [key, tid, wid, wid],
+    );
+    if (exact) return exact;
+  }
+  if (tid) {
+    const tenantRow = await first(
+      `SELECT * FROM agentsam_mcp_workflows
+       WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 AND tenant_id = ?
+       ORDER BY (workspace_id IS NOT NULL) DESC, updated_at DESC
+       LIMIT 1`,
+      [key, tid],
+    );
+    if (tenantRow) return tenantRow;
+  }
+  return first(
+    `SELECT * FROM agentsam_mcp_workflows
+     WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1
+       AND tenant_id IS NULL AND workspace_id IS NULL
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [key],
+  );
+}
+
+function normalizeTriggerType(raw) {
+  const t = String(raw || 'agent').toLowerCase().trim();
+  return TRIGGER_TYPES_SAFE.has(t) ? t : 'agent';
+}
+
+/** Normalize `agentsam_workflow_nodes.input_schema_json` (D1 may return string or object). */
+function readWorkflowNodeInputSchemaJson(node) {
+  const raw = node?.input_schema_json;
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return /** @type {Record<string, unknown>} */ (raw);
+  }
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw || '{}');
+      return o && typeof o === 'object' && !Array.isArray(o) ? /** @type {Record<string, unknown>} */ (o) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
+// ── Node type dispatchers ────────────────────────────────────────────
+
+async function dispatchNode(env, node, input, runContext) {
+  const { node_type: nodeType, handler_key: handlerKey } = node;
+  const smoke = Boolean(input?.smoke);
+  const hk = String(handlerKey || '').trim();
+
+  if (hk) {
+    try {
+      const stepMod = await import('./agent-step.js');
+      if (stepMod.isRegisteredAgentStepHandler?.(hk)) {
+        return stepMod.agentChatStep(env, { handler_key: hk, input, runContext, node, smoke });
+      }
+    } catch (e) {
+      console.warn('[workflow-graph] agent-step', e?.message ?? e);
+    }
+  }
+
+  switch (nodeType) {
+    case 'agent': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true, note: 'agent smoke short-circuit' } };
+      try {
+        const { dispatchComplete } = await import('./provider.js');
+
+        // Derive task_type: prefer agentsam_workflows.default_task_type, then handler_key, then fallback
+        const hkParts = String(handlerKey || '').split('.');
+        const taskType =
+          runContext?.workflowMeta?.default_task_type
+          || hkParts[1]
+          || hkParts[0]
+          || 'code';
+        const mode =
+          runContext?.workflowMeta?.default_mode
+          || (String(runContext?.workflowKey || '').includes('build') ? 'build' : 'agent');
+
+        // TIER_ORDER-based model selection: nano baseline, escalate by task complexity
+        // gpt-5.4-nano: default workhorse (SQL, structured output, extraction, classification)
+        // gpt-5.4-mini: code, multi-tool, CMS, terminal planning
+        // gpt-5.4:      orchestration, final judge, approval summaries
+        // Ollama:        local pin tests only (smoke=true paths)
+        const TASK_TIER_MAP = {
+          intent_classification: 'micro', rag_query: 'micro', summary: 'micro',
+          skill_invocation: 'micro',      cms_theme_generation: 'micro',
+          chat: 'standard',   code: 'standard',     cms_edit: 'standard',
+          sql_d1_generation: 'standard',  terminal_execution: 'standard',
+          plan: 'power', subagent_dispatch: 'power',
+          workflow_orchestration: 'power', debug: 'power',
+        };
+        const desiredTierIdx = TIER_ORDER.indexOf(TASK_TIER_MAP[taskType] ?? 'standard');
+        const resolvedCatalogKey = await (async () => {
+          // Walk up tiers starting from desired until we find an active model
+          for (const tier of TIER_ORDER.slice(desiredTierIdx >= 0 ? desiredTierIdx : 2)) {
+            const row = await env.DB?.prepare(
+              `SELECT model_key FROM agentsam_model_catalog
+               WHERE tier = ? AND is_active = 1 AND supports_tools = 1
+                 AND provider IN ('openai','anthropic','google')
+               ORDER BY cost_per_1k_in ASC LIMIT 1`
+            ).bind(tier).first().catch(() => null);
+            if (row?.model_key) return row.model_key;
+          }
+          return 'gpt-5.4-nano'; // hard baseline — always available
+        })();
+
+        const userMsg = typeof input === 'string'
+          ? input
+          : input?.prompt || input?.message || input?.instruction || input?.result
+          || JSON.stringify(input);
+
+        const result = await dispatchComplete(env, {
+          modelKey: resolvedCatalogKey,   // TIER_ORDER resolved: nano→mini→5.4 by task complexity
+          taskType,
+          mode,
+          systemPrompt: 'You are Agent Sam, an autonomous AI developer for Inner Animal Media. Complete the task and return concise structured output.',
+          messages: [{ role: 'user', content: String(userMsg).slice(0, 12000) }],
+          userId: runContext?.canonicalUserId,
+          options: { reasoningEffort: 'medium', verbosity: 'low' },
+        });
+
+        const text = result?.text
+          || result?.content?.[0]?.text
+          || result?.output
+          || JSON.stringify(result);
+
+        return { ok: true, output: { result: text, model: result?.model, tokens: result?.usage } };
+      } catch (e) {
+        return { ok: false, error: `agent node failed: ${e?.message ?? e}` };
+      }
+    }
+
+    case 'mcp_tool': {
+      if (smoke) {
+        return {
+          ok: true,
+          output: {
+            smoke: true,
+            skipped: true,
+            handler_key: handlerKey,
+            note: 'mcp_tool smoke short-circuit',
+          },
+        };
+      }
+      const hkStr = String(handlerKey || '');
+      const parts = hkStr.split('.');
+      const splitKey = parts.length > 1 ? parts[parts.length - 1] : hkStr;
+      const underscoreKey = hkStr.replace(/\./g, '_');
+
+      const toolRow = env.DB
+        ? await env.DB.prepare(`
+      SELECT tool_key, mcp_service_url, handler_type, handler_config
+      FROM agentsam_mcp_tools
+      WHERE (tool_key = ? OR tool_key = ? OR tool_key = ?)
+        AND is_active = 1 AND enabled = 1
+      LIMIT 1
+    `)
+            .bind(splitKey, underscoreKey, hkStr)
+            .first()
+            .catch(() => null)
+        : null;
+
+      if (!toolRow) {
+        return { ok: false, error: `mcp_tool not found in agentsam_mcp_tools: ${handlerKey}` };
+      }
+
+      return executeWorkflowMcpTool(env, toolRow, input, runContext, hk);
+    }
+
+    case 'terminal': {
+      if (smoke) {
+        return {
+          ok: true,
+          output: { smoke: true, skipped: true, note: 'terminal smoke short-circuit' },
+        };
+      }
+      const termUrl = env.TERMINAL_WS_URL
+        ? env.TERMINAL_WS_URL.replace('wss://', 'https://').replace('ws://', 'http://')
+        : null;
+      if (!termUrl) return { ok: false, error: 'terminal not configured' };
+      const nodeSchema = readWorkflowNodeInputSchemaJson(node);
+      // Also check if previous agent node embedded a command in its JSON result
+      let _agentCmd = '';
+      if (input?.result) {
+        try {
+          const _r = JSON.parse(input.result);
+          _agentCmd = _r?.command || _r?.cmd || _r?.wrangler_command || '';
+        } catch (_) {}
+      }
+      const command = String(
+        input?.command ??
+          input?.cmd ??
+          input?.default_command ??
+          _agentCmd ??
+          nodeSchema?.default_command ??
+          '',
+      ).trim();
+      if (!command) throw new Error('no command in terminal node input');
+      if (/[;&|`$><\\]/.test(command)) {
+        return { ok: false, error: 'command contains unsafe characters' };
+      }
+      const tRes = await fetch(`${termUrl.replace(/\/$/, '')}/exec`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${env.TERMINAL_SECRET || ''}`,
+        },
+        body: JSON.stringify({ command, timeout_ms: node.timeout_ms || 30000 }),
+      }).catch(() => null);
+      if (!tRes?.ok) return { ok: false, error: `terminal HTTP ${tRes?.status}` };
+      const out = await tRes.json().catch(() => ({}));
+      return { ok: true, output: out };
+    }
+
+    case 'db_query': {
+      return executeWorkflowDbQuery(env, hk, input, runContext, node);
+    }
+
+    case 'script': {
+      return executeWorkflowScript(env, hk, input, runContext, node);
+    }
+
+    case 'eval': {
+      return executeWorkflowEval(env, hk, input, runContext, node);
+    }
+
+    case 'branch': {
+      return executeWorkflowBranch(input, node);
+    }
+
+    case 'trigger': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+      const flat = flattenWorkflowInput(input);
+      return { ok: true, output: { triggered: true, payload: flat } };
+    }
+
+    case 'process': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+      const flat = flattenWorkflowInput(input);
+      if (hk) {
+        const scriptOut = await executeWorkflowScript(env, hk, input, runContext, node);
+        if (scriptOut.ok) return scriptOut;
+      }
+      return { ok: true, output: { processed: true, ...flat } };
+    }
+
+    case 'output': {
+      const flat = flattenWorkflowInput(input);
+      return { ok: true, output: { final: flat, node_key: node.node_key } };
+    }
+
+    case 'join': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+      const flat = flattenWorkflowInput(input);
+      return { ok: true, output: { joined: true, final: flat, node_key: node.node_key } };
+    }
+
+    case 'approval_gate': {
+      if (smoke) {
+        return {
+          ok: true,
+          output: { status: 'approved', smoke: true, skipped: true },
+        };
+      }
+      if (!env.DB) return { ok: false, error: 'DB not available' };
+      const approvalId = `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      const meta = runContext?.runMeta || {};
+      const payload = JSON.stringify({
+        node_key: node.node_key,
+        handler_key: handlerKey,
+        input,
+      });
+      try {
+        await env.DB.prepare(
+          `INSERT INTO agentsam_approval_queue
+           (id, tenant_id, workspace_id, user_id, workflow_run_id, tool_name, action_summary,
+            input_json, risk_level, approval_type, status, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', unixepoch())`,
+        ).bind(
+          approvalId,
+          meta.tenantId,
+          meta.workspaceId,
+          meta.userId,
+          runContext.runId,
+          `workflow:${String(node.node_key || 'gate').slice(0, 120)}`,
+          `Workflow approval: ${node.node_key || 'gate'}`,
+          payload,
+          node.risk_level || 'high',
+          'workflow',
+        ).run();
+      } catch (e) {
+        return { ok: false, error: e?.message || 'approval_insert_failed' };
+      }
+      return { ok: true, output: { status: 'pending', approval_id: approvalId } };
+    }
+
+    case 'webhook': {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true, note: 'webhook smoke short-circuit' } };
+      const config = (() => {
+        try { return JSON.parse(node.handler_config || node.config_json || '{}'); } catch { return {}; }
+      })();
+      const url = config.url || config.endpoint;
+      if (!url && (hk.startsWith('ui.') || hk.startsWith('ui_'))) {
+        return executeWorkflowUiEmit(env, hk, input, runContext, node);
+      }
+      if (!url) return { ok: false, error: `webhook node "${node.node_key}" missing url in handler_config` };
+      const timeout = node.timeout_ms ?? 15_000;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const resp = await fetch(url, {
+          method: config.method ?? 'POST',
+          headers: { 'Content-Type': 'application/json', ...(config.headers ?? {}) },
+          body: JSON.stringify({
+            node_key: node.node_key,
+            workflow_run_id: runContext?.runId,
+            workflow_id: runContext?.workflowKey,
+            ...input,
+          }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (!resp.ok) return { ok: false, error: `webhook HTTP ${resp.status} from ${url}` };
+        const text = await resp.text();
+        const output = (() => { try { return JSON.parse(text); } catch { return { raw: text }; } })();
+        return { ok: true, output };
+      } catch (e) {
+        clearTimeout(timer);
+        return { ok: false, error: `webhook fetch failed: ${e?.message ?? e}` };
+      }
+    }
+
+    default:
+      return { ok: false, error: `unknown node_type: ${nodeType}` };
+  }
+}
+
+// ── Edge evaluation ──────────────────────────────────────────────────
+
+function evaluateEdge(edge, nodeOutput) {
+  let cond = {};
+  try {
+    cond = JSON.parse(edge.condition_json || '{}');
+  } catch (_) {
+    cond = {};
+  }
+  const ctype = String(edge.condition_type || 'always').toLowerCase();
+  switch (ctype) {
+    case 'always':
+      return true;
+    case 'status': {
+      const expected = cond.from_status;
+      const actual = nodeOutput?.ok ? 'success' : 'failed';
+      if (Array.isArray(expected)) return expected.includes(actual);
+      return actual === expected;
+    }
+    case 'risk': {
+      if (cond.requires_approval) return nodeOutput?.output?.risk_level === 'high';
+      if (cond.max_risk_level) {
+        const lvl = TIER_ORDER.indexOf(nodeOutput?.output?.risk_level || 'low');
+        const max = TIER_ORDER.indexOf(cond.max_risk_level);
+        return lvl <= max;
+      }
+      return true;
+    }
+    case 'output': {
+      const val = nodeOutput?.output?.[cond.field];
+      if (cond.op === 'eq') return val === cond.value;
+      if (cond.op === 'neq') return val !== cond.value;
+      return val != null;
+    }
+    case 'branch': {
+      const branch = nodeOutput?.output?.branch ?? nodeOutput?.output?.[cond.field];
+      if (cond.op === 'eq' || !cond.op) return branch === cond.value;
+      if (cond.op === 'neq') return branch !== cond.value;
+      return branch != null;
+    }
+    default:
+      return false;
+  }
+}
+
+function pickUsageFromNodeOutput(nodeOutput) {
+  const o = nodeOutput?.output;
+  if (!o || typeof o !== 'object') return { tin: 0, tout: 0, cost: 0 };
+  const u = o.usage && typeof o.usage === 'object' ? o.usage : o;
+  const tin = Number(u.input_tokens ?? u.prompt_tokens ?? o.tokens_in ?? 0) || 0;
+  const tout = Number(u.output_tokens ?? u.completion_tokens ?? o.tokens_out ?? 0) || 0;
+  const cost = Number(o.cost_usd ?? u.cost_usd ?? 0) || 0;
+  return { tin, tout, cost };
+}
+
+function pickModelFromNodeOutput(nodeOutput) {
+  const o = nodeOutput?.output;
+  if (!o || typeof o !== 'object') return null;
+  const u = o.usage && typeof o.usage === 'object' ? o.usage : o;
+  const m = o.model_key ?? o.model ?? u.model_key ?? u.model ?? null;
+  if (m == null || String(m).trim() === '') return null;
+  return String(m).slice(0, 500);
+}
+
+const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\])}]+/i;
+
+function firstUrlFromWorkflowNodeInput(nodeInput) {
+  if (!nodeInput || typeof nodeInput !== 'object') return undefined;
+  const bc = nodeInput.browser_context ?? nodeInput.browserContext;
+  if (bc && typeof bc === 'object') {
+    const top = bc.url;
+    if (typeof top === 'string' && /^https?:\/\//i.test(top.trim())) return top.trim().slice(0, 2000);
+    const sel = bc.selected_element;
+    if (sel && typeof sel === 'object') {
+      const su = sel.url;
+      if (typeof su === 'string' && /^https?:\/\//i.test(su.trim())) return su.trim().slice(0, 2000);
+    }
+  }
+  for (const k of ['url', 'target_url', 'href', 'page_url', 'navigate_url']) {
+    const u = nodeInput[k];
+    if (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) return u.trim().slice(0, 2000);
+  }
+  for (const k of ['message', 'prompt', 'instruction', 'result']) {
+    const msg = nodeInput[k];
+    if (typeof msg !== 'string') continue;
+    const m = msg.match(URL_IN_TEXT_RE);
+    if (m) return m[0].replace(/[.,;)\]]+$/, '').slice(0, 2000);
+  }
+  return undefined;
+}
+
+/** Map graph node → dashboard surface (SSE surface_open / App.tsx iam:agent-open-surface). */
+function classifyWorkflowSurface(node) {
+  if (!node || typeof node !== 'object') return null;
+  const nk = String(node.node_key || '').toLowerCase();
+  const hk = String(node.handler_key || '').toLowerCase();
+  const nt = String(node.node_type || '').toLowerCase();
+
+  if (hk.includes('monaco.') || hk.includes('.monaco.') || (hk.includes('monaco') && hk.includes('edit'))) {
+    return { surface: 'code', reason: 'workflow_graph_monaco' };
+  }
+  if (nk.includes('monaco') || nk.includes('code_editor') || nk === 'editor' || nk.includes('app_builder')) {
+    return { surface: 'code', reason: 'workflow_graph_code_surface' };
+  }
+  if (nk.includes('excalidraw') || hk.includes('excalidraw') || (nk.includes('diagram') && nk.includes('canvas'))) {
+    return { surface: 'excalidraw', reason: 'workflow_graph_excalidraw' };
+  }
+  if (
+    nk.includes('browser') ||
+    nk.includes('playwright') ||
+    nk.includes('screenshot') ||
+    hk.includes('browser.') ||
+    hk.includes('playwright') ||
+    (nk.includes('navigate') && (nk.includes('url') || nk.includes('page')))
+  ) {
+    return { surface: 'browser', reason: 'workflow_graph_browser' };
+  }
+  if (nt === 'mcp_tool' && hk.startsWith('agentsam.code.') && (nk.includes('write') || nk.includes('apply') || nk.includes('patch'))) {
+    return { surface: 'code', reason: 'workflow_graph_code_tool' };
+  }
+  return null;
+}
+
+/** Emit surface_open + agent_surface_open; returns proof for D1 output_json / workflow_step. */
+function emitWorkflowGraphSurfaceEvents(onStream, { node, runId, workflowKey, nodeInput }) {
+  if (typeof onStream !== 'function') return null;
+  const spec = classifyWorkflowSurface(node);
+  if (!spec) return null;
+  const nodeKey = String(node?.node_key || '');
+  const payload = {
+    surface: spec.surface,
+    reason: spec.reason,
+    node_key: nodeKey,
+    run_id: runId,
+    workflow_key: workflowKey != null ? String(workflowKey) : undefined,
+  };
+  if (spec.surface === 'browser') {
+    const url = firstUrlFromWorkflowNodeInput(nodeInput);
+    if (url) payload.url = url;
+  }
+  try {
+    onStream({ type: 'surface_open', ...payload });
+    onStream({ type: 'agent_surface_open', ...payload });
+  } catch (_) {
+    /* stream closed */
+  }
+  return { ...payload, source: 'workflow_graph_node_start' };
+}
+
+function attachSurfaceProofToNodeOutput(nodeOutput, proof) {
+  if (!proof) return nodeOutput;
+  const base = nodeOutput && typeof nodeOutput === 'object' ? { ...nodeOutput } : { ok: !!nodeOutput?.ok };
+  let out = base.output;
+  if (out != null && typeof out === 'object' && !Array.isArray(out)) {
+    out = { ...out, surface_open_proof: proof };
+  } else if (out == null) {
+    out = { surface_open_proof: proof };
+  } else {
+    out = { result: out, surface_open_proof: proof };
+  }
+  return { ...base, output: out };
+}
+
+/**
+ * Canonical execution ledger row — agentsam_execution_steps.execution_id FK targets this id (not wrun_*).
+ * Mirrors src/core/workflows.js flat runner.
+ */
+async function insertAgentsamExecutionForGraph(env, execCols, { tenantId, workspaceId, userId, runId, workflowKey }) {
+  if (!env?.DB || !execCols?.size || !execCols.has('task_id')) return null;
+  const workflowExecId = `exec_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const wfKey = workflowKey != null ? String(workflowKey).slice(0, 500) : '';
+  const uid =
+    userId != null && String(userId).trim() !== ''
+      ? await resolveCanonicalUserId(String(userId).trim(), env)
+      : null;
+  try {
+    if (execCols.has('model_key')) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO agentsam_executions
+         (id, tenant_id, workspace_id, user_id, command_run_id, task_id, execution_type, command,
+          status, duration_ms, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+      )
+        .bind(
+          workflowExecId,
+          tenantId ?? null,
+          workspaceId,
+          uid,
+          null,
+          runId,
+          'workflow',
+          wfKey || null,
+          'running',
+          0,
+        )
+        .run();
+    } else {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO agentsam_executions
+         (id, tenant_id, workspace_id, user_id, task_id, execution_type, command, duration_ms, created_at)
+         VALUES (?,?,?,?,?,?,?,?,unixepoch())`,
+      )
+        .bind(workflowExecId, tenantId ?? null, workspaceId, uid, runId, 'workflow', wfKey || null, 0)
+        .run();
+    }
+    return workflowExecId;
+  } catch (e) {
+    console.warn('[workflow-graph] agentsam_executions insert failed', e?.message ?? e);
+    return null;
+  }
+}
+
+/** Pending step row — execution_id references agentsam_workflow_runs.id (runId). */
+function ffPendingExecutionStep(db, cols, stepId, executionParentId, workflowRunId, node, inputPayload) {
+  if (!db || !cols?.size) return;
+  const hasExecCol = cols.has('execution_id');
+  const hasWrunCol = cols.has('workflow_run_id');
+  if (!hasExecCol && !hasWrunCol) return;
+  if (hasExecCol && !executionParentId) return;
+
+  const nk = String(node?.node_key ?? '').slice(0, 500);
+  const nt = String(node?.node_type ?? '').slice(0, 120);
+  const ij = JSON.stringify(inputPayload ?? {}).slice(0, 8000);
+
+  const colNames = [];
+  const placeholders = [];
+  const binds = [];
+
+  colNames.push('id');
+  placeholders.push('?');
+  binds.push(stepId);
+  if (hasExecCol) {
+    colNames.push('execution_id');
+    placeholders.push('?');
+    binds.push(executionParentId);
+  }
+  if (hasWrunCol) {
+    colNames.push('workflow_run_id');
+    placeholders.push('?');
+    binds.push(workflowRunId);
+  }
+  colNames.push('node_key', 'node_type', 'status', 'input_json');
+  placeholders.push('?', '?', '?', '?');
+  binds.push(nk, nt, 'running', ij);
+  if (cols.has('attempt')) {
+    colNames.push('attempt');
+    placeholders.push('?');
+    binds.push(1);
+  }
+  if (cols.has('started_at')) {
+    colNames.push('started_at');
+    placeholders.push('?');
+    binds.push(Math.floor(Date.now() / 1000));
+  }
+  colNames.push('created_at');
+  placeholders.push(`datetime('now')`);
+
+  const sql = `INSERT INTO agentsam_execution_steps (${colNames.join(', ')}) VALUES (${placeholders.join(', ')})`;
+  void db
+    .prepare(sql)
+    .bind(...binds)
+    .run()
+    .catch((e) => console.warn('[workflow-graph] execution_steps insert', e?.message ?? e));
+}
+
+/** Fire-and-forget completion update — keyed by step id. */
+function ffCompleteExecutionStep(db, cols, stepId, nodeStartMs, nodeOutput) {
+  if (!db || !cols?.size || !stepId) return;
+  const ok = !!nodeOutput?.ok;
+  const latency = Math.max(0, Date.now() - nodeStartMs);
+  const outJson = JSON.stringify(nodeOutput ?? {}).slice(0, 16000);
+  const errObj = ok ? '{}' : JSON.stringify({ message: String(nodeOutput?.error ?? 'failed') }).slice(0, 8000);
+  const { tin, tout, cost } = pickUsageFromNodeOutput(nodeOutput);
+  const sets = [];
+  const binds = [];
+  sets.push('status = ?');
+  binds.push(ok ? 'success' : 'failed');
+  if (cols.has('output_json')) {
+    sets.push('output_json = ?');
+    binds.push(outJson);
+  }
+  if (cols.has('error_json')) {
+    sets.push('error_json = ?');
+    binds.push(errObj);
+  }
+  if (cols.has('completed_at')) sets.push('completed_at = unixepoch()');
+  if (cols.has('latency_ms')) {
+    sets.push('latency_ms = ?');
+    binds.push(latency);
+  }
+  if (cols.has('tokens_in')) {
+    sets.push('tokens_in = ?');
+    binds.push(tin);
+  }
+  if (cols.has('tokens_out')) {
+    sets.push('tokens_out = ?');
+    binds.push(tout);
+  }
+  if (cols.has('cost_usd')) {
+    sets.push('cost_usd = ?');
+    binds.push(cost);
+  }
+  binds.push(stepId);
+  const sql = `UPDATE agentsam_execution_steps SET ${sets.join(', ')} WHERE id = ?`;
+  void db
+    .prepare(sql)
+    .bind(...binds)
+    .run()
+    .catch((e) => console.warn('[workflow-graph] execution_steps complete', e?.message ?? e));
+}
+
+function ffPatchExecutionStepEdge(db, cols, stepId, edge) {
+  if (!db || !cols?.has?.('edge_taken') || !stepId || !edge) return;
+  const label = String(edge.edge_key ?? edge.id ?? `${edge.from_node_key}->${edge.to_node_key}`).slice(0, 500);
+  void db
+    .prepare(`UPDATE agentsam_execution_steps SET edge_taken = ? WHERE id = ?`)
+    .bind(label, stepId)
+    .run()
+    .catch((e) => console.warn('[workflow-graph] execution_steps edge_taken', e?.message ?? e));
+}
+
+// ── Main executor ────────────────────────────────────────────────────
+
+export async function executeWorkflowGraph(env, opts) {
+  const {
+    workflowKey,
+    input,
+    tenantId,
+    workspaceId,
+    userId,
+    userEmail,
+    triggerType: triggerTypeRaw,
+    toolBridge = null,
+    onStep = null,
+    onStream = null,
+    onRunCreated = null,
+    run_group_id: optsRunGroupId,
+  } = opts;
+
+  const runGroupId =
+    optsRunGroupId ??
+    opts?.run_group_id ??
+    ('rg_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16));
+
+  if (!env.DB) return { ok: false, error: 'DB not available' };
+
+  const triggerType = normalizeTriggerType(triggerTypeRaw);
+
+  const workflow = await env.DB.prepare(
+    `SELECT * FROM agentsam_workflows WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
+  )
+    .bind(workflowKey)
+    .first();
+  if (!workflow) return { ok: false, error: `workflow not found: ${workflowKey}` };
+
+  const mcpRow = await resolveMcpWorkflowRow(env.DB, workflowKey, tenantId, workspaceId);
+  const dagIds = [mcpRow?.id, workflow.id].filter(Boolean);
+  const seen = new Set();
+  const orderedDagIds = dagIds.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  let nodes = [];
+  let edges = [];
+  let dagWorkflowId = null;
+  for (const wid of orderedDagIds) {
+    const nRes = await env.DB.prepare(
+      `SELECT * FROM agentsam_workflow_nodes
+       WHERE workflow_id = ? AND COALESCE(is_active, 1) = 1 ORDER BY sort_order ASC`,
+    )
+      .bind(wid)
+      .all();
+    const eRes = await env.DB.prepare(
+      `SELECT * FROM agentsam_workflow_edges WHERE workflow_id = ? ORDER BY priority ASC`,
+    )
+      .bind(wid)
+      .all();
+    const nl = nRes?.results || [];
+    if (nl.length) {
+      nodes = nl;
+      edges = eRes?.results || [];
+      dagWorkflowId = wid;
+      break;
+    }
+  }
+
+  if (!nodes?.length) return { ok: false, error: 'no nodes found for workflow' };
+
+  const runWorkflowId = mcpRow?.id ?? dagWorkflowId ?? workflow.id;
+
+  const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const firstKey = nodes[0]?.node_key || '';
+  await env.DB.prepare(
+    `INSERT INTO agentsam_workflow_runs (
+      id, workflow_id, workflow_key, tenant_id, workspace_id,
+      run_group_id,
+      user_id, user_email, trigger_type, status,
+      input_json, output_json, step_results_json, metadata_json,
+      steps_total, steps_completed, environment,
+      graph_mode, current_node_key,
+      started_at, created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?,
+      ?,
+      ?, ?, ?, 'running',
+      ?, '{}', '[]', '{}',
+      ?, 0, 'production',
+      1, ?,
+      unixepoch(), datetime('now'), datetime('now')
+    )`,
+  )
+    .bind(
+      runId,
+      runWorkflowId,
+      workflowKey,
+      tenantId,
+      workspaceId,
+      runGroupId,
+      userId ?? null,
+      userEmail ?? null,
+      triggerType,
+      JSON.stringify(input ?? {}),
+      nodes.length,
+      firstKey,
+    )
+    .run();
+
+  const runStartedAt = Date.now();
+  try {
+    onRunCreated?.(runId, { steps_total: nodes.length });
+  } catch (_) {
+    /* non-fatal */
+  }
+
+  const canonicalUserId = await resolveCanonicalUserId(userId, env);
+  const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
+  const execCols = await pragmaTableInfo(env.DB, 'agentsam_executions');
+  const workflowExecId = await insertAgentsamExecutionForGraph(env, execCols, {
+    tenantId,
+    workspaceId,
+    userId,
+    runId,
+    workflowKey,
+  });
+
+  const nodeMap = Object.fromEntries(nodes.map((n) => [n.node_key, n]));
+  const edgeMap = {};
+  for (const e of edges || []) {
+    if (!edgeMap[e.from_node_key]) edgeMap[e.from_node_key] = [];
+    edgeMap[e.from_node_key].push(e);
+  }
+
+  const runMeta = { tenantId, workspaceId, userId: canonicalUserId };
+
+  // Fetch workflow row once so every dispatchNode call can read default_task_type / default_mode
+  // This is what makes agentsam_workflows drive TIER_ORDER model selection correctly
+  const workflowMeta = env.DB
+    ? await env.DB
+        .prepare(
+          `SELECT default_task_type, default_mode, workflow_type, risk_level, requires_approval
+           FROM agentsam_workflows
+           WHERE (id = ? OR workflow_key = ?) AND COALESCE(is_active, 1) = 1
+           LIMIT 1`
+        )
+        .bind(workflowKey, workflowKey)
+        .first()
+        .catch(() => null)
+    : null;
+
+  const runContext = {
+    runId,
+    runMeta,
+    workflowRunId: runId,
+    canonicalUserId,
+    workflowExecId,
+    toolBridge,
+    workflowKey,
+    workflowMeta: workflowMeta ?? null,
+  };
+  const streamSse =
+    typeof onStream === 'function'
+      ? onStream
+      : toolBridge && typeof toolBridge.emitSse === 'function'
+        ? toolBridge.emitSse
+        : null;
+  const stepResults = [];
+  let currentNodeKey = firstKey;
+  let stepsCompleted = 0;
+  let totalCostUsd = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let lastModelUsed = null;
+  let runOk = true;
+  let killReason = null;
+  let previousStepId = null;
+
+  // 5. Walk the graph
+  const visited = new Set();
+  while (currentNodeKey) {
+    if (visited.has(currentNodeKey)) {
+      killReason = 'cycle_detected';
+      runOk = false;
+      break;
+    }
+    if (stepsCompleted > nodes.length + 5) {
+      killReason = 'max_steps_exceeded';
+      runOk = false;
+      break;
+    }
+    visited.add(currentNodeKey);
+
+    const node = nodeMap[currentNodeKey];
+    if (!node) {
+      killReason = `node_not_found:${currentNodeKey}`;
+      runOk = false;
+      break;
+    }
+
+    await env.DB
+      .prepare(
+        `UPDATE agentsam_workflow_runs SET
+        current_node_key = ?,
+        heartbeat_at     = unixepoch(),
+        updated_at       = datetime('now')
+      WHERE id = ?`,
+      )
+      .bind(currentNodeKey, runId)
+      .run()
+      .catch(() => null);
+
+    const nodeInput =
+      stepResults.length > 0 ? stepResults[stepResults.length - 1].output ?? input : input;
+
+    const stepId = `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const nodeStartTime = Date.now();
+    ffPendingExecutionStep(env.DB, stepCols, stepId, runId, runId, node, nodeInput);
+
+    if (false && tenantId && previousStepId && workspaceId) {
+      // dep_graph FKs to agentsam_tool_chain — not estep IDs. Disabled.
+      void insertExecutionDependencyGraphEdge(env, tenantId, stepId, previousStepId, workspaceId).catch(
+        () => {},
+      );
+    }
+
+    const surfaceProof = emitWorkflowGraphSurfaceEvents(streamSse, {
+      node,
+      runId,
+      workflowKey,
+      nodeInput,
+    });
+
+    let nodeOutput = await dispatchNode(env, node, nodeInput, {
+      ...runContext,
+      node,
+      executionStepId: stepId,
+    }).catch((e) => ({
+      ok: false,
+      error: e?.message || String(e),
+    }));
+
+    nodeOutput = attachSurfaceProofToNodeOutput(nodeOutput, surfaceProof);
+
+    ffCompleteExecutionStep(env.DB, stepCols, stepId, nodeStartTime, nodeOutput);
+
+    const usage = pickUsageFromNodeOutput(nodeOutput);
+    totalInputTokens += usage.tin;
+    totalOutputTokens += usage.tout;
+    totalCostUsd += usage.cost;
+    const stepModel = pickModelFromNodeOutput(nodeOutput);
+    if (stepModel) lastModelUsed = stepModel;
+
+    previousStepId = stepId;
+
+    stepResults.push({
+      node_key: currentNodeKey,
+      node_type: node.node_type,
+      handler_key: node.handler_key,
+      ok: nodeOutput.ok,
+      output: nodeOutput.output ?? null,
+      error: nodeOutput.error ?? null,
+    });
+    stepsCompleted += 1;
+
+    await env.DB
+      .prepare(
+        `UPDATE agentsam_workflow_runs SET
+        steps_completed   = ?,
+        step_results_json = ?,
+        updated_at        = datetime('now')
+      WHERE id = ?`,
+      )
+      .bind(stepsCompleted, JSON.stringify(stepResults), runId)
+      .run()
+      .catch(() => null);
+
+    try {
+      onStep?.({
+        run_id: runId,
+        workflow_key: workflowKey,
+        node_key: currentNodeKey,
+        current_node_key: currentNodeKey,
+        steps_completed: stepsCompleted,
+        steps_total: nodes.length,
+        input_tokens: totalInputTokens,
+        output_tokens: totalOutputTokens,
+        cost_usd: totalCostUsd,
+        ok: nodeOutput.ok,
+        surface_open_proof: surfaceProof || undefined,
+      });
+    } catch (_) {
+      /* ignore stream errors */
+    }
+
+    if (!nodeOutput.ok) {
+      runOk = false;
+      killReason = nodeOutput.error || 'node_failed';
+      break;
+    }
+
+    if (node.node_type === 'approval_gate' && nodeOutput.output?.status === 'pending') {
+      await env.DB
+        .prepare(
+          `UPDATE agentsam_workflow_runs SET
+          status         = 'awaiting_approval',
+          input_tokens   = ?,
+          output_tokens  = ?,
+          cost_usd       = ?,
+          model_used     = ?,
+          updated_at     = datetime('now')
+        WHERE id = ?`,
+        )
+        .bind(totalInputTokens, totalOutputTokens, totalCostUsd, lastModelUsed, runId)
+        .run()
+        .catch(() => null);
+      return {
+        ok: true,
+        status: 'awaiting_approval',
+        run_id: runId,
+        approval_id: nodeOutput.output.approval_id,
+        step_results: stepResults,
+      };
+    }
+
+    const outEdges = (edgeMap[currentNodeKey] || []).sort((a, b) => {
+      if (a.is_fallback !== b.is_fallback) return a.is_fallback ? 1 : -1;
+      return (a.priority || 0) - (b.priority || 0);
+    });
+
+    let nextNodeKey = null;
+    let chosenEdge = null;
+    for (const edge of outEdges) {
+      if (evaluateEdge(edge, nodeOutput)) {
+        nextNodeKey = edge.to_node_key;
+        chosenEdge = edge;
+        break;
+      }
+    }
+
+    ffPatchExecutionStepEdge(env.DB, stepCols, stepId, chosenEdge);
+
+    currentNodeKey = nextNodeKey;
+  }
+
+  // 6. Finalize run row
+  const finalStatus = runOk ? 'completed' : 'failed';
+  const lastOutput = stepResults[stepResults.length - 1]?.output ?? {};
+  const runDurationMs = Math.max(0, Date.now() - runStartedAt);
+
+  const killClause = killReason ? 'kill_reason = ?,' : '';
+  const killBinds = killReason ? [killReason] : [];
+  const errClause = !runOk && killReason ? 'error_message = ?,' : '';
+  const errBinds = !runOk && killReason ? [String(killReason).slice(0, 4000)] : [];
+
+  await env.DB
+    .prepare(
+      `UPDATE agentsam_workflow_runs SET
+      status            = ?,
+      output_json       = ?,
+      step_results_json = ?,
+      steps_completed   = ?,
+      input_tokens      = ?,
+      output_tokens     = ?,
+      cost_usd          = ?,
+      model_used        = ?,
+      duration_ms       = ?,
+      completed_at      = unixepoch(),
+      ${killClause}
+      ${errClause}
+      updated_at        = datetime('now')
+    WHERE id = ?`,
+    )
+    .bind(
+      finalStatus,
+      JSON.stringify(lastOutput),
+      JSON.stringify(stepResults),
+      stepsCompleted,
+      totalInputTokens,
+      totalOutputTokens,
+      totalCostUsd,
+      lastModelUsed,
+      runDurationMs,
+      ...killBinds,
+      ...errBinds,
+      runId,
+    )
+    .run()
+    .catch(() => null);
+
+  return {
+    ok: runOk,
+    status: finalStatus,
+    run_id: runId,
+    steps_completed: stepsCompleted,
+    step_results: stepResults,
+    kill_reason: killReason ?? null,
+  };
+}
+
+// ── SSE streaming wrapper ────────────────────────────────────────────
+
+export async function executeWorkflowAndStream(
+  env,
+  workflowKey,
+  inputOrMessage,
+  authUser,
+  workspaceId,
+  controller,
+  streamOpts = {},
+) {
+  const encoder = new TextEncoder();
+  const send = (data) => {
+    try {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    } catch {
+      /* stream already closed */
+    }
+  };
+
+  const input =
+    typeof inputOrMessage === 'string'
+      ? { message: inputOrMessage }
+      : inputOrMessage && typeof inputOrMessage === 'object'
+        ? inputOrMessage
+        : { message: String(inputOrMessage || '') };
+
+  const { toolBridge: streamToolBridge } = streamOpts;
+  const mergedBridge =
+    streamToolBridge && typeof streamToolBridge === 'object'
+      ? { ...streamToolBridge, emitSse: send }
+      : { emitSse: send };
+
+  const result = await executeWorkflowGraph(env, {
+    workflowKey,
+    input,
+    tenantId: authUser?.tenant_id ?? null,
+    workspaceId,
+    userId: authUser?.id ?? null,
+    userEmail: authUser?.email ?? null,
+    toolBridge: mergedBridge,
+    onRunCreated: (runId, meta) =>
+      send({
+        type: 'workflow_start',
+        workflow_key: workflowKey,
+        run_id: runId,
+        steps_total: meta?.steps_total ?? null,
+      }),
+    onStep: (evt) => send({ type: 'workflow_step', ...evt }),
+  }).catch((e) => ({
+    ok: false,
+    status: 'error',
+    run_id: null,
+    step_results: [],
+    kill_reason: e?.message || String(e),
+  }));
+
+  if (result.status === 'awaiting_approval') {
+    send({
+      type: 'workflow_approval_required',
+      run_id: result.run_id,
+      approval_id: result.approval_id,
+      message:
+        'This workflow requires approval before continuing. Use /api/agent/workflow/approve to proceed.',
+    });
+  } else {
+    send({
+      type: result.ok ? 'workflow_complete' : 'workflow_error',
+      status: result.status,
+      run_id: result.run_id,
+      message: result.ok
+        ? `Workflow ${workflowKey} completed (${result.steps_completed} steps).`
+        : `Workflow failed: ${result.kill_reason || 'unknown error'}`,
+    });
+  }
+
+  send({ type: 'done' });
+  try {
+    controller.close();
+  } catch {
+    /* noop */
+  }
+}
+
+
+──────────────────────────────────────────────────────────────────────
+// FILE: src/core/agentsam-workflow-graph.js  (494 lines, 16,632 bytes)
+──────────────────────────────────────────────────────────────────────
+/**
+ * Workflow graph load + CRUD helpers (agentsam_workflows registry + DAG on workflow_id).
+ */
+
+export async function resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId) {
+  if (!db) return null;
+  const key = String(workflowKey || '').trim();
+  if (!key) return null;
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  const wid = workspaceId != null ? String(workspaceId).trim() : '';
+  const first = async (sql, binds) =>
+    db
+      .prepare(sql)
+      .bind(...binds)
+      .first()
+      .catch(() => null);
+  if (tid && wid) {
+    const exact = await first(
+      `SELECT id FROM agentsam_mcp_workflows
+       WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1
+         AND tenant_id = ? AND (workspace_id = ? OR workspace_id IS NULL)
+       ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END, updated_at DESC
+       LIMIT 1`,
+      [key, tid, wid, wid],
+    );
+    if (exact) return exact;
+  }
+  if (tid) {
+    const tenantRow = await first(
+      `SELECT id FROM agentsam_mcp_workflows
+       WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 AND tenant_id = ?
+       ORDER BY (workspace_id IS NOT NULL) DESC, updated_at DESC
+       LIMIT 1`,
+      [key, tid],
+    );
+    if (tenantRow) return tenantRow;
+  }
+  return first(
+    `SELECT id FROM agentsam_mcp_workflows
+     WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1
+       AND tenant_id IS NULL AND workspace_id IS NULL
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [key],
+  );
+}
+
+function parseJsonObject(raw, fallback = {}) {
+  if (raw == null) return { ...fallback };
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...fallback, ...raw };
+  try {
+    const o = JSON.parse(String(raw || '{}'));
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : { ...fallback };
+  } catch {
+    return { ...fallback };
+  }
+}
+
+/**
+ * Resolve DAG owner id (MCP catalog id preferred when nodes exist).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {Record<string, unknown>} workflow
+ * @param {string|null} tenantId
+ * @param {string|null} workspaceId
+ */
+export async function resolveDagWorkflowId(db, workflow, tenantId, workspaceId) {
+  if (!db || !workflow) return null;
+  const mcpRow = await resolveMcpWorkflowRow(
+    db,
+    String(workflow.workflow_key || ''),
+    tenantId,
+    workspaceId,
+  );
+  const candidates = [mcpRow?.id, workflow.id].filter(Boolean);
+  const seen = new Set();
+  for (const wid of candidates) {
+    if (seen.has(wid)) continue;
+    seen.add(wid);
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM agentsam_workflow_nodes
+         WHERE workflow_id = ? AND COALESCE(is_active, 1) = 1`,
+      )
+      .bind(wid)
+      .first()
+      .catch(() => null);
+    if (Number(row?.c) > 0) return String(wid);
+  }
+  return String(mcpRow?.id ?? workflow.id ?? '');
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} registryId agentsam_workflows.id
+ * @param {string|null} tenantId
+ * @param {string|null} workspaceId
+ */
+export async function loadWorkflowGraphBundle(db, registryId, tenantId, workspaceId) {
+  const workflow = await db
+    .prepare(`SELECT * FROM agentsam_workflows WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`)
+    .bind(registryId)
+    .first();
+  if (!workflow) return null;
+
+  const mcpWorkflow = await loadMcpWorkflowFull(
+    db,
+    String(workflow.workflow_key || ''),
+    tenantId,
+    workspaceId,
+  );
+  const dagWorkflowId = await resolveDagWorkflowId(db, workflow, tenantId, workspaceId);
+  const nodes =
+    (
+      await db
+        .prepare(
+          `SELECT * FROM agentsam_workflow_nodes
+           WHERE workflow_id = ? AND COALESCE(is_active, 1) = 1
+           ORDER BY sort_order ASC, node_key ASC`,
+        )
+        .bind(dagWorkflowId)
+        .all()
+    ).results || [];
+  const edges =
+    (
+      await db
+        .prepare(
+          `SELECT * FROM agentsam_workflow_edges
+           WHERE workflow_id = ?
+           ORDER BY priority ASC, from_node_key ASC`,
+        )
+        .bind(dagWorkflowId)
+        .all()
+    ).results || [];
+
+  const meta = parseJsonObject(workflow.metadata_json);
+  const runsSummary = await loadWorkflowRunsSummary(db, String(workflow.workflow_key || ''));
+  return {
+    workflow,
+    mcp_workflow: mcpWorkflow,
+    registry_workflow_id: String(workflow.id ?? ''),
+    dag_workflow_id: dagWorkflowId,
+    nodes,
+    edges,
+    canvas_layout: meta.canvas_layout && typeof meta.canvas_layout === 'object' ? meta.canvas_layout : {},
+    runs_summary: runsSummary,
+  };
+}
+
+async function loadMcpWorkflowFull(db, workflowKey, tenantId, workspaceId) {
+  const row = await resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId);
+  if (!row?.id) return null;
+  return db
+    .prepare(`SELECT * FROM agentsam_mcp_workflows WHERE id = ? LIMIT 1`)
+    .bind(row.id)
+    .first()
+    .catch(() => null);
+}
+
+async function loadWorkflowRunsSummary(db, workflowKey) {
+  const key = String(workflowKey || '').trim();
+  if (!key) return null;
+  const row = await db
+    .prepare(
+      `SELECT
+         COUNT(*) AS run_count,
+         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS fail_count,
+         AVG(COALESCE(cost_usd, 0)) AS avg_cost_usd,
+         SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) AS total_tokens
+       FROM agentsam_workflow_runs
+       WHERE workflow_key = ?`,
+    )
+    .bind(key)
+    .first()
+    .catch(() => null);
+  if (!row) return null;
+  const runCount = Number(row.run_count ?? 0);
+  const successCount = Number(row.success_count ?? 0);
+  const failCount = Number(row.fail_count ?? 0);
+  return {
+    run_count: runCount,
+    success_count: successCount,
+    fail_count: failCount,
+    success_rate: runCount > 0 ? successCount / runCount : null,
+    fail_rate: runCount > 0 ? failCount / runCount : null,
+    avg_cost_usd: row.avg_cost_usd != null ? Number(row.avg_cost_usd) : null,
+    total_tokens: Number(row.total_tokens ?? 0),
+  };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} registryId
+ * @param {string|null} tenantId
+ * @param {string|null} workspaceId
+ */
+export async function requireWorkflowGraphContext(db, registryId, tenantId, workspaceId) {
+  const bundle = await loadWorkflowGraphBundle(db, registryId, tenantId, workspaceId);
+  if (!bundle) return { error: 'workflow not found', status: 404 };
+  return { bundle };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} registryId
+ * @param {Record<string, {x?: number, y?: number}>} positions
+ */
+export async function saveWorkflowCanvasLayout(
+  db,
+  registryId,
+  positions,
+  tenantId = null,
+  workspaceId = null,
+) {
+  const ctx = await requireWorkflowGraphContext(db, registryId, tenantId, workspaceId);
+  if (ctx.error) return { error: ctx.error, status: ctx.status };
+  const dagId = ctx.bundle.dag_workflow_id;
+  const entries = Object.entries(positions && typeof positions === 'object' ? positions : {});
+  if (!entries.length) return { ok: true, dag_workflow_id: dagId, updated: 0 };
+
+  let updated = 0;
+  let usedNodeColumns = true;
+  for (const [nodeKey, pos] of entries) {
+    const x = Math.round(Number(pos?.x ?? 0));
+    const y = Math.round(Number(pos?.y ?? 0));
+    try {
+      const res = await db
+        .prepare(
+          `UPDATE agentsam_workflow_nodes
+           SET pos_x = ?, pos_y = ?, updated_at = datetime('now')
+           WHERE workflow_id = ? AND node_key = ? AND COALESCE(is_active, 1) = 1`,
+        )
+        .bind(x, y, dagId, String(nodeKey))
+        .run();
+      updated += Number(res?.meta?.changes ?? res?.changes ?? 0);
+    } catch {
+      usedNodeColumns = false;
+      break;
+    }
+  }
+
+  if (!usedNodeColumns) {
+    const workflow = await db
+      .prepare(`SELECT id, metadata_json FROM agentsam_workflows WHERE id = ? LIMIT 1`)
+      .bind(registryId)
+      .first();
+    if (!workflow) return { error: 'workflow not found', status: 404 };
+    const meta = parseJsonObject(workflow.metadata_json);
+    meta.canvas_layout = { ...(meta.canvas_layout || {}), ...positions };
+    await db
+      .prepare(
+        `UPDATE agentsam_workflows SET metadata_json = ?, updated_at = datetime('now') WHERE id = ?`,
+      )
+      .bind(JSON.stringify(meta), registryId)
+      .run();
+    return { ok: true, dag_workflow_id: dagId, canvas_layout: meta.canvas_layout, fallback: 'metadata_json' };
+  }
+
+  return { ok: true, dag_workflow_id: dagId, updated };
+}
+
+const ALLOWED_NODE_TYPES = new Set([
+  'agent',
+  'mcp_tool',
+  'terminal',
+  'db_query',
+  'script',
+  'eval',
+  'branch',
+  'approval_gate',
+  'webhook',
+  'trigger',
+  'process',
+  'output',
+  'join',
+  'retry',
+  'parallel',
+]);
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ registryId: string, dagWorkflowId: string, body: Record<string, unknown> }} opts
+ */
+export async function createWorkflowNode(db, opts) {
+  const { registryId, dagWorkflowId, body } = opts;
+  const nodeKey = String(body.node_key || '').trim();
+  const title = String(body.title || body.display_name || nodeKey).trim();
+  const nodeType = String(body.node_type || 'agent').trim();
+  if (!nodeKey) return { error: 'node_key required', status: 400 };
+  if (!ALLOWED_NODE_TYPES.has(nodeType)) {
+    return { error: `invalid node_type: ${nodeType}`, status: 400 };
+  }
+
+  const existing = await db
+    .prepare(
+      `SELECT id FROM agentsam_workflow_nodes WHERE workflow_id = ? AND node_key = ? LIMIT 1`,
+    )
+    .bind(dagWorkflowId, nodeKey)
+    .first();
+  if (existing) return { error: 'node_key already exists', status: 409 };
+
+  const sortRow = await db
+    .prepare(
+      `SELECT COALESCE(MAX(sort_order), 0) + 10 AS next_order
+       FROM agentsam_workflow_nodes WHERE workflow_id = ?`,
+    )
+    .bind(dagWorkflowId)
+    .first();
+  const sortOrder = body.sort_order != null ? Number(body.sort_order) : Number(sortRow?.next_order ?? 10);
+
+  await db
+    .prepare(
+      `INSERT INTO agentsam_workflow_nodes (
+        workflow_id, node_key, node_type, title, description, handler_key,
+        input_schema_json, output_schema_json, timeout_ms, risk_level,
+        requires_approval, is_active, sort_order, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, '{}', '{}', ?, ?, ?, 1, ?, datetime('now'))`,
+    )
+    .bind(
+      dagWorkflowId,
+      nodeKey,
+      nodeType,
+      title || nodeKey,
+      body.description != null ? String(body.description) : null,
+      body.handler_key != null ? String(body.handler_key) : null,
+      body.timeout_ms != null ? Number(body.timeout_ms) : 30000,
+      body.risk_level != null ? String(body.risk_level) : 'low',
+      body.requires_approval ? 1 : 0,
+      sortOrder,
+    )
+    .run();
+
+  return { ok: true, registry_id: registryId, dag_workflow_id: dagWorkflowId, node_key: nodeKey };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ dagWorkflowId: string, nodeKey: string, body: Record<string, unknown> }} opts
+ */
+export async function updateWorkflowNode(db, opts) {
+  const { dagWorkflowId, nodeKey, body } = opts;
+  const row = await db
+    .prepare(
+      `SELECT id FROM agentsam_workflow_nodes
+       WHERE workflow_id = ? AND node_key = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+    )
+    .bind(dagWorkflowId, nodeKey)
+    .first();
+  if (!row) return { error: 'node not found', status: 404 };
+
+  const fields = [];
+  const vals = [];
+  const set = (col, val) => {
+    fields.push(`${col} = ?`);
+    vals.push(val);
+  };
+  if (body.title != null) set('title', String(body.title));
+  if (body.description != null) set('description', String(body.description));
+  if (body.node_type != null) {
+    const nt = String(body.node_type);
+    if (!ALLOWED_NODE_TYPES.has(nt)) return { error: `invalid node_type: ${nt}`, status: 400 };
+    set('node_type', nt);
+  }
+  if (body.handler_key !== undefined) set('handler_key', body.handler_key ? String(body.handler_key) : null);
+  if (body.sort_order != null) set('sort_order', Number(body.sort_order));
+  if (body.risk_level != null) set('risk_level', String(body.risk_level));
+  if (body.requires_approval != null) set('requires_approval', body.requires_approval ? 1 : 0);
+  if (body.timeout_ms != null) set('timeout_ms', Number(body.timeout_ms));
+  if (!fields.length) return { ok: true, node_key: nodeKey, unchanged: true };
+
+  fields.push(`updated_at = datetime('now')`);
+  vals.push(dagWorkflowId, nodeKey);
+  await db
+    .prepare(
+      `UPDATE agentsam_workflow_nodes SET ${fields.join(', ')}
+       WHERE workflow_id = ? AND node_key = ?`,
+    )
+    .bind(...vals)
+    .run();
+  return { ok: true, node_key: nodeKey };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ dagWorkflowId: string, nodeKey: string }} opts
+ */
+export async function deleteWorkflowNode(db, opts) {
+  const { dagWorkflowId, nodeKey } = opts;
+  const res = await db
+    .prepare(
+      `UPDATE agentsam_workflow_nodes SET is_active = 0, updated_at = datetime('now')
+       WHERE workflow_id = ? AND node_key = ?`,
+    )
+    .bind(dagWorkflowId, nodeKey)
+    .run();
+  const changes = res?.meta?.changes ?? res?.changes ?? 0;
+  if (!changes) return { error: 'node not found', status: 404 };
+  await db
+    .prepare(
+      `DELETE FROM agentsam_workflow_edges
+       WHERE workflow_id = ? AND (from_node_key = ? OR to_node_key = ?)`,
+    )
+    .bind(dagWorkflowId, nodeKey, nodeKey)
+    .run()
+    .catch(() => null);
+  return { ok: true, node_key: nodeKey };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ dagWorkflowId: string, body: Record<string, unknown> }} opts
+ */
+export async function createWorkflowEdge(db, opts) {
+  const { dagWorkflowId, body } = opts;
+  const from = String(body.from_node_key || body.from || '').trim();
+  const to = String(body.to_node_key || body.to || '').trim();
+  if (!from || !to) return { error: 'from_node_key and to_node_key required', status: 400 };
+  if (from === to) return { error: 'edge cannot loop to same node', status: 400 };
+
+  const edgeId = `wedge_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const priority = body.priority != null ? Number(body.priority) : 0;
+  await db
+    .prepare(
+      `INSERT INTO agentsam_workflow_edges (
+        id, workflow_id, from_node_key, to_node_key, condition_type, condition_json, priority, label
+      ) VALUES (?, ?, ?, ?, ?, '{}', ?, ?)`,
+    )
+    .bind(
+      edgeId,
+      dagWorkflowId,
+      from,
+      to,
+      body.condition_type != null ? String(body.condition_type) : 'always',
+      priority,
+      body.label != null ? String(body.label) : null,
+    )
+    .run();
+  return { ok: true, id: edgeId, from_node_key: from, to_node_key: to };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ dagWorkflowId: string, edgeId: string }} opts
+ */
+export async function deleteWorkflowEdge(db, opts) {
+  const { dagWorkflowId, edgeId } = opts;
+  const res = await db
+    .prepare(`DELETE FROM agentsam_workflow_edges WHERE id = ? AND workflow_id = ?`)
+    .bind(edgeId, dagWorkflowId)
+    .run();
+  const changes = res?.meta?.changes ?? res?.changes ?? 0;
+  if (!changes) return { error: 'edge not found', status: 404 };
+  return { ok: true, id: edgeId };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} registryId
+ * @param {Record<string, unknown>} body
+ */
+export async function patchWorkflowRegistry(db, registryId, body) {
+  const workflow = await db
+    .prepare(`SELECT id FROM agentsam_workflows WHERE id = ? LIMIT 1`)
+    .bind(registryId)
+    .first();
+  if (!workflow) return { error: 'workflow not found', status: 404 };
+
+  const fields = [];
+  const vals = [];
+  if (body.display_name != null) {
+    fields.push('display_name = ?');
+    vals.push(String(body.display_name));
+  }
+  if (body.description !== undefined) {
+    fields.push('description = ?');
+    vals.push(body.description != null ? String(body.description) : null);
+  }
+  if (body.risk_level != null) {
+    fields.push('risk_level = ?');
+    vals.push(String(body.risk_level));
+  }
+  if (body.requires_approval != null) {
+    fields.push('requires_approval = ?');
+    vals.push(body.requires_approval ? 1 : 0);
+  }
+  if (!fields.length) return { ok: true, unchanged: true };
+  fields.push(`updated_at = datetime('now')`);
+  vals.push(registryId);
+  await db
+    .prepare(`UPDATE agentsam_workflows SET ${fields.join(', ')} WHERE id = ?`)
+    .bind(...vals)
+    .run();
+  return { ok: true, id: registryId };
+}
+
+
+──────────────────────────────────────────────────────────────────────
+// FILE: src/api/agentsam.js  (910 lines, 36,448 bytes)
+──────────────────────────────────────────────────────────────────────
+/**
+ * API Service: Agent Sam Capability Layer
+ * Handles registry lookups for managed agents, skills, and invocation auditing.
+ * Interfaces with agentsam_ai, agentsam_skill, and agentsam_skill_invocation.
+ */
+import { handlers as db } from '../tools/db.js';
+import { getAuthUser, jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
+import { resolveIamActorContext } from '../core/identity.js';
+import {
+  resolveEffectiveWorkspaceId,
+  resolveActiveBootstrap,
+  WORKSPACE_CONTEXT_MISSING,
+} from '../core/bootstrap.js';
+import { executeWorkflowAndStream } from '../core/workflow-executor.js';
+import {
+  loadWorkflowGraphBundle,
+  requireWorkflowGraphContext,
+  saveWorkflowCanvasLayout,
+  createWorkflowNode,
+  updateWorkflowNode,
+  deleteWorkflowNode,
+  createWorkflowEdge,
+  deleteWorkflowEdge,
+  patchWorkflowRegistry,
+} from '../core/agentsam-workflow-graph.js';
+import { insertAgentsamPlanRow, insertAgentsamPlanTaskRows } from '../core/agentsam-plan-insert.js';
+import {
+  createPlanExcalidrawArtifact,
+  createPlanMarkdownArtifact,
+} from '../core/agentsam-plan-excalidraw-artifact.js';
+
+/**
+ * HTTP entry for /api/agentsam/* (registry, prompts, etc.).
+ */
+export async function handleAgentSamApi(request, url, env, ctx) {
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const out = await handleAgentSamRegistryRequest(request, env, ctx, authUser);
+  if (out) return out;
+  return jsonResponse({ error: 'API route not found' }, 404);
+}
+
+/**
+ * Main switch-board for Agent Sam Registry requests.
+ */
+export async function handleAgentSamRegistryRequest(request, env, ctx, authUser) {
+    const url = new URL(request.url);
+    const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
+    const method = request.method.toUpperCase();
+
+    const planTasksMatch = path.match(/^\/api\/agentsam\/plans\/([^/]+)\/tasks$/);
+    if (planTasksMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const planId = decodeURIComponent(planTasksMatch[1] || '').trim();
+      if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+
+      let tenantId =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const plan = await env.DB.prepare(
+        `SELECT id, tenant_id FROM agentsam_plans WHERE id = ? LIMIT 1`,
+      )
+        .bind(planId)
+        .first()
+        .catch(() => null);
+      if (!plan?.id) return jsonResponse({ error: 'plan not found' }, 404);
+      if (String(plan.tenant_id || '') !== tenantId) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+
+      const { results } = await env.DB.prepare(
+        `SELECT id, plan_id, order_index, title, description, priority, category, status,
+                blocked_reason, notes, estimated_minutes, actual_minutes, completed_at
+         FROM agentsam_plan_tasks
+         WHERE plan_id = ?
+         ORDER BY order_index ASC, id ASC`,
+      )
+        .bind(planId)
+        .all()
+        .catch(() => ({ results: [] }));
+
+      return jsonResponse({ ok: true, plan_id: planId, tasks: results || [] });
+    }
+
+    // POST /api/agentsam/plans — create plan + optional plan_tasks (D1; pragma-safe columns)
+    if (path === '/api/agentsam/plans' && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const body = await request.json().catch(() => ({}));
+      const title = String(body.title ?? '').trim();
+      if (!title) return jsonResponse({ error: 'title required' }, 400);
+
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      const workspaceId =
+        body.workspace_id != null && String(body.workspace_id).trim() !== ''
+          ? String(body.workspace_id).trim()
+          : wsRes?.workspaceId ?? null;
+      if (!workspaceId) {
+        return jsonResponse(
+          { error: wsRes?.error || 'workspace_id required', code: wsRes?.error || null },
+          400,
+        );
+      }
+
+      let tenantId =
+        body.tenant_id != null && String(body.tenant_id).trim() !== ''
+          ? String(body.tenant_id).trim()
+          : authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+            ? String(authUser.tenant_id).trim()
+            : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const planIdIn = body.id != null && String(body.id).trim() !== '' ? String(body.id).trim() : undefined;
+      const { id: planId } = await insertAgentsamPlanRow(
+        env,
+        {
+        id: planIdIn,
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        session_id: body.session_id != null ? String(body.session_id) : null,
+        agent_id: body.agent_id != null ? String(body.agent_id) : null,
+        title,
+        plan_type: body.plan_type,
+        plan_date: body.plan_date != null ? String(body.plan_date) : undefined,
+        status: body.status,
+        morning_brief:
+          body.morning_brief != null
+            ? typeof body.morning_brief === 'string'
+              ? body.morning_brief
+              : JSON.stringify(body.morning_brief)
+            : undefined,
+        session_notes:
+          body.session_notes != null
+            ? typeof body.session_notes === 'string'
+              ? body.session_notes
+              : JSON.stringify(body.session_notes)
+            : undefined,
+        default_model: body.default_model != null ? String(body.default_model) : null,
+        workflow_id: body.workflow_id != null ? String(body.workflow_id) : null,
+        workflow_run_id: body.workflow_run_id != null ? String(body.workflow_run_id) : null,
+        tasks_total: Array.isArray(body.tasks) ? body.tasks.length : body.tasks_total,
+        linked_todo_ids:
+          body.linked_todo_ids != null
+            ? typeof body.linked_todo_ids === 'string'
+              ? body.linked_todo_ids
+              : JSON.stringify(body.linked_todo_ids)
+            : undefined,
+        linked_project_keys:
+          body.linked_project_keys != null
+            ? typeof body.linked_project_keys === 'string'
+              ? body.linked_project_keys
+              : JSON.stringify(body.linked_project_keys)
+            : undefined,
+        },
+        ctx,
+      );
+
+      let taskIds = [];
+      if (Array.isArray(body.tasks) && body.tasks.length) {
+        const { ids } = await insertAgentsamPlanTaskRows(
+          env,
+          {
+            planId,
+            tenantId,
+            workspaceId,
+            tasks: body.tasks,
+          },
+          ctx,
+        );
+        taskIds = ids;
+      }
+
+      let visual_map = null;
+      let visual_map_error = null;
+      const taskCount = taskIds.length;
+      let wantVisual = false;
+      if (body.create_visual_map === true) wantVisual = true;
+      else if (body.create_visual_map === false) wantVisual = false;
+      else wantVisual = taskCount >= 2;
+      if (wantVisual && env.DASHBOARD && authUser?.id) {
+        try {
+          visual_map = await createPlanExcalidrawArtifact(env, {
+            tenantId,
+            workspaceId,
+            userId: String(authUser.id),
+            planId,
+          });
+        } catch (e) {
+          visual_map_error = e?.message != null ? String(e.message) : String(e);
+        }
+      } else if (wantVisual && !env.DASHBOARD) {
+        visual_map_error = 'DASHBOARD bucket not configured';
+      } else if (wantVisual && !authUser?.id) {
+        visual_map_error = 'user_id missing for artifact';
+      }
+
+      let plan_markdown = null;
+      let plan_markdown_error = null;
+      let wantMd = false;
+      if (body.create_plan_markdown === true) wantMd = true;
+      else if (body.create_plan_markdown === false) wantMd = false;
+      else wantMd = true;
+      if (wantMd && env.DASHBOARD && authUser?.id) {
+        try {
+          plan_markdown = await createPlanMarkdownArtifact(env, {
+            tenantId,
+            workspaceId,
+            userId: String(authUser.id),
+            planId,
+          });
+        } catch (e) {
+          plan_markdown_error = e?.message != null ? String(e.message) : String(e);
+        }
+      } else if (wantMd && !env.DASHBOARD) {
+        plan_markdown_error = 'DASHBOARD bucket not configured';
+      } else if (wantMd && !authUser?.id) {
+        plan_markdown_error = 'user_id missing for artifact';
+      }
+
+      return jsonResponse(
+        {
+          ok: true,
+          plan_id: planId,
+          task_ids: taskIds,
+          tasks_total: taskIds.length,
+          tasks_done: 0,
+          tasks_blocked: 0,
+          visual_map: visual_map
+            ? {
+                artifact_id: visual_map.artifact_id,
+                r2_key: visual_map.r2_key,
+                public_url: visual_map.public_url,
+              }
+            : null,
+          ...(visual_map_error ? { visual_map_error } : {}),
+          plan_markdown: plan_markdown
+            ? {
+                artifact_id: plan_markdown.artifact_id,
+                r2_key: plan_markdown.r2_key,
+                public_url: plan_markdown.public_url,
+              }
+            : null,
+          ...(plan_markdown_error ? { plan_markdown_error } : {}),
+        },
+        201,
+      );
+    }
+
+    // Bootstrap config for authenticated user (Agent Sam UI)
+    if (path === '/api/agentsam/config' && method === 'GET') {
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!env.DB) return jsonResponse({});
+      try {
+        const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+        if (wsRes.error === WORKSPACE_CONTEXT_MISSING || !wsRes.workspaceId) {
+          return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+        }
+        const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+        const tid =
+          actorCtx?.tenantId ||
+          (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+            ? String(authUser.tenant_id).trim()
+            : null);
+        const row = await resolveActiveBootstrap(env, {
+          userId: authUser.id,
+          personUuid: actorCtx?.personUuid ?? authUser.person_uuid ?? null,
+          tenantId: tid,
+          workspaceId: wsRes.workspaceId,
+        });
+        return jsonResponse(row || {});
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // 1. Model Registry: GET /api/agentsam/ai/:role
+    if (path.startsWith('/api/agentsam/ai') && method === 'GET') {
+        const parts = path.split('/');
+        const role = parts[parts.length - 1]; // e.g. orchestrator, worker
+        const agent = await getAgentMetadata(env, role);
+        return jsonResponse(agent);
+    }
+
+    // 2. Skill Registry: GET /api/agentsam/skills
+    if (path === '/api/agentsam/skills' && method === 'GET') {
+        const skills = await getAgentSkills(env);
+        return jsonResponse(skills);
+    }
+
+    // 3. Invocation Audit: GET /api/agentsam/invocations
+    if (path === '/api/agentsam/invocations' && method === 'GET') {
+        const invocations = await getInvocations(env);
+        return jsonResponse(invocations);
+    }
+
+    // D1 agent_chat_plan trace (latest or ?run_id=)
+    if (path === '/api/agentsam/agent-chat-plan-trace' && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      if (wsRes.error === WORKSPACE_CONTEXT_MISSING || !wsRes.workspaceId) {
+        return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+      }
+      const wsId = String(wsRes.workspaceId).trim();
+      const runIdParam = url.searchParams.get('run_id')?.trim();
+      let run = null;
+      if (runIdParam) {
+        run = await env.DB
+          .prepare(
+            `SELECT * FROM agentsam_workflow_runs WHERE id = ? AND workspace_id = ? LIMIT 1`,
+          )
+          .bind(runIdParam, wsId)
+          .first()
+          .catch(() => null);
+      } else {
+        run = await env.DB
+          .prepare(
+            `SELECT * FROM agentsam_workflow_runs
+             WHERE workspace_id = ?
+               AND (workflow_key = 'agent_chat_plan' OR workflow_id = 'wf_agent_chat_plan')
+             ORDER BY created_at DESC
+             LIMIT 1`,
+          )
+          .bind(wsId)
+          .first()
+          .catch(() => null);
+      }
+      if (!run?.id) return jsonResponse({ error: 'no_run' }, 404);
+      const rid = String(run.id);
+      const plan = await env.DB
+        .prepare(`SELECT * FROM agentsam_plans WHERE workflow_run_id = ? ORDER BY created_at DESC LIMIT 1`)
+        .bind(rid)
+        .first()
+        .catch(() => null);
+      const tasks = plan?.id
+        ? (
+            await env.DB
+              .prepare(`SELECT * FROM agentsam_plan_tasks WHERE plan_id = ? ORDER BY order_index`)
+              .bind(plan.id)
+              .all()
+          ).results || []
+        : [];
+      const steps =
+        (
+          await env.DB
+            .prepare(`SELECT * FROM agentsam_execution_steps WHERE execution_id = ? ORDER BY created_at, node_key`)
+            .bind(rid)
+            .all()
+        ).results || [];
+      const approvals =
+        (
+          await env.DB
+            .prepare(
+              `SELECT * FROM agentsam_approval_queue
+               WHERE workflow_run_id = ?
+                  OR execution_step_id IN (SELECT id FROM agentsam_execution_steps WHERE execution_id = ?)
+               ORDER BY created_at DESC`,
+            )
+            .bind(rid, rid)
+            .all()
+        ).results || [];
+
+      const crIds = new Set();
+      for (const a of approvals) {
+        if (a.command_run_id) crIds.add(String(a.command_run_id));
+      }
+      for (const t of tasks) {
+        if (t.command_run_id) crIds.add(String(t.command_run_id));
+      }
+      let command_runs = [];
+      if (crIds.size) {
+        const placeholders = [...crIds].map(() => '?').join(',');
+        command_runs =
+          (
+            await env.DB
+              .prepare(`SELECT * FROM agentsam_command_run WHERE id IN (${placeholders})`)
+              .bind(...[...crIds])
+              .all()
+          ).results || [];
+      }
+
+      const tasksWithSteps = tasks.filter((t) => t.execution_step_id).length;
+      const tasksWithWrun = tasks.filter((t) => t.workflow_run_id).length;
+      const wrunMatch = tasks.filter((t) => String(t.workflow_run_id || '') === rid).length;
+      const stepExecMatch = tasks.filter((t) => {
+        const sid = t.execution_step_id;
+        if (!sid) return false;
+        const s = steps.find((x) => x.id === sid);
+        return s && String(s.execution_id || '') === rid;
+      }).length;
+
+      return jsonResponse({
+        workflow_run: run,
+        plan,
+        tasks,
+        steps,
+        approvals,
+        command_runs,
+        checks: {
+          plan_has_workflow_run_id: !!plan?.workflow_run_id,
+          tasks_total: tasks.length,
+          tasks_with_steps: tasksWithSteps,
+          tasks_with_wrun: tasksWithWrun,
+          tasks_wrun_equals_run: wrunMatch,
+          tasks_execution_step_matches_run: stepExecMatch,
+        },
+      });
+    }
+
+    // 4. Prompt Registry: GET /api/agentsam/prompts/:group
+    if (path.startsWith('/api/agentsam/prompts') && method === 'GET') {
+        const parts = path.split('/');
+        const group = parts[parts.length - 1]; // e.g. coding
+        
+        if (group === 'prompts') {
+            // General list (agentsam_prompt_versions replaces ai_prompts_library)
+            const sql =
+              'SELECT id, prompt_key AS category, 100 AS weight, is_active FROM agentsam_prompt_versions ORDER BY prompt_key ASC';
+            const res = await db.d1_query({ sql }, env);
+            return jsonResponse(res.results || []);
+        }
+
+        // Specific weighted selection test
+        const prompt = await getActivePromptByWeight(env, group);
+        return jsonResponse(prompt);
+    }
+
+    // ── Workflow APIs ────────────────────────────────────────────────────────
+
+    // GET /api/agentsam/mcp-workflows — tenant-scoped MCP catalog rows
+    if (path === '/api/agentsam/mcp-workflows' && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const tid = tenantId != null ? String(tenantId) : '';
+        let sql = `SELECT id, workflow_key, display_name, description, category, subagent_slug,
+          graph_mode, tools_json, steps_json, run_count, success_count, status,
+          total_cost_usd, updated_at
+          FROM agentsam_mcp_workflows WHERE COALESCE(is_active, 1) = 1`;
+        const binds = [];
+        if (tid) {
+          sql += ` AND (tenant_id = ? OR tenant_id IS NULL)`;
+          binds.push(tid);
+        }
+        sql += ` ORDER BY updated_at DESC LIMIT 200`;
+        const stmt = env.DB.prepare(sql);
+        const { results } = binds.length ? await stmt.bind(...binds).all() : await stmt.all();
+        return jsonResponse({ workflows: results || [], workspace_id: workspaceId });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // GET /api/agentsam/workflows — list active workflows with node/edge counts
+    if (path === '/api/agentsam/workflows' && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      try {
+        const { results } = await env.DB.prepare(`
+          SELECT
+            w.id, w.workflow_key, w.display_name, w.description,
+            w.risk_level, w.requires_approval, w.is_active,
+            COUNT(DISTINCT n.id) AS node_count,
+            COUNT(DISTINCT e.id) AS edge_count,
+            COALESCE(rs.run_count, 0) AS run_count,
+            COALESCE(rs.success_count, 0) AS success_count,
+            COALESCE(rs.fail_count, 0) AS fail_count,
+            rs.avg_cost_usd
+          FROM agentsam_workflows w
+          LEFT JOIN agentsam_workflow_nodes n
+            ON n.workflow_id = w.id AND COALESCE(n.is_active, 1) = 1
+          LEFT JOIN agentsam_workflow_edges e
+            ON e.workflow_id = w.id
+          LEFT JOIN (
+            SELECT workflow_key,
+              COUNT(*) AS run_count,
+              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
+              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS fail_count,
+              AVG(COALESCE(cost_usd, 0)) AS avg_cost_usd
+            FROM agentsam_workflow_runs
+            GROUP BY workflow_key
+          ) rs ON rs.workflow_key = w.workflow_key
+          WHERE w.is_active = 1
+          GROUP BY w.id
+          ORDER BY w.display_name ASC
+        `).all();
+        return jsonResponse(results || []);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // POST /api/agentsam/workflows/:id/run — start a workflow run, stream SSE
+    const wfRunMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/run$/);
+    if (wfRunMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const wfId = wfRunMatch[1];
+      try {
+        const workflow = await env.DB.prepare(
+          `SELECT * FROM agentsam_workflows WHERE id = ? AND is_active = 1 LIMIT 1`
+        ).bind(wfId).first();
+        if (!workflow) return jsonResponse({ error: 'workflow not found' }, 404);
+
+        const body = await request.json().catch(() => ({}));
+        const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+        const workspaceId = wsRes?.workspaceId ?? body.workspace_id ?? null;
+
+        const { readable, writable } = new TransformStream();
+        const controller = {
+          _enc: new TextEncoder(),
+          _writer: writable.getWriter(),
+          enqueue(chunk) { void this._writer.write(chunk); },
+          close() { void this._writer.close().catch(() => {}); },
+        };
+
+        // Fire the graph executor asynchronously so we can return the stream immediately
+        void (async () => {
+          try {
+            await executeWorkflowAndStream(
+              env,
+              workflow.workflow_key,
+              body.input ?? body.message ?? {},
+              authUser,
+              workspaceId,
+              controller,
+            );
+          } catch (e) {
+            try {
+              const enc = new TextEncoder();
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'workflow_error', message: e?.message ?? String(e) })}\n\n`));
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+              controller.close();
+            } catch (_) {}
+          }
+        })();
+
+        return new Response(readable, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          },
+        });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // GET /api/agentsam/workflow-runs/:id — run status + steps + approvals
+    const wfRunStatusMatch = path.match(/^\/api\/agentsam\/workflow-runs\/([^/]+)$/);
+    if (wfRunStatusMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const runId = wfRunStatusMatch[1];
+      try {
+        const run = await env.DB.prepare(
+          `SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`
+        ).bind(runId).first();
+        if (!run) return jsonResponse({ error: 'run not found' }, 404);
+
+        const steps = (await env.DB.prepare(
+          `SELECT id, execution_id, node_key, node_type, status, edge_taken, approval_id, input_json, output_json, error_json, latency_ms, created_at
+           FROM agentsam_execution_steps WHERE execution_id = ? ORDER BY created_at ASC`
+        ).bind(runId).all()).results || [];
+
+        const approvals = (await env.DB.prepare(
+          `SELECT id, status, workflow_run_id, execution_step_id, risk_level, tool_name, action_summary, created_at
+           FROM agentsam_approval_queue WHERE workflow_run_id = ? ORDER BY created_at DESC`
+        ).bind(runId).all()).results || [];
+
+        const plan = await env.DB.prepare(
+          `SELECT * FROM agentsam_plans WHERE workflow_run_id = ? ORDER BY created_at DESC LIMIT 1`
+        ).bind(runId).first().catch(() => null);
+
+        return jsonResponse({ run, steps, approvals, plan: plan || null });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // POST /api/agentsam/workflow-runs/:id/approve — approve/deny a pending approval gate
+    const wfApproveMatch = path.match(/^\/api\/agentsam\/workflow-runs\/([^/]+)\/approve$/);
+    if (wfApproveMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const runId = wfApproveMatch[1];
+      try {
+        const body = await request.json().catch(() => ({}));
+        const decision = String(body.decision || 'approved').toLowerCase();
+        const approvalId = body.approval_id ? String(body.approval_id) : null;
+
+        if (!['approved', 'denied', 'rejected'].includes(decision)) {
+          return jsonResponse({ error: 'decision must be approved or denied' }, 400);
+        }
+        const dbStatus = decision === 'approved' ? 'approved' : 'denied';
+
+        let updated;
+        if (approvalId) {
+          updated = await env.DB.prepare(
+            `UPDATE agentsam_approval_queue SET status = ?, approved_by = ?, decided_at = unixepoch()
+             WHERE id = ? AND status = 'pending'`
+          ).bind(dbStatus, authUser?.id ?? null, approvalId).run();
+        } else {
+          updated = await env.DB.prepare(
+            `UPDATE agentsam_approval_queue SET status = ?, approved_by = ?, decided_at = unixepoch()
+             WHERE workflow_run_id = ? AND status = 'pending'`
+          ).bind(dbStatus, authUser?.id ?? null, runId).run();
+        }
+
+        const changes = updated?.meta?.changes ?? updated?.changes ?? 0;
+
+        if (decision === 'approved') {
+          await env.DB.prepare(
+            `UPDATE agentsam_workflow_runs SET status = 'running', updated_at = datetime('now')
+             WHERE id = ? AND status = 'awaiting_approval'`
+          ).bind(runId).run().catch(() => null);
+        } else {
+          await env.DB.prepare(
+            `UPDATE agentsam_workflow_runs SET status = 'failed', kill_reason = 'approval_rejected', updated_at = datetime('now')
+             WHERE id = ?`
+          ).bind(runId).run().catch(() => null);
+        }
+
+        return jsonResponse({ ok: true, decision, run_id: runId, rows_updated: changes });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    // ── Workflow graph CRUD (registry id in path; DAG rows use dag_workflow_id) ──
+    async function workflowScope() {
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      const tenantId =
+        authUser?.tenant_id ??
+        (await fetchAuthUserTenantId(env, authUser?.id).catch(() => null)) ??
+        (await fallbackSystemTenantId(env).catch(() => null));
+      return {
+        tenantId: tenantId != null ? String(tenantId) : null,
+        workspaceId: wsRes?.workspaceId ?? null,
+      };
+    }
+
+    const wfLayoutMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/layout$/);
+    if (wfLayoutMatch && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfLayoutMatch[1]);
+      try {
+        const body = await request.json().catch(() => ({}));
+        const positions =
+          body.positions && typeof body.positions === 'object' ? body.positions : body;
+        const { tenantId, workspaceId } = await workflowScope();
+        const out = await saveWorkflowCanvasLayout(
+          env.DB,
+          registryId,
+          positions,
+          tenantId,
+          workspaceId,
+        );
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfNodeKeyMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/nodes\/([^/]+)$/);
+    if (wfNodeKeyMatch && (method === 'PATCH' || method === 'DELETE')) {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfNodeKeyMatch[1]);
+      const nodeKey = decodeURIComponent(wfNodeKeyMatch[2]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const { dag_workflow_id: dagId } = ctx.bundle;
+        if (method === 'DELETE') {
+          const out = await deleteWorkflowNode(env.DB, { dagWorkflowId: dagId, nodeKey });
+          if (out.error) return jsonResponse({ error: out.error }, out.status);
+          return jsonResponse(out);
+        }
+        const body = await request.json().catch(() => ({}));
+        const out = await updateWorkflowNode(env.DB, {
+          dagWorkflowId: dagId,
+          nodeKey,
+          body,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfNodesPostMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/nodes$/);
+    if (wfNodesPostMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfNodesPostMatch[1]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const body = await request.json().catch(() => ({}));
+        const out = await createWorkflowNode(env.DB, {
+          registryId,
+          dagWorkflowId: ctx.bundle.dag_workflow_id,
+          body,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out, 201);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfEdgeIdMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/edges\/([^/]+)$/);
+    if (wfEdgeIdMatch && method === 'DELETE') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfEdgeIdMatch[1]);
+      const edgeId = decodeURIComponent(wfEdgeIdMatch[2]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const out = await deleteWorkflowEdge(env.DB, {
+          dagWorkflowId: ctx.bundle.dag_workflow_id,
+          edgeId,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfEdgesPostMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)\/edges$/);
+    if (wfEdgesPostMatch && method === 'POST') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfEdgesPostMatch[1]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const ctx = await requireWorkflowGraphContext(env.DB, registryId, tenantId, workspaceId);
+        if (ctx.error) return jsonResponse({ error: ctx.error }, ctx.status);
+        const body = await request.json().catch(() => ({}));
+        const out = await createWorkflowEdge(env.DB, {
+          dagWorkflowId: ctx.bundle.dag_workflow_id,
+          body,
+        });
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out, 201);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    const wfSingleMatch = path.match(/^\/api\/agentsam\/workflows\/([^/]+)$/);
+    if (wfSingleMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfSingleMatch[1]);
+      try {
+        const { tenantId, workspaceId } = await workflowScope();
+        const bundle = await loadWorkflowGraphBundle(env.DB, registryId, tenantId, workspaceId);
+        if (!bundle) return jsonResponse({ error: 'workflow not found' }, 404);
+        return jsonResponse({
+          workflow: bundle.workflow,
+          mcp_workflow: bundle.mcp_workflow,
+          registry_workflow_id: bundle.registry_workflow_id,
+          dag_workflow_id: bundle.dag_workflow_id,
+          nodes: bundle.nodes,
+          edges: bundle.edges,
+          canvas_layout: bundle.canvas_layout,
+          runs_summary: bundle.runs_summary,
+        });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    if (wfSingleMatch && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const registryId = decodeURIComponent(wfSingleMatch[1]);
+      try {
+        const body = await request.json().catch(() => ({}));
+        const out = await patchWorkflowRegistry(env.DB, registryId, body);
+        if (out.error) return jsonResponse({ error: out.error }, out.status);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    return null;
+}
+
+/**
+ * Performs a surgical lookup of a managed agent by its role or ID.
+ */
+export async function getAgentMetadata(env, roleOrId) {
+    const sql = `
+        SELECT * FROM agentsam_ai 
+        WHERE (id = ? OR role_name = ?) AND status = 'active'
+        LIMIT 1
+    `;
+    const res = await db.d1_query({ sql, params: [roleOrId, roleOrId] }, env);
+    
+    if (res.error) return { error: res.error };
+    if (!res.results?.length) return { error: `Agent not found: ${roleOrId}` };
+
+    const agent = res.results[0];
+    
+    // Parse JSON policies
+    agent.model_policy = JSON.parse(agent.model_policy_json || '{}');
+    agent.cost_policy = JSON.parse(agent.cost_policy_json || '{}');
+    agent.memory_policy = JSON.parse(agent.memory_policy_json || '{}');
+    agent.tool_permissions = JSON.parse(agent.tool_permissions_json || '{}');
+
+    return agent;
+}
+
+/**
+ * Fetches all active managed skills for Agent Sam.
+ */
+export async function getAgentSkills(env) {
+    const sql = "SELECT * FROM agentsam_skill WHERE is_active = 1 ORDER BY sort_order ASC";
+    const res = await db.d1_query({ sql }, env);
+    return res.results || [];
+}
+
+/**
+ * Records a skill invocation for auditing and spent-ledger calibration.
+ */
+export async function logSkillInvocation(env, data) {
+    const sql = `
+        INSERT INTO agentsam_skill_invocation 
+        (skill_id, conversation_id, trigger_method, input_summary, success, error_message, duration_ms, model_used, tokens_in, tokens_out, cost_usd)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    return await db.d1_write({
+        sql,
+        params: [
+            data.skillId,
+            data.conversationId,
+            data.triggerMethod || 'auto',
+            data.inputSummary,
+            data.success ? 1 : 0,
+            data.errorMessage || null,
+            data.durationMs || 0,
+            data.modelUsed,
+            data.tokensIn || 0,
+            data.tokensOut || 0,
+            data.costUsd || 0
+        ]
+    }, env);
+}
+
+/**
+ * A/B Testing Engine: Selects an active prompt from a group based on weights.
+ */
+export async function getActivePromptByWeight(env, groupKey) {
+    const sql = `
+        SELECT id, prompt_key, version,
+               body AS prompt_template, prompt_key AS category,
+               100 AS weight, body_tokens, is_active, notes
+        FROM agentsam_prompt_versions 
+        WHERE prompt_key = ? AND is_active = 1
+    `;
+    const res = await db.d1_query({ sql, params: [groupKey] }, env);
+    const prompts = res.results || [];
+
+    if (!prompts.length) return null;
+    if (prompts.length === 1) return prompts[0];
+
+    // Weighted Random Selection
+    const totalWeight = prompts.reduce((sum, p) => sum + (p.weight || 100), 0);
+    let random = Math.random() * totalWeight;
+    
+    for (const prompt of prompts) {
+        if (random < (prompt.weight || 100)) return prompt;
+        random -= (prompt.weight || 100);
+    }
+
+    return prompts[0]; // Fallback
+}
+
+/**
+ * Retrieves a specific prompt by its ID with parsed metadata.
+ */
+export async function getPromptMetadata(env, promptId) {
+    const sql = 'SELECT * FROM agentsam_prompt_versions WHERE id = ?';
+    const res = await db.d1_query({ sql, params: [promptId] }, env);
+    
+    if (!res.results?.length) return null;
+    const prompt = res.results[0];
+    prompt.prompt_template = prompt.body;
+    prompt.category = prompt.prompt_key;
+    try {
+      prompt.metadata = JSON.parse(prompt.notes || '{}');
+    } catch (_) {
+      prompt.metadata = {};
+    }
+    return prompt;
+}
+
+/**
+ * Retrieval for the spent ledger and audit trail.
+ */
+async function getInvocations(env) {
+    const sql = "SELECT * FROM agentsam_skill_invocation ORDER BY invoked_at DESC LIMIT 100";
+    const res = await db.d1_query({ sql }, env);
+    return res.results || [];
+}
+
+
+──────────────────────────────────────────────────────────────────────
+// FILE: src/core/agent-step.js  (22 lines, 687 bytes)
+──────────────────────────────────────────────────────────────────────
+/**
+ * agent-step.js
+ * Named workflow step handler registry.
+ * Register handlers here — keeps workflow-executor.js clean.
+ * Import with: const stepMod = await import('./agent-step.js');
+ */
+
+const HANDLER_MAP = new Map();
+
+export function registerAgentStepHandler(key, fn) {
+  HANDLER_MAP.set(key, fn);
+}
+
+export function isRegisteredAgentStepHandler(handlerKey) {
+  return HANDLER_MAP.has(handlerKey);
+}
+
+export async function agentChatStep(env, { handler_key, input, runContext, node, smoke }) {
+  const fn = HANDLER_MAP.get(handler_key);
+  if (!fn) return { ok: false, error: `No handler registered for: ${handler_key}` };
+  return fn(env, { input, runContext, node, smoke });
+}
+
+
+──────────────────────────────────────────────────────────────────────
+// FILE: src/core/workflow-node-handlers.js  (639 lines, 23,072 bytes)
+──────────────────────────────────────────────────────────────────────
+/**
+ * Real implementations for workflow graph node types (db_query, script, eval, ui.*, mcp_tool helpers).
+ * Used by workflow-executor dispatchNode and agent-step handler_key registry.
+ */
+import { runBuiltinTool } from '../tools/ai-dispatch.js';
+import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
+import { appendWorkflowEvent } from './agentsam-workflow-debug-store.js';
+import { pragmaTableInfo } from './retention.js';
+import { registerAgentStepHandler } from './agent-step.js';
+
+/** @param {unknown} input */
+export function flattenWorkflowInput(input) {
+  if (input == null) return {};
+  if (typeof input === 'string') {
+    try {
+      const j = JSON.parse(input);
+      if (j && typeof j === 'object' && !Array.isArray(j)) return { ...j, result: input };
+    } catch {
+      return { result: input, message: input };
+    }
+    return { result: input, message: input };
+  }
+  if (typeof input !== 'object' || Array.isArray(input)) return { value: input };
+  const o = /** @type {Record<string, unknown>} */ ({ ...input });
+  if (o.output && typeof o.output === 'object' && !Array.isArray(o.output)) {
+    Object.assign(o, /** @type {Record<string, unknown>} */ (o.output));
+  }
+  if (typeof o.result === 'string') {
+    try {
+      const inner = JSON.parse(o.result);
+      if (inner && typeof inner === 'object' && !Array.isArray(inner)) Object.assign(o, inner);
+    } catch {
+      /* keep */
+    }
+  }
+  return o;
+}
+
+/** @param {Record<string, unknown>} obj @param {string} path */
+function getByPath(obj, path) {
+  const parts = String(path || '').split('.').filter(Boolean);
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = /** @type {Record<string, unknown>} */ (cur)[p];
+  }
+  return cur;
+}
+
+function parseNodeConfig(node) {
+  const raw = node?.handler_config ?? node?.config_json ?? node?.input_schema_json ?? '{}';
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return /** @type {Record<string, unknown>} */ (raw);
+  }
+  try {
+    const o = JSON.parse(String(raw || '{}'));
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+function newId(prefix) {
+  return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
+
+/** @param {any} env @param {string} sql @param {unknown[]} [binds] */
+async function d1All(env, sql, binds = []) {
+  if (!env?.DB) return { ok: false, error: 'DB not available', rows: [] };
+  try {
+    const stmt = env.DB.prepare(sql);
+    const { results } = binds.length ? await stmt.bind(...binds).all() : await stmt.all();
+    return { ok: true, rows: results || [] };
+  } catch (e) {
+    return { ok: false, error: e?.message ?? String(e), rows: [] };
+  }
+}
+
+const DB_QUERY_HANDLERS = {
+  async 'db.audit_workflow_tables'(env, _input, ctx) {
+    const queries = {
+      workflows: `SELECT COUNT(*) AS c FROM agentsam_workflows WHERE COALESCE(is_active, 1) = 1`,
+      nodes: `SELECT COUNT(*) AS c FROM agentsam_workflow_nodes WHERE COALESCE(is_active, 1) = 1`,
+      edges: `SELECT COUNT(*) AS c FROM agentsam_workflow_edges`,
+      runs: `SELECT COUNT(*) AS c FROM agentsam_workflow_runs`,
+      runs_failed: `SELECT COUNT(*) AS c FROM agentsam_workflow_runs WHERE status = 'failed'`,
+      orphan_nodes: `
+        SELECT COUNT(*) AS c FROM agentsam_workflow_nodes n
+        WHERE COALESCE(n.is_active, 1) = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM agentsam_workflows w WHERE w.id = n.workflow_id
+          )`,
+    };
+    const out = {};
+    for (const [key, sql] of Object.entries(queries)) {
+      const r = await d1All(env, sql);
+      out[key] = r.ok ? (r.rows[0]?.c ?? r.rows[0]) : { error: r.error };
+    }
+    return { ok: true, output: { audit: out, workspace_id: ctx.workspaceId } };
+  },
+
+  async 'db.collect_agent_usage_events'(env, _input, ctx) {
+    const tid = ctx.tenantId;
+    const wid = ctx.workspaceId;
+    let sql = `
+      SELECT status, COUNT(*) AS c,
+             SUM(COALESCE(cost_usd, 0)) AS cost_usd,
+             SUM(COALESCE(input_tokens, 0)) AS input_tokens,
+             SUM(COALESCE(output_tokens, 0)) AS output_tokens
+      FROM agentsam_workflow_runs
+      WHERE 1=1`;
+    const binds = [];
+    if (tid) {
+      sql += ` AND tenant_id = ?`;
+      binds.push(tid);
+    }
+    if (wid) {
+      sql += ` AND workspace_id = ?`;
+      binds.push(wid);
+    }
+    sql += ` GROUP BY status ORDER BY c DESC`;
+    const byStatus = await d1All(env, sql, binds);
+    const recent = await d1All(
+      env,
+      `SELECT id, workflow_key, status, cost_usd, input_tokens, output_tokens,
+              steps_completed, steps_total, started_at, completed_at
+       FROM agentsam_workflow_runs
+       ${tid || wid ? 'WHERE ' + [tid && 'tenant_id = ?', wid && 'workspace_id = ?'].filter(Boolean).join(' AND ') : ''}
+       ORDER BY started_at DESC LIMIT 50`,
+      binds,
+    );
+    return {
+      ok: true,
+      output: {
+        by_status: byStatus.rows,
+        recent_runs: recent.rows,
+        collected_at: new Date().toISOString(),
+      },
+    };
+  },
+
+  async 'db.persist_analytics_rollup'(env, input, ctx) {
+    const flat = flattenWorkflowInput(input);
+    const rollup = flat.datasets ?? flat.rollup ?? flat;
+    const key = `workflow_rollup:${ctx.workspaceId || 'global'}:${Date.now().toString(36)}`;
+    if (env?.KV?.put) {
+      await env.KV.put(key, JSON.stringify({ rollup, saved_at: Date.now() }), {
+        expirationTtl: 60 * 60 * 24 * 14,
+      });
+    }
+    return { ok: true, output: { kv_key: key, persisted: true, rollup_preview: rollup } };
+  },
+
+  async 'db.upsert_agentsam_artifact'(env, input, ctx) {
+    const flat = flattenWorkflowInput(input);
+    const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
+    if (!cols.size) return { ok: false, error: 'agentsam_artifacts table missing' };
+
+    const artifactId = String(flat.artifact_id || flat.id || newId('art'));
+    const r2Key = String(flat.r2_key || flat.r2Key || '').trim();
+    const name = String(flat.name || flat.title || 'workflow artifact').slice(0, 500);
+    const content = flat.content ?? flat.body ?? flat.artifact_content;
+
+    const bucket = env.DASHBOARD || env.ASSETS || env.R2;
+    if (bucket?.put && r2Key && content != null) {
+      const body = typeof content === 'string' ? content : JSON.stringify(content);
+      await bucket.put(r2Key, body, {
+        httpMetadata: { contentType: flat.content_type || 'application/json' },
+      });
+    }
+
+    const row = {
+      id: artifactId,
+      tenant_id: ctx.tenantId,
+      workspace_id: ctx.workspaceId,
+      user_id: ctx.userId,
+      name,
+      description: String(flat.description || '').slice(0, 2000) || null,
+      artifact_type: String(flat.artifact_type || 'json').slice(0, 64),
+      r2_key: r2Key || null,
+      public_url: flat.public_url || flat.url || null,
+      source: 'workflow_graph',
+      source_workflow_id: ctx.workflowKey || null,
+      source_run_id: ctx.runId || null,
+      file_size_bytes: content != null ? new TextEncoder().encode(String(content)).length : 0,
+      is_public: flat.is_public ? 1 : 0,
+    };
+    if (cols.has('metadata_json')) {
+      row.metadata_json = JSON.stringify({ workflow_run_id: ctx.runId, node: flat.node_key });
+    }
+
+    const names = [];
+    const ph = [];
+    const binds = [];
+    for (const [k, v] of Object.entries(row)) {
+      if (v === undefined) continue;
+      if (!cols.has(k.toLowerCase())) continue;
+      names.push(k);
+      ph.push('?');
+      binds.push(v);
+    }
+    if (!names.length) return { ok: false, error: 'no insertable artifact columns' };
+
+    const sql = cols.has('updated_at')
+      ? `INSERT OR REPLACE INTO agentsam_artifacts (${names.join(', ')}) VALUES (${ph.join(', ')})`
+      : `INSERT INTO agentsam_artifacts (${names.join(', ')}) VALUES (${ph.join(', ')})`;
+    await env.DB.prepare(sql).bind(...binds).run();
+
+    return {
+      ok: true,
+      output: { artifact_id: artifactId, r2_key: r2Key, name, registered: true },
+    };
+  },
+};
+
+const SCRIPT_HANDLERS = {
+  async 'script.r2_put_artifact'(env, input, ctx) {
+    const flat = flattenWorkflowInput(input);
+    const bucket = env.DASHBOARD || env.ASSETS;
+    if (!bucket?.put) return { ok: false, error: 'No R2 binding (DASHBOARD/ASSETS)' };
+    const r2Key = String(flat.r2_key || flat.key || `artifacts/workflow/${ctx.runId || 'run'}/${Date.now()}.json`);
+    const body =
+      flat.content ?? flat.body ?? flat.artifact_content ?? JSON.stringify(flat, null, 2);
+    const text = typeof body === 'string' ? body : JSON.stringify(body);
+    await bucket.put(r2Key, text, {
+      httpMetadata: { contentType: flat.content_type || 'application/json' },
+    });
+    return {
+      ok: true,
+      output: {
+        r2_key: r2Key,
+        bytes: new TextEncoder().encode(text).length,
+        bucket: 'DASHBOARD',
+      },
+    };
+  },
+
+  async 'script.audit_hyperdrive_bindings'(env) {
+    const bindings = {
+      HYPERDRIVE: isHyperdriveUsable(env),
+      DB: !!env?.DB,
+      KV: !!env?.KV,
+      DASHBOARD: !!env?.DASHBOARD,
+      ASSETS: !!env?.ASSETS,
+      AI: !!env?.AI,
+      TERMINAL_WS_URL: !!(env?.TERMINAL_WS_URL && String(env.TERMINAL_WS_URL).trim()),
+    };
+    let hyperdrive_probe = null;
+    if (isHyperdriveUsable(env)) {
+      const probe = await runHyperdriveQuery(env, 'SELECT 1 AS ok', []);
+      hyperdrive_probe = probe.ok ? 'connected' : probe.error;
+    }
+    return {
+      ok: true,
+      output: {
+        bindings,
+        hyperdrive_probe,
+        note: 'Non-secret binding presence only',
+      },
+    };
+  },
+};
+
+const EVAL_HANDLERS = {
+  'eval.patch_plan_quality'(flat) {
+    const text = JSON.stringify(flat);
+    const hasPath = /\b(src\/|dashboard\/|\.tsx?|\.jsx?|\.js)\b/i.test(text);
+    const hasTest = /\b(test|vitest|playwright|npm run)\b/i.test(text);
+    const vague = /\b(maybe|consider|might|possibly)\b/i.test(text);
+    return {
+      passed: hasPath && !vague,
+      has_file_paths: hasPath,
+      has_tests_mentioned: hasTest,
+      vague_language: vague,
+    };
+  },
+  'eval.workflow_graph_health'(flat, _input, ctx, env) {
+    return DB_QUERY_HANDLERS['db.audit_workflow_tables'](env, {}, ctx).then((r) => ({
+      passed: r.ok && r.output?.audit?.workflows?.c > 0,
+      audit: r.output?.audit,
+    }));
+  },
+  'eval.artifact_payload'(flat) {
+    const name = flat.name || flat.title;
+    const r2 = flat.r2_key || flat.planned_r2_key;
+    const size = Number(flat.size_bytes || flat.file_size_bytes || 0);
+    return {
+      passed: !!name && !!r2 && size >= 0,
+      name,
+      r2_key: r2,
+      size_bytes: size,
+    };
+  },
+  'eval.chart_dataset_contract'(flat) {
+    const ds = flat.datasets || flat.charts || flat;
+    const hasSeries = Array.isArray(ds)
+      ? ds.length > 0
+      : typeof ds === 'object' && ds != null && Object.keys(ds).length > 0;
+    return { passed: hasSeries, dataset_keys: typeof ds === 'object' && ds ? Object.keys(ds) : [] };
+  },
+};
+
+const MCP_HANDLER_TOOL_ALIASES = {
+  'browser.capture_context': 'cdt_take_snapshot',
+  'terminal.hyperdrive_connectivity_check': 'hyperdrive_query',
+};
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} runContext
+ */
+function workflowHandlerContext(env, runContext, node) {
+  const meta = runContext?.runMeta || {};
+  return {
+    tenantId: meta.tenantId ?? runContext?.tenantId ?? null,
+    workspaceId: meta.workspaceId ?? runContext?.workspaceId ?? null,
+    userId: meta.userId ?? runContext?.userId ?? null,
+    runId: runContext?.runId ?? null,
+    workflowKey: runContext?.workflowKey ?? null,
+    nodeKey: node?.node_key ?? null,
+    smoke: Boolean(runContext?.smoke),
+    toolBridge: runContext?.toolBridge ?? null,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {string} handlerKey
+ * @param {unknown} input
+ * @param {Record<string, unknown>} runContext
+ * @param {Record<string, unknown>} node
+ */
+export async function executeWorkflowDbQuery(env, handlerKey, input, runContext, node) {
+  if (runContext?.smoke) {
+    return { ok: true, output: { smoke: true, skipped: true, handler_key: handlerKey } };
+  }
+  const ctx = workflowHandlerContext(env, runContext, node);
+  const hk = String(handlerKey || '').trim();
+  const fn = DB_QUERY_HANDLERS[hk];
+  if (fn) return fn(env, input, ctx);
+
+  const cfg = parseNodeConfig(node);
+  const flat = flattenWorkflowInput(input);
+  const sql = String(cfg.sql || flat.sql || '').trim();
+  if (!sql) {
+    return { ok: false, error: `db_query: no handler or sql for ${hk || node.node_key}` };
+  }
+  if (!/^\s*select\b/i.test(sql)) {
+    return { ok: false, error: 'db_query: only SELECT allowed inline (use handler or d1_write tool)' };
+  }
+  const binds = Array.isArray(cfg.params) ? cfg.params : [];
+  const r = await d1All(env, sql, binds);
+  if (!r.ok) return { ok: false, error: r.error };
+  return { ok: true, output: { rows: r.rows, row_count: r.rows.length, sql: sql.slice(0, 500) } };
+}
+
+/**
+ * @param {any} env
+ * @param {string} handlerKey
+ * @param {unknown} input
+ * @param {Record<string, unknown>} runContext
+ * @param {Record<string, unknown>} node
+ */
+export async function executeWorkflowScript(env, handlerKey, input, runContext, node) {
+  if (runContext?.smoke) {
+    return { ok: true, output: { smoke: true, skipped: true, handler_key: handlerKey } };
+  }
+  const hk = String(handlerKey || '').trim();
+  const fn = SCRIPT_HANDLERS[hk];
+  if (fn) {
+    const ctx = workflowHandlerContext(env, runContext, node);
+    return fn(env, input, ctx);
+  }
+  const toolName = hk.startsWith('script.') ? hk.slice(7) : hk;
+  const toolRes = await runBuiltinTool(env, toolName, flattenWorkflowInput(input), runContext);
+  if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
+  return { ok: true, output: toolRes };
+}
+
+/**
+ * @param {any} env
+ * @param {string} handlerKey
+ * @param {unknown} input
+ * @param {Record<string, unknown>} runContext
+ * @param {Record<string, unknown>} node
+ */
+export async function executeWorkflowUiEmit(env, handlerKey, input, runContext, node) {
+  const flat = flattenWorkflowInput(input);
+  const ctx = workflowHandlerContext(env, runContext, node);
+  const payload = {
+    type: 'workflow_ui_event',
+    handler_key: handlerKey,
+    node_key: node?.node_key,
+    run_id: ctx.runId,
+    workflow_key: ctx.workflowKey,
+    summary: flat.summary || flat.message || flat.result || node?.title,
+    input_preview: JSON.stringify(flat).slice(0, 2000),
+    at: new Date().toISOString(),
+  };
+
+  if (typeof ctx.toolBridge?.emitSse === 'function') {
+    try {
+      ctx.toolBridge.emitSse({ type: 'workflow_timeline', ...payload });
+    } catch {
+      /* stream closed */
+    }
+  }
+
+  if (isHyperdriveUsable(env) && ctx.tenantId && ctx.workspaceId) {
+    try {
+      await appendWorkflowEvent(env, {
+        run_id: ctx.runId,
+        tenant_id: ctx.tenantId,
+        workspace_id: ctx.workspaceId,
+        event_type: String(handlerKey || 'ui.emit').slice(0, 64),
+        event_level: 'info',
+        message: String(payload.summary || '').slice(0, 500),
+        payload_json: payload,
+      });
+    } catch (e) {
+      console.warn('[workflow-ui-emit] supabase event', e?.message ?? e);
+    }
+  }
+
+  return { ok: true, output: { emitted: true, ...payload } };
+}
+
+/**
+ * @param {any} env
+ * @param {string} handlerKey
+ * @param {unknown} input
+ * @param {Record<string, unknown>} runContext
+ * @param {Record<string, unknown>} node
+ */
+export async function executeWorkflowEval(env, handlerKey, input, runContext, node) {
+  const flat = flattenWorkflowInput(input);
+  const hk = String(handlerKey || '').trim();
+
+  if (hk && EVAL_HANDLERS[hk]) {
+    const ctx = workflowHandlerContext(env, runContext, node);
+    const out = await EVAL_HANDLERS[hk](flat, input, ctx, env);
+    return { ok: true, output: { ...out, handler_key: hk } };
+  }
+
+  let qg = {};
+  try {
+    qg = JSON.parse(node.quality_gate_json || '{}');
+  } catch {
+    qg = {};
+  }
+  const assertions = qg.assertions || [];
+  const results = assertions.map((a) => {
+    const val = getByPath(flat, a.field) ?? flat[a.field];
+    let pass = true;
+    if (a.op === 'exists') pass = val != null && val !== '';
+    else if (a.op === 'eq') pass = val === a.value;
+    else if (a.op === 'gt') pass = Number(val) > Number(a.value);
+    else if (a.op === 'gte') pass = Number(val) >= Number(a.value);
+    else if (a.op === 'contains') pass = String(val ?? '').includes(String(a.value ?? ''));
+    return { field: a.field, op: a.op, pass, value: val };
+  });
+  const passed = results.length ? results.every((r) => r.pass) : true;
+  return {
+    ok: true,
+    output: { passed, assertion_count: results.length, results, handler_key: hk || null },
+  };
+}
+
+/**
+ * @param {unknown} input
+ * @param {Record<string, unknown>} node
+ */
+export async function executeWorkflowBranch(input, node) {
+  const flat = flattenWorkflowInput(input);
+  let cfg = parseNodeConfig(node);
+  try {
+    const qg = JSON.parse(node.quality_gate_json || '{}');
+    if (qg.branch_field) cfg = { ...cfg, ...qg };
+  } catch {
+    /* ignore */
+  }
+  const field = String(cfg.branch_field || 'branch');
+  const val = getByPath(flat, field) ?? flat[field];
+  const branch =
+    val != null && String(val).trim() !== ''
+      ? String(val).trim()
+      : flat.passed === false
+        ? 'failed'
+        : 'default';
+  return { ok: true, output: { branch, field, value: val, passed: flat.passed !== false } };
+}
+
+/**
+ * Execute mcp_tool row with real builtin/tool dispatch when possible.
+ * @param {any} env
+ * @param {Record<string, unknown>} toolRow
+ * @param {unknown} input
+ * @param {Record<string, unknown>} runContext
+ * @param {string} handlerKey
+ */
+export async function executeWorkflowMcpTool(env, toolRow, input, runContext, handlerKey) {
+  if (runContext?.smoke) {
+    return {
+      ok: true,
+      output: { smoke: true, skipped: true, handler_key: handlerKey },
+    };
+  }
+
+  const flat = flattenWorkflowInput(input);
+  const toolKey = String(toolRow.tool_key || '').trim();
+  const handlerType = String(toolRow.handler_type || '').trim();
+
+  if (['builtin', 'r2', 'terminal', 'proxy'].includes(handlerType)) {
+    const alias = MCP_HANDLER_TOOL_ALIASES[handlerKey] || toolKey;
+    const params = {
+      ...flat,
+      workspace_id: runContext?.workspaceId ?? runContext?.runMeta?.workspaceId,
+      tenant_id: runContext?.tenantId ?? runContext?.runMeta?.tenantId,
+      user_id: runContext?.userId ?? runContext?.runMeta?.userId,
+    };
+    if (handlerType === 'terminal' || alias.includes('terminal')) {
+      const cmd = flat.command || flat.cmd;
+      if (cmd) {
+        const termRes = await runBuiltinTool(env, 'terminal_run', { command: cmd, ...params }, runContext);
+        if (termRes?.error) return { ok: false, error: String(termRes.error) };
+        return { ok: true, output: termRes };
+      }
+    }
+    if (alias === 'hyperdrive_query' && !params.sql) {
+      params.sql = 'SELECT 1 AS ok';
+    }
+    const toolRes = await runBuiltinTool(env, alias, params, runContext);
+    if (toolRes?.error) {
+      return {
+        ok: false,
+        error: `mcp_tool ${toolKey}: ${toolRes.error}`,
+      };
+    }
+    return { ok: true, output: { tool: alias, result: toolRes } };
+  }
+
+  if (!toolRow.mcp_service_url) {
+    return { ok: false, error: `no mcp_service_url for tool: ${handlerKey}` };
+  }
+
+  const mcpRes = await fetch(String(toolRow.mcp_service_url), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method: toolKey, params: flat }),
+  }).catch((e) => ({ ok: false, status: 0, _err: e }));
+
+  if (!mcpRes?.ok) {
+    return {
+      ok: false,
+      error: `mcp_tool HTTP ${mcpRes?.status ?? 0}: ${mcpRes?._err?.message ?? handlerKey}`,
+    };
+  }
+  return { ok: true, output: await mcpRes.json().catch(() => ({})) };
+}
+
+const FLOW_PRIMITIVE_HANDLERS = [
+  'workflow.trigger.manual',
+  'workflow.trigger.agent',
+  'workflow.trigger.scheduled',
+  'workflow.process.pass_through',
+  'workflow.process.merge_upstream',
+  'workflow.output.final',
+  'workflow.output.emit',
+  'workflow.join.finish',
+];
+
+/** @param {any} env @param {unknown} input @param {Record<string, unknown>} runContext @param {Record<string, unknown>} node */
+async function executeWorkflowTrigger(env, input, runContext, node) {
+  if (runContext?.smoke) return { ok: true, output: { smoke: true, skipped: true } };
+  const flat = flattenWorkflowInput(input);
+  return { ok: true, output: { triggered: true, payload: flat, node_key: node?.node_key } };
+}
+
+/** @param {any} env @param {string} handlerKey @param {unknown} input @param {Record<string, unknown>} runContext @param {Record<string, unknown>} node */
+async function executeWorkflowProcess(env, handlerKey, input, runContext, node) {
+  if (runContext?.smoke) return { ok: true, output: { smoke: true, skipped: true } };
+  const flat = flattenWorkflowInput(input);
+  const hk = String(handlerKey || '').trim();
+  if (hk && !hk.startsWith('workflow.process.')) {
+    const scriptOut = await executeWorkflowScript(env, hk, input, runContext, node);
+    if (scriptOut.ok) return scriptOut;
+  }
+  return { ok: true, output: { processed: true, merged: flat, node_key: node?.node_key } };
+}
+
+/** @param {unknown} input @param {Record<string, unknown>} node */
+function executeWorkflowOutput(input, node) {
+  const flat = flattenWorkflowInput(input);
+  return { ok: true, output: { final: flat, node_key: node?.node_key } };
+}
+
+/** Register named handlers for agent-step.js (handler_key path). */
+export function registerWorkflowStepHandlers() {
+  for (const key of Object.keys(DB_QUERY_HANDLERS)) {
+    registerAgentStepHandler(key, (env, { input, runContext, node, smoke }) =>
+      executeWorkflowDbQuery(env, key, input, { ...runContext, smoke }, node),
+    );
+  }
+  for (const key of Object.keys(SCRIPT_HANDLERS)) {
+    registerAgentStepHandler(key, (env, { input, runContext, node, smoke }) =>
+      executeWorkflowScript(env, key, input, { ...runContext, smoke }, node),
+    );
+  }
+  for (const key of Object.keys(EVAL_HANDLERS)) {
+    registerAgentStepHandler(key, (env, { input, runContext, node }) =>
+      executeWorkflowEval(env, key, input, runContext, node),
+    );
+  }
+  for (const key of Object.keys(MCP_HANDLER_TOOL_ALIASES)) {
+    registerAgentStepHandler(key, async (env, { input, runContext, node, smoke }) => {
+      if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+      const toolRes = await runBuiltinTool(
+        env,
+        MCP_HANDLER_TOOL_ALIASES[key],
+        flattenWorkflowInput(input),
+        runContext,
+      );
+      if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
+      return { ok: true, output: toolRes };
+    });
+  }
+  for (const hk of [
+    'ui.emit_workflow_timeline_event',
+    'ui.emit_audit_card',
+    'ui.emit_library_refresh',
+    'ui.emit_hyperdrive_report',
+  ]) {
+    registerAgentStepHandler(hk, (env, args) =>
+      executeWorkflowUiEmit(env, hk, args.input, args.runContext, args.node),
+    );
+  }
+}
+
+registerWorkflowStepHandlers();
+
+
+// ── MISSING: dashboard/src/features/workflows/workflowTypes.ts ──
+
+// ── MISSING: dashboard/src/features/workflows/workflowApi.ts ──
+
+======================================================================
+SUMMARY: 5 files loaded, 2 missing
+MISSING:
+  - dashboard/src/features/workflows/workflowTypes.ts
+  - dashboard/src/features/workflows/workflowApi.ts
+======================================================================
