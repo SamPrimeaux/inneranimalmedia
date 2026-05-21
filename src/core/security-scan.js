@@ -240,26 +240,126 @@ export async function runSecurityScan(env, opts = {}) {
   };
 }
 
+const LOG_AUDIT_CLOSURE_EVENTS = new Set(['rotated', 'revoked']);
+
+/** @param {import('@cloudflare/workers-types').D1Database} db */
+async function logSecretAuditColumns(db) {
+  const res = await db.prepare(`PRAGMA table_info(secret_audit_log)`).all();
+  return new Set((res.results || []).map((r) => String(r.name)));
+}
+
 export async function logSecretAudit(env, {
-  secretId, tenantId, userId, eventType,
-  triggeredBy, previousLast4, newLast4,
-  notes, ipAddress, userAgent,
+  secretId,
+  tenantId,
+  userId,
+  eventType,
+  triggeredBy,
+  previousLast4,
+  newLast4,
+  notes,
+  ipAddress,
+  userAgent,
   secretSource = 'user_secrets',
+  closeAuditTrail = false,
+  resolvedNotes = null,
 }) {
-  if (!env?.DB || !secretId) return;
-  await env.DB.prepare(`
-    INSERT INTO secret_audit_log
-      (id, secret_id, tenant_id, user_id, event_type,
-       triggered_by, previous_last4, new_last4,
-       notes, ip_address, user_agent, created_at, secret_source)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,unixepoch(),?)
-  `).bind(
-    'saudit_' + Math.random().toString(36).slice(2),
-    secretId, tenantId, userId ?? null, eventType,
-    triggeredBy ?? 'system', previousLast4 ?? null, newLast4 ?? null,
-    notes ?? null, ipAddress ?? null, userAgent ?? null,
-    secretSource,
-  ).run().catch(() => {});
+  if (!env?.DB || !secretId || !tenantId) return;
+
+  const db = env.DB;
+  const cols = await logSecretAuditColumns(db);
+  const isClosure = closeAuditTrail || LOG_AUDIT_CLOSURE_EVENTS.has(eventType);
+  const closureNote = String(
+    resolvedNotes || notes || `Closed by ${eventType} via dashboard`,
+  ).slice(0, 500);
+
+  if (isClosure && cols.has('resolved')) {
+    const sets = ['resolved = 1'];
+    const binds = [];
+    if (cols.has('resolved_at')) sets.push('resolved_at = unixepoch()');
+    if (cols.has('resolved_notes')) {
+      sets.push('resolved_notes = ?');
+      binds.push(closureNote);
+    }
+    binds.push(secretId, tenantId);
+    await db
+      .prepare(
+        `UPDATE secret_audit_log SET ${sets.join(', ')}
+         WHERE secret_id = ? AND tenant_id = ? AND COALESCE(resolved, 0) = 0`,
+      )
+      .bind(...binds)
+      .run()
+      .catch(() => {});
+  }
+
+  const colNames = [
+    'id',
+    'secret_id',
+    'secret_source',
+    'tenant_id',
+    'user_id',
+    'event_type',
+    'triggered_by',
+    'previous_last4',
+    'new_last4',
+    'notes',
+    'ip_address',
+    'user_agent',
+    'created_at',
+  ];
+  const values = {
+    id: `saudit_${Math.random().toString(36).slice(2, 14)}`,
+    secret_id: secretId,
+    secret_source: secretSource,
+    tenant_id: tenantId,
+    user_id: userId ?? null,
+    event_type: eventType,
+    triggered_by: triggeredBy ?? 'system',
+    previous_last4: previousLast4 ?? null,
+    new_last4: newLast4 ?? null,
+    notes: notes ?? null,
+    ip_address: ipAddress ?? null,
+    user_agent: userAgent ?? null,
+    created_at: 'unixepoch()',
+    resolved: isClosure && cols.has('resolved') ? 1 : cols.has('resolved') ? 0 : undefined,
+    resolved_at: isClosure && cols.has('resolved_at') ? 'unixepoch()' : undefined,
+    resolved_notes: isClosure && cols.has('resolved_notes') ? closureNote : undefined,
+  };
+
+  const insertCols = [];
+  const placeholders = [];
+  const binds = [];
+  for (const c of colNames) {
+    if (!cols.has(c)) continue;
+    insertCols.push(c);
+    const v = values[c];
+    if (v === 'unixepoch()') placeholders.push('unixepoch()');
+    else {
+      placeholders.push('?');
+      binds.push(v);
+    }
+  }
+  if (values.resolved !== undefined && cols.has('resolved')) {
+    insertCols.push('resolved');
+    placeholders.push('?');
+    binds.push(values.resolved);
+  }
+  if (values.resolved_at && cols.has('resolved_at')) {
+    insertCols.push('resolved_at');
+    placeholders.push('unixepoch()');
+  }
+  if (values.resolved_notes !== undefined && cols.has('resolved_notes')) {
+    insertCols.push('resolved_notes');
+    placeholders.push('?');
+    binds.push(values.resolved_notes);
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO secret_audit_log (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')})`,
+    )
+    .bind(...binds)
+    .run()
+    .catch(() => {});
 }
 
 export { EXPOSURE_PATTERNS, SCAN_TARGETS };

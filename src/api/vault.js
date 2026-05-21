@@ -1,10 +1,22 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
+import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { logSecretAudit } from '../core/security-scan.js';
 import { encryptWithVault, decryptWithVault } from '../core/oauth-token-store.js';
 
 const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
 const LLM_ALLOWED_NAMES = new Set(['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY']);
+
+/** @type {Set<string> | null} */
+let userSecretsColumnsCache = null;
+
+/** @param {import('@cloudflare/workers-types').D1Database} db */
+async function userSecretsColumns(db) {
+  if (userSecretsColumnsCache) return userSecretsColumnsCache;
+  const res = await db.prepare(`PRAGMA table_info(user_secrets)`).all();
+  userSecretsColumnsCache = new Set((res.results || []).map((r) => String(r.name)));
+  return userSecretsColumnsCache;
+}
 
 async function resolveUserTenantId(env, authUser) {
   if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
@@ -16,6 +28,93 @@ async function resolveUserTenantId(env, authUser) {
     tid = await fetchAuthUserTenantId(env, authUser.email);
     if (tid) return tid;
   }
+  return null;
+}
+
+/**
+ * Authenticated vault scope — tenant is mandatory; workspace when request is available.
+ * @returns {Promise<{ uid: string, tenantId: string, workspaceId: string | null } | { error: string, status: number }>}
+ */
+async function vaultAuthContext(env, authUser, request = null) {
+  const uid = String(authUser?.id || '').trim();
+  if (!uid) return { error: 'Unauthorized', status: 401 };
+  const tenantId = await resolveUserTenantId(env, authUser);
+  if (!tenantId) return { error: 'Tenant not configured for this account', status: 503 };
+  let workspaceId = null;
+  if (request) {
+    const ws = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+    workspaceId = ws.workspaceId || null;
+  }
+  return { uid, tenantId, workspaceId };
+}
+
+/** Build `user_id = ? AND tenant_id = ?` (+ optional workspace) for user_secrets. */
+function userSecretsScopeWhere(ctx, cols, opts = {}) {
+  const parts = ['user_id = ?', 'tenant_id = ?'];
+  const binds = [ctx.uid, ctx.tenantId];
+  if (opts.workspaceId && cols.has('workspace_id')) {
+    parts.push('workspace_id = ?');
+    binds.push(opts.workspaceId);
+  }
+  return { clause: parts.join(' AND '), binds };
+}
+
+/**
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+async function fetchScopedUserSecret(env, ctx, secretId, extra = '') {
+  const cols = await userSecretsColumns(env.DB);
+  const scope = userSecretsScopeWhere(ctx, cols);
+  const row = await env.DB.prepare(
+    `SELECT * FROM user_secrets WHERE id = ? AND ${scope.clause}${extra ? ` AND ${extra}` : ''} LIMIT 1`,
+  )
+    .bind(secretId, ...scope.binds)
+    .first();
+  return row || null;
+}
+
+/**
+ * BYOK slot status for model picker (masked metadata only).
+ * @returns {Promise<Record<string, { configured: boolean, masked: string | null, secret_id: string | null }>>}
+ */
+export async function getTenantLlmByokStatus(env, { tenantId, userId }) {
+  const out = {};
+  if (!env?.DB || !tenantId || !userId) {
+    for (const n of LLM_ALLOWED_NAMES) out[n] = { configured: false, masked: null, secret_id: null };
+    return out;
+  }
+  for (const secretName of LLM_ALLOWED_NAMES) {
+    const row = await env.DB.prepare(
+      `SELECT id, metadata_json FROM user_secrets
+       WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1
+       LIMIT 1`,
+    )
+      .bind(tenantId, userId, secretName, LLM_VAULT_PROJECT)
+      .first();
+    let last4 = '????';
+    if (row?.metadata_json) {
+      try {
+        const m = JSON.parse(String(row.metadata_json));
+        if (m.last4) last4 = String(m.last4);
+      } catch {
+        /* ignore */
+      }
+    }
+    out[secretName] = {
+      configured: !!row?.id,
+      masked: row?.id ? maskApiKeyPreview('', last4) : null,
+      secret_id: row?.id ? String(row.id) : null,
+    };
+  }
+  return out;
+}
+
+/** Map agentsam_ai.api_platform → vault secret_name for BYOK. */
+export function llmSecretNameForApiPlatform(apiPlatform) {
+  const p = String(apiPlatform || '').trim().toLowerCase();
+  if (p === 'openai' || p === 'cursor') return 'OPENAI_API_KEY';
+  if (p === 'anthropic_api' || p === 'anthropic') return 'ANTHROPIC_API_KEY';
+  if (p === 'gemini_api' || p === 'google_ai' || p === 'vertex_ai') return 'GEMINI_API_KEY';
   return null;
 }
 
@@ -39,20 +138,130 @@ function vaultNewId(prefix = 'sec') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function vaultWriteAudit(db, { secret_id, event_type, triggered_by, previous_last4, new_last4, notes, request }) {
+/** Event types that close the audit trail (prior open rows + new row marked resolved). */
+const VAULT_AUDIT_CLOSURE_EVENTS = new Set(['rotated', 'revoked']);
+
+/** @type {Set<string> | null} */
+let secretAuditColumnsCache = null;
+
+/** @param {import('@cloudflare/workers-types').D1Database} db */
+async function secretAuditColumns(db) {
+  if (secretAuditColumnsCache) return secretAuditColumnsCache;
+  const res = await db.prepare(`PRAGMA table_info(secret_audit_log)`).all();
+  secretAuditColumnsCache = new Set((res.results || []).map((r) => String(r.name)));
+  return secretAuditColumnsCache;
+}
+
+/**
+ * Mark unresolved audit rows for a secret as resolved (rotation/revoke from dashboard).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+async function vaultResolveOpenAuditEntries(db, { secret_id, tenant_id, resolved_notes }) {
+  const cols = await secretAuditColumns(db);
+  if (!cols.has('resolved') || !secret_id || !tenant_id) return;
+  const note = String(resolved_notes || 'Resolved via dashboard vault action').slice(0, 500);
+  const sets = ['resolved = 1'];
+  const binds = [];
+  if (cols.has('resolved_at')) {
+    sets.push('resolved_at = unixepoch()');
+  }
+  if (cols.has('resolved_notes')) {
+    sets.push('resolved_notes = ?');
+    binds.push(note);
+  }
+  binds.push(secret_id, tenant_id);
+  await db
+    .prepare(
+      `UPDATE secret_audit_log SET ${sets.join(', ')}
+       WHERE secret_id = ? AND tenant_id = ? AND COALESCE(resolved, 0) = 0`,
+    )
+    .bind(...binds)
+    .run();
+}
+
+/**
+ * Insert one secret_audit_log row (schema-aligned: tenant_id required, optional resolved_*).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+async function vaultWriteAudit(db, opts) {
+  const {
+    secret_id,
+    tenant_id,
+    user_id = null,
+    event_type,
+    triggered_by = null,
+    previous_last4 = null,
+    new_last4 = null,
+    notes = null,
+    request = null,
+    secret_source = 'user_secrets',
+    resolved_notes = null,
+  } = opts;
+
+  if (!secret_id || !tenant_id || !event_type) return;
+
+  const cols = await secretAuditColumns(db);
+  const isClosure = VAULT_AUDIT_CLOSURE_EVENTS.has(event_type);
+  const closureNote = String(
+    resolved_notes || notes || `Closed by ${event_type} via dashboard`,
+  ).slice(0, 500);
+
+  if (isClosure) {
+    await vaultResolveOpenAuditEntries(db, { secret_id, tenant_id, resolved_notes: closureNote });
+  }
+
   const id = `saudit_${Math.random().toString(36).slice(2, 14)}`;
   const ip = request?.headers?.get('CF-Connecting-IP') || null;
   const ua = request?.headers?.get('User-Agent')?.slice(0, 200) || null;
-  await db.prepare(
-    `INSERT INTO secret_audit_log (id, secret_id, tenant_id, user_id, event_type, triggered_by, previous_last4, new_last4, notes, ip_address, user_agent, created_at, secret_source)
-     VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, unixepoch(), 'user_secrets')`
-  ).bind(id, secret_id, event_type, triggered_by || null, previous_last4 || null, new_last4 || null, notes || null, ip, ua).run();
+
+  const row = {
+    id,
+    secret_id,
+    secret_source,
+    tenant_id,
+    user_id: user_id || null,
+    event_type,
+    triggered_by: triggered_by || null,
+    previous_last4: previous_last4 || null,
+    new_last4: new_last4 || null,
+    notes: notes || null,
+    ip_address: ip,
+    user_agent: ua,
+    resolved: isClosure && cols.has('resolved') ? 1 : cols.has('resolved') ? 0 : undefined,
+    resolved_at: isClosure && cols.has('resolved_at') ? 'unixepoch()' : undefined,
+    resolved_notes: isClosure && cols.has('resolved_notes') ? closureNote : undefined,
+  };
+
+  const colNames = [];
+  const placeholders = [];
+  const binds = [];
+  for (const [col, val] of Object.entries(row)) {
+    if (val === undefined || !cols.has(col)) continue;
+    colNames.push(col);
+    if (val === 'unixepoch()') {
+      placeholders.push('unixepoch()');
+    } else {
+      placeholders.push('?');
+      binds.push(val);
+    }
+  }
+  if (!colNames.includes('created_at') && cols.has('created_at')) {
+    colNames.push('created_at');
+    placeholders.push('unixepoch()');
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO secret_audit_log (${colNames.join(', ')}) VALUES (${placeholders.join(', ')})`,
+    )
+    .bind(...binds)
+    .run();
 }
 
 async function vaultCreateSecret(request, env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
-  if (!uid) return vaultErr('Unauthorized', 401);
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const body = await request.json();
   const { secret_name, secret_value, service_name, description, project_label, project_id, tags, scopes_json, expires_at } = body;
   if (!secret_name || !secret_value) return vaultErr('secret_name and secret_value are required');
@@ -60,25 +269,59 @@ async function vaultCreateSecret(request, env, authUser) {
   const id = vaultNewId('sec');
   const last4val = vaultLast4(secret_value);
   const metadata = JSON.stringify({ last4: last4val });
-  const tid = await resolveUserTenantId(env, authUser);
-  if (!tid) return vaultErr('Tenant not configured for this account', 503);
+  const cols = await userSecretsColumns(env.DB);
+  const wsCol = ctx.workspaceId && cols.has('workspace_id') ? ', workspace_id' : '';
+  const wsVal = ctx.workspaceId && cols.has('workspace_id') ? ', ?' : '';
+  const createBinds = [
+    id,
+    ctx.uid,
+    ctx.tenantId,
+    secret_name,
+    encrypted,
+    service_name || null,
+    description || null,
+    project_label || null,
+    project_id || null,
+    tags || null,
+    scopes_json ? JSON.stringify(scopes_json) : '[]',
+    metadata,
+    expires_at || null,
+  ];
+  if (ctx.workspaceId && cols.has('workspace_id')) createBinds.push(ctx.workspaceId);
   await env.DB.prepare(
-    `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
-  ).bind(id, uid, tid, secret_name, encrypted, service_name || null, description || null, project_label || null, project_id || null, tags || null, scopes_json ? JSON.stringify(scopes_json) : '[]', metadata, expires_at || null).run();
-  await vaultWriteAudit(env.DB, { secret_id: id, event_type: 'created', triggered_by: uid, new_last4: last4val, notes: `Created for service: ${service_name || 'unspecified'}`, request });
+    `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active${wsCol})
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1${wsVal})`,
+  )
+    .bind(...createBinds)
+    .run();
+  await vaultWriteAudit(env.DB, {
+    secret_id: id,
+    tenant_id: ctx.tenantId,
+    user_id: ctx.uid,
+    event_type: 'created',
+    triggered_by: ctx.uid,
+    new_last4: last4val,
+    notes: `Created for service: ${service_name || 'unspecified'}`,
+    request,
+  });
   return vaultJson({ success: true, id, last4: last4val });
 }
 
 async function vaultListSecrets(request, env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
-  if (!uid) return vaultErr('Unauthorized', 401);
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const url = new URL(request.url);
   const project = url.searchParams.get('project');
-  let query = `SELECT id, secret_name, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, is_active, expires_at, last_used_at, usage_count, created_at, updated_at FROM user_secrets WHERE user_id = ?`;
-  const params = [uid];
-  if (project) { query += ` AND project_label = ?`; params.push(project); }
+  const cols = await userSecretsColumns(env.DB);
+  const scope = userSecretsScopeWhere(ctx, cols);
+  let query = `SELECT id, secret_name, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, is_active, expires_at, last_used_at, usage_count, created_at, updated_at
+     FROM user_secrets WHERE ${scope.clause}`;
+  const params = [...scope.binds];
+  if (project) {
+    query += ` AND project_label = ?`;
+    params.push(project);
+  }
   query += ` ORDER BY project_label ASC, service_name ASC, secret_name ASC`;
   const result = await env.DB.prepare(query).bind(...params).all();
   return vaultJson({ secrets: result.results });
@@ -86,18 +329,22 @@ async function vaultListSecrets(request, env, authUser) {
 
 async function vaultGetSecret(id, env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
-  const row = await env.DB.prepare(
-    `SELECT id, secret_name, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, is_active, expires_at, last_used_at, usage_count, created_at, updated_at FROM user_secrets WHERE id = ? AND user_id = ?`
-  ).bind(id, uid).first();
+  const ctx = await vaultAuthContext(env, authUser, null);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
+  const row = await fetchScopedUserSecret(env, ctx, id);
   if (!row) return vaultErr('Secret not found', 404);
-  return vaultJson(row);
+  const {
+    secret_value_encrypted: _enc,
+    ...safe
+  } = row;
+  return vaultJson(safe);
 }
 
 async function vaultRevealSecret(id, eventType, request, env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
-  const row = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ? AND is_active = 1`).bind(id, uid).first();
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
+  const row = await fetchScopedUserSecret(env, ctx, id, 'is_active = 1');
   if (!row) return vaultErr('Secret not found or inactive', 404);
   let plaintext;
   try {
@@ -105,11 +352,20 @@ async function vaultRevealSecret(id, eventType, request, env, authUser) {
   } catch {
     return vaultErr('Decryption failed — master key may have changed', 500);
   }
-  await env.DB.prepare(`UPDATE user_secrets SET last_used_at = unixepoch(), usage_count = usage_count + 1, updated_at = unixepoch() WHERE id = ?`).bind(id).run();
-  await vaultWriteAudit(env.DB, { secret_id: id, event_type: eventType, notes: `Secret ${eventType} for ${row.service_name || 'unknown service'}`, request });
+  await env.DB.prepare(`UPDATE user_secrets SET last_used_at = unixepoch(), usage_count = usage_count + 1, updated_at = unixepoch() WHERE id = ? AND tenant_id = ? AND user_id = ?`)
+    .bind(id, ctx.tenantId, ctx.uid)
+    .run();
+  await vaultWriteAudit(env.DB, {
+    secret_id: id,
+    tenant_id: ctx.tenantId,
+    user_id: ctx.uid,
+    event_type: eventType,
+    notes: `Secret ${eventType} for ${row.service_name || 'unknown service'}`,
+    request,
+  });
   await logSecretAudit(env, {
     secretId: id,
-    tenantId: authUser.tenant_id,
+    tenantId: ctx.tenantId,
     userId: authUser.id,
     eventType,
     triggeredBy: 'dashboard_ui',
@@ -121,25 +377,48 @@ async function vaultRevealSecret(id, eventType, request, env, authUser) {
 
 async function vaultEditSecret(id, request, env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const body = await request.json();
   const { secret_name, description, project_label, project_id, tags, scopes_json, expires_at } = body;
-  const existing = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, uid).first();
+  const existing = await fetchScopedUserSecret(env, ctx, id);
   if (!existing) return vaultErr('Secret not found', 404);
   await env.DB.prepare(
-    `UPDATE user_secrets SET secret_name = COALESCE(?, secret_name), description = COALESCE(?, description), project_label = COALESCE(?, project_label), project_id = COALESCE(?, project_id), tags = COALESCE(?, tags), scopes_json = COALESCE(?, scopes_json), expires_at = COALESCE(?, expires_at), updated_at = unixepoch() WHERE id = ?`
-  ).bind(secret_name || null, description || null, project_label || null, project_id || null, tags || null, scopes_json ? JSON.stringify(scopes_json) : null, expires_at || null, id).run();
-  await vaultWriteAudit(env.DB, { secret_id: id, event_type: 'edited', notes: 'Metadata updated', request });
+    `UPDATE user_secrets SET secret_name = COALESCE(?, secret_name), description = COALESCE(?, description), project_label = COALESCE(?, project_label), project_id = COALESCE(?, project_id), tags = COALESCE(?, tags), scopes_json = COALESCE(?, scopes_json), expires_at = COALESCE(?, expires_at), updated_at = unixepoch()
+     WHERE id = ? AND user_id = ? AND tenant_id = ?`,
+  )
+    .bind(
+      secret_name || null,
+      description || null,
+      project_label || null,
+      project_id || null,
+      tags || null,
+      scopes_json ? JSON.stringify(scopes_json) : null,
+      expires_at || null,
+      id,
+      ctx.uid,
+      ctx.tenantId,
+    )
+    .run();
+  await vaultWriteAudit(env.DB, {
+    secret_id: id,
+    tenant_id: ctx.tenantId,
+    user_id: ctx.uid,
+    event_type: 'edited',
+    notes: 'Metadata updated',
+    request,
+  });
   return vaultJson({ success: true });
 }
 
 async function vaultRotateSecret(id, request, env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const body = await request.json();
   const { new_value } = body;
   if (!new_value) return vaultErr('new_value is required');
-  const existing = await env.DB.prepare(`SELECT * FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, uid).first();
+  const existing = await fetchScopedUserSecret(env, ctx, id);
   if (!existing) return vaultErr('Secret not found', 404);
   let oldLast4 = '????';
   try {
@@ -149,58 +428,122 @@ async function vaultRotateSecret(id, request, env, authUser) {
   const newEncrypted = await encryptWithVault(env, new_value);
   const newLast4 = vaultLast4(new_value);
   const newMeta = JSON.stringify({ ...JSON.parse(existing.metadata_json || '{}'), last4: newLast4 });
-  await env.DB.prepare(`UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, updated_at = unixepoch() WHERE id = ?`).bind(newEncrypted, newMeta, id).run();
-  await vaultWriteAudit(env.DB, { secret_id: id, event_type: 'rotated', previous_last4: oldLast4, new_last4: newLast4, notes: 'Secret rotated', request });
+  await env.DB.prepare(
+    `UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, updated_at = unixepoch()
+     WHERE id = ? AND user_id = ? AND tenant_id = ?`,
+  )
+    .bind(newEncrypted, newMeta, id, ctx.uid, ctx.tenantId)
+    .run();
+  const rotationNotes = 'Secret rotated via dashboard';
+  await vaultWriteAudit(env.DB, {
+    secret_id: id,
+    tenant_id: ctx.tenantId,
+    user_id: ctx.uid,
+    event_type: 'rotated',
+    triggered_by: ctx.uid,
+    previous_last4: oldLast4,
+    new_last4: newLast4,
+    notes: rotationNotes,
+    request,
+    resolved_notes: rotationNotes,
+  });
   await logSecretAudit(env, {
     secretId: id,
-    tenantId: authUser.tenant_id,
+    tenantId,
     userId: authUser.id,
     eventType: 'rotated',
     triggeredBy: 'dashboard_ui',
     previousLast4: oldLast4,
     newLast4: newLast4,
-    notes: 'Manual rotation via dashboard',
+    notes: rotationNotes,
     ipAddress: request.headers.get('CF-Connecting-IP'),
+    userAgent: request.headers.get('User-Agent'),
+    closeAuditTrail: true,
+    resolvedNotes: rotationNotes,
   });
   return vaultJson({ success: true, new_last4: newLast4 });
 }
 
 async function vaultRevokeSecret(id, env, request, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
-  const existing = await env.DB.prepare(`SELECT id FROM user_secrets WHERE id = ? AND user_id = ?`).bind(id, uid).first();
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
+  const existing = await fetchScopedUserSecret(env, ctx, id);
   if (!existing) return vaultErr('Secret not found', 404);
-  await env.DB.prepare(`UPDATE user_secrets SET is_active = 0, updated_at = unixepoch() WHERE id = ?`).bind(id).run();
-  await vaultWriteAudit(env.DB, { secret_id: id, event_type: 'revoked', notes: 'Secret revoked', request });
+  await env.DB.prepare(
+    `UPDATE user_secrets SET is_active = 0, updated_at = unixepoch() WHERE id = ? AND user_id = ? AND tenant_id = ?`,
+  )
+    .bind(id, ctx.uid, ctx.tenantId)
+    .run();
+  const revokeNotes = 'Secret revoked via dashboard';
+  await vaultWriteAudit(env.DB, {
+    secret_id: id,
+    tenant_id: ctx.tenantId,
+    user_id: ctx.uid,
+    event_type: 'revoked',
+    triggered_by: ctx.uid,
+    notes: revokeNotes,
+    request,
+    resolved_notes: revokeNotes,
+  });
+  await logSecretAudit(env, {
+    secretId: id,
+    tenantId: ctx.tenantId,
+    userId: authUser.id,
+    eventType: 'revoked',
+    triggeredBy: 'dashboard_ui',
+    notes: revokeNotes,
+    ipAddress: request.headers.get('CF-Connecting-IP'),
+    userAgent: request.headers.get('User-Agent'),
+    closeAuditTrail: true,
+    resolvedNotes: revokeNotes,
+  });
   return vaultJson({ success: true });
 }
 
-async function vaultGetSecretAudit(id, env) {
-  const rows = await env.DB.prepare(`SELECT * FROM secret_audit_log WHERE secret_id = ? ORDER BY created_at DESC LIMIT 100`).bind(id).all();
+async function vaultGetSecretAudit(id, env, authUser) {
+  if (!authUser) return vaultErr('Unauthorized', 401);
+  const ctx = await vaultAuthContext(env, authUser, null);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
+  const owned = await fetchScopedUserSecret(env, ctx, id);
+  if (!owned) return vaultErr('Secret not found', 404);
+  const rows = await env.DB.prepare(
+    `SELECT * FROM secret_audit_log WHERE secret_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 100`,
+  )
+    .bind(id, ctx.tenantId)
+    .all();
   return vaultJson({ audit: rows.results });
 }
 
 async function vaultListProjects(env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
+  const ctx = await vaultAuthContext(env, authUser, null);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const rows = await env.DB.prepare(
-    `SELECT DISTINCT project_label, project_id, COUNT(*) as secret_count FROM user_secrets WHERE user_id = ? AND project_label IS NOT NULL AND is_active = 1 GROUP BY project_label ORDER BY project_label ASC`
-  ).bind(uid).all();
+    `SELECT DISTINCT project_label, project_id, COUNT(*) as secret_count FROM user_secrets
+     WHERE user_id = ? AND tenant_id = ? AND project_label IS NOT NULL AND is_active = 1
+     GROUP BY project_label ORDER BY project_label ASC`,
+  )
+    .bind(ctx.uid, ctx.tenantId)
+    .all();
   return vaultJson({ projects: rows.results });
 }
 
 async function vaultFullAudit(request, env, authUser) {
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const url = new URL(request.url);
   const eventType = url.searchParams.get('event_type') || '';
   const since = url.searchParams.get('since');
   const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '200', 10) || 200));
-  let query = `SELECT sal.id, sal.secret_id, sal.event_type, sal.triggered_by, sal.previous_last4, sal.new_last4, sal.notes, sal.ip_address, sal.user_agent, sal.created_at, us.secret_name, us.service_name, us.project_label
+  let query = `SELECT sal.id, sal.secret_id, sal.secret_source, sal.tenant_id, sal.event_type, sal.triggered_by,
+       sal.previous_last4, sal.new_last4, sal.notes, sal.resolved, sal.resolved_at, sal.resolved_notes,
+       sal.ip_address, sal.user_agent, sal.created_at, us.secret_name, us.service_name, us.project_label
      FROM secret_audit_log sal
-     LEFT JOIN user_secrets us ON sal.secret_id = us.id
-     WHERE us.user_id = ?`;
-  const params = [uid];
+     INNER JOIN user_secrets us ON sal.secret_id = us.id AND us.user_id = ? AND us.tenant_id = ?
+     WHERE sal.tenant_id = ?`;
+  const params = [ctx.uid, ctx.tenantId, ctx.tenantId];
   if (eventType && ['created', 'viewed', 'copied', 'edited', 'rotated', 'revoked'].includes(eventType)) {
     query += ` AND sal.event_type = ?`;
     params.push(eventType);
@@ -282,38 +625,64 @@ function vaultRegistry() {
 async function vaultStoreUserKey(request, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return vaultErr('Unauthorized', 401);
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const body = await request.json().catch(() => ({}));
   const keyName = String(body.key_name || body.secret_name || '').trim();
   const value = String(body.value ?? body.secret_value ?? '');
   if (!keyName || !value) return vaultErr('key_name and value are required', 400);
   if (!LLM_ALLOWED_NAMES.has(keyName)) return vaultErr('key_name must be one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY', 400);
-  const tenantId = await resolveUserTenantId(env, authUser);
-  if (!tenantId) return vaultErr('Tenant could not be resolved', 403);
   const encrypted = await encryptWithVault(env, value);
   const last4val = vaultLast4(value);
   const metadata = JSON.stringify({ last4: last4val });
-  const uid = String(authUser.id || '').trim();
-  if (!uid) return vaultErr('Invalid session', 401);
+  const cols = await userSecretsColumns(env.DB);
 
   const existing = await env.DB.prepare(
-    `SELECT id FROM user_secrets WHERE user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1 LIMIT 1`,
+    `SELECT id FROM user_secrets
+     WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1
+     LIMIT 1`,
   )
-    .bind(uid, keyName, LLM_VAULT_PROJECT)
+    .bind(ctx.tenantId, ctx.uid, keyName, LLM_VAULT_PROJECT)
     .first();
 
   if (existing?.id) {
+    const wsSet = ctx.workspaceId && cols.has('workspace_id') ? ', workspace_id = ?' : '';
     await env.DB.prepare(
-      `UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, service_name = 'llm', updated_at = unixepoch() WHERE id = ?`,
+      `UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, service_name = 'llm', tenant_id = ?, updated_at = unixepoch()${wsSet}
+       WHERE id = ? AND user_id = ? AND tenant_id = ?`,
     )
-      .bind(encrypted, metadata, existing.id)
+      .bind(
+        encrypted,
+        metadata,
+        ctx.tenantId,
+        ...(ctx.workspaceId && cols.has('workspace_id') ? [ctx.workspaceId] : []),
+        existing.id,
+        ctx.uid,
+        ctx.tenantId,
+      )
       .run();
+    const llmRotateNotes = `User LLM key updated: ${keyName}`;
     await vaultWriteAudit(env.DB, {
       secret_id: existing.id,
+      tenant_id: ctx.tenantId,
+      user_id: ctx.uid,
       event_type: 'rotated',
+      triggered_by: ctx.uid,
       new_last4: last4val,
-      notes: `User LLM key updated: ${keyName}`,
+      notes: llmRotateNotes,
       request,
-      env,
+      resolved_notes: llmRotateNotes,
+    });
+    await logSecretAudit(env, {
+      secretId: existing.id,
+      tenantId: ctx.tenantId,
+      userId: ctx.uid,
+      eventType: 'rotated',
+      triggeredBy: 'dashboard_ui',
+      newLast4: last4val,
+      notes: llmRotateNotes,
+      closeAuditTrail: true,
+      resolvedNotes: llmRotateNotes,
     });
     return vaultJson({
       success: true,
@@ -324,19 +693,25 @@ async function vaultStoreUserKey(request, env) {
   }
 
   const id = vaultNewId('sec');
+  const wsCol = ctx.workspaceId && cols.has('workspace_id') ? ', workspace_id' : '';
+  const wsVal = ctx.workspaceId && cols.has('workspace_id') ? ', ?' : '';
+  const insBinds = [id, ctx.uid, ctx.tenantId, keyName, encrypted, LLM_VAULT_PROJECT, metadata];
+  if (ctx.workspaceId && cols.has('workspace_id')) insBinds.push(ctx.workspaceId);
   await env.DB.prepare(
-    `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active)
-     VALUES (?, ?, ?, ?, ?, 'llm', NULL, ?, NULL, NULL, '[]', ?, NULL, 1)`,
+    `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active${wsCol})
+     VALUES (?, ?, ?, ?, ?, 'llm', NULL, ?, NULL, NULL, '[]', ?, NULL, 1${wsVal})`,
   )
-    .bind(id, uid, tenantId, keyName, encrypted, LLM_VAULT_PROJECT, metadata)
+    .bind(...insBinds)
     .run();
   await vaultWriteAudit(env.DB, {
     secret_id: id,
+    tenant_id: ctx.tenantId,
+    user_id: ctx.uid,
     event_type: 'created',
+    triggered_by: ctx.uid,
     new_last4: last4val,
     notes: `User LLM key stored: ${keyName}`,
     request,
-    env,
   });
   return vaultJson({
     success: true,
@@ -359,13 +734,14 @@ function maskApiKeyPreview(plain, last4) {
 async function vaultListUserLlmKeys(request, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const { results } = await env.DB.prepare(
     `SELECT id, secret_name, metadata_json, is_active, created_at, updated_at
-     FROM user_secrets WHERE user_id = ? AND project_label = ? AND is_active = 1
+     FROM user_secrets WHERE tenant_id = ? AND user_id = ? AND project_label = ? AND is_active = 1
      ORDER BY secret_name ASC`,
   )
-    .bind(uid, LLM_VAULT_PROJECT)
+    .bind(ctx.tenantId, ctx.uid, LLM_VAULT_PROJECT)
     .all();
   const rows = (results || []).map((r) => {
     let last4 = '????';
@@ -407,20 +783,40 @@ async function vaultListUserLlmKeys(request, env) {
 async function vaultDeleteUserLlmKey(request, env, id) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return vaultErr('Unauthorized', 401);
-  const uid = String(authUser.id || '').trim();
+  const ctx = await vaultAuthContext(env, authUser, request);
+  if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
   const row = await env.DB.prepare(
-    `SELECT id FROM user_secrets WHERE id = ? AND user_id = ? AND project_label = ? AND is_active = 1 LIMIT 1`,
+    `SELECT id FROM user_secrets
+     WHERE id = ? AND tenant_id = ? AND user_id = ? AND project_label = ? AND is_active = 1 LIMIT 1`,
   )
-    .bind(id, uid, LLM_VAULT_PROJECT)
+    .bind(id, ctx.tenantId, ctx.uid, LLM_VAULT_PROJECT)
     .first();
   if (!row) return vaultErr('Not found', 404);
-  await env.DB.prepare(`UPDATE user_secrets SET is_active = 0, updated_at = unixepoch() WHERE id = ?`).bind(id).run();
+  await env.DB.prepare(
+    `UPDATE user_secrets SET is_active = 0, updated_at = unixepoch() WHERE id = ? AND tenant_id = ? AND user_id = ?`,
+  )
+    .bind(id, ctx.tenantId, ctx.uid)
+    .run();
+  const llmRevokeNotes = 'User removed LLM API key';
   await vaultWriteAudit(env.DB, {
     secret_id: id,
+    tenant_id: ctx.tenantId,
+    user_id: ctx.uid,
     event_type: 'revoked',
-    notes: 'User removed LLM API key',
+    triggered_by: ctx.uid,
+    notes: llmRevokeNotes,
     request,
-    env,
+    resolved_notes: llmRevokeNotes,
+  });
+  await logSecretAudit(env, {
+    secretId: id,
+    tenantId: ctx.tenantId,
+    userId: ctx.uid,
+    eventType: 'revoked',
+    triggeredBy: 'dashboard_ui',
+    notes: llmRevokeNotes,
+    closeAuditTrail: true,
+    resolvedNotes: llmRevokeNotes,
   });
   return vaultJson({ success: true });
 }
@@ -454,7 +850,7 @@ export async function handleVaultApi(request, urlIn, env, _ctx) {
     if (action === 'reveal' && method === 'POST') return vaultRevealSecret(id, 'viewed', request, env, vaultAuthUser);
     if (action === 'copy' && method === 'POST') return vaultRevealSecret(id, 'copied', request, env, vaultAuthUser);
     if (action === 'rotate' && method === 'POST') return vaultRotateSecret(id, request, env, vaultAuthUser);
-    if (action === 'audit' && method === 'GET') return vaultGetSecretAudit(id, env);
+    if (action === 'audit' && method === 'GET') return vaultGetSecretAudit(id, env, vaultAuthUser);
     if (!action && method === 'GET') return vaultGetSecret(id, env, vaultAuthUser);
     if (!action && method === 'PUT') return vaultEditSecret(id, request, env, vaultAuthUser);
     if (!action && method === 'DELETE') return vaultRevokeSecret(id, env, request, vaultAuthUser);

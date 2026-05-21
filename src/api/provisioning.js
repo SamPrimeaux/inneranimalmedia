@@ -378,8 +378,45 @@ export async function getUserPlan(env, tenantId) {
 /**
  * Decrypt BYOK secret from user_api_keys.key_hash (AES-GCM blob, vault layout).
  */
+const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
+const BYOK_PROVIDER_SECRET = {
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  google_ai: 'GEMINI_API_KEY',
+  google: 'GEMINI_API_KEY',
+};
+
 export async function getUserBYOKey(env, userId, tenantId, provider) {
   if (!env?.DB || !userId || !tenantId || !provider) return null;
+  const prov = String(provider || '').trim().toLowerCase();
+  const secretName = BYOK_PROVIDER_SECRET[prov] || null;
+
+  if (secretName) {
+    try {
+      const vaultRow = await env.DB.prepare(
+        `SELECT secret_value_encrypted, metadata_json FROM user_secrets
+         WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1
+         LIMIT 1`,
+      )
+        .bind(tenantId, userId, secretName, LLM_VAULT_PROJECT)
+        .first();
+      if (vaultRow?.secret_value_encrypted) {
+        const { vaultDecrypt } = await import('../api/vault.js');
+        const decrypted = await vaultDecrypt(env, vaultRow.secret_value_encrypted);
+        let preview = null;
+        try {
+          const m = JSON.parse(String(vaultRow.metadata_json || '{}'));
+          preview = m.last4 ? `••••${m.last4}` : null;
+        } catch {
+          /* ignore */
+        }
+        return { key: decrypted, preview, source: 'user_secrets' };
+      }
+    } catch (e) {
+      console.warn('[getUserBYOKey] user_secrets', e?.message ?? e);
+    }
+  }
+
   try {
     const row = await env.DB.prepare(
       `SELECT key_hash, key_preview FROM user_api_keys
@@ -393,7 +430,7 @@ export async function getUserBYOKey(env, userId, tenantId, provider) {
 
     const aesKey = await getAESKey(env, ['decrypt']);
     const decrypted = await aesGcmDecryptFromB64(row.key_hash, aesKey);
-    return { key: decrypted, preview: row.key_preview ?? null };
+    return { key: decrypted, preview: row.key_preview ?? null, source: 'user_api_keys' };
   } catch (e) {
     console.warn('[getUserBYOKey]', e?.message ?? e);
     return null;

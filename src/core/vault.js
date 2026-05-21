@@ -71,15 +71,20 @@ export async function getPublicConfig(env) {
  * @param {string} keyName — e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_AI_API_KEY
  * @returns {Promise<string | null>}
  */
-export async function resolveApiKey(env, userId, keyName) {
+export async function resolveApiKey(env, userId, keyName, tenantId = null) {
   if (userId && env?.DB && keyName) {
     try {
+      const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : null;
       const row = await env.DB.prepare(
-        `SELECT secret_value_encrypted FROM user_secrets
-         WHERE user_id = ? AND secret_name = ? AND is_active = 1
-         LIMIT 1`,
+        tid
+          ? `SELECT secret_value_encrypted FROM user_secrets
+             WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND is_active = 1
+             LIMIT 1`
+          : `SELECT secret_value_encrypted FROM user_secrets
+             WHERE user_id = ? AND secret_name = ? AND is_active = 1
+             LIMIT 1`,
       )
-        .bind(String(userId), String(keyName))
+        .bind(...(tid ? [tid, String(userId), String(keyName)] : [String(userId), String(keyName)]))
         .first();
       if (row?.secret_value_encrypted) {
         const { vaultDecrypt } = await import('../api/vault.js');

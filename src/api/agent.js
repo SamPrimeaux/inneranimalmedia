@@ -8448,10 +8448,22 @@ export async function handleAgentApi(request, url, env, ctx) {
   if (path === '/api/agent/models') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     if (method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405);
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    let tenantForModels =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantForModels && authUser.id) tenantForModels = await fetchAuthUserTenantId(env, authUser.id);
+    if (!tenantForModels && authUser.email) tenantForModels = await fetchAuthUserTenantId(env, authUser.email);
+    if (!tenantForModels) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
     const showInPicker = url.searchParams.get('show_in_picker') === '1';
-    const tenantForModels = url.searchParams.get('tenant_id') || identity?.tenantId;
-    if (!tenantForModels) return jsonResponse({ error: 'tenant_id required' }, 400);
     try {
+      const { getTenantLlmByokStatus, llmSecretNameForApiPlatform } = await import('./vault.js');
+      const byok = await getTenantLlmByokStatus(env, {
+        tenantId: tenantForModels,
+        userId: String(authUser.id || '').trim(),
+      });
       const { results } = await env.DB.prepare(
         `SELECT id, name, provider, model_key, api_platform, show_in_picker,
                 picker_eligible, picker_group,
@@ -8464,7 +8476,17 @@ export async function handleAgentApi(request, url, env, ctx) {
            ${showInPicker ? 'AND COALESCE(show_in_picker, 0) = 1' : ''}
          ORDER BY sort_order ASC, name ASC`,
       ).bind(tenantForModels).all();
-      return jsonResponse(results || []);
+      const rows = (results || []).map((row) => {
+        const secretName = llmSecretNameForApiPlatform(row.api_platform);
+        const slot = secretName ? byok[secretName] : null;
+        return {
+          ...row,
+          byok_configured: !!(slot && slot.configured),
+          byok_masked: slot?.masked ?? null,
+          billing_key_source: slot?.configured ? 'byok' : 'platform',
+        };
+      });
+      return jsonResponse(rows);
     } catch (e) {
       return jsonResponse({ error: e?.message }, 500);
     }

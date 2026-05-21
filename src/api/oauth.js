@@ -10,7 +10,7 @@
  *  - Uses SESSION_CACHE KV for state storage (10m TTL).
  *  - Persists tokens in D1 `user_oauth_tokens` with forward-compatible encrypted columns.
  */
-import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { getAuthUser, fetchAuthUserTenantId, jsonResponse } from '../core/auth.js';
 import {
   upsertOauthToken,
   ensureOauthTokenColumns,
@@ -614,7 +614,14 @@ async function storeApiKeyAsOauth(env, authUser, provider, apiKey) {
   if (!env?.DB) throw new Error('DB not configured');
   if (!env.VAULT_MASTER_KEY) throw new Error('VAULT_MASTER_KEY not configured');
   const userId = integrationUserId(authUser);
-  const tenantId = authUser?.tenant_id || '';
+  let tenantId =
+    authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+      ? String(authUser.tenant_id).trim()
+      : '';
+  if (!tenantId && authUser?.id) {
+    tenantId = String((await fetchAuthUserTenantId(env, authUser.id)) || '').trim();
+  }
+  if (!tenantId) throw new Error('Tenant not configured for this account');
   await ensureOauthTokenColumns(env.DB); // PRAGMA before write
   const encrypted = await encryptWithVault(env, apiKey);
   const createdAt = nowSeconds();

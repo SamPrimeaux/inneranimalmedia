@@ -469,7 +469,15 @@ export default {
         if (!identity.workspaceId) {
           return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
         }
-        const { label, allowedTools, expiresInDays } = await request.json().catch(() => ({}));
+        const body = await request.json().catch(() => ({}));
+        const { label, allowedTools, expiresInDays, rateLimitPerHour: rateLimitBody } = body;
+        const rateParsed = Number(rateLimitBody);
+        const rateLimitPerHour =
+          Number.isFinite(rateParsed) && rateParsed > 0
+            ? Math.min(10000, Math.floor(rateParsed))
+            : identity.isSuperadmin
+              ? 10000
+              : 1000;
         try {
           const result = await generateMcpToken(env, {
             userId: identity.userId,
@@ -477,7 +485,7 @@ export default {
             tenantId: identity.tenantId,
             label: label || `${identity.name || 'User'} MCP token`,
             allowedTools: allowedTools || null,
-            rateLimitPerHour: identity.isSuperadmin ? 10000 : 1000,
+            rateLimitPerHour,
             expiresInDays: expiresInDays || null,
           });
           return jsonResponse({
@@ -497,10 +505,28 @@ export default {
         const { tokenId } = await request.json().catch(() => ({}));
         if (!tokenId) return jsonResponse({ error: 'tokenId required' }, 400);
         await env.DB.prepare(`
-      UPDATE mcp_workspace_tokens SET is_active = 0
-      WHERE id = ? AND (tenant_id = ? OR ? = 1)
-    `).bind(tokenId, identity.tenantId, identity.isSuperadmin ? 1 : 0).run();
+      UPDATE mcp_workspace_tokens SET is_active = 0, revoked_at = unixepoch()
+      WHERE id = ? AND tenant_id = ? AND workspace_id = ?
+    `)
+          .bind(tokenId, identity.tenantId, identity.workspaceId)
+          .run();
         return jsonResponse({ ok: true });
+      }
+
+      if (pathLower === '/api/mcp/tokens' && methodUpper === 'GET') {
+        if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+        if (!identity?.tenantId || !identity?.workspaceId) {
+          return jsonResponse({ error: 'unauthenticated' }, 401);
+        }
+        const { results } = await env.DB.prepare(
+          `SELECT id, label, rate_limit_per_hour, is_active, expires_at, created_at, last_used_at, allowed_tools
+           FROM mcp_workspace_tokens
+           WHERE tenant_id = ? AND workspace_id = ? AND COALESCE(is_active, 1) = 1
+           ORDER BY created_at DESC LIMIT 50`,
+        )
+          .bind(identity.tenantId, identity.workspaceId)
+          .all();
+        return jsonResponse({ tokens: results || [] });
       }
 
       if (pathLower === '/api/agent/execute' && methodUpper === 'POST') {
