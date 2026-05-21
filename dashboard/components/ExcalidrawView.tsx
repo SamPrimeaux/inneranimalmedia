@@ -1,4 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
+/** Build emits assets/vendor-excalidraw.css (relocated); runtime inject via ensureExcalidrawStyles only. */
+import '@excalidraw/excalidraw/index.css';
+
+const EXCALIDRAW_STYLES_ID = 'iam-excalidraw-stylesheet';
+/** Emitted as assets/vendor-excalidraw.css — injected only when Draw mounts (never in index.html). */
+const EXCALIDRAW_CSS_HREF = `${import.meta.env.BASE_URL}assets/vendor-excalidraw.css`;
+
+function ensureExcalidrawStyles(): void {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById(EXCALIDRAW_STYLES_ID)) return;
+    const link = document.createElement('link');
+    link.id = EXCALIDRAW_STYLES_ID;
+    link.rel = 'stylesheet';
+    link.href = EXCALIDRAW_CSS_HREF;
+    document.head.appendChild(link);
+}
 
 /** Scene elements — deep paths under @excalidraw/excalidraw are not resolved by this project's tsc. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,10 +37,8 @@ export const ExcalidrawView: React.FC = () => {
 
     useEffect(() => {
         let cancelled = false;
-        void Promise.all([
-            import('@excalidraw/excalidraw'),
-            import('@excalidraw/excalidraw/index.css'),
-        ]).then(([m]) => {
+        ensureExcalidrawStyles();
+        void import('@excalidraw/excalidraw').then((m) => {
             if (!cancelled) setExcalidrawComp(() => m.Excalidraw as React.ComponentType<Record<string, unknown>>);
         });
         return () => { cancelled = true; };

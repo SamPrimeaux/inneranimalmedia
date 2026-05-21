@@ -97,6 +97,39 @@ export default defineConfig(({ mode }) => {
         },
       },
       {
+        name: 'defer-excalidraw-css-from-boot',
+        apply: 'build',
+        enforce: 'post',
+        transformIndexHtml(html) {
+          return html.replace(
+            /\s*<link[^>]*href="[^"]*vendor-excalidraw\.css"[^>]*>\s*/gi,
+            '\n',
+          );
+        },
+      },
+      {
+        name: 'relocate-excalidraw-css-asset',
+        apply: 'build',
+        enforce: 'post',
+        generateBundle(_options, bundle) {
+          for (const [fileName, item] of Object.entries(bundle)) {
+            if (item.type !== 'asset' || !fileName.endsWith('.css')) continue;
+            const src =
+              typeof item.source === 'string'
+                ? item.source
+                : Buffer.from(item.source as Uint8Array).toString('utf8');
+            if (!src.includes('.excalidraw')) continue;
+            delete bundle[fileName];
+            this.emitFile({
+              type: 'asset',
+              fileName: 'assets/vendor-excalidraw.css',
+              source: src,
+            });
+            break;
+          }
+        },
+      },
+      {
         name: 'merge-dashboard-entry-css',
         apply: 'build',
         enforce: 'post',
@@ -105,6 +138,7 @@ export default defineConfig(({ mode }) => {
           for (const [fileName, item] of Object.entries(bundle)) {
             if (item.type !== 'asset' || !fileName.endsWith('.css')) continue;
             if (fileName !== 'dashboard.css' && fileName !== 'dashboard2.css') continue;
+            if (/excalidraw/i.test(fileName)) continue;
             const src = item.source;
             parts.push({
               name: fileName,
@@ -159,8 +193,13 @@ export default defineConfig(({ mode }) => {
           chunkFileNames: '[name].js',
           assetFileNames: (asset) => {
             if (!asset.name?.endsWith('.css')) return '[name][extname]';
+            const originals = asset.names ?? [];
+            const fromExcalidraw = originals.some(
+              (n) => /[/\\]@excalidraw[/\\]/.test(n) || /excalidraw/i.test(n),
+            );
             const name = asset.name ?? '';
-            if (/excalidraw|LearnPage|learn\.css/i.test(name)) return 'assets/[name][extname]';
+            if (fromExcalidraw) return 'assets/vendor-excalidraw[extname]';
+            if (/LearnPage|learn\.css/i.test(name)) return 'assets/[name][extname]';
             const base = name.replace(/\.css$/i, '');
             if (base === 'index' || base === 'style' || base === 'dashboard' || base.startsWith('dashboard')) {
               return 'dashboard.css';
