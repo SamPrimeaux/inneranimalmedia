@@ -130,6 +130,19 @@ export function isDirectImageGenerationIntent(message) {
 }
 
 /**
+ * Video generation / Veo / MovieMode render intent (capability tool injection).
+ * @param {string} message
+ */
+export function hasVideoGenerationIntent(message) {
+  const m = String(message || '').trim();
+  if (!m) return false;
+  return (
+    /\b(generate|create|make|produce|render)\b.{0,40}\b(video|clip|footage|movie|animation)\b/i.test(m) ||
+    /\b(veo|sora|text.to.video|video.gen|moviemode)\b/i.test(m)
+  );
+}
+
+/**
  * @param {string} message
  * @param {boolean} [hasReferenceImage]
  */
@@ -258,9 +271,6 @@ export async function recordImageModelOutcome(env, modelKey, workspaceId, succes
     .run()
     .catch((e) => console.warn('[image_generation] recordImageModelOutcome', e?.message ?? e));
 }
-
-/** Tool names injected when {@link hasImageGenerationIntent} is true. */
-export const IMAGE_CAPABILITY_TOOL_NAMES = ['imgx_generate_image', 'imgx_edit_image'];
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',

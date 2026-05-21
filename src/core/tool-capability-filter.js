@@ -2,7 +2,8 @@
  * Request-scoped tool menu (Layer B): narrow global catalog tools by capability + message intent.
  */
 
-import { hasImageGenerationIntent, IMAGE_CAPABILITY_TOOL_NAMES } from '../tools/image_generation.js';
+import { hasImageGenerationIntent, hasVideoGenerationIntent } from '../tools/image_generation.js';
+import { getCapabilityTools } from './capability-tools.js';
 
 function parseJsonSafe(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -151,28 +152,29 @@ function isAgentSamAgentToolName(name) {
   return n === 'agentsam_get_agent' || n === 'agentsam_list_agents' || n === 'agentsam_run_agent';
 }
 
-function isImageCapabilityToolName(name) {
-  return IMAGE_CAPABILITY_TOOL_NAMES.includes(String(name || ''));
-}
+/** Re-attach capability-family tools after narrowing when message intent requires them. */
+async function mergeCapabilityTools(env, narrowed, originalTools, userMessage, opts = {}) {
+  const { workspaceId, mode = 'agent', tag, intentTest } = opts;
+  if (!intentTest(userMessage) || !workspaceId) return narrowed;
+  const capabilityNames = await getCapabilityTools(env, workspaceId, mode, tag);
+  if (!capabilityNames.length) return narrowed;
 
-/** Re-attach imgx tools after D1/browser/github narrowing when the user also asked for images. */
-async function mergeImageCapabilityTools(env, narrowed, originalTools, userMessage) {
-  if (!hasImageGenerationIntent(userMessage)) return narrowed;
+  const capSet = new Set(capabilityNames);
   const byName = Object.fromEntries(
     [...narrowed, ...originalTools]
-      .filter((t) => t && isImageCapabilityToolName(t.name))
+      .filter((t) => t && capSet.has(String(t.name)))
       .map((t) => [String(t.name), t]),
   );
-  const missing = IMAGE_CAPABILITY_TOOL_NAMES.filter((n) => !byName[n]);
+  const missing = capabilityNames.filter((n) => !byName[n]);
   if (missing.length) {
     const fetched = await narrowToToolNames(env, originalTools, missing);
     for (const t of fetched) byName[String(t.name)] = t;
   }
-  const imgTools = IMAGE_CAPABILITY_TOOL_NAMES.map((n) => byName[n]).filter(Boolean);
-  if (!imgTools.length) return narrowed;
+  const capTools = capabilityNames.map((n) => byName[n]).filter(Boolean);
+  if (!capTools.length) return narrowed;
   const seen = new Set(narrowed.map((t) => String(t?.name || '')));
   const merged = [...narrowed];
-  for (const t of imgTools) {
+  for (const t of capTools) {
     const nm = String(t.name);
     if (!seen.has(nm)) {
       merged.push(t);
@@ -180,6 +182,24 @@ async function mergeImageCapabilityTools(env, narrowed, originalTools, userMessa
     }
   }
   return merged;
+}
+
+async function mergeImageCapabilityTools(env, narrowed, originalTools, userMessage, workspaceId, mode) {
+  return mergeCapabilityTools(env, narrowed, originalTools, userMessage, {
+    workspaceId,
+    mode,
+    tag: 'image_capability',
+    intentTest: hasImageGenerationIntent,
+  });
+}
+
+async function mergeVideoCapabilityTools(env, narrowed, originalTools, userMessage, workspaceId, mode) {
+  return mergeCapabilityTools(env, narrowed, originalTools, userMessage, {
+    workspaceId,
+    mode,
+    tag: 'video_capability',
+    intentTest: hasVideoGenerationIntent,
+  });
 }
 
 /**
@@ -229,7 +249,15 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
     next = tools.filter((t) => isAgentSamAgentToolName(t.name));
   }
 
-  next = await mergeImageCapabilityTools(env, next, tools, msg);
+  const ws =
+    capabilityDecision?.workspace_id != null
+      ? String(capabilityDecision.workspace_id)
+      : opts.workspaceId != null
+        ? String(opts.workspaceId)
+        : '';
+  const mode = requestedMode || 'agent';
+  next = await mergeImageCapabilityTools(env, next, tools, msg, ws, mode);
+  next = await mergeVideoCapabilityTools(env, next, tools, msg, ws, mode);
 
   const after = next.map((t) => String(t?.name || '')).filter(Boolean);
   const debug =

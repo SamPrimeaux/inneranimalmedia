@@ -91,9 +91,11 @@ import {
   isImageGenerationTool,
   isPrimaryImageGenerationIntent,
   hasImageGenerationIntent,
+  hasVideoGenerationIntent,
   handleDirectImageGenerationChatStream,
   streamImageGenerationSse,
 } from '../tools/image_generation.js';
+import { getCapabilityTools } from '../core/capability-tools.js';
 import {
   resolveRoutingArm,
   resolveRoutingArmByModelKey,
@@ -1069,6 +1071,7 @@ function capabilityFamiliesFromUserMessage(message, intentResult) {
     fams.push('browser');
   }
   if (hasImageGenerationIntent(message)) fams.push('image');
+  if (hasVideoGenerationIntent(message)) fams.push('video');
   return [...new Set(fams)];
 }
 
@@ -1095,7 +1098,10 @@ function agentToolFamily(t) {
   if (n === 'terminal_run' || n === 'terminal_execute' || n === 'run_command' || n === 'bash' || c.includes('terminal')) return 'terminal';
   if (n.startsWith('r2_') || c.includes('r2') || c.includes('storage')) return 'r2';
   if (n.startsWith('browser_') || n.startsWith('cdt_') || n.startsWith('playwright_') || n === 'browser_content' || c.includes('browser')) return 'browser';
-  if (n.startsWith('imgx_') || c.includes('image') || c.includes('media')) return 'image';
+  if (n.startsWith('imgx_') || c.includes('image') || (c.includes('media') && !n.startsWith('moviemode_') && !n.startsWith('veo_'))) {
+    return 'image';
+  }
+  if (n.startsWith('moviemode_') || n.startsWith('veo_') || c.includes('video')) return 'video';
   if (n.startsWith('agentsam_')) return 'agentsam';
   if (n.startsWith('ai_')) return 'ai';
   return 'general';
@@ -1111,6 +1117,7 @@ function requestedFamiliesForAgentTools(message, intentResult, capabilityDecisio
   if (d.should_use_browser) fams.add('browser');
   if (d.should_use_artifact_r2) fams.add('r2');
   if (hasImageGenerationIntent(message)) fams.add('image');
+  if (hasVideoGenerationIntent(message)) fams.add('video');
 
   return [...fams].filter(Boolean);
 }
@@ -1144,11 +1151,13 @@ function filterAgentToolsForRequest(env, tools, message, intentResult, capabilit
     if (!hasD1 && d1FromOriginal) out.unshift(d1FromOriginal);
 
     const allowImage = hasImageGenerationIntent(message);
+    const allowVideo = hasVideoGenerationIntent(message);
     out = out.filter(
       (t) =>
         agentToolNameOf(t) === 'd1_query' ||
         agentToolFamily(t) === 'd1' ||
-        (allowImage && agentToolFamily(t) === 'image'),
+        (allowImage && agentToolFamily(t) === 'image') ||
+        (allowVideo && agentToolFamily(t) === 'video'),
     );
 
     out.sort((a, b) => {
@@ -1193,31 +1202,6 @@ const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
 ];
 
 const TOOL_OUTPUT_SSE_MAX = 12000;
-
-async function getCapabilityTools(env, workspaceId, mode, intentCategoryTag) {
-  const ws = workspaceId != null ? String(workspaceId).trim() : '';
-  if (!env?.DB || !ws) return [];
-  const modeSlug = String(mode || 'agent').trim();
-  const tag = String(intentCategoryTag || '').trim();
-  if (!tag) return [];
-  try {
-    const { results } = await env.DB.prepare(
-      `SELECT DISTINCT tool_name
-       FROM agentsam_mcp_tools
-       WHERE intent_category_tags = ?
-         AND (workspace_id = ? OR workspace_id IS NULL)
-         AND is_active = 1
-         AND enabled = 1
-         AND modes_json LIKE ?`,
-    )
-      .bind(tag, ws, `%${modeSlug}%`)
-      .all();
-    return (results || []).map((r) => String(r.tool_name || '').trim()).filter(Boolean);
-  } catch (e) {
-    console.warn('[agent] getCapabilityTools', e?.message ?? e);
-    return [];
-  }
-}
 
 function inputSchemaFromAgentsamToolRow(row) {
   const parsed = parseJsonSafe(row?.input_schema, null);
@@ -1280,11 +1264,16 @@ async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTool
     opts.imageCapabilityIntent && opts.workspaceId
       ? await getCapabilityTools(env, opts.workspaceId, mode, 'image_capability')
       : [];
+  const videoCapabilityTools =
+    opts.videoCapabilityIntent && opts.workspaceId
+      ? await getCapabilityTools(env, opts.workspaceId, mode, 'video_capability')
+      : [];
   const fetchNames = [
     ...new Set([
       ...nameSet,
       ...AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS,
       ...imageCapabilityTools,
+      ...videoCapabilityTools,
     ]),
   ];
   const rows = await fetchAgentsamToolRowsByName(env, fetchNames);
@@ -1310,6 +1299,11 @@ async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTool
       if (!minimumBar.includes(t)) minimumBar.unshift(t);
     }
   }
+  if (opts.videoCapabilityIntent && videoCapabilityTools.length) {
+    for (const t of videoCapabilityTools) {
+      if (!minimumBar.includes(t)) minimumBar.unshift(t);
+    }
+  }
   for (const req of minimumBar) {
     if (seen.has(req)) continue;
     if (out.length >= effectiveMaxTools) break;
@@ -1327,18 +1321,19 @@ async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTool
   return out;
 }
 
-/** Guarantee imgx tools survive capability narrowing when the user asked for images. */
-async function ensureImageCapabilityTools(
+/** Guarantee DB-tagged capability tools survive narrowing (image / video families). */
+async function ensureCapabilityTools(
   env,
   tools,
-  imageCapabilityIntent,
+  intentFlag,
+  intentCategoryTag,
   effectiveMaxTools,
   workspaceId,
   mode,
 ) {
-  if (!imageCapabilityIntent || !env?.DB || !Array.isArray(tools)) return tools;
+  if (!intentFlag || !env?.DB || !Array.isArray(tools)) return tools;
   const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
-  const capabilityTools = await getCapabilityTools(env, workspaceId, mode, 'image_capability');
+  const capabilityTools = await getCapabilityTools(env, workspaceId, mode, intentCategoryTag);
   const missing = capabilityTools.filter((n) => !have.has(n));
   if (!missing.length) return tools;
   const rows = await fetchAgentsamToolRowsByName(env, missing);
@@ -1358,6 +1353,30 @@ async function ensureImageCapabilityTools(
     });
   }
   return out;
+}
+
+async function ensureImageCapabilityTools(env, tools, imageCapabilityIntent, effectiveMaxTools, workspaceId, mode) {
+  return ensureCapabilityTools(
+    env,
+    tools,
+    imageCapabilityIntent,
+    'image_capability',
+    effectiveMaxTools,
+    workspaceId,
+    mode,
+  );
+}
+
+async function ensureVideoCapabilityTools(env, tools, videoCapabilityIntent, effectiveMaxTools, workspaceId, mode) {
+  return ensureCapabilityTools(
+    env,
+    tools,
+    videoCapabilityIntent,
+    'video_capability',
+    effectiveMaxTools,
+    workspaceId,
+    mode,
+  );
 }
 
 function chatToolSessionSseBase(ledger) {
@@ -5825,6 +5844,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     );
 
   const imageCapabilityIntent = hasImageGenerationIntent(message);
+  const videoCapabilityIntent = hasVideoGenerationIntent(message);
   const directImageIntent = isPrimaryImageGenerationIntent(message);
 
   const allowImmediateWorkflowMatch =
@@ -5838,6 +5858,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     requestedMode === 'debug' ||
     requestedMode === 'multitask' ||
     imageCapabilityIntent ||
+    videoCapabilityIntent ||
     (requestedMode === 'ask' && (explicitSurfaceOrWorkflowIntent || askDataPlaneIntent));
 
   const explicitPlanPhrase = /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(
@@ -6218,6 +6239,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (agentLikeTooling && env.DB) {
     tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools, {
       imageCapabilityIntent,
+      videoCapabilityIntent,
       workspaceId,
     });
 
@@ -6249,6 +6271,30 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
   }
 
+  if (videoCapabilityIntent && agentLikeTooling && env.DB) {
+    const beforeVid = tools.map(agentToolNameOf).filter(Boolean);
+    tools = await ensureVideoCapabilityTools(
+      env,
+      tools,
+      videoCapabilityIntent,
+      effectiveMaxTools,
+      workspaceId,
+      requestedMode,
+    );
+    const afterVid = tools.map(agentToolNameOf).filter(Boolean);
+    const injectedVid = afterVid.filter((n) => !beforeVid.includes(n));
+    if (injectedVid.length) {
+      console.log(
+        '[agent] video_capability_autoroute',
+        JSON.stringify({
+          mode: requestedMode,
+          injected_tools: injectedVid,
+          message_preview: trimmedMsg.slice(0, 160),
+        }),
+      );
+    }
+  }
+
   /** @type {Record<string, unknown>|null} */
   let capabilityDecision = null;
   if (agentLikeTooling && !ingestBypass) {
@@ -6273,12 +6319,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       });
       tools = await filterToolsForCapabilityDecision(env, tools, capabilityDecision, gate.rewritten_query || message, {
         requestedMode,
+        workspaceId,
       });
       if (imageCapabilityIntent) {
         tools = await ensureImageCapabilityTools(
           env,
           tools,
           imageCapabilityIntent,
+          effectiveMaxTools,
+          workspaceId,
+          requestedMode,
+        );
+      }
+      if (videoCapabilityIntent) {
+        tools = await ensureVideoCapabilityTools(
+          env,
+          tools,
+          videoCapabilityIntent,
           effectiveMaxTools,
           workspaceId,
           requestedMode,
@@ -6333,13 +6390,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const agentWantsToolExecution =
     TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL.has(taskTypeKey) ||
     (requestedMode === 'ask' && explicitSurfaceOrWorkflowIntent) ||
-    imageCapabilityIntent;
+    imageCapabilityIntent ||
+    videoCapabilityIntent;
   const toolsBuiltCount = tools.length;
 
   if (agentLikeTooling && !agentWantsToolExecution) {
     // Only strip tools for ask/plan/context modes — agent/debug/multitask/auto always keep tools
     // Agent Sam has 650+ tables across CF D1 + Supabase — model must decide tool use, not heuristics
-    if (['ask', 'plan', 'context'].includes(requestedMode) && !imageCapabilityIntent) {
+    if (['ask', 'plan', 'context'].includes(requestedMode) && !imageCapabilityIntent && !videoCapabilityIntent) {
       tools = [];
     }
   }
@@ -6931,6 +6989,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           env,
           tools,
           imageCapabilityIntent,
+          effectiveMaxTools,
+          workspaceId,
+          requestedMode,
+        );
+      }
+      if (videoCapabilityIntent) {
+        tools = await ensureVideoCapabilityTools(
+          env,
+          tools,
+          videoCapabilityIntent,
           effectiveMaxTools,
           workspaceId,
           requestedMode,
