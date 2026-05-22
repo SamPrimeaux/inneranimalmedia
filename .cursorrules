@@ -49,3 +49,9 @@ See `docs/agentsam_knowledge/dashboard_r2_asset_deploy_tactics.md`.
 - `git push main` / CF Builds may deploy Worker only; it does not sync `dashboard/dist` to R2.
 - Fix: `npm run deploy:frontend` (or `npm run deploy:full` for full releases). Do not recommend Worker rollback when the issue is missing Vite chunks in R2.
 - Deploy validation must check `/health` **and** that dashboard HTML-referenced asset URLs return 200 (future: `scripts/verify_dashboard_asset_integrity.py`).
+# AI-Generated Table Ownership Rules
+# Paste the CURSOR RULES section into .cursorrules
+
+OpenAI call failed: HTTP Error 400: Bad Request
+
+Review ownership.json manually.
