@@ -96,6 +96,7 @@ import {
   streamImageGenerationSse,
 } from '../tools/image_generation.js';
 import { getCapabilityTools } from '../core/capability-tools.js';
+import { loadAvailableToolsForCapability } from '../core/tool-registry.js';
 import {
   resolveRoutingArm,
   resolveRoutingArmByModelKey,
@@ -4673,6 +4674,55 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
  * Expect: surface_open + agent_surface_open (browser), browser_navigate with URL; no a11y_get_summary.
  */
 
+/** Logged-only fallback when metadata_json.surface_routes has no match (avoid silent wrong routing). */
+const SURFACE_WORKFLOW_FALLBACKS = {
+  browser: 'agent_browser_inspection_to_patch',
+  inspector: 'i-am-inspector-playwright',
+  monaco: 'i-am-builder-monaco',
+  excalidraw: 'i-am-architect-excalidraw',
+  cms: 'cms_live_editor_dev_app',
+};
+
+/**
+ * Resolve workflow_id from agentsam_workflows.metadata_json.surface_routes (DB-driven).
+ * @param {any} env
+ * @param {string} surface
+ * @param {string|null} [intent]
+ * @returns {Promise<string|null>} workflow_key
+ */
+async function resolveWorkflowFromSurfaceMetadata(env, surface, intent = null) {
+  if (!env?.DB || !surface) return null;
+  const surf = String(surface).trim();
+  if (!surf) return null;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT workflow_key, metadata_json
+       FROM agentsam_workflows
+       WHERE COALESCE(is_active, 1) = 1
+       ORDER BY updated_at DESC`,
+    ).all();
+    for (const row of results || []) {
+      let meta = {};
+      try {
+        meta =
+          typeof row.metadata_json === 'object'
+            ? row.metadata_json
+            : JSON.parse(row.metadata_json || '{}');
+      } catch {
+        meta = {};
+      }
+      const routes = meta?.surface_routes?.[surf] ?? [];
+      if (!intent || routes.includes(intent) || routes.includes('*')) {
+        return String(row.workflow_key || '').trim() || null;
+      }
+    }
+  } catch (e) {
+    console.warn('[agent] resolveWorkflowFromSurfaceMetadata', e?.message ?? e);
+  }
+  console.warn(`ROUTING_METADATA_MISS surface=${surf} intent=${intent ?? ''}`);
+  return SURFACE_WORKFLOW_FALLBACKS[surf] ?? null;
+}
+
 /** First active workflow_key among candidates (D1 agentsam_workflows). */
 async function firstActiveWorkflowKeyAmong(env, keys) {
   if (!env?.DB || !Array.isArray(keys)) return null;
@@ -4817,6 +4867,19 @@ function extractPrimaryUrlForBrowserPreflight(message, browserContext) {
 
 /** Prefer seeded keys, then registry / node graph heuristics. */
 async function resolveBrowserWorkflowKeyFromDb(env) {
+  const metaRouted = await resolveWorkflowFromSurfaceMetadata(env, 'browser', '*');
+  if (metaRouted) {
+    try {
+      const wf = await env.DB.prepare(
+        `SELECT workflow_key FROM agentsam_workflows WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      )
+        .bind(metaRouted)
+        .first();
+      if (wf?.workflow_key) return String(wf.workflow_key);
+    } catch {
+      /* fall through */
+    }
+  }
   const seeded = await firstActiveWorkflowKeyAmong(env, [
     'agent_browser_inspection_to_patch',
     'i-am-inspector-playwright',
@@ -4903,7 +4966,9 @@ async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedM
     return { kind: 'missing_workflow', surface: 'browser', reason: tagged.reason };
   }
   if (tagged.route === 'excalidraw') {
-    const key = await firstActiveWorkflowKeyAmong(env, ['i-am-architect-excalidraw']);
+    const key =
+      (await resolveWorkflowFromSurfaceMetadata(env, 'excalidraw', '*')) ||
+      (await firstActiveWorkflowKeyAmong(env, ['i-am-architect-excalidraw']));
     if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
     return { kind: 'missing_workflow', surface: 'excalidraw', reason: tagged.reason };
   }
@@ -8718,6 +8783,45 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (Number(existing.is_system) === 1) return jsonResponse({ error: 'System shortcut cannot be disabled' }, 403);
     await env.DB.prepare(`UPDATE keyboard_shortcuts SET is_enabled = ? WHERE id = ?`).bind(turnOn ? 1 : 0, rowId).run();
     return jsonResponse({ ok: true });
+  }
+
+  // ── /api/agent/browser/registry-tools — D1 agentsam_tools for BrowserView / picker ──
+  if (path === '/api/agent/browser/registry-tools' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ tools: [], pickers: {} });
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+    const workspaceId = String(
+      url.searchParams.get('workspace_id') || identity?.workspaceId || '',
+    ).trim();
+    const userId = String(authUser.id || identity?.userId || '').trim();
+    const tools = await loadAvailableToolsForCapability(
+      env,
+      tenantId || '',
+      workspaceId,
+      userId,
+      'browser',
+    );
+    const pickers = {
+      navigate: ['browser_navigate', 'cdt_navigate_page'],
+      content: ['browser_content'],
+      console: ['cdt_list_console_messages'],
+      network: ['cdt_list_network_requests'],
+      snapshot: ['cdt_take_snapshot'],
+      screenshot: ['playwright_screenshot', 'browser_screenshot', 'cdt_take_screenshot'],
+      evaluate: ['cdt_evaluate_script'],
+      hover: ['cdt_hover'],
+    };
+    const names = new Set(tools.map((t) => String(t.tool_name)));
+    const resolved = {};
+    for (const [lane, candidates] of Object.entries(pickers)) {
+      resolved[lane] = candidates.find((c) => names.has(c)) || null;
+    }
+    return jsonResponse({ tools, pickers: resolved });
   }
 
   // ── /api/agent/context-picker/catalog ────────────────────────────────────

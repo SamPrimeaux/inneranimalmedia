@@ -38,6 +38,52 @@ const DEFAULT_URL =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Resolved from GET /api/agent/browser/registry-tools (agentsam_tools / agentsam_mcp_tools). */
+type BrowserRegistryPickers = {
+  navigate: string | null;
+  content: string | null;
+  console: string | null;
+  network: string | null;
+  snapshot: string | null;
+  screenshot: string | null;
+  evaluate: string | null;
+  hover: string | null;
+};
+
+const EMPTY_BROWSER_PICKERS: BrowserRegistryPickers = {
+  navigate: null,
+  content: null,
+  console: null,
+  network: null,
+  snapshot: null,
+  screenshot: null,
+  evaluate: null,
+  hover: null,
+};
+
+async function fetchBrowserRegistryPickers(workspaceId: string): Promise<BrowserRegistryPickers> {
+  try {
+    const qs = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
+    const r = await fetch(`/api/agent/browser/registry-tools${qs}`, { credentials: 'same-origin' });
+    const data = await r.json().catch(() => ({})) as { pickers?: BrowserRegistryPickers };
+    if (data.pickers && typeof data.pickers === 'object') {
+      return { ...EMPTY_BROWSER_PICKERS, ...data.pickers };
+    }
+  } catch { /* non-blocking */ }
+  return EMPTY_BROWSER_PICKERS;
+}
+
+function safeClassText(el: { className?: unknown } | null | undefined): string {
+  if (!el || el.className == null) return '';
+  const c = el.className;
+  if (typeof c === 'string') return c;
+  if (typeof c === 'object' && c !== null && 'baseVal' in c) {
+    const base = (c as { baseVal?: string }).baseVal;
+    if (typeof base === 'string') return base;
+  }
+  return String(c);
+}
+
 function normalize(raw: string): string {
   const s = raw.trim();
   if (!s) return DEFAULT_URL;
@@ -394,7 +440,8 @@ const DevToolsPanel: React.FC<{
   onTabChange:       (t: DevToolsTab) => void;
   inspectedElement:  InspectedElement | null;
   inspectSameOrigin: boolean;
-}> = ({ url, onClose, tab, onTabChange, inspectedElement, inspectSameOrigin }) => {
+  registryPickers:   BrowserRegistryPickers;
+}> = ({ url, onClose, tab, onTabChange, inspectedElement, inspectSameOrigin, registryPickers }) => {
   const [loading, setLoading]       = useState(false);
   const [consoleRows, setConsoleRows] = useState<ConsoleMsg[]>([]);
   const [networkRows, setNetworkRows] = useState<Array<NetworkReq & {
@@ -429,8 +476,12 @@ const DevToolsPanel: React.FC<{
     if (!force && fetchedRef.current[t]) return;
     setLoading(true);
     try {
+      const consoleTool = registryPickers.console || 'cdt_list_console_messages';
+      const networkTool = registryPickers.network || 'cdt_list_network_requests';
+      const snapshotTool = registryPickers.snapshot || 'cdt_take_snapshot';
+
       if (t === 'console') {
-        const cons = await invokeCdt('cdt_list_console_messages', { url, limit: 100 });
+        const cons = await invokeCdt(consoleTool, { url, limit: 100 });
         const raw = Array.isArray((cons as { messages?: unknown[] })?.messages)
           ? (cons as { messages: Array<{ type?: string; text?: string }> }).messages
           : [];
@@ -442,7 +493,7 @@ const DevToolsPanel: React.FC<{
         setConsoleRows(mapped);
         fetchedRef.current.console = true;
       } else if (t === 'network') {
-        const net = await invokeCdt('cdt_list_network_requests', { url, limit: 100 });
+        const net = await invokeCdt(networkTool, { url, limit: 100 });
         const raw = Array.isArray((net as { requests?: unknown[] })?.requests)
           ? (net as { requests: Array<NetworkReq & { resourceType?: string; response?: unknown }> }).requests
           : [];
@@ -458,7 +509,7 @@ const DevToolsPanel: React.FC<{
         })));
         fetchedRef.current.network = true;
       } else if (t === 'elements' && !inspectSameOrigin) {
-        const snap = await invokeCdt('cdt_take_snapshot', { url, interestingOnly: true });
+        const snap = await invokeCdt(snapshotTool, { url, interestingOnly: true });
         const root = (snap as { snapshot?: unknown })?.snapshot;
         setSnapshot(
           root && typeof root === 'object' && !Array.isArray(root)
@@ -471,7 +522,7 @@ const DevToolsPanel: React.FC<{
       }
     } catch { /* ignore */ }
     finally { setLoading(false); }
-  }, [url, inspectSameOrigin]);
+  }, [url, inspectSameOrigin, registryPickers]);
 
   useEffect(() => {
     void loadTab(tab, false);
@@ -689,43 +740,56 @@ const PICKER_CLEANUP_SCRIPT = `
 
 const PICKER_SCRIPT = `
 (function() {
-  if (window.__iamPickerActive) return;
+  if (window.__iamPickerTeardown) window.__iamPickerTeardown();
   window.__iamPickerActive = true;
   let lastEl = null;
   const overlay = document.createElement('div');
   overlay.id = '__iam-picker-overlay';
-  overlay.style.cssText = 'position:fixed;pointer-events:none;border:2px solid #3a9fe8;background:rgba(58,159,232,0.08);z-index:2147483647;transition:all 0.1s;border-radius:2px;';
+  overlay.style.cssText = 'position:fixed;pointer-events:none;border:2px solid #3a9fe8;background:rgba(58,159,232,0.08);z-index:2147483647;transition:all 0.08s;border-radius:2px;';
   document.body.appendChild(overlay);
+
+  function classText(el) {
+    if (!el || el.className == null) return '';
+    const c = el.className;
+    if (typeof c === 'string') return c;
+    if (typeof c === 'object' && c.baseVal) return c.baseVal;
+    return String(c);
+  }
 
   function getPath(el) {
     const parts = [];
-    while (el && el !== document.body) {
-      let sel = el.tagName.toLowerCase();
-      if (el.id) sel += '#' + el.id;
-      else if (el.className) sel += '.' + el.className.trim().split(/\\s+/)[0];
+    let node = el;
+    while (node && node !== document.body && node !== document.documentElement) {
+      let sel = (node.tagName || 'div').toLowerCase();
+      if (node.id) sel += '#' + node.id;
+      else {
+        const cls = classText(node).trim().split(/\\s+/)[0];
+        if (cls) sel += '.' + cls;
+      }
       parts.unshift(sel);
-      el = el.parentElement;
+      node = node.parentElement;
     }
     return parts.join(' > ');
   }
 
-  document.addEventListener('mouseover', e => {
+  function onOver(e) {
     const el = e.target;
-    if (el === overlay) return;
+    if (!el || el === overlay) return;
     lastEl = el;
     const r = el.getBoundingClientRect();
-    overlay.style.top    = r.top    + 'px';
-    overlay.style.left   = r.left   + 'px';
-    overlay.style.width  = r.width  + 'px';
+    overlay.style.top = r.top + 'px';
+    overlay.style.left = r.left + 'px';
+    overlay.style.width = r.width + 'px';
     overlay.style.height = r.height + 'px';
-  }, true);
+  }
 
-  document.addEventListener('click', e => {
+  function onClick(e) {
     e.preventDefault();
     e.stopPropagation();
+    e.stopImmediatePropagation();
     const el = lastEl;
     if (!el) return;
-    const r  = el.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
     const cs = window.getComputedStyle(el);
     const styles = {};
     ['color','background-color','font-size','font-family','font-weight',
@@ -736,18 +800,28 @@ const PICKER_SCRIPT = `
       if (v) styles[p] = v;
     });
     window.parent.postMessage({
-      type:    'iam-element-selected',
+      type: 'iam-element-selected',
       element: {
-        tag:        el.tagName.toLowerCase(),
-        id:         el.id || null,
-        className:  el.className || null,
-        html:       el.outerHTML?.slice(0, 3000),
-        path:       getPath(el),
+        tag: (el.tagName || '').toLowerCase(),
+        id: el.id || null,
+        className: classText(el) || null,
+        html: (el.outerHTML || '').slice(0, 3000),
+        path: getPath(el),
         styles,
         boundingBox: { top: r.top, left: r.left, width: r.width, height: r.height },
       }
     }, '*');
-  }, true);
+  }
+
+  document.addEventListener('mouseover', onOver, true);
+  document.addEventListener('click', onClick, true);
+
+  window.__iamPickerTeardown = function() {
+    window.__iamPickerActive = false;
+    document.removeEventListener('mouseover', onOver, true);
+    document.removeEventListener('click', onClick, true);
+    overlay.remove();
+  };
 })();
 `;
 
@@ -798,8 +872,13 @@ const BrowserPane: React.FC<PaneProps> = ({
   const [devToolsWidth,  setDevToolsWidth]  = useState(40);
   const [devToolsTab,    setDevToolsTab]    = useState<DevToolsTab>('elements');
   const [toastMsg,       setToastMsg]       = useState<string | null>(null);
+  const [registryPickers, setRegistryPickers] = useState<BrowserRegistryPickers>(EMPTY_BROWSER_PICKERS);
 
   const inputRef     = useRef<HTMLInputElement>(null);
+  const registryPickersRef = useRef(registryPickers);
+  useEffect(() => {
+    registryPickersRef.current = registryPickers;
+  }, [registryPickers]);
   const menuRef      = useRef<HTMLDivElement>(null);
   const iframeRef    = useRef<HTMLIFrameElement>(null);
   const areaOverRef  = useRef<HTMLDivElement>(null);
@@ -837,6 +916,58 @@ const BrowserPane: React.FC<PaneProps> = ({
       return false;
     }
   }, [currentUrl]);
+
+  useEffect(() => {
+    const wid =
+      typeof window !== 'undefined'
+        ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
+        : '';
+    if (!wid || wid === 'global') return;
+    void fetchBrowserRegistryPickers(wid).then(setRegistryPickers);
+  }, []);
+
+  const injectPickerScript = useCallback(() => {
+    let injected = false;
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      if (doc?.head) {
+        const s = doc.createElement('script');
+        s.textContent = PICKER_SCRIPT;
+        doc.head.appendChild(s);
+        injected = true;
+      }
+    } catch { /* cross-origin */ }
+
+    if (!injected) {
+      const urlNow = currentUrlRef.current;
+      const evalTool = registryPickersRef.current.evaluate;
+      if (evalTool && urlNow?.trim()) {
+        void invokeCdt(evalTool, {
+          url: urlNow,
+          expression: `(${PICKER_SCRIPT})()`,
+          user_id: undefined,
+          workspace_id:
+            typeof window !== 'undefined'
+              ? (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__
+              : undefined,
+        }).catch(() => {
+          setToastMsg('Cross-origin picker: use DevTools Elements (CDT snapshot) or trust origin for server browser tools.');
+        });
+      } else {
+        setToastMsg('Cross-origin picker needs cdt_evaluate_script in agentsam_tools for this workspace.');
+      }
+    }
+  }, []);
+
+  const teardownPickerScript = useCallback(() => {
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc) return;
+      const s = doc.createElement('script');
+      s.textContent = PICKER_CLEANUP_SCRIPT;
+      doc.head?.appendChild(s);
+    } catch { /* cross-origin */ }
+  }, []);
 
   function startResize(e: React.MouseEvent) {
     e.preventDefault();
@@ -929,7 +1060,17 @@ const BrowserPane: React.FC<PaneProps> = ({
         } catch {
           routePath = '';
         }
-        const classes = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
+        const classes = safeClassText(el).split(/\s+/).filter(Boolean);
+        let sectionKey: string | null = null;
+        let n: HTMLElement | null = el as unknown as HTMLElement;
+        for (let i = 0; i < 8 && n; i++) {
+          sectionKey =
+            n.getAttribute?.('data-section-key') ||
+            n.getAttribute?.('data-section') ||
+            n.getAttribute?.('data-iam-section') ||
+            sectionKey;
+          n = n.parentElement;
+        }
         const htmlText =
           typeof el.html === 'string' ? el.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) : '';
         const st = el.styles || {};
@@ -951,9 +1092,11 @@ const BrowserPane: React.FC<PaneProps> = ({
             width: st.width,
             height: st.height,
           },
+          section_key: sectionKey,
           cms_mapping: {
             page_id: null as string | null,
             section_id: null as string | null,
+            section_key: sectionKey,
             component_id: null as string | null,
             asset_id: null as string | null,
           },
@@ -1017,26 +1160,6 @@ const BrowserPane: React.FC<PaneProps> = ({
     };
     window.addEventListener('iam-browser-screenshot', onAgentScreenshot as EventListener);
     return () => window.removeEventListener('iam-browser-screenshot', onAgentScreenshot as EventListener);
-  }, []);
-
-  const injectPickerScript = useCallback(() => {
-    try {
-      const doc = iframeRef.current?.contentDocument;
-      if (!doc) return;
-      const s = doc.createElement('script');
-      s.textContent = PICKER_SCRIPT;
-      doc.head?.appendChild(s);
-    } catch { /* cross-origin — can't inject, CDT tools handle instead */ }
-  }, []);
-
-  const teardownPickerScript = useCallback(() => {
-    try {
-      const doc = iframeRef.current?.contentDocument;
-      if (!doc) return;
-      const s = doc.createElement('script');
-      s.textContent = PICKER_CLEANUP_SCRIPT;
-      doc.head?.appendChild(s);
-    } catch { /* cross-origin */ }
   }, []);
 
   // ── Inject / tear down picker script when mode changes ──────────────────────
@@ -1221,7 +1344,7 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   // ── Toggle mode ─────────────────────────────────────────────────────────────
   const toggleMode = (m: PaneMode) => {
-    setMode(prev => prev === m ? 'browse' : m);
+    setMode(prev => (prev === m ? 'browse' : m));
     if (m === 'area') setArea(null);
   };
 
@@ -1516,6 +1639,7 @@ const BrowserPane: React.FC<PaneProps> = ({
                   onTabChange={setDevToolsTab}
                   inspectedElement={inspectedEl}
                   inspectSameOrigin={inspectSameOrigin}
+                  registryPickers={registryPickers}
                 />
               </div>
             </>

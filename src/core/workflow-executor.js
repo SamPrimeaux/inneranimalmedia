@@ -11,6 +11,7 @@ import {
   executeWorkflowMcpTool,
   flattenWorkflowInput,
 } from './workflow-node-handlers.js';
+import { dispatchComplete } from './provider.js';
 import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
@@ -113,15 +114,60 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
       return { ok: true, result: input };
 
     case 'd1_sql': {
-      if (!config.sql) return { ok: true, result: {}, noop: true, reason: 'no_sql_in_config' };
-      const params = (config.params || []).map(p => _resolvePath(input, p));
-      const { results } = await env.DB.prepare(config.sql).bind(...params).all();
+      emptyHandlerConfig(config, handlerKey, 'd1_sql');
+      const sql = String(config.sql || '').trim();
+      if (!sql) {
+        throw new Error(`Handler "${handlerKey}" d1_sql config missing "sql" field`);
+      }
+      const paramRoot = buildWorkflowParamRoot(input, runContext);
+      const params = (config.params || []).map((p) => _resolvePath(paramRoot, p));
+      if (/^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql)) {
+        const runRes = await env.DB.prepare(sql).bind(...params).run();
+        return {
+          ok: true,
+          result: { changes: runRes?.meta?.changes ?? 0, rows: [] },
+        };
+      }
+      const { results } = await env.DB.prepare(sql).bind(...params).all();
       return { ok: true, result: { rows: results, count: results.length } };
     }
 
     case 'agent_llm': {
-      const agentNode = { ...node, _registry_config: config };
-      return dispatchComplete(env, agentNode, input, runContext);
+      emptyHandlerConfig(config, handlerKey, 'agent_llm');
+      const paramRoot = buildWorkflowParamRoot(input, runContext);
+      const taskType =
+        config.task_type || runContext?.workflowMeta?.default_task_type || 'code';
+      const mode = config.mode || runContext?.workflowMeta?.default_mode || 'agent';
+      const userMsg =
+        typeof input === 'string'
+          ? input
+          : config.user_message_field
+            ? paramRoot[config.user_message_field]
+            : paramRoot.prompt ||
+              paramRoot.message ||
+              paramRoot.instruction ||
+              paramRoot.capture ||
+              JSON.stringify(paramRoot).slice(0, 12000);
+      const result = await dispatchComplete(env, {
+        modelKey: config.model_key,
+        taskType,
+        mode,
+        systemPrompt:
+          config.system_prompt ||
+          'You are Agent Sam for Inner Animal Media. Return concise structured JSON or markdown.',
+        messages: [{ role: 'user', content: String(userMsg ?? '').slice(0, 12000) }],
+        userId: runContext?.canonicalUserId ?? paramRoot.user_id,
+        options: config.options || { reasoningEffort: 'medium', verbosity: 'low' },
+      });
+      const text =
+        result?.text ||
+        result?.content?.[0]?.text ||
+        result?.output ||
+        JSON.stringify(result);
+      return {
+        ok: true,
+        output: { result: text, model: result?.model, usage: result?.usage },
+      };
     }
 
     case 'mcp_tool': {
@@ -130,9 +176,23 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
     }
 
     case 'builtin_tool': {
+      if (config.delegate === 'script' || String(handlerKey).startsWith('script_')) {
+        return executeWorkflowScript(env, handlerKey, input, runContext, node);
+      }
       const stepMod = await import('./agent-step.js');
       if (stepMod.isRegisteredAgentStepHandler(handlerKey)) {
         return stepMod.agentChatStep(env, { handler_key: handlerKey, input, runContext, node, config });
+      }
+      if (config.tool_key) {
+        const { runBuiltinTool } = await import('../tools/ai-dispatch.js');
+        const toolRes = await runBuiltinTool(
+          env,
+          config.tool_key,
+          { ...buildWorkflowParamRoot(input, runContext), ...(config.input_map || {}) },
+          runContext,
+        );
+        if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
+        return { ok: true, output: toolRes };
       }
       return { ok: false, error: `builtin_tool not registered in agent-step.js: ${handlerKey}` };
     }
@@ -143,20 +203,74 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
       return { ok: true, result: { emitted: eventType } };
     }
 
-    case 'eval':
-      return executeQualityGate
-        ? executeQualityGate(env, node, input, runContext)
-        : { ok: true, result: {}, noop: true, reason: 'eval_noop' };
+    case 'eval': {
+      const qg = config.quality_gate || config;
+      const nodeWithQg = {
+        ...node,
+        quality_gate_json: JSON.stringify(
+          Object.keys(qg).length ? qg : _safeJson(node.quality_gate_json || '{}'),
+        ),
+      };
+      return executeWorkflowEval(env, handlerKey, input, runContext, nodeWithQg);
+    }
 
     case 'terminal':
-      return dispatchTerminal
-        ? dispatchTerminal(env, node, input, runContext)
-        : { ok: false, error: 'terminal dispatcher not available' };
+      return { ok: true, output: { terminal: true, handler_key: handlerKey, ...flattenWorkflowInput(input) } };
 
-    case 'approval':
-      return dispatchApprovalGate
-        ? dispatchApprovalGate(env, node, input, runContext)
-        : { ok: false, error: 'approval dispatcher not available' };
+    case 'approval': {
+      if (!env?.DB) return { ok: false, error: 'DB not available for approval gate' };
+      const flat = buildWorkflowParamRoot(input, runContext);
+      const approvalId = `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      const cols = await pragmaTableInfo(env.DB, 'agentsam_approval_queue');
+      if (!cols.size) return { ok: false, error: 'agentsam_approval_queue table missing' };
+      const row = {
+        id: approvalId,
+        tenant_id: flat.tenant_id,
+        workspace_id: flat.workspace_id,
+        user_id: flat.user_id,
+        workflow_run_id: flat.run_id,
+        workflow_key: runContext?.workflowKey ?? null,
+        handler_key: handlerKey,
+        tool_name: config.tool_name || handlerKey,
+        action_summary: config.action_summary || node?.title || 'Workflow approval required',
+        input_json: JSON.stringify(flat).slice(0, 8000),
+        approval_type: config.approval_type || 'workflow',
+        risk_level: config.risk_level || 'medium',
+        status: 'pending',
+        expires_at: Math.floor(Date.now() / 1000) + (Number(config.ttl_sec) || 86400),
+      };
+      const names = [];
+      const ph = [];
+      const binds = [];
+      for (const [k, v] of Object.entries(row)) {
+        if (!cols.has(k) || v === undefined) continue;
+        names.push(k);
+        ph.push('?');
+        binds.push(v);
+      }
+      if (!names.length) return { ok: false, error: 'no insertable approval columns' };
+      await env.DB.prepare(
+        `INSERT INTO agentsam_approval_queue (${names.join(', ')}) VALUES (${ph.join(', ')})`,
+      )
+        .bind(...binds)
+        .run();
+      if (flat.run_id && cols.has('approval_id')) {
+        await env.DB.prepare(
+          `UPDATE agentsam_workflow_runs SET approval_id = ?, status = 'awaiting_approval', updated_at = datetime('now') WHERE id = ?`,
+        )
+          .bind(approvalId, flat.run_id)
+          .run()
+          .catch(() => null);
+      }
+      return {
+        ok: true,
+        output: {
+          approval_id: approvalId,
+          status: 'pending',
+          awaiting_approval: true,
+        },
+      };
+    }
 
     case 'http': {
       const url = config.url;
@@ -180,6 +294,30 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
 function _resolvePath(obj, path) {
   if (!path || !path.startsWith('$.')) return path;
   return path.slice(2).split('.').reduce((o, k) => o?.[k], obj) ?? null;
+}
+
+/** Merge run context + step input for d1_sql param bindings ($.run_id, $.workspace_id, …). */
+function buildWorkflowParamRoot(input, runContext) {
+  const flat = flattenWorkflowInput(input);
+  const runId = runContext?.runId ?? runContext?.workflowRunId ?? null;
+  const meta = runContext?.runMeta || {};
+  return {
+    ...flat,
+    run_id: runId,
+    workflow_run_id: runId,
+    workspace_id: meta.workspaceId ?? flat.workspace_id ?? null,
+    tenant_id: meta.tenantId ?? flat.tenant_id ?? null,
+    user_id: meta.userId ?? runContext?.canonicalUserId ?? flat.user_id ?? null,
+    input: flat,
+    run: runId ? { id: runId } : {},
+  };
+}
+
+function emptyHandlerConfig(config, handlerKey, executorKind) {
+  if (config && typeof config === 'object' && Object.keys(config).length > 0) return false;
+  throw new Error(
+    `Handler "${handlerKey}" has empty handler_config_json for executor_kind=${executorKind} — add config in agentsam_workflow_handlers`,
+  );
 }
 
 // ── resolveEntryNode ──────────────────────────────────────────────────────────
@@ -546,10 +684,15 @@ function evaluateEdge(edge, nodeOutput) {
       }
       return true;
     }
+    case 'field':
     case 'output': {
-      const val = nodeOutput?.output?.[cond.field];
+      const val =
+        nodeOutput?.output?.[cond.field] ??
+        nodeOutput?.output?.pass ??
+        nodeOutput?.[cond.field];
       if (cond.op === 'eq') return val === cond.value;
       if (cond.op === 'neq') return val !== cond.value;
+      if (cond.equals != null) return val === cond.equals;
       return val != null;
     }
     case 'branch': {

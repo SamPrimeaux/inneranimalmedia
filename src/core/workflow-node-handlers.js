@@ -298,10 +298,23 @@ const EVAL_HANDLERS = {
       : typeof ds === 'object' && ds != null && Object.keys(ds).length > 0;
     return { passed: hasSeries, dataset_keys: typeof ds === 'object' && ds ? Object.keys(ds) : [] };
   },
+  'agentsam.qa.assertions'(flat) {
+    const ok =
+      flat.ok === true ||
+      flat.passed === true ||
+      (flat.capture != null && flat.screenshot != null) ||
+      (flat.output && typeof flat.output === 'object' && flat.output.ok !== false);
+    return { passed: ok, ok, evidence_present: ok };
+  },
+  'eval_cms_live_editor_contract'(flat) {
+    const manifest = flat.manifest || flat.dev_app_manifest || flat.output?.manifest;
+    const r2 = flat.r2_key || flat.planned_r2_key || flat.output?.r2_key;
+    const passed = !!(manifest || r2);
+    return { passed, pass: passed ? 1 : 0, has_manifest: !!manifest, has_r2: !!r2 };
+  },
 };
 
 const MCP_HANDLER_TOOL_ALIASES = {
-  'browser.capture_context': 'cdt_take_snapshot',
   'terminal.hyperdrive_connectivity_check': 'hyperdrive_query',
 };
 
@@ -611,6 +624,11 @@ export function registerWorkflowStepHandlers() {
       executeWorkflowEval(env, key, input, runContext, node),
     );
   }
+  registerAgentStepHandler('browser.capture_context', async (env, { input, runContext, smoke }) => {
+    if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
+    const { executeBrowserCaptureContext } = await import('./browser-capture-context.js');
+    return executeBrowserCaptureContext(env, input, runContext);
+  });
   for (const key of Object.keys(MCP_HANDLER_TOOL_ALIASES)) {
     registerAgentStepHandler(key, async (env, { input, runContext, node, smoke }) => {
       if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
