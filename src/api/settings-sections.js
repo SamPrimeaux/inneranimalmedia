@@ -340,7 +340,7 @@ async function getNotifications(env, authUser) {
   const recentErrors = await safeQueryAll(
     db,
     'agentsam_error_log',
-    `SELECT id, severity, source, message, created_at FROM agentsam_error_log ORDER BY created_at DESC LIMIT 25`,
+    `SELECT id, severity, source, error_message AS message, created_at FROM agentsam_error_log ORDER BY created_at DESC LIMIT 25`,
     [],
     warnings,
     cache,

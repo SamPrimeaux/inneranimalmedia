@@ -152,7 +152,7 @@ function resolveMcpTenantId(authUser, _env) {
 }
 
 async function resolveWorkflowTimeoutSeconds(env, tenantId) {
-  const fallback = 300;
+  const fallback = 120;
   if (!env.DB) return fallback;
   try {
     return await maxAgentsamWorkflowTimeoutSeconds(env.DB, fallback, tenantId);
@@ -161,16 +161,32 @@ async function resolveWorkflowTimeoutSeconds(env, tenantId) {
   }
 }
 
-function filterToolRowsByPanel(requestAgentId, rows) {
+async function filterToolRowsByPanel(requestAgentId, rows, env, workspaceId, tenantId) {
   if (!requestAgentId) return rows;
-  const agent = String(requestAgentId).toLowerCase();
-  if (agent === 'mcp_agent_architect') {
-    return rows.filter((r) => ['github_repos', 'github_get_file', 'mcp_status'].includes(r.tool_name));
+  if (!env?.DB) {
+    // DB unavailable — fall back to original hardcoded behaviour
+    const agent = String(requestAgentId).toLowerCase();
+    if (agent === 'mcp_agent_architect') return rows.filter((r) => ['github_repos','github_get_file','mcp_status'].includes(r.tool_name));
+    if (agent === 'mcp_agent_tester' || agent === 'mcp_agent_inspector') return rows.filter((r) => ['playwright_run','cicd_status','mcp_status'].includes(r.tool_name));
+    return rows;
   }
-  if (agent === 'mcp_agent_tester' || agent === 'mcp_agent_inspector') {
-    return rows.filter((r) => ['playwright_run', 'cicd_status', 'mcp_status'].includes(r.tool_name));
+  try {
+    const ws = workspaceId ?? '';
+    const tid = tenantId ?? '';
+    const { results } = await env.DB.prepare(`
+      SELECT DISTINCT tool_key FROM agentsam_mcp_allowlist
+      WHERE is_allowed = 1
+        AND agent_id = ?
+        AND (workspace_id = ? OR workspace_id = '' OR workspace_id IS NULL)
+        AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')
+    `).bind(String(requestAgentId), ws, tid).all();
+    if (!results?.length) return rows;
+    const allowed = new Set(results.map((r) => r.tool_key));
+    return rows.filter((r) => allowed.has(r.tool_name) || allowed.has(r.tool_key));
+  } catch (e) {
+    console.warn('[filterToolRowsByPanel] DB lookup failed, falling back:', e?.message ?? e);
+    return rows;
   }
-  return rows;
 }
 
 function parseLogsJson(raw) {
@@ -845,7 +861,7 @@ export async function handleMcpApi(request, url, env, ctx) {
           personUuid: actorCtx?.personUuid,
         }, 500);
         const r = { results: rows };
-        const filtered = filterToolRowsByPanel(panelAgent, r.results || []);
+        const filtered = await filterToolRowsByPanel(panelAgent, r.results || [], env, actorCtx?.workspaceId, actorCtx?.tenantId);
         tools = filtered.map((t) => ({
           tool_name: t.tool_name,
           description: t.description || '',
@@ -861,7 +877,7 @@ export async function handleMcpApi(request, url, env, ctx) {
             personUuid: actorCtx?.personUuid,
           }, 500);
           const r = { results: rows };
-          const filtered = filterToolRowsByPanel(panelAgent, r.results || []);
+          const filtered = await filterToolRowsByPanel(panelAgent, r.results || [], env, actorCtx?.workspaceId, actorCtx?.tenantId);
           tools = filtered.map((t) => ({
             tool_name: t.tool_name,
             description: '',
