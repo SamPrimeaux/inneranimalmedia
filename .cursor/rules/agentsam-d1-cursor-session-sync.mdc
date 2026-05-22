@@ -63,8 +63,9 @@ Insert a **`memory_type = 'project'`** (or `fact`) row with `key` like `schema_e
 
 Update this block when the sprint rotates:
 
-- **plan_id:** `plan_may14_2026_repair`
-- **Task ids:** keep in sync with D1 `agentsam_plan_tasks` for that `plan_id`.
+- **plan_id:** `plan_may22_2026_agent_sam` (prior sprint `plan_may14_2026_repair` → `abandoned`)
+- **Task ids:** `task_iam_workflow_registry_ship` (done), `task_iam_alignment_pipeline_pump` (done), `task_iam_workflow_graph_e2e` (todo) + carry-over tasks on same plan.
+- **Registry table:** `agentsam_workflow_handlers` (not `agentsam_handler_registry`).
 - **Example (dashboard /projects C2):** `todo_id` = `todo_iam_dashboard_projects_c2`, `plan_task_id` = `task_iam_dashboard_projects_c2_ship` — see `.cursor/rules/agentsam-work-item-registration.mdc` for the registration pattern.
 
 Do **not** use `~/Downloads/inneranimalmedia` or `inneranimalmedia-agentsam-dashboard` paths (removed / wrong).
