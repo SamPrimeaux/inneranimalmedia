@@ -596,7 +596,7 @@ function vaultRegistry() {
         'Optional: auth_users.id when mint body omits user_id/user_email (narrow CI user; prefer explicit body)',
     },
     { name: 'INGEST_SECRET', type: 'secret', description: 'X-Ingest-Secret bypass for /api/rag/ingest, /api/rag/query, /api/rag/feedback (MCP)' },
-    { name: 'INTERNAL_WEBHOOK_SECRET', type: 'secret', description: '/api/webhooks/internal X-IAM-Signature HMAC' },
+    { name: 'INTERNAL_WEBHOOK_SECRET', type: 'secret', description: 'Reserved — /api/webhooks/internal route not yet implemented. Do not remove secret.' },
     { name: 'MCP_AUTH_TOKEN', type: 'secret', description: 'MCP server auth' },
     { name: 'TOKEN_SIGNING_KEY', type: 'secret', description: 'HMAC signing key for per-user MCP bearer tokens (32-byte)' },
     { name: 'MCP_AUTH_IDENTITY_USER_ID', type: 'secret', description: 'IAM user id for MCP_AUTH_TOKEN / AGENTSAM_BRIDGE_KEY legacy bearer identity' },

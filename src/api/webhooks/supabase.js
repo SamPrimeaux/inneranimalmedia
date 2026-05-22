@@ -34,6 +34,43 @@ export async function handleSupabaseWebhook(request, env, ctx) {
     return jsonResponse({ error: 'unauthorized' }, 401);
   }
 
+  // ── workflow node telemetry routing (added by webhook_repair plan) ──────
+  let parsedBody = {};
+  try { parsedBody = typeof body === 'string' ? JSON.parse(body) : (body || {}); } catch(_) {}
+  const eventType = parsedBody?.event_type || parsedBody?.type || '';
+
+  if (eventType === 'workflow_run_stream') {
+    await env.DB.prepare(
+      `UPDATE agentsam_workflow_runs
+       SET supabase_sync_status = 'synced',
+           supabase_synced_at   = datetime('now'),
+           updated_at           = datetime('now')
+       WHERE id = ?`
+    ).bind(parsedBody?.run_id || '').run()
+      .catch(e => console.warn('[webhook/supabase] run sync:', e?.message));
+    return new Response(JSON.stringify({ ok: true, routed: 'workflow_run_stream' }),
+      { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (eventType === 'workflow_eval_result') {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO agentsam_webhook_events
+       (id, tenant_id, provider, event_type, payload_json, status, processed_at)
+       VALUES (?,?,?,?,?,?,datetime('now'))`
+    ).bind(
+      'swh_' + crypto.randomUUID().replace(/-/g,'').slice(0,16),
+      parsedBody?.tenant_id || 'tenant_sam_primeaux',
+      'supabase',
+      eventType,
+      JSON.stringify(parsedBody).slice(0, 8000),
+      'received'
+    ).run().catch(e => console.warn('[webhook/supabase] eval log:', e?.message));
+    return new Response(JSON.stringify({ ok: true, routed: 'workflow_eval_result' }),
+      { headers: { 'Content-Type': 'application/json' } });
+  }
+  // ── end workflow routing ─────────────────────────────────────────────────
+
+
   const raw = await request.text();
   /** @type {Record<string, unknown>} */
   let body = {};

@@ -184,6 +184,39 @@ export default {
         return handleAnthropicWebhook(request, env, ctx);
       }
 
+      if (pathLower === '/api/webhooks/openai' || pathLower === '/api/hooks/openai') {
+        const sig  = request.headers.get('x-openai-signature') || '';
+        const raw  = await request.text();
+        const key  = env.OPENAI_WEBHOOK_SECRET || '';
+        if (key) {
+          const enc = new TextEncoder();
+          const ck  = await crypto.subtle.importKey(
+            'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+          );
+          const mac = await crypto.subtle.sign('HMAC', ck, enc.encode(raw));
+          const hex = Array.from(new Uint8Array(mac))
+            .map(b => b.toString(16).padStart(2,'0')).join('');
+          if (sig !== hex) return new Response('Unauthorized', { status: 401 });
+        }
+        let payload = {};
+        try { payload = JSON.parse(raw); } catch(_) {}
+        await env.DB.prepare(
+          `INSERT INTO agentsam_webhook_events
+           (id, tenant_id, provider, event_type, payload_json, status, processed_at)
+           VALUES (?,?,?,?,?,?,datetime('now'))`
+        ).bind(
+          'owh_' + crypto.randomUUID().replace(/-/g,'').slice(0,16),
+          'tenant_sam_primeaux',
+          'openai',
+          String(payload?.type || 'unknown').slice(0,100),
+          JSON.stringify(payload).slice(0,8000),
+          'received'
+        ).run().catch(e => console.warn('[webhook/openai] db write failed:', e?.message));
+        return new Response(JSON.stringify({ ok: true }),
+          { headers: { 'Content-Type': 'application/json' } });
+      }
+
+
       if (pathLower === '/api/webhooks/supabase' || pathLower === '/api/hooks/supabase') {
         const { handleSupabaseWebhook } = await import('./api/webhooks/supabase.js');
         return handleSupabaseWebhook(request, env, ctx);
