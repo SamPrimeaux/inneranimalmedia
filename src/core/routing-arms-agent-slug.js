@@ -33,6 +33,32 @@ export function agentSlugSqlFilter(agentSlug, alias = 'ra') {
 }
 
 /**
+ * Model-key arm resolution: global-only vs scoped+global with scoped-first ORDER BY.
+ * @param {boolean} hasAgentSlugCol
+ * @param {string} agentSlug normalized slug (may be empty)
+ * @param {string} [alias] table alias
+ */
+export function routingArmSlugScopeSql(hasAgentSlugCol, agentSlug, alias = '') {
+  const col = alias ? `${alias}.agent_slug` : 'agent_slug';
+  if (!hasAgentSlugCol) {
+    return { clause: '', binds: [], orderPrefix: '' };
+  }
+  const slug = normalizeAgentSlug(agentSlug);
+  if (!slug) {
+    return {
+      clause: ` AND COALESCE(${col}, '') = ''`,
+      binds: [],
+      orderPrefix: '',
+    };
+  }
+  return {
+    clause: ` AND (${col} = ? OR COALESCE(${col}, '') = '')`,
+    binds: [slug],
+    orderPrefix: `CASE WHEN COALESCE(${col}, '') = '' THEN 0 ELSE 1 END DESC, `,
+  };
+}
+
+/**
  * On first (agent_slug, task_type, mode) dispatch, seed neutral prior arm from profile.default_model_id.
  * @param {import('@cloudflare/workers-types').D1Database} db
  */

@@ -23,6 +23,7 @@ import {
   ensureAgentRoutingArmsColdStart,
   mergeAgentAndGlobalRoutingArms,
   normalizeAgentSlug,
+  routingArmSlugScopeSql,
 } from './routing-arms-agent-slug.js';
 
 /** Labeled Anthropic smoketest batches — provider chain must not fall through to Gemini/OpenAI. */
@@ -608,11 +609,12 @@ export async function validateModelAgainstRouteRequirements(
 
 /**
  * Resolve the bandit arm for an explicit model_key (workspace arm first, then global).
+ * When `agentSlug` is set, prefers scoped arms over workspace-global (`agent_slug = ''`).
  * @returns {Promise<{ armId: string, arm: Record<string, unknown> } | null>}
  */
 export async function resolveRoutingArmByModelKey(
   env,
-  { modelKey, taskType, mode, workspaceId } = {},
+  { modelKey, taskType, mode, workspaceId, agentSlug } = {},
 ) {
   const mk = modelKey != null ? String(modelKey).trim() : '';
   const tt = taskType != null && String(taskType).trim() !== '' ? String(taskType).trim() : 'chat';
@@ -620,6 +622,11 @@ export async function resolveRoutingArmByModelKey(
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
   if (!env?.DB || !mk) return null;
   try {
+    const armCols = await pragmaTableInfo(env.DB, TABLE);
+    const hasAgentSlug = armCols.has('agent_slug');
+    const slugScope = routingArmSlugScopeSql(hasAgentSlug, agentSlug);
+    const orderSql = `ORDER BY ${slugScope.orderPrefix}COALESCE(priority, 0) DESC, rowid ASC`;
+
     let arm = null;
     for (const modeTry of routingModesForArmLookup(tt, md)) {
       if (ws) {
@@ -628,20 +635,25 @@ export async function resolveRoutingArmByModelKey(
          WHERE model_key = ? AND task_type = ? AND mode = ?
            AND workspace_id = ?
            AND is_active = 1 AND is_eligible = 1 AND is_paused = 0
+           ${slugScope.clause}
+         ${orderSql}
          LIMIT 1`,
         )
-          .bind(mk, tt, modeTry, ws)
+          .bind(mk, tt, modeTry, ws, ...slugScope.binds)
           .first();
       }
       if (!arm?.id) {
+        const globalSlug = routingArmSlugScopeSql(hasAgentSlug, '');
         arm = await env.DB.prepare(
           `SELECT * FROM ${TABLE}
          WHERE model_key = ? AND task_type = ? AND mode = ?
            AND COALESCE(TRIM(workspace_id), '') = ''
            AND is_active = 1 AND is_eligible = 1 AND is_paused = 0
+           ${globalSlug.clause}
+         ORDER BY COALESCE(priority, 0) DESC, rowid ASC
          LIMIT 1`,
         )
-          .bind(mk, tt, modeTry)
+          .bind(mk, tt, modeTry, ...globalSlug.binds)
           .first();
       }
       if (arm?.id) break;

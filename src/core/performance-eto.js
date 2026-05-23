@@ -7,6 +7,7 @@ import { startCronRun, completeCronRun, failCronRun } from './cron-run-ledger.js
 import { enforceEvalSlosPauseArms } from './routing-cron.js';
 import { pragmaTableInfo, tableExists } from './retention.js';
 import { deriveProvider, writeRoutingMemoryPrior } from './memory.js';
+import { normalizeAgentSlug, routingArmSlugScopeSql } from './routing-arms-agent-slug.js';
 
 const EPM = 'agentsam_execution_performance_metrics';
 
@@ -158,6 +159,7 @@ export function computeRewardPolicy(o) {
  *   taskType?: string | null,
  *   mode?: string | null,
  *   modelKey?: string | null,
+ *   agentSlug?: string | null,
  * }} o
  */
 export async function inferRoutingArmId(env, o) {
@@ -166,9 +168,14 @@ export async function inferRoutingArmId(env, o) {
   const taskType = o.taskType != null && String(o.taskType).trim() !== '' ? String(o.taskType).trim() : 'chat';
   const mode = o.mode != null && String(o.mode).trim() !== '' ? String(o.mode).trim() : 'agent';
   const modelKey = o.modelKey != null ? String(o.modelKey).trim() : '';
+  const agentSlug = normalizeAgentSlug(o.agentSlug);
   if (!ws || !modelKey) {
     return { armId: null, evidence: { inference_rule: 'missing_ws_or_model', ws, modelKey } };
   }
+
+  const armCols = await pragmaTableInfo(env.DB, ARMS);
+  const slugScope = routingArmSlugScopeSql(armCols.has('agent_slug'), agentSlug);
+  const orderSql = `ORDER BY ${slugScope.orderPrefix}COALESCE(priority, 0) DESC, COALESCE(total_executions, 0) DESC, rowid ASC`;
 
   const { results } = await env.DB.prepare(
     `SELECT id, model_key, priority, total_executions
@@ -180,15 +187,17 @@ export async function inferRoutingArmId(env, o) {
        AND is_active = 1
        AND is_eligible = 1
        AND COALESCE(is_paused, 0) = 0
-     ORDER BY COALESCE(priority, 0) DESC, COALESCE(total_executions, 0) DESC, rowid ASC
+       ${slugScope.clause}
+     ${orderSql}
      LIMIT 5`,
   )
-    .bind(ws, taskType, mode, modelKey)
+    .bind(ws, taskType, mode, modelKey, ...slugScope.binds)
     .all()
     .catch(() => ({ results: [] }));
 
   const rows = results || [];
   if (!rows.length) {
+    const globalSlug = routingArmSlugScopeSql(armCols.has('agent_slug'), '');
     const global = await env.DB.prepare(
       `SELECT id, model_key, priority, total_executions
        FROM ${ARMS}
@@ -199,10 +208,11 @@ export async function inferRoutingArmId(env, o) {
          AND is_active = 1
          AND is_eligible = 1
          AND COALESCE(is_paused, 0) = 0
+         ${globalSlug.clause}
        ORDER BY COALESCE(priority, 0) DESC, COALESCE(total_executions, 0) DESC, rowid ASC
        LIMIT 5`,
     )
-      .bind(taskType, mode, modelKey)
+      .bind(taskType, mode, modelKey, ...globalSlug.binds)
       .all()
       .catch(() => ({ results: [] }));
     const gRows = global.results || [];
@@ -215,6 +225,7 @@ export async function inferRoutingArmId(env, o) {
           task_type: taskType,
           mode,
           model_key: modelKey,
+          agent_slug: agentSlug || null,
         },
       };
     }
@@ -227,6 +238,7 @@ export async function inferRoutingArmId(env, o) {
         task_type: taskType,
         mode,
         model_key: modelKey,
+        agent_slug: agentSlug || null,
       },
     };
   }
@@ -234,24 +246,26 @@ export async function inferRoutingArmId(env, o) {
     return {
       armId: String(rows[0].id),
       evidence: {
-        inference_rule: 'workspace_tiebreak_priority',
+        inference_rule: agentSlug ? 'workspace_scoped_tiebreak' : 'workspace_tiebreak_priority',
         candidate_count: rows.length,
         ambiguous: true,
         chosen_id: rows[0].id,
         task_type: taskType,
         mode,
         model_key: modelKey,
+        agent_slug: agentSlug || null,
       },
     };
   }
   return {
     armId: String(rows[0].id),
     evidence: {
-      inference_rule: 'workspace_exact',
+      inference_rule: agentSlug ? 'workspace_scoped_exact' : 'workspace_exact',
       candidate_count: 1,
       task_type: taskType,
       mode,
       model_key: modelKey,
+      agent_slug: agentSlug || null,
     },
   };
 }
@@ -432,6 +446,7 @@ function detectSmoke(row) {
  *   userId?: string | null,
  *   agentRunId: string,
  *   routingArmId?: string | null,
+ *   agentSlug?: string | null,
  *   routeKey?: string | null,
  *   taskType?: string | null,
  *   mode?: string | null,
@@ -473,7 +488,13 @@ export async function upsertEtoFromAgentRun(env, p) {
   let evidence = { source: 'live_agent_run' };
 
   if (!routingArmId && modelKey) {
-    const inf = await inferRoutingArmId(env, { workspaceId, taskType, mode, modelKey });
+    const inf = await inferRoutingArmId(env, {
+      workspaceId,
+      taskType,
+      mode,
+      modelKey,
+      agentSlug: p.agentSlug,
+    });
     inferredArmId = inf.armId || '';
     evidence = { ...evidence, ...inf.evidence };
   }
@@ -813,6 +834,7 @@ export function scheduleEtoFromEvalRun(env, ctx, p) {
  *   workspaceId: string,
  *   agentRunId: string,
  *   routingArmId?: string | null,
+ *   agentSlug?: string | null,
  *   modelKey: string,
  *   provider?: string | null,
  *   taskType?: string | null,
@@ -844,7 +866,13 @@ export async function upsertEtoFromEscalationAttempt(env, p) {
   let evidence = { source: 'escalation_attempt', chain_index: p.chainIndex, agent_run_id: agentRunId };
 
   if (!routingArmId) {
-    const inf = await inferRoutingArmId(env, { workspaceId, taskType, mode, modelKey });
+    const inf = await inferRoutingArmId(env, {
+      workspaceId,
+      taskType,
+      mode,
+      modelKey,
+      agentSlug: p.agentSlug,
+    });
     inferredArmId = inf.armId || '';
     evidence = { ...evidence, ...inf.evidence };
   }

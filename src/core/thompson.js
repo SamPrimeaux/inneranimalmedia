@@ -3,7 +3,7 @@
  */
 
 import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
-import { agentSlugSqlFilter, normalizeAgentSlug } from './routing-arms-agent-slug.js';
+import { normalizeAgentSlug } from './routing-arms-agent-slug.js';
 
 /**
  * Thompson-style pick from pre-fetched routing arm rows (cost/latency penalties).
@@ -50,8 +50,7 @@ export function pickRoutingArmByThompson(results, opts = {}) {
 
 /**
  * Single-draw Thompson sample for command/auto flows.
- * Candidate arms match {@link queryRoutingArmsCandidates} filters (workspace-scoped first, then global empty workspace_id).
- * Kept self-contained to avoid a circular import with `routing.js`.
+ * Uses {@link queryRoutingArmsCandidates} (scoped + global merge) via dynamic import to avoid a static cycle with `routing.js`.
  */
 export async function thompsonSample(env, taskType, mode, workspaceId = '', opts = {}) {
   if (!env?.DB) return null;
@@ -61,59 +60,30 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '', opts
   const excludeModelKeys = Array.isArray(opts.excludeModelKeys)
     ? opts.excludeModelKeys.map((k) => String(k || '').trim()).filter(Boolean)
     : [];
-  const catalogOk =
-    ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
-  const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
-  const agentSlug = normalizeAgentSlug(opts.agentSlug);
-  const slugFilter = agentSlug ? agentSlugSqlFilter(agentSlug) : agentSlugSqlFilter('');
-  const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${catalogOk}${blockGpt55Base}${slugFilter.clause}`;
-  const slugBinds = slugFilter.binds;
-  const orderSql = `(CASE WHEN LOWER(COALESCE(ra.provider,'')) IN ('cloudflare','workers_ai')
-             OR ra.model_key LIKE 'wai-%' OR ra.model_key LIKE '@cf/%' THEN 1 ELSE 0 END) ASC,
-       ra.decayed_score DESC, COALESCE(ra.priority, 0) DESC, ra.rowid ASC`;
-  const projection =
-    `SELECT ra.id, ra.model_key, ra.provider, ra.success_alpha, ra.success_beta, ra.cost_mean, ra.latency_mean`;
 
   try {
-    let results = [];
-    if (ws) {
-      const sqlWs =
-        `${projection} FROM agentsam_routing_arms ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
-      const r1 = await env.DB.prepare(sqlWs).bind(tt, m, ws, ...slugBinds).all();
-      results = r1.results || [];
+    const { queryRoutingArmsCandidates } = await import('./routing.js');
+    let arms = await queryRoutingArmsCandidates(env, {
+      taskType: tt,
+      mode: m,
+      workspaceId: ws,
+      agentSlug: normalizeAgentSlug(opts.agentSlug),
+      allowGlobalFallback: opts.allowGlobalFallback !== false,
+      toolRequired: !!opts.toolRequired,
+      routeKey: opts.routeKey ?? null,
+    });
+    if (excludeModelKeys.length) {
+      arms = arms.filter((a) => !excludeModelKeys.includes(String(a.model_key || '').trim()));
     }
-    if (!results.length && agentSlug && opts.allowGlobalFallback !== false) {
-      const globalFilter = agentSlugSqlFilter('');
-      const baseGlobal = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${catalogOk}${blockGpt55Base}${globalFilter.clause}`;
-      if (ws) {
-        const sqlWs =
-          `${projection} FROM agentsam_routing_arms ra WHERE ${baseGlobal} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
-        const r1 = await env.DB.prepare(sqlWs).bind(tt, m, ws, ...globalFilter.binds).all();
-        results = r1.results || [];
-      }
-      if (!results.length) {
-        const sqlG =
-          `${projection} FROM agentsam_routing_arms ra WHERE ${baseGlobal} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
-        const r2 = await env.DB.prepare(sqlG).bind(tt, m, ...globalFilter.binds).all();
-        results = r2.results || [];
-      }
-    } else if (!results.length) {
-      const sqlG =
-        `${projection} FROM agentsam_routing_arms ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
-      const r2 = await env.DB.prepare(sqlG).bind(tt, m, ...slugBinds).all();
-      results = r2.results || [];
-    }
+    if (!arms.length) return null;
+
     const useThompson = await isThompsonRoutingSamplingEnabled(env, {
       userId: opts.userId,
       tenantId: opts.tenantId,
     });
-    const filtered = excludeModelKeys.length
-      ? results.filter((a) => !excludeModelKeys.includes(String(a.model_key || '').trim()))
-      : results;
-    if (!filtered.length) return null;
     return useThompson
-      ? pickRoutingArmByThompson(filtered, { excludeModelKeys })
-      : filtered[0] ?? null;
+      ? pickRoutingArmByThompson(arms, { excludeModelKeys })
+      : arms[0] ?? null;
   } catch {
     return null;
   }

@@ -3320,6 +3320,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     qualityScore,
     mcpRuntimeContext,
     routingArmId: routingArmIdParam,
+    agentSlug: agentSlugParam = null,
     thompsonModelKey: thompsonModelKeyParam,
     runStartedAt: runStartedAtParam,
     maxRuntimeMs: maxRuntimeMsParam,
@@ -3355,6 +3356,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             taskType: String(routingTaskType || 'chat'),
             mode: String(mode || 'agent'),
             workspaceId: routingWs || env.WORKSPACE_ID || '',
+            agentSlug: agentSlugParam != null ? String(agentSlugParam).trim() : '',
           })
         )?.armId ?? null
       : routingArmIdParam;
@@ -6582,6 +6584,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       taskType: resolvedRoutingTaskType,
       mode: requestedMode,
       workspaceId: String(workspaceId).trim(),
+      agentSlug: subagentProfileRow?.id ?? null,
     });
     explicitRoutingArmId = armLookup?.armId ?? null;
 
@@ -6795,6 +6798,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       taskType: resolvedRoutingTaskType,
       mode: requestedMode,
       workspaceId: String(workspaceId).trim(),
+      agentSlug: subagentProfileRow?.id ?? null,
     });
     routingArmIdForRun = armFromFirstModel?.armId ?? null;
   }
@@ -7136,6 +7140,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         workspaceId: resolvedWorkspaceId,
         conversationId: sessionId ? String(sessionId) : null,
         routingArmId: routingArmIdForRun,
+        agentSlug: subagentProfileRow?.id ?? null,
+        subagentProfileId: subagentProfileRow?.id ?? null,
         modelKey: fallbackModelKeys[0] || null,
         selectedModel: fallbackModelKeys[0] || null,
         taskType: resolvedRoutingTaskType ?? intentResult?.taskType ?? null,
@@ -7332,6 +7338,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           taskType: resolvedRoutingTaskType,
           mode: requestedMode,
           workspaceId: workspaceId || '',
+          agentSlug: subagentProfileRow?.id ?? null,
         });
         const attemptArmId = attemptArmLookup?.armId ?? null;
         try {
@@ -7359,6 +7366,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               qualityScore: confidence,
               mcpRuntimeContext,
               routingArmId: routingArmIdForRun,
+              agentSlug: subagentProfileRow?.id ?? null,
               thompsonModelKey: thompsonRow?.model_key ?? null,
               doneGuard,
               runStartedAt,
@@ -7385,6 +7393,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             tenantId,
             workspaceId: workspaceId || '',
             routingArmId: attemptArmId,
+            agentSlug: subagentProfileRow?.id ?? null,
             modelKey,
             provider: row?.provider ?? null,
             taskType: resolvedRoutingTaskType,
@@ -7421,6 +7430,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             tenantId,
             workspaceId: workspaceId || '',
             routingArmId: attemptArmId,
+            agentSlug: subagentProfileRow?.id ?? null,
             modelKey,
             provider: row?.provider ?? null,
             taskType: resolvedRoutingTaskType,
@@ -7476,6 +7486,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               taskType: resolvedRoutingTaskType ?? 'chat',
               mode: requestedMode ?? 'auto',
               workspaceId: workspaceId ?? resolvedWorkspaceId ?? '',
+              agentSlug: subagentProfileRow?.id ?? null,
             }))?.armId
           : null) ||
         routingArmIdForRun;
@@ -7612,6 +7623,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId: resolvedWorkspaceId,
           conversationId: sessionId ? String(sessionId) : null,
           routingArmId: outcomeArmId ?? routingArmIdForRun,
+          agentSlug: subagentProfileRow?.id ?? null,
+          subagentProfileId: subagentProfileRow?.id ?? null,
           modelKey: finalModelKey,
           taskType: resolvedRoutingTaskType,
           mode: requestedMode,

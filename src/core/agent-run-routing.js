@@ -25,6 +25,7 @@ import { pragmaTableInfo } from './retention.js';
  *   taskType?: string | null,
  *   mode?: string | null,
  *   workspaceId?: string | null,
+ *   agentSlug?: string | null,
  * }} p
  */
 export async function resolveD1RoutingArmIdForDecision(env, p) {
@@ -45,6 +46,7 @@ export async function resolveD1RoutingArmIdForDecision(env, p) {
     taskType: p.taskType != null && String(p.taskType).trim() !== '' ? String(p.taskType).trim() : 'chat',
     mode: p.mode != null && String(p.mode).trim() !== '' ? String(p.mode).trim() : 'agent',
     workspaceId: ws,
+    agentSlug: p.agentSlug,
   });
   return lookup?.armId != null ? String(lookup.armId).trim() : null;
 }
@@ -71,6 +73,7 @@ async function buildChatRoutingDecisionPayload(env, p) {
     taskType: p.taskType ?? p.task_type,
     mode: p.mode,
     workspaceId,
+    agentSlug: p.agentSlug ?? p.subagentProfileId ?? null,
   });
 
   let arm = null;
@@ -344,6 +347,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
           taskType: p.taskType,
           mode: p.mode,
           workspaceId: ws,
+          agentSlug: p.agentSlug ?? p.subagentProfileId ?? null,
         });
 
         const sets = [];
@@ -425,6 +429,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
           userId: uid,
           agentRunId: runId,
           routingArmId: outcomeArmId ?? p.routingArmId,
+          agentSlug: p.agentSlug ?? p.subagentProfileId ?? null,
           routeKey: p.routeKey,
           taskType: p.taskType,
           mode: p.mode,
