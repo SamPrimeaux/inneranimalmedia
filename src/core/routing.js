@@ -18,6 +18,12 @@ import { triggerEvalAfterNRuns } from './eval-runner.js';
 import { pickRoutingArmByThompson } from './thompson.js';
 import { filterArmsByCatalogCapabilities, SCOUT_TASK_TYPES } from './model-catalog-capabilities.js';
 import { pragmaTableInfo } from './retention.js';
+import {
+  agentSlugSqlFilter,
+  ensureAgentRoutingArmsColdStart,
+  mergeAgentAndGlobalRoutingArms,
+  normalizeAgentSlug,
+} from './routing-arms-agent-slug.js';
 
 /** Labeled Anthropic smoketest batches — provider chain must not fall through to Gemini/OpenAI. */
 export function isAnthropicSmoketestQuickstartBatch(batch) {
@@ -313,6 +319,10 @@ export async function queryRoutingArmsCandidates(env, q) {
   const allowWaiSort = routingAllowsWorkersAiEarly(routeKey || undefined, tt);
   const toolsClause = toolReq ? ' AND ra.supports_tools = 1' : '';
   const ws = q.workspaceId != null ? String(q.workspaceId).trim() : '';
+  const agentSlug = normalizeAgentSlug(q.agentSlug);
+  const allowGlobalFallback = q.allowGlobalFallback !== false;
+  const armCols = await pragmaTableInfo(db, TABLE);
+  const hasAgentSlug = armCols.has('agent_slug');
 
   const catalogCols = await pragmaTableInfo(db, 'agentsam_model_catalog');
   const builderToolGate =
@@ -339,19 +349,41 @@ export async function queryRoutingArmsCandidates(env, q) {
 
   const modesToTry = routingModesForArmLookup(tt, m);
 
+  const fetchArmsForMode = async (modeTry, slugFilter) => {
+    const { clause, binds: slugBinds } = slugFilter;
+    if (ws) {
+      const sqlWs =
+        `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ?${clause} ORDER BY ${orderSql} LIMIT 40`;
+      const r1 = await db.prepare(sqlWs).bind(tt, modeTry, ws, ...slugBinds).all();
+      const scoped = filterNanoEscalation(r1.results || [], q, tt, toolReq);
+      if (scoped.length) return scoped;
+    }
+    const sqlGlobal =
+      `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = ''${clause} ORDER BY ${orderSql} LIMIT 40`;
+    const r2 = await db.prepare(sqlGlobal).bind(tt, modeTry, ...slugBinds).all();
+    return filterNanoEscalation(r2.results || [], q, tt, toolReq);
+  };
+
   try {
     for (const modeTry of modesToTry) {
-      if (ws) {
-        const sqlWs = `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
-        const r1 = await db.prepare(sqlWs).bind(tt, modeTry, ws).all();
-        let results = filterNanoEscalation(r1.results || [], q, tt, toolReq);
-        if (results.length) return results;
+      if (hasAgentSlug && agentSlug) {
+        const agentRows = await fetchArmsForMode(modeTry, agentSlugSqlFilter(agentSlug));
+        if (agentRows.length) {
+          if (!allowGlobalFallback) return agentRows;
+          const globalRows = await fetchArmsForMode(modeTry, agentSlugSqlFilter(''));
+          const merged = mergeAgentAndGlobalRoutingArms(agentRows, globalRows);
+          if (merged.length) return merged;
+        } else if (allowGlobalFallback) {
+          const globalRows = await fetchArmsForMode(modeTry, agentSlugSqlFilter(''));
+          if (globalRows.length) return globalRows;
+        }
+      } else {
+        const globalRows = await fetchArmsForMode(
+          modeTry,
+          hasAgentSlug ? agentSlugSqlFilter('') : { clause: '', binds: [] },
+        );
+        if (globalRows.length) return globalRows;
       }
-      const sqlGlobal =
-        `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
-      const r2 = await db.prepare(sqlGlobal).bind(tt, modeTry).all();
-      const globalResults = filterNanoEscalation(r2.results || [], q, tt, toolReq);
-      if (globalResults.length) return globalResults;
     }
     return [];
   } catch {
@@ -726,6 +758,8 @@ const INTENT_SLUG_TO_ROUTING_TASK = {
  *   routeKey?: string | null,
  *   userId?: string | null,
  *   tenantId?: string | null,
+ *   agentSlug?: string | null,
+ *   subagentProfile?: Record<string, unknown> | null,
  * }} ctx
  * @returns {Promise<{ modelId: string | null, armId: string | null, source: 'thompson' | 'fallback', fallbackReason?: string, fallbackModelKey?: string | null }>}
  */
@@ -744,12 +778,23 @@ export async function getDefaultModelForTask(env, ctx = {}) {
         ? String(ctx.taskKey).trim()
         : 'chat';
     const mode = ctx.mode != null && String(ctx.mode).trim() !== '' ? String(ctx.mode).trim() : 'auto';
+    const agentSlug = normalizeAgentSlug(ctx.agentSlug);
+    if (agentSlug && ctx.subagentProfile) {
+      await ensureAgentRoutingArmsColdStart(db, {
+        agentSlug,
+        workspaceId,
+        taskType,
+        mode,
+        profile: ctx.subagentProfile,
+      });
+    }
     let arms = await queryRoutingArmsCandidates(env, {
       taskType,
       mode,
       workspaceId,
       toolRequired: !!ctx.toolRequired,
       routeKey: ctx.routeKey ?? null,
+      agentSlug,
     });
     arms = await filterArmsForRouteKey(env, ctx.routeKey ?? null, arms);
     arms = await mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms);
@@ -832,7 +877,8 @@ export async function getDefaultModelForTask(env, ctx = {}) {
  *
  * @param {object} env
  * @param {{ taskType: string, mode?: string, workspaceId: string, routeKey?: string|null,
- *            userId?: string|null, tenantId?: string|null, toolRequired?: boolean }} [opts]
+ *            userId?: string|null, tenantId?: string|null, toolRequired?: boolean,
+ *            agentSlug?: string|null, subagentProfile?: Record<string, unknown>|null }} [opts]
  * @returns {Promise<{ source: 'thompson', modelId: string, modelKey: string, provider: string|null,
  *                     armId: string, taskType: string } | null>}
  */
@@ -848,12 +894,15 @@ export async function resolveRoutingArm(
     tenantId,
     toolRequired,
     excludeModelKeys,
+    agentSlug,
+    subagentProfile,
   } = {},
 ) {
   if (!env?.DB || !taskType || !workspaceId) return null;
   const tt = String(taskType).trim();
   const md = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
   const ws = String(workspaceId).trim();
+  const slug = normalizeAgentSlug(agentSlug);
   const intent = String(intentSlug || '').trim().toLowerCase();
   const exclude = new Set(
     (Array.isArray(excludeModelKeys) ? excludeModelKeys : [])
@@ -861,12 +910,22 @@ export async function resolveRoutingArm(
       .filter(Boolean),
   );
   try {
+    if (slug && subagentProfile) {
+      await ensureAgentRoutingArmsColdStart(env.DB, {
+        agentSlug: slug,
+        workspaceId: ws,
+        taskType: tt,
+        mode: md,
+        profile: subagentProfile,
+      });
+    }
     let arms = await queryRoutingArmsCandidates(env, {
       taskType: tt,
       mode: md,
       workspaceId: ws,
       toolRequired: !!toolRequired,
       routeKey: routeKey ?? null,
+      agentSlug: slug,
     });
     if (intent) {
       arms = arms.filter((a) => {

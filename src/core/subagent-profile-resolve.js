@@ -140,8 +140,12 @@ export function filterToolsForSubagentProfile(tools, profile) {
   return out;
 }
 
-/** Pin model from profile when the client left routing on Auto. */
-export function applySubagentDefaultModelToBody(body, profile) {
+/**
+ * Legacy pin: only when routing arms are unavailable (no agent_slug column).
+ * With per-agent Thompson arms, profile.default_model_id is cold-start prior via ensureAgentRoutingArmsColdStart.
+ */
+export function applySubagentDefaultModelToBody(body, profile, opts = {}) {
+  if (opts.useRoutingArms === true) return;
   if (!profile?.default_model_id || !body || typeof body !== 'object') return;
   const subModel = String(profile.default_model_id).trim();
   if (!subModel) return;

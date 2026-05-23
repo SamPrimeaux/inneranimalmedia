@@ -3,6 +3,7 @@
  */
 
 import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
+import { agentSlugSqlFilter, normalizeAgentSlug } from './routing-arms-agent-slug.js';
 
 /**
  * Thompson-style pick from pre-fetched routing arm rows (cost/latency penalties).
@@ -63,7 +64,10 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '', opts
   const catalogOk =
     ` AND EXISTS (SELECT 1 FROM agentsam_model_catalog mc WHERE mc.model_key = ra.model_key AND mc.is_active = 1)`;
   const blockGpt55Base = ` AND lower(trim(ra.model_key)) != 'gpt-5.5'`;
-  const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${catalogOk}${blockGpt55Base}`;
+  const agentSlug = normalizeAgentSlug(opts.agentSlug);
+  const slugFilter = agentSlug ? agentSlugSqlFilter(agentSlug) : agentSlugSqlFilter('');
+  const baseWhere = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${catalogOk}${blockGpt55Base}${slugFilter.clause}`;
+  const slugBinds = slugFilter.binds;
   const orderSql = `(CASE WHEN LOWER(COALESCE(ra.provider,'')) IN ('cloudflare','workers_ai')
              OR ra.model_key LIKE 'wai-%' OR ra.model_key LIKE '@cf/%' THEN 1 ELSE 0 END) ASC,
        ra.decayed_score DESC, COALESCE(ra.priority, 0) DESC, ra.rowid ASC`;
@@ -75,13 +79,28 @@ export async function thompsonSample(env, taskType, mode, workspaceId = '', opts
     if (ws) {
       const sqlWs =
         `${projection} FROM agentsam_routing_arms ra WHERE ${baseWhere} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
-      const r1 = await env.DB.prepare(sqlWs).bind(tt, m, ws).all();
+      const r1 = await env.DB.prepare(sqlWs).bind(tt, m, ws, ...slugBinds).all();
       results = r1.results || [];
     }
-    if (!results.length) {
+    if (!results.length && agentSlug && opts.allowGlobalFallback !== false) {
+      const globalFilter = agentSlugSqlFilter('');
+      const baseGlobal = `ra.task_type = ? AND ra.mode = ? AND ra.is_active = 1 AND ra.is_eligible = 1 AND ra.is_paused = 0 AND ra.budget_exhausted = 0${catalogOk}${blockGpt55Base}${globalFilter.clause}`;
+      if (ws) {
+        const sqlWs =
+          `${projection} FROM agentsam_routing_arms ra WHERE ${baseGlobal} AND ra.workspace_id = ? ORDER BY ${orderSql} LIMIT 40`;
+        const r1 = await env.DB.prepare(sqlWs).bind(tt, m, ws, ...globalFilter.binds).all();
+        results = r1.results || [];
+      }
+      if (!results.length) {
+        const sqlG =
+          `${projection} FROM agentsam_routing_arms ra WHERE ${baseGlobal} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
+        const r2 = await env.DB.prepare(sqlG).bind(tt, m, ...globalFilter.binds).all();
+        results = r2.results || [];
+      }
+    } else if (!results.length) {
       const sqlG =
         `${projection} FROM agentsam_routing_arms ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = '' ORDER BY ${orderSql} LIMIT 40`;
-      const r2 = await env.DB.prepare(sqlG).bind(tt, m).all();
+      const r2 = await env.DB.prepare(sqlG).bind(tt, m, ...slugBinds).all();
       results = r2.results || [];
     }
     const useThompson = await isThompsonRoutingSamplingEnabled(env, {

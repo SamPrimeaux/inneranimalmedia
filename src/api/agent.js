@@ -5679,7 +5679,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       body.subagent_profile_id = subagentProfileRow.id;
       body.subagent_slug = subagentProfileRow.slug;
       body.subagent = true;
-      applySubagentDefaultModelToBody(body, subagentProfileRow);
+      applySubagentDefaultModelToBody(body, subagentProfileRow, { useRoutingArms: true });
     }
   } catch (e) {
     console.warn('[agent] subagent_profile_resolve', e?.message ?? e);
@@ -6622,6 +6622,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         userId,
         tenantId,
         toolRequired: requireTools,
+        agentSlug: subagentProfileRow?.id ?? null,
+        subagentProfile: subagentProfileRow,
       })
     : null;
   const thompsonRow =
@@ -6697,6 +6699,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           userId,
           tenantId,
           toolRequired: requireTools,
+          agentSlug: subagentProfileRow?.id ?? null,
+          subagentProfile: subagentProfileRow,
         })
       : null;
 
@@ -6805,6 +6809,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       userId,
       tenantId,
       toolRequired: requireTools,
+      agentSlug: subagentProfileRow?.id ?? null,
+      subagentProfile: subagentProfileRow,
     });
     if (forcedPick?.armId) routingArmIdForRun = String(forcedPick.armId).trim();
   }
@@ -7305,6 +7311,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             tenantId,
             toolRequired: requireTools,
             excludeModelKeys: tried,
+            agentSlug: subagentProfileRow?.id ?? null,
+            subagentProfile: subagentProfileRow,
           });
           if (!nextPick?.modelKey) break;
           row = await resolveAgentsamAiRowByModelKey(env, tenantId, nextPick.modelKey);
