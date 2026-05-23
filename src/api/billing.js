@@ -105,36 +105,28 @@ function safeJsonString(v) {
  * @param {string | null} [tenantId]
  */
 async function logAgentsamWebhookEvent(env, eventType, rawBody, tenantId = null) {
-  if (!env.DB) return;
-  const id = crypto.randomUUID();
-  const tid = tenantId || fallbackSystemTenantId(env);
-  try {
-    await env.DB.prepare(
-      `INSERT INTO agentsam_webhook_events (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-       VALUES (?, ?, 'stripe', ?, ?, 'received', datetime('now'))`,
-    )
-      .bind(id, tid, eventType || 'unknown', rawBody)
-      .run();
-  } catch (e) {
-    console.warn('[agentsam_webhook_events]', e?.message ?? e);
-  }
+  const { insertAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
+  await insertAgentsamWebhookEvent(env, {
+    tenantId: tenantId || fallbackSystemTenantId(env),
+    provider: 'stripe',
+    eventType: eventType || 'unknown',
+    payloadJson: rawBody,
+    endpointPath: '/api/webhooks/stripe',
+    status: 'received',
+  });
 }
 
 /** Extra structured log for handlers that need payload-only trace (after primary raw log). */
 async function logAgentsamWebhookPayloadJson(env, eventType, payloadObj, tenantId = null) {
-  if (!env.DB) return;
-  const id = crypto.randomUUID();
-  const tid = tenantId || fallbackSystemTenantId(env);
-  try {
-    await env.DB.prepare(
-      `INSERT INTO agentsam_webhook_events (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-       VALUES (?, ?, 'stripe', ?, ?, 'received', datetime('now'))`,
-    )
-      .bind(id, tid, `${eventType}:parsed`, safeJsonString(payloadObj))
-      .run();
-  } catch (e) {
-    console.warn('[agentsam_webhook_events payload]', e?.message ?? e);
-  }
+  const { insertAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
+  await insertAgentsamWebhookEvent(env, {
+    tenantId: tenantId || fallbackSystemTenantId(env),
+    provider: 'stripe',
+    eventType: `${eventType}:parsed`,
+    payloadJson: safeJsonString(payloadObj),
+    endpointPath: '/api/webhooks/stripe',
+    status: 'received',
+  });
 }
 
 /** @param {any} env @param {string} tenantId @param {string} stripeCustomerId */

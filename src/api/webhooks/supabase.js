@@ -6,6 +6,7 @@ import {
   overviewDirtySectionsForWebhook,
   setOverviewBundleDirty,
 } from '../../core/overview-bundle-kv.js';
+import { recordAgentsamWebhookEvent, resolveWebhookTenantId } from '../../core/webhook-events-writer.js';
 
 /** @param {string} a @param {string} b */
 function timingSafeEqualUtf8(a, b) {
@@ -34,43 +35,6 @@ export async function handleSupabaseWebhook(request, env, ctx) {
     return jsonResponse({ error: 'unauthorized' }, 401);
   }
 
-  // ── workflow node telemetry routing (added by webhook_repair plan) ──────
-  let parsedBody = {};
-  try { parsedBody = typeof body === 'string' ? JSON.parse(body) : (body || {}); } catch(_) {}
-  const eventType = parsedBody?.event_type || parsedBody?.type || '';
-
-  if (eventType === 'workflow_run_stream') {
-    await env.DB.prepare(
-      `UPDATE agentsam_workflow_runs
-       SET supabase_sync_status = 'synced',
-           supabase_synced_at   = datetime('now'),
-           updated_at           = datetime('now')
-       WHERE id = ?`
-    ).bind(parsedBody?.run_id || '').run()
-      .catch(e => console.warn('[webhook/supabase] run sync:', e?.message));
-    return new Response(JSON.stringify({ ok: true, routed: 'workflow_run_stream' }),
-      { headers: { 'Content-Type': 'application/json' } });
-  }
-
-  if (eventType === 'workflow_eval_result') {
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO agentsam_webhook_events
-       (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-       VALUES (?,?,?,?,?,?,datetime('now'))`
-    ).bind(
-      'swh_' + crypto.randomUUID().replace(/-/g,'').slice(0,16),
-      parsedBody?.tenant_id || 'tenant_sam_primeaux',
-      'supabase',
-      eventType,
-      JSON.stringify(parsedBody).slice(0, 8000),
-      'received'
-    ).run().catch(e => console.warn('[webhook/supabase] eval log:', e?.message));
-    return new Response(JSON.stringify({ ok: true, routed: 'workflow_eval_result' }),
-      { headers: { 'Content-Type': 'application/json' } });
-  }
-  // ── end workflow routing ─────────────────────────────────────────────────
-
-
   const raw = await request.text();
   /** @type {Record<string, unknown>} */
   let body = {};
@@ -80,16 +44,49 @@ export async function handleSupabaseWebhook(request, env, ctx) {
     return jsonResponse({ error: 'invalid JSON' }, 400);
   }
 
-  const record = body.record && typeof body.record === 'object' ? body.record : body;
+  const routedType =
+    (typeof body?.event_type === 'string' && body.event_type) ||
+    (typeof body?.type === 'string' && body.type) ||
+    '';
 
+  if (routedType === 'workflow_run_stream') {
+    await env.DB.prepare(
+      `UPDATE agentsam_workflow_runs
+       SET supabase_sync_status = 'synced',
+           supabase_synced_at   = datetime('now'),
+           updated_at           = datetime('now')
+       WHERE id = ?`,
+    )
+      .bind(String(body?.run_id || ''))
+      .run()
+      .catch((e) => console.warn('[webhook/supabase] run sync:', e?.message));
+    return new Response(JSON.stringify({ ok: true, routed: 'workflow_run_stream' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (routedType === 'workflow_eval_result') {
+    await recordAgentsamWebhookEvent(env, ctx, {
+      tenantId:
+        typeof body?.tenant_id === 'string' && body.tenant_id.trim()
+          ? body.tenant_id.trim()
+          : resolveWebhookTenantId(env),
+      provider: 'supabase',
+      eventType: routedType,
+      payload: body,
+      endpointPath: '/api/webhooks/supabase',
+      signatureValid: true,
+    });
+    return new Response(JSON.stringify({ ok: true, routed: 'workflow_eval_result' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const record = body.record && typeof body.record === 'object' ? body.record : body;
   const webhookTenant =
     (typeof record?.tenant_id === 'string' && record.tenant_id.trim())
       ? record.tenant_id.trim()
-      : (typeof env?.SUPABASE_WEBHOOK_TENANT_ID === 'string' && env.SUPABASE_WEBHOOK_TENANT_ID.trim())
-        ? env.SUPABASE_WEBHOOK_TENANT_ID.trim()
-        : (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim())
-          ? env.TENANT_ID.trim()
-          : 'system';
+      : resolveWebhookTenantId(env);
 
   const dirtySections = overviewDirtySectionsForWebhook(body.table, body.type);
   if (dirtySections.length && ctx?.waitUntil) {
@@ -106,37 +103,24 @@ export async function handleSupabaseWebhook(request, env, ctx) {
     ctx.waitUntil(
       (async () => {
         const eventType = `${body.type ?? ''}:${body.table ?? ''}`;
-        const payloadJson = JSON.stringify(body);
+        await recordAgentsamWebhookEvent(env, null, {
+          tenantId: webhookTenant,
+          provider: 'supabase',
+          eventType,
+          payload: body,
+          endpointPath: '/api/webhooks/supabase',
+          signatureValid: true,
+        });
 
-        await env.DB.prepare(
-          `INSERT INTO agentsam_webhook_events
-           (id, tenant_id, provider, event_type, payload_json, status, endpoint_id, source, received_at)
-           VALUES (
-             'whe_' || lower(hex(randomblob(8))),
-             ?,
-             'supabase',
-             ?, ?, 'received',
-             'whe_supabase_main',
-             'supabase',
-             datetime('now')
-           )`,
-        )
-          .bind(
-            (typeof env?.SUPABASE_WEBHOOK_TENANT_ID === 'string' && env.SUPABASE_WEBHOOK_TENANT_ID.trim())
-              ? env.SUPABASE_WEBHOOK_TENANT_ID.trim()
-              : (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim())
-                ? env.TENANT_ID.trim()
-                : 'system',
-            eventType,
-            payloadJson,
-          )
-          .run();
-
-        await env.DB.prepare(
-          `UPDATE webhook_endpoints
-           SET total_received = total_received + 1, last_received_at = datetime('now')
-           WHERE id = 'whe_supabase_main'`,
-        ).run();
+        try {
+          await env.DB.prepare(
+            `UPDATE webhook_endpoints
+             SET total_received = total_received + 1, last_received_at = datetime('now')
+             WHERE id = 'whe_supabase_main'`,
+          ).run();
+        } catch (_) {
+          /* legacy counter; registry is agentsam_webhooks */
+        }
 
         switch (body.table) {
           case 'agentsam_routing_decisions': {

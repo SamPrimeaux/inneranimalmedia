@@ -20,24 +20,19 @@ function normalizeQueueBody(msg) {
 
 async function recordWebhookEvent(env, tenantId, workspaceId, body) {
   if (!env?.DB || !tenantId || !workspaceId) return;
-  const eventId = `whe_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+  const { recordAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
   const payloadJson = JSON.stringify({
     ...(typeof body === 'object' && body ? body : {}),
     workspace_id: workspaceId,
   });
-  try {
-    await env.DB.prepare(`
-      INSERT INTO agentsam_webhook_events
-        (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-      VALUES
-        (?, ?, 'my_queue', ?, ?, 'received', datetime('now'))
-    `)
-      .bind(eventId, tenantId, body?.type ?? 'unknown', payloadJson)
-      .run();
-    await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`).bind(eventId).run();
-  } catch (e) {
-    console.warn('[recordWebhookEvent]', e?.message ?? e);
-  }
+  await recordAgentsamWebhookEvent(env, null, {
+    tenantId,
+    workspaceId,
+    provider: 'my_queue',
+    eventType: String(body?.type ?? 'unknown'),
+    payloadJson,
+    markProcessed: true,
+  });
 }
 
 /**

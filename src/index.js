@@ -35,6 +35,7 @@ import {
 } from './api/oauth-login-callbacks.js';
 import { handleGithubWebhook } from './api/webhooks/github.js';
 import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
+import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { resolveGitHubToken } from './core/github-token.js';
 
@@ -199,20 +200,14 @@ export default {
           if (sig !== hex) return new Response('Unauthorized', { status: 401 });
         }
         let payload = {};
-        try { payload = JSON.parse(raw); } catch(_) {}
-        await env.DB.prepare(
-          `INSERT INTO agentsam_webhook_events
-           (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-           VALUES (?,?,?,?,?,?,datetime('now'))`
-        ).bind(
-          'owh_' + crypto.randomUUID().replace(/-/g,'').slice(0,16),
-          'tenant_sam_primeaux',
-          'openai',
-          String(payload?.type || 'unknown').slice(0,100),
-          JSON.stringify(payload).slice(0,8000),
-          'received'
-        ).run().catch(e => console.warn('[webhook/openai] db write failed:', e?.message));
-        return new Response(JSON.stringify({ ok: true }),
+        try { payload = JSON.parse(raw); } catch (_) {}
+        await recordAgentsamWebhookEvent(env, ctx, {
+          provider: 'openai',
+          eventType: String(payload?.type || 'unknown'),
+          payload,
+          endpointPath: pathLower,
+          signatureValid: true,
+        });    return new Response(JSON.stringify({ ok: true }),
           { headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -944,21 +939,14 @@ export default {
               workspace_id: workspaceId,
             });
             ctx.waitUntil(
-              (async () => {
-                try {
-                  await env.DB.prepare(`
-              INSERT INTO agentsam_webhook_events
-                (id, tenant_id, provider, event_type, payload_json, status, processed_at)
-              VALUES
-                (?, ?, 'my_queue', ?, ?, 'received', datetime('now'))
-            `).bind(wheId, tenantId, body?.type ?? 'unknown', payloadJson).run();
-                  await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
-                    .bind(wheId)
-                    .run();
-                } catch (e) {
-                  console.warn('[queue webhook_events]', e?.message ?? e);
-                }
-              })(),
+              recordAgentsamWebhookEvent(env, null, {
+                id: wheId,
+                tenantId,
+                provider: 'my_queue',
+                eventType: String(body?.type ?? 'unknown'),
+                payloadJson,
+                metadata: { workspace_id: workspaceId },
+              }).catch((e) => console.warn('[queue webhook_events]', e?.message ?? e)),
             );
           }
         } catch (e) {

@@ -5,6 +5,7 @@
 import { jsonResponse } from '../../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
 import { verifyAnthropicWebhookSignature } from '../../core/anthropic-webhook-verify.js';
+import { recordAgentsamWebhookEvent } from '../../core/webhook-events-writer.js';
 
 /**
  * @param {Request} request
@@ -60,31 +61,15 @@ export async function handleAnthropicWebhook(request, env, ctx) {
     (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ||
     'system';
 
-  if (env?.DB && ctx?.waitUntil) {
-    ctx.waitUntil(
-      (async () => {
-        const eventRowId = crypto.randomUUID();
-        try {
-          await env.DB.prepare(
-            `INSERT INTO agentsam_webhook_events (
-              id, tenant_id, provider, source, event_type, event_id,
-              payload_json, status, received_at
-            ) VALUES (
-              ?, ?, 'anthropic', 'anthropic', ?, ?,
-              ?, 'received', datetime('now')
-            )`,
-          )
-            .bind(eventRowId, tenantId, eventType, topLevelEventId, rawBody)
-            .run();
-          await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
-            .bind(eventRowId)
-            .run();
-        } catch (e) {
-          console.warn('[anthropic webhook] agentsam_webhook_events', e?.message ?? e);
-        }
-      })(),
-    );
-  }
+  await recordAgentsamWebhookEvent(env, ctx, {
+    tenantId,
+    provider: 'anthropic',
+    eventType,
+    eventId: topLevelEventId,
+    payloadJson: rawBody,
+    endpointPath: '/api/webhooks/anthropic',
+    signatureValid: true,
+  });
 
   return new Response('', { status: 200 });
 }

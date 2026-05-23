@@ -84,25 +84,16 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
             body = { _unparsed: raw.slice(0, 8000) };
         }
         const tid = fallbackSystemTenantId(env);
-        if (env?.DB && ctx?.waitUntil) {
-            const rowId = crypto.randomUUID();
-            ctx.waitUntil(
-                (async () => {
-                    try {
-                        await env.DB.prepare(
-                            `INSERT INTO agentsam_webhook_events
-                     (id, tenant_id, provider, event_type, event_id, payload_json, status)
-                     VALUES (?, ?, 'github', ?, ?, ?, 'received')`,
-                        ).bind(rowId, tid, eventType, eventId, JSON.stringify(body)).run();
-                        await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
-                            .bind(rowId)
-                            .run();
-                    } catch (e) {
-                        console.warn('[agentsam_webhook_events github]', e?.message ?? e);
-                    }
-                })(),
-            );
-        }
+        const { recordAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
+        await recordAgentsamWebhookEvent(env, ctx, {
+            tenantId: tid,
+            provider: 'github',
+            eventType,
+            eventId,
+            payload: body,
+            endpointPath: '/api/webhooks/github',
+            signatureValid: true,
+        });
         return jsonResponse({ ok: true });
     }
 

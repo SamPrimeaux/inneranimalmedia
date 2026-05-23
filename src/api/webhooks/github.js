@@ -3,6 +3,7 @@
  */
 import { jsonResponse } from '../../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
+import { recordAgentsamWebhookEvent } from '../../core/webhook-events-writer.js';
 
 /** @param {string} a @param {string} b */
 function timingSafeEqualUtf8(a, b) {
@@ -122,74 +123,27 @@ export async function handleGithubWebhook(request, env, ctx) {
 
   const eventType = request.headers.get('X-GitHub-Event') || 'unknown';
   const deliveryId = request.headers.get('X-GitHub-Delivery') || null;
-  // Unauthenticated/system inbound webhook: tenant is configured by env (never hardcode a personal tenant id).
   const tenantId =
     (typeof env?.GITHUB_WEBHOOK_TENANT_ID === 'string' && env.GITHUB_WEBHOOK_TENANT_ID.trim()) ||
     (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ||
     'system';
-  const repoFullName = repoFromPayload(payload);
-  const branch = branchFromPayload(payload);
-  const commitSha = shaFromPayload(payload);
-  const commitMessage = commitMessageFromPayload(payload);
-  const authorUsername = authorFromPayload(payload);
-  const payloadJson = JSON.stringify(payload);
 
-  if (env?.DB && ctx?.waitUntil) {
-    ctx.waitUntil(
-      (async () => {
-        const eventRowId = crypto.randomUUID();
-        try {
-          await env.DB.prepare(
-            `INSERT INTO agentsam_webhook_events (
-              id, tenant_id, provider, event_type, event_id,
-              payload_json, status, received_at,
-              repo_full_name, branch, commit_sha,
-              commit_message, author_username
-            ) VALUES (
-              ?, ?, 'github', ?, ?,
-              ?, 'received', datetime('now'),
-              ?, ?, ?,
-              ?, ?
-            )`,
-          )
-            .bind(
-              eventRowId,
-              tenantId,
-              eventType,
-              deliveryId,
-              payloadJson,
-              repoFullName,
-              branch,
-              commitSha,
-              commitMessage,
-              authorUsername,
-            )
-            .run();
-          await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
-            .bind(eventRowId)
-            .run();
-        } catch (e) {
-          try {
-            await env.DB.prepare(
-              `INSERT INTO agentsam_webhook_events (id, tenant_id, provider, event_type, event_id, payload_json, status, processed_at)
-               VALUES (?, ?, 'github', ?, ?, ?, 'received', NULL)`,
-            )
-              .bind(eventRowId, tenantId, eventType, deliveryId, payloadJson)
-              .run();
-            await env.DB.prepare(`UPDATE agentsam_webhook_events SET status='processed' WHERE id=?`)
-              .bind(eventRowId)
-              .run();
-          } catch (e2) {
-            console.warn(
-              '[github webhook] agentsam_webhook_events',
-              e?.message ?? e,
-              e2?.message ?? e2,
-            );
-          }
-        }
-      })(),
-    );
-  }
+  await recordAgentsamWebhookEvent(env, ctx, {
+    tenantId,
+    provider: 'github',
+    eventType,
+    eventId: deliveryId,
+    payload,
+    endpointPath: '/api/webhooks/github',
+    signatureValid: true,
+    metadata: {
+      repo_full_name: repoFromPayload(payload),
+      branch: branchFromPayload(payload),
+      commit_sha: shaFromPayload(payload),
+      commit_message: commitMessageFromPayload(payload),
+      author_username: authorFromPayload(payload),
+    },
+  });
 
   return jsonResponse({ ok: true });
 }
