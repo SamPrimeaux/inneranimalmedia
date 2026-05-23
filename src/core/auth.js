@@ -3,6 +3,11 @@
  * Handles session validation, Superadmin resolution, and Policy checks.
  * Canonical Identity: auth_users.id (au_ prefix).
  */
+import { workspaceSlugFromTenantId } from '../api/provisioning.js';
+import {
+  resolveDefaultWorkspaceForTenant,
+  userHasWorkspaceMembership,
+} from './workspace-provisioning.js';
 
 /** Cached superadmin identifiers: auth_users.id, emails (TTL 5m). */
 let SUPERADMIN_IDS_CACHE = null;
@@ -464,7 +469,59 @@ function authSessionRowToKvPayload(row) {
   });
 }
 
-/** Session + KV fields derived from auth_users at login. */
+/**
+ * Resolve workspace at login: validate membership, then tenant default / first membership.
+ * @param {*} env
+ * @param {object|null} userRow auth_users row
+ * @param {{ workspaceId?: string|null }} [opts]
+ * @returns {Promise<string|null>}
+ */
+export async function resolveWorkspaceIdAtLogin(env, userRow, opts = {}) {
+  const userId = trimSessionField(userRow?.id);
+  const explicit = trimSessionField(opts.workspaceId);
+  if (explicit) return explicit;
+
+  const tenantId =
+    trimSessionField(userRow?.active_tenant_id) || trimSessionField(userRow?.tenant_id) || null;
+
+  let candidate =
+    trimSessionField(userRow?.active_workspace_id) ||
+    trimSessionField(userRow?.default_workspace_id) ||
+    null;
+
+  if (candidate && userId && env?.DB) {
+    const memberOk = await userHasWorkspaceMembership(env, userId, candidate);
+    if (!memberOk) candidate = null;
+  }
+
+  if (!candidate && tenantId && env?.DB) {
+    candidate = await resolveDefaultWorkspaceForTenant(env, tenantId);
+  }
+
+  if (!candidate && userId && env?.DB) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT workspace_id FROM workspace_members
+         WHERE user_id = ? AND COALESCE(is_active, 1) = 1
+         ORDER BY created_at ASC
+         LIMIT 1`,
+      )
+        .bind(userId)
+        .first();
+      candidate = trimSessionField(row?.workspace_id);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!candidate && tenantId) {
+    candidate = workspaceSlugFromTenantId(tenantId);
+  }
+
+  return candidate;
+}
+
+/** Session + KV fields derived from auth_users at login (workspace resolved separately). */
 function sessionFieldsFromAuthUser(userRow, sessionProvider, opts = {}) {
   const tenantId =
     trimSessionField(userRow?.active_tenant_id) || trimSessionField(userRow?.tenant_id) || null;
@@ -583,6 +640,10 @@ export async function getAuthUser(request, env) {
       ).bind(authId).first();
 
       if (row) {
+        const sessionWorkspaceId =
+          trimSessionField(session.workspace_id) || trimSessionField(session.workspaceId) || null;
+        const sessionTenantId =
+          trimSessionField(session.tenant_id) || trimSessionField(session.tenantId) || null;
         return {
           id:            row.id,          // au_ prefix — canonical
           auth_id:       row.id,          // legacy compat
@@ -593,8 +654,8 @@ export async function getAuthUser(request, env) {
           display_name:  row.display_name ?? row.name ?? null,
           avatar_url:    row.avatar_url ?? null,
           tenant_id:     row.tenant_id,
-          active_tenant_id: row.active_tenant_id ?? null,
-          active_workspace_id: row.active_workspace_id ?? null,
+          active_tenant_id: sessionTenantId || row.active_tenant_id || null,
+          active_workspace_id: sessionWorkspaceId || row.active_workspace_id || null,
           supabase_user_id: row.supabase_user_id ?? null,
           is_superadmin: row.is_superadmin ? 1 : 0,
           session_id:    session.session_id,
@@ -710,6 +771,9 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
   }
 
   const sessionFields = sessionFieldsFromAuthUser(userRow, sessionProvider);
+  const resolvedWorkspaceId = await resolveWorkspaceIdAtLogin(env, userRow, {});
+  sessionFields.workspaceId = resolvedWorkspaceId ?? sessionFields.workspaceId;
+
   await insertAuthSessionRow(env, {
     sessionId,
     userId,
@@ -726,6 +790,20 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
     ua,
     expiresAtIso,
   });
+
+  if (sessionFields.workspaceId) {
+    try {
+      await env.DB.prepare(
+        `UPDATE auth_users SET
+           active_workspace_id = ?,
+           active_tenant_id = COALESCE(NULLIF(TRIM(active_tenant_id), ''), ?),
+           updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(sessionFields.workspaceId, sessionFields.tenantId, userId)
+        .run();
+    } catch (_) {}
+  }
 
   await writeIamSessionToKv(env, sessionId, userId, sessionFields.tenantId, expiresAtIso, {
     workspaceId: sessionFields.workspaceId,
@@ -783,6 +861,11 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     workspaceId: opts.workspaceId,
     providerSubject: opts.providerSubject,
   });
+  const resolvedWorkspaceId = await resolveWorkspaceIdAtLogin(env, userRow, {
+    workspaceId: opts.workspaceId,
+  });
+  sessionFields.workspaceId = resolvedWorkspaceId ?? sessionFields.workspaceId;
+
   await insertAuthSessionRow(env, {
     sessionId,
     userId,
@@ -799,6 +882,20 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     ua,
     expiresAtIso,
   });
+
+  if (sessionFields.workspaceId) {
+    try {
+      await env.DB.prepare(
+        `UPDATE auth_users SET
+           active_workspace_id = ?,
+           active_tenant_id = COALESCE(NULLIF(TRIM(active_tenant_id), ''), ?),
+           updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(sessionFields.workspaceId, sessionFields.tenantId, userId)
+        .run();
+    } catch (_) {}
+  }
 
   await writeIamSessionToKv(env, sessionId, userId, sessionFields.tenantId, expiresAtIso, {
     workspaceId: sessionFields.workspaceId,
