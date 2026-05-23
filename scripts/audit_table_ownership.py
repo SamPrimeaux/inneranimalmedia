@@ -37,7 +37,7 @@ DEFAULT_OUT     = Path("artifacts/table_ownership")
 D1_DATABASE_ID  = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
 CF_ACCOUNT_ID   = "ede6590ac0d2fb7daf155b35653457b2"
 SUPABASE_URL    = "https://dpmuvynqixblxsilnlut.supabase.co"
-OPENAI_MODEL    = "gpt-5.4-mini"
+OPENAI_MODEL    = "gpt-5.4-mini-2026-03-17"
 
 # ---------------------------------------------------------------------------
 # Env loader
