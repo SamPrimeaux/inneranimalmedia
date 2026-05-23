@@ -1,57 +1,167 @@
-WORKING DIRECTORY: /Users/samprimeaux/inneranimalmedia
-This is the ONLY valid repo root. Confirm with pwd before every command.
+# Inner Animal Media — Cursor Rules
+# Synced to D1: agentsam_rules_document (ws_inneranimalmedia)
+# Last updated: 2026-05-23
 
-- Worker entry: src/index.js (production; sole bundle entry per wrangler.production.toml)
-- React dashboard: dashboard/
-- Dashboard components: dashboard/components/
-- Production wrangler config: wrangler.production.toml
-- GitHub remote: https://github.com/SamPrimeaux/inneranimalmedia
+## REPO IDENTITY
+- Repo root: /Users/samprimeaux/inneranimalmedia
+- Worker entry: src/index.js (NOT worker.js)
+- Deploy command: npm run deploy:full (ONLY — never npm run deploy alone)
+- Sandbox: DISCONTINUED — no deploy:sandbox
+- Dashboard: Vite React SPA in dashboard/
+- D1: inneranimalmedia-business (cf87b717-d4e2-4cf8-bab0-a81268e32d49)
+- Tenant: tenant_sam_primeaux | Workspace: ws_inneranimalmedia
 
-NEVER reference or write to:
-- /Users/samprimeaux/Downloads/inneranimalmedia (GONE)
-- /Users/samprimeaux/inneranimalmedia-agentsam-dashboard (DELETED)
-- /Users/samprimeaux/inneranimalmedia-BARE-DELETE (DELETED)
-- /Users/samprimeaux/march1st-inneranimalmedia (DELETED)
-- Any agent-dashboard/ or nested inneranimalmedia-agentsam-dashboard path
+---
 
-Every file edit must be in /Users/samprimeaux/inneranimalmedia/
-Every git command runs from /Users/samprimeaux/inneranimalmedia/
+## RULE: No barrel imports for utilities
+**ID:** rule_no_barrel_utility_imports | **Priority:** ALWAYS
 
-## Architecture rules
-- src/index.js is the production entry point (Wrangler `main`).
-- All business logic lives in src/ as focused modules.
-- Never hardcode workspace_id, tenant_id, email addresses, or secret values.
-- Agent Sam: D1 is canonical operational state; Supabase is the required observability mirror. Full lifecycle, tables, and required end-of-change alignment report: `.cursor/rules/agentsam-d1-supabase-alignment.mdc` (always applied).
+Never import `cn`, `formatDate`, type helpers, or any shared utility through a
+barrel/index file. Doing so creates circular dependencies that cause Vite to throw:
+`ReferenceError: Cannot access 'cn' before initialization`
 
-## Deploy — never guess (wrong command = wasted work)
-- `git push main` — CF Builds auto-deploys Worker only (no R2 dashboard bundle).
-- `npm run deploy` — Worker/API only (src/). No R2 upload; does not refresh dashboard assets.
-- `npm run deploy:frontend` or `npm run deploy:full` — same path: clean `npm run build:vite-only`, `bump-cache.js`, R2 sync, Worker via `scripts/deploy-frontend.sh`. Never set `SKIP_VITE_BUILD` for production paths; the deploy scripts reject it.
-- `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` — Worker-only one-liner.
+```ts
+// ❌ NEVER
+import { cn } from '../../components'
+import { cn } from '../index'
+import { cn } from '@/components'
 
-## Sandbox is DISCONTINUED
-- Never suggest deploy-sandbox.sh or promote-to-prod.sh — both are marked dangerous/discontinued.
-- Deploy dashboard assets with `npm run deploy:frontend` (or `deploy:full`, same script).
+// ✅ ALWAYS — direct source path
+import { cn } from '../../lib/utils'
+import { cn } from '@/lib/utils'
+```
 
-## Dashboard build rules
-- NEVER run cd dashboard
-- Always use `npm run build:vite-only` from repo root (never `cd dashboard`).
+**Applies to:** cn, formatDate, formatCurrency, any function from lib/ utils/ core/
+**Barrel files OK for:** exporting components outward to consumers
+**Barrel files NOT OK for:** importing utilities inward into components also exported by that barrel
 
-CF Builds auto-deploys Worker on push to main. Does NOT upload R2 frontend bundle.
-Run `npm run deploy:frontend` (or `deploy:full`) locally when dashboard changes need to be live immediately.
+**When adding any new component:**
+1. Import cn from ../../lib/utils directly
+2. Do NOT add the new component to a barrel that also exports anything it imports
+3. Before using a barrel import — ask: does that barrel re-export any file that
+   imports from this new component? If yes → use direct imports only.
 
-## Dashboard health vs Worker health
+---
 
-See `docs/agentsam_knowledge/dashboard_r2_asset_deploy_tactics.md`.
+## RULE: Python patch safety
+**ID:** rule_python_patch_safety_001 | **Priority:** ALWAYS
 
-- `/health` 200 only proves Worker/API is alive — not that the dashboard works.
-- Blank dashboard + JS bundle 404s (`/static/dashboard/app/*.js`) means R2 dashboard assets are missing or stale.
-- `git push main` / CF Builds may deploy Worker only; it does not sync `dashboard/dist` to R2.
-- Fix: `npm run deploy:frontend` (or `npm run deploy:full` for full releases). Do not recommend Worker rollback when the issue is missing Vite chunks in R2.
-- Deploy validation must check `/health` **and** that dashboard HTML-referenced asset URLs return 200 (future: `scripts/verify_dashboard_asset_integrity.py`).
-# AI-Generated Table Ownership Rules
-# Paste the CURSOR RULES section into .cursorrules
+Before patching any file with Python:
+1. Always create a .bak backup first: shutil.copy(path, str(path) + '.bak')
+2. Use line-by-line scanning to find targets — never blind regex on multi-line blocks
+3. Guard: assert Path.cwd().name == 'inneranimalmedia' before writing anything
+4. Make patches idempotent: check if already applied before applying
+5. Never patch more than one logical change per script run
 
-OpenAI call failed: HTTP Error 400: Bad Request
+---
 
-Review ownership.json manually.
+## RULE: No hardcoded provider or model strings in hot paths
+**ID:** rule_no_hardcoded_provider_model | **Priority:** ALWAYS
+
+Never hardcode provider names ('openai', 'anthropic', 'google', 'workers_ai') or
+model keys ('gpt-5.4-nano', 'claude-haiku-*') in request-path code.
+
+```js
+// ❌ NEVER
+const provider = arm?.provider || 'openai'
+AND provider IN ('openai','anthropic','google')
+
+// ✅ ALWAYS — resolve from agentsam_model_catalog
+const row = await env.DB.prepare(
+  'SELECT provider FROM agentsam_model_catalog WHERE model_key = ? AND is_active = 1'
+).bind(modelKey).first()
+const provider = arm?.provider || row?.provider
+```
+
+**Exception:** EMERGENCY_POLICY last-resort strings in resolveModel.js are intentional.
+**Exception:** Log/display strings — hardcoding is fine in console.warn, UI labels.
+
+---
+
+## RULE: Terminal auth — never isSuperAdmin() for PTY gate
+**ID:** rule_terminal_policy_gate | **Priority:** ALWAYS
+
+Terminal WebSocket access is gated by agentsam_user_policy.can_run_pty = 1.
+Never use isSuperAdmin() or authUserIsSuperadmin() to gate terminal access.
+
+```js
+// ❌ NEVER
+if (!isSuperAdmin(user)) return 403
+
+// ✅ ALWAYS
+const policy = await env.DB.prepare(
+  'SELECT can_run_pty FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ?'
+).bind(userId, workspaceId).first()
+if (!policy?.can_run_pty) return 403
+```
+
+To enable terminal for a user:
+UPDATE agentsam_user_policy SET can_run_pty = 1 WHERE user_id = ? AND workspace_id = ?;
+
+---
+
+## RULE: No per-user Wrangler secrets
+**ID:** rule_no_per_user_wrangler_secrets | **Priority:** ALWAYS
+
+Wrangler secrets are for platform infrastructure only (~8 keys total, never grows).
+Never add a Wrangler secret for a user API key, MCP token, or terminal session.
+
+Tier 1 — Wrangler (fixed):
+  VAULT_MASTER_KEY, TOKEN_SIGNING_KEY, PTY_AUTH_TOKEN,
+  AGENTSAM_BRIDGE_KEY, OAuth secrets
+
+Tier 2 — D1 (auto-provisioned per user):
+  user_secrets (AES-GCM encrypted with VAULT_MASTER_KEY)
+  user_api_keys (metadata + vault pointer)
+  mcp_workspace_tokens (HMAC signed, bearer shown once)
+  terminal_sessions (auth_token_hash SHA-256)
+
+---
+
+## RULE: Deploy boundaries — cms-editor is a separate Python Worker
+**ID:** rule_deploy_boundaries | **Priority:** ALWAYS
+
+Three separate deploy targets — never conflate:
+1. IAM Worker:      npm run deploy:full  (JS/TS, wrangler.production.toml)
+2. cms-editor:      pywrangler deploy    (Python/Pyodide, separate wrangler.toml)
+3. R2 frontend:     npm run build:analytics then R2 sync
+
+pywrangler ≠ wrangler — different CLI, installed via: uv tool install workers-py
+Before any cms-editor deploy: verify uv --version first.
+Forbidden: marking a task done after /health-only response.
+
+---
+
+## RULE: D1 is the single source of truth for workflow config
+**ID:** rule_d1_workflow_source_of_truth | **Priority:** ALWAYS
+
+Never hardcode in JS/TS:
+- Workflow IDs (use resolveWorkflowFromSurfaceMetadata)
+- Handler keys (read from agentsam_workflow_handlers)
+- Prompt routes (read from agentsam_prompt_routes)
+- Model tier / routing arms (read from agentsam_model_tier / agentsam_routing_arms)
+
+Model names used as handler_key values = invalid. handler_key must reference a row
+in agentsam_workflow_handlers with a non-empty handler_config_json.
+
+---
+
+## RULE: MCP bearer tokens — shown once, never stored raw
+**ID:** rule_mcp_token_storage | **Priority:** ALWAYS
+
+MCP bearer tokens are generated by generateMcpToken() and shown to the user exactly once.
+- Never store raw bearer in React state after modal close
+- Never log raw bearer to console or Worker logs
+- D1 stores token_hash (HMAC) only — never the raw token
+- Revoke: SET is_active=0, revoked_at=unixepoch()
+
+---
+
+## GENERAL HYGIENE
+- .bak files: never stage or commit (covered by .gitignore *.bak)
+- .scratch/ files: never stage or commit
+- *.db / SQLite files: never commit
+- executor_findings.json: never commit
+- Root-level py1_*.py, py2_*.py: never commit
+- After every file patch: node --check src/patched-file.js
+- After dashboard changes: check browser console for ReferenceError before marking done
