@@ -96,6 +96,10 @@ id = "08183bb9d2914e87ac8395d7e4ecff60"
 [[vectorize]]
 binding = "VECTORIZE"
 index_name = "ai-search-inneranimalmedia-autorag"
+[[vectorize]]
+binding = "AGENTSAMVECTORIZE"
+index_name = "inneranimalmedia-vectors"
+
 
 [[kv_namespaces]]
 binding = "KV"
