@@ -543,6 +543,26 @@ function sessionFieldsFromAuthUser(userRow, sessionProvider, opts = {}) {
   };
 }
 
+/** D1 check: session exists, not revoked, not expired. */
+async function authSessionIsActive(env, sessionId) {
+  const id = trimSessionField(sessionId);
+  if (!env?.DB || !id) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id FROM auth_sessions
+       WHERE id = ?
+         AND datetime(expires_at) > datetime('now')
+         AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')
+       LIMIT 1`,
+    )
+      .bind(id)
+      .first();
+    return !!row?.id;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Global Session Retrieval (KV + Context)
  */
@@ -561,6 +581,13 @@ export async function getSession(env, request) {
       try {
         const data = await env.SESSION_CACHE.get(IAM_KV_SESSION_KEY_PREFIX + sessionId);
         if (data) {
+          const stillActive = await authSessionIsActive(env, sessionId);
+          if (!stillActive) {
+            try {
+              await env.SESSION_CACHE.delete(IAM_KV_SESSION_KEY_PREFIX + sessionId);
+            } catch (_) {}
+            continue;
+          }
           const parsed = JSON.parse(data);
           return attachFeatureFlagsToSession(env, { ...parsed, session_id: sessionId });
         }
