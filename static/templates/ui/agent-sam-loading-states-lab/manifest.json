@@ -1,0 +1,18 @@
+{
+  "id": "agent-sam-loading-states-lab",
+  "version": "1.0.0",
+  "title": "Agent Sam Loading States UI/UX Template Library",
+  "description": "Animated presence icons (spark, scan, terminal, diff, pixel, path, files, browser), skeleton shimmer, and lab shell. Part of iam-motion-system-v1.",
+  "motion_system_slug": "iam-motion-system-v1",
+  "r2_bucket": "inneranimalmedia",
+  "r2_key": "cms/motion/iam-motion-system-v1/agent_sam_loading_states_lab.html",
+  "public_url": "https://assets.inneranimalmedia.com/cms/motion/iam-motion-system-v1/agent_sam_loading_states_lab.html",
+  "r2_prefix": "cms/motion/iam-motion-system-v1/",
+  "repo_split_bundle": "static/templates/ui/agent-sam-loading-states-lab/",
+  "dashboard_source": {
+    "icons_ts": "dashboard/features/agent-presence/presenceIcons.ts",
+    "icons_css": "dashboard/features/agent-presence/presenceIcons.css",
+    "component": "dashboard/features/agent-presence/AgentPresenceLogo.tsx"
+  },
+  "icon_keys": ["spark", "scan", "terminal", "diff", "pixel", "path", "files", "browser"]
+}

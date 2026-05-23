@@ -9,3 +9,5 @@ export { deriveAgentPresence } from './deriveAgentPresence';
 export { useAgentPresence } from './useAgentPresence';
 export { AgentPresenceLogo } from './AgentPresenceLogo';
 export { AgentPresenceStatus } from './AgentPresenceStatus';
+export { PRESENCE_ICON_SVG, presenceStateToIcon, presenceIconMarkup } from './presenceIcons';
+export type { AgentPresenceIcon, AgentPresenceState } from './iamPresenceStateMap';

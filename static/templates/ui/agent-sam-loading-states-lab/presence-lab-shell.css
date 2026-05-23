@@ -1,0 +1,223 @@
+/* Agent Sam Loading States Lab — layout / chrome (icons: presence-icons.css) */
+:root {
+  --bg-base: #0d0d10;
+  --bg-elevated: #111116;
+  --bg-surface: #18181e;
+  --text-primary: #e6e6f0;
+  --text-secondary: #8a8a9e;
+  --text-muted: #606071;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent: #5a7df7;
+  --accent-hover: #7090f8;
+  --accent-muted: rgba(90, 125, 247, 0.14);
+  --accent-glow: rgba(90, 125, 247, 0.26);
+  --good: #67e8a5;
+  --warn: #f8cf6a;
+  --danger: #ff7373;
+  --radius-lg: 22px;
+  --shadow-soft: 0 22px 70px rgba(0, 0, 0, 0.36);
+  --speed: 1;
+  --glow: 0.26;
+  --scale: 1;
+  --density: 1;
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SFMono-Regular', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  background:
+    radial-gradient(circle at 18% 12%, rgba(90, 125, 247, 0.17), transparent 34%),
+    radial-gradient(circle at 82% 8%, rgba(255, 145, 86, 0.1), transparent 26%),
+    linear-gradient(180deg, #09090b, var(--bg-base) 44%, #09090b);
+}
+
+.shell {
+  width: min(1240px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 34px 0 54px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.panel {
+  background: linear-gradient(180deg, rgba(24, 24, 30, 0.86), rgba(17, 17, 22, 0.86));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px);
+}
+
+.intro { padding: 26px; position: relative; overflow: hidden; }
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-hover);
+  background: var(--accent-muted);
+  border: 1px solid rgba(90, 125, 247, 0.28);
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(34px, 5vw, 62px);
+  letter-spacing: -0.07em;
+  line-height: 0.92;
+}
+
+.lead {
+  margin: 18px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  max-width: 720px;
+  font-size: 15px;
+}
+
+.control-panel { padding: 18px; display: grid; gap: 13px; }
+.control-row {
+  display: grid;
+  grid-template-columns: 82px 1fr 42px;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.preview-stage { padding: 18px; display: grid; gap: 14px; margin-bottom: 18px; }
+.stage-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.thinking-stack { display: grid; gap: calc(10px * var(--density)); }
+
+.thinking-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 11px;
+  align-items: center;
+  min-height: calc(44px * var(--density));
+  padding: calc(10px * var(--density)) calc(12px * var(--density));
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.thinking-row.is-expanded {
+  background: rgba(255, 255, 255, 0.052);
+  border-color: rgba(90, 125, 247, 0.36);
+}
+
+.thinking-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(13px * var(--scale));
+}
+
+.thinking-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.pill {
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.card {
+  padding: 16px;
+  min-height: 220px;
+  display: grid;
+  align-content: space-between;
+  gap: 18px;
+}
+
+.motion-stage {
+  height: 102px;
+  display: grid;
+  place-items: center;
+}
+
+.mini-code {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 11px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 12px;
+}
+
+/* Lab uses .logo-wrap — map to icon slot vars */
+.logo-wrap {
+  --size: 22px;
+  width: calc(var(--size) * var(--scale));
+  height: calc(var(--size) * var(--scale));
+  color: var(--accent-hover);
+  filter: drop-shadow(0 0 calc(14px * var(--glow)) var(--accent-glow));
+  display: inline-grid;
+  place-items: center;
+}
+
+.logo-wrap.large { --size: 54px; }
+.logo-wrap svg { width: 100%; height: 100%; overflow: visible; }
+
+.skeleton-demo { width: 100%; max-width: 260px; display: grid; gap: 9px; }
+.sk-line, .sk-card {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.055);
+  border-radius: 999px;
+}
+.sk-card { height: 54px; border-radius: 15px; }
+.sk-line { height: 10px; }
+.sk-line.short { width: 62%; }
+.sk-line.med { width: 82%; }
+.sk-line::after, .sk-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  animation: iam-shimmer calc(1.6s / var(--speed)) infinite;
+}
+
+@keyframes iam-shimmer { 100% { transform: translateX(100%); } }
+
+@media (max-width: 920px) {
+  .hero, .grid { grid-template-columns: 1fr; }
+}

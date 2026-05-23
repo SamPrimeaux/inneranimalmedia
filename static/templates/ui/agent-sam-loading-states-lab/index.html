@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent Sam Loading States Lab</title>
+  <link rel="stylesheet" href="./presence-lab-shell.css" />
+  <link rel="stylesheet" href="./presence-icons.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="intro panel">
+        <div class="eyebrow"><span>✳</span> Agent Sam UI Motion Lab</div>
+        <h1>Lightweight animated thinking states.</h1>
+        <p class="lead">Template library: spark, scan, terminal, diff, pixel, path, files, browser + skeleton shimmer. Tune speed, glow, scale, density. Mirror of dashboard/features/agent-presence.</p>
+      </div>
+      <aside class="control-panel panel">
+        <label class="control-row"><span>Speed</span><input id="speed" type="range" min="0.4" max="2.4" value="1" step="0.1" /><output id="speedOut">1.0x</output></label>
+        <label class="control-row"><span>Glow</span><input id="glow" type="range" min="0" max="1" value="0.26" step="0.02" /><output id="glowOut">26%</output></label>
+        <label class="control-row"><span>Scale</span><input id="scale" type="range" min="0.8" max="1.4" value="1" step="0.02" /><output id="scaleOut">1.00</output></label>
+      </aside>
+    </section>
+
+    <section class="preview-stage panel">
+      <div class="stage-top"><span>Inline thinking row preview</span></div>
+      <div class="thinking-stack">
+        <article class="thinking-row is-expanded" data-state="thinking">
+          <span class="logo-wrap" data-icon="spark"></span>
+          <div><div class="thinking-title">Synthesizing architecture</div><div class="thinking-meta">thinking · 4 steps</div></div>
+          <span class="pill">thinking</span>
+        </article>
+        <article class="thinking-row" data-state="terminal">
+          <span class="logo-wrap" data-icon="terminal"></span>
+          <div><div class="thinking-title">Running wrangler smoke test</div><div class="thinking-meta">terminal_execute</div></div>
+          <span class="pill">execute</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card panel"><h2>Spark</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="spark"></span></div></article>
+      <article class="card panel"><h2>Scan</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="scan"></span></div></article>
+      <article class="card panel"><h2>Terminal</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="terminal"></span></div></article>
+      <article class="card panel"><h2>Diff</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="diff"></span></div></article>
+      <article class="card panel"><h2>Pixel</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="pixel"></span></div></article>
+      <article class="card panel"><h2>Path</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="path"></span></div></article>
+      <article class="card panel"><h2>Files</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="files"></span></div></article>
+      <article class="card panel"><h2>Browser</h2><div class="motion-stage"><span class="logo-wrap large" data-icon="browser"></span></div></article>
+      <article class="card panel"><h2>Skeleton</h2><div class="motion-stage"><div class="skeleton-demo"><div class="sk-card"></div><div class="sk-line med"></div><div class="sk-line short"></div></div></div></article>
+    </section>
+  </main>
+  <script>
+    fetch('./presence-icons.json')
+      .then((r) => r.json())
+      .then((j) => {
+        const icons = j.icons || {};
+        document.querySelectorAll('[data-icon]').forEach((el) => {
+          el.innerHTML = icons[el.dataset.icon] || icons.spark || '';
+        });
+      })
+      .catch((e) => console.error('Failed to load presence-icons.json', e));
+
+    const root = document.documentElement;
+    [['speed', '--speed', (v) => `${Number(v).toFixed(1)}x`, 'speedOut'],
+     ['glow', '--glow', (v) => `${Math.round(Number(v) * 100)}%`, 'glowOut'],
+     ['scale', '--scale', (v) => Number(v).toFixed(2), 'scaleOut']].forEach(([id, cssVar, fmt, outId]) => {
+      const input = document.getElementById(id);
+      const out = document.getElementById(outId);
+      const update = () => { root.style.setProperty(cssVar, input.value); out.textContent = fmt(input.value); };
+      input.addEventListener('input', update);
+      update();
+    });
+  </script>
+</body>
+</html>

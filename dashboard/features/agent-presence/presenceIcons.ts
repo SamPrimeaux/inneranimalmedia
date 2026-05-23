@@ -1,0 +1,51 @@
+/**
+ * Inline SVG loaders extracted from Agent Sam Loading States Lab.
+ * R2 mirror: static/templates/ui/agent-sam-loading-states-lab/
+ */
+
+import type { AgentPresenceIcon, AgentPresenceState } from './iamPresenceStateMap';
+
+export const PRESENCE_ICON_SVG: Record<AgentPresenceIcon, string> = {
+  spark: `<svg class="spark iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"><path class="ray" d="M50 7v18"/><path class="ray" d="M80.4 19.6 67.7 32.3"/><path class="ray" d="M93 50H75"/><path class="ray" d="M80.4 80.4 67.7 67.7"/><path class="ray" d="M50 93V75"/><path class="ray" d="M19.6 80.4 32.3 67.7"/><path class="ray" d="M7 50h18"/><path class="ray" d="M19.6 19.6 32.3 32.3"/></g><circle class="core" cx="50" cy="50" r="9" fill="currentColor"/></svg>`,
+  scan: `<svg class="scan-ring iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><circle class="frame" cx="50" cy="50" r="36" fill="none" stroke="currentColor" stroke-width="5"/><circle class="ring" cx="50" cy="50" r="36" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><g class="crosshair" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"><path d="M50 31v38"/><path d="M31 50h38"/></g><circle cx="50" cy="50" r="5" fill="currentColor"/></svg>`,
+  terminal: `<svg class="terminal-icon iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><rect x="18" y="24" width="64" height="52" rx="12" fill="none" stroke="currentColor" stroke-width="5" opacity="0.42"/><path class="prompt" d="M31 43l10 8-10 8" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path class="cursor" d="M50 61h20" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>`,
+  diff: `<svg class="diff-icon iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><g class="line" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"><path d="M24 31h52"/><path d="M24 50h52"/><path d="M24 69h52"/></g><path d="M28 31h20M52 50h22M34 69h26" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/><rect class="sweep" x="38" y="18" width="18" height="64" rx="9" fill="currentColor" opacity="0.22"/></svg>`,
+  pixel: `<svg class="pixel-icon iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><rect class="px" x="24" y="24" width="18" height="18" rx="4" fill="currentColor"/><rect class="px" x="48" y="20" width="14" height="14" rx="4" fill="currentColor"/><rect class="px" x="61" y="43" width="18" height="18" rx="4" fill="currentColor"/><rect class="px" x="39" y="45" width="16" height="16" rx="4" fill="currentColor"/><rect class="px" x="22" y="63" width="14" height="14" rx="4" fill="currentColor"/><rect class="px" x="49" y="67" width="22" height="12" rx="4" fill="currentColor"/></svg>`,
+  path: `<svg class="path-icon iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><path class="draw" d="M18 68C28 26 51 83 62 39c5-18 16-23 23-12" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/><path class="pen" d="M72 66l14-14 7 7-14 14-9 2 2-9z" fill="currentColor" opacity="0.86"/></svg>`,
+  files: `<svg class="files-icon iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><path class="file-b" d="M28 20h30l14 14v39H28z" fill="none" stroke="currentColor" stroke-width="5" opacity="0.42"/><path class="file-a" d="M20 30h30l14 14v39H20z" fill="none" stroke="currentColor" stroke-width="5"/><path d="M50 30v14h14" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  browser: `<svg class="browser-icon iam-presence-icon" viewBox="0 0 100 100" aria-hidden="true"><rect class="viewport" x="16" y="22" width="68" height="56" rx="11" fill="none" stroke="currentColor" stroke-width="5"/><path d="M16 38h68" stroke="currentColor" stroke-width="5" opacity="0.28"/><path class="scanline" d="M25 50h50" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle class="node" cx="35" cy="58" r="3" fill="currentColor"/><circle class="node" cx="61" cy="58" r="3" fill="currentColor" style="animation-delay:-.5s"/></svg>`,
+};
+
+/** Semantic table: presence state → animated icon key. */
+export function presenceStateToIcon(state: string | null | undefined): AgentPresenceIcon {
+  switch (String(state || 'idle').toLowerCase()) {
+    case 'reading':
+    case 'database':
+    case 'tool':
+      return 'scan';
+    case 'writing':
+      return 'diff';
+    case 'terminal':
+      return 'terminal';
+    case 'browser':
+      return 'browser';
+    case 'files':
+      return 'files';
+    case 'drawing':
+      return 'path';
+    case 'imaging':
+      return 'pixel';
+    case 'thinking':
+    case 'planning':
+    case 'waiting_approval':
+    case 'complete':
+    case 'failed':
+    case 'idle':
+    default:
+      return 'spark';
+  }
+}
+
+export function presenceIconMarkup(icon: AgentPresenceIcon): string {
+  return PRESENCE_ICON_SVG[icon] || PRESENCE_ICON_SVG.spark;
+}

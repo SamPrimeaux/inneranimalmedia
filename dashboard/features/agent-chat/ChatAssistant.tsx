@@ -97,6 +97,7 @@ import {
   tryDispatchDbApplyFromAssistantMessage,
 } from '../../src/lib/databaseStudioEvents';
 import '../agent-presence/presenceMotion.css';
+import '../agent-presence/presenceIcons.css';
 import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
 import { derivePresenceState } from '../agent-presence/iamDerivePresenceState';
 
