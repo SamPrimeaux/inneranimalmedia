@@ -15,6 +15,7 @@ import {
   ZAxis,
 } from 'recharts';
 import type { AnalyticsLayoutResponse } from '../types';
+import { OverviewPortablePanels } from '../portable/OverviewPortablePanels';
 import { formatCost } from '@/lib/formatCost';
 
 type Props = { layout: AnalyticsLayoutResponse | null };
@@ -459,6 +460,8 @@ export default function OverviewTab(_props: Props) {
           </div>
         </div>
       </div>
+
+      <OverviewPortablePanels pulse={pulse} />
 
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3">
