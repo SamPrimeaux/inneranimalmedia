@@ -846,6 +846,8 @@ const App: React.FC = () => {
     [tabs],
   );
 
+  const [browserUrl, setBrowserUrl] = useState<string>('https://inneranimalmedia.com');
+
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(
     () => ({
       activeTab: String(activeTab),
@@ -868,7 +870,6 @@ const App: React.FC = () => {
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  const [browserUrl, setBrowserUrl] = useState<string>('https://inneranimalmedia.com');
   /** When set with a blob browser URL, Browser tab shows this label (e.g. r2://binding/key) instead of blob:. */
   const [browserAddressDisplay, setBrowserAddressDisplay] = useState<string | null>(null);
   const [browserTabTitle, setBrowserTabTitle] = useState<string | null>(null);
