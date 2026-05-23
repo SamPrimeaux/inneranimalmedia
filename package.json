@@ -50,6 +50,7 @@
     "designstudio:smoke": "bash scripts/designstudio/pipeline-smoke.sh",
     "build": "npm run build:vite-only && node scripts/bump-cache.js",
     "build:vite-only": "bash scripts/with-node-env-fallback.sh npm --prefix dashboard run build",
+    "crawl:plans": "python3 scripts/agentsam_crawl_plans_d1_supabase.py",
     "dev:dashboard": "npm --prefix dashboard run dev",
     "preview:dashboard": "npm --prefix dashboard run preview",
     "agentsam:scripts:register:dry-run": "./scripts/with-cloudflare-env.sh node scripts/register-agentsam-scripts.mjs --dry-run",
