@@ -571,10 +571,17 @@ function redirectWithLoginSession(request, sessionId) {
 async function handleLogout(request, url, env) {
   const cookie = request.headers.get('Cookie') || '';
   const match = cookie.match(new RegExp(`${AUTH_COOKIE_NAME}=([^;]+)`));
-  const sessionId = match ? match[1] : null;
+  const sessionId = match ? decodeURIComponent(String(match[1]).trim()) : null;
 
-  if (sessionId && env.DB) {
-    await revokeAuthSession(env, sessionId, 'logout');
+  let sessionUserId = null;
+  if (sessionId && env?.DB) {
+    try {
+      const row = await env.DB.prepare(`SELECT user_id FROM auth_sessions WHERE id = ? LIMIT 1`)
+        .bind(sessionId)
+        .first();
+      sessionUserId = row?.user_id != null ? String(row.user_id).trim() : null;
+    } catch (_) {}
+    await revokeAuthSession(env, sessionId, 'logout', sessionUserId);
   }
 
   const responseBody = JSON.stringify({ ok: true });

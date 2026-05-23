@@ -914,25 +914,42 @@ export async function createLoginSession(request, env, userId, sessionProvider =
 
 /**
  * Revoke a browser session (soft-delete). Clears KV cache for that session id.
+ * @param {string} [userId] auth_users.id — when set, revoke only if session belongs to user
  */
-export async function revokeAuthSession(env, sessionId, reason = 'logout') {
+export async function revokeAuthSession(env, sessionId, reason = 'logout', userId = null) {
   const id = String(sessionId || '').trim();
+  const uid = trimSessionField(userId);
   if (!id || !env?.DB) return;
-  try {
-    await env.DB.prepare(
-      `UPDATE auth_sessions
-       SET revoked_at = datetime('now'), revoke_reason = ?
-       WHERE id = ? AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')`,
-    )
-      .bind(reason, id)
-      .run();
-  } catch (e) {
-    console.warn('[revokeAuthSession]', e?.message ?? e);
-  }
+
   if (env.SESSION_CACHE) {
     try {
       await env.SESSION_CACHE.delete(IAM_KV_SESSION_KEY_PREFIX + id);
     } catch (_) {}
+  }
+
+  try {
+    if (uid) {
+      await env.DB.prepare(
+        `UPDATE auth_sessions
+         SET revoked_at = datetime('now'), revoke_reason = ?
+         WHERE id = ?
+           AND user_id = ?
+           AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')`,
+      )
+        .bind(reason, id, uid)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE auth_sessions
+         SET revoked_at = datetime('now'), revoke_reason = ?
+         WHERE id = ?
+           AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')`,
+      )
+        .bind(reason, id)
+        .run();
+    }
+  } catch (e) {
+    console.warn('[revokeAuthSession]', e?.message ?? e);
   }
 }
 
