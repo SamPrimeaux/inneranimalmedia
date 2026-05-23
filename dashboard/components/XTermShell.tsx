@@ -12,6 +12,7 @@ import {
   TerminalSessionPaneHandle,
   type TerminalConnectionStatus,
 } from './TerminalSessionPane';
+import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 const DEFAULT_PRODUCT = 'Agent Sam';
@@ -60,6 +61,7 @@ interface XTermShellProps {
   workspaceId?: string;
   productLabel?: string;
   layout?: 'page' | 'drawer';
+  workspaceContext?: AgentWorkspaceContextPacket | null;
 }
 
 const MIN_HEIGHT = 140;
@@ -243,6 +245,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       workspaceId,
       productLabel = DEFAULT_PRODUCT,
       layout = 'page',
+      workspaceContext: _workspaceContext = null,
     },
     ref,
   ) => {

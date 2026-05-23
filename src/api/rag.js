@@ -13,6 +13,15 @@ import {
   isHyperdriveUsable,
   runHyperdriveQuery,
 } from '../core/hyperdrive-query.js';
+import {
+  AGENTSAM_VECTOR_DIM,
+  agentsamEmbeddingDims,
+  agentsamEmbeddingModel,
+  createAgentSamEmbedding,
+  upsertAgentsamVectorizeMemory,
+} from '../core/agentsam-vectorize.js';
+
+export { AGENTSAM_VECTOR_DIM, agentsamEmbeddingDims, agentsamEmbeddingModel, createAgentSamEmbedding };
 
 export const RAG_CHUNK_MAX_CHARS = 600;
 export const RAG_CHUNK_OVERLAP = 80;
@@ -409,7 +418,7 @@ async function withPg(env, fn) {
 
 /**
  * Hybrid keyword + vector search against Supabase `agent_memory` via Hyperdrive (pgvector RPC).
- * Uses `createEmbedding` (OpenAI first, Ollama fallback @ 1024 dims). Returns null on missing bindings or errors.
+ * Uses `createAgentSamEmbedding` (@1536). Returns null on missing bindings or errors.
  *
  * @param {any} env
  * @param {string} query
@@ -428,7 +437,7 @@ export async function searchAgentMemoryHybrid(env, query, workspaceId, options =
 
   let embedding;
   try {
-    ({ embedding } = await createEmbedding(env, String(query || '').trim()));
+    ({ embedding } = await createAgentSamEmbedding(env, String(query || '').trim()));
   } catch (e) {
     console.warn('[rag] searchAgentMemoryHybrid embed:', e?.message ?? e);
     return null;
@@ -437,9 +446,10 @@ export async function searchAgentMemoryHybrid(env, query, workspaceId, options =
 
   const vecLit = vectorLiteral(embedding);
   const q = String(query || '').trim();
+  const dim = agentsamEmbeddingDims(env);
 
   const sql = `SELECT id, content, hybrid_score, embedding_distance, trigram_similarity
-     FROM public.search_agent_memory($1::vector(1024), $2, $3, $4, $5, $6)`;
+     FROM public.search_agent_memory($1::vector(${dim}), $2, $3, $4, $5, $6)`;
   const params = [vecLit, q, workspaceId, matchLimit, keywordWeight, semanticWeight];
 
   try {
@@ -1086,20 +1096,12 @@ export async function insertCuratedAgentMemory(env, params) {
   const user_id =
     params.user_id != null && String(params.user_id).trim() !== '' ? String(params.user_id).trim() : null;
 
-  const { embedding, provider } = await createEmbedding(env, content);
-  const expectedDims = RAG_SUPABASE_VECTOR_DIM;
+  const { embedding, model: embed_model } = await createAgentSamEmbedding(env, content);
+  const expectedDims = agentsamEmbeddingDims(env);
   const dims = embedding.length;
   if (dims !== expectedDims) {
     throw new Error(`embedding length ${dims} does not match expected ${expectedDims}`);
   }
-  const embed_model =
-    provider === 'ollama'
-      ? 'mxbai-embed-large'
-      : provider === 'workers_ai'
-        ? '@cf/baai/bge-m3'
-        : provider === 'google'
-          ? String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-001').trim()
-          : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
 
   const vecLit = vectorLiteral(embedding);
 
@@ -1133,6 +1135,22 @@ export async function insertCuratedAgentMemory(env, params) {
     const vd = verify.rows?.[0]?.dims;
     if (vd != null && Number(vd) !== expectedDims) {
       throw new Error(`vector_dims check failed: got ${vd}, expected ${expectedDims}`);
+    }
+
+    try {
+      await upsertAgentsamVectorizeMemory(env, {
+        id: String(id),
+        embedding,
+        metadata: {
+          session_id,
+          workspace_id,
+          tenant_id,
+          user_id,
+          role: roleRaw,
+        },
+      });
+    } catch (e) {
+      console.warn('[rag] AGENTSAMVECTORIZE upsert:', e?.message ?? e);
     }
 
     return {
@@ -1176,17 +1194,10 @@ export async function searchCuratedAgentMemory(env, opts) {
   if (!Number.isFinite(limit) || limit < 1) limit = 10;
   if (limit > 50) limit = 50;
 
-  const { embedding, provider } = await createEmbedding(env, query);
-  const embed_model =
-    provider === 'ollama'
-      ? 'mxbai-embed-large'
-      : provider === 'workers_ai'
-        ? '@cf/baai/bge-m3'
-        : provider === 'google'
-          ? String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-001').trim()
-          : String(ragEmbeddingModel(env) || 'text-embedding-3-small').trim();
-  if (embedding.length !== RAG_SUPABASE_VECTOR_DIM) {
-    throw new Error(`embedding must be ${RAG_SUPABASE_VECTOR_DIM} dimensions`);
+  const { embedding, model: embed_model } = await createAgentSamEmbedding(env, query);
+  const dim = agentsamEmbeddingDims(env);
+  if (embedding.length !== dim) {
+    throw new Error(`embedding must be ${dim} dimensions`);
   }
   const vecLit = vectorLiteral(embedding);
 
@@ -1203,14 +1214,14 @@ export async function searchCuratedAgentMemory(env, opts) {
         am.tenant_id,
         am.workspace_id,
         am.user_id,
-        (am.embedding <=> $1::vector(1024))::double precision AS embedding_distance
+        (am.embedding <=> $1::vector(${dim}))::double precision AS embedding_distance
       FROM public.agent_memory am
       WHERE am.embedding IS NOT NULL
         AND am.workspace_id = $2
         AND ($3::text IS NULL OR am.tenant_id = $3)
         AND ($4::text IS NULL OR am.user_id = $4 OR am.user_id IS NULL)
         AND ($5::text IS NULL OR am.session_id = $5)
-      ORDER BY am.embedding <=> $1::vector(1024)
+      ORDER BY am.embedding <=> $1::vector(${dim})
       LIMIT $6`;
     const { rows } = await client.query(sql, [vecLit, workspace_id, tenant_id, user_id, session_id, limit]);
 
@@ -1274,7 +1285,7 @@ export async function handleAgentMemorySync(request, env) {
   }
 
   try {
-    const { embedding } = await createEmbedding(env, content);
+    const { embedding } = await createAgentSamEmbedding(env, content);
     const vecLit = vectorLiteral(embedding);
     await withPg(env, async (client) => {
       await client.query(`UPDATE public.agent_memory SET embedding = $1::vector WHERE id = $2::uuid`, [
@@ -1282,6 +1293,15 @@ export async function handleAgentMemorySync(request, env) {
         id,
       ]);
     });
+    try {
+      await upsertAgentsamVectorizeMemory(env, {
+        id: String(id),
+        embedding,
+        metadata: { session_id: record.session_id, workspace_id: record.workspace_id },
+      });
+    } catch (e) {
+      console.warn('[rag] AGENTSAMVECTORIZE sync upsert:', e?.message ?? e);
+    }
     await d1RagIngestLog(env, { source: `agent_memory:${id}`, status: 'success', chunks: 1 });
     return jsonResponse({ ok: true });
   } catch (e) {

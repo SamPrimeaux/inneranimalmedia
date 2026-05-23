@@ -45,6 +45,15 @@ export type IdePersistedBundle = {
   recentFiles: RecentFileEntry[];
 };
 
+/** Live Agent Sam workbench context (chat payload + IDE child surfaces). */
+export type AgentWorkspaceContextPacket = {
+  activeTab: string;
+  browserUrl: string | null;
+  openFiles: string[];
+  plan_id: string | null;
+  workflow_run_id: string | null;
+};
+
 export function defaultIdeBundle(): IdePersistedBundle {
   return {
     v: IDE_PERSIST_VERSION,

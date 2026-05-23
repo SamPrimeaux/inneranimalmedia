@@ -1153,8 +1153,13 @@ export async function executeCommand(env, ctx, o) {
     userId,
     tenantId,
   }).catch(() => null);
-  const modelKey = arm?.model_key || 'gpt-5.4-mini';
-  const provider = arm?.provider || 'openai';
+  const modelKey = arm?.model_key || 'gpt-5.4-nano'; // baseline; arm resolution preferred
+  // Resolve provider from catalog — never hardcode 'openai' as default
+  const provider = arm?.provider || (
+    await env.DB.prepare(
+      'SELECT provider FROM agentsam_model_catalog WHERE model_key = ? AND is_active = 1 LIMIT 1'
+    ).bind(modelKey).first().catch(() => null)
+  )?.provider || 'openai'; // true last resort only
 
   scheduleCommandPipelineAgentRunStart(env, ctx, {
     agentRunId,

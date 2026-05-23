@@ -240,6 +240,8 @@ export function getDatabaseSqlRunGate(
 /** Whether ChatAssistant may auto-run db:apply-sql (v1: never by default). */
 export function canClientAutorunDatabaseSql(sql: string, runRequested: boolean, isSuperadmin: boolean): boolean {
   if (!runRequested) return false;
+  const kind = classifyDatabaseSqlStatement(sql);
+  if (kind === 'schema' || kind === 'destructive') return false;
   const gate = getDatabaseSqlRunGate(sql, { isSuperadmin, studioApproved: true, destructiveConfirmed: true });
   return gate.canExecute && gate.kind !== 'unknown';
 }

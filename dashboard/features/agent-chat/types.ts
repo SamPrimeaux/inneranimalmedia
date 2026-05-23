@@ -5,6 +5,7 @@
 
 import type React from 'react';
 import type { ActiveFile, ProjectType } from '../../types';
+import type { AgentWorkspaceContextPacket } from '../../src/ideWorkspace';
 
 export type MessageAttachmentPreview = {
   previewUrl: string | null;
@@ -142,6 +143,8 @@ export interface Message {
 /** Host-managed chat tab strip (e.g. App.tsx multi-session). */
 export type AgentChatShellTab = { id: string; title: string };
 
+export type { AgentWorkspaceContextPacket };
+
 export interface ChatAssistantProps {
   activeProject: ProjectType;
   activeFileContent?: string;
@@ -189,6 +192,14 @@ export interface ChatAssistantProps {
   agentRunId?: string | null;
   /** SSE `context.agent_run_id` (`agentsam_agent_run.id`) for run-spine linkage (e.g. BrowserView screenshots). */
   onAgentRunContext?: (agentRunId: string | null) => void;
+  /** Active workbench tab (Workspace, code, browser, …). */
+  activeWorkbenchTab?: string;
+  /** Browser panel URL when host controls navigation. */
+  browserUrl?: string | null;
+  /** Labels/paths for open editor files (Monaco tabs). */
+  openFilePaths?: string[];
+  /** Active plan id from workspace dashboard when known. */
+  activePlanId?: string | null;
 }
 
 export type StagedAttachment = {

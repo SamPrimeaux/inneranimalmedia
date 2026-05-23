@@ -1202,6 +1202,16 @@ const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
   'cdt_take_screenshot',
 ];
 
+/** /dashboard/agent surface capability → concrete tool names (ensure in chat tool bar). */
+const AGENT_DASHBOARD_SURFACE_CAPABILITY_TOOLS = {
+  open_browser: ['cdt_take_screenshot', 'browser_navigate'],
+  workspace_read_file: ['workspace_read_file'],
+  terminal_execute: ['terminal_execute'],
+  d1_query: ['d1_query'],
+};
+
+const AGENT_DASHBOARD_SURFACE_CAPABILITY_REQUIRES_APPROVAL = new Set(['terminal_execute']);
+
 const TOOL_OUTPUT_SSE_MAX = 12000;
 
 function inputSchemaFromAgentsamToolRow(row) {
@@ -1378,6 +1388,59 @@ async function ensureVideoCapabilityTools(env, tools, videoCapabilityIntent, eff
     workspaceId,
     mode,
   );
+}
+
+function isAgentDashboardSurfaceRoute(dashboardRoute) {
+  const r = dashboardRoute != null ? String(dashboardRoute).trim() : '';
+  return r === '/dashboard/agent' || r.startsWith('/dashboard/agent/');
+}
+
+/** Guarantee /dashboard/agent capability tools survive narrowing; terminal_execute requires approval. */
+async function ensureAgentDashboardSurfaceCapabilityTools(env, tools, effectiveMaxTools, dashboardRoute) {
+  if (!isAgentDashboardSurfaceRoute(dashboardRoute) || !env?.DB || !Array.isArray(tools)) {
+    return tools;
+  }
+  const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
+  const required = [
+    ...new Set(
+      Object.values(AGENT_DASHBOARD_SURFACE_CAPABILITY_TOOLS).flatMap((names) => names),
+    ),
+  ];
+  const missing = required.filter((n) => !have.has(n));
+  if (!missing.length) {
+    return tools.map((t) => {
+      const nm = agentToolNameOf(t);
+      if (nm && AGENT_DASHBOARD_SURFACE_CAPABILITY_REQUIRES_APPROVAL.has(nm)) {
+        return { ...t, requires_approval: true };
+      }
+      return t;
+    });
+  }
+  const rows = await fetchAgentsamToolRowsByName(env, missing);
+  const out = [...tools];
+  const seen = new Set(have);
+  for (const row of rows) {
+    const nm = String(row.tool_name || '');
+    if (!nm || seen.has(nm)) continue;
+    if (out.length >= effectiveMaxTools) break;
+    seen.add(nm);
+    out.push({
+      name: nm,
+      description: String(row.description || nm).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'builtin'),
+      requires_approval:
+        AGENT_DASHBOARD_SURFACE_CAPABILITY_REQUIRES_APPROVAL.has(nm) ||
+        Number(row.requires_approval || 0) === 1,
+    });
+  }
+  return out.map((t) => {
+    const nm = agentToolNameOf(t);
+    if (nm && AGENT_DASHBOARD_SURFACE_CAPABILITY_REQUIRES_APPROVAL.has(nm)) {
+      return { ...t, requires_approval: true };
+    }
+    return t;
+  });
 }
 
 function chatToolSessionSseBase(ledger) {
@@ -2428,15 +2491,54 @@ async function shouldIncludeRag(env, taskType, tenantId) {
   }
 }
 
-async function resolveWorkflowForMessage(env, taskType, message, workspaceId) {
-  if (!env.DB) return null;
+/** SQL/D1 intents bypass workflow routing (Monaco/code surfaces stay available via tools). */
+function isD1SqlIntent(message) {
   const t = String(message || '').toLowerCase();
-  // Detect D1/database/SQL/query intents first, and bypass workflow routing
-  // for these cases to allow direct D1 tool execution.
-  const d1SqlIntentKeywords = /\b(d1|database|sql|query|table|schema|db)\b/;
-  if (d1SqlIntentKeywords.test(t)) {
+  const d1SqlKeywords = [
+    /\bd1\b/,
+    /\bsql\b/,
+    /\bdatabase\b/,
+    /\btable\b/,
+    /\bquery\b/,
+    /\bselect\b/,
+    /\binsert\b/,
+    /\bupdate\b/,
+    /\bdelete\b/,
+    /\balter\b/,
+    /\bcreate table\b/,
+    /\bdrop table\b/,
+  ];
+  return d1SqlKeywords.some((pattern) => pattern.test(t));
+}
+
+async function resolveWorkflowForMessage(env, taskType, message, workspaceId, opts = {}) {
+  if (!env.DB) return null;
+  if (isD1SqlIntent(message)) {
     return null;
   }
+  const dashboardRoute =
+    opts.dashboardRoute != null ? String(opts.dashboardRoute).trim() : '';
+  if (dashboardRoute === '/dashboard/agent' || dashboardRoute.startsWith('/dashboard/agent/')) {
+    const intentRaw = taskType != null ? String(taskType).trim() : '';
+    const intent = intentRaw && intentRaw.toLowerCase() !== 'auto' ? intentRaw : '*';
+    const wfKey = await resolveWorkflowFromSurfaceMetadata(env, '/dashboard/agent', intent);
+    if (wfKey) {
+      try {
+        const wf = await env.DB.prepare(
+          `SELECT id, workflow_key, display_name, default_task_type,
+                  risk_level, requires_approval
+           FROM agentsam_workflows
+           WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+        )
+          .bind(wfKey)
+          .first();
+        if (wf) return wf;
+      } catch (e) {
+        console.warn('[agent] resolveWorkflowForMessage agent_surface', e?.message ?? e);
+      }
+    }
+  }
+  const t = String(message || '').toLowerCase();
   if (userExplicitlyRequestsMonacoEditor(message)) {
     try {
       const wf = await env.DB.prepare(
@@ -4683,7 +4785,26 @@ const SURFACE_WORKFLOW_FALLBACKS = {
   monaco: 'i-am-builder-monaco',
   excalidraw: 'i-am-architect-excalidraw',
   cms: 'cms_live_editor_dev_app',
+  '/dashboard/agent': 'cms_live_editor_dev_app',
 };
+
+/**
+ * @param {Record<string, unknown>} meta
+ * @param {string} surf
+ * @param {string|null} intent
+ */
+function surfaceRoutesMetadataMatch(meta, surf, intent) {
+  const sr = meta?.surface_routes;
+  if (!sr) return false;
+  if (Array.isArray(sr)) {
+    return sr.includes(surf) || sr.includes('*');
+  }
+  if (typeof sr === 'object' && sr !== null) {
+    const routes = /** @type {Record<string, string[]>} */ (sr)[surf] ?? [];
+    return !intent || routes.includes(intent) || routes.includes('*');
+  }
+  return false;
+}
 
 /**
  * Resolve workflow_id from agentsam_workflows.metadata_json.surface_routes (DB-driven).
@@ -4713,8 +4834,7 @@ async function resolveWorkflowFromSurfaceMetadata(env, surface, intent = null) {
       } catch {
         meta = {};
       }
-      const routes = meta?.surface_routes?.[surf] ?? [];
-      if (!intent || routes.includes(intent) || routes.includes('*')) {
+      if (surfaceRoutesMetadataMatch(meta, surf, intent)) {
         return String(row.workflow_key || '').trim() || null;
       }
     }
@@ -5999,6 +6119,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       intentResult.taskType,
       message,
       workspaceId,
+      {
+        dashboardRoute:
+          browserContextPayload?.dashboard_route != null
+            ? String(browserContextPayload.dashboard_route)
+            : '',
+      },
     );
     if (workflowMatch) {
       const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
@@ -6418,6 +6544,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       if (shouldStripA11yForPlainSurfaceMessage(message, requestedMode)) {
         tools = stripSurfaceA11yTools(tools);
       }
+      tools = await ensureAgentDashboardSurfaceCapabilityTools(
+        env,
+        tools,
+        effectiveMaxTools,
+        browserContextPayload?.dashboard_route,
+      );
     } catch (e) {
       console.warn('[agent] capability_tool_filter', e?.message ?? e);
     }
@@ -7251,6 +7383,25 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         } catch (dbCtxErr) {
           console.warn('[agent] database_context_format', dbCtxErr?.message ?? dbCtxErr);
         }
+      }
+
+      try {
+        const { normalizeWorkspaceContextPacket, formatWorkspaceContextForAgent } = await import(
+          '../core/workspace-studio-context.js'
+        );
+        const workspaceCtxPacket = normalizeWorkspaceContextPacket(browserContextPayload, body);
+        if (workspaceCtxPacket) {
+          body.workspaceContext = workspaceCtxPacket;
+          if (browserContextPayload && typeof browserContextPayload === 'object') {
+            browserContextPayload.workspaceContext = workspaceCtxPacket;
+          }
+          const wsCtxText = formatWorkspaceContextForAgent(workspaceCtxPacket);
+          if (wsCtxText) {
+            chatMessagesBase = [...chatMessagesBase, { role: 'user', content: wsCtxText }];
+          }
+        }
+      } catch (wsCtxErr) {
+        console.warn('[agent] workspace_context_format', wsCtxErr?.message ?? wsCtxErr);
       }
 
       const chatMessages =
@@ -8934,7 +9085,7 @@ export async function handleAgentApi(request, url, env, ctx) {
         ok: true,
         id: result.id,
         session_id,
-        has_embedding: dims === 1024,
+        has_embedding: dims === 1536,
         embedding_dims: dims,
         embed_model: result.embed_model,
         workspace_id,

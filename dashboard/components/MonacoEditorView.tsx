@@ -27,6 +27,7 @@ import {
   monacoLanguageForFilename,
   resolveMonacoModelPath,
 } from '../src/lib/monacoModelRegistry';
+import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { X } from 'lucide-react';
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif'];
@@ -47,12 +48,18 @@ interface MonacoEditorViewProps {
   onCursorPositionChange?: (line: number, column: number) => void;
   /** Indent / EOL / encoding for status bar (from the live Monaco model). */
   onEditorModelMeta?: (meta: EditorModelMeta) => void;
+  /** Agent Sam workbench context from App shell (optional). */
+  workspaceContext?: AgentWorkspaceContextPacket | null;
 }
 
 const LARGE_FILE_CHAR_THRESHOLD = 100_000;
 
 export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
-  onChange, onSave, onCursorPositionChange, onEditorModelMeta
+  onChange,
+  onSave,
+  onCursorPositionChange,
+  onEditorModelMeta,
+  workspaceContext: _workspaceContext = null,
 }) => {
   const { tabs, activeTabId, setActiveTab, closeFile, updateActiveContent, discardChanges } = useEditor();
   const activeFile = tabs.find(t => t.id === activeTabId) || null;

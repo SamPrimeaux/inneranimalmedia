@@ -62,6 +62,7 @@ import {
   IDE_PERSIST_VERSION,
   type IdeWorkspaceSnapshot,
   type RecentFileEntry,
+  type AgentWorkspaceContextPacket,
 } from './src/ideWorkspace';
 import {
   prepareRecentWorkspacesForSession,
@@ -828,6 +829,34 @@ const App: React.FC = () => {
   
   // Derived from EditorContext to minimize massive refactor breakage
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
+
+  const activePlanIdForChat = useMemo(() => {
+    const st = workspaceSamState;
+    if (!st || typeof st !== 'object') return null;
+    const row = st as Record<string, unknown>;
+    const a = row.active_plan_id;
+    const b = row.activePlanId;
+    if (typeof a === 'string' && a.trim()) return a.trim();
+    if (typeof b === 'string' && b.trim()) return b.trim();
+    return null;
+  }, [workspaceSamState]);
+
+  const agentWorkbenchOpenFiles = useMemo(
+    () => tabs.map((t) => t.name).filter((n) => Boolean(n && String(n).trim())).slice(0, 32),
+    [tabs],
+  );
+
+  const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(
+    () => ({
+      activeTab: String(activeTab),
+      browserUrl: browserUrl?.trim() || null,
+      openFiles: agentWorkbenchOpenFiles,
+      plan_id: activePlanIdForChat,
+      workflow_run_id: null,
+    }),
+    [activeTab, browserUrl, agentWorkbenchOpenFiles, activePlanIdForChat],
+  );
+
   const { updateActiveFile } = useEditor();
   const setActiveFile = useCallback((updates: Partial<ActiveFile> | ((prev: ActiveFile | null) => ActiveFile | null)) => {
     if (typeof updates === 'object' && updates !== null && 'content' in updates && 'name' in updates) {
@@ -2832,6 +2861,10 @@ const App: React.FC = () => {
                         activeAgentChatShellTabId={activeAgentChatTabId}
                         onAgentChatShellTabSelect={selectAgentChatTab}
                         onAgentChatShellNewTab={createNewAgentChatTab}
+                        activeWorkbenchTab={activeTab}
+                        browserUrl={browserUrl}
+                        openFilePaths={agentWorkbenchOpenFiles}
+                        activePlanId={activePlanIdForChat}
                     />
                     </div>
                 </div>
@@ -3160,6 +3193,7 @@ const App: React.FC = () => {
                               onSave={handleSaveFile}
                               onCursorPositionChange={handleEditorCursorPosition}
                               onEditorModelMeta={setEditorMeta}
+                              workspaceContext={agentWorkspaceContext}
                           />
                       </div>
                   )}
@@ -3170,6 +3204,7 @@ const App: React.FC = () => {
                             url={browserUrl}
                             addressDisplay={browserAddressDisplay}
                             agentRunId={activeAgentRunId}
+                            workspaceContext={agentWorkspaceContext}
                           />
                       </div>
                   )}
@@ -3220,6 +3255,7 @@ const App: React.FC = () => {
                           onOutputLine={(line) =>
                             setShellOutputLines((prev) => [...prev.slice(-250), line])
                           }
+                          workspaceContext={agentWorkspaceContext}
                       />
                   )}
               </div>
@@ -3347,6 +3383,10 @@ const App: React.FC = () => {
                             onAgentChatShellTabSelect={selectAgentChatTab}
                             onAgentChatShellNewTab={createNewAgentChatTab}
                             onAgentRunContext={setActiveAgentRunId}
+                            activeWorkbenchTab={activeTab}
+                            browserUrl={browserUrl}
+                            openFilePaths={agentWorkbenchOpenFiles}
+                            activePlanId={activePlanIdForChat}
                          />
                     </div>
                 </div>
