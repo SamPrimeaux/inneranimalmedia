@@ -417,7 +417,7 @@ async function dispatchNode(env, node, input, runContext) {
             const row = await env.DB?.prepare(
               `SELECT model_key FROM agentsam_model_catalog
                WHERE tier = ? AND is_active = 1 AND supports_tools = 1
-                 AND provider IN ('openai','anthropic','google')
+                 AND provider IN (SELECT DISTINCT provider FROM agentsam_model_catalog WHERE is_active = 1)
                ORDER BY cost_per_1k_in ASC LIMIT 1`
             ).bind(tier).first().catch(() => null);
             if (row?.model_key) return row.model_key;

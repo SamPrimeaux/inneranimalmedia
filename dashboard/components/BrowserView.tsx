@@ -26,6 +26,7 @@ import {
   HardDrive, Shield, ShieldCheck, ShieldX, Globe,
   Terminal, Network, Bug,
 } from 'lucide-react';
+import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1675,6 +1676,7 @@ interface BrowserViewProps {
   isActive?:       boolean;
   /** `agentsam_agent_run.id` from chat SSE — full-page screenshot POST only. */
   agentRunId?:     string | null;
+  workspaceContext?: AgentWorkspaceContextPacket | null;
 }
 
 export const BrowserView: React.FC<BrowserViewProps> = ({
@@ -1682,6 +1684,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   addressDisplay,
   isActive = false,
   agentRunId = null,
+  workspaceContext: _workspaceContext = null,
 }) => {
   const [primaryUrl,    setPrimaryUrl]    = useState(urlFromParent || DEFAULT_URL);
   const [secondaryUrl,  setSecondaryUrl]  = useState<string | null>(null);

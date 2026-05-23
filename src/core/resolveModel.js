@@ -471,6 +471,19 @@ export async function resolveModelForTask(env, {
         } catch (e) {
           if (e instanceof ResolutionError && ['MODEL_NOT_FOUND', 'BUDGET_EXHAUSTED', 'CAPABILITY_MISMATCH'].includes(e.code)) {
             console.warn(`[resolveModel] C skip arm=${arm.id} model=${arm.model_key}: ${e.code}`);
+            // Penalize arm in D1 so Thompson learns from this failure
+            try {
+              await db.prepare(
+                'UPDATE agentsam_routing_arms SET success_beta = success_beta + 1, updated_at = unixepoch(), pause_reason = ? WHERE id = ?'
+              ).bind(`${e.code} at ${new Date().toISOString()}`, arm.id).run();
+            } catch (_) { /* non-fatal */ }
+            // Try fallback_model_key before giving up on this arm
+            if (arm.fallback_model_key) {
+              try {
+                const fallbackResolved = await loadModelRecord(db, arm.fallback_model_key, 'thompson_fallback', arm.id, cap);
+                if (fallbackResolved) return fallbackResolved;
+              } catch (_) { /* fallback also failed, continue loop */ }
+            }
             continue;
           }
           throw e;

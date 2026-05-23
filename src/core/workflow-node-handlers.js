@@ -607,6 +607,11 @@ function executeWorkflowOutput(input, node) {
   return { ok: true, output: { final: flat, node_key: node?.node_key } };
 }
 
+/**
+ * Thompson subagent handlers (`handler_thompson_subagent_master` / `handler_thompson_subagent_worker`)
+ * resolve via D1 `agentsam_workflow_handlers` with `executor_kind = agent_llm` in workflow-executor.js —
+ * not via this script/eval registry.
+ */
 /** Register named handlers for agent-step.js (handler_key path). */
 export function registerWorkflowStepHandlers() {
   for (const key of Object.keys(DB_QUERY_HANDLERS)) {

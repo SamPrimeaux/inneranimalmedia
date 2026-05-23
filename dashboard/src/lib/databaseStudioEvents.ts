@@ -77,6 +77,25 @@ export type DbOpenQueryAnalysisDetail = {
   queryFingerprint?: string;
 };
 
+export type IamDbActionRefresh = 'schema' | 'data' | 'both';
+
+/** v2 iam_db_action block shape (assistant fenced JSON). */
+export type IamDbActionPayload = {
+  iam_db_action: string;
+  datasource?: DatabaseDatasource;
+  /** Must match the active studio binding name when set (e.g. inneranimalmedia-business). */
+  datasource_binding?: string;
+  sql?: string;
+  mode?: DbApplySqlMode;
+  run?: boolean;
+  table?: string;
+  tab?: DatabaseMainTab;
+  error?: string;
+  proposal_id?: string;
+  run_after_approval?: boolean;
+  refresh?: IamDbActionRefresh;
+};
+
 const SQL_FENCE_RE = /```(?:sql|postgresql|postgres|sqlite|d1)?\s*\n([\s\S]*?)```/gi;
 const IAM_DB_ACTION_RE = /```(?:json)?\s*\n\s*(\{[\s\S]*?"iam_db_action"\s*:\s*"[^"]+"[\s\S]*?\})\s*```/gi;
 
@@ -103,9 +122,37 @@ function parseIamDbActionBlock(raw: string): Record<string, unknown> | null {
 /**
  * Parse assistant ```json {"iam_db_action":...} ``` blocks and dispatch studio events.
  */
+function iamDbActionBindingAllowed(
+  obj: Record<string, unknown>,
+  opts: { datasource?: DatabaseDatasource; activeDatasourceBinding?: string | null },
+): boolean {
+  const activeBinding =
+    opts.activeDatasourceBinding != null ? String(opts.activeDatasourceBinding).trim() : '';
+  const blockBinding =
+    obj.datasource_binding != null ? String(obj.datasource_binding).trim() : '';
+  if (blockBinding && activeBinding && blockBinding !== activeBinding) {
+    return false;
+  }
+  if (blockBinding && !activeBinding) {
+    return false;
+  }
+  const ds =
+    obj.datasource === 'hyperdrive' || obj.datasource === 'd1'
+      ? (obj.datasource as DatabaseDatasource)
+      : null;
+  if (ds && opts.datasource && ds !== opts.datasource) {
+    return false;
+  }
+  return true;
+}
+
 export function parseAndDispatchDatabaseStudioActions(
   content: string,
-  opts: { datasource?: DatabaseDatasource; isSuperadmin?: boolean } = {},
+  opts: {
+    datasource?: DatabaseDatasource;
+    isSuperadmin?: boolean;
+    activeDatasourceBinding?: string | null;
+  } = {},
 ) {
   if (typeof window === 'undefined') return;
   const defaultDs: DatabaseDatasource = opts.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
@@ -114,11 +161,18 @@ export function parseAndDispatchDatabaseStudioActions(
   while ((m = re.exec(content)) !== null) {
     const obj = parseIamDbActionBlock(m[1]);
     if (!obj) continue;
+    if (!iamDbActionBindingAllowed(obj, opts)) continue;
     const action = String(obj.iam_db_action || '').trim();
     const ds: DatabaseDatasource =
       obj.datasource === 'hyperdrive' || obj.datasource === 'd1'
         ? (obj.datasource as DatabaseDatasource)
         : defaultDs;
+    const runAfterApproval = obj.run_after_approval === true;
+    const proposalId =
+      obj.proposal_id != null ? String(obj.proposal_id).trim() : '';
+    void proposalId;
+    void obj.refresh;
+    if (runAfterApproval && !proposalId) continue;
 
     if (action === 'apply-sql' || action === 'db:apply-sql') {
       const sql = String(obj.sql || '').trim();
@@ -128,7 +182,7 @@ export function parseAndDispatchDatabaseStudioActions(
           datasource: ds,
           sql,
           mode: (obj.mode as DbApplySqlMode) || 'replace',
-          run: obj.run === true,
+          run: runAfterApproval ? false : obj.run === true,
         },
         { isSuperadmin: opts.isSuperadmin },
       );
@@ -194,7 +248,11 @@ export function publishDatabaseSurfaceContext(payload: DatabaseSurfaceContext) {
  */
 export function tryDispatchDbApplyFromAssistantMessage(
   content: string,
-  opts: { datasource?: DatabaseDatasource; isSuperadmin?: boolean } = {},
+  opts: {
+    datasource?: DatabaseDatasource;
+    isSuperadmin?: boolean;
+    activeDatasourceBinding?: string | null;
+  } = {},
 ) {
   if (typeof window === 'undefined') return;
   if (!window.location.pathname.startsWith('/dashboard/database')) return;

@@ -153,6 +153,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activeAgentChatShellTabId,
   onAgentChatShellTabSelect,
   onAgentChatShellNewTab,
+  activeWorkbenchTab,
+  browserUrl: browserUrlProp,
+  openFilePaths,
+  activePlanId,
 }) => {
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
   useEffect(() => {
@@ -246,6 +250,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     runTokensOut: null,
     lastError: null,
   });
+  const activePlanIdRef = useRef<string | null>(activePlanId?.trim() || null);
+  useEffect(() => {
+    activePlanIdRef.current = activePlanId?.trim() || null;
+  }, [activePlanId]);
   const totalStagedBytes = useMemo(
     () => attachments.reduce((sum, a) => sum + (a.file.size || 0), 0),
     [attachments]
@@ -1115,6 +1123,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         startedAt: Date.now(),
       });
     } else if (ev.type === 'plan_created' || ev.type === 'plan_progress') {
+      if (ev.plan_id?.trim()) activePlanIdRef.current = ev.plan_id.trim();
       setThinkingState(prev => ({
         steps: prev?.steps ?? [],
         thinkingText: ev.text || 'Running plan…',
@@ -1466,6 +1475,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       if (databaseSurfaceRef.current && typeof databaseSurfaceRef.current === 'object') {
         browserCtxPayload.databaseContext = databaseSurfaceRef.current;
       }
+      const browserUrlFromSurface =
+        typeof browserSurfaceRef.current?.url === 'string'
+          ? String(browserSurfaceRef.current.url).trim()
+          : '';
+      const openFilesList = [
+        ...(openFilePaths || []),
+        activeFile ? getEditorLightweightPath(activeFile) || activeFile.name || '' : '',
+      ]
+        .map((p) => String(p || '').trim())
+        .filter(Boolean);
+      const workspaceContextPacket = {
+        activeTab: String(activeWorkbenchTab || 'Workspace'),
+        browserUrl: browserUrlProp?.trim() || browserUrlFromSurface || null,
+        openFiles: [...new Set(openFilesList)].slice(0, 32),
+        plan_id: activePlanIdRef.current || null,
+        workflow_run_id: workflowLedger.runId || null,
+      };
+      browserCtxPayload.workspaceContext = workspaceContextPacket;
+      form.append('workspaceContext', JSON.stringify(workspaceContextPacket));
       form.append('browserContext', JSON.stringify(browserCtxPayload));
     } catch {
       /* ignore */
@@ -1600,10 +1628,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         const ds =
           databaseSurfaceRef.current?.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
         const isSa = agentsamPolicy?.is_superadmin === true || agentsamPolicy?.is_superadmin === 1;
-        parseAndDispatchDatabaseStudioActions(lastMsg.content, { datasource: ds, isSuperadmin: isSa });
+        const activeDatasourceBinding =
+          databaseSurfaceRef.current?.datasource_binding != null
+            ? String(databaseSurfaceRef.current.datasource_binding).trim()
+            : null;
+        parseAndDispatchDatabaseStudioActions(lastMsg.content, {
+          datasource: ds,
+          isSuperadmin: isSa,
+          activeDatasourceBinding,
+        });
         tryDispatchDbApplyFromAssistantMessage(lastMsg.content, {
           datasource: ds,
           isSuperadmin: isSa,
+          activeDatasourceBinding,
         });
       }
 

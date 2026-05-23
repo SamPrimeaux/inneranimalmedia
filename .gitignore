@@ -129,3 +129,12 @@ scripts/audit_results/
 *.audit.json
 scripts/audit/auth_audit_results.json
 *.bak2
+*.bak
+*.sql.bak
+.scratch/
+executor_findings.json
+inneranimalmedia-business
+inneranimalmedia-business.db
+/py1_*.py
+/py2_*.py
+*.save
