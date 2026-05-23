@@ -8,8 +8,8 @@ import {
   resolveTerminalWorkspaceId,
   WORKSPACE_CONTEXT_MISSING,
   WORKSPACE_ROOT_CONTEXT_MISSING,
-  resolveTenantIdForWorkspace,
 } from './bootstrap.js';
+import { resolvePtyTenantIdForUser, buildPtySessionWorkingDir } from './pty-workspace-paths.js';
 import { notifySam } from './notifications';
 
 /**
@@ -271,13 +271,12 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
     doUrl.searchParams.set('execution_mode', mode);
     doUrl.searchParams.set('workspace_id', workspaceId);
     doUrl.searchParams.set('user_id', userId);
-    let tid =
-      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-        ? String(authUser.tenant_id).trim()
-        : '';
-    if (!tid) tid = (await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null)) || '';
-    if (!tid) tid = (await fetchAuthUserTenantId(env, userId).catch(() => null)) || '';
-    if (tid) doUrl.searchParams.set('tenant_id', tid);
+    let tid = await resolvePtyTenantIdForUser(env, authUser, userId);
+    tid = tid != null ? String(tid).trim() : '';
+    if (!tid) return { ok: false, error: 'TENANT_CONTEXT_REQUIRED' };
+    doUrl.searchParams.set('tenant_id', tid);
+    const workingDir = buildPtySessionWorkingDir(env, { tenantId: tid, userId });
+    if (workingDir) doUrl.searchParams.set('cwd', workingDir);
     const puuid = authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '' ? String(authUser.person_uuid).trim() : '';
     if (puuid) doUrl.searchParams.set('person_uuid', puuid);
     const resp = await stub.fetch(new Request(doUrl.toString(), {

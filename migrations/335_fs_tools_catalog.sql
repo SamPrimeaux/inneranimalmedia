@@ -16,7 +16,7 @@ SET
   updated_at = datetime('now')
 WHERE handler_type = 'builtin'
   AND (
-    user_id = 'au_77a622faf006c9e4'
+    user_id = 'au_871d920d1233cbd1'
     OR workspace_scope = '["ws_inneranimalmedia"]'
   );
 
@@ -49,7 +49,7 @@ WHERE (
     OR tool_name IN ('fs_write_file', 'fs_edit_file', 'write_file')
   )
   AND (
-    user_id = 'au_77a622faf006c9e4'
+    user_id = 'au_871d920d1233cbd1'
     OR workspace_scope = '["ws_inneranimalmedia"]'
   );
 

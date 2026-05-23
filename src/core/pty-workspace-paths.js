@@ -3,7 +3,6 @@
  * MovieMode Remotion renders run inside {workspaceRoot}/inneranimalmedia (no per-user Worker secrets).
  */
 import { assertWorkspaceTokenForPty } from './workspace-tokens.js';
-import { resolveTenantIdForWorkspace } from './bootstrap.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
 
 export const PTY_REPO_DIRNAME = 'inneranimalmedia';
@@ -17,6 +16,36 @@ export function ptyWorkspacesRootFromEnv(env) {
 }
 
 /**
+ * Resolve tenant for PTY isolation from the authenticated user — never from workspace lookup.
+ * Prefers auth_users.active_tenant_id, then tenant_id.
+ * @param {any} env
+ * @param {{ id?: string, active_tenant_id?: string|null, tenant_id?: string|null } | null | undefined} authUser
+ * @param {string} [userId]
+ * @returns {Promise<string | null>}
+ */
+export async function resolvePtyTenantIdForUser(env, authUser, userId) {
+  const fromUser =
+    String(authUser?.active_tenant_id || '').trim() || String(authUser?.tenant_id || '').trim();
+  if (fromUser) return fromUser;
+
+  const uid = String(authUser?.id || userId || '').trim();
+  if (!env?.DB || !uid) return null;
+
+  try {
+    const row = await env.DB.prepare(
+      `SELECT COALESCE(NULLIF(TRIM(active_tenant_id), ''), NULLIF(TRIM(tenant_id), '')) AS tid
+       FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(uid)
+      .first();
+    const tid = row?.tid != null ? String(row.tid).trim() : '';
+    return tid || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Isolated PTY cwd root for one user: /workspace/tenant_…/au_…
  * @param {any} env
  * @param {{ tenantId: string, userId: string }} ctx
@@ -27,6 +56,18 @@ export function buildPtyUserWorkspaceRoot(env, { tenantId, userId }) {
   if (!tid || !uid) return null;
   const base = ptyWorkspacesRootFromEnv(env).replace(/\/+$/, '');
   return `${base}/${tid}/${uid}`;
+}
+
+/**
+ * PTY session working directory — always /workspace/{tenant_id}/{user_id}/
+ * @param {any} env
+ * @param {{ tenantId: string, userId: string }} ctx
+ * @returns {string | null}
+ */
+export function buildPtySessionWorkingDir(env, { tenantId, userId }) {
+  const root = buildPtyUserWorkspaceRoot(env, { tenantId, userId });
+  if (!root) return null;
+  return `${root}/`;
 }
 
 /**
@@ -70,10 +111,8 @@ export async function resolveMoviemodeRepoRootForSession(env, { tenantId, userId
   const wid = String(workspaceId || '').trim();
   const uid = String(userId || '').trim();
   let tid = String(tenantId || '').trim();
-  if (!tid && wid) {
-    try {
-      tid = String((await resolveTenantIdForWorkspace(env, wid)) || '').trim();
-    } catch (_) {}
+  if (!tid && uid) {
+    tid = String((await resolvePtyTenantIdForUser(env, null, uid)) || '').trim();
   }
   if (!tid || !uid || !wid) return null;
 

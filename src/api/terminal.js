@@ -7,13 +7,16 @@
  * POST /api/terminal/session/verify — PTY backend: SHA256(token) vs terminal_sessions.auth_token_hash
  */
 import { jsonResponse }      from '../core/responses.js';
-import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
+import { getAuthUser } from '../core/auth.js';
 import {
   resolveEffectiveWorkspaceId,
   resolveActiveBootstrap,
   WORKSPACE_CONTEXT_MISSING,
-  resolveTenantIdForWorkspace,
 } from '../core/bootstrap.js';
+import {
+  resolvePtyTenantIdForUser,
+  buildPtySessionWorkingDir,
+} from '../core/pty-workspace-paths.js';
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
 import { computeTerminalSessionAuthTokenHash, sha256HexUtf8, mintSessionToken } from '../core/terminal.js';
@@ -113,13 +116,10 @@ export async function handleTerminalApi(request, url, env, ctx) {
     }
     const regWorkspaceId = wsRes.workspaceId;
     const regUid = String(authUser.id || '').trim();
-    let regTid =
-      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-        ? String(authUser.tenant_id).trim()
-        : '';
-    if (!regTid) regTid = await resolveTenantIdForWorkspace(env, regWorkspaceId);
-    if (!regTid) regTid = await fetchAuthUserTenantId(env, regUid);
+    let regTid = await resolvePtyTenantIdForUser(env, authUser, regUid);
     if (!regTid) return jsonResponse({ error: 'Tenant not resolved for terminal session' }, 403);
+
+    const workingDir = buildPtySessionWorkingDir(env, { tenantId: regTid, userId: regUid }) || '';
 
     const bootstrap = await resolveActiveBootstrap(env, {
       userId: regUid,
@@ -165,7 +165,7 @@ export async function handleTerminalApi(request, url, env, ctx) {
       cols || 220,
       rows || 50,
       shell || '/bin/zsh',
-      cwd || '',
+      cwd || workingDir,
       authTokenHash,
       now,
       now,

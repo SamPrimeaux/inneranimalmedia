@@ -5,11 +5,14 @@
 import { DurableObject } from "cloudflare:workers";
 import { getDefaultTerminalConnection } from "../core/terminal.js";
 import {
-  resolveTenantIdForWorkspace,
   resolveActiveBootstrap,
   WORKSPACE_CONTEXT_MISSING,
 } from "../core/bootstrap.js";
 import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
+import {
+  resolvePtyTenantIdForUser,
+  buildPtySessionWorkingDir,
+} from "../core/pty-workspace-paths.js";
 import {
   computeTerminalSessionAuthTokenHash,
   mintSessionToken,
@@ -137,13 +140,25 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptSessionUserId = "";
     this.ptSessionTenantId = "";
     this.ptPersonUuid = "";
-    /** PTY cwd from mcp_workspace_tokens.repo_path when set */
-    this.ptyRepoPath = null;
+    /** PTY cwd — /workspace/{tenant_id}/{user_id}/ (never mcp repo_path) */
+    this.ptyWorkingDir = null;
     this.historySequence = 0;
     this._ptyOutBuf = "";
     this._ptyOutFlushTimer = null;
     /** @type {string | null} PTY shell from browser query (?shell=); applied on connectPty. */
     this.terminalShellOverride = null;
+  }
+
+  async resolvePtyTenantForSession(userId) {
+    const param = String(this.ptSessionTenantId || "").trim();
+    if (param) return param;
+    return await resolvePtyTenantIdForUser(this.env, null, userId || this.ptSessionUserId);
+  }
+
+  applyPtyWorkingDir(tenantId, userId) {
+    const wd = buildPtySessionWorkingDir(this.env, { tenantId, userId });
+    this.ptyWorkingDir = wd;
+    return wd;
   }
 
   closeTerminalSessionInD1() {
@@ -162,10 +177,8 @@ export class AgentChatSqlV1 extends DurableObject {
   async insertTerminalHistoryRow(direction, content, opts = {}) {
     if (!this.env?.DB || !this.cachedTerminalSessionId) return;
     let tenantId = String(this.ptSessionTenantId || "").trim();
-    if (!tenantId && this.workspaceId) {
-      try {
-        tenantId = String((await resolveTenantIdForWorkspace(this.env, this.workspaceId)) || "").trim();
-      } catch (_) {}
+    if (!tenantId && this.ptSessionUserId) {
+      tenantId = String((await this.resolvePtyTenantForSession(this.ptSessionUserId)) || "").trim();
     }
     if (!tenantId) {
       console.warn("[terminal_history] skip: tenant_id unresolved");
@@ -552,12 +565,8 @@ export class AgentChatSqlV1 extends DurableObject {
     this.ptPersonUuid = (url.searchParams.get("person_uuid") || "").trim();
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
 
-    let tenantForRow = String(this.ptSessionTenantId || "").trim();
-    if (!tenantForRow) {
-      try {
-        tenantForRow = String((await resolveTenantIdForWorkspace(this.env, workspaceId)) || "").trim();
-      } catch (_) {}
-    }
+    let tenantForRow = await this.resolvePtyTenantForSession(this.ptSessionUserId);
+    tenantForRow = tenantForRow != null ? String(tenantForRow).trim() : "";
     if (!tenantForRow) {
       return new Response(JSON.stringify({ error: "TENANT_CONTEXT_REQUIRED", code: "TENANT_CONTEXT_REQUIRED" }), {
         status: 403,
@@ -571,9 +580,7 @@ export class AgentChatSqlV1 extends DurableObject {
         headers: { "Content-Type": "application/json" },
       });
     }
-    const rp =
-      tokRes.repo_path != null && String(tokRes.repo_path).trim() !== "" ? String(tokRes.repo_path).trim() : null;
-    this.ptyRepoPath = rp;
+    this.applyPtyWorkingDir(tenantForRow, this.ptSessionUserId);
 
     this.terminalShellOverride = normalizeShellOverride(url.searchParams.get("shell"));
 
@@ -611,10 +618,8 @@ export class AgentChatSqlV1 extends DurableObject {
         const doId = this.ctx.id.toString();
         const wid = String(this.workspaceId || "").trim();
         let personUuid = personForRow;
-        const tid =
-          (tenantForRow && String(tenantForRow).trim()) ||
-          (await resolveTenantIdForWorkspace(this.env, wid).catch(() => null)) ||
-          null;
+        const tid = tenantForRow ? String(tenantForRow).trim() : null;
+        if (!tid) throw new Error("PTY tenant_id missing");
         const boot = await resolveActiveBootstrap(this.env, {
           userId: this.ptSessionUserId,
           personUuid,
@@ -666,12 +671,8 @@ export class AgentChatSqlV1 extends DurableObject {
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
 
     if (executionMode === "pty" && this.env?.DB) {
-      let tidEx = String(this.ptSessionTenantId || "").trim();
-      if (!tidEx) {
-        try {
-          tidEx = String((await resolveTenantIdForWorkspace(this.env, workspaceId)) || "").trim();
-        } catch (_) {}
-      }
+      let tidEx = await this.resolvePtyTenantForSession(this.ptSessionUserId);
+      tidEx = tidEx != null ? String(tidEx).trim() : "";
       if (!tidEx) {
         return Response.json({ ok: false, error: "TENANT_CONTEXT_REQUIRED", code: "TENANT_CONTEXT_REQUIRED" }, { status: 403 });
       }
@@ -682,9 +683,7 @@ export class AgentChatSqlV1 extends DurableObject {
           { status: 403 },
         );
       }
-      const rp =
-        tokEx.repo_path != null && String(tokEx.repo_path).trim() !== "" ? String(tokEx.repo_path).trim() : null;
-      this.ptyRepoPath = rp;
+      this.applyPtyWorkingDir(tidEx, this.ptSessionUserId);
     }
 
     const command = String(body?.command || "").trim();
@@ -889,13 +888,10 @@ export class AgentChatSqlV1 extends DurableObject {
     if (!wid) throw new Error("PTY workspace_id missing");
     const uid = String(this.ptSessionUserId || "").trim();
     if (!uid) throw new Error("PTY user_id missing");
-    let tid = String(this.ptSessionTenantId || "").trim();
-    if (!tid) {
-      try {
-        tid = String((await resolveTenantIdForWorkspace(this.env, wid)) || "").trim();
-      } catch (_) {}
-    }
+    let tid = await this.resolvePtyTenantForSession(uid);
+    tid = tid != null ? String(tid).trim() : "";
     if (!tid) throw new Error("PTY tenant_id missing");
+    this.applyPtyWorkingDir(tid, uid);
 
     let resolvedWsUrl = null;
     let token = String(this.env?.PTY_AUTH_TOKEN || this.env?.TERMINAL_SECRET || "").trim();
@@ -913,7 +909,7 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     const shellOpt = String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
 
-    const cwdOpt = String(this.ptyRepoPath || "").trim();
+    const cwdOpt = String(this.ptyWorkingDir || buildPtySessionWorkingDir(this.env, { tenantId: tid, userId: uid }) || "").trim();
 
     // VPC Service path (private — `PTY_SERVICE` tunnels to localhost:3099; no worker-side auth headers)
     if (this.env?.PTY_SERVICE) {
@@ -1052,7 +1048,11 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   _ptyExecPayload(command) {
-    const cwd = String(this.ptyRepoPath || "").trim();
+    const uid = String(this.ptSessionUserId || "").trim();
+    const tid = String(this.ptSessionTenantId || "").trim();
+    const cwd =
+      String(this.ptyWorkingDir || "").trim() ||
+      (tid && uid ? buildPtySessionWorkingDir(this.env, { tenantId: tid, userId: uid }) || "" : "");
     const payload = { command };
     if (cwd) payload.cwd = cwd;
     return payload;

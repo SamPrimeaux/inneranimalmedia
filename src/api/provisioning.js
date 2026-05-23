@@ -491,36 +491,91 @@ export async function generateUserBridgeKey(env, userId, tenantId, workspaceId, 
 }
 
 /**
- * Ensure a terminal_connections row exists after auth provisioning (signup / login).
+ * Ensure one terminal_connections row + PTY policy per (user_id, workspace_id) after auth.
+ * @param {Record<string, unknown>} env
+ * @param {string} userId
+ * @param {string} [workspaceId] — resolved from auth_users when omitted
+ * @param {string} [tenantId] — resolved from auth_users when omitted
+ * @returns {Promise<string | null>} Connection id when known
  */
-export async function ensureUserTerminalConnection(env, authUserId) {
-  if (!env?.DB || !authUserId) return;
-  const row = await env.DB.prepare(
-    `SELECT tenant_id,
-            TRIM(COALESCE(NULLIF(active_workspace_id, ''), NULLIF(default_workspace_id, ''))) AS workspace_id
-     FROM auth_users WHERE id = ? LIMIT 1`,
-  )
-    .bind(authUserId)
-    .first()
-    .catch(() => null);
-  const tid = row?.tenant_id != null ? String(row.tenant_id).trim() : '';
-  const wid = row?.workspace_id != null ? String(row.workspace_id).trim() : '';
-  if (!tid || !wid) return;
+export async function ensureUserTerminalConnection(env, userId, workspaceId, tenantId) {
+  if (!env?.DB || !userId) return null;
 
-  try {
-    const exists = await env.DB.prepare(
-      `SELECT id FROM terminal_connections WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
+  const uid = String(userId).trim();
+  if (!uid) return null;
+
+  let wid =
+    workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+  let tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
+
+  if (!wid || !tid) {
+    const row = await env.DB.prepare(
+      `SELECT COALESCE(NULLIF(TRIM(active_tenant_id), ''), NULLIF(TRIM(tenant_id), '')) AS tenant_id,
+              TRIM(COALESCE(NULLIF(active_workspace_id, ''), NULLIF(default_workspace_id, ''))) AS workspace_id
+       FROM auth_users WHERE id = ? LIMIT 1`,
     )
-      .bind(authUserId, wid)
+      .bind(uid)
+      .first()
+      .catch(() => null);
+    if (!tid) tid = row?.tenant_id != null ? String(row.tenant_id).trim() : '';
+    if (!wid) wid = row?.workspace_id != null ? String(row.workspace_id).trim() : '';
+  }
+
+  if (!tid || !wid) return null;
+
+  let connId = null;
+  try {
+    const existing = await env.DB.prepare(
+      `SELECT id FROM terminal_connections
+       WHERE user_id = ? AND workspace_id = ? AND is_active = 1
+       LIMIT 1`,
+    )
+      .bind(uid, wid)
       .first();
-    if (exists?.id) return;
-  } catch (_) {}
+    if (existing?.id) {
+      connId = String(existing.id);
+    } else {
+      connId = `conn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      await env.DB.prepare(
+        `INSERT INTO terminal_connections
+           (id, workspace_id, tenant_id, name, type, connection_type,
+            ws_url, auth_mode, token_verify_endpoint, shell, platform,
+            user_id, is_default, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, unixepoch(), unixepoch())`,
+      )
+        .bind(
+          connId,
+          wid,
+          tid,
+          'Default Terminal',
+          'pty',
+          'pty_tunnel',
+          'wss://terminal.inneranimalmedia.com',
+          'token_mint',
+          '/api/terminal/session/verify',
+          '/bin/zsh',
+          'linux',
+          uid,
+        )
+        .run();
+    }
+  } catch (e) {
+    console.warn('[ensureUserTerminalConnection] terminal_connections', e?.message ?? e);
+    return null;
+  }
 
   try {
-    await generateUserBridgeKey(env, authUserId, tid, wid, { authMode: 'token_mint' });
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO agentsam_user_policy (user_id, workspace_id, tenant_id, can_run_pty)
+       VALUES (?, ?, ?, 1)`,
+    )
+      .bind(uid, wid, tid)
+      .run();
   } catch (e) {
-    console.warn('[ensureUserTerminalConnection]', e?.message ?? e);
+    console.warn('[ensureUserTerminalConnection] agentsam_user_policy', e?.message ?? e);
   }
+
+  return connId;
 }
 
 /**

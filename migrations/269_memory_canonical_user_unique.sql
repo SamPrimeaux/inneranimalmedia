@@ -3,7 +3,7 @@ PRAGMA foreign_keys = OFF;
 -- Step 1: Consolidate legacy user_id formats to canonical au_ format
 UPDATE agentsam_memory
 SET user_id = 'au_871d920d1233cbd1'
-WHERE user_id IN ('sam_primeaux', 'usr_sam_iam', 'usr_sam_primeaux', 'au_77a622faf006c9e4')
+WHERE user_id IN ('sam_primeaux', 'usr_sam_iam', 'usr_sam_primeaux')
   AND tenant_id = 'tenant_sam_primeaux';
 
 -- Step 2: Recreate table — strip hardcoded defaults, fix UNIQUE key

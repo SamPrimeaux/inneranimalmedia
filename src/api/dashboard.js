@@ -1,10 +1,13 @@
 import { jsonResponse } from '../core/responses.js';
-import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
+import { getAuthUser } from '../core/auth.js';
 import {
     resolveTerminalWorkspaceId,
     WORKSPACE_CONTEXT_MISSING,
-    resolveTenantIdForWorkspace,
 } from '../core/bootstrap.js';
+import {
+    resolvePtyTenantIdForUser,
+    buildPtySessionWorkingDir,
+} from '../core/pty-workspace-paths.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { getWorkspaceTheme, normalizeThemeSlug } from '../core/themes.js';
 import {
@@ -31,6 +34,28 @@ function terminalNotEnabledResponse() {
         error: 'terminal_not_enabled',
         message: 'Terminal access not enabled for your account',
     }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+}
+
+/** PTY tenant + cwd from authenticated user (active_tenant_id) — never workspace-derived. */
+async function resolveTerminalIdentityContext(env, authUser) {
+    const userId = String(authUser?.id || '').trim();
+    const tenantId = await resolvePtyTenantIdForUser(env, authUser, userId);
+    const workingDir =
+        tenantId && userId
+            ? buildPtySessionWorkingDir(env, { tenantId, userId })
+            : null;
+    const personUuid =
+        authUser?.person_uuid != null && String(authUser.person_uuid).trim() !== ''
+            ? String(authUser.person_uuid).trim()
+            : null;
+    return { userId, tenantId, workingDir, personUuid };
+}
+
+function applyTerminalIdentityToDoUrl(doUrl, ctx) {
+    if (ctx.tenantId) doUrl.searchParams.set('tenant_id', ctx.tenantId);
+    if (ctx.personUuid) doUrl.searchParams.set('person_uuid', ctx.personUuid);
+    if (ctx.userId) doUrl.searchParams.set('user_id', ctx.userId);
+    if (ctx.workingDir) doUrl.searchParams.set('cwd', ctx.workingDir);
 }
 
 /**
@@ -377,53 +402,40 @@ export async function handleDashboardApi(request, url, env, ctx) {
         /** Forward shell preference for iam-pty (e.g. /bin/zsh vs /bin/bash). Validated in DO. */
         const shellQ = (url.searchParams.get('shell') || '').trim();
         if (shellQ) doUrl.searchParams.set('shell', shellQ);
-        if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
-            doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
-        } else {
-            const rtid = await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null);
-            if (rtid) doUrl.searchParams.set('tenant_id', String(rtid).trim());
-            else if (authUser.id) {
-                const ftid = await fetchAuthUserTenantId(env, String(authUser.id)).catch(() => null);
-                if (ftid) doUrl.searchParams.set('tenant_id', String(ftid).trim());
-            }
+        const termCtx = await resolveTerminalIdentityContext(env, authUser);
+        if (!termCtx.tenantId) {
+            return jsonResponse({ error: 'TENANT_CONTEXT_REQUIRED', code: 'TENANT_CONTEXT_REQUIRED' }, 403);
         }
-        if (authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '') {
-            doUrl.searchParams.set('person_uuid', String(authUser.person_uuid).trim());
-        }
-        doUrl.searchParams.set('user_id', userId);
+        applyTerminalIdentityToDoUrl(doUrl, termCtx);
 
         if (executionMode === 'pty' && env.DB) {
             const sessionId = `term_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
             const { rawToken, tokenHash } = await mintSessionToken();
             const now = Math.floor(Date.now() / 1000);
-            let tenantForSession =
-                authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-                    ? String(authUser.tenant_id).trim()
-                    : '';
-            if (!tenantForSession) {
-                tenantForSession = (await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null)) || '';
-            }
-            if (!tenantForSession && userId) {
-                tenantForSession = (await fetchAuthUserTenantId(env, userId).catch(() => null)) || '';
-            }
-            const personUuid =
-                authUser.person_uuid != null && String(authUser.person_uuid).trim() !== ''
-                    ? String(authUser.person_uuid).trim()
-                    : null;
-            if (tenantForSession) {
-                await env.DB.prepare(
-                    `INSERT INTO terminal_sessions
-                       (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', '', 'active', ?, ?, ?)
-                     ON CONFLICT(id) DO UPDATE SET
-                       auth_token_hash = excluded.auth_token_hash,
-                       status = 'active',
-                       updated_at = excluded.updated_at`,
+            await env.DB.prepare(
+                `INSERT INTO terminal_sessions
+                   (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', ?, 'active', ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                   auth_token_hash = excluded.auth_token_hash,
+                   tenant_id = excluded.tenant_id,
+                   cwd = COALESCE(excluded.cwd, cwd),
+                   status = 'active',
+                   updated_at = excluded.updated_at`,
+            )
+                .bind(
+                    sessionId,
+                    termCtx.tenantId,
+                    userId,
+                    workspaceId,
+                    termCtx.personUuid,
+                    termCtx.workingDir || '',
+                    tokenHash,
+                    now,
+                    now,
                 )
-                    .bind(sessionId, tenantForSession, userId, workspaceId, personUuid, tokenHash, now, now)
-                    .run()
-                    .catch(() => {});
-            }
+                .run()
+                .catch(() => {});
             doUrl.searchParams.set('session_id', sessionId);
             doUrl.searchParams.set('session_token', rawToken);
         }
@@ -455,20 +467,11 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.pathname = '/terminal/status';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
-        if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
-            doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
-        } else {
-            const rtid = await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null);
-            if (rtid) doUrl.searchParams.set('tenant_id', String(rtid).trim());
-            else if (authUser.id) {
-                const ftid = await fetchAuthUserTenantId(env, String(authUser.id)).catch(() => null);
-                if (ftid) doUrl.searchParams.set('tenant_id', String(ftid).trim());
-            }
+        const termCtx = await resolveTerminalIdentityContext(env, authUser);
+        if (!termCtx.tenantId) {
+            return jsonResponse({ error: 'TENANT_CONTEXT_REQUIRED', code: 'TENANT_CONTEXT_REQUIRED' }, 403);
         }
-        if (authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '') {
-            doUrl.searchParams.set('person_uuid', String(authUser.person_uuid).trim());
-        }
-        doUrl.searchParams.set('user_id', String(authUser.id));
+        applyTerminalIdentityToDoUrl(doUrl, termCtx);
         return stub.fetch(new Request(doUrl.toString(), { method: 'GET', headers: request.headers }));
     }
 
@@ -499,20 +502,11 @@ export async function handleDashboardApi(request, url, env, ctx) {
         doUrl.pathname = '/terminal/exec';
         doUrl.searchParams.set('execution_mode', executionMode);
         doUrl.searchParams.set('workspace_id', workspaceId);
-        if (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
-            doUrl.searchParams.set('tenant_id', String(authUser.tenant_id).trim());
-        } else {
-            const rtid = await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null);
-            if (rtid) doUrl.searchParams.set('tenant_id', String(rtid).trim());
-            else if (authUser.id) {
-                const ftid = await fetchAuthUserTenantId(env, String(authUser.id)).catch(() => null);
-                if (ftid) doUrl.searchParams.set('tenant_id', String(ftid).trim());
-            }
+        const termCtx = await resolveTerminalIdentityContext(env, authUser);
+        if (!termCtx.tenantId) {
+            return jsonResponse({ error: 'TENANT_CONTEXT_REQUIRED', code: 'TENANT_CONTEXT_REQUIRED' }, 403);
         }
-        if (authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '') {
-            doUrl.searchParams.set('person_uuid', String(authUser.person_uuid).trim());
-        }
-        doUrl.searchParams.set('user_id', String(authUser.id));
+        applyTerminalIdentityToDoUrl(doUrl, termCtx);
         return stub.fetch(new Request(doUrl.toString(), {
             method: 'POST',
             headers: request.headers,

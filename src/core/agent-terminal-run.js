@@ -7,8 +7,8 @@ import {
   resolveEffectiveWorkspaceId,
   resolveActiveBootstrap,
   WORKSPACE_CONTEXT_MISSING,
-  resolveTenantIdForWorkspace,
 } from './bootstrap.js';
+import { resolvePtyTenantIdForUser } from './pty-workspace-paths.js';
 import { selectAgentsamMcpToolRow } from './agentsam-mcp-tools.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { runTerminalCommand } from './terminal.js';
@@ -95,12 +95,8 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
     targetWorkspace = effectiveWs;
   }
 
-  let tenantId =
-    authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-      ? String(authUser.tenant_id).trim()
-      : '';
-  if (!tenantId) tenantId = await fetchAuthUserTenantId(env, uid);
-  if (!tenantId) tenantId = await resolveTenantIdForWorkspace(env, targetWorkspace);
+  let tenantId = await resolvePtyTenantIdForUser(env, authUser, uid);
+  tenantId = tenantId != null ? String(tenantId).trim() : '';
   if (!tenantId && superadmin) tenantId = platformTenantIdFromEnv(env) || '';
   if (!tenantId) return { response: null, error: 'tenant_required', status: 403 };
 

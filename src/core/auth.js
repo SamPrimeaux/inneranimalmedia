@@ -907,7 +907,8 @@ export async function fetchAuthUserTenantId(env, userKey) {
   const k = String(userKey).trim();
   try {
     const u = await env.DB.prepare(
-      `SELECT tenant_id FROM auth_users WHERE id = ? OR LOWER(email) = LOWER(?) LIMIT 1`
+      `SELECT COALESCE(NULLIF(TRIM(active_tenant_id), ''), NULLIF(TRIM(tenant_id), '')) AS tenant_id
+       FROM auth_users WHERE id = ? OR LOWER(email) = LOWER(?) LIMIT 1`
     ).bind(k, k).first();
     if (u && u.tenant_id != null && String(u.tenant_id).trim() !== '') return String(u.tenant_id).trim();
   } catch (e) {

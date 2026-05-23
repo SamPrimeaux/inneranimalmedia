@@ -318,6 +318,30 @@ user_id:      au_{hex}            e.g. au_<random hex>  (OAuth)
 - **D1 queries via MCP** — `allowed_tools` on the workspace token limits which tools run
 - **Subagent profiles, skills, commands** — all filtered by `user_id` or `workspace_id`
 
+### PTY session working directory (required)
+
+Every PTY session must scope the shell to the **authenticated user's own tenant**, never a workspace-derived or shared tenant:
+
+```
+/working_dir = /workspace/{active_tenant_id}/{user_id}/
+```
+
+Example (canonical Sam user `au_871d920d1233cbd1`, info@inneranimals.com):
+
+```
+/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/
+```
+
+Connor lands in `/workspace/tenant_connor_mcneely/au_5d17673408aaebc7/` — completely isolated.
+
+**Worker rules:**
+
+- Resolve `tenant_id` from `auth_users.active_tenant_id` (fallback `tenant_id`) via `resolvePtyTenantIdForUser()` — **never** `resolveTenantIdForWorkspace()` for PTY cwd/tenant.
+- Pass `cwd` (iam-pty query param) = `buildPtySessionWorkingDir(env, { tenantId, userId })`.
+- Provision per-user `terminal_connections` + `agentsam_user_policy.can_run_pty = 1` on auth via `ensureUserTerminalConnection()`.
+
+**Stale ID purge:** `au_77a622faf006c9e4` does not exist in D1 — use `au_871d920d1233cbd1` only.
+
 ### terminal_connections resolution order
 
 When the Worker resolves which PTY connection to use for a given user:
