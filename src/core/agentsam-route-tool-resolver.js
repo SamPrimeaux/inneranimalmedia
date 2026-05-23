@@ -50,6 +50,9 @@ function uniqLanes(arr) {
     'admin',
     'observe',
     'general',
+    'memory',
+    'data',
+    'terminal',
   ]);
   const out = [];
   const seen = new Set();
@@ -65,9 +68,9 @@ function uniqLanes(arr) {
 /** Defaults keyed by routing `task_type` / generic route_key — not a substitute for DB `agentsam_prompt_routes`. */
 const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements, 'route_key'|'task_type'|'source'>>} */ ({
   chat: {
-    allowed_lanes: ['think', 'research', 'general'],
+    allowed_lanes: ['think', 'research', 'general', 'memory'],
     required_capabilities: [],
-    optional_capabilities: ['knowledge_search', 'context_search', 'd1_query'],
+    optional_capabilities: ['memory.search', 'memory.write', 'knowledge_search', 'context_search', 'd1_query'],
     blocked_capabilities: ['terminal_execute', 'terminal_run'],
     max_tools: 6,
     approval_policy: { high_risk_requires_approval: true },
@@ -119,17 +122,25 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
     approval_policy: { high_risk_requires_approval: true },
   },
   terminal_execution: {
-    allowed_lanes: ['develop', 'operate'],
+    allowed_lanes: ['develop', 'operate', 'terminal'],
     required_capabilities: [],
-    optional_capabilities: ['terminal_execute', 'platform_info', 'workspace_read_file'],
+    optional_capabilities: ['terminal_execute', 'wrangler.cli', 'platform_info', 'workspace_read_file'],
     blocked_capabilities: [],
     max_tools: 8,
     approval_policy: { high_risk_requires_approval: true },
   },
   sql_d1_generation: {
-    allowed_lanes: ['develop', 'inspect', 'observe'],
+    allowed_lanes: ['develop', 'inspect', 'observe', 'data'],
     required_capabilities: [],
-    optional_capabilities: ['d1_query', 'context_search', 'schema_inspect'],
+    optional_capabilities: [
+      'wrangler.d1.query',
+      'wrangler.d1.schema',
+      'wrangler.d1.write',
+      'wrangler.d1.migrate',
+      'd1_query',
+      'context_search',
+      'schema_inspect',
+    ],
     blocked_capabilities: ['terminal_execute'],
     max_tools: 8,
     approval_policy: { high_risk_requires_approval: true },
@@ -208,7 +219,16 @@ function defaultForKey(key) {
     return {
       allowed_lanes: ['research', 'think', 'inspect'],
       required_capabilities: [],
-      optional_capabilities: ['knowledge_search', 'context_search', 'd1_query', 'browser.inspect'],
+      optional_capabilities: [
+        'rag.search',
+        'rag.ingest',
+        'rag.status',
+        'rag.embed',
+        'knowledge.search',
+        'context.search',
+        'd1.read',
+        'browser.inspect',
+      ],
       blocked_capabilities: ['terminal_execute', 'terminal_run'],
       max_tools: 8,
       approval_policy: { high_risk_requires_approval: true },
