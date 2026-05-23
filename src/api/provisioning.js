@@ -517,7 +517,7 @@ export async function ensureUserTerminalConnection(env, authUserId) {
   } catch (_) {}
 
   try {
-    await generateUserBridgeKey(env, authUserId, tid, wid);
+    await generateUserBridgeKey(env, authUserId, tid, wid, { authMode: 'token_mint' });
   } catch (e) {
     console.warn('[ensureUserTerminalConnection]', e?.message ?? e);
   }

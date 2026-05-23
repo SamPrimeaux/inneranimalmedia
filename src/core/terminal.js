@@ -109,6 +109,26 @@ export async function sha256HexUtf8(token) {
 }
 
 /**
+ * D1 agentsam_user_policy.can_run_pty gate (replaces superadmin-only terminal checks).
+ * @param {Record<string, unknown>} env
+ * @param {string} userId
+ * @param {string} workspaceId
+ */
+export async function userCanRunPtyFromPolicy(env, userId, workspaceId) {
+  if (!env?.DB || !userId || !workspaceId) return false;
+  try {
+    const policy = await env.DB.prepare(
+      'SELECT can_run_pty FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1',
+    )
+      .bind(String(userId).trim(), String(workspaceId).trim())
+      .first();
+    return Number(policy?.can_run_pty) === 1;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
  * Merge WS frames from iam-pty run: JSON session_id/error/output, or raw PTY UTF-8.
  */
 export function aggregateTerminalRunOutput(parts) {

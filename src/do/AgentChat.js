@@ -10,7 +10,11 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from "../core/bootstrap.js";
 import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
-import { computeTerminalSessionAuthTokenHash, mintSessionToken } from "../core/terminal.js";
+import {
+  computeTerminalSessionAuthTokenHash,
+  mintSessionToken,
+  sha256HexUtf8,
+} from "../core/terminal.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
 const TERMINAL_WS_TAG = "terminal";
@@ -535,6 +539,15 @@ export class AgentChatSqlV1 extends DurableObject {
       });
     }
     this.ptSessionUserId = uidRaw;
+    const preSessionId = (url.searchParams.get("session_id") || "").trim();
+    const preSessionToken = (url.searchParams.get("session_token") || "").trim();
+    if (preSessionId) {
+      this.cachedTerminalSessionId = preSessionId;
+      await this.ctx.storage.put("terminal_session_id", preSessionId);
+    }
+    if (preSessionToken) {
+      this.ptSessionMintedToken = preSessionToken;
+    }
     this.ptSessionTenantId = (url.searchParams.get("tenant_id") || "").trim();
     this.ptPersonUuid = (url.searchParams.get("person_uuid") || "").trim();
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
@@ -771,11 +784,20 @@ export class AgentChatSqlV1 extends DurableObject {
     const shellVal = String(conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
     const connectionId = conn?.id != null && String(conn.id).trim() !== "" ? String(conn.id).trim() : null;
     if (conn?.auth_mode === 'token_mint') {
-      try {
-        const { rawToken, tokenHash } = await mintSessionToken();
-        authHash = tokenHash;
-        _mintedToken = rawToken;
-      } catch (_) {}
+      const existingMint = this.ptSessionMintedToken != null ? String(this.ptSessionMintedToken).trim() : '';
+      if (existingMint) {
+        try {
+          authHash = await sha256HexUtf8(existingMint);
+          _mintedToken = existingMint;
+        } catch (_) {}
+      } else {
+        try {
+          const { rawToken, tokenHash } = await mintSessionToken();
+          authHash = tokenHash;
+          _mintedToken = rawToken;
+          this.ptSessionMintedToken = rawToken;
+        } catch (_) {}
+      }
     }
     const agentSessionId = this.state?.id?.toString?.() || this.ctx?.id?.toString?.() || null;
     try {
@@ -902,6 +924,14 @@ export class AgentChatSqlV1 extends DurableObject {
         vpcUrl.searchParams.set("workspace_id", wid);
         vpcUrl.searchParams.set("shell", shellOpt);
         if (cwdOpt) vpcUrl.searchParams.set("cwd", cwdOpt);
+        if (conn?.auth_mode === "token_mint") {
+          const minted = this.ptSessionMintedToken != null ? String(this.ptSessionMintedToken).trim() : "";
+          const sid = await this.getOrCreateTerminalSessionId().catch(() => "");
+          if (minted && sid) {
+            vpcUrl.searchParams.set("session_id", sid);
+            vpcUrl.searchParams.set("session_token", minted);
+          }
+        }
         const resp = await this.env.PTY_SERVICE.fetch(
           new Request(vpcUrl.toString(), {
             headers: {
@@ -971,6 +1001,14 @@ export class AgentChatSqlV1 extends DurableObject {
     if (cwdOpt) {
       const s2 = wsUrl.includes("?") ? "&" : "?";
       wsUrl = `${wsUrl}${s2}cwd=${encodeURIComponent(cwdOpt)}`;
+    }
+    if (conn?.auth_mode === "token_mint") {
+      const minted = this.ptSessionMintedToken != null ? String(this.ptSessionMintedToken).trim() : "";
+      const sid = await this.getOrCreateTerminalSessionId().catch(() => "");
+      if (minted && sid) {
+        const s3 = wsUrl.includes("?") ? "&" : "?";
+        wsUrl = `${wsUrl}${s3}session_id=${encodeURIComponent(sid)}&session_token=${encodeURIComponent(minted)}`;
+      }
     }
     const wsResp = await fetch(wsUrl, {
       headers: {

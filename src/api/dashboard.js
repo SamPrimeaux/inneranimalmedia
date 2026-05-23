@@ -1,5 +1,5 @@
 import { jsonResponse } from '../core/responses.js';
-import { getAuthUser, authUserIsSuperadmin, fetchAuthUserTenantId } from '../core/auth.js';
+import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
 import {
     resolveTerminalWorkspaceId,
     WORKSPACE_CONTEXT_MISSING,
@@ -7,7 +7,11 @@ import {
 } from '../core/bootstrap.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { getWorkspaceTheme, normalizeThemeSlug } from '../core/themes.js';
-import { getDefaultTerminalConnection } from '../core/terminal.js';
+import {
+    getDefaultTerminalConnection,
+    mintSessionToken,
+    userCanRunPtyFromPolicy,
+} from '../core/terminal.js';
 import { handleTerminalApi } from './terminal.js';
 import { executeScopedAgentTerminalRun } from '../core/agent-terminal-run.js';
 
@@ -21,6 +25,13 @@ import { handleHyperdriveRoutes } from '../integrations/hyperdrive.js';
 import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/playwright.js';
 import { handleGitHubApi, resolveGitHubToken } from '../integrations/github.js';
 import { handleAgentArtifactsApi } from './agent-artifacts.js';
+
+function terminalNotEnabledResponse() {
+    return new Response(JSON.stringify({
+        error: 'terminal_not_enabled',
+        message: 'Terminal access not enabled for your account',
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+}
 
 /**
  * Main dispatcher for Dashboard-related API routes (/api/agent/*, /api/terminal/*).
@@ -262,7 +273,12 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower === '/api/agent/terminal/socket-url' && method === 'GET') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
+        const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+        if (tw.error || !tw.workspaceId) {
+            return jsonResponse({ terminal_enabled: false });
+        }
+        const canPty = await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId);
+        if (!canPty) {
             return jsonResponse({ terminal_enabled: false });
         }
 
@@ -275,7 +291,10 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower === '/api/agent/terminal/config-status' && method === 'GET') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
+        const twCfg = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+        const canPtyCfg =
+            twCfg.workspaceId && (await userCanRunPtyFromPolicy(env, authUser.id, twCfg.workspaceId));
+        if (!canPtyCfg) {
             return jsonResponse({
                 terminal_enabled: false,
                 terminal_configured: false,
@@ -294,13 +313,17 @@ export async function handleDashboardApi(request, url, env, ctx) {
                     authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
                         ? String(authUser.active_workspace_id).trim()
                         : null;
-                const conn = await getDefaultTerminalConnection(env.DB, authUser.id, wsCtx);
+                const conn = await getDefaultTerminalConnection(
+                    env.DB,
+                    authUser.id,
+                    twCfg.workspaceId || wsCtx,
+                );
                 const wsPart = String(conn?.ws_url || '').trim();
                 const secretName = String(conn?.auth_token_secret_name || '').trim();
                 const tok = secretName && env[secretName] != null
                     ? String(env[secretName]).trim()
                     : '';
-                dbBridgeOk = !!(wsPart && tok);
+                dbBridgeOk = !!(wsPart && tok) || String(conn?.auth_mode || '').trim() === 'token_mint';
             } catch (_) {
                 dbBridgeOk = false;
             }
@@ -318,9 +341,6 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower === '/api/agent/terminal/ws' && method === 'GET') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
-            return new Response('Terminal disabled for this account', { status: 403 });
-        }
         if (!isWebSocketUpgrade) {
             return new Response('Worker expected Upgrade: websocket', { status: 426 });
         }
@@ -334,6 +354,13 @@ export async function handleDashboardApi(request, url, env, ctx) {
             return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
         }
         const workspaceId = tw.workspaceId;
+        const userId = String(authUser.id || '').trim();
+
+        // Policy check — replaces isSuperAdmin() gate
+        const canPty = await userCanRunPtyFromPolicy(env, userId, workspaceId);
+        if (!canPty) {
+            return terminalNotEnabledResponse();
+        }
         /** Optional second+ PTY (split pane); alphanumeric slug → distinct DO instance / upstream PTY. */
         const ptySlotRaw = (url.searchParams.get('pty_slot') || '').trim();
         const ptySlot =
@@ -363,7 +390,44 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (authUser.person_uuid != null && String(authUser.person_uuid).trim() !== '') {
             doUrl.searchParams.set('person_uuid', String(authUser.person_uuid).trim());
         }
-        doUrl.searchParams.set('user_id', String(authUser.id));
+        doUrl.searchParams.set('user_id', userId);
+
+        if (executionMode === 'pty' && env.DB) {
+            const sessionId = `term_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+            const { rawToken, tokenHash } = await mintSessionToken();
+            const now = Math.floor(Date.now() / 1000);
+            let tenantForSession =
+                authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+                    ? String(authUser.tenant_id).trim()
+                    : '';
+            if (!tenantForSession) {
+                tenantForSession = (await resolveTenantIdForWorkspace(env, workspaceId).catch(() => null)) || '';
+            }
+            if (!tenantForSession && userId) {
+                tenantForSession = (await fetchAuthUserTenantId(env, userId).catch(() => null)) || '';
+            }
+            const personUuid =
+                authUser.person_uuid != null && String(authUser.person_uuid).trim() !== ''
+                    ? String(authUser.person_uuid).trim()
+                    : null;
+            if (tenantForSession) {
+                await env.DB.prepare(
+                    `INSERT INTO terminal_sessions
+                       (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', '', 'active', ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                       auth_token_hash = excluded.auth_token_hash,
+                       status = 'active',
+                       updated_at = excluded.updated_at`,
+                )
+                    .bind(sessionId, tenantForSession, userId, workspaceId, personUuid, tokenHash, now, now)
+                    .run()
+                    .catch(() => {});
+            }
+            doUrl.searchParams.set('session_id', sessionId);
+            doUrl.searchParams.set('session_token', rawToken);
+        }
+
         return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -372,9 +436,6 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower === '/api/agent/terminal/status' && method === 'GET') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
-            return jsonResponse({ terminal_enabled: false, error: 'Forbidden' }, 403);
-        }
         if (!env.AGENT_SESSION) return jsonResponse({ error: 'AGENT_SESSION binding missing' }, 503);
         const executionModeRaw = (url.searchParams.get('execution_mode') || 'pty').trim().toLowerCase();
         const executionMode = ['pty', 'ssh', 'mcp'].includes(executionModeRaw) ? executionModeRaw : 'pty';
@@ -384,6 +445,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
             return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
         }
         const workspaceId = tw.workspaceId;
+        if (!(await userCanRunPtyFromPolicy(env, authUser.id, workspaceId))) {
+            return jsonResponse({ terminal_enabled: false, error: 'terminal_not_enabled' }, 403);
+        }
         const sessionName = `terminal:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -413,9 +477,6 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower === '/api/agent/terminal/exec' && method === 'POST') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
-            return jsonResponse({ terminal_enabled: false, error: 'Forbidden' }, 403);
-        }
         if (!env.AGENT_SESSION) return jsonResponse({ error: 'AGENT_SESSION binding missing' }, 503);
         const body = await request.json().catch(() => ({}));
         const executionModeRaw = String(body?.execution_mode || url.searchParams.get('execution_mode') || 'pty')
@@ -428,6 +489,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
             return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
         }
         const workspaceId = tw.workspaceId;
+        if (!(await userCanRunPtyFromPolicy(env, authUser.id, workspaceId))) {
+            return jsonResponse({ terminal_enabled: false, error: 'terminal_not_enabled' }, 403);
+        }
         const sessionName = `terminal:${authUser.id}:${workspaceId}:${executionMode}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
@@ -479,8 +543,12 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower === '/api/agent/terminal/complete' && method === 'POST') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
-            return jsonResponse({ terminal_enabled: false, error: 'Forbidden' }, 403);
+        const twComplete = await resolveTerminalWorkspaceId(env, request, authUser, null);
+        if (
+            twComplete.workspaceId &&
+            !(await userCanRunPtyFromPolicy(env, authUser.id, twComplete.workspaceId))
+        ) {
+            return jsonResponse({ terminal_enabled: false, error: 'terminal_not_enabled' }, 403);
         }
         const body = await request.json().catch(() => ({}));
         const executionId = body?.execution_id;
@@ -500,7 +568,11 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower === '/api/terminal/session/resume' && method === 'GET') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!authUserIsSuperadmin(authUser)) {
+        const twResume = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+        if (
+            !twResume.workspaceId ||
+            !(await userCanRunPtyFromPolicy(env, authUser.id, twResume.workspaceId))
+        ) {
             return jsonResponse({ terminal_enabled: false, resumable: false });
         }
 

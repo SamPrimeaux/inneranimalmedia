@@ -28,6 +28,7 @@ import { handleSettingsApiKeysApi } from './settings-api-keys.js';
 import { handleSettingsWorkspaceApi } from './settings-workspace.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace, canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
+import { generateMcpToken } from '../core/mcp-auth.js';
 
 /** Deep-merge `cms_pipeline` into `workspaces.settings_json` (no new tables). */
 function mergeCmsPipelineIntoWorkspaceSettings(existingJson, patchPipeline) {
@@ -358,6 +359,79 @@ export async function handleSettingsRequest(request, env, ctx) {
     sessionUserId,
   });
   if (workspaceSettingsRes) return workspaceSettingsRes;
+
+  // ── /api/settings/mcp-tokens (GET list, POST create, DELETE /:id revoke) ───
+  const mcpTokensPathMatch = pathLower.match(/^\/api\/settings\/mcp-tokens(?:\/([^/]+))?$/);
+  if (mcpTokensPathMatch) {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+    const tenantId = await resolveAuthTenantId(env, authUser);
+    if (!workspaceId || !tenantId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const tokenId = mcpTokensPathMatch[1] ? decodeURIComponent(mcpTokensPathMatch[1]).trim() : '';
+
+    if (!tokenId && method === 'GET') {
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT id, label, rate_limit_per_hour, is_active, expires_at, created_at, last_used_at, allowed_tools
+           FROM mcp_workspace_tokens
+           WHERE tenant_id = ? AND workspace_id = ? AND COALESCE(is_active, 1) = 1
+           ORDER BY created_at DESC LIMIT 50`,
+        )
+          .bind(tenantId, workspaceId)
+          .all();
+        return jsonResponse({ tokens: results || [] });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    if (!tokenId && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const label = typeof body?.label === 'string' ? body.label.trim() : '';
+      const allowedTools = body?.allowedTools ?? body?.allowed_tools ?? null;
+      const expiresInDays = body?.expiresInDays ?? body?.expires_in_days ?? null;
+      const rateParsed = Number(body?.rateLimitPerHour ?? body?.rate_limit_per_hour);
+      const rateLimitPerHour =
+        Number.isFinite(rateParsed) && rateParsed > 0 ? Math.min(10000, Math.floor(rateParsed)) : 1000;
+      try {
+        const result = await generateMcpToken(env, {
+          userId: String(authUser.id || '').trim(),
+          workspaceId,
+          tenantId,
+          label: label || `${authUser.name || authUser.email || 'User'} MCP token`,
+          allowedTools: allowedTools || null,
+          rateLimitPerHour,
+          expiresInDays: expiresInDays || null,
+        });
+        return jsonResponse({
+          ok: true,
+          bearer: result.bearer,
+          tokenId: result.tokenId,
+          warning: 'Save this bearer — it will not be shown again.',
+        });
+      } catch (e) {
+        return jsonResponse({ error: e?.message || String(e) }, 500);
+      }
+    }
+
+    if (tokenId && method === 'DELETE') {
+      try {
+        await env.DB.prepare(
+          `UPDATE mcp_workspace_tokens SET is_active = 0, revoked_at = unixepoch()
+           WHERE id = ? AND tenant_id = ? AND workspace_id = ?`,
+        )
+          .bind(tokenId, tenantId, workspaceId)
+          .run();
+        return jsonResponse({ ok: true });
+      } catch (e) {
+        return jsonResponse({ error: e?.message ?? String(e) }, 500);
+      }
+    }
+
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
 
   // ── /api/settings/profile ─────────────────────────────────────────────────
   if (pathLower === '/api/settings/profile' && method === 'GET') {

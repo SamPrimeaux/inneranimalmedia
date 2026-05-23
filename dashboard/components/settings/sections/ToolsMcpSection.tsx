@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { ChevronDown, ChevronRight, Pencil, Save } from 'lucide-react';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
+import { McpTokensPanel } from '../McpTokensPanel';
 
 export type ToolsMcpSectionProps = {
   data: SettingsPanelModel;
@@ -32,99 +33,6 @@ export function ToolsMcpSection({ data, activeSection }: ToolsMcpSectionProps) {
   const [toolEditMode, setToolEditMode] = useState<Record<string, boolean>>({});
   const [toolSaveBusy, setToolSaveBusy] = useState<Record<string, boolean>>({});
   const [toolSaveError, setToolSaveError] = useState<Record<string, string | null>>({});
-  const [mcpTokens, setMcpTokens] = useState<
-    Array<{
-      id: string;
-      label: string | null;
-      rate_limit_per_hour: number | null;
-      expires_at: number | null;
-      created_at: number | null;
-      allowed_tools: string | null;
-    }>
-  >([]);
-  const [mcpTokensLoading, setMcpTokensLoading] = useState(true);
-  const [mcpTokenLabel, setMcpTokenLabel] = useState('');
-  const [mcpTokenRate, setMcpTokenRate] = useState('1000');
-  const [mcpTokenExpiryDays, setMcpTokenExpiryDays] = useState('');
-  const [mcpTokenBusy, setMcpTokenBusy] = useState(false);
-  const [mcpTokenError, setMcpTokenError] = useState<string | null>(null);
-  const [mcpTokenReveal, setMcpTokenReveal] = useState<string | null>(null);
-
-  const loadMcpTokens = useCallback(async () => {
-    setMcpTokensLoading(true);
-    setMcpTokenError(null);
-    try {
-      const r = await fetch('/api/mcp/tokens', { credentials: 'same-origin' });
-      const j = (await r.json().catch(() => ({}))) as { tokens?: typeof mcpTokens; error?: string };
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Load failed (${r.status})`);
-      setMcpTokens(Array.isArray(j.tokens) ? j.tokens : []);
-    } catch (e) {
-      setMcpTokenError(e instanceof Error ? e.message : 'Failed to load MCP tokens');
-      setMcpTokens([]);
-    } finally {
-      setMcpTokensLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadMcpTokens();
-  }, [loadMcpTokens]);
-
-  const createMcpToken = useCallback(async () => {
-    setMcpTokenBusy(true);
-    setMcpTokenError(null);
-    setMcpTokenReveal(null);
-    try {
-      const rate = Math.max(1, Math.min(10000, Number.parseInt(mcpTokenRate, 10) || 1000));
-      const body: Record<string, unknown> = {
-        label: mcpTokenLabel.trim() || 'Dashboard MCP token',
-        rateLimitPerHour: rate,
-      };
-      if (mcpTokenExpiryDays.trim()) {
-        body.expiresInDays = Math.max(1, Number.parseInt(mcpTokenExpiryDays, 10) || 0);
-      }
-      const r = await fetch('/api/mcp/token/create', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const j = (await r.json().catch(() => ({}))) as { bearer?: string; error?: string; warning?: string };
-      if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Create failed (${r.status})`);
-      setMcpTokenReveal(j.bearer || null);
-      setMcpTokenLabel('');
-      await loadMcpTokens();
-    } catch (e) {
-      setMcpTokenError(e instanceof Error ? e.message : 'Create failed');
-    } finally {
-      setMcpTokenBusy(false);
-    }
-  }, [loadMcpTokens, mcpTokenExpiryDays, mcpTokenLabel, mcpTokenRate]);
-
-  const revokeMcpToken = useCallback(
-    async (tokenId: string) => {
-      if (!window.confirm('Revoke this MCP token? Clients using it will stop working.')) return;
-      setMcpTokenBusy(true);
-      setMcpTokenError(null);
-      try {
-        const r = await fetch('/api/mcp/token/revoke', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tokenId }),
-        });
-        const j = (await r.json().catch(() => ({}))) as { error?: string };
-        if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Revoke failed (${r.status})`);
-        await loadMcpTokens();
-      } catch (e) {
-        setMcpTokenError(e instanceof Error ? e.message : 'Revoke failed');
-      } finally {
-        setMcpTokenBusy(false);
-      }
-    },
-    [loadMcpTokens],
-  );
-
   const toolIndex = useMemo(() => {
     const m: Record<string, Record<string, unknown>> = {};
     for (const t of tools) {
@@ -235,94 +143,7 @@ export function ToolsMcpSection({ data, activeSection }: ToolsMcpSectionProps) {
         </div>
       ) : null}
 
-      <section className="flex flex-col gap-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)]">
-        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
-          Workspace MCP tokens
-        </div>
-        <p className="text-[11px] text-[var(--text-muted)]">
-          Generate a bearer for this workspace only. The token is stored hashed in D1; copy it once after create.
-        </p>
-        {mcpTokenError ? (
-          <p className="text-[11px] text-[var(--color-danger)]">{mcpTokenError}</p>
-        ) : null}
-        {mcpTokenReveal ? (
-          <div className="rounded-lg border border-[var(--solar-cyan)]/40 bg-[var(--bg-app)] p-3">
-            <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">Copy now</p>
-            <code className="block text-[11px] font-mono text-[var(--solar-cyan)] break-all">{mcpTokenReveal}</code>
-          </div>
-        ) : null}
-        <div className="grid gap-2 sm:grid-cols-3">
-          <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Label</span>
-            <input
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px]"
-              value={mcpTokenLabel}
-              onChange={(e) => setMcpTokenLabel(e.target.value)}
-              placeholder="Connor dev MCP"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Rate limit / hour</span>
-            <input
-              type="number"
-              min={1}
-              max={10000}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px]"
-              value={mcpTokenRate}
-              onChange={(e) => setMcpTokenRate(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Expires (days, optional)</span>
-            <input
-              type="number"
-              min={1}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2 text-[12px]"
-              value={mcpTokenExpiryDays}
-              onChange={(e) => setMcpTokenExpiryDays(e.target.value)}
-              placeholder="90"
-            />
-          </label>
-        </div>
-        <button
-          type="button"
-          disabled={mcpTokenBusy}
-          onClick={() => void createMcpToken()}
-          className="self-start px-4 py-2 rounded-lg text-[11px] font-semibold bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 disabled:opacity-50"
-        >
-          {mcpTokenBusy ? 'Working…' : 'Generate MCP token'}
-        </button>
-        {mcpTokensLoading ? (
-          <p className="text-[11px] text-[var(--text-muted)]">Loading tokens…</p>
-        ) : mcpTokens.length === 0 ? (
-          <p className="text-[11px] text-[var(--text-muted)]">No active tokens for this workspace.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {mcpTokens.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-[11px]"
-              >
-                <div className="min-w-0">
-                  <div className="font-semibold text-[var(--text-main)] truncate">{t.label || t.id}</div>
-                  <div className="text-[var(--text-muted)] font-mono">
-                    {t.id} · {t.rate_limit_per_hour ?? '—'}/hr
-                    {t.expires_at ? ` · exp ${t.expires_at}` : ''}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={mcpTokenBusy}
-                  onClick={() => void revokeMcpToken(t.id)}
-                  className="shrink-0 text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--color-danger)] hover:border-[var(--color-danger)]/40"
-                >
-                  Revoke
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <McpTokensPanel />
 
       {settings ? (
         <section className="flex flex-col gap-2">

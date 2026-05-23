@@ -31,7 +31,7 @@ export async function handleTerminalApi(request, url, env, ctx) {
     } catch (_) {}
     const token = typeof body?.token === 'string' ? body.token.trim() : '';
     const sessionId = typeof body?.session_id === 'string' ? body.session_id.trim() : '';
-    if (!token || !sessionId) return jsonResponse({ error: 'token and session_id required' }, 400);
+    if (!token || !sessionId) return jsonResponse({ valid: false, error: 'token and session_id required' }, 400);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
     try {
@@ -41,12 +41,12 @@ export async function handleTerminalApi(request, url, env, ctx) {
         .bind(sessionId)
         .first();
       const stored = row?.auth_token_hash != null ? String(row.auth_token_hash).trim() : '';
-      if (!stored) return jsonResponse({ error: 'invalid session' }, 401);
+      if (!stored) return jsonResponse({ valid: false, error: 'invalid session' }, 401);
       const digest = await sha256HexUtf8(token);
-      if (digest !== stored) return jsonResponse({ error: 'invalid token' }, 401);
-      return jsonResponse({ ok: true, session_id: sessionId });
+      if (digest !== stored) return jsonResponse({ valid: false, error: 'invalid token' }, 401);
+      return jsonResponse({ valid: true, session_id: sessionId, ok: true });
     } catch (e) {
-      return jsonResponse({ error: 'verify failed', detail: e?.message || String(e) }, 500);
+      return jsonResponse({ valid: false, error: 'verify failed', detail: e?.message || String(e) }, 500);
     }
   }
 

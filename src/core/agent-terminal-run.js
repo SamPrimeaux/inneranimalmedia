@@ -2,6 +2,7 @@
  * Tenant-safe /api/agent/terminal/run gate: bootstrap, MCP tool registration, optional approval.
  */
 import { getAuthUser, authUserIsSuperadmin, fetchAuthUserTenantId, platformTenantIdFromEnv } from './auth.js';
+import { userCanRunPtyFromPolicy } from './terminal.js';
 import {
   resolveEffectiveWorkspaceId,
   resolveActiveBootstrap,
@@ -113,7 +114,9 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
     workspaceId: targetWorkspace,
   });
 
-  if (!superadmin) {
+  const policyCanPty = await userCanRunPtyFromPolicy(env, uid, targetWorkspace);
+
+  if (!superadmin && !policyCanPty) {
     if (!bootstrap) return { response: null, error: 'Terminal not permitted (no bootstrap)', status: 403 };
     let capabilities = {};
     try {
