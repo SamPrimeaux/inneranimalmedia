@@ -49,7 +49,7 @@
     "designstudio:check": "bash scripts/designstudio/local-check.sh",
     "designstudio:smoke": "bash scripts/designstudio/pipeline-smoke.sh",
     "build": "npm run build:vite-only && node scripts/bump-cache.js",
-    "build:vite-only": "npm --prefix dashboard run build",
+    "build:vite-only": "bash scripts/with-node-env-fallback.sh npm --prefix dashboard run build",
     "dev:dashboard": "npm --prefix dashboard run dev",
     "preview:dashboard": "npm --prefix dashboard run preview",
     "agentsam:scripts:register:dry-run": "./scripts/with-cloudflare-env.sh node scripts/register-agentsam-scripts.mjs --dry-run",

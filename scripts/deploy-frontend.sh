@@ -58,6 +58,12 @@ if [[ -n "${SKIP_VITE_BUILD:-}" ]]; then
 fi
 
 echo "→ Clean dashboard/dist, then Vite build + cache bump (required before R2 sync)…"
+# shellcheck source=scripts/ensure-iam-npm-deps.sh
+source "$REPO_ROOT/scripts/ensure-iam-npm-deps.sh"
+ensure_iam_npm_deps || {
+  echo "✗ ensure-iam-npm-deps failed — fix npm install before deploy" >&2
+  exit 1
+}
 rm -rf "$REPO_ROOT/$DIST"
 # Vite client reads VITE_*; map from .env.cloudflare SUPABASE_* when VITE_* unset
 export VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
