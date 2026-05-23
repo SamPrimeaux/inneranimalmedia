@@ -182,3 +182,15 @@ const [browserUrl, setBrowserUrl] = useState('')
 const [browserUrl, setBrowserUrl] = useState('')
 const context = useMemo(() => ({ url: browserUrl }), [browserUrl])
 ```
+
+## RULE: User-scoped D1 reads (P0 data isolation)
+**ID:** rule_user_scoped_d1_reads | **Priority:** ALWAYS
+
+Every SELECT against these tables MUST include `WHERE user_id = ?` or `WHERE workspace_id = ?`
+bound to the authenticated user/workspace (never platform-wide reads for non-superadmin):
+
+`agentsam_artifacts`, `agentsam_workflow_runs`, `agentsam_command_run`, `images`, `r2_objects`,
+`user_secrets`, `user_api_keys`, `mcp_workspace_tokens`, `terminal_connections`, `terminal_sessions`
+
+Database Studio (`/api/d1/*`) must use `resolveUserWorkspaceBinding` — never `env.DB` for non-owner users.
+```

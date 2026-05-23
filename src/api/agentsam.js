@@ -4,7 +4,13 @@
  * Interfaces with agentsam_ai, agentsam_skill, and agentsam_skill_invocation.
  */
 import { handlers as db } from '../tools/db.js';
-import { getAuthUser, jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
+import {
+  getAuthUser,
+  jsonResponse,
+  fetchAuthUserTenantId,
+  fallbackSystemTenantId,
+  authUserIsSuperadmin,
+} from '../core/auth.js';
 import { resolveIamActorContext } from '../core/identity.js';
 import {
   resolveEffectiveWorkspaceId,
@@ -28,6 +34,7 @@ import {
   createPlanExcalidrawArtifact,
   createPlanMarkdownArtifact,
 } from '../core/agentsam-plan-excalidraw-artifact.js';
+import { resolveAgentDataScope } from '../core/data-isolation-scope.js';
 
 /**
  * HTTP entry for /api/agentsam/* (registry, prompts, etc.).
@@ -307,24 +314,28 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       const wsId = String(wsRes.workspaceId).trim();
       const runIdParam = url.searchParams.get('run_id')?.trim();
       let run = null;
+      const traceScope = await resolveAgentDataScope(env, authUser, request, {});
+      const traceUserId = traceScope.userId || String(authUser?.id || '').trim();
       if (runIdParam) {
         run = await env.DB
           .prepare(
-            `SELECT * FROM agentsam_workflow_runs WHERE id = ? AND workspace_id = ? LIMIT 1`,
+            `SELECT * FROM agentsam_workflow_runs
+             WHERE id = ? AND workspace_id = ? AND user_id = ?
+             LIMIT 1`,
           )
-          .bind(runIdParam, wsId)
+          .bind(runIdParam, wsId, traceUserId)
           .first()
           .catch(() => null);
       } else {
         run = await env.DB
           .prepare(
             `SELECT * FROM agentsam_workflow_runs
-             WHERE workspace_id = ?
+             WHERE workspace_id = ? AND user_id = ?
                AND (workflow_key = 'agent_chat_plan' OR workflow_id = 'wf_agent_chat_plan')
              ORDER BY created_at DESC
              LIMIT 1`,
           )
-          .bind(wsId)
+          .bind(wsId, traceUserId)
           .first()
           .catch(() => null);
       }
@@ -376,8 +387,11 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
         command_runs =
           (
             await env.DB
-              .prepare(`SELECT * FROM agentsam_command_run WHERE id IN (${placeholders})`)
-              .bind(...[...crIds])
+              .prepare(
+                `SELECT * FROM agentsam_command_run
+                 WHERE id IN (${placeholders}) AND user_id = ? AND workspace_id = ?`,
+              )
+              .bind(...[...crIds], traceUserId, wsId)
               .all()
           ).results || [];
       }
@@ -458,7 +472,29 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
     if (path === '/api/agentsam/workflows' && method === 'GET') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
       try {
-        const { results } = await env.DB.prepare(`
+        const wfScope = await resolveAgentDataScope(env, authUser, request, {});
+        const wsId = wfScope.workspaceId;
+        const wfUserId = wfScope.userId || String(authUser?.id || '').trim();
+        if (!authUserIsSuperadmin(authUser) && (!wsId || !wfUserId)) {
+          return jsonResponse([]);
+        }
+        const runSubquery = authUserIsSuperadmin(authUser) && !wsId
+          ? `SELECT workflow_key,
+              COUNT(*) AS run_count,
+              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
+              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS fail_count,
+              AVG(COALESCE(cost_usd, 0)) AS avg_cost_usd
+            FROM agentsam_workflow_runs
+            GROUP BY workflow_key`
+          : `SELECT workflow_key,
+              COUNT(*) AS run_count,
+              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
+              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS fail_count,
+              AVG(COALESCE(cost_usd, 0)) AS avg_cost_usd
+            FROM agentsam_workflow_runs
+            WHERE workspace_id = ? AND user_id = ?
+            GROUP BY workflow_key`;
+        const sql = `
           SELECT
             w.id, w.workflow_key, w.display_name, w.description,
             w.risk_level, w.requires_approval, w.is_active,
@@ -473,19 +509,15 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
             ON n.workflow_id = w.id AND COALESCE(n.is_active, 1) = 1
           LEFT JOIN agentsam_workflow_edges e
             ON e.workflow_id = w.id
-          LEFT JOIN (
-            SELECT workflow_key,
-              COUNT(*) AS run_count,
-              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS success_count,
-              SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS fail_count,
-              AVG(COALESCE(cost_usd, 0)) AS avg_cost_usd
-            FROM agentsam_workflow_runs
-            GROUP BY workflow_key
-          ) rs ON rs.workflow_key = w.workflow_key
+          LEFT JOIN (${runSubquery}) rs ON rs.workflow_key = w.workflow_key
           WHERE w.is_active = 1
           GROUP BY w.id
-          ORDER BY w.display_name ASC
-        `).all();
+          ORDER BY w.display_name ASC`;
+        const stmt = env.DB.prepare(sql);
+        const { results } =
+          authUserIsSuperadmin(authUser) && !wsId
+            ? await stmt.all()
+            : await stmt.bind(wsId, wfUserId).all();
         return jsonResponse(results || []);
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -570,9 +602,20 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
       const runId = wfRunStatusMatch[1];
       try {
-        const run = await env.DB.prepare(
-          `SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`
-        ).bind(runId).first();
+        const runScope = await resolveAgentDataScope(env, authUser, request, {});
+        const wsId = runScope.workspaceId;
+        const runUserId = runScope.userId || String(authUser?.id || '').trim();
+        let runSql = `SELECT * FROM agentsam_workflow_runs WHERE id = ?`;
+        const runBinds = [runId];
+        if (!authUserIsSuperadmin(authUser)) {
+          runSql += ` AND user_id = ? AND workspace_id = ?`;
+          runBinds.push(runUserId, wsId || '');
+        } else if (wsId) {
+          runSql += ` AND workspace_id = ?`;
+          runBinds.push(wsId);
+        }
+        runSql += ` LIMIT 1`;
+        const run = await env.DB.prepare(runSql).bind(...runBinds).first();
         if (!run) return jsonResponse({ error: 'run not found' }, 404);
 
         const steps = (await env.DB.prepare(

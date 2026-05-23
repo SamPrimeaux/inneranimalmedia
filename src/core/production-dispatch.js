@@ -50,7 +50,7 @@ import { handleVaultApi } from '../api/vault.js';
 import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
 import { handleUnifiedSearchApi } from '../api/unified-search.js';
 import { handleCommandsApi } from '../api/commands.js';
-import { handleImagesWorkspaceApi } from '../api/images-workspace.js';
+import { handleImagesApi } from '../api/images.js';
 import { handleMoviemodeApi } from '../api/moviemode-api.js';
 
 /**
@@ -272,7 +272,7 @@ export async function dispatchProductionDomainRoutes(rc) {
   }
 
   if (pathLower.startsWith('/api/images')) {
-    const res = await handleImagesWorkspaceApi(request, url, env, authUser, identity);
+    const res = await handleImagesApi(request, url, env, authUser, identity);
     return res;
   }
 

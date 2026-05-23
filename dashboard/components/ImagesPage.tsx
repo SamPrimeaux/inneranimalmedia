@@ -16,14 +16,26 @@ interface ImageMeta {
   tenant_slug?: string;
 }
 
+type SourceTab = 'all' | 'r2' | 'cf_images' | 'drive';
+type ItemSource = 'r2' | 'cf_images' | 'drive';
+
 interface CfImage {
   id: string;
+  source?: ItemSource;
   kind?: 'image' | 'artifact';
-  r2_key?: string;
+  r2_key?: string | null;
+  cloudflare_image_id?: string | null;
+  drive_file_id?: string;
   filename?: string;
   uploaded?: string;
+  created_at?: string;
   url?: string;
   thumbnail?: string;
+  thumbnail_url?: string;
+  mime_type?: string;
+  size?: number;
+  width?: number | null;
+  height?: number | null;
   variants?: string[];
   meta?: ImageMeta;
 }
@@ -46,6 +58,20 @@ function fmtDate(iso?: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function fmtSize(bytes?: number) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function sourceLabel(s?: ItemSource) {
+  if (s === 'cf_images') return 'CF Images';
+  if (s === 'drive') return 'Drive';
+  if (s === 'r2') return 'R2';
+  return '—';
+}
+
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
 interface Toast { id: number; msg: string; type: 'ok' | 'err'; }
@@ -60,21 +86,26 @@ function useToast() {
   return { toasts, add };
 }
 
-type ImagesApiSource = 'r2' | 'cf' | '';
-type ListMode = 'images' | 'media';
-
-function imagesListUrl(workspaceId?: string | null, mode: ListMode = 'images') {
+function imagesListUrl(
+  workspaceId: string | null | undefined,
+  source: SourceTab,
+  page: number,
+  perPage: number,
+) {
   const params = new URLSearchParams();
-  params.set('per_page', '1000');
-  if (mode === 'media') params.set('mode', 'media');
+  params.set('source', source);
+  params.set('page', String(page));
+  params.set('per_page', String(perPage));
   const ws = workspaceId?.trim();
   if (ws) params.set('workspace_id', ws);
   return `/api/images?${params.toString()}`;
 }
 
-function imagesMutationUrl(workspaceId?: string | null) {
+function imagesUploadUrl(workspaceId?: string | null) {
   const ws = workspaceId?.trim();
-  return ws ? `/api/images?workspace_id=${encodeURIComponent(ws)}` : '/api/images';
+  return ws
+    ? `/api/images/upload?workspace_id=${encodeURIComponent(ws)}`
+    : '/api/images/upload';
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -83,20 +114,22 @@ export type ImagesPageProps = { workspaceId?: string | null };
 
 export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const [images, setImages] = useState<CfImage[]>([]);
+  const [total, setTotal] = useState(0);
   const [accountHash, setAccountHash] = useState('');
-  const [imageSource, setImageSource] = useState<ImagesApiSource>('');
+  const [driveConnected, setDriveConnected] = useState<boolean | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sort, setSort] = useState<SortKey>('newest');
-  const [perPage, setPerPage] = useState(100);
+  const [perPage, setPerPage] = useState(50);
   const [page, setPage] = useState(1);
+  const [sourceTab, setSourceTab] = useState<SourceTab>('all');
+  const [mimeFilter, setMimeFilter] = useState('all');
   const [tenantFilter, setTenantFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState<CfImage | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [listMode, setListMode] = useState<ListMode>('images');
   const { toasts, add: toast } = useToast();
 
   // ── Fetch images ─────────────────────────────────────────────────────────
@@ -105,22 +138,25 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
     setLoading(true);
     setError('');
     try {
-      const r = await fetch(imagesListUrl(workspaceId, listMode), { credentials: 'same-origin' });
+      const r = await fetch(imagesListUrl(workspaceId, sourceTab, page, perPage), {
+        credentials: 'same-origin',
+      });
       const d = await r.json();
       if (d.error) {
         setError(d.error);
-        setImageSource((d.source === 'r2' ? 'r2' : d.source === 'cf' ? 'cf' : '') as ImagesApiSource);
         return;
       }
-      setImages(d.images || []);
+      const rows: CfImage[] = d.items || d.images || [];
+      setImages(rows);
+      setTotal(typeof d.total === 'number' ? d.total : rows.length);
       if (d.accountHash) setAccountHash(d.accountHash);
-      setImageSource((d.source === 'r2' ? 'r2' : d.source === 'cf' ? 'cf' : '') as ImagesApiSource);
+      if (typeof d.drive_connected === 'boolean') setDriveConnected(d.drive_connected);
     } catch (e: any) {
       setError('Network error: ' + e.message);
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, listMode]);
+  }, [workspaceId, sourceTab, page, perPage]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -141,18 +177,21 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
       list = list.filter(i =>
         (i.filename || i.id || i.r2_key || '').toLowerCase().includes(q));
     }
-    if (sort === 'newest') list.sort((a, b) => (b.uploaded || '').localeCompare(a.uploaded || ''));
-    else if (sort === 'oldest') list.sort((a, b) => (a.uploaded || '').localeCompare(b.uploaded || ''));
+    if (mimeFilter !== 'all') {
+      list = list.filter(i => (i.mime_type || '').toLowerCase().startsWith(mimeFilter));
+    }
+    const ts = (i: CfImage) => i.created_at || i.uploaded || '';
+    if (sort === 'newest') list.sort((a, b) => ts(b).localeCompare(ts(a)));
+    else if (sort === 'oldest') list.sort((a, b) => ts(a).localeCompare(ts(b)));
     else if (sort === 'name-az') list.sort((a, b) => (a.filename || a.id || '').localeCompare(b.filename || b.id || ''));
     else if (sort === 'name-za') list.sort((a, b) => (b.filename || b.id || '').localeCompare(a.filename || a.id || ''));
     return list;
-  }, [images, tenantFilter, search, sort]);
+  }, [images, tenantFilter, search, sort, mimeFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
-  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const paginated = filtered;
 
-  // reset page on filter change
-  useEffect(() => setPage(1), [sort, tenantFilter, search, perPage, listMode]);
+  useEffect(() => setPage(1), [sort, tenantFilter, search, perPage, sourceTab, mimeFilter]);
 
   // ── Delete ────────────────────────────────────────────────────────────────
 
@@ -199,8 +238,43 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
 
   // ── URL for display ───────────────────────────────────────────────────────
 
-  const imgUrl = (img: CfImage) =>
-    img.url || (accountHash && img.id ? buildImageUrl(accountHash, img.id) : '');
+  const imgUrl = (img: CfImage) => {
+    if (img.url) return img.url;
+    const cfId = img.cloudflare_image_id || (img.id?.startsWith('cf_live_') ? img.id.slice(9) : '');
+    if (accountHash && cfId) return buildImageUrl(accountHash, cfId);
+    return '';
+  };
+
+  const thumbUrl = (img: CfImage) =>
+    img.thumbnail_url || img.thumbnail || imgUrl(img);
+
+  const importDriveImage = useCallback(async (img: CfImage) => {
+    const driveId = img.drive_file_id || (img.id?.startsWith('drive_') ? img.id.slice(6) : '');
+    if (!driveId) return;
+    try {
+      const qs = workspaceId?.trim()
+        ? `?workspace_id=${encodeURIComponent(workspaceId.trim())}`
+        : '';
+      const r = await fetch(`/api/images/import/drive${qs}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drive_file_id: driveId }),
+      });
+      const d = await r.json();
+      if (d.ok && (d.item || d.image)) {
+        const row = d.item || d.image;
+        setImages(p => [row, ...p.filter(i => i.id !== img.id)]);
+        setDetail(null);
+        toast('Imported to R2 + registry');
+        load();
+      } else {
+        toast(d.error || 'Import failed', 'err');
+      }
+    } catch (e: any) {
+      toast('Error: ' + e.message, 'err');
+    }
+  }, [workspaceId, toast, load]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -227,21 +301,13 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
                 fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg-elevated)',
                 border: '1px solid var(--border-subtle)', borderRadius: 999,
                 padding: '1px 8px', marginLeft: 4
-              }}>{filtered.length} total</span>
-              {imageSource === 'r2' && (
-                <span title="Bucket inneranimalmedia — proxied via /api/r2 while CLOUDFLARE_IMAGES is unavailable."
-                  style={{
-                    fontSize: 10, color: 'var(--solar-cyan)', background: 'var(--bg-elevated)',
-                    border: '1px solid var(--border-subtle)', borderRadius: 999,
-                    padding: '1px 8px'
-                  }}>R2</span>
-              )}
-              {listMode === 'media' && (
+              }}>{total} total</span>
+              {sourceTab === 'drive' && driveConnected === false && (
                 <span style={{
-                  fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-elevated)',
+                  fontSize: 10, color: '#f87171', background: 'var(--bg-elevated)',
                   border: '1px solid var(--border-subtle)', borderRadius: 999,
                   padding: '1px 8px'
-                }}>captures & logs</span>
+                }}>Drive not connected</span>
               )}
             </>
           )}
@@ -266,19 +332,26 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
           />
         </div>
 
-        <select
-          value={listMode}
-          onChange={e => setListMode(e.target.value as ListMode)}
-          title="Images only, or include Playwright/theme-debug artifacts (zip, har, jsonl, webm…)"
-          style={{
-            padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-subtle)',
-            background: 'var(--bg-elevated)', color: 'var(--text-main)',
-            fontSize: 12, cursor: 'pointer', maxWidth: 200
-          }}
-        >
-          <option value="images">Images only</option>
-          <option value="media">Images + captures</option>
-        </select>
+        <div style={{
+          display: 'flex', borderRadius: 8, border: '1px solid var(--border-subtle)',
+          overflow: 'hidden', flexShrink: 0
+        }}>
+          {(['all', 'r2', 'cf_images', 'drive'] as SourceTab[]).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setSourceTab(tab)}
+              style={{
+                padding: '6px 10px', fontSize: 11, border: 'none', cursor: 'pointer',
+                background: sourceTab === tab ? 'var(--solar-cyan)' : 'var(--bg-elevated)',
+                color: sourceTab === tab ? '#000' : 'var(--text-muted)',
+                fontWeight: sourceTab === tab ? 600 : 400
+              }}
+            >
+              {tab === 'all' ? 'All' : tab === 'cf_images' ? 'CF Images' : tab === 'drive' ? 'Drive' : 'R2'}
+            </button>
+          ))}
+        </div>
 
         {/* Filter toggle */}
         <button
@@ -343,9 +416,21 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
             Per page
             <select value={perPage} onChange={e => setPerPage(Number(e.target.value))}
               style={selectStyle}>
+              <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
-              <option value={200}>200</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            MIME
+            <select value={mimeFilter} onChange={e => setMimeFilter(e.target.value)}
+              style={selectStyle}>
+              <option value="all">All types</option>
+              <option value="image/jpeg">JPEG</option>
+              <option value="image/png">PNG</option>
+              <option value="image/webp">WebP</option>
+              <option value="image/gif">GIF</option>
+              <option value="image/svg">SVG</option>
             </select>
           </label>
           {tenants.length > 0 && (
@@ -376,11 +461,9 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
           }}>
             <AlertCircle size={15} />
             {error}
-            {imageSource !== 'r2' && (
-              <span style={{ fontSize: 11, opacity: 0.8, marginLeft: 4 }}>
-                Ensure CLOUDFLARE_IMAGES_TOKEN has Images: Edit permission.
-              </span>
-            )}
+            <span style={{ fontSize: 11, opacity: 0.8, marginLeft: 4 }}>
+              Ensure CLOUDFLARE_IMAGES_TOKEN has Images: Edit permission.
+            </span>
           </div>
         )}
 
@@ -410,9 +493,9 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
             <ImageIcon size={40} strokeWidth={1} style={{ opacity: 0.3 }} />
             <span style={{ fontSize: 14, textAlign: 'center', maxWidth: 420 }}>
               {images.length === 0
-                ? (listMode === 'media'
-                  ? 'No media in this workspace scope yet. Theme-debug bundles use captures/theme-debug/… (superadmin). Workspace uploads land under uploads/{workspace}/images/, captures under captures/{workspace}/….'
-                  : 'No images yet. Upload a file or paste an image URL (stored in R2). Switch to “Images + captures” to see traces, HAR, jsonl, and zip bundles.')
+                ? (sourceTab === 'drive'
+                  ? 'No Drive images found. Connect Google Drive in Settings → Integrations, or upload locally.'
+                  : 'No media yet. Upload a file — stored in Cloudflare Images, R2 backup, and the images registry.')
                 : 'No items match your filters.'}
             </span>
           </div>
@@ -463,9 +546,17 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
                     background: 'var(--bg-app)', display: 'flex',
                     alignItems: 'center', justifyContent: 'center', overflow: 'hidden'
                   }}>
+                    {img.source && (
+                      <div style={{
+                        position: 'absolute', top: 7, right: 7, zIndex: 2,
+                        background: 'rgba(0,0,0,0.65)', color: '#fff',
+                        fontSize: 9, fontWeight: 600, padding: '2px 6px',
+                        borderRadius: 999, letterSpacing: '0.04em'
+                      }}>{sourceLabel(img.source)}</div>
+                    )}
                     {!isArtifact && url ? (
                       <img
-                        src={img.thumbnail || url}
+                        src={thumbUrl(img)}
                         alt={img.filename || img.id}
                         loading="lazy"
                         style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
@@ -493,7 +584,8 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
                       {img.meta?.label || img.filename || img.id}
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                      {fmtDate(img.uploaded)}
+                      {fmtDate(img.created_at || img.uploaded)}
+                      {img.size ? ` · ${fmtSize(img.size)}` : ''}
                     </div>
                   </div>
                 </div>
@@ -517,7 +609,7 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
               <ChevronLeft size={14} />
             </button>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Page {page} of {totalPages} · {filtered.length} {listMode === 'media' ? 'items' : 'images'}
+              Page {page} of {totalPages} · {total} images
             </span>
             <button
               disabled={page >= totalPages}
@@ -538,6 +630,7 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
           onClose={() => setDetail(null)}
           onDelete={deleteImage}
           onSaveMeta={saveMeta}
+          onImportDrive={importDriveImage}
           onUpdated={updated => setDetail(updated)}
         />
       )}
@@ -578,12 +671,13 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onUpdated }: {
+function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onImportDrive, onUpdated }: {
   img: CfImage;
   url: string;
   onClose: () => void;
   onDelete: (img: CfImage) => void;
   onSaveMeta: (img: CfImage, payload: ImageMeta) => Promise<boolean>;
+  onImportDrive: (img: CfImage) => void;
   onUpdated: (img: CfImage) => void;
 }) {
   const isArtifact = img.kind === 'artifact';
@@ -657,7 +751,9 @@ function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onUpdated }: {
           {img.filename || img.id}
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16 }}>
-          Uploaded {fmtDate(img.uploaded)}
+          {sourceLabel(img.source)} · {fmtDate(img.created_at || img.uploaded)}
+          {img.size ? ` · ${fmtSize(img.size)}` : ''}
+          {img.mime_type ? ` · ${img.mime_type}` : ''}
           {img.meta?.tenant_slug && <span style={{ marginLeft: 8, color: 'var(--solar-cyan)' }}>· {img.meta.tenant_slug}</span>}
         </div>
 
@@ -723,14 +819,22 @@ function DetailModal({ img, url, onClose, onDelete, onSaveMeta, onUpdated }: {
             style={{ ...actionBtnStyle('var(--bg-hover)', 'var(--text-main)'), textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}>
             <ExternalLink size={13} />Open
           </a>
+          {img.source === 'drive' && (
+            <button type="button" onClick={() => onImportDrive(img)}
+              style={actionBtnStyle('var(--solar-cyan)', '#000')}>
+              <Upload size={13} />Import to R2
+            </button>
+          )}
           <button onClick={save} disabled={saving}
-            style={actionBtnStyle('var(--solar-cyan)', '#000')}>
+            style={actionBtnStyle('var(--bg-hover)', 'var(--text-main)')}>
             {saving ? 'Saving…' : 'Save note'}
           </button>
-          <button onClick={() => onDelete(img)}
-            style={actionBtnStyle('rgba(239,68,68,0.15)', '#f87171')}>
-            <Trash2 size={13} />Delete
-          </button>
+          {img.source !== 'drive' && (
+            <button onClick={() => onDelete(img)}
+              style={actionBtnStyle('rgba(239,68,68,0.15)', '#f87171')}>
+              <Trash2 size={13} />Delete
+            </button>
+          )}
           <button onClick={onClose} style={{ ...actionBtnStyle('var(--bg-app)', 'var(--text-muted)'), marginLeft: 'auto' }}>
             <X size={13} />
           </button>
@@ -759,7 +863,7 @@ function UploadModal({ workspaceId, onClose, onUploaded, onError }: {
     setBusy(true); setStatus('Uploading…');
     try {
       let r: Response;
-      const base = imagesMutationUrl(workspaceId);
+      const base = imagesUploadUrl(workspaceId);
       if (urlInput.trim()) {
         r = await fetch(base, {
           method: 'POST', credentials: 'same-origin',
@@ -772,7 +876,7 @@ function UploadModal({ workspaceId, onClose, onUploaded, onError }: {
         r = await fetch(base, { method: 'POST', credentials: 'same-origin', body: fd });
       }
       const d = await r.json();
-      if (d.ok && d.image) { onUploaded(d.image); }
+      if (d.ok && (d.image || d.item)) { onUploaded(d.image || d.item); }
       else { setStatus('Error: ' + (d.error || 'Upload failed')); onError(d.error || 'Upload failed'); }
     } catch (e: any) {
       setStatus('Error: ' + e.message);

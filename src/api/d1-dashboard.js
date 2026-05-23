@@ -1,6 +1,10 @@
 /**
  * D1 routes for the dashboard Database page (/api/d1/*).
  * Mirrors legacy worker.js behavior for production dispatch (src/index.js).
+ *
+ * P0 data isolation audit 2026-05-23 — unscoped SELECT (grep -v WHERE user_id|workspace_id|tenant_id):
+ * Full log: artifacts/p0-data-isolation-audit-20260523.txt
+ * (d1-dashboard had no prior unscoped user-data SELECTs; platform env.DB gated below.)
  */
 
 import { jsonResponse } from '../core/responses.js';
@@ -12,6 +16,39 @@ import {
   buildD1FilterWhere,
   parseDatabaseFiltersJson,
 } from '../core/database-table-filters.js';
+import { resolveCanonicalUserId } from './auth.js';
+import { resolveUserWorkspaceBinding } from '../core/data-isolation-scope.js';
+
+export { resolveUserWorkspaceBinding };
+
+function d1OnboardingResponse() {
+  return jsonResponse(
+    {
+      tables: [],
+      onboarding_required: true,
+      message: 'Connect your Cloudflare D1 to use Database Studio',
+    },
+    200,
+  );
+}
+
+/**
+ * Per-user D1 binding for Database Studio. Platform DB only for superadmin; otherwise null.
+ * @param {unknown} env
+ * @param {string} userId
+ * @param {unknown} authUser
+ * @returns {import('@cloudflare/workers-types').D1Database | null}
+ */
+/**
+ * @param {unknown} env
+ * @param {unknown} authUser
+ */
+async function requireScopedD1(env, authUser) {
+  const rawId = String(authUser?.id || '').trim();
+  const userId = rawId ? await resolveCanonicalUserId(rawId, env).catch(() => rawId) : '';
+  const db = resolveUserWorkspaceBinding(env, userId, authUser);
+  return { db, userId };
+}
 
 /**
  * @param {Request} request
@@ -26,10 +63,12 @@ export async function handleD1DashboardRoutes(request, url, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
+  const { db: userDb } = await requireScopedD1(env, authUser);
+
   if (pathLower === '/api/d1/tables' && method === 'GET') {
-    if (!env.DB) return jsonResponse({ tables: [] }, 200);
+    if (!userDb) return d1OnboardingResponse();
     try {
-      const { results } = await env.DB.prepare(
+      const { results } = await userDb.prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name ASC`,
       ).all();
       const tables = (results ?? [])
@@ -42,7 +81,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
   }
 
   if (pathLower === '/api/d1/query' && method === 'POST') {
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!userDb) return d1OnboardingResponse();
     try {
       const body = await request.json().catch(() => ({}));
       const sql = body?.sql;
@@ -75,7 +114,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
       const bindings = Array.isArray(params) ? params : [];
       if (isRead) {
         const _t0 = Date.now();
-        const { results, success, meta } = await env.DB.prepare(sql).bind(...bindings).all();
+        const { results, success, meta } = await userDb.prepare(sql).bind(...bindings).all();
         const executionMs = Date.now() - _t0;
         return jsonResponse({
           rows: results || [],
@@ -86,7 +125,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
         });
       }
       const _t1 = Date.now();
-      const run = await env.DB.prepare(sql).bind(...bindings).run();
+      const run = await userDb.prepare(sql).bind(...bindings).run();
       const executionMs = Date.now() - _t1;
       return jsonResponse({
         rows: [],
@@ -102,7 +141,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
 
   const d1TableRoute = url.pathname.match(/^\/api\/d1\/table\/([^/]+)\/(schema|data|indexes)$/i);
   if (d1TableRoute && method === 'GET') {
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!userDb) return d1OnboardingResponse();
     const table = decodeURIComponent(d1TableRoute[1]);
     const action = d1TableRoute[2].toLowerCase();
     let qtable;
@@ -114,14 +153,14 @@ export async function handleD1DashboardRoutes(request, url, env) {
     try {
       if (action === 'schema') {
         const [columns, indexList, foreignKeys] = await Promise.all([
-          env.DB.prepare(`PRAGMA table_info(${qtable})`).all(),
-          env.DB.prepare(`PRAGMA index_list(${qtable})`).all(),
-          env.DB.prepare(`PRAGMA foreign_key_list(${qtable})`).all(),
+          userDb.prepare(`PRAGMA table_info(${qtable})`).all(),
+          userDb.prepare(`PRAGMA index_list(${qtable})`).all(),
+          userDb.prepare(`PRAGMA foreign_key_list(${qtable})`).all(),
         ]);
         const indexNames = (indexList.results || []).map((r) => String(r.name || '')).filter(Boolean);
         const indexes = [];
         for (const name of indexNames) {
-          const row = await env.DB.prepare(`SELECT name, sql FROM sqlite_master WHERE type='index' AND name = ? LIMIT 1`)
+          const row = await userDb.prepare(`SELECT name, sql FROM sqlite_master WHERE type='index' AND name = ? LIMIT 1`)
             .bind(name)
             .first();
           indexes.push({ name, sql: row?.sql || null });
@@ -134,7 +173,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
         });
       }
       if (action === 'indexes') {
-        const indexes = await env.DB.prepare(
+        const indexes = await userDb.prepare(
           `SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name = ? ORDER BY name`,
         )
           .bind(table)
@@ -148,7 +187,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
       const filters = parseDatabaseFiltersJson(url.searchParams.get('filter'));
       let columnAllowlist = null;
       try {
-        const colRows = await env.DB.prepare(`PRAGMA table_info(${qtable})`).all();
+        const colRows = await userDb.prepare(`PRAGMA table_info(${qtable})`).all();
         columnAllowlist = new Set(
           (colRows.results || []).map((r) => String(r.name || '').trim()).filter(Boolean),
         );
@@ -171,10 +210,10 @@ export async function handleD1DashboardRoutes(request, url, env) {
         order = '';
       }
       const offset = (pageNum - 1) * limit;
-      const countRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM ${qtable}${built.where}`)
+      const countRow = await userDb.prepare(`SELECT COUNT(*) AS count FROM ${qtable}${built.where}`)
         .bind(...built.values)
         .first();
-      const rows = await env.DB.prepare(`SELECT * FROM ${qtable}${built.where}${order} LIMIT ? OFFSET ?`)
+      const rows = await userDb.prepare(`SELECT * FROM ${qtable}${built.where}${order} LIMIT ? OFFSET ?`)
         .bind(...built.values, limit, offset)
         .all();
       const total = Number(countRow?.count ?? 0);
@@ -192,8 +231,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
 
   const d1RowRoute = url.pathname.match(/^\/api\/d1\/table\/([^/]+)\/row$/i);
   if (d1RowRoute && method === 'POST') {
-    if (!authUserIsSuperadmin(authUser)) return jsonResponse({ error: 'Superadmin required' }, 403);
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!userDb) return d1OnboardingResponse();
     const table = decodeURIComponent(d1RowRoute[1]);
     const body = await request.json().catch(() => ({}));
     const columns = body?.columns && typeof body.columns === 'object' ? body.columns : {};
@@ -202,7 +240,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
       const sql = names.length
         ? `INSERT INTO ${iamD1QuoteIdent(table)} (${names.map(iamD1QuoteIdent).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`
         : `INSERT INTO ${iamD1QuoteIdent(table)} DEFAULT VALUES`;
-      const run = await env.DB.prepare(sql).bind(...names.map((n) => columns[n])).run();
+      const run = await userDb.prepare(sql).bind(...names.map((n) => columns[n])).run();
       return jsonResponse({ success: true, id: run.meta?.last_row_id ?? null, row: columns });
     } catch (e) {
       return jsonResponse({ error: e?.message || String(e) }, 500);
@@ -210,21 +248,20 @@ export async function handleD1DashboardRoutes(request, url, env) {
   }
 
   if (d1RowRoute && method === 'PATCH') {
-    if (!authUserIsSuperadmin(authUser)) return jsonResponse({ error: 'Superadmin required' }, 403);
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!userDb) return d1OnboardingResponse();
     const table = decodeURIComponent(d1RowRoute[1]);
     const body = await request.json().catch(() => ({}));
     const updates = body?.updates && typeof body.updates === 'object' ? body.updates : {};
     const names = Object.keys(updates);
     if (!body.pk_col || !names.length) return jsonResponse({ error: 'pk_col and updates required' }, 400);
     try {
-      await env.DB
+      await userDb
         .prepare(
           `UPDATE ${iamD1QuoteIdent(table)} SET ${names.map((n) => `${iamD1QuoteIdent(n)} = ?`).join(', ')} WHERE ${iamD1QuoteIdent(body.pk_col)} = ?`,
         )
         .bind(...names.map((n) => updates[n]), body.pk_val)
         .run();
-      const row = await env.DB.prepare(`SELECT * FROM ${iamD1QuoteIdent(table)} WHERE ${iamD1QuoteIdent(body.pk_col)} = ? LIMIT 1`)
+      const row = await userDb.prepare(`SELECT * FROM ${iamD1QuoteIdent(table)} WHERE ${iamD1QuoteIdent(body.pk_col)} = ? LIMIT 1`)
         .bind(body.pk_val)
         .first();
       return jsonResponse({ success: true, row });
@@ -235,8 +272,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
 
   const d1RowsRoute = url.pathname.match(/^\/api\/d1\/table\/([^/]+)\/rows$/i);
   if (d1RowsRoute && method === 'DELETE') {
-    if (!authUserIsSuperadmin(authUser)) return jsonResponse({ error: 'Superadmin required' }, 403);
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    if (!userDb) return d1OnboardingResponse();
     const body = await request.json().catch(() => ({}));
     if (body.confirm !== true) return jsonResponse({ error: 'confirm=true required' }, 400);
     const table = decodeURIComponent(d1RowsRoute[1]);
@@ -244,7 +280,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
     if (!body.pk_col || !vals.length) return jsonResponse({ error: 'pk_col and pk_vals required' }, 400);
     try {
       const sql = `DELETE FROM ${iamD1QuoteIdent(table)} WHERE ${iamD1QuoteIdent(body.pk_col)} IN (${vals.map(() => '?').join(', ')})`;
-      const run = await env.DB.prepare(sql).bind(...vals).run();
+      const run = await userDb.prepare(sql).bind(...vals).run();
       return jsonResponse({ deleted: run.meta?.changes ?? vals.length });
     } catch (e) {
       return jsonResponse({ error: e?.message || String(e) }, 500);

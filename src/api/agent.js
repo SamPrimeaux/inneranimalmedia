@@ -16,6 +16,10 @@
  *  - Tool execution delegated to src/tools/ai-dispatch.js
  *  - agentsam_tool_call_log: scheduleToolCallLog (agentsam-ops-ledger.js) with PRAGMA-driven columns; identity fields
  *    from validateToolCall + toolLogFieldsFromValidation on hot paths.
+ *
+ * P0 data isolation audit 2026-05-23 — unscoped SELECT lines (grep -v WHERE user_id|workspace_id|tenant_id):
+ * Full log: artifacts/p0-data-isolation-audit-20260523.txt
+ * Sample hits patched this pass: agentsam_plans/tasks, agentsam_todo, agent_conversations/messages/sessions, /problems.
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
 import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/provider.js';
@@ -138,6 +142,7 @@ import {
   resolveAgentCommand,
 } from './command-run-telemetry.js';
 import { resolveCanonicalUserId } from './auth.js';
+import { resolveAgentDataScope } from '../core/data-isolation-scope.js';
 import { estimateModelRunCostUsd } from '../core/model-pricing.js';
 import {
   classifyWorkspaceCapabilities,
@@ -614,25 +619,50 @@ async function resolveAgentsamPromptRoute(env, tenantId, modeSlug, intentSlug) {
 }
 
 async function fetchActivePlanContextFragment(env, tenantId, options = {}) {
-  const { sessionId, planId, taskId } = options;
+  const { sessionId, planId, taskId, workspaceId } = options;
   if (!env.DB) return '';
 
   let activePlan = null;
   if (planId) {
-    activePlan = await env.DB.prepare('SELECT * FROM agentsam_plans WHERE id = ? LIMIT 1').bind(planId).first().catch(() => null);
+    let planSql = 'SELECT * FROM agentsam_plans WHERE id = ?';
+    const planBinds = [planId];
+    if (tenantId) {
+      planSql += ' AND tenant_id = ?';
+      planBinds.push(tenantId);
+    }
+    if (workspaceId) {
+      planSql += ' AND workspace_id = ?';
+      planBinds.push(workspaceId);
+    }
+    planSql += ' LIMIT 1';
+    activePlan = await env.DB.prepare(planSql).bind(...planBinds).first().catch(() => null);
   } else if (sessionId) {
-    activePlan = await env.DB.prepare(`
+    let planSql = `
       SELECT * FROM agentsam_plans 
-      WHERE session_id = ? AND status = 'active'
-      ORDER BY created_at DESC LIMIT 1
-    `).bind(sessionId).first().catch(() => null);
+      WHERE session_id = ? AND status = 'active'`;
+    const planBinds = [sessionId];
+    if (tenantId) {
+      planSql += ' AND tenant_id = ?';
+      planBinds.push(tenantId);
+    }
+    if (workspaceId) {
+      planSql += ' AND workspace_id = ?';
+      planBinds.push(workspaceId);
+    }
+    planSql += ' ORDER BY created_at DESC LIMIT 1';
+    activePlan = await env.DB.prepare(planSql).bind(...planBinds).first().catch(() => null);
   }
 
   if (!activePlan) return '';
 
   let activeTask = null;
   if (taskId) {
-    activeTask = await env.DB.prepare('SELECT * FROM agentsam_plan_tasks WHERE id = ? LIMIT 1').bind(taskId).first().catch(() => null);
+    activeTask = await env.DB.prepare(
+      'SELECT * FROM agentsam_plan_tasks WHERE id = ? AND plan_id = ? LIMIT 1',
+    )
+      .bind(taskId, activePlan.id)
+      .first()
+      .catch(() => null);
   } else {
     activeTask = await env.DB.prepare(`
       SELECT * FROM agentsam_plan_tasks 
@@ -825,7 +855,13 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
 
     // Inject Plan & Task Context if enabled by route or requested by options
     if (!minimalAsk && includeActivePlan && env.DB) {
-      const planContext = await fetchActivePlanContextFragment(env, tenantId, options);
+      const planWs =
+        options.workspaceId ||
+        (await resolveBootstrapWorkspaceIdForAgentApi(env, request, options.userId, options.cache));
+      const planContext = await fetchActivePlanContextFragment(env, tenantId, {
+        ...options,
+        workspaceId: planWs,
+      });
       if (planContext) parts.push(planContext);
     }
 
@@ -8641,20 +8677,17 @@ export async function handleAgentApi(request, url, env, ctx) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    let tenantId =
-      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-        ? String(authUser.tenant_id).trim()
-        : null;
-    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
-    if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
-    if (!tenantId) return jsonResponse({ error: 'Tenant could not be resolved' }, 403);
+    const scope = await resolveAgentDataScope(env, authUser, request, {});
+    if (!scope.tenantId) return jsonResponse({ error: 'Tenant could not be resolved' }, 403);
+    if (!scope.workspaceId) return jsonResponse({ todos: [] });
     try {
       const { results } = await env.DB.prepare(
         `SELECT * FROM agentsam_todo
-         WHERE tenant_id = ? AND (status IS NULL OR LOWER(TRIM(status)) != 'done')
+         WHERE tenant_id = ? AND workspace_id = ?
+           AND (status IS NULL OR LOWER(TRIM(status)) != 'done')
          ORDER BY priority ASC`,
       )
-        .bind(tenantId)
+        .bind(scope.tenantId, scope.workspaceId)
         .all();
       return jsonResponse({ todos: results || [] });
     } catch (e) {
@@ -8785,9 +8818,11 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const checkedAt = new Date().toISOString();
     let mcp_tool_errors = [], audit_failures = [], worker_errors = [];
-    try { const q = await env.DB.prepare(`SELECT id, tool_name, status, error_message, session_id, created_at FROM agentsam_mcp_tool_execution WHERE lower(COALESCE(status,'')) IN ('error','failed') OR (error_message IS NOT NULL AND length(trim(error_message)) > 0) ORDER BY created_at DESC LIMIT 50`).all(); mcp_tool_errors = q.results || []; } catch (_) {}
-    try { const q = await env.DB.prepare(`SELECT id, event_type, message, created_at, metadata_json FROM agentsam_hook_execution WHERE lower(COALESCE(event_type,'')) LIKE '%fail%' OR lower(COALESCE(event_type,'')) LIKE '%error%' OR lower(COALESCE(event_type,'')) LIKE '%denied%' ORDER BY created_at DESC LIMIT 25`).all(); audit_failures = q.results || []; } catch (_) {}
-    try { const q = await env.DB.prepare(`SELECT rowid as id, path, method, status_code, error_message, created_at FROM worker_analytics_errors ORDER BY created_at DESC LIMIT 20`).all(); worker_errors = q.results || []; } catch (_) {}
+    if (authUserIsSuperadmin(authUser)) {
+      try { const q = await env.DB.prepare(`SELECT id, tool_name, status, error_message, session_id, created_at FROM agentsam_mcp_tool_execution WHERE lower(COALESCE(status,'')) IN ('error','failed') OR (error_message IS NOT NULL AND length(trim(error_message)) > 0) ORDER BY created_at DESC LIMIT 50`).all(); mcp_tool_errors = q.results || []; } catch (_) {}
+      try { const q = await env.DB.prepare(`SELECT id, event_type, message, created_at, metadata_json FROM agentsam_hook_execution WHERE lower(COALESCE(event_type,'')) LIKE '%fail%' OR lower(COALESCE(event_type,'')) LIKE '%error%' OR lower(COALESCE(event_type,'')) LIKE '%denied%' ORDER BY created_at DESC LIMIT 25`).all(); audit_failures = q.results || []; } catch (_) {}
+      try { const q = await env.DB.prepare(`SELECT rowid as id, path, method, status_code, error_message, created_at FROM worker_analytics_errors ORDER BY created_at DESC LIMIT 20`).all(); worker_errors = q.results || []; } catch (_) {}
+    }
     return jsonResponse({ checked_at: checkedAt, mcp_tool_errors, audit_failures, worker_errors });
   }
 
@@ -8829,13 +8864,14 @@ export async function handleAgentApi(request, url, env, ctx) {
       let convRows = [];
       if (tenantId && userId) {
         try {
+          const canonicalUserId = await resolveCanonicalUserId(userId, env).catch(() => userId);
           const q = await env.DB.prepare(
             `SELECT id, title, message_count, last_message_at AS created_at,
                     total_cost_usd, workspace_id
              FROM agent_conversations
-             WHERE (tenant_id = ? OR user_id = ?) AND COALESCE(is_archived, 0) = 0
+             WHERE user_id = ? AND COALESCE(is_archived, 0) = 0
              ORDER BY last_message_at DESC LIMIT 20`,
-          ).bind(tenantId, userId).all();
+          ).bind(canonicalUserId).all();
           convRows = q.results || [];
         } catch {
           convRows = [];
@@ -9420,10 +9456,17 @@ export async function handleAgentApi(request, url, env, ctx) {
   // ── /api/agent/conversations/search ──────────────────────────────────────
   if (path === '/api/agent/conversations/search' && method === 'GET') {
     if (!env.DB) return jsonResponse([]);
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
     const q = (url.searchParams.get('q') || '').trim();
     if (!q) return jsonResponse([]);
     const like = `%${q.replace(/%/g,'\\%').replace(/_/g,'\\_')}%`;
-    const { results } = await env.DB.prepare(`SELECT id, COALESCE(name,title,'') as title FROM agent_conversations WHERE name LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT 20`).bind(like,like).all().catch(() => ({ results: [] }));
+    const { results } = await env.DB.prepare(
+      `SELECT id, COALESCE(name,title,'') as title FROM agent_conversations
+       WHERE user_id = ? AND (name LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')
+       ORDER BY id DESC LIMIT 20`,
+    ).bind(userId, like, like).all().catch(() => ({ results: [] }));
     return jsonResponse((results||[]).map(r=>({ id: r.id, title: r.title||'New Conversation' })));
   }
 
@@ -9443,6 +9486,16 @@ export async function handleAgentApi(request, url, env, ctx) {
       } catch (_) {}
     }
     if (!env.DB) return jsonResponse([]);
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
+    const conv = await env.DB.prepare(
+      `SELECT id FROM agent_conversations WHERE id = ? AND user_id = ? LIMIT 1`,
+    )
+      .bind(convId, userId)
+      .first()
+      .catch(() => null);
+    if (!conv?.id) return jsonResponse([]);
     const { results } = await env.DB.prepare(
       `SELECT role, content, created_at FROM agent_messages
        WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 200`
@@ -9472,6 +9525,7 @@ export async function handleAgentApi(request, url, env, ctx) {
     if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
     if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
     if (!tenantId) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
+    const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
     if (method === 'POST') {
       const body   = await request.json().catch(() => ({}));
       const id     = crypto.randomUUID();
@@ -9482,9 +9536,27 @@ export async function handleAgentApi(request, url, env, ctx) {
       if (env.R2) await env.R2.put(r2Key, sessCtx, { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
       if (env.SESSION_CACHE) await env.SESSION_CACHE.put(`sess_ctx:${id}`, sessCtx, { expirationTtl: 86400 }).catch(() => {});
       await env.DB.prepare(`INSERT INTO agent_sessions (id, tenant_id, name, session_type, status, state_json, r2_key, started_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(id, tenantId, name, body.session_type||'chat', 'active', '{}', r2Key, now, now).run();
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO agent_conversations (id, user_id, title, name, created_at, updated_at, is_archived)
+         VALUES (?, ?, ?, ?, ?, ?, 0)`,
+      )
+        .bind(id, userId, name, name, now, now)
+        .run()
+        .catch(() => null);
       return jsonResponse({ id, status: 'active' });
     }
-    const { results } = await env.DB.prepare(`SELECT s.id, s.session_type, s.status, s.started_at, COALESCE(s.name,ac.name,ac.title,'New Conversation') as name, (SELECT COUNT(*) FROM agent_messages am WHERE am.conversation_id = s.id) as message_count FROM agent_sessions s LEFT JOIN agent_conversations ac ON ac.id = s.id WHERE s.tenant_id = ? ORDER BY s.updated_at DESC LIMIT 50`).bind(tenantId).all().catch(() => ({ results: [] }));
+    const { results } = await env.DB.prepare(
+      `SELECT s.id, s.session_type, s.status, s.started_at,
+              COALESCE(s.name,ac.name,ac.title,'New Conversation') as name,
+              (SELECT COUNT(*) FROM agent_messages am WHERE am.conversation_id = s.id) as message_count
+       FROM agent_sessions s
+       INNER JOIN agent_conversations ac ON ac.id = s.id AND ac.user_id = ?
+       WHERE s.tenant_id = ?
+       ORDER BY s.updated_at DESC LIMIT 50`,
+    )
+      .bind(userId, tenantId)
+      .all()
+      .catch(() => ({ results: [] }));
     return jsonResponse(results || []);
   }
 

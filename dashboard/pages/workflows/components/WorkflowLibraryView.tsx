@@ -137,7 +137,10 @@ export function WorkflowLibraryView({
           );
         })
       )}
-      {!loading && !filtered.length && (
+      {!loading && !workflows.length && (
+        <div className="wf-empty">No workflows yet</div>
+      )}
+      {!loading && workflows.length > 0 && !filtered.length && (
         <div className="wf-empty">No workflows match your search.</div>
       )}
       <button type="button" className="wf-btn" style={{ marginTop: 10, width: '100%' }} onClick={onRefresh}>

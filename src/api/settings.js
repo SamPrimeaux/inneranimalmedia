@@ -2,6 +2,10 @@
  * API Service: User & Workspace Settings
  * Handles workspace listings, themes, and personal account configurations.
  * Deconstructed from legacy worker.js.
+ *
+ * P0 data isolation audit 2026-05-23 — unscoped SELECT lines (grep -v WHERE user_id|workspace_id|tenant_id):
+ * Full log: artifacts/p0-data-isolation-audit-20260523.txt
+ * user_api_keys / user_secrets: scoped in settings-api-keys.js (WHERE user_id = ?).
  */
 import {
   getAuthUser,

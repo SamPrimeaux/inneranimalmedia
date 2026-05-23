@@ -96,13 +96,14 @@ function stepRowIsFailed(st) {
  * GET /api/analytics/agent/runs
  * Query: range, limit (default 40, max 200), run_id (detail for one run).
  */
-export async function handleAgentAnalyticsRuns(request, url, env, { tenantId, workspaceId }) {
+export async function handleAgentAnalyticsRuns(request, url, env, { tenantId, workspaceId, userId }) {
   void request;
   const range = parseRange(url);
   const warnings = [];
   const db = env?.DB || null;
   const tid = tenantId && String(tenantId).trim() ? String(tenantId).trim() : null;
   const wid = workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null;
+  const uid = userId && String(userId).trim() ? String(userId).trim() : null;
   const runId = (url.searchParams.get('run_id') || '').trim() || null;
   let limit = Number(url.searchParams.get('limit') || 40) || 40;
   if (limit < 1) limit = 1;
@@ -146,6 +147,10 @@ export async function handleAgentAnalyticsRuns(request, url, env, { tenantId, wo
     wfWhere.push('workspace_id = ?');
     wfBinds.push(wid);
   }
+  if (uid) {
+    wfWhere.push('user_id = ?');
+    wfBinds.push(uid);
+  }
   const wfWhereSql = wfWhere.join(' AND ');
 
   if (!runId) {
@@ -186,13 +191,22 @@ export async function handleAgentAnalyticsRuns(request, url, env, { tenantId, wo
     });
   }
 
-  const run = await d1First(
-    db,
-    'run_one',
-    `SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`,
-    [runId],
-    warnings,
-  );
+  const runBinds = [runId];
+  let runSql = `SELECT * FROM agentsam_workflow_runs WHERE id = ?`;
+  if (wid) {
+    runSql += ` AND workspace_id = ?`;
+    runBinds.push(wid);
+  }
+  if (uid) {
+    runSql += ` AND user_id = ?`;
+    runBinds.push(uid);
+  }
+  if (tid) {
+    runSql += ` AND tenant_id = ?`;
+    runBinds.push(tid);
+  }
+  runSql += ` LIMIT 1`;
+  const run = await d1First(db, 'run_one', runSql, runBinds, warnings);
   if (!run) {
     return analyticsResponse({
       ok: true,

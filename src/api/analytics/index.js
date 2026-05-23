@@ -102,7 +102,7 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
   }
 
   if (pathLower === '/api/analytics/agent/runs' && request.method === 'GET') {
-    return handleAgentAnalyticsRuns(request, url, env, { tenantId, workspaceId });
+    return handleAgentAnalyticsRuns(request, url, env, { tenantId, workspaceId, userId: uid });
   }
 
   if (pathLower === '/api/analytics/models/leaderboard' && request.method === 'GET') {

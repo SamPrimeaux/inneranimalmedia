@@ -226,6 +226,7 @@ export const DatabasePage: React.FC = () => {
   const datasource: Datasource = sidebarSource;
   const [tables, setTables] = useState<Record<Datasource, TableMeta[]>>({ d1: [], hyperdrive: [] });
   const [d1Status, setD1Status] = useState<LoadStatus>('idle');
+  const [d1OnboardingRequired, setD1OnboardingRequired] = useState(false);
   const [hyperStatus, setHyperStatus] = useState<LoadStatus>('idle');
   const [tableSearch, setTableSearch] = useState('');
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
@@ -408,6 +409,9 @@ export const DatabasePage: React.FC = () => {
       }
       if (!res.ok) {
         throw new Error((payload as { error?: string }).error || res.statusText);
+      }
+      if (target === 'd1') {
+        setD1OnboardingRequired((payload as { onboarding_required?: boolean }).onboarding_required === true);
       }
       setTables((prev) => ({ ...prev, [target]: normalizeTables(payload) }));
       if (target === 'd1') setD1Status('ok');
@@ -1144,7 +1148,7 @@ export const DatabasePage: React.FC = () => {
   }, [refreshTableRows, selectedTable]);
 
   const onboardingEligible = capLoaded && pageReady && !isSuperadmin;
-  const showD1Setup = onboardingEligible && d1Status === 'error';
+  const showD1Setup = onboardingEligible && (d1OnboardingRequired || d1Status === 'error');
   const showHyperSetup = onboardingEligible && hyperHealthBad;
   const dsNeedsSetup = datasource === 'd1' ? showD1Setup : showHyperSetup;
   const bothDisconnected = showD1Setup && showHyperSetup;
@@ -1158,8 +1162,8 @@ export const DatabasePage: React.FC = () => {
           <div className="flex h-full items-stretch justify-center gap-4 p-8">
             <div className="w-full max-w-md">
               <SetupCard
-                title="Cloudflare D1 not configured"
-                body="Connect D1 storage for this workspace to browse tables and run queries against the edge database."
+                title="No D1 connected"
+                body="Connect your Cloudflare account to use Database Studio — your workspace D1 binding will appear here once linked."
                 to="/dashboard/settings/storage"
               />
             </div>

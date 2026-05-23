@@ -1,8 +1,13 @@
 /**
  * Agent Sam artifact library — D1 agentsam_artifacts + agentsam_artifact_skills + agentsam_skill
+ *
+ * P0 data isolation audit 2026-05-23 — unscoped SELECT lines (grep -v WHERE user_id|workspace_id|tenant_id):
+ * Full log: artifacts/p0-data-isolation-audit-20260523.txt
+ * (agent-artifacts.js: tenant-only scope fixed — all reads require user_id + workspace_id.)
  */
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser, authUserIsSuperadmin, fetchAuthUserTenantId } from '../core/auth.js';
+import { resolveAgentDataScope } from '../core/data-isolation-scope.js';
 
 const ARTIFACT_COLS = `a.id, a.user_id, a.tenant_id, a.workspace_id, a.workspace_slug, a.project_key,
   a.name, a.description, a.artifact_type, a.artifact_status, a.validation_status, a.visibility,
@@ -120,16 +125,19 @@ function mapArtifactRow(row) {
  * @param {any} env
  * @param {unknown} authUser
  */
-async function resolveTenantScope(env, authUser) {
+async function resolveTenantScope(env, authUser, request) {
   const isSa = authUserIsSuperadmin(authUser);
-  let tenantId =
-    authUser?.tenant_id != null && String(authUser.tenant_id).trim()
-      ? String(authUser.tenant_id).trim()
-      : null;
+  const dataScope = await resolveAgentDataScope(env, authUser, request, {});
+  let tenantId = dataScope.tenantId;
   if (!tenantId && authUser?.id) {
     tenantId = await fetchAuthUserTenantId(env, String(authUser.id)).catch(() => null);
   }
-  return { isSa, tenantId };
+  return {
+    isSa,
+    tenantId,
+    userId: dataScope.userId,
+    workspaceId: dataScope.workspaceId,
+  };
 }
 
 /**
@@ -152,13 +160,24 @@ function buildListFilters(url, scope) {
   const where = [];
   const binds = [];
 
-  if (!scope.isSa && !scope.tenantId) {
-    where.push('1 = 0');
-  } else if (!scope.isSa && scope.tenantId) {
+  if (!scope.isSa) {
+    if (!scope.userId || !scope.workspaceId) {
+      where.push('1 = 0');
+    } else {
+      where.push('a.user_id = ?');
+      binds.push(scope.userId);
+      where.push('a.workspace_id = ?');
+      binds.push(scope.workspaceId);
+      if (scope.tenantId) {
+        where.push('a.tenant_id = ?');
+        binds.push(scope.tenantId);
+      }
+    }
+  } else if (scope.tenantId) {
     where.push('a.tenant_id = ?');
     binds.push(scope.tenantId);
   }
-  if (workspace_id) {
+  if (workspace_id && scope.isSa) {
     where.push('a.workspace_id = ?');
     binds.push(workspace_id);
   }
@@ -205,13 +224,24 @@ function buildKpiScope(url, scope) {
   const project_key = (sp.get('project_key') || '').trim();
   const where = [];
   const binds = [];
-  if (!scope.isSa && !scope.tenantId) {
-    where.push('1 = 0');
-  } else if (!scope.isSa && scope.tenantId) {
+  if (!scope.isSa) {
+    if (!scope.userId || !scope.workspaceId) {
+      where.push('1 = 0');
+    } else {
+      where.push('user_id = ?');
+      binds.push(scope.userId);
+      where.push('workspace_id = ?');
+      binds.push(scope.workspaceId);
+      if (scope.tenantId) {
+        where.push('tenant_id = ?');
+        binds.push(scope.tenantId);
+      }
+    }
+  } else if (scope.tenantId) {
     where.push('tenant_id = ?');
     binds.push(scope.tenantId);
   }
-  if (workspace_id) {
+  if (workspace_id && scope.isSa) {
     where.push('workspace_id = ?');
     binds.push(workspace_id);
   }
@@ -234,8 +264,11 @@ async function assertArtifactAccess(env, artifactId, scope) {
     .first();
   if (!row) return { ok: false, status: 404, error: 'Not found' };
   if (!scope.isSa) {
-    if (!scope.tenantId) return { ok: false, status: 403, error: 'Forbidden' };
-    if (String(row.tenant_id) !== scope.tenantId) return { ok: false, status: 403, error: 'Forbidden' };
+    if (!scope.userId || !scope.workspaceId) return { ok: false, status: 403, error: 'Forbidden' };
+    if (String(row.user_id || '') !== String(scope.userId)) return { ok: false, status: 403, error: 'Forbidden' };
+    if (scope.tenantId && String(row.tenant_id || '') !== String(scope.tenantId)) {
+      return { ok: false, status: 403, error: 'Forbidden' };
+    }
   }
   return { ok: true, row };
 }
@@ -261,7 +294,7 @@ export async function handleAgentArtifactsApi(request, url, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
 
-  const scope = await resolveTenantScope(env, authUser);
+  const scope = await resolveTenantScope(env, authUser, request);
 
   try {
     if (pathLower === '/api/agent/artifact-filters' && method === 'GET') {
