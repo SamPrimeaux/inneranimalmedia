@@ -1222,6 +1222,71 @@ export async function executeCommand(env, ctx, o) {
     await registerExecutionDependency(env, chainId, planId, todoId, tenantId).catch(() => {});
   }
 
+  const dispatchRunContext = {
+    tenantId: tidForRun,
+    workspaceId: resolvedWorkspace,
+    userId: canonicalCmdUser ?? userId,
+    sessionId,
+    commandRunId,
+    agentRunId,
+    chainId,
+  };
+
+  let dispatchResult = null;
+  let dispatchError = null;
+  const dispatchStarted = Date.now();
+  try {
+    const { dispatchAgentsamCommand } = await import('../core/agentsam-command-dispatch.js');
+    dispatchResult = await dispatchAgentsamCommand(env, cmd, args, dispatchRunContext);
+  } catch (e) {
+    dispatchError = e?.message ?? String(e);
+    console.warn('[executeCommand] dispatchAgentsamCommand', dispatchError);
+  }
+
+  const dispatchOk = dispatchError == null;
+  const outputText = dispatchOk
+    ? JSON.stringify(dispatchResult ?? { ok: true })
+    : String(dispatchError).slice(0, 8000);
+  const durationMs = Math.max(0, Date.now() - dispatchStarted);
+
+  await env.DB
+    .prepare(
+      `UPDATE agentsam_command_run SET
+        success = ?,
+        exit_code = ?,
+        output_text = ?,
+        duration_ms = ?,
+        error_message = ?
+      WHERE id = ?`,
+    )
+    .bind(
+      dispatchOk ? 1 : 0,
+      dispatchOk ? 0 : 1,
+      outputText.slice(0, 16000),
+      durationMs,
+      dispatchOk ? null : outputText.slice(0, 8000),
+      commandRunId,
+    )
+    .run()
+    .catch((e) => console.warn('[executeCommand] command_run update', e?.message ?? e));
+
+  await env.DB
+    .prepare(
+      `UPDATE agentsam_tool_chain SET
+        tool_status = ?, completed_at = unixepoch(),
+        duration_ms = ?, output_summary = ?, error_message = ?
+      WHERE id = ?`,
+    )
+    .bind(
+      dispatchOk ? 'completed' : 'failed',
+      durationMs,
+      outputText.slice(0, 4000),
+      dispatchOk ? null : outputText.slice(0, 8000),
+      chainId,
+    )
+    .run()
+    .catch(() => {});
+
   ctx.waitUntil(
     env.DB
       .prepare(
@@ -1265,14 +1330,16 @@ export async function executeCommand(env, ctx, o) {
   }
 
   return {
-    ok: true,
-    status: 'running',
+    ok: dispatchOk,
+    status: dispatchOk ? 'completed' : 'failed',
     chain_id: chainId,
     agent_run_id: agentRunId,
     command_run_id: commandRunId,
     model_key: modelKey,
     provider,
     task_type: effectiveTaskType,
+    result: dispatchResult,
+    error: dispatchError,
   };
 }
 

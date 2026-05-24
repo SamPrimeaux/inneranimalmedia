@@ -12,6 +12,7 @@ import {
   flattenWorkflowInput,
 } from './workflow-node-handlers.js';
 import { dispatchComplete } from './provider.js';
+import { resolveModelForTask } from './resolveModel.js';
 import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
@@ -108,13 +109,13 @@ function readWorkflowNodeInputSchemaJson(node) {
 // Called by dispatchNode when a registry row is found for handler_key.
 // Keeps dispatchNode thin — all new behavior lives in registry rows.
 async function executePrimitive(env, executorKind, handlerKey, config, input, node, runContext) {
+  emptyHandlerConfig(config, handlerKey, executorKind);
   switch (executorKind) {
 
     case 'passthrough':
       return { ok: true, result: input };
 
     case 'd1_sql': {
-      emptyHandlerConfig(config, handlerKey, 'd1_sql');
       const sql = String(config.sql || '').trim();
       if (!sql) {
         throw new Error(`Handler "${handlerKey}" d1_sql config missing "sql" field`);
@@ -133,7 +134,6 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
     }
 
     case 'agent_llm': {
-      emptyHandlerConfig(config, handlerKey, 'agent_llm');
       const paramRoot = buildWorkflowParamRoot(input, runContext);
       const taskType =
         config.task_type || runContext?.workflowMeta?.default_task_type || 'code';
@@ -172,7 +172,26 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
 
     case 'mcp_tool': {
       const toolKey = config.tool_key || handlerKey;
-      return dispatchMcpTool(env, { ...node, handler_key: toolKey }, input, runContext);
+      const hkStr = String(toolKey || '').trim();
+      const parts = hkStr.split('.');
+      const splitKey = parts.length > 1 ? parts[parts.length - 1] : hkStr;
+      const underscoreKey = hkStr.replace(/\./g, '_');
+      const toolRow = env.DB
+        ? await env.DB.prepare(
+            `SELECT tool_key, mcp_service_url, handler_type, handler_config
+             FROM agentsam_mcp_tools
+             WHERE (tool_key = ? OR tool_key = ? OR tool_key = ?)
+               AND is_active = 1 AND enabled = 1
+             LIMIT 1`,
+          )
+            .bind(splitKey, underscoreKey, hkStr)
+            .first()
+            .catch(() => null)
+        : null;
+      if (!toolRow) {
+        return { ok: false, error: `mcp_tool not found in agentsam_mcp_tools: ${handlerKey}` };
+      }
+      return executeWorkflowMcpTool(env, toolRow, input, runContext, hkStr);
     }
 
     case 'builtin_tool': {
@@ -314,10 +333,13 @@ function buildWorkflowParamRoot(input, runContext) {
 }
 
 function emptyHandlerConfig(config, handlerKey, executorKind) {
-  if (config && typeof config === 'object' && Object.keys(config).length > 0) return false;
-  throw new Error(
-    `Handler "${handlerKey}" has empty handler_config_json for executor_kind=${executorKind} — add config in agentsam_workflow_handlers`,
-  );
+  const passthrough = ['passthrough', 'approval'];
+  if (passthrough.includes(executorKind)) return;
+  if (!config || typeof config !== 'object' || Object.keys(config).length === 0) {
+    throw new Error(
+      `[workflow-executor] empty handler_config_json for executor_kind=${executorKind} handler_key=${handlerKey} — add config in agentsam_workflow_handlers`,
+    );
+  }
 }
 
 // ── resolveEntryNode ──────────────────────────────────────────────────────────
@@ -384,8 +406,6 @@ async function dispatchNode(env, node, input, runContext) {
     case 'agent': {
       if (smoke) return { ok: true, output: { smoke: true, skipped: true, note: 'agent smoke short-circuit' } };
       try {
-        const { dispatchComplete } = await import('./provider.js');
-
         // Derive task_type: prefer agentsam_workflows.default_task_type, then handler_key, then fallback
         const hkParts = String(handlerKey || '').split('.');
         const taskType =
@@ -397,41 +417,55 @@ async function dispatchNode(env, node, input, runContext) {
           runContext?.workflowMeta?.default_mode
           || (String(runContext?.workflowKey || '').includes('build') ? 'build' : 'agent');
 
-        // TIER_ORDER-based model selection: nano baseline, escalate by task complexity
-        // gpt-5.4-nano: default workhorse (SQL, structured output, extraction, classification)
-        // gpt-5.4-mini: code, multi-tool, CMS, terminal planning
-        // gpt-5.4:      orchestration, final judge, approval summaries
-        // Ollama:        local pin tests only (smoke=true paths)
-        const TASK_TIER_MAP = {
-          intent_classification: 'micro', rag_query: 'micro', summary: 'micro',
-          skill_invocation: 'micro',      cms_theme_generation: 'micro',
-          chat: 'standard',   code: 'standard',     cms_edit: 'standard',
-          sql_d1_generation: 'standard',  terminal_execution: 'standard',
-          plan: 'power', subagent_dispatch: 'power',
-          workflow_orchestration: 'power', debug: 'power',
-        };
-        const desiredTierIdx = TIER_ORDER.indexOf(TASK_TIER_MAP[taskType] ?? 'standard');
-        const resolvedCatalogKey = await (async () => {
-          // Walk up tiers starting from desired until we find an active model
-          for (const tier of TIER_ORDER.slice(desiredTierIdx >= 0 ? desiredTierIdx : 2)) {
-            const row = await env.DB?.prepare(
-              `SELECT model_key FROM agentsam_model_catalog
-               WHERE tier = ? AND is_active = 1 AND supports_tools = 1
-                 AND provider IN (SELECT DISTINCT provider FROM agentsam_model_catalog WHERE is_active = 1)
-               ORDER BY cost_per_1k_in ASC LIMIT 1`
-            ).bind(tier).first().catch(() => null);
-            if (row?.model_key) return row.model_key;
+        const wsId =
+          runContext?.runMeta?.workspaceId != null
+            ? String(runContext.runMeta.workspaceId).trim()
+            : '';
+        let resolvedCatalogKey = config.model_key || null;
+        if (!resolvedCatalogKey && env?.DB && wsId) {
+          try {
+            const resolved = await resolveModelForTask(env, {
+              task_type: String(taskType).trim(),
+              mode: String(mode).trim() || 'agent',
+              workspace_id: wsId,
+              tenant_id:
+                runContext?.runMeta?.tenantId != null
+                  ? String(runContext.runMeta.tenantId).trim()
+                  : undefined,
+            });
+            resolvedCatalogKey = resolved?.model_key ?? null;
+          } catch (resolveErr) {
+            console.warn('[workflow] resolveModelForTask', resolveErr?.message ?? resolveErr);
           }
-          return 'gpt-5.4-nano'; // hard baseline — always available
-        })();
+        }
+        if (!resolvedCatalogKey && env?.DB && wsId) {
+          const arm = await env.DB.prepare(
+            `SELECT model_key FROM agentsam_routing_arms
+             WHERE workspace_id = ? AND task_type = ? AND is_active = 1 AND is_eligible = 1
+               AND COALESCE(is_paused, 0) = 0 AND COALESCE(budget_exhausted, 0) = 0
+             ORDER BY (success_alpha * 1.0 / (success_alpha + success_beta)) DESC
+             LIMIT 1`,
+          )
+            .bind(wsId, String(taskType).trim())
+            .first()
+            .catch(() => null);
+          resolvedCatalogKey = arm?.model_key ?? null;
+        }
 
         const userMsg = typeof input === 'string'
           ? input
           : input?.prompt || input?.message || input?.instruction || input?.result
           || JSON.stringify(input);
 
+        if (!resolvedCatalogKey) {
+          return {
+            ok: false,
+            error: `agent node: no model resolved for task_type=${taskType} workspace=${wsId || '(missing)'}`,
+          };
+        }
+
         const result = await dispatchComplete(env, {
-          modelKey: resolvedCatalogKey,   // TIER_ORDER resolved: nano→mini→5.4 by task complexity
+          modelKey: resolvedCatalogKey,
           taskType,
           mode,
           systemPrompt: 'You are Agent Sam, an autonomous AI developer for Inner Animal Media. Complete the task and return concise structured output.',
@@ -485,7 +519,7 @@ async function dispatchNode(env, node, input, runContext) {
         return { ok: false, error: `mcp_tool not found in agentsam_mcp_tools: ${handlerKey}` };
       }
 
-      return executeWorkflowMcpTool(env, toolRow, input, runContext, hk);
+      return executeWorkflowMcpTool(env, toolRow, input, runContext, hkStr);
     }
 
     case 'terminal': {
@@ -1054,7 +1088,8 @@ export async function executeWorkflowGraph(env, opts) {
   const runWorkflowId = mcpRow?.id ?? dagWorkflowId ?? workflow.id;
 
   const runId = `wrun_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const firstKey = nodes[0]?.node_key || '';
+  const entryNode = resolveEntryNode(workflow, nodes, edges);
+  const firstKey = entryNode?.node_key || nodes[0]?.node_key || '';
   await env.DB.prepare(
     `INSERT INTO agentsam_workflow_runs (
       id, workflow_id, workflow_key, tenant_id, workspace_id,

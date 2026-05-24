@@ -102,7 +102,6 @@ import {
 import { getCapabilityTools } from '../core/capability-tools.js';
 import { loadAvailableToolsForCapability } from '../core/tool-registry.js';
 import {
-  resolveRoutingArm,
   resolveRoutingArmByModelKey,
   validateModelAgainstRouteRequirements,
   scheduleRoutingArmBanditUpdate,
@@ -150,6 +149,45 @@ import {
 } from '../core/capability-router.js';
 import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
+
+/**
+ * Map resolveModelForTask() → legacy routing pick shape used by chat chain assembly.
+ * @param {any} env
+ * @param {{ taskType: string, mode?: string, workspaceId: string, tenantId?: string|null, toolRequired?: boolean }} opts
+ */
+async function routingPickFromResolveModelForTask(env, {
+  taskType,
+  mode,
+  workspaceId,
+  tenantId,
+  toolRequired,
+}) {
+  if (!env?.DB || !taskType || !workspaceId) return null;
+  try {
+    const resolved = await resolveModelForTask(env, {
+      task_type: String(taskType).trim(),
+      mode: mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent',
+      workspace_id: String(workspaceId).trim(),
+      tenant_id: tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : undefined,
+      require_tools: !!toolRequired,
+    });
+    const aiRow = await resolveAgentsamAiRowByModelKey(env, tenantId, resolved.model_key);
+    const modelIdRaw = aiRow?.id != null ? String(aiRow.id).trim() : '';
+    if (!modelIdRaw) return null;
+    return {
+      source: resolved.resolution_source === 'thompson' ? 'thompson' : resolved.resolution_source,
+      modelId: modelIdRaw,
+      modelKey: resolved.model_key,
+      provider: resolved.provider ?? aiRow?.provider ?? null,
+      armId: resolved.routing_arm_id != null ? String(resolved.routing_arm_id).trim() : '',
+      taskType: String(taskType).trim(),
+      fallbackModelKey: null,
+    };
+  } catch (e) {
+    console.warn('[agent] routingPickFromResolveModelForTask', e?.message ?? e);
+    return null;
+  }
+}
 
 /** USD from agentsam_model_pricing (via estimateModelRunCostUsd pricing spine). */
 async function fetchModelCostUsd(env, modelKey, inputTokens, outputTokens, cacheReadTokens = 0) {
@@ -4814,16 +4852,6 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
  * Expect: surface_open + agent_surface_open (browser), browser_navigate with URL; no a11y_get_summary.
  */
 
-/** Logged-only fallback when metadata_json.surface_routes has no match (avoid silent wrong routing). */
-const SURFACE_WORKFLOW_FALLBACKS = {
-  browser: 'agent_browser_inspection_to_patch',
-  inspector: 'i-am-inspector-playwright',
-  monaco: 'i-am-builder-monaco',
-  excalidraw: 'i-am-architect-excalidraw',
-  cms: 'cms_live_editor_dev_app',
-  '/dashboard/agent': 'cms_live_editor_dev_app',
-};
-
 /**
  * @param {Record<string, unknown>} meta
  * @param {string} surf
@@ -4877,27 +4905,7 @@ async function resolveWorkflowFromSurfaceMetadata(env, surface, intent = null) {
   } catch (e) {
     console.warn('[agent] resolveWorkflowFromSurfaceMetadata', e?.message ?? e);
   }
-  console.warn(`ROUTING_METADATA_MISS surface=${surf} intent=${intent ?? ''}`);
-  return SURFACE_WORKFLOW_FALLBACKS[surf] ?? null;
-}
-
-/** First active workflow_key among candidates (D1 agentsam_workflows). */
-async function firstActiveWorkflowKeyAmong(env, keys) {
-  if (!env?.DB || !Array.isArray(keys)) return null;
-  for (const wfKey of keys) {
-    const k = String(wfKey || '').trim();
-    if (!k) continue;
-    try {
-      const wf = await env.DB.prepare(
-        `SELECT workflow_key FROM agentsam_workflows WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
-      )
-        .bind(k)
-        .first();
-      if (wf?.workflow_key) return String(wf.workflow_key);
-    } catch {
-      /* try next */
-    }
-  }
+  console.warn(`[agent] no workflow for surface=${surf} intent=${intent ?? ''}`);
   return null;
 }
 
@@ -5038,11 +5046,6 @@ async function resolveBrowserWorkflowKeyFromDb(env) {
       /* fall through */
     }
   }
-  const seeded = await firstActiveWorkflowKeyAmong(env, [
-    'agent_browser_inspection_to_patch',
-    'i-am-inspector-playwright',
-  ]);
-  if (seeded) return seeded;
   if (!env?.DB) return null;
   try {
     const row = await env.DB.prepare(
@@ -5116,7 +5119,9 @@ async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedM
   const tagged = resolveSurfaceWorkflowForMessage(message, requestedMode);
   if (!tagged) return null;
   if (tagged.route === 'monaco') {
-    return { kind: 'execute', workflowKey: 'i-am-builder-monaco', reason: tagged.reason };
+    const key = await resolveWorkflowFromSurfaceMetadata(env, 'monaco', '*');
+    if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
+    return { kind: 'missing_workflow', surface: 'monaco', reason: tagged.reason };
   }
   if (tagged.route === 'browser') {
     const key = await resolveBrowserWorkflowKeyFromDb(env);
@@ -5124,9 +5129,7 @@ async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedM
     return { kind: 'missing_workflow', surface: 'browser', reason: tagged.reason };
   }
   if (tagged.route === 'excalidraw') {
-    const key =
-      (await resolveWorkflowFromSurfaceMetadata(env, 'excalidraw', '*')) ||
-      (await firstActiveWorkflowKeyAmong(env, ['i-am-architect-excalidraw']));
+    const key = await resolveWorkflowFromSurfaceMetadata(env, 'excalidraw', '*');
     if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
     return { kind: 'missing_workflow', surface: 'excalidraw', reason: tagged.reason };
   }
@@ -5333,7 +5336,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     toolRoutingError: panelToolRoutingError,
   } = await loadToolsForRequest(env, requestedMode, 'question', {
     limit: effectiveMaxTools,
-    includeSchemas: true,
+    includeSchemas: false,
     userId,
     workspaceId,
     tenantId,
@@ -6403,6 +6406,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       effectiveMaxTools = Math.min(effectiveMaxTools, prMax);
     }
   }
+  const routeMaxTools =
+    promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
+      ? Number(promptRouteRow.max_tools)
+      : 8;
+  if (Number.isFinite(routeMaxTools) && routeMaxTools > 0) {
+    effectiveMaxTools = Math.min(effectiveMaxTools, routeMaxTools, 12);
+  } else if (routeMaxTools === 0) {
+    effectiveMaxTools = 0;
+  } else {
+    effectiveMaxTools = Math.min(effectiveMaxTools, 8, 12);
+  }
   const skipRagFromRoute = Number(promptRouteRow?.include_rag) === 0;
 
   const personUuid =
@@ -6431,7 +6445,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     toolRoutingError: toolRoutingErrorFromLoad,
   } = await loadToolsForRequest(env, requestedMode, intentSlug, {
     limit: effectiveMaxTools,
-    includeSchemas: true,
+    includeSchemas: false,
     userId,
     workspaceId,
     tenantId,
@@ -6784,17 +6798,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
 
   const routingPick = !explicitRow
-    ? await resolveRoutingArm(env, {
+    ? await routingPickFromResolveModelForTask(env, {
         taskType: resolvedRoutingTaskType,
-        intentSlug,
         mode: requestedMode,
         workspaceId: workspaceId || '',
-        routeKey: routeKeyForRun,
-        userId,
         tenantId,
         toolRequired: requireTools,
-        agentSlug: subagentProfileRow?.id ?? null,
-        subagentProfile: subagentProfileRow,
       })
     : null;
   const thompsonRow =
@@ -6858,20 +6867,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   chainRows = await filterWorkspaceModelTierPool(env, workspaceId, chainRows);
 
   if (isAnthropicSmoketestQuickstartBatch(quickstartBatch)) {
-    // DB-driven: Thompson arms decide which model to prefer — no hardcoded model strings.
-    // resolveRoutingArm queries agentsam_routing_arms with Beta(alpha,beta) scoring.
+    // DB-driven: resolveModelForTask / Thompson arms decide which model to prefer.
     const armPick = isAutoModel
-      ? await resolveRoutingArm(env, {
+      ? await routingPickFromResolveModelForTask(env, {
           taskType: resolvedRoutingTaskType,
-          intentSlug,
           mode: requestedMode,
           workspaceId: String(workspaceId || '').trim(),
-          routeKey: routeKeyForRun,
-          userId,
           tenantId,
           toolRequired: requireTools,
-          agentSlug: subagentProfileRow?.id ?? null,
-          subagentProfile: subagentProfileRow,
         })
       : null;
 
@@ -6972,17 +6975,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
 
   if (!routingArmIdForRun && isAnthropicSmoketestQuickstartBatch(quickstartBatch) && workspaceId) {
-    const forcedPick = await resolveRoutingArm(env, {
+    const forcedPick = await routingPickFromResolveModelForTask(env, {
       taskType: resolvedRoutingTaskType,
-      intentSlug,
       mode: requestedMode,
       workspaceId: String(workspaceId).trim(),
-      routeKey: routeKeyForRun,
-      userId,
       tenantId,
       toolRequired: requireTools,
-      agentSlug: subagentProfileRow?.id ?? null,
-      subagentProfile: subagentProfileRow,
     });
     if (forcedPick?.armId) routingArmIdForRun = String(forcedPick.armId).trim();
   }
@@ -7494,25 +7492,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         } else if (explicitModelFromRequest) {
           break;
         } else {
-          const nextPick = await resolveRoutingArm(env, {
-            taskType: resolvedRoutingTaskType,
-            intentSlug,
-            mode: requestedMode,
-            workspaceId: workspaceId || '',
-            routeKey: routeKeyForRun,
-            userId,
-            tenantId,
-            toolRequired: requireTools,
-            excludeModelKeys: tried,
-            agentSlug: subagentProfileRow?.id ?? null,
-            subagentProfile: subagentProfileRow,
-          });
-          if (!nextPick?.modelKey) break;
-          row = await resolveAgentsamAiRowByModelKey(env, tenantId, nextPick.modelKey);
-          if (row) {
-            const tiered = await filterWorkspaceModelTierPool(env, workspaceId, [row]);
-            row = tiered[0] ?? null;
-          }
+          row =
+            chainRows.find((r) => {
+              const mk = r?.model_key != null ? String(r.model_key).trim() : '';
+              return mk && !tried.includes(mk);
+            }) ?? null;
         }
         const modelKey = row?.model_key;
         if (!modelKey) break;
