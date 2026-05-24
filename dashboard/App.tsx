@@ -2168,7 +2168,13 @@ const App: React.FC = () => {
   );
 
   const handleBrowserNavigateFromAgent = useCallback(
-    (event: { type: 'browser_navigate'; url: string }) => {
+    (event: {
+      type: 'browser_navigate';
+      url: string;
+      screenshot_url?: string;
+      page_text?: string;
+      title?: string;
+    }) => {
       if (event.type !== 'browser_navigate' || !event.url?.trim()) return;
       const url = sanitizeBrowserNavigateUrl(event.url);
       if (!url) return;
@@ -2182,7 +2188,12 @@ const App: React.FC = () => {
       );
       window.dispatchEvent(
         new CustomEvent('iam-browser-navigate', {
-          detail: { url },
+          detail: {
+            url,
+            screenshot_url: event.screenshot_url,
+            page_text: event.page_text,
+            title: event.title,
+          },
         }),
       );
       revealMainWorkspaceIfNarrow();

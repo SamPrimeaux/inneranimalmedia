@@ -7,8 +7,8 @@
  * Features:
  *  - Permission gate (Deny / Allow Once / Always Allow) via agentsam_browser_trusted_origin
  *  - Agent active glow when CDT tools are running
- *  - IAM logo fallback for blocked/unreachable pages
- *  - CSS Inspector (Components panel) — same-origin iframe injection
+ *  - MYBROWSER (Playwright) preview: screenshot + page text for any URL (no iframe embed)
+ *  - CSS Inspector (Components panel) — snapshot / same-origin when available
  *  - DevTools panel — console + network via cdt_* tools
  *  - Element picker — hover/highlight/select, populates chat
  *  - Area screenshot drag-select
@@ -199,20 +199,43 @@ async function writeTrust(origin: string, scope: TrustScope): Promise<void> {
   } catch { /* non-blocking */ }
 }
 
-// ─── MCP tool invoke ─────────────────────────────────────────────────────────
+// ─── MYBROWSER tool invoke (session cookie → /api/browser/invoke) ───────────
 
-async function invokeCdt(tool_name: string, params: Record<string, unknown>) {
-  const r = await fetch('/api/mcp/invoke', {
+type BrowserInvokeResult = Record<string, unknown> & {
+  error?: string;
+  ok?: boolean;
+  url?: string;
+  screenshot_url?: string;
+  page_text?: string;
+  text?: string;
+  title?: string;
+};
+
+async function invokeCdt(tool_name: string, params: Record<string, unknown>): Promise<BrowserInvokeResult> {
+  const r = await fetch('/api/browser/invoke', {
     method:      'POST',
     headers:     { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
     body:        JSON.stringify({ tool_name, params }),
   });
-  const data = await r.json().catch(() => ({}));
-  if (data && typeof data === 'object' && 'result' in data && (data as { result: unknown }).result != null) {
-    return (data as { result: Record<string, unknown> }).result;
+  const data = (await r.json().catch(() => ({}))) as BrowserInvokeResult;
+  if (!r.ok) {
+    const err = data?.error || r.statusText;
+    return { error: err };
   }
   return data;
+}
+
+function pickNavigatePreview(data: BrowserInvokeResult) {
+  const screenshot_url =
+    (typeof data.screenshot_url === 'string' && data.screenshot_url) ||
+    (typeof data.result_url === 'string' && data.result_url) ||
+    '';
+  const page_text =
+    (typeof data.page_text === 'string' && data.page_text) ||
+    (typeof data.text === 'string' && data.text) ||
+    '';
+  return { screenshot_url: screenshot_url || null, page_text: page_text || null };
 }
 
 // ─── Shared button ────────────────────────────────────────────────────────────
@@ -828,8 +851,15 @@ const PICKER_SCRIPT = `
 
 // ─── Single Pane ──────────────────────────────────────────────────────────────
 
+type BrowserPreviewPayload = {
+  screenshot_url: string;
+  page_text?: string | null;
+  title?: string | null;
+};
+
 interface PaneProps {
   initialUrl?:     string;
+  initialPreview?: BrowserPreviewPayload | null;
   addressDisplay?: string | null;
   label?:          'A' | 'B';
   onClose?:        () => void;
@@ -843,6 +873,7 @@ interface PaneProps {
 
 const BrowserPane: React.FC<PaneProps> = ({
   initialUrl,
+  initialPreview,
   addressDisplay,
   label,
   onClose,
@@ -852,16 +883,16 @@ const BrowserPane: React.FC<PaneProps> = ({
   agentActive = false,
   agentRunId = null,
 }) => {
-  const [iframeUrl,      setIframeUrl]      = useState(() => normalize(initialUrl || DEFAULT_URL));
   const [currentUrl,     setCurrentUrl]     = useState(() => normalize(initialUrl || DEFAULT_URL));
   const [inputVal,       setInputVal]       = useState(() => normalize(initialUrl || DEFAULT_URL));
   const [loading,        setLoading]        = useState(false);
-  const [iframeBlocked,  setIframeBlocked]  = useState(false);
+  const [navigateError,  setNavigateError]  = useState<string | null>(null);
+  const [pageText,       setPageText]       = useState<string | null>(initialPreview?.page_text ?? null);
   const [mode,           setMode]           = useState<PaneMode>('browse');
   const [menuOpen,       setMenuOpen]       = useState(false);
   const [copied,         setCopied]         = useState(false);
   const [zoom,           setZoom]           = useState(100);
-  const [screenshotUrl,  setScreenshotUrl]  = useState<string | null>(null);
+  const [screenshotUrl,  setScreenshotUrl]  = useState<string | null>(initialPreview?.screenshot_url ?? null);
   const [screenshotErr,  setScreenshotErr]  = useState<string | null>(null);
   const [screenshotLoad, setScreenshotLoad] = useState(false);
   const [inspectedEl,    setInspectedEl]    = useState<InspectedElement | null>(null);
@@ -881,7 +912,6 @@ const BrowserPane: React.FC<PaneProps> = ({
     registryPickersRef.current = registryPickers;
   }, [registryPickers]);
   const menuRef      = useRef<HTMLDivElement>(null);
-  const iframeRef    = useRef<HTMLIFrameElement>(null);
   const areaOverRef  = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentUrlRef = useRef(currentUrl);
@@ -928,46 +958,32 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, []);
 
   const injectPickerScript = useCallback(() => {
-    let injected = false;
-    try {
-      const doc = iframeRef.current?.contentDocument;
-      if (doc?.head) {
-        const s = doc.createElement('script');
-        s.textContent = PICKER_SCRIPT;
-        doc.head.appendChild(s);
-        injected = true;
-      }
-    } catch { /* cross-origin */ }
-
-    if (!injected) {
-      const urlNow = currentUrlRef.current;
-      const evalTool = registryPickersRef.current.evaluate;
-      if (evalTool && urlNow?.trim()) {
-        void invokeCdt(evalTool, {
-          url: urlNow,
-          expression: `(${PICKER_SCRIPT})()`,
-          user_id: undefined,
-          workspace_id:
-            typeof window !== 'undefined'
-              ? (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__
-              : undefined,
-        }).catch(() => {
-          setToastMsg('Cross-origin picker: use DevTools Elements (CDT snapshot) or trust origin for server browser tools.');
-        });
-      } else {
-        setToastMsg('Cross-origin picker needs cdt_evaluate_script in agentsam_tools for this workspace.');
-      }
+    const urlNow = currentUrlRef.current;
+    const evalTool = registryPickersRef.current.evaluate;
+    if (evalTool && urlNow?.trim()) {
+      void invokeCdt(evalTool, {
+        url: urlNow,
+        expression: `(${PICKER_SCRIPT})()`,
+        workspace_id:
+          typeof window !== 'undefined'
+            ? (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__
+            : undefined,
+      }).catch(() => {
+        setToastMsg('Picker uses MYBROWSER — open DevTools Elements for CDT snapshot if injection fails.');
+      });
+    } else {
+      setToastMsg('Picker needs cdt_evaluate_script in agentsam_tools for this workspace.');
     }
   }, []);
 
   const teardownPickerScript = useCallback(() => {
-    try {
-      const doc = iframeRef.current?.contentDocument;
-      if (!doc) return;
-      const s = doc.createElement('script');
-      s.textContent = PICKER_CLEANUP_SCRIPT;
-      doc.head?.appendChild(s);
-    } catch { /* cross-origin */ }
+    const urlNow = currentUrlRef.current;
+    const evalTool = registryPickersRef.current.evaluate;
+    if (!evalTool || !urlNow?.trim()) return;
+    void invokeCdt(evalTool, {
+      url: urlNow,
+      expression: `(${PICKER_CLEANUP_SCRIPT})()`,
+    }).catch(() => { /* non-fatal */ });
   }, []);
 
   function startResize(e: React.MouseEvent) {
@@ -989,20 +1005,6 @@ const BrowserPane: React.FC<PaneProps> = ({
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
-
-  // ── Sync parent URL prop ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!initialUrl?.trim()) return;
-    const n = normalize(initialUrl);
-    setIframeUrl(n);
-    setCurrentUrl(n);
-    setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
-    setMode('browse');
-    setScreenshotUrl(null);
-    setScreenshotErr(null);
-    setInspectedEl(null);
-    setIframeBlocked(false);
-  }, [initialUrl, addressDisplay]);
 
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
 
@@ -1170,42 +1172,89 @@ const BrowserPane: React.FC<PaneProps> = ({
       return () => teardownPickerScript();
     }
     teardownPickerScript();
-  }, [mode, iframeUrl, injectPickerScript, teardownPickerScript]);
+  }, [mode, currentUrl, injectPickerScript, teardownPickerScript]);
 
   // ── Trust gate ──────────────────────────────────────────────────────────────
   const requestTrust = useCallback((url: string): Promise<TrustScope | null> =>
     new Promise(resolve => setTrustRequest({ url, resolve })),
   []);
 
-  const navigate = useCallback(async (raw: string) => {
-    const s = raw.trim();
-    if (!s || isVirtual(s)) return;
-    const n      = normalize(s);
-    const origin = originOf(n);
+  const loadChromiumPreview = useCallback(
+    async (targetUrl: string, preview?: BrowserPreviewPayload | null) => {
+      const n = normalize(targetUrl);
+      setCurrentUrl(n);
+      setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
+      setMode('browse');
+      setNavigateError(null);
+      setInspectedEl(null);
 
-    // Check trust
-    if (!sessionTrusted.has(origin)) {
-      const trusted = await checkTrust(origin);
-      if (!trusted) {
-        const scope = await requestTrust(n);
-        if (!scope) return; // denied
-        if (scope === 'persistent') await writeTrust(origin, 'persistent');
-        setSessionTrusted(prev => new Set([...prev, origin]));
-      } else {
-        setSessionTrusted(prev => new Set([...prev, origin]));
+      if (preview?.screenshot_url) {
+        setScreenshotUrl(preview.screenshot_url);
+        setPageText(preview.page_text ?? null);
+        setLoading(false);
+        return;
       }
-    }
 
-    setIframeUrl(n);
-    setCurrentUrl(n);
-    setInputVal(n);
-    setLoading(true);
-    setMode('browse');
-    setScreenshotUrl(null);
-    setScreenshotErr(null);
-    setInspectedEl(null);
-    setIframeBlocked(false);
-  }, [sessionTrusted, requestTrust]);
+      setLoading(true);
+      setScreenshotUrl(null);
+      setPageText(null);
+      const navTool = registryPickersRef.current.navigate || 'browser_navigate';
+      try {
+        const data = await invokeCdt(navTool, {
+          url: n,
+          ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
+        });
+        if (data.error) {
+          setNavigateError(String(data.error));
+          return;
+        }
+        const { screenshot_url, page_text } = pickNavigatePreview(data);
+        if (typeof data.url === 'string' && data.url.trim()) {
+          setCurrentUrl(data.url.trim());
+          setInputVal(data.url.trim());
+        }
+        if (screenshot_url) setScreenshotUrl(screenshot_url);
+        else setNavigateError('Page loaded but no screenshot_url was returned');
+        setPageText(page_text);
+      } catch (e) {
+        setNavigateError(String(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [addressDisplay, agentRunId],
+  );
+
+  const navigate = useCallback(
+    async (raw: string, preview?: BrowserPreviewPayload | null) => {
+      const s = raw.trim();
+      if (!s || isVirtual(s)) return;
+      const n = normalize(s);
+      const origin = originOf(n);
+
+      if (!sessionTrusted.has(origin)) {
+        const trusted = await checkTrust(origin);
+        if (!trusted) {
+          const scope = await requestTrust(n);
+          if (!scope) return;
+          if (scope === 'persistent') await writeTrust(origin, 'persistent');
+          setSessionTrusted((prev) => new Set([...prev, origin]));
+        } else {
+          setSessionTrusted((prev) => new Set([...prev, origin]));
+        }
+      }
+
+      await loadChromiumPreview(n, preview);
+    },
+    [sessionTrusted, requestTrust, loadChromiumPreview],
+  );
+
+  // ── Sync parent URL prop → MYBROWSER preview ───────────────────────────────
+  useEffect(() => {
+    if (!initialUrl?.trim()) return;
+    void navigate(normalize(initialUrl), initialPreview ?? undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUrl, initialPreview, addressDisplay]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
@@ -1216,14 +1265,17 @@ const BrowserPane: React.FC<PaneProps> = ({
     const ac = new AbortController();
     const to = window.setTimeout(() => ac.abort(), 30000);
     try {
-      const endpoint = clip ? '/api/mcp/invoke' : '/api/playwright/screenshot';
-      const body     = clip
-        ? { tool_name: 'cdt_take_screenshot', params: { url: currentUrl, clip } }
-        : {
-            url: currentUrl,
-            ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
-          };
-      const res  = await fetch(endpoint, {
+      const shotTool = registryPickersRef.current.screenshot || 'cdt_take_screenshot';
+      const body = {
+        tool_name: shotTool,
+        params: {
+          url: currentUrl,
+          fullPage: !clip,
+          ...(clip ? { clip } : {}),
+          ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
+        },
+      };
+      const res = await fetch('/api/browser/invoke', {
         method:      'POST',
         headers:     { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -1267,12 +1319,9 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   // ── Hard reload ─────────────────────────────────────────────────────────────
   const hardReload = useCallback(() => {
-    const current = iframeUrl;
-    setIframeUrl('about:blank');
-    setIframeBlocked(false);
-    requestAnimationFrame(() => setTimeout(() => setIframeUrl(current), 50));
+    void loadChromiumPreview(currentUrl);
     setMenuOpen(false);
-  }, [iframeUrl]);
+  }, [currentUrl, loadChromiumPreview]);
 
   // ── Clear helpers ───────────────────────────────────────────────────────────
   const clearBrowserData = useCallback((what: 'history' | 'cookies' | 'cache') => {
@@ -1281,30 +1330,12 @@ const BrowserPane: React.FC<PaneProps> = ({
       hardReload();
       return;
     }
-    if (what === 'cookies') {
-      const script =
-        'document.cookie.split(";").forEach(c=>{document.cookie=c.replace(/^ +/,"").replace(/=.*/,"=;expires="+new Date(0).toUTCString()+";path=/");});';
-      try {
-        const doc = iframeRef.current?.contentDocument;
-        if (doc) {
-          const s = doc.createElement('script');
-          s.textContent = script;
-          doc.documentElement.appendChild(s);
-        } else {
-          iframeRef.current?.contentWindow?.postMessage({ type: 'iam-exec', script }, '*');
-        }
-      } catch { /* ignore */ }
+    if (what === 'cookies' || what === 'cache') {
+      setToastMsg('Reloading via MYBROWSER (server session is not persisted)…');
+      window.setTimeout(() => setToastMsg(null), 2800);
       hardReload();
       return;
     }
-    setToastMsg('Reloading to clear cached assets…');
-    window.setTimeout(() => setToastMsg(null), 2800);
-    try {
-      iframeRef.current?.contentWindow?.postMessage({ type: 'iam-exec', script: 'location.reload(true);' }, '*');
-    } catch { /* ignore */ }
-    try {
-      iframeRef.current?.contentWindow?.location.reload();
-    } catch { /* ignore */ }
   }, [hardReload]);
 
   // ── Copy URL ────────────────────────────────────────────────────────────────
@@ -1532,36 +1563,59 @@ const BrowserPane: React.FC<PaneProps> = ({
               onMouseMove={mode === 'area' ? moveArea : undefined}
               onMouseUp={mode === 'area' ? endArea : undefined}
             >
-              <div className="flex flex-1 min-h-0 relative flex-col">
-                <iframe
-                  ref={iframeRef}
-                  key={iframeUrl}
-                  src={iframeUrl}
-                  title="Embedded browser"
-                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals"
-                  style={{ zoom: zoom !== 100 ? zoom / 100 : undefined }}
-                  className={`w-full flex-1 min-h-0 border-0 bg-white transition-opacity duration-150 ${
-                    (mode === 'browse' || mode === 'picker' || mode === 'area') && !iframeBlocked
-                      ? 'opacity-100'
-                      : 'opacity-0 pointer-events-none'
-                  }`}
-                  onLoad={() => {
-                    setLoading(false);
-                    try {
-                      const u = iframeRef.current?.contentWindow?.location?.href;
-                      if (u && u !== 'about:blank') {
-                        setCurrentUrl(u);
-                        setInputVal(u);
-                      }
-                    } catch { /* cross-origin */ }
-                    if (mode === 'picker') injectPickerScript();
-                  }}
-                  onError={() => { setLoading(false); setIframeBlocked(true); }}
-                />
-
-                {iframeBlocked && mode === 'browse' && (
-                  <div className="absolute top-0 left-0 right-0 bottom-0 z-10 flex flex-col min-h-0 bg-[var(--bg-app)]">
-                    <BlockedPage url={currentUrl} onScreenshot={runScreenshot} />
+              <div className="flex flex-1 min-h-0 relative flex-col overflow-hidden">
+                {(mode === 'browse' || mode === 'picker' || mode === 'area') && (
+                  <div
+                    className="flex flex-1 flex-col min-h-0 overflow-auto bg-[var(--bg-app)]"
+                    style={{ zoom: zoom !== 100 ? zoom / 100 : undefined }}
+                  >
+                    {loading && (
+                      <div className="flex flex-col items-center justify-center flex-1 gap-3 p-8">
+                        <Loader2 size={20} className="animate-spin text-[var(--color-primary)]" />
+                        <p className="text-[11px] text-[var(--text-muted)]">
+                          Loading in Chromium (MYBROWSER)…
+                        </p>
+                      </div>
+                    )}
+                    {!loading && navigateError && (
+                      <div className="p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle size={14} className="text-red-400 shrink-0" />
+                          <span className="text-[11px] font-semibold text-red-400">Browser load failed</span>
+                        </div>
+                        <pre className="text-[10px] text-red-400/90 font-mono bg-[var(--bg-panel)] rounded p-3 whitespace-pre-wrap">{navigateError}</pre>
+                        <button
+                          type="button"
+                          onClick={() => void loadChromiumPreview(currentUrl)}
+                          className="text-[10px] text-[var(--color-primary)] underline"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {!loading && !navigateError && screenshotUrl && (
+                      <img
+                        src={screenshotUrl}
+                        alt={`Chromium preview: ${currentUrl}`}
+                        className="w-full h-auto block bg-white"
+                      />
+                    )}
+                    {!loading && !navigateError && !screenshotUrl && (
+                      <div className="flex flex-col items-center justify-center flex-1 gap-2 p-8 text-center">
+                        <Globe size={28} className="text-[var(--text-muted)] opacity-40" />
+                        <p className="text-[11px] text-[var(--text-muted)]">Enter a URL to load a Chromium preview</p>
+                      </div>
+                    )}
+                    {!loading && pageText && mode === 'browse' && (
+                      <details className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)]">
+                        <summary className="cursor-pointer px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)]">
+                          Page text (extracted)
+                        </summary>
+                        <pre className="max-h-48 overflow-auto px-3 pb-3 text-[10px] text-[var(--text-main)] whitespace-pre-wrap font-mono">
+                          {pageText.length > 12_000 ? `${pageText.slice(0, 12_000)}…` : pageText}
+                        </pre>
+                      </details>
+                    )}
                   </div>
                 )}
 
@@ -1686,8 +1740,9 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   agentRunId = null,
   workspaceContext: _workspaceContext = null,
 }) => {
-  const [primaryUrl,    setPrimaryUrl]    = useState(urlFromParent || DEFAULT_URL);
-  const [secondaryUrl,  setSecondaryUrl]  = useState<string | null>(null);
+  const [primaryUrl,      setPrimaryUrl]      = useState(urlFromParent || DEFAULT_URL);
+  const [primaryPreview,  setPrimaryPreview]  = useState<BrowserPreviewPayload | null>(null);
+  const [secondaryUrl,    setSecondaryUrl]    = useState<string | null>(null);
   const [agentActive,   setAgentActive]   = useState(false);
   const [collabBridge, setCollabBridge] = useState<'live' | 'offline' | 'unavailable'>('live');
   const [jobsPollErr, setJobsPollErr] = useState<string | null>(null);
@@ -1696,9 +1751,23 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
 
   // ── Window event listeners (Agent Sam navigation) ───────────────────────────
   useEffect(() => {
-    const onPrimary   = (e: Event) => {
-      const url = (e as CustomEvent<{ url?: string }>).detail?.url;
-      if (url) setPrimaryUrl(url);
+    const onPrimary = (e: Event) => {
+      const d = (e as CustomEvent<{
+        url?: string;
+        screenshot_url?: string;
+        page_text?: string;
+      }>).detail;
+      if (d?.url) {
+        setPrimaryUrl(d.url);
+        if (d.screenshot_url) {
+          setPrimaryPreview({
+            screenshot_url: d.screenshot_url,
+            page_text: d.page_text ?? null,
+          });
+        } else {
+          setPrimaryPreview(null);
+        }
+      }
     };
     const onSecondary = (e: Event) => {
       const url = (e as CustomEvent<{ url?: string }>).detail?.url;
@@ -1878,6 +1947,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       }`}>
         <BrowserPane
           initialUrl={primaryUrl}
+          initialPreview={primaryPreview}
           addressDisplay={addressDisplay}
           label={secondaryUrl ? 'A' : undefined}
           isSplit={!!secondaryUrl}

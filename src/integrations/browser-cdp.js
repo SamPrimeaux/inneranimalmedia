@@ -1,0 +1,471 @@
+/**
+ * In-worker browser tools via Cloudflare Browser Rendering (MYBROWSER + @cloudflare/playwright).
+ * Replaces /api/mcp/invoke hop for cdt_* / browser_* agent and dashboard paths.
+ */
+import { putAgentBrowserScreenshotToR2 } from '../core/r2.js';
+
+const SCREENSHOT_TOOLS = new Set([
+  'cdt_take_screenshot',
+  'playwright_screenshot',
+  'browser_screenshot',
+]);
+
+const GOTO_WAIT = 'domcontentloaded';
+const GOTO_TIMEOUT_MS = 45_000;
+
+/**
+ * @param {Record<string, unknown>} params
+ */
+export function resolveBrowserToolUrl(params) {
+  const raw =
+    params.url ??
+    params.origin ??
+    params.href ??
+    params.target_url ??
+    params.page_url;
+  const u = raw != null ? String(raw).trim() : '';
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.startsWith('//')) return `https:${u}`;
+  return `https://${u.replace(/^\/+/, '')}`;
+}
+
+/**
+ * @param {unknown} tree
+ * @param {boolean} interestingOnly
+ */
+function filterA11ySnapshot(tree, interestingOnly) {
+  if (!interestingOnly || !tree || typeof tree !== 'object') return tree;
+  /** @param {any} node */
+  function walk(node) {
+    if (!node || typeof node !== 'object') return null;
+    const children = Array.isArray(node.children)
+      ? node.children.map(walk).filter(Boolean)
+      : [];
+    const name = node.name != null ? String(node.name).trim() : '';
+    const role = node.role != null ? String(node.role).trim() : '';
+    const hasInterest = Boolean(name || role === 'link' || role === 'button' || role === 'textbox');
+    if (!hasInterest && children.length === 0) return null;
+    return { ...node, children };
+  }
+  return walk(tree);
+}
+
+/**
+ * @param {import('@cloudflare/playwright').Page} page
+ * @param {string} url
+ */
+async function gotoPage(page, url) {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(url, { waitUntil: GOTO_WAIT, timeout: GOTO_TIMEOUT_MS });
+}
+
+/**
+ * @param {import('@cloudflare/playwright').Page} page
+ * @param {number} [maxChars]
+ */
+async function extractPageText(page, maxChars = 120_000) {
+  const text = await page.evaluate(() => {
+    const body = document.body;
+    if (!body) return '';
+    return (body.innerText || body.textContent || '').trim();
+  });
+  const max = Math.max(1000, maxChars);
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n…[truncated]`;
+}
+
+/**
+ * @param {any} env
+ * @param {import('@cloudflare/playwright').Page} page
+ * @param {{ fullPage?: boolean }} [opts]
+ */
+async function captureViewportScreenshot(env, page, opts = {}) {
+  const buf = await page.screenshot({
+    type: 'png',
+    fullPage: Boolean(opts.fullPage),
+  });
+  return putAgentBrowserScreenshotToR2(env, buf, 'image/png');
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} params
+ * @param {(ctx: {
+ *   page: import('@cloudflare/playwright').Page,
+ *   url: string,
+ *   consoleMessages: Array<{ type: string, text: string }>,
+ *   networkRequests: Array<Record<string, unknown>>,
+ * }) => Promise<unknown>} fn
+ */
+export async function withBrowserPage(env, params, fn) {
+  if (!env.MYBROWSER) {
+    return {
+      error: 'MYBROWSER binding not configured',
+      hint: 'Enable Browser Rendering on the Worker (wrangler [browser] binding)',
+    };
+  }
+
+  const url = resolveBrowserToolUrl(params);
+  if (!url) return { error: 'url required' };
+
+  const consoleMessages = [];
+  const networkRequests = [];
+  const networkByUrl = new Map();
+
+  const { launch } = await import('@cloudflare/playwright');
+  const browser = await launch(env.MYBROWSER);
+  try {
+    const page = await browser.newPage();
+
+    page.on('console', (msg) => {
+      try {
+        consoleMessages.push({ type: String(msg.type()), text: String(msg.text()) });
+      } catch (_) {
+        /* non-fatal */
+      }
+    });
+
+    page.on('request', (req) => {
+      try {
+        const entry = {
+          url: req.url(),
+          method: req.method(),
+          resourceType: req.resourceType(),
+        };
+        networkByUrl.set(req.url(), entry);
+        networkRequests.push(entry);
+      } catch (_) {
+        /* non-fatal */
+      }
+    });
+
+    page.on('response', async (res) => {
+      try {
+        const req = res.request();
+        const key = req.url();
+        const entry = networkByUrl.get(key) || {
+          url: key,
+          method: req.method(),
+          resourceType: req.resourceType(),
+        };
+        entry.status = res.status();
+        entry.response = {
+          status: res.status(),
+          statusText: res.statusText(),
+          headers: await res.allHeaders().catch(() => ({})),
+        };
+        networkByUrl.set(key, entry);
+      } catch (_) {
+        /* non-fatal */
+      }
+    });
+
+    await gotoPage(page, url);
+    return await fn({ page, url, consoleMessages, networkRequests });
+  } catch (e) {
+    const msg = e?.message != null ? String(e.message) : String(e);
+    return { error: msg, ok: false };
+  } finally {
+    try {
+      await browser.close();
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} toolName
+ * @param {Record<string, unknown>} params
+ */
+export async function runBrowserBuiltinTool(env, toolName, params) {
+  const tool = String(toolName || '').trim();
+
+  if (SCREENSHOT_TOOLS.has(tool)) {
+    return withBrowserPage(env, params, async ({ page }) => {
+      const fullPage = params.fullPage !== false;
+      const out = await captureViewportScreenshot(env, page, { fullPage: Boolean(fullPage) });
+      return {
+        ok: true,
+        url: page.url(),
+        screenshot_url: out.screenshot_url,
+        result_url: out.screenshot_url,
+        job_id: out.job_id,
+      };
+    });
+  }
+
+  switch (tool) {
+    case 'browser_navigate':
+    case 'cdt_navigate_page':
+      return withBrowserPage(env, params, async ({ page, url }) => {
+        const finalUrl = page.url() || url;
+        const title = await page.title().catch(() => '');
+        const out = await captureViewportScreenshot(env, page, { fullPage: false });
+        const page_text = await extractPageText(page);
+        return {
+          ok: true,
+          url: finalUrl,
+          title,
+          screenshot_url: out.screenshot_url,
+          result_url: out.screenshot_url,
+          page_text,
+          text: page_text,
+          job_id: out.job_id,
+        };
+      });
+
+    case 'browser_content':
+      return withBrowserPage(env, params, async ({ page, url }) => {
+        let html = await page.content();
+        const max = Number(params.max_chars) > 0 ? Number(params.max_chars) : 400_000;
+        if (html.length > max) {
+          html = `${html.slice(0, max)}\n<!-- truncated -->`;
+        }
+        const page_text = await extractPageText(page);
+        return {
+          ok: true,
+          url: page.url() || url,
+          html,
+          page_text,
+          text: page_text,
+        };
+      });
+
+    case 'cdt_take_snapshot': {
+      const interestingOnly = params.interestingOnly !== false;
+      return withBrowserPage(env, params, async ({ page }) => {
+        let snapshot = null;
+        try {
+          snapshot = await page.accessibility.snapshot();
+        } catch {
+          snapshot = await page.evaluate(() => ({
+            role: 'document',
+            name: document.title,
+            children: [{ role: 'generic', name: document.body?.innerText?.slice(0, 2000) || '' }],
+          }));
+        }
+        return {
+          ok: true,
+          snapshot: filterA11ySnapshot(snapshot, interestingOnly),
+        };
+      });
+    }
+
+    case 'cdt_list_console_messages': {
+      const limit = Math.min(500, Math.max(1, Number(params.limit) || 100));
+      return withBrowserPage(env, params, async ({ consoleMessages }) => ({
+        ok: true,
+        messages: consoleMessages.slice(-limit),
+      }));
+    }
+
+    case 'cdt_get_console_message': {
+      const idx = Number(params.index);
+      return withBrowserPage(env, params, async ({ consoleMessages }) => {
+        const i = Number.isFinite(idx) ? idx : 0;
+        const msg = consoleMessages[i];
+        if (!msg) return { ok: false, error: 'console message not found', index: i };
+        return { ok: true, message: msg, index: i };
+      });
+    }
+
+    case 'cdt_list_network_requests': {
+      const limit = Math.min(500, Math.max(1, Number(params.limit) || 100));
+      return withBrowserPage(env, params, async ({ networkRequests }) => ({
+        ok: true,
+        requests: networkRequests.slice(-limit),
+      }));
+    }
+
+    case 'cdt_get_network_request': {
+      const target = String(params.url || params.request_url || '').trim();
+      return withBrowserPage(env, params, async ({ networkRequests }) => {
+        const hit = networkRequests.find((r) => String(r.url) === target);
+        if (!hit) return { ok: false, error: 'network request not found', url: target };
+        return { ok: true, request: hit };
+      });
+    }
+
+    case 'cdt_list_pages':
+      return withBrowserPage(env, params, async ({ page, url }) => ({
+        ok: true,
+        pages: [{ url: page.url() || url, title: await page.title().catch(() => '') }],
+      }));
+
+    case 'cdt_wait_for': {
+      const selector = params.selector != null ? String(params.selector).trim() : '';
+      const text = params.text != null ? String(params.text).trim() : '';
+      const timeout = Math.min(120_000, Math.max(1000, Number(params.timeout) || 30_000));
+      return withBrowserPage(env, params, async ({ page }) => {
+        if (selector) {
+          await page.waitForSelector(selector, { timeout });
+        } else if (text) {
+          await page.getByText(text, { exact: false }).first().waitFor({ timeout });
+        } else {
+          await page.waitForLoadState('networkidle', { timeout }).catch(() => {});
+        }
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'cdt_click': {
+      const selector = String(params.selector || '').trim();
+      if (!selector) return { error: 'selector required' };
+      return withBrowserPage(env, params, async ({ page }) => {
+        await page.click(selector, { timeout: 15_000 });
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'cdt_fill': {
+      const selector = String(params.selector || '').trim();
+      const value = params.value != null ? String(params.value) : '';
+      if (!selector) return { error: 'selector required' };
+      return withBrowserPage(env, params, async ({ page }) => {
+        await page.fill(selector, value, { timeout: 15_000 });
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'cdt_fill_form': {
+      const fields = params.fields;
+      if (!fields || typeof fields !== 'object') return { error: 'fields object required' };
+      return withBrowserPage(env, params, async ({ page }) => {
+        for (const [sel, val] of Object.entries(fields)) {
+          await page.fill(String(sel), val != null ? String(val) : '', { timeout: 15_000 });
+        }
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'cdt_hover': {
+      const selector = String(params.selector || '').trim();
+      if (!selector) return { error: 'selector required' };
+      return withBrowserPage(env, params, async ({ page }) => {
+        await page.hover(selector, { timeout: 15_000 });
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'cdt_press_key': {
+      const key = String(params.key || params.text || 'Enter').trim();
+      return withBrowserPage(env, params, async ({ page }) => {
+        await page.keyboard.press(key);
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'cdt_evaluate_script': {
+      const script = String(params.script || params.expression || '').trim();
+      if (!script) return { error: 'script required' };
+      return withBrowserPage(env, params, async ({ page }) => {
+        const result = await page.evaluate((s) => {
+          // eslint-disable-next-line no-eval
+          return eval(s);
+        }, script);
+        return { ok: true, result, url: page.url() };
+      });
+    }
+
+    case 'cdt_upload_file': {
+      const selector = String(params.selector || '').trim();
+      const fileUrl = String(params.file_url || params.url || '').trim();
+      if (!selector || !fileUrl) return { error: 'selector and file_url required' };
+      return withBrowserPage(env, params, async ({ page }) => {
+        const res = await fetch(fileUrl);
+        if (!res.ok) return { error: `fetch file failed: ${res.status}` };
+        const buf = await res.arrayBuffer();
+        const name = fileUrl.split('/').pop() || 'upload.bin';
+        await page.locator(selector).setInputFiles({
+          name,
+          mimeType: res.headers.get('content-type') || 'application/octet-stream',
+          buffer: new Uint8Array(buf),
+        });
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'cdt_resize_page':
+    case 'cdt_emulate': {
+      const width = Number(params.width) || 1280;
+      const height = Number(params.height) || 800;
+      return withBrowserPage(env, params, async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        return { ok: true, width, height, url: page.url() };
+      });
+    }
+
+    case 'cdt_new_page':
+    case 'cdt_select_page':
+    case 'cdt_close_page':
+      return withBrowserPage(env, params, async ({ page, url }) => ({
+        ok: true,
+        note: 'MYBROWSER path is stateless (single page per invocation)',
+        url: page.url() || url,
+      }));
+
+    case 'cdt_handle_dialog': {
+      const accept = params.accept !== false;
+      return withBrowserPage(env, params, async ({ page }) => {
+        page.once('dialog', async (dialog) => {
+          if (accept) await dialog.accept(params.promptText != null ? String(params.promptText) : undefined);
+          else await dialog.dismiss();
+        });
+        return { ok: true, url: page.url(), accept };
+      });
+    }
+
+    case 'cdt_drag': {
+      const from = params.from || params.start;
+      const to = params.to || params.end;
+      if (!from || !to) return { error: 'from and to required (x,y objects or selectors)' };
+      return withBrowserPage(env, params, async ({ page }) => {
+        if (typeof from === 'string' && typeof to === 'string') {
+          await page.dragAndDrop(from, to, { timeout: 15_000 });
+        } else {
+          await page.mouse.move(Number(from.x) || 0, Number(from.y) || 0);
+          await page.mouse.down();
+          await page.mouse.move(Number(to.x) || 0, Number(to.y) || 0);
+          await page.mouse.up();
+        }
+        return { ok: true, url: page.url() };
+      });
+    }
+
+    case 'a11y_audit_webpage':
+      return withBrowserPage(env, params, async ({ page, url }) => {
+        const audit = await page.evaluate(() => {
+          const issues = [];
+          if (!document.title?.trim()) issues.push({ id: 'missing-title', impact: 'moderate' });
+          const imgs = [...document.querySelectorAll('img')];
+          const missingAlt = imgs.filter((i) => !i.getAttribute('alt')?.trim()).length;
+          if (missingAlt) issues.push({ id: 'img-alt', impact: 'serious', count: missingAlt });
+          const h1 = document.querySelectorAll('h1').length;
+          if (h1 !== 1) issues.push({ id: 'h1-count', impact: 'moderate', count: h1 });
+          return { issues, documentTitle: document.title || '' };
+        });
+        return { ok: true, url: page.url() || url, audit, engine: 'playwright-heuristic' };
+      });
+
+    case 'cdt_performance_start_trace':
+    case 'cdt_performance_stop_trace':
+    case 'cdt_performance_analyze_insight':
+      return {
+        ok: false,
+        error: 'Performance trace tools are not supported on the MYBROWSER worker path',
+        hint: 'Use cdt_take_snapshot and cdt_list_network_requests for page diagnostics',
+      };
+
+    default:
+      if (tool.startsWith('cdt_') || tool.startsWith('browser_')) {
+        return {
+          error: `Unsupported browser tool: ${tool}`,
+          hint: 'Register handler in src/integrations/browser-cdp.js',
+        };
+      }
+      return { error: `Not a browser tool: ${tool}` };
+  }
+}

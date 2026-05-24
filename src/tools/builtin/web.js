@@ -1,21 +1,17 @@
 /**
  * Tool: Web (CDT / Playwright / Search)
- * Implements 31 tools for browser automation and intelligence.
+ * Browser automation runs in-worker via MYBROWSER (src/integrations/browser-cdp.js).
  */
 
 import { assertFetchDomainAllowed } from '../../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../../core/agentsam-ops-ledger.js';
 import { runPlaywrightScreenshotJob } from '../../integrations/playwright.js';
+import { runBrowserBuiltinTool } from '../../integrations/browser-cdp.js';
 
-const SCREENSHOT_TOOL_NAMES = new Set([
-    'cdt_take_screenshot',
-    'playwright_screenshot',
-    'browser_screenshot',
-]);
+const SCREENSHOT_JOB_TOOLS = new Set(['playwright_screenshot', 'browser_screenshot']);
 
 /**
- * Common fetch bridge for browser-related operations.
- * Screenshots use the same Playwright job path as POST /api/playwright/screenshot (not /api/browser/invoke).
+ * MYBROWSER in-worker path (no /api/mcp/invoke — avoids MCP_AUTH_TOKEN 401).
  */
 async function invokeBrowserOp(env, toolName, params) {
     const targetOriginInput =
@@ -36,7 +32,9 @@ async function invokeBrowserOp(env, toolName, params) {
     }
 
     const tool = String(toolName || '').trim();
-    if (SCREENSHOT_TOOL_NAMES.has(tool)) {
+
+    // Job-tracked screenshots (playwright_jobs row) for dashboard polling parity.
+    if (SCREENSHOT_JOB_TOOLS.has(tool)) {
         const url = String(targetOriginInput || '').trim();
         if (!url) return { error: 'url required for screenshot' };
         if (!uid) return { error: 'user_id required for screenshot' };
@@ -54,39 +52,7 @@ async function invokeBrowserOp(env, toolName, params) {
         });
     }
 
-    const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
-    try {
-        const res = await fetch(`${origin}/api/mcp/invoke`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tool_name: tool, params }),
-        });
-        const bodyText = await res.text();
-        let data;
-        try {
-            data = bodyText ? JSON.parse(bodyText) : {};
-        } catch (parseErr) {
-            const snippet = String(bodyText || '').trim().slice(0, 200);
-            if (/error code:\s*522/i.test(snippet)) {
-                return { error: `Browser preview failed: Cloudflare 522 (origin timeout).`, detail: snippet };
-            }
-            return {
-                error: 'Browser preview failed: response was not JSON.',
-                detail: snippet || parseErr?.message || 'empty response',
-            };
-        }
-        if (!res.ok) throw new Error(data.error || 'Browser Operation Failed');
-        return data;
-    } catch (e) {
-        const msg = e?.message || String(e);
-        if (/unexpected token/i.test(msg) && /error code:\s*522/i.test(msg)) {
-            return { error: 'Browser preview failed: Cloudflare 522 (origin timeout).', detail: msg };
-        }
-        if (/unexpected token/i.test(msg) && /is not valid json/i.test(msg)) {
-            return { error: 'Browser preview failed: response was not JSON.', detail: msg };
-        }
-        return { error: `Browser preview failed: ${msg}`, detail: msg };
-    }
+    return runBrowserBuiltinTool(env, tool, params);
 }
 
 export const handlers = {
@@ -119,9 +85,8 @@ export const handlers = {
     async cdt_click(params, env) { return await invokeBrowserOp(env, 'cdt_click', params); },
     async cdt_fill(params, env) { return await invokeBrowserOp(env, 'cdt_fill', params); },
     async cdt_fill_form(params, env) { return await invokeBrowserOp(env, 'cdt_fill_form', params); },
-    async cdt_evaluate_script(params, env) { 
-        // Security Approval Check is handled at the dispatcher layer
-        return await invokeBrowserOp(env, 'cdt_evaluate_script', params); 
+    async cdt_evaluate_script(params, env) {
+        return await invokeBrowserOp(env, 'cdt_evaluate_script', params);
     },
     async cdt_list_pages(params, env) { return await invokeBrowserOp(env, 'cdt_list_pages', params); },
     async cdt_wait_for(params, env) { return await invokeBrowserOp(env, 'cdt_wait_for', params); },
@@ -130,11 +95,17 @@ export const handlers = {
     async cdt_drag(params, env) { return await invokeBrowserOp(env, 'cdt_drag', params); },
     async cdt_press_key(params, env) { return await invokeBrowserOp(env, 'cdt_press_key', params); },
     async cdt_upload_file(params, env) { return await invokeBrowserOp(env, 'cdt_upload_file', params); },
-    
+
     // ── CDT Performance ──────────────────────────────────────────────────
-    async cdt_performance_start_trace(params, env) { return await invokeBrowserOp(env, 'cdt_performance_start_trace', params); },
-    async cdt_performance_stop_trace(params, env) { return await invokeBrowserOp(env, 'cdt_performance_stop_trace', params); },
-    async cdt_performance_analyze_insight(params, env) { return await invokeBrowserOp(env, 'cdt_performance_analyze_insight', params); },
+    async cdt_performance_start_trace(params, env) {
+        return await invokeBrowserOp(env, 'cdt_performance_start_trace', params);
+    },
+    async cdt_performance_stop_trace(params, env) {
+        return await invokeBrowserOp(env, 'cdt_performance_stop_trace', params);
+    },
+    async cdt_performance_analyze_insight(params, env) {
+        return await invokeBrowserOp(env, 'cdt_performance_analyze_insight', params);
+    },
 
     // ── Playwright & Legacy ──────────────────────────────────────────────
     async playwright_screenshot(params, env) { return await invokeBrowserOp(env, 'playwright_screenshot', params); },

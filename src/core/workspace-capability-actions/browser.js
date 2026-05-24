@@ -138,8 +138,15 @@ export async function runBrowserCapabilityAction(p) {
   console.log('[browser-capability] surface_open', JSON.stringify({ url, runId }));
   emit('surface_open', surfacePayload);
   emit('agent_surface_open', { ...surfacePayload });
-  emit('browser_navigate', { url, run_id: runId, workflow_key: workflowKey });
   const navRes = await runBuiltinTool(env, navigateName, baseParams);
+  emit('browser_navigate', {
+    url: toolResultOk(navRes) && navRes?.url ? String(navRes.url) : url,
+    run_id: runId,
+    workflow_key: workflowKey,
+    screenshot_url: navRes?.screenshot_url != null ? String(navRes.screenshot_url) : undefined,
+    page_text: navRes?.page_text != null ? String(navRes.page_text) : undefined,
+    title: navRes?.title != null ? String(navRes.title) : undefined,
+  });
   pushStep('navigate', {
     ok: toolResultOk(navRes),
     tool: navigateName,

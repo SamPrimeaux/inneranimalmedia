@@ -93,7 +93,8 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName === 'playwright_screenshot':
         case toolName === 'preview_in_browser':
         case toolName === 'web_search':
-            return await webHandlers[toolName]?.(params, env) || await webHandlers.search_web?.(params, env);
+            if (webHandlers[toolName]) return await webHandlers[toolName](params, env);
+            return { error: `Unknown browser tool: ${toolName}` };
 
         // ── CATEGORY: media / ui (13 Tools) ──────────────────────────────
         case toolName.startsWith('excalidraw_'):

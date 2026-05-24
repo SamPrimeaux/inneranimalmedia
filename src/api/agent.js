@@ -611,13 +611,40 @@ const AGENT_SAM_PYTHON_PARALLEL_BLOCK = `You are a Python professional. When a t
 
 For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. When reading multiple files, checking multiple endpoints, or running independent lookups, call all tools in parallel. Err on the side of more parallel tool calls rather than fewer sequential ones.`;
 
+/** Prefer `browser` prompt route when heuristics say browser but generic route would win. */
+async function resolvePromptRouteRowForAgentChat(env, tenantId, modeSlug, intentResult, message) {
+  const promptRouteIntentSlug =
+    String(intentResult?.taskType || 'auto')
+      .toLowerCase()
+      .trim() || 'auto';
+  let row = await resolveAgentsamPromptRoute(env, tenantId, modeSlug, promptRouteIntentSlug);
+  const taskType = String(intentResult?.taskType || '').toLowerCase();
+  const needsBrowserRoute = taskType === 'browser' || messageHasBrowserUrlNavigation(message);
+  if (!needsBrowserRoute || row?.route_key === 'browser') return row;
+  if (!env?.DB) return row;
+  try {
+    const browserRow = await env.DB.prepare(
+      `SELECT r.*
+       FROM agentsam_prompt_routes r
+       WHERE r.route_key = 'browser'
+         AND r.is_active = 1
+         AND (r.tenant_id IS NULL OR r.tenant_id = ?)
+       ORDER BY CASE WHEN r.tenant_id IS NOT NULL THEN 0 ELSE 1 END,
+                COALESCE(r.priority, 0) ASC
+       LIMIT 1`,
+    )
+      .bind(tenantId != null ? String(tenantId).trim() : '')
+      .first();
+    if (browserRow) return browserRow;
+  } catch (e) {
+    console.warn('[agent] prompt_route_browser_fallback', e?.message ?? e);
+  }
+  return row;
+}
+
 /**
  * Match `agentsam_prompt_routes` to mode / intent (intent_labels JSON array + tenant tie-break).
  * `priority`: lower numeric value wins among otherwise-equally-specific matches (see ORDER BY).
- * @param {any} env
- * @param {string|null|undefined} tenantId
- * @param {string} modeSlug
- * @param {string} intentSlug
  */
 async function resolveAgentsamPromptRoute(env, tenantId, modeSlug, intentSlug) {
   if (!env?.DB) return null;
@@ -989,11 +1016,40 @@ async function loadModeToolPolicy(env, modeSlug) {
   }
 }
 
+/**
+ * Plain URL + navigation verb → browser (not web_search). Passive links / search phrases excluded.
+ * @param {string} text
+ */
+function messageHasBrowserUrlNavigation(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t || !/https?:\/\//i.test(t)) return false;
+  return (
+    /\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to)\b/i.test(t) ||
+    /(?:^|\s)to\s+https?:\/\//i.test(t)
+  );
+}
+
+const BROWSER_CAPABILITY_TOOL_NAMES = [
+  'browser_navigate',
+  'browser_content',
+  'cdt_take_snapshot',
+  'cdt_navigate_page',
+];
+
+function shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDecision, promptRouteRow) {
+  if (String(intentResult?.taskType || '').toLowerCase() === 'browser') return true;
+  if (messageHasBrowserUrlNavigation(message)) return true;
+  if (capabilityDecision?.should_use_browser === true) return true;
+  if (String(promptRouteRow?.route_key || '').toLowerCase() === 'browser') return true;
+  return false;
+}
+
 function inferIntentHeuristically(text) {
   const t = String(text || '').trim().toLowerCase();
   if (!t) return { taskType: 'chat', mode: 'auto' };
 
   const is = (pattern) => pattern.test(t);
+  const hasUrlNavigate = messageHasBrowserUrlNavigation(t);
 
   // ── Infra / orchestration ────────────────────────────────────────────────
   const hasDeploy    = is(/(deploy|wrangler deploy|npm run deploy|push to prod|promote|release|cf build|cloudflare build)/);
@@ -1021,9 +1077,19 @@ function inferIntentHeuristically(text) {
   }
 
   // ── Web / browser ─────────────────────────────────────────────────────────
-  const hasWebSearch = is(/(search the web|look it up online|google|browse|find online|search online|web search|look up.*online|find.*article|current news|latest.*on)/) ||
-                       is(/https?:\/\//);
-  const hasBrowser   = is(/(screenshot|inspect.*url|navigate to|open.*browser|browser.*inspect|playwright|puppeteer|headless)/);
+  // URL alone → not web_search; URL + go to|visit|open|navigate → browser (checked before hasWebSearch).
+  const hasWebSearch =
+    is(
+      /(search the web|look it up online|google|find online|search online|web search|look up.*online|find.*article|current news|latest.*on)/,
+    ) ||
+    (is(/https?:\/\//) &&
+      is(/(search|google|look\s+up|find\s+online)/) &&
+      !hasUrlNavigate);
+  const hasBrowser =
+    hasUrlNavigate ||
+    is(
+      /(screenshot|inspect\s+https?:\/\/|inspect.*url|navigate\s+to|open\s+(the\s+)?browser|browser.*inspect|playwright|puppeteer|headless)/,
+    );
 
   // ── Vector / RAG ─────────────────────────────────────────────────────────
   const hasVectorize = is(/(vectorize|embed|embedding|semantic search|rag|index.*knowledge|upsert.*vector|similarity search|knowledge base)/);
@@ -1107,7 +1173,7 @@ async function classifyIntent(_env, lastMessageText) {
     r2_ops:                 'r2_ops',
     cf_ops:                 'cf_ops',
     terminal_execution:     'terminal_execution',
-    browser:                'agent_general',
+    browser:                'browser',
     web_search:             'agent_research',
     vectorize:              'vectorize',
     github:                 'github',
@@ -1145,8 +1211,9 @@ function capabilityFamiliesFromUserMessage(message, intentResult) {
     fams.push('terminal');
   }
   if (
+    messageHasBrowserUrlNavigation(m) ||
     /\b(browser|screenshot|inspect).*\bhttps?:\/\//i.test(m) ||
-    (extractBrowserNavigateUrl(m) && /\b(inspect|screenshot)\b/i.test(m))
+    (extractBrowserNavigateUrl(m) && /\b(inspect|screenshot|navigate|open|visit)\b/i.test(m))
   ) {
     fams.push('browser');
   }
@@ -1467,6 +1534,59 @@ async function ensureVideoCapabilityTools(env, tools, videoCapabilityIntent, eff
     workspaceId,
     mode,
   );
+}
+
+/** Guarantee browser_navigate survives lane/cap narrowing when URL navigation is intended. */
+async function ensureBrowserCapabilityTools(env, tools, effectiveMaxTools) {
+  if (!env?.DB || !Array.isArray(tools)) return tools;
+  const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
+  const missing = BROWSER_CAPABILITY_TOOL_NAMES.filter((n) => !have.has(n));
+  if (!missing.length) return tools;
+  const rows = await fetchAgentsamToolRowsByName(env, missing);
+  const out = [...tools];
+  const seen = new Set(have);
+  for (const row of rows) {
+    const nm = String(row.tool_name || '');
+    if (!nm || seen.has(nm)) continue;
+    seen.add(nm);
+    out.unshift({
+      name: nm,
+      description: String(row.description || nm).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'browser'),
+      requires_approval: Number(row.requires_approval || 0) === 1,
+    });
+  }
+  const cap = Math.max(1, Number(effectiveMaxTools) || 8);
+  return out.slice(0, cap);
+}
+
+/** Merge agentsam_prompt_routes.tool_keys into the model manifest (D1 route contract). */
+async function mergeToolsFromPromptRouteKeys(env, tools, promptRouteRow, effectiveMaxTools) {
+  const keys = parseJsonSafe(promptRouteRow?.tool_keys, null);
+  if (!Array.isArray(keys) || !keys.length || !env?.DB) return tools;
+  const have = new Set((tools || []).map((t) => agentToolNameOf(t)).filter(Boolean));
+  const missing = keys
+    .map((k) => String(k || '').trim())
+    .filter((k) => k && !have.has(k));
+  if (!missing.length) return tools;
+  const rows = await fetchAgentsamToolRowsByName(env, missing);
+  const out = [...(tools || [])];
+  const seen = new Set(have);
+  for (const row of rows) {
+    const nm = String(row.tool_name || '');
+    if (!nm || seen.has(nm)) continue;
+    seen.add(nm);
+    out.unshift({
+      name: nm,
+      description: String(row.description || nm).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'browser'),
+      requires_approval: Number(row.requires_approval || 0) === 1,
+    });
+  }
+  const cap = Math.max(1, Number(effectiveMaxTools) || 8);
+  return out.slice(0, cap);
 }
 
 function isAgentDashboardSurfaceRoute(dashboardRoute) {
@@ -6420,11 +6540,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
   }
   if (!promptRouteRow) {
-    promptRouteRow = await resolveAgentsamPromptRoute(
+    promptRouteRow = await resolvePromptRouteRowForAgentChat(
       env,
       tenantId,
       requestedMode,
-      promptRouteIntentSlug,
+      intentResult,
+      message,
     );
   }
 
@@ -6552,7 +6673,30 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       workspaceId,
     });
 
+    if (promptRouteRow) {
+      tools = await mergeToolsFromPromptRouteKeys(env, tools, promptRouteRow, effectiveMaxTools);
+    }
+
     tools = filterAgentToolsForRequest(env, tools, message, intentResult).slice(0, effectiveMaxTools);
+
+    if (shouldEnsureBrowserCapabilityTools(message, intentResult, null, promptRouteRow)) {
+      const beforeBrowser = tools.map(agentToolNameOf).filter(Boolean);
+      tools = await ensureBrowserCapabilityTools(env, tools, effectiveMaxTools);
+      const injectedBrowser = tools
+        .map(agentToolNameOf)
+        .filter((n) => n && !beforeBrowser.includes(n));
+      if (injectedBrowser.length) {
+        console.log(
+          '[agent] browser_capability_autoroute',
+          JSON.stringify({
+            route_key: promptRouteRow?.route_key ?? null,
+            task_type: intentResult?.taskType ?? null,
+            injected_tools: injectedBrowser,
+            message_preview: trimmedMsg.slice(0, 160),
+          }),
+        );
+      }
+    }
   }
 
   if (imageCapabilityIntent && agentLikeTooling && env.DB) {
@@ -6649,6 +6793,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId,
           requestedMode,
         );
+      }
+      if (shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDecision, promptRouteRow)) {
+        tools = await ensureBrowserCapabilityTools(env, tools, effectiveMaxTools);
       }
       if (shouldStripA11yForPlainSurfaceMessage(message, requestedMode)) {
         tools = stripSurfaceA11yTools(tools);

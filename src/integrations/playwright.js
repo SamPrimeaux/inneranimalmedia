@@ -2,6 +2,7 @@ import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
+import { runBrowserBuiltinTool } from './browser-cdp.js';
 
 /**
  * Shared screenshot job runner (POST /api/playwright/screenshot and agent builtin tools).
@@ -151,6 +152,57 @@ export async function handleBrowserRequest(request, url, env) {
         } catch (e) {
             return jsonResponse({ error: 'Screenshot failed', detail: e.message }, 500);
         }
+    }
+
+    // ── POST /api/browser/invoke — session auth; MYBROWSER tools (no MCP hop) ─
+    if (pathLower === '/api/browser/invoke' && method === 'POST') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            body = {};
+        }
+
+        const toolName = String(body.tool_name || body.tool || '').trim();
+        const params =
+            body.params && typeof body.params === 'object'
+                ? { ...body.params }
+                : body.arguments && typeof body.arguments === 'object'
+                  ? { ...body.arguments }
+                  : {};
+
+        if (!toolName) return jsonResponse({ error: 'tool_name required' }, 400);
+
+        const targetUrl =
+            params.url ?? params.origin ?? params.href ?? params.target_url ?? params.page_url;
+        if (targetUrl) {
+            try {
+                await assertBrowserTrustedOrigin(env, {
+                    userId: String(authUser.id),
+                    workspaceId:
+                        params.workspace_id != null
+                            ? String(params.workspace_id).trim()
+                            : request.headers.get('x-iam-workspace-id') || null,
+                    origin: targetUrl,
+                });
+            } catch (e) {
+                return jsonResponse({ error: String(e?.message || e), blocked: true }, 403);
+            }
+        }
+
+        params.user_id = params.user_id ?? String(authUser.id);
+        const wsHeader = request.headers.get('x-iam-workspace-id');
+        if (wsHeader && !params.workspace_id) params.workspace_id = wsHeader;
+
+        const result = await runBrowserBuiltinTool(env, toolName, params);
+        if (result?.error && !result?.ok) {
+            const status = result.blocked ? 403 : result.hint?.includes('MYBROWSER') ? 503 : 500;
+            return jsonResponse(result, status);
+        }
+        return jsonResponse(result);
     }
 
     return jsonResponse({ error: 'Browser route not found' }, 404);

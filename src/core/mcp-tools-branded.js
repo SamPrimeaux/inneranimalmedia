@@ -498,7 +498,11 @@ export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, op
   }
 
   const lanes = (req?.allowed_lanes || []).filter((l) => LANES.has(String(l).toLowerCase()));
-  const effectiveLanes = lanes.length ? lanes : ['general'];
+  const routeKey = String(req?.route_key || '').toLowerCase();
+  let effectiveLanes = lanes.length ? lanes : ['general'];
+  if (routeKey === 'browser' || taskType === 'browser') {
+    effectiveLanes = lanes.length ? lanes : ['inspect', 'develop', 'research'];
+  }
 
   let branded = await queryBrandedMcpCatalog(db, {
     lanes: effectiveLanes,

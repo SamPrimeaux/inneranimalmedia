@@ -158,6 +158,32 @@ function parseScreenshotUrlFromToolPayload(raw: string | null | undefined): stri
   return null;
 }
 
+function parseBrowserNavigatePreview(raw: string | null | undefined): {
+  screenshot_url?: string;
+  page_text?: string;
+  title?: string;
+} {
+  if (!raw?.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const shot =
+      parseScreenshotUrlFromToolPayload(raw) ||
+      (typeof parsed.screenshot_url === 'string' ? parsed.screenshot_url : null);
+    const page_text =
+      (typeof parsed.page_text === 'string' && parsed.page_text) ||
+      (typeof parsed.text === 'string' && parsed.text) ||
+      undefined;
+    const title = typeof parsed.title === 'string' ? parsed.title : undefined;
+    return {
+      ...(shot ? { screenshot_url: shot } : {}),
+      ...(page_text ? { page_text } : {}),
+      ...(title ? { title } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
 export type ConsumeAgentChatSseContext = {
   signal: AbortSignal;
   reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -176,7 +202,13 @@ export type ConsumeAgentChatSseContext = {
   onThinkingEvent?: (event: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string; approval_id?: string; plan_id?: string }) => void;
   /** First SSE context payload — lifts `agentsam_agent_run.id` to host (BrowserView playwright metadata). */
   onAgentRunContext?: (agentRunId: string | null) => void;
-  onBrowserNavigate?: (event: { type: 'browser_navigate'; url: string }) => void;
+  onBrowserNavigate?: (event: {
+    type: 'browser_navigate';
+    url: string;
+    screenshot_url?: string;
+    page_text?: string;
+    title?: string;
+  }) => void;
   onR2FileUpdated?: (event: { type: 'r2_file_updated'; bucket: string; key: string }) => void;
   onFileSelect?: (file: { name: string; content: string; originalContent?: string }) => void;
   /** Full tool-approval side effects (state + queue drain), matching prior ChatAssistant inline behavior. */
@@ -1016,9 +1048,21 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           (data as { type?: string }).type === 'browser_navigate' &&
           typeof (data as { url?: string }).url === 'string'
         ) {
-          const navUrl = sanitizeBrowserNavigateUrl(String((data as { url: string }).url));
+          const d = data as {
+            url: string;
+            screenshot_url?: string;
+            page_text?: string;
+            title?: string;
+          };
+          const navUrl = sanitizeBrowserNavigateUrl(String(d.url));
           if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
-            onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
+            onBrowserNavigate?.({
+              type: 'browser_navigate',
+              url: navUrl,
+              screenshot_url: typeof d.screenshot_url === 'string' ? d.screenshot_url : undefined,
+              page_text: typeof d.page_text === 'string' ? d.page_text : undefined,
+              title: typeof d.title === 'string' ? d.title : undefined,
+            });
           }
           continue;
         }
@@ -1245,7 +1289,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             }
             const safeNav = sanitizeBrowserNavigateUrl(navUrl);
             if (safeNav && !/\/api\/r2\/file\b/i.test(safeNav)) {
-              onBrowserNavigate?.({ type: 'browser_navigate', url: safeNav });
+              const preview = parseBrowserNavigatePreview(
+                typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
+              );
+              onBrowserNavigate?.({
+                type: 'browser_navigate',
+                url: safeNav,
+                ...preview,
+              });
             }
             pendingBrowserToolUrl = null;
             lastBrowserToolOutputChunk = null;
