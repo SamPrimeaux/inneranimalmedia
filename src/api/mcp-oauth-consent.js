@@ -61,6 +61,20 @@ async function listUserWorkspaces(env, userId) {
   }
 }
 
+/** First membership workspace, else auth user / env default — no UI picker required. */
+async function resolveDefaultMcpWorkspaceId(env, iamUser, workspaceId) {
+  const explicit = String(workspaceId || '').trim();
+  if (explicit) return explicit;
+
+  const workspaces = await listUserWorkspaces(env, iamUser?.id);
+  if (workspaces.length) return workspaces[0].id;
+
+  const fallback = String(
+    iamUser?.workspace_id || iamUser?.active_workspace_id || env.WORKSPACE_ID || env.DEFAULT_WORKSPACE_ID || '',
+  ).trim();
+  return fallback || null;
+}
+
 async function loadAuthorization(env, authorizationId, userId) {
   const row = await env.DB.prepare(
     `SELECT a.*, c.display_name AS client_display_name, c.logo_url AS client_logo_url,
@@ -200,6 +214,7 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
 
   const row = loaded.row;
   const workspaces = await listUserWorkspaces(env, iamUser.id);
+  const defaultWorkspaceId = await resolveDefaultMcpWorkspaceId(env, iamUser, null);
   const scopes = mcpOAuthParseScopeList(row.scope);
   const client = await mcpOAuthLoadClient(env, row.client_id);
 
@@ -219,6 +234,7 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     scope_labels: scopes.map(scopeLabel),
     redirect_uri: row.redirect_uri,
     workspaces,
+    default_workspace_id: defaultWorkspaceId,
     expires_at: row.expires_at,
     signed_in_email: iamUser.email || null,
   });
@@ -229,9 +245,15 @@ export async function approveIamMcpAuthorization(env, authorizationId, iamUser, 
   if (!loaded.ok) return { ok: false, error: loaded.error };
   const row = loaded.row;
 
+  const resolvedWorkspaceId = await resolveDefaultMcpWorkspaceId(env, iamUser, workspaceId);
   const workspaces = await listUserWorkspaces(env, iamUser.id);
-  const allowedWs = workspaces.some((w) => w.id === workspaceId);
-  if (!workspaceId || !allowedWs) return { ok: false, error: 'invalid_workspace' };
+  const allowedWs =
+    resolvedWorkspaceId &&
+    (workspaces.some((w) => w.id === resolvedWorkspaceId) ||
+      resolvedWorkspaceId === String(iamUser?.workspace_id || '').trim() ||
+      resolvedWorkspaceId === String(env.WORKSPACE_ID || '').trim());
+  if (!resolvedWorkspaceId || !allowedWs) return { ok: false, error: 'invalid_workspace' };
+  const workspaceIdFinal = resolvedWorkspaceId;
 
   const codePlain = mcpOAuthRandomToken('mcp_code', 24);
   const codeHash = await mcpOAuthSha256Hex(codePlain);
@@ -265,7 +287,7 @@ export async function approveIamMcpAuthorization(env, authorizationId, iamUser, 
             updated_at = unixepoch()
       WHERE id = ?`,
   )
-    .bind(workspaceId, codeHash, authorizationId)
+    .bind(workspaceIdFinal, codeHash, authorizationId)
     .run();
 
   await env.DB.prepare(

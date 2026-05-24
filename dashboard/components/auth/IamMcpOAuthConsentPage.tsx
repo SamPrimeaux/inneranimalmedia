@@ -56,6 +56,8 @@ interface ConsentData {
   client: OAuthClient;
   scopes: ScopeInfo[];
   workspaces: Workspace[];
+  default_workspace_id?: string | null;
+  signed_in_email?: string | null;
   expires_at: number;
   status: "pending" | "approved" | "denied" | "expired";
 }
@@ -63,7 +65,7 @@ interface ConsentData {
 type ConsentState =
   | { phase: "loading" }
   | { phase: "ready"; data: ConsentData }
-  | { phase: "submitting" }
+  | { phase: "submitting"; data: ConsentData }
   | { phase: "success" }
   | { phase: "denied" }
   | { phase: "error"; message: string };
@@ -79,8 +81,8 @@ const SCOPE_META: Record<string, Omit<ScopeInfo, "scope">> = {
     sensitive: false,
   },
   "iam:workspaces": {
-    label: "Workspaces",
-    description: "List and read workspaces you have access to.",
+    label: "Account access",
+    description: "Use your account within your assigned workspace.",
     sensitive: false,
   },
   "iam:agent": {
@@ -109,6 +111,24 @@ function enrichScopes(rawScopes: string[]): ScopeInfo[] {
       sensitive: false,
     }),
   }));
+}
+
+/** Hide workspace enumeration on external client consent — workspace is auto-bound server-side. */
+function scopesForDisplay(scopes: ScopeInfo[]): ScopeInfo[] {
+  return scopes.filter((s) => s.scope !== "iam:workspaces");
+}
+
+function pickDefaultWorkspace(data: ConsentData): string {
+  return (
+    data.default_workspace_id ||
+    data.workspaces[0]?.id ||
+    ""
+  );
+}
+
+function workspaceDisplayName(data: ConsentData, workspaceId: string): string {
+  const ws = data.workspaces.find((w) => w.id === workspaceId);
+  return ws?.name || "your workspace";
 }
 
 // ---------------------------------------------------------------------------
@@ -199,57 +219,6 @@ function ScopePill({ scope }: { scope: ScopeInfo }) {
         <span className="scope-desc">{scope.description}</span>
       </div>
     </li>
-  );
-}
-
-function WorkspacePicker({
-  workspaces,
-  selected,
-  onChange,
-}: {
-  workspaces: Workspace[];
-  selected: string;
-  onChange: (id: string) => void;
-}) {
-  return (
-    <div className="workspace-picker">
-      <label className="field-label" htmlFor="workspace-select">
-        Connect as workspace
-      </label>
-      <div className="select-wrapper">
-        <select
-          id="workspace-select"
-          value={selected}
-          onChange={(e) => onChange(e.target.value)}
-          className="workspace-select"
-        >
-          <option value="" disabled>
-            Choose a workspace…
-          </option>
-          {workspaces.map((ws) => (
-            <option key={ws.id} value={ws.id}>
-              {ws.name}
-            </option>
-          ))}
-        </select>
-        <ChevronIcon />
-      </div>
-    </div>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      className="select-chevron"
-      aria-hidden="true"
-    >
-      <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
@@ -365,11 +334,16 @@ export default function IamMcpOAuthConsentPage({
           setState({ phase: "error", message: "expired" });
           return;
         }
-        setState({ phase: "ready", data });
-        // Pre-select first workspace if only one
-        if (data.workspaces.length === 1) {
-          setSelectedWorkspace(data.workspaces[0].id);
+        const defaultWs = pickDefaultWorkspace(data);
+        if (!defaultWs) {
+          setState({
+            phase: "error",
+            message: "No workspace is available for this account. Contact your administrator.",
+          });
+          return;
         }
+        setSelectedWorkspace(defaultWs);
+        setState({ phase: "ready", data });
       })
       .catch((err: Error) => {
         if (!cancelled) setState({ phase: "error", message: err.message });
@@ -379,8 +353,9 @@ export default function IamMcpOAuthConsentPage({
 
   // ── Actions ──────────────────────────────────────────────────────────────
   const handleApprove = useCallback(async () => {
-    if (!authorizationId || !selectedWorkspace) return;
-    setState({ phase: "submitting" });
+    if (!authorizationId || !selectedWorkspace || state.phase !== "ready") return;
+    const frozen = state.data;
+    setState({ phase: "submitting", data: frozen });
     try {
       const result = await submitConsent(authorizationId, selectedWorkspace, "approve");
       if (result.redirect_url) {
@@ -391,18 +366,19 @@ export default function IamMcpOAuthConsentPage({
     } catch (err: any) {
       setState({ phase: "error", message: err.message });
     }
-  }, [authorizationId, selectedWorkspace]);
+  }, [authorizationId, selectedWorkspace, state]);
 
   const handleDeny = useCallback(async () => {
-    if (!authorizationId) return;
-    setState({ phase: "submitting" });
+    if (!authorizationId || state.phase !== "ready") return;
+    const frozen = state.data;
+    setState({ phase: "submitting", data: frozen });
     try {
       await submitConsent(authorizationId, selectedWorkspace || "_denied", "deny");
       setState({ phase: "denied" });
     } catch {
       setState({ phase: "denied" }); // best-effort — always show denied
     }
-  }, [authorizationId, selectedWorkspace]);
+  }, [authorizationId, selectedWorkspace, state]);
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -410,7 +386,6 @@ export default function IamMcpOAuthConsentPage({
       <style>{STYLES}</style>
       <div className="consent-root">
         <div className="consent-card">
-          {/* Header — IAM wordmark always visible */}
           <header className="consent-header">
             <div className="iam-brand">
               <IamShield className="iam-shield" />
@@ -418,7 +393,6 @@ export default function IamMcpOAuthConsentPage({
             </div>
           </header>
 
-          {/* Body */}
           <main className="consent-body">
             {state.phase === "loading" && <LoadingScreen />}
             {state.phase === "error" && (
@@ -431,17 +405,15 @@ export default function IamMcpOAuthConsentPage({
             {state.phase === "denied" && <DeniedScreen />}
 
             {(state.phase === "ready" || state.phase === "submitting") && (() => {
-              const data = state.phase === "ready" ? state.data : (state as any)._data as ConsentData;
-              // When submitting we freeze the last-known data — grab from previous ready state
-              // (handled by keeping data in scope via closure in transition)
-              if (!data) return <LoadingScreen />;
+              const data = state.data;
 
               const isSubmitting = state.phase === "submitting";
-              const canApprove = !!selectedWorkspace && !isSubmitting;
+              const displayScopes = scopesForDisplay(data.scopes);
+              const wsName = workspaceDisplayName(data, selectedWorkspace);
+              const signedIn = data.signed_in_email || "";
 
               return (
                 <div className="consent-main">
-                  {/* Client identity */}
                   <div className="client-block">
                     <div className="client-logo">
                       {data.client.logo_url ? (
@@ -466,54 +438,51 @@ export default function IamMcpOAuthConsentPage({
                   </div>
 
                   <p className="consent-headline">
-                    This application is requesting access to your Inner Animal Media account.
+                    <strong>{data.client.display_name}</strong> wants to access your{" "}
+                    <strong>Inner Animal Media</strong> account
+                    {signedIn ? (
+                      <>
+                        {" "}
+                        as <strong>{signedIn}</strong>
+                      </>
+                    ) : null}
+                    .
                   </p>
 
-                  {/* Scopes */}
-                  <section className="scopes-section">
-                    <h2 className="section-label">Requested permissions</h2>
+                  <p className="consent-subline">
+                    Access will be scoped to <strong>{wsName}</strong>.
+                  </p>
+
+                  <section className="scopes-section" aria-labelledby="scopes-heading">
+                    <h2 id="scopes-heading" className="section-label">
+                      This will allow it to
+                    </h2>
                     <ul className="scope-list">
-                      {data.scopes.map((s) => (
+                      {displayScopes.map((s) => (
                         <ScopePill key={s.scope} scope={s} />
                       ))}
                     </ul>
                   </section>
 
-                  {/* Workspace picker */}
-                  {data.workspaces.length > 0 && (
-                    <WorkspacePicker
-                      workspaces={data.workspaces}
-                      selected={selectedWorkspace}
-                      onChange={setSelectedWorkspace}
-                    />
-                  )}
-
-                  {/* Actions */}
-                  <div className="action-row">
+                  <div className="action-stack">
                     <button
+                      type="button"
                       className={cn("btn btn--approve", isSubmitting && "btn--loading")}
                       onClick={handleApprove}
-                      disabled={!canApprove}
+                      disabled={isSubmitting}
                       aria-busy={isSubmitting}
                     >
-                      {isSubmitting ? (
-                        <span className="btn-spinner" />
-                      ) : (
-                        "Authorize"
-                      )}
+                      {isSubmitting ? <span className="btn-spinner" /> : "Authorize"}
                     </button>
                     <button
-                      className="btn btn--deny"
+                      type="button"
+                      className="btn btn--cancel-link"
                       onClick={handleDeny}
                       disabled={isSubmitting}
                     >
-                      Deny
+                      Cancel
                     </button>
                   </div>
-
-                  {!selectedWorkspace && (
-                    <p className="validation-hint">Select a workspace to continue.</p>
-                  )}
                 </div>
               );
             })()}
@@ -542,134 +511,127 @@ export function IamMcpOAuthConsentPageStateful(props: IamMcpOAuthConsentPageProp
 }
 
 // ---------------------------------------------------------------------------
-// Styles — CSS vars only, dark-native, no hardcoded hex
+// Styles — light OAuth consent (GitHub-style)
 // ---------------------------------------------------------------------------
 
 const STYLES = `
   .consent-root {
-    --c-bg: #0d0e11;
-    --c-surface: #13151a;
-    --c-border: rgba(255,255,255,0.07);
-    --c-border-subtle: rgba(255,255,255,0.04);
-    --c-text: #e8eaf0;
-    --c-muted: rgba(232,234,240,0.45);
-    --c-accent: #5b8fff;
-    --c-accent-hover: #7aaeff;
-    --c-approve-bg: #5b8fff;
+    --c-bg: #f6f8fa;
+    --c-surface: #ffffff;
+    --c-border: #d0d7de;
+    --c-border-subtle: #eaeef2;
+    --c-text: #1f2328;
+    --c-muted: #656d76;
+    --c-accent: #0969da;
+    --c-accent-hover: #0550ae;
+    --c-approve-bg: #2da44e;
+    --c-approve-hover: #2c974b;
     --c-approve-text: #ffffff;
-    --c-deny-bg: transparent;
-    --c-deny-text: var(--c-muted);
-    --c-deny-border: var(--c-border);
-    --c-dot: rgba(232,234,240,0.25);
-    --c-dot-sensitive: #ff6b6b;
-    --c-success: #4ade80;
-    --c-error: #f87171;
-    --c-neutral: var(--c-muted);
-    --r-card: 16px;
-    --r-btn: 9px;
-    --r-pill: 6px;
-    --shadow-card: 0 0 0 1px var(--c-border), 0 24px 64px rgba(0,0,0,0.55);
-    --font-sans: 'DM Sans', system-ui, sans-serif;
-    --font-mono: 'DM Mono', 'Fira Code', monospace;
+    --c-dot: #0969da;
+    --c-dot-sensitive: #bc4c00;
+    --c-success: #1a7f37;
+    --c-error: #cf222e;
+    --r-card: 12px;
+    --r-btn: 6px;
+    --shadow-card: 0 1px 3px rgba(31,35,40,0.12), 0 8px 24px rgba(31,35,40,0.08);
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
 
     min-height: 100dvh;
     display: flex;
     align-items: center;
     justify-content: center;
     background: var(--c-bg);
-    padding: 24px 16px;
+    padding: 32px 16px;
     font-family: var(--font-sans);
     color: var(--c-text);
     -webkit-font-smoothing: antialiased;
   }
 
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
-
   .consent-card {
     width: 100%;
-    max-width: 440px;
+    max-width: 400px;
     background: var(--c-surface);
+    border: 1px solid var(--c-border);
     border-radius: var(--r-card);
     box-shadow: var(--shadow-card);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    animation: card-in 0.3s cubic-bezier(0.16,1,0.3,1) both;
+    animation: card-in 0.25s ease-out both;
   }
 
   @keyframes card-in {
-    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: none; }
   }
 
-  /* ── Header ── */
   .consent-header {
-    padding: 20px 24px 16px;
+    padding: 16px 24px;
     border-bottom: 1px solid var(--c-border-subtle);
+    background: #fafbfc;
   }
 
   .iam-brand {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 8px;
   }
 
   .iam-shield {
-    width: 22px;
-    height: 26px;
+    width: 20px;
+    height: 24px;
     color: var(--c-accent);
     flex-shrink: 0;
   }
 
   .iam-name {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--c-muted);
-    letter-spacing: 0.01em;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
   }
 
-  /* ── Body ── */
   .consent-body {
-    padding: 28px 24px 20px;
+    padding: 24px;
     flex: 1;
   }
 
-  /* ── State screens (loading / success / error / denied) ── */
   .state-screen {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    padding: 12px 0 8px;
+    padding: 16px 0;
     text-align: center;
   }
 
   .state-icon {
-    width: 52px;
-    height: 52px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 4px;
   }
 
-  .state-icon--success { background: rgba(74,222,128,0.1); color: var(--c-success); }
-  .state-icon--error   { background: rgba(248,113,113,0.1); color: var(--c-error); }
-  .state-icon--neutral { background: rgba(232,234,240,0.07); color: var(--c-muted); }
+  .state-icon--success { background: #dafbe1; color: var(--c-success); }
+  .state-icon--error   { background: #ffebe9; color: var(--c-error); }
+  .state-icon--neutral { background: #f6f8fa; color: var(--c-muted); }
 
   .state-title {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 600;
     margin: 0;
+    color: var(--c-text);
   }
 
   .state-body {
     font-size: 14px;
     color: var(--c-muted);
     margin: 0;
-    line-height: 1.55;
-    max-width: 300px;
+    line-height: 1.5;
+    max-width: 320px;
   }
 
   .loading-label {
@@ -677,11 +639,10 @@ const STYLES = `
   }
 
   @keyframes pulse-opacity {
-    0%, 100% { opacity: 0.4; }
-    50%       { opacity: 0.85; }
+    0%, 100% { opacity: 0.45; }
+    50%       { opacity: 1; }
   }
 
-  /* Spinner */
   .spinner {
     width: 28px;
     height: 28px;
@@ -693,25 +654,24 @@ const STYLES = `
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── Main consent form ── */
   .consent-main {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
   }
 
-  /* Client block */
   .client-block {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
+    padding-bottom: 4px;
   }
 
   .client-logo {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    background: rgba(91,143,255,0.08);
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background: #f6f8fa;
     border: 1px solid var(--c-border);
     display: flex;
     align-items: center;
@@ -727,57 +687,63 @@ const STYLES = `
   }
 
   .client-logo-fallback {
-    width: 22px;
-    height: 26px;
+    width: 20px;
+    height: 24px;
     color: var(--c-accent);
   }
 
   .client-meta {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
+    min-width: 0;
   }
 
   .client-name {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
     margin: 0;
-    line-height: 1.2;
+    line-height: 1.3;
+    color: var(--c-text);
   }
 
   .client-url {
     font-size: 12px;
     color: var(--c-muted);
     text-decoration: none;
-    font-family: var(--font-mono);
-    letter-spacing: -0.01em;
-    transition: color 0.15s;
   }
-  .client-url:hover { color: var(--c-accent); }
+  .client-url:hover { color: var(--c-accent); text-decoration: underline; }
 
-  /* Headline */
   .consent-headline {
-    font-size: 14px;
-    color: var(--c-muted);
+    font-size: 15px;
+    color: var(--c-text);
     margin: 0;
-    line-height: 1.5;
+    line-height: 1.45;
   }
 
-  /* Scopes */
+  .consent-headline strong {
+    font-weight: 600;
+  }
+
+  .consent-subline {
+    font-size: 13px;
+    color: var(--c-muted);
+    margin: -8px 0 0;
+    line-height: 1.45;
+  }
+
   .scopes-section {
-    background: rgba(255,255,255,0.025);
-    border: 1px solid var(--c-border);
-    border-radius: var(--r-pill);
-    padding: 14px 16px;
+    border-top: 1px solid var(--c-border-subtle);
+    padding-top: 16px;
   }
 
   .section-label {
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--c-muted);
-    margin: 0 0 10px;
+    color: var(--c-text);
+    margin: 0 0 12px;
+    text-transform: none;
+    letter-spacing: normal;
   }
 
   .scope-list {
@@ -786,7 +752,7 @@ const STYLES = `
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
   }
 
   .scope-item {
@@ -796,193 +762,121 @@ const STYLES = `
   }
 
   .scope-dot {
-    width: 7px;
-    height: 7px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--c-dot);
     flex-shrink: 0;
-    margin-top: 5px;
+    margin-top: 6px;
   }
 
   .scope-dot--sensitive {
     background: var(--c-dot-sensitive);
-    box-shadow: 0 0 6px rgba(255,107,107,0.4);
   }
 
   .scope-content {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
   }
 
   .scope-label {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--c-text);
   }
 
   .scope-desc {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--c-muted);
     line-height: 1.4;
   }
 
-  /* Workspace picker */
-  .workspace-picker {
+  .action-stack {
     display: flex;
     flex-direction: column;
-    gap: 7px;
-  }
-
-  .field-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--c-muted);
-    letter-spacing: 0.02em;
-  }
-
-  .select-wrapper {
-    position: relative;
-  }
-
-  .workspace-select {
-    width: 100%;
-    appearance: none;
-    -webkit-appearance: none;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--c-border);
-    border-radius: var(--r-pill);
-    padding: 10px 36px 10px 12px;
-    font-size: 14px;
-    font-family: var(--font-sans);
-    color: var(--c-text);
-    cursor: pointer;
-    transition: border-color 0.15s;
-    outline: none;
-  }
-
-  .workspace-select:focus {
-    border-color: var(--c-accent);
-    box-shadow: 0 0 0 3px rgba(91,143,255,0.15);
-  }
-
-  .workspace-select option {
-    background: #1a1d24;
-    color: var(--c-text);
-  }
-
-  .select-chevron {
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--c-muted);
-    pointer-events: none;
-  }
-
-  /* Actions */
-  .action-row {
-    display: flex;
-    gap: 10px;
+    gap: 8px;
+    padding-top: 4px;
   }
 
   .btn {
-    flex: 1;
-    padding: 11px 20px;
+    width: 100%;
+    padding: 10px 16px;
     border-radius: var(--r-btn);
     font-size: 14px;
     font-weight: 600;
     font-family: var(--font-sans);
     cursor: pointer;
-    border: none;
+    border: 1px solid transparent;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    transition: opacity 0.15s, transform 0.1s, background 0.15s, box-shadow 0.15s;
+    transition: background 0.12s, border-color 0.12s, opacity 0.12s;
     outline: none;
   }
 
-  .btn:active { transform: scale(0.98); }
-
   .btn:disabled {
-    opacity: 0.4;
+    opacity: 0.65;
     cursor: not-allowed;
-    transform: none;
   }
 
   .btn--approve {
     background: var(--c-approve-bg);
     color: var(--c-approve-text);
-    flex: 2;
-    box-shadow: 0 4px 16px rgba(91,143,255,0.25);
+    border-color: rgba(27,31,36,0.15);
   }
 
   .btn--approve:hover:not(:disabled) {
-    background: var(--c-accent-hover);
-    box-shadow: 0 4px 20px rgba(91,143,255,0.4);
+    background: var(--c-approve-hover);
   }
 
-  .btn--deny {
-    background: var(--c-deny-bg);
-    color: var(--c-deny-text);
-    border: 1px solid var(--c-deny-border);
+  .btn--cancel-link {
+    background: transparent;
+    color: var(--c-muted);
+    border: none;
+    font-weight: 500;
+    padding: 8px;
   }
 
-  .btn--deny:hover:not(:disabled) {
-    background: rgba(248,113,113,0.06);
-    color: var(--c-error);
-    border-color: rgba(248,113,113,0.3);
+  .btn--cancel-link:hover:not(:disabled) {
+    color: var(--c-text);
+    text-decoration: underline;
   }
 
   .btn--ghost {
-    background: transparent;
-    color: var(--c-accent);
+    background: var(--c-surface);
+    color: var(--c-text);
     border: 1px solid var(--c-border);
-    flex: none;
+    width: auto;
     margin-top: 8px;
   }
 
-  .btn--ghost:hover { background: rgba(91,143,255,0.08); }
+  .btn--ghost:hover {
+    background: #f6f8fa;
+    border-color: #8c959f;
+  }
 
   .btn-spinner {
     width: 16px;
     height: 16px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: white;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: #fff;
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
-    display: inline-block;
   }
 
-  .validation-hint {
+  .consent-footer {
+    padding: 12px 24px 16px;
+    border-top: 1px solid var(--c-border-subtle);
     font-size: 12px;
     color: var(--c-muted);
     text-align: center;
-    margin: -8px 0 0;
-    animation: fade-in 0.2s ease;
+    background: #fafbfc;
   }
 
-  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-
-  /* Footer */
-  .consent-footer {
-    padding: 14px 24px;
-    border-top: 1px solid var(--c-border-subtle);
-    font-size: 11px;
-    color: rgba(232,234,240,0.25);
-    text-align: center;
-    font-family: var(--font-mono);
-  }
-
-  /* Mobile */
   @media (max-width: 480px) {
-    .consent-root { padding: 0; align-items: flex-end; }
-    .consent-card {
-      max-width: 100%;
-      border-radius: 20px 20px 0 0;
-      min-height: 60dvh;
-      box-shadow: 0 -8px 40px rgba(0,0,0,0.6);
-    }
+    .consent-root { padding: 16px 12px; }
+    .consent-card { max-width: 100%; }
+    .consent-body { padding: 20px 18px; }
   }
 `;
