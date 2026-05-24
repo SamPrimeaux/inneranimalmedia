@@ -729,7 +729,7 @@ export async function getAuthUser(request, env) {
  * @param {*} env
  * @param {object} row
  */
-async function insertAuthSessionRow(env, row) {
+async function prepareInsertAuthSessionRow(env, row) {
   const email = String(row.email || '').trim();
   if (!email) throw new Error('auth_sessions.email required');
 
@@ -791,11 +791,14 @@ async function insertAuthSessionRow(env, row) {
     binds.splice(4, 0, row.supabaseUserId ?? null);
   }
 
-  await env.DB.prepare(
+  return env.DB.prepare(
     `INSERT INTO auth_sessions (${colNames.join(', ')}) VALUES (${valueExprs.join(', ')})`,
-  )
-    .bind(...binds)
-    .run();
+  ).bind(...binds);
+}
+
+async function insertAuthSessionRow(env, row) {
+  const stmt = await prepareInsertAuthSessionRow(env, row);
+  await stmt.run();
 }
 
 export async function establishIamSession(request, env, userId, bodyObj = { ok: true }, sessionProvider = 'iam') {
@@ -930,7 +933,7 @@ export async function createLoginSession(request, env, userId, sessionProvider =
   });
   sessionFields.workspaceId = resolvedWorkspaceId ?? sessionFields.workspaceId;
 
-  await insertAuthSessionRow(env, {
+  const insertStmt = await prepareInsertAuthSessionRow(env, {
     sessionId,
     userId,
     tenantId: sessionFields.tenantId,
@@ -946,6 +949,13 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     ua,
     expiresAtIso,
   });
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
+    ).bind(userId),
+    insertStmt,
+  ]);
 
   if (sessionFields.workspaceId) {
     try {
