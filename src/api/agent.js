@@ -91,6 +91,7 @@ import { notifySam }                                    from '../core/notificati
 import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
 import { runBuiltinTool, normalizeToolName } from '../tools/ai-dispatch.js';
+import { dispatchByToolCode } from '../core/dispatch-by-tool-code.js';
 import {
   isImageGenerationTool,
   isPrimaryImageGenerationIntent,
@@ -2037,7 +2038,28 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
       input?.conversationId ??
       null,
   };
-  let out = await runBuiltinTool(env, toolName, params, context);
+  let out = null;
+  const catalogRow = env?.DB
+    ? await env.DB.prepare(
+        `SELECT tool_key FROM agentsam_tools
+         WHERE COALESCE(is_active, 1) = 1
+           AND (tool_key = ? OR tool_code = ? OR tool_name = ?)
+           AND json_extract(handler_config, '$.auth_source') IS NOT NULL
+         LIMIT 1`,
+      )
+        .bind(toolName, toolName, toolName)
+        .first()
+        .catch(() => null)
+    : null;
+  if (catalogRow?.tool_key) {
+    const catalogOut = await dispatchByToolCode(env, toolName, params, context);
+    out =
+      catalogOut?.ok === false
+        ? { error: catalogOut.error ?? 'dispatch_failed' }
+        : catalogOut?.result ?? catalogOut;
+  } else {
+    out = await runBuiltinTool(env, toolName, params, context);
+  }
   if (out && typeof out === 'object' && out.error) {
     const errStr = typeof out.error === 'string' ? out.error : JSON.stringify(out.error);
     const looksUnknown =

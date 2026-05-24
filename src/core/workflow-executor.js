@@ -203,15 +203,20 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
         return stepMod.agentChatStep(env, { handler_key: handlerKey, input, runContext, node, config });
       }
       if (config.tool_key) {
-        const { runBuiltinTool } = await import('../tools/ai-dispatch.js');
-        const toolRes = await runBuiltinTool(
+        const { dispatchByToolCode } = await import('./dispatch-by-tool-code.js');
+        const toolRes = await dispatchByToolCode(
           env,
           config.tool_key,
           { ...buildWorkflowParamRoot(input, runContext), ...(config.input_map || {}) },
-          runContext,
+          {
+            ...runContext,
+            workspaceId: runContext?.runMeta?.workspaceId ?? runContext?.workspace_id,
+            tenantId: runContext?.runMeta?.tenantId ?? runContext?.tenant_id,
+            userId: runContext?.canonicalUserId ?? runContext?.runMeta?.userId,
+          },
         );
         if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
-        return { ok: true, output: toolRes };
+        return { ok: toolRes?.ok !== false, output: toolRes?.result ?? toolRes };
       }
       return { ok: false, error: `builtin_tool not registered in agent-step.js: ${handlerKey}` };
     }

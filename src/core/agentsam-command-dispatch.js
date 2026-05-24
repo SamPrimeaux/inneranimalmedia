@@ -1,7 +1,7 @@
 /**
  * Single dispatcher for agentsam_commands rows. Called by executeCommand after approval.
  */
-import { runBuiltinTool } from '../tools/ai-dispatch.js';
+import { dispatchByToolCode } from './dispatch-by-tool-code.js';
 import { executeWorkflowGraph } from './workflow-executor.js';
 
 /**
@@ -33,12 +33,8 @@ export async function dispatchAgentsamCommand(env, cmdRow, args = {}, runContext
       if (!toolKey) {
         throw new Error(`[dispatch] command ${slug} has router_type=tool but no tool_key`);
       }
-      return runBuiltinTool(
-        env,
-        toolKey,
-        { command: rendered, args, ...(typeof args === 'object' && args ? args : {}) },
-        runContext,
-      );
+      const mergedArgs = { command: rendered, args, ...(typeof args === 'object' && args ? args : {}) };
+      return dispatchByToolCode(env, toolKey, mergedArgs, runContext);
     }
     case 'workflow': {
       if (!workflowKey) {
