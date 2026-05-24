@@ -5,6 +5,7 @@
 **For:** Frontend / MCP-worker agent (not the IAM backend agent)  
 **Goal:** End-to-end OAuth login for MCP (`mcp.inneranimalmedia.com`) via IAM provider (`inneranimalmedia.com`)  
 **D1 truth doc:** `docs/auth/IAM_OAUTH_PROVIDER_EXECUTION_PLAN.md`  
+**External clients (ChatGPT, Claude.ai):** `docs/auth/EXTERNAL_AI_MCP_OAUTH_INSTRUCTIONS.md`  
 **Repos:** `SamPrimeaux/inneranimalmedia` @ `6e5f78d+`, `SamPrimeaux/inneranimalmedia-mcp-server` @ `d2aa6ed+`
 
 ---
