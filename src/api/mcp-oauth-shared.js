@@ -115,6 +115,7 @@ export const MCP_OAUTH_REGISTERED_REDIRECT_URIS = [
   'https://claude.com/api/mcp/auth_callback',
   'https://chatgpt.com/connector_platform_oauth_redirect',
   'https://chat.openai.com/connector_platform_oauth_redirect',
+  'https://chatgpt.com/connector/oauth/Fp4-o8x6PZh_',
 ];
 
 export function mcpOAuthValidateRedirectUri(raw, client, env) {
