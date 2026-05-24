@@ -24,6 +24,35 @@ import { handlers as githubWorkerHandlers } from './builtin/github-worker.js';
 import { handlers as memoryHandlers, MEMORY_TOOL_SCHEMAS } from './memory.js';
 
 
+/** Merge agent/workflow run ids from tool loop context into browser tool params. */
+function mergeBrowserRunContext(params, runContext) {
+    const base = params && typeof params === 'object' ? { ...params } : {};
+    if (!runContext || typeof runContext !== 'object') return base;
+    return {
+        ...base,
+        agent_run_id:
+            base.agent_run_id ??
+            base.agentRunId ??
+            runContext.agent_run_id ??
+            runContext.agentRunId ??
+            null,
+        workflow_run_id:
+            base.workflow_run_id ??
+            base.workflowRunId ??
+            runContext.workflow_run_id ??
+            runContext.workflowRunId ??
+            null,
+        run_id: base.run_id ?? base.runId ?? runContext.run_id ?? runContext.runId ?? null,
+        conversation_id:
+            base.conversation_id ??
+            base.conversationId ??
+            runContext.conversation_id ??
+            runContext.conversationId ??
+            runContext.sessionId ??
+            null,
+    };
+}
+
 export function normalizeToolName(toolName) {
     const n = String(toolName || '').trim();
     const aliases = {
@@ -93,7 +122,10 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName === 'playwright_screenshot':
         case toolName === 'preview_in_browser':
         case toolName === 'web_search':
-            if (webHandlers[toolName]) return await webHandlers[toolName](params, env);
+            {
+                const browserParams = mergeBrowserRunContext(params, runContext);
+                if (webHandlers[toolName]) return await webHandlers[toolName](browserParams, env);
+            }
             return { error: `Unknown browser tool: ${toolName}` };
 
         // ── CATEGORY: media / ui (13 Tools) ──────────────────────────────

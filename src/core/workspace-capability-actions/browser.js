@@ -93,7 +93,14 @@ export async function runBrowserCapabilityAction(p) {
 
   const registry = await loadAvailableToolsForCapability(env, tenantId, workspaceId, userId, 'browser');
   const session = { user_id: userId, workspace_id: workspaceId, workspaceId };
-  const baseParams = { url, user_id: userId, workspace_id: workspaceId, session };
+  const baseParams = {
+    url,
+    user_id: userId,
+    workspace_id: workspaceId,
+    session,
+    agent_run_id: runId,
+    ...(workflowKey ? { workflow_run_id: runId } : {}),
+  };
 
   const navigateName = pickTool(registry, ['browser_navigate', 'cdt_navigate_page']);
   const contentName = pickTool(registry, ['browser_content']);

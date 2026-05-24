@@ -1,8 +1,14 @@
 /**
  * In-worker browser tools via Cloudflare Browser Rendering (MYBROWSER + @cloudflare/playwright).
- * Replaces /api/mcp/invoke hop for cdt_* / browser_* agent and dashboard paths.
+ * Run-scoped sessions: acquire once per agent_run_id / workflow_run_id, connect per tool call.
  */
 import { putAgentBrowserScreenshotToR2 } from '../core/r2.js';
+import {
+  resolveBrowserRunScopeId,
+  getStoredBrowserSession,
+  saveBrowserSession,
+  closeBrowserRunSession,
+} from './browser-session.js';
 
 const SCREENSHOT_TOOLS = new Set([
   'cdt_take_screenshot',
@@ -12,6 +18,9 @@ const SCREENSHOT_TOOLS = new Set([
 
 const GOTO_WAIT = 'domcontentloaded';
 const GOTO_TIMEOUT_MS = 45_000;
+
+/** Tools that must not reuse an existing page URL (always load target). */
+const FORCE_GOTO_TOOLS = new Set(['browser_navigate', 'cdt_navigate_page']);
 
 /**
  * @param {Record<string, unknown>} params
@@ -28,6 +37,16 @@ export function resolveBrowserToolUrl(params) {
   if (/^https?:\/\//i.test(u)) return u;
   if (u.startsWith('//')) return `https:${u}`;
   return `https://${u.replace(/^\/+/, '')}`;
+}
+
+function normalizeUrlCompare(u) {
+  try {
+    const x = new URL(u);
+    x.hash = '';
+    return x.href.replace(/\/$/, '');
+  } catch {
+    return String(u || '').trim().replace(/\/$/, '');
+  }
 }
 
 /**
@@ -62,6 +81,26 @@ async function gotoPage(page, url) {
 
 /**
  * @param {import('@cloudflare/playwright').Page} page
+ * @param {string} [targetUrl]
+ * @param {{ force?: boolean }} [opts]
+ */
+async function ensurePageUrl(page, targetUrl, opts = {}) {
+  if (!targetUrl) return;
+  const current = page.url() || '';
+  const force = opts.force === true;
+  if (
+    !force &&
+    current &&
+    current !== 'about:blank' &&
+    normalizeUrlCompare(current) === normalizeUrlCompare(targetUrl)
+  ) {
+    return;
+  }
+  await gotoPage(page, targetUrl);
+}
+
+/**
+ * @param {import('@cloudflare/playwright').Page} page
  * @param {number} [maxChars]
  */
 async function extractPageText(page, maxChars = 120_000) {
@@ -89,6 +128,66 @@ async function captureViewportScreenshot(env, page, opts = {}) {
 }
 
 /**
+ * @param {import('@cloudflare/playwright').Browser} browser
+ */
+async function getActivePage(browser) {
+  const contexts = browser.contexts?.() ?? [];
+  for (const ctx of contexts) {
+    const pages = ctx.pages?.() ?? [];
+    if (pages.length) return pages[0];
+  }
+  return browser.newPage();
+}
+
+/**
+ * @param {import('@cloudflare/playwright').Page} page
+ */
+function attachPageTelemetry(page, consoleMessages, networkRequests, networkByUrl) {
+  page.on('console', (msg) => {
+    try {
+      consoleMessages.push({ type: String(msg.type()), text: String(msg.text()) });
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  page.on('request', (req) => {
+    try {
+      const entry = {
+        url: req.url(),
+        method: req.method(),
+        resourceType: req.resourceType(),
+      };
+      networkByUrl.set(req.url(), entry);
+      networkRequests.push(entry);
+    } catch {
+      /* non-fatal */
+    }
+  });
+
+  page.on('response', async (res) => {
+    try {
+      const req = res.request();
+      const key = req.url();
+      const entry = networkByUrl.get(key) || {
+        url: key,
+        method: req.method(),
+        resourceType: req.resourceType(),
+      };
+      entry.status = res.status();
+      entry.response = {
+        status: res.status(),
+        statusText: res.statusText(),
+        headers: await res.allHeaders().catch(() => ({})),
+      };
+      networkByUrl.set(key, entry);
+    } catch {
+      /* non-fatal */
+    }
+  });
+}
+
+/**
  * @param {any} env
  * @param {Record<string, unknown>} params
  * @param {(ctx: {
@@ -96,9 +195,11 @@ async function captureViewportScreenshot(env, page, opts = {}) {
  *   url: string,
  *   consoleMessages: Array<{ type: string, text: string }>,
  *   networkRequests: Array<Record<string, unknown>>,
+ *   browserSession?: Record<string, unknown>|null,
  * }) => Promise<unknown>} fn
+ * @param {{ toolName?: string, persistSession?: boolean }} [opts]
  */
-export async function withBrowserPage(env, params, fn) {
+export async function withBrowserPage(env, params, fn, opts = {}) {
   if (!env.MYBROWSER) {
     return {
       error: 'MYBROWSER binding not configured',
@@ -106,73 +207,105 @@ export async function withBrowserPage(env, params, fn) {
     };
   }
 
-  const url = resolveBrowserToolUrl(params);
-  if (!url) return { error: 'url required' };
+  const targetUrl = resolveBrowserToolUrl(params);
+  const toolName = String(opts.toolName || '').trim();
+  const scopeId = resolveBrowserRunScopeId(params);
+  const persistSession =
+    opts.persistSession !== false && Boolean(scopeId) && sessionKv(env);
 
   const consoleMessages = [];
   const networkRequests = [];
   const networkByUrl = new Map();
 
-  const { launch } = await import('@cloudflare/playwright');
-  const browser = await launch(env.MYBROWSER);
+  const pw = await import('@cloudflare/playwright');
+  const canReuse = persistSession && typeof pw.acquire === 'function' && typeof pw.connect === 'function';
+
+  let browser = null;
+  let sessionId = null;
+  let sessionReused = false;
+  let sessionMeta = null;
+
   try {
-    const page = await browser.newPage();
-
-    page.on('console', (msg) => {
-      try {
-        consoleMessages.push({ type: String(msg.type()), text: String(msg.text()) });
-      } catch (_) {
-        /* non-fatal */
+    if (canReuse) {
+      sessionMeta = await getStoredBrowserSession(env, scopeId);
+      if (sessionMeta?.sessionId) {
+        try {
+          browser = await pw.connect(env.MYBROWSER, String(sessionMeta.sessionId));
+          sessionId = String(sessionMeta.sessionId);
+          sessionReused = true;
+        } catch (e) {
+          console.warn('[browser-cdp] connect to stored session failed', String(e?.message || e));
+          sessionMeta = null;
+        }
       }
+      if (!browser) {
+        const acquired = await pw.acquire(env.MYBROWSER, { keep_alive: 120_000 });
+        sessionId = String(acquired.sessionId);
+        browser = await pw.connect(env.MYBROWSER, sessionId);
+        sessionReused = false;
+      }
+    } else {
+      browser = await pw.launch(env.MYBROWSER);
+      sessionId = browser.sessionId?.() ?? null;
+    }
+
+    const page = await getActivePage(browser);
+    attachPageTelemetry(page, consoleMessages, networkRequests, networkByUrl);
+
+    const forceGoto =
+      FORCE_GOTO_TOOLS.has(toolName) || params.force_goto === true || params.forceGoto === true;
+    if (targetUrl) {
+      await ensurePageUrl(page, targetUrl, { force: forceGoto });
+    }
+
+    const effectiveUrl = page.url() || targetUrl || '';
+    const browserSession =
+      scopeId && sessionId
+        ? {
+            scope_id: scopeId,
+            session_id: sessionId,
+            reused: sessionReused,
+          }
+        : null;
+
+    const result = await fn({
+      page,
+      url: effectiveUrl,
+      consoleMessages,
+      networkRequests,
+      browserSession,
     });
 
-    page.on('request', (req) => {
-      try {
-        const entry = {
-          url: req.url(),
-          method: req.method(),
-          resourceType: req.resourceType(),
-        };
-        networkByUrl.set(req.url(), entry);
-        networkRequests.push(entry);
-      } catch (_) {
-        /* non-fatal */
-      }
-    });
+    if (canReuse && scopeId && sessionId) {
+      await saveBrowserSession(env, scopeId, {
+        sessionId,
+        user_id: params.user_id ?? params.session?.user_id ?? null,
+        workspace_id: params.workspace_id ?? params.session?.workspace_id ?? null,
+        current_url: page.url() || targetUrl || null,
+        last_tool: toolName || null,
+      });
+    }
 
-    page.on('response', async (res) => {
-      try {
-        const req = res.request();
-        const key = req.url();
-        const entry = networkByUrl.get(key) || {
-          url: key,
-          method: req.method(),
-          resourceType: req.resourceType(),
-        };
-        entry.status = res.status();
-        entry.response = {
-          status: res.status(),
-          statusText: res.statusText(),
-          headers: await res.allHeaders().catch(() => ({})),
-        };
-        networkByUrl.set(key, entry);
-      } catch (_) {
-        /* non-fatal */
-      }
-    });
-
-    await gotoPage(page, url);
-    return await fn({ page, url, consoleMessages, networkRequests });
+    if (result && typeof result === 'object' && browserSession) {
+      return { ...result, browser_session: browserSession };
+    }
+    return result;
   } catch (e) {
     const msg = e?.message != null ? String(e.message) : String(e);
     return { error: msg, ok: false };
   } finally {
-    try {
-      await browser.close();
-    } catch (_) {
-      /* non-fatal */
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {
+        /* disconnect (reuse) or close (ephemeral) */
+      }
     }
   }
+}
+
+function sessionKv(env) {
+  return env?.SESSION_CACHE || env?.KV || null;
 }
 
 /**
@@ -182,76 +315,104 @@ export async function withBrowserPage(env, params, fn) {
  */
 export async function runBrowserBuiltinTool(env, toolName, params) {
   const tool = String(toolName || '').trim();
+  const withOpts = { toolName: tool, persistSession: params.persist_session !== false };
 
   if (SCREENSHOT_TOOLS.has(tool)) {
-    return withBrowserPage(env, params, async ({ page }) => {
-      const fullPage = params.fullPage !== false;
-      const out = await captureViewportScreenshot(env, page, { fullPage: Boolean(fullPage) });
-      return {
-        ok: true,
-        url: page.url(),
-        screenshot_url: out.screenshot_url,
-        result_url: out.screenshot_url,
-        job_id: out.job_id,
-      };
-    });
+    return withBrowserPage(
+      env,
+      params,
+      async ({ page }) => {
+        const fullPage = params.fullPage !== false;
+        const out = await captureViewportScreenshot(env, page, { fullPage: Boolean(fullPage) });
+        return {
+          ok: true,
+          url: page.url(),
+          screenshot_url: out.screenshot_url,
+          result_url: out.screenshot_url,
+          job_id: out.job_id,
+        };
+      },
+      withOpts,
+    );
   }
 
   switch (tool) {
+    case 'browser_close_session':
+    case 'browser_session_close': {
+      const scopeId = resolveBrowserRunScopeId(params);
+      if (!scopeId) return { error: 'agent_run_id or workflow_run_id required' };
+      return closeBrowserRunSession(env, scopeId);
+    }
+
     case 'browser_navigate':
     case 'cdt_navigate_page':
-      return withBrowserPage(env, params, async ({ page, url }) => {
-        const finalUrl = page.url() || url;
-        const title = await page.title().catch(() => '');
-        const out = await captureViewportScreenshot(env, page, { fullPage: false });
-        const page_text = await extractPageText(page);
-        return {
-          ok: true,
-          url: finalUrl,
-          title,
-          screenshot_url: out.screenshot_url,
-          result_url: out.screenshot_url,
-          page_text,
-          text: page_text,
-          job_id: out.job_id,
-        };
-      });
+      return withBrowserPage(
+        env,
+        params,
+        async ({ page, url }) => {
+          const finalUrl = page.url() || url;
+          const title = await page.title().catch(() => '');
+          const out = await captureViewportScreenshot(env, page, { fullPage: false });
+          const page_text = await extractPageText(page);
+          return {
+            ok: true,
+            url: finalUrl,
+            title,
+            screenshot_url: out.screenshot_url,
+            result_url: out.screenshot_url,
+            page_text,
+            text: page_text,
+            job_id: out.job_id,
+          };
+        },
+        withOpts,
+      );
 
     case 'browser_content':
-      return withBrowserPage(env, params, async ({ page, url }) => {
-        let html = await page.content();
-        const max = Number(params.max_chars) > 0 ? Number(params.max_chars) : 400_000;
-        if (html.length > max) {
-          html = `${html.slice(0, max)}\n<!-- truncated -->`;
-        }
-        const page_text = await extractPageText(page);
-        return {
-          ok: true,
-          url: page.url() || url,
-          html,
-          page_text,
-          text: page_text,
-        };
-      });
+      return withBrowserPage(
+        env,
+        params,
+        async ({ page, url }) => {
+          let html = await page.content();
+          const max = Number(params.max_chars) > 0 ? Number(params.max_chars) : 400_000;
+          if (html.length > max) {
+            html = `${html.slice(0, max)}\n<!-- truncated -->`;
+          }
+          const page_text = await extractPageText(page);
+          return {
+            ok: true,
+            url: page.url() || url,
+            html,
+            page_text,
+            text: page_text,
+          };
+        },
+        withOpts,
+      );
 
     case 'cdt_take_snapshot': {
       const interestingOnly = params.interestingOnly !== false;
-      return withBrowserPage(env, params, async ({ page }) => {
-        let snapshot = null;
-        try {
-          snapshot = await page.accessibility.snapshot();
-        } catch {
-          snapshot = await page.evaluate(() => ({
-            role: 'document',
-            name: document.title,
-            children: [{ role: 'generic', name: document.body?.innerText?.slice(0, 2000) || '' }],
-          }));
-        }
-        return {
-          ok: true,
-          snapshot: filterA11ySnapshot(snapshot, interestingOnly),
-        };
-      });
+      return withBrowserPage(
+        env,
+        params,
+        async ({ page }) => {
+          let snapshot = null;
+          try {
+            snapshot = await page.accessibility.snapshot();
+          } catch {
+            snapshot = await page.evaluate(() => ({
+              role: 'document',
+              name: document.title,
+              children: [{ role: 'generic', name: document.body?.innerText?.slice(0, 2000) || '' }],
+            }));
+          }
+          return {
+            ok: true,
+            snapshot: filterA11ySnapshot(snapshot, interestingOnly),
+          };
+        },
+        withOpts,
+      );
     }
 
     case 'cdt_list_console_messages': {
@@ -259,7 +420,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ consoleMessages }) => ({
         ok: true,
         messages: consoleMessages.slice(-limit),
-      }));
+      }), withOpts);
     }
 
     case 'cdt_get_console_message': {
@@ -269,7 +430,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
         const msg = consoleMessages[i];
         if (!msg) return { ok: false, error: 'console message not found', index: i };
         return { ok: true, message: msg, index: i };
-      });
+      }, withOpts);
     }
 
     case 'cdt_list_network_requests': {
@@ -277,7 +438,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ networkRequests }) => ({
         ok: true,
         requests: networkRequests.slice(-limit),
-      }));
+      }), withOpts);
     }
 
     case 'cdt_get_network_request': {
@@ -286,14 +447,14 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
         const hit = networkRequests.find((r) => String(r.url) === target);
         if (!hit) return { ok: false, error: 'network request not found', url: target };
         return { ok: true, request: hit };
-      });
+      }, withOpts);
     }
 
     case 'cdt_list_pages':
       return withBrowserPage(env, params, async ({ page, url }) => ({
         ok: true,
         pages: [{ url: page.url() || url, title: await page.title().catch(() => '') }],
-      }));
+      }), withOpts);
 
     case 'cdt_wait_for': {
       const selector = params.selector != null ? String(params.selector).trim() : '';
@@ -308,7 +469,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           await page.waitForLoadState('networkidle', { timeout }).catch(() => {});
         }
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_click': {
@@ -317,7 +478,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ page }) => {
         await page.click(selector, { timeout: 15_000 });
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_fill': {
@@ -327,7 +488,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ page }) => {
         await page.fill(selector, value, { timeout: 15_000 });
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_fill_form': {
@@ -338,7 +499,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           await page.fill(String(sel), val != null ? String(val) : '', { timeout: 15_000 });
         }
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_hover': {
@@ -347,7 +508,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ page }) => {
         await page.hover(selector, { timeout: 15_000 });
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_press_key': {
@@ -355,7 +516,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ page }) => {
         await page.keyboard.press(key);
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_evaluate_script': {
@@ -367,12 +528,12 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           return eval(s);
         }, script);
         return { ok: true, result, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_upload_file': {
       const selector = String(params.selector || '').trim();
-      const fileUrl = String(params.file_url || params.url || '').trim();
+      const fileUrl = String(params.file_url || params.target_file_url || '').trim();
       if (!selector || !fileUrl) return { error: 'selector and file_url required' };
       return withBrowserPage(env, params, async ({ page }) => {
         const res = await fetch(fileUrl);
@@ -385,7 +546,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           buffer: new Uint8Array(buf),
         });
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_resize_page':
@@ -395,17 +556,18 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(env, params, async ({ page }) => {
         await page.setViewportSize({ width, height });
         return { ok: true, width, height, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'cdt_new_page':
     case 'cdt_select_page':
     case 'cdt_close_page':
-      return withBrowserPage(env, params, async ({ page, url }) => ({
+      return withBrowserPage(env, params, async ({ page, url, browserSession }) => ({
         ok: true,
-        note: 'MYBROWSER path is stateless (single page per invocation)',
+        note: 'Single page per run-scoped session; use browser_close_session to end',
         url: page.url() || url,
-      }));
+        browser_session: browserSession,
+      }), withOpts);
 
     case 'cdt_handle_dialog': {
       const accept = params.accept !== false;
@@ -415,7 +577,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           else await dialog.dismiss();
         });
         return { ok: true, url: page.url(), accept };
-      });
+      }, withOpts);
     }
 
     case 'cdt_drag': {
@@ -432,7 +594,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           await page.mouse.up();
         }
         return { ok: true, url: page.url() };
-      });
+      }, withOpts);
     }
 
     case 'a11y_audit_webpage':
@@ -448,7 +610,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           return { issues, documentTitle: document.title || '' };
         });
         return { ok: true, url: page.url() || url, audit, engine: 'playwright-heuristic' };
-      });
+      }, withOpts);
 
     case 'cdt_performance_start_trace':
     case 'cdt_performance_stop_trace':
@@ -469,3 +631,5 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return { error: `Not a browser tool: ${tool}` };
   }
 }
+
+export { closeBrowserRunSession, resolveBrowserRunScopeId } from './browser-session.js';

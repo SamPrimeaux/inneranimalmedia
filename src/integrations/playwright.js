@@ -2,7 +2,7 @@ import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
-import { runBrowserBuiltinTool } from './browser-cdp.js';
+import { runBrowserBuiltinTool, closeBrowserRunSession, resolveBrowserRunScopeId } from './browser-cdp.js';
 
 /**
  * Shared screenshot job runner (POST /api/playwright/screenshot and agent builtin tools).
@@ -115,6 +115,7 @@ export async function handleBrowserRequest(request, url, env) {
     }
 
     const pathLower = url.pathname.toLowerCase();
+    const pathNorm = pathLower.replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
     // ── GET /api/browser/screenshot ──────────────────────────────────────────
@@ -152,6 +153,25 @@ export async function handleBrowserRequest(request, url, env) {
         } catch (e) {
             return jsonResponse({ error: 'Screenshot failed', detail: e.message }, 500);
         }
+    }
+
+    // ── POST /api/browser/session/close — end run-scoped MYBROWSER session (KV) ─
+    if (pathNorm === '/api/browser/session/close' && method === 'POST') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            body = {};
+        }
+        const scopeId = resolveBrowserRunScopeId({
+            ...body,
+            agent_run_id: body.agent_run_id ?? body.scope_id,
+        });
+        if (!scopeId) return jsonResponse({ error: 'agent_run_id or workflow_run_id required' }, 400);
+        const result = await closeBrowserRunSession(env, scopeId);
+        return jsonResponse(result);
     }
 
     // ── POST /api/browser/invoke — session auth; MYBROWSER tools (no MCP hop) ─

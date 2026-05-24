@@ -112,4 +112,6 @@ export const handlers = {
     async browser_navigate(params, env) { return await invokeBrowserOp(env, 'browser_navigate', params); },
     async browser_screenshot(params, env) { return await invokeBrowserOp(env, 'browser_screenshot', params); },
     async browser_content(params, env) { return await invokeBrowserOp(env, 'browser_content', params); },
+    async browser_close_session(params, env) { return await invokeBrowserOp(env, 'browser_close_session', params); },
+    async browser_session_close(params, env) { return await invokeBrowserOp(env, 'browser_session_close', params); },
 };
