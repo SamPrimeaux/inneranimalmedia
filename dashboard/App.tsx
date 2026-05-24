@@ -658,8 +658,11 @@ const App: React.FC = () => {
       try {
         const meRes = await fetch('/api/auth/me', { credentials: 'same-origin' });
         if (meRes.ok) {
-          const me = (await meRes.json()) as { id?: string | null };
-          const rawId = me?.id;
+          const me = (await meRes.json()) as {
+            id?: string | null;
+            user?: { id?: string | null };
+          };
+          const rawId = me?.user?.id ?? me?.id;
           userId = rawId != null && String(rawId).trim() ? String(rawId).trim() : null;
         }
       } catch {

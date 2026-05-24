@@ -4,13 +4,52 @@
  *
  * Integration OAuth stays in oauth.js (oauth_state_* + user_id payload).
  */
-import { getAuthUser, resolveTenantAtLogin, createLoginSession } from '../core/auth.js';
+import {
+  AUTH_COOKIE_NAME,
+  getAuthUser,
+  resolveTenantAtLogin,
+  createLoginSession,
+  revokeAuthSession,
+} from '../core/auth.js';
 import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
 
 function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
+}
+
+/** Revoke browser cookie session before issuing a new login session (prevents wrong-account stickiness). */
+async function revokeIncomingCookieSession(request, env, reason = 'oauth_login_replaced') {
+  const cookie = request.headers.get('Cookie') || '';
+  const match = cookie.match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`));
+  const sessionId = match ? decodeURIComponent(String(match[1]).trim()) : null;
+  if (!sessionId || !env?.DB) return;
+  try {
+    const row = await env.DB.prepare(`SELECT user_id FROM auth_sessions WHERE id = ? LIMIT 1`)
+      .bind(sessionId)
+      .first();
+    await revokeAuthSession(env, sessionId, reason, row?.user_id ?? null);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/** Clear stale host/domain session cookies, then set the new canonical host-only session. */
+function appendBrowserLoginSessionCookies(headers, sessionId) {
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
+  headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
 }
 
 const DASHBOARD_LOGIN_FALLBACK = '/dashboard/overview';
@@ -320,6 +359,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     name,
     source: 'github_oauth',
   });
+  await revokeIncomingCookieSession(request, env);
   const sessionId = await createLoginSession(request, env, userId, 'github');
   await tryOAuthLoginTimeTracking(env.DB, sessionId, userId);
   const tidGh = await resolveTenantAtLogin(env, userId).catch(() => null);
@@ -351,18 +391,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     Location: oauthPostLoginGlobeRedirectUrl(oauthOrigin(url), returnTo),
   });
 
-  loginHeaders.append(
-    'Set-Cookie',
-    `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  loginHeaders.append(
-    'Set-Cookie',
-    `session=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  loginHeaders.append(
-    'Set-Cookie',
-    `session=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
+  appendBrowserLoginSessionCookies(loginHeaders, sessionId);
 
   return new Response(null, { status: 302, headers: loginHeaders });
 }
@@ -522,24 +551,14 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     source: 'google_oauth',
   });
 
+  await revokeIncomingCookieSession(request, env);
   const sessionId = await createLoginSession(request, env, authUserId, 'google');
   await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
 
   const safeDest = safeDashboardLoginRedirectPath(oauthOrigin(url), returnTo);
   const headers = new Headers({ Location: `${oauthOrigin(url)}${safeDest}` });
 
-  headers.append(
-    'Set-Cookie',
-    `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  headers.append(
-    'Set-Cookie',
-    `session=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  headers.append(
-    'Set-Cookie',
-    `session=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
+  appendBrowserLoginSessionCookies(headers, sessionId);
 
   return new Response(null, { status: 302, headers });
 }

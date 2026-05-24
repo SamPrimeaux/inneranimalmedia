@@ -18,13 +18,18 @@ export async function buildCanonicalAuthMe(env, request, authUser) {
   let workspaces = [];
   let primary = null;
   const uid = authUser?.id;
+  const preferredWorkspaceId =
+    (authUser?.active_workspace_id != null && String(authUser.active_workspace_id).trim()) ||
+    (session?.workspace_id != null && String(session.workspace_id).trim()) ||
+    (session?.workspaceId != null && String(session.workspaceId).trim()) ||
+    null;
   if (env?.DB && uid) {
     try {
       const { results } = await env.DB.prepare(
         `SELECT w.id, w.name, w.handle AS slug, wm.role
          FROM workspace_members wm
          JOIN workspaces w ON w.id = wm.workspace_id
-         WHERE wm.user_id = ?
+         WHERE wm.user_id = ? AND COALESCE(wm.is_active, 1) = 1
          ORDER BY wm.joined_at ASC`,
       )
         .bind(uid)
@@ -35,7 +40,11 @@ export async function buildCanonicalAuthMe(env, request, authUser) {
         slug: r.slug || r.id,
         role: r.role || 'member',
       }));
-      primary = workspaces[0] || null;
+      primary =
+        (preferredWorkspaceId &&
+          workspaces.find((w) => w.id === preferredWorkspaceId)) ||
+        workspaces[0] ||
+        null;
     } catch (e) {
       console.warn('[buildCanonicalAuthMe] workspaces', e?.message ?? e);
     }

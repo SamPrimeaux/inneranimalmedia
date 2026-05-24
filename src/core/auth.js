@@ -576,56 +576,74 @@ export async function getSession(env, request) {
   }
   if (sessionCandidates.length === 0) return null;
 
-  for (const sessionId of sessionCandidates) {
-    if (env.SESSION_CACHE) {
-      try {
-        const data = await env.SESSION_CACHE.get(IAM_KV_SESSION_KEY_PREFIX + sessionId);
-        if (data) {
-          const stillActive = await authSessionIsActive(env, sessionId);
-          if (!stillActive) {
-            try {
-              await env.SESSION_CACHE.delete(IAM_KV_SESSION_KEY_PREFIX + sessionId);
-            } catch (_) {}
-            continue;
-          }
-          const parsed = JSON.parse(data);
-          return attachFeatureFlagsToSession(env, { ...parsed, session_id: sessionId });
-        }
-      } catch (e) { }
-    }
-  }
+  /** When multiple session= cookies exist, prefer the newest active D1 row (not first in header). */
+  let bestRow = null;
+  let bestCreatedMs = -1;
 
   if (env.DB) {
     for (const sessionId of sessionCandidates) {
+      const sid = trimSessionField(decodeURIComponent(String(sessionId || '')));
+      if (!sid) continue;
       try {
         const row = await env.DB.prepare(
           `SELECT
              id, user_id, tenant_id, workspace_id, person_uuid, supabase_user_id,
              email, provider, display_name, avatar_url, provider_subject,
-             work_session_id, last_active_at, expires_at
+             work_session_id, last_active_at, expires_at, created_at
            FROM auth_sessions
            WHERE id = ?
              AND datetime(expires_at) > datetime('now')
              AND (revoked_at IS NULL OR TRIM(COALESCE(revoked_at, '')) = '')
            LIMIT 1`,
         )
-          .bind(sessionId)
+          .bind(sid)
           .first();
-
-        if (row) {
-          const payload = authSessionRowToKvPayload(row);
-          if (env.SESSION_CACHE) {
-            await env.SESSION_CACHE.put(
-              IAM_KV_SESSION_KEY_PREFIX + sessionId,
-              JSON.stringify(payload),
-              { expirationTtl: 3600 },
-            );
-          }
-          return attachFeatureFlagsToSession(env, payload);
+        if (!row?.id) continue;
+        const createdMs = row.created_at ? Date.parse(String(row.created_at).replace(' ', 'T') + 'Z') : 0;
+        if (!Number.isFinite(createdMs)) {
+          if (!bestRow) bestRow = row;
+          continue;
         }
-      } catch (e) { }
+        if (createdMs >= bestCreatedMs) {
+          bestCreatedMs = createdMs;
+          bestRow = row;
+        }
+      } catch (_) {}
     }
   }
+
+  if (bestRow) {
+    const payload = authSessionRowToKvPayload(bestRow);
+    if (env.SESSION_CACHE) {
+      try {
+        await env.SESSION_CACHE.put(
+          IAM_KV_SESSION_KEY_PREFIX + bestRow.id,
+          JSON.stringify(payload),
+          { expirationTtl: 3600 },
+        );
+      } catch (_) {}
+    }
+    return attachFeatureFlagsToSession(env, payload);
+  }
+
+  for (const sessionId of sessionCandidates) {
+    const sid = trimSessionField(decodeURIComponent(String(sessionId || '')));
+    if (!sid || !env.SESSION_CACHE) continue;
+    try {
+      const data = await env.SESSION_CACHE.get(IAM_KV_SESSION_KEY_PREFIX + sid);
+      if (!data) continue;
+      const stillActive = await authSessionIsActive(env, sid);
+      if (!stillActive) {
+        try {
+          await env.SESSION_CACHE.delete(IAM_KV_SESSION_KEY_PREFIX + sid);
+        } catch (_) {}
+        continue;
+      }
+      const parsed = JSON.parse(data);
+      return attachFeatureFlagsToSession(env, { ...parsed, session_id: sid });
+    } catch (_) {}
+  }
+
   return null;
 }
 

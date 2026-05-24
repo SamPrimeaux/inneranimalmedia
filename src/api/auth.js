@@ -74,6 +74,10 @@ export async function handleAuthApi(request, url, env) {
     const canonical = await buildCanonicalAuthMe(env, request, authUser);
     return jsonResponse({
       ...canonical,
+      id: authUser.id ?? null,
+      email: authUser.email ?? null,
+      active_workspace_id: authUser.active_workspace_id ?? null,
+      active_tenant_id: authUser.active_tenant_id ?? authUser.tenant_id ?? null,
       passwordMethod,
       passwordUpdatedAt,
     });

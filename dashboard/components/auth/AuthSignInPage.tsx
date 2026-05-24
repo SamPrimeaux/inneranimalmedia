@@ -114,7 +114,7 @@ export function AuthSignInPage() {
 
         <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <a
-            href={`/api/oauth/google/start?return_to=${encodeURIComponent(oauthReturn)}`}
+            href={`/api/oauth/google/start?login=1&return_to=${encodeURIComponent(oauthReturn)}`}
             className="block w-full text-center no-underline"
             style={{
               padding: '10px 14px',
@@ -129,7 +129,7 @@ export function AuthSignInPage() {
             Continue with Google
           </a>
           <a
-            href={`/api/oauth/github/start?next=${encodeURIComponent(oauthReturn)}`}
+            href={`/api/oauth/github/start?login=1&next=${encodeURIComponent(oauthReturn)}`}
             className="block w-full text-center no-underline"
             style={{
               padding: '10px 14px',

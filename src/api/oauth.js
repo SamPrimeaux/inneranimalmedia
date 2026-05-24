@@ -240,6 +240,32 @@ function isGoogleDriveConnectRequest(url) {
   return connectDrive || returnTo.includes('/dashboard/agent');
 }
 
+/** Sign-in / sign-up Google OAuth — must not bind to an existing session's user_id (integration path). */
+function isGoogleLoginOAuthStart(url) {
+  if (isGoogleDriveConnectRequest(url)) return false;
+  if (url.searchParams.get('login') === '1' || url.searchParams.get('intent') === 'login') {
+    return true;
+  }
+  const returnTo = String(url.searchParams.get('return_to') || url.searchParams.get('next') || '').trim();
+  if (!returnTo) return true;
+  if (returnTo.includes('/dashboard/settings')) return false;
+  if (returnTo.startsWith('/auth/')) return true;
+  if (returnTo.startsWith('/dashboard/')) return true;
+  return false;
+}
+
+function isGitHubLoginOAuthStart(url) {
+  if (url.searchParams.get('login') === '1' || url.searchParams.get('intent') === 'login') {
+    return true;
+  }
+  const returnTo = String(url.searchParams.get('return_to') || url.searchParams.get('next') || '').trim();
+  if (!returnTo) return true;
+  if (returnTo.includes('/dashboard/settings')) return false;
+  if (returnTo.startsWith('/auth/')) return true;
+  if (returnTo.startsWith('/dashboard/')) return true;
+  return false;
+}
+
 function oauthPopupCompleteHtml(provider) {
   const p = JSON.stringify(String(provider || 'google'));
   return `<!DOCTYPE html><html><body><script>try{window.opener?.postMessage({type:'oauth_success',provider:${p}},window.location.origin);}catch(e){}window.close();</script><p>Connected. You can close this window.</p></body></html>`;
@@ -1131,11 +1157,12 @@ export async function handleOAuthApi(request, env, ctx) {
     if (!PROVIDERS.has(provider)) return jsonResponse({ error: 'unsupported_provider' }, 400);
 
     const authUser = await getAuthUser(request, env);
-    // Login/sign-up OAuth (no session): same behavior as worker.js handleGoogleOAuthStart / handleGitHubOAuthStart.
-    if (provider === 'google' && (!authUser || isGoogleDriveConnectRequest(url))) {
+    // Login/sign-up OAuth: always use login handlers for dashboard/auth return_to even when a stale
+    // session cookie exists — otherwise Google tokens attach to the wrong user_id (integration path).
+    if (provider === 'google' && (isGoogleLoginOAuthStart(url) || !authUser)) {
       return loginGoogleOAuthStart(request, url, env);
     }
-    if (!authUser && provider === 'github') {
+    if (provider === 'github' && (isGitHubLoginOAuthStart(url) || !authUser)) {
       return loginGitHubOAuthStart(request, url, env);
     }
     // Dashboard Cloudflare OAuth requires a session; browser navigations get a login redirect
