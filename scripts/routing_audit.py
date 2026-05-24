@@ -19,7 +19,7 @@ EXTS = {".js", ".ts"}
 
 TARGETS = {
     "LEGACY — model_routing_rules":       "model_routing_rules",
-    "LEGACY — mcp_registered_tools":      "mcp_registered_tools",
+    "LEGACY — mcp_registered_tools (dropped 402)": "agentsam_mcp_tools",
     "CURRENT — agentsam_routing_arms":    "agentsam_routing_arms",
     "CURRENT — agentsam_route_requirements": "agentsam_route_requirements",
     "CURRENT — agentsam_mcp_tools":       "agentsam_mcp_tools",

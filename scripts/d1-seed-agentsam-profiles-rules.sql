@@ -36,8 +36,8 @@ This document mirrors repo governance. Full detail: see universal sync law doc u
 
 ## D1 sync laws (short)
 
-- **One writer per concern:** chat/transcript, `agent_telemetry`, `mcp_registered_tools` + `recordMcpToolCall`, `agent_audit_log` via helpers, `agentsam_*` via `/api/agentsam/*` only.
-- **Tool names:** `mcp_registered_tools.tool_name` is the contract; change seed + worker + docs together.
+- **One writer per concern:** chat/transcript, `agent_telemetry`, `agentsam_mcp_tools` + `recordMcpToolCall`, `agent_audit_log` via helpers, `agentsam_*` via `/api/agentsam/*` only.
+- **Tool names:** `agentsam_mcp_tools.tool_key` (alias `tool_name`) is the contract; change migration + worker + MCP server together.
 - **CI/CD:** Append `cicd_events` when pipeline or CI state changes; `cicd_recent_completions` is a view (no direct INSERT).
 - **Sandbox + shared D1:** Writes from sandbox Worker hit production data — treat mutating actions as production-impactful.
 
