@@ -23,6 +23,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+/** Company signature wordmark (hosted CF Images). Footer ~150px display. */
+const IAM_SIGNATURE_LOGO_URL =
+  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail";
+
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -500,9 +504,16 @@ export default function IamMcpOAuthConsentPage({
             })()}
           </main>
 
-          {/* Footer */}
+          {/* Footer — company signature wordmark */}
           <footer className="consent-footer">
-            <span>Authorization secured by Inner Animal Media</span>
+            <img
+              src={IAM_SIGNATURE_LOGO_URL}
+              alt="Inner Animal Media"
+              className="consent-footer-signature"
+              width={150}
+              height={48}
+            />
+            <span className="consent-footer-note">Authorization secured by Inner Animal Media</span>
           </footer>
         </div>
       </div>
@@ -897,12 +908,28 @@ const STYLES = `
   }
 
   .consent-footer {
-    padding: 12px 24px 16px;
+    padding: 16px 24px 20px;
     border-top: 1px solid var(--c-border-subtle);
-    font-size: 12px;
-    color: var(--c-muted);
     text-align: center;
     background: #fafbfc;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .consent-footer-signature {
+    width: 150px;
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+    display: block;
+  }
+
+  .consent-footer-note {
+    font-size: 11px;
+    color: var(--c-muted);
+    line-height: 1.4;
   }
 
   @media (max-width: 480px) {
