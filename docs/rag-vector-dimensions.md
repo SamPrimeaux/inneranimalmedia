@@ -25,6 +25,12 @@ Canonical setup for Agent Sam embeddings and Vectorize indexes.
 - **`VECTORIZE`** → `ai-search-inneranimalmedia-autorag` (1024, cosine) — AutoRAG / knowledge ingest.
 - **`AGENTSAMVECTORIZE`** → [inneranimalmedia-vectors](https://dash.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/ai/vectorize) (1536, cosine) — curated chat memory + code search.
 
+**Source of truth for dimensions:** `env.AGENTSAMVECTORIZE.describe()` in Worker, or REST  
+`GET .../vectorize/v2/indexes/inneranimalmedia-vectors` before any embed job.  
+Scripts: `python3 scripts/embed-codebase.py --describe-only` (hard-exits on dim mismatch).  
+Worker probe: `GET /api/internal/agentsam-vectorize/describe` (internal secret).  
+Query + index must use the same model (`src/core/codebase-search.js` → `resolveAgentsamEmbeddingSpec`).
+
 D1 registry row: `vectorize_index_registry.id = vidx_agentsam_vectors` (migration `373_agentsam_vectorize_registry_1536.sql`).
 
 ## Supabase (pgvector)

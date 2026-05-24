@@ -446,7 +446,7 @@ export async function searchAgentMemoryHybrid(env, query, workspaceId, options =
 
   const vecLit = vectorLiteral(embedding);
   const q = String(query || '').trim();
-  const dim = agentsamEmbeddingDims(env);
+  const dim = embedding.length;
 
   const sql = `SELECT id, content, hybrid_score, embedding_distance, trigram_similarity
      FROM public.search_agent_memory($1::vector(${dim}), $2, $3, $4, $5, $6)`;
@@ -1097,10 +1097,10 @@ export async function insertCuratedAgentMemory(env, params) {
     params.user_id != null && String(params.user_id).trim() !== '' ? String(params.user_id).trim() : null;
 
   const { embedding, model: embed_model } = await createAgentSamEmbedding(env, content);
-  const expectedDims = agentsamEmbeddingDims(env);
   const dims = embedding.length;
+  const expectedDims = await agentsamEmbeddingDims(env);
   if (dims !== expectedDims) {
-    throw new Error(`embedding length ${dims} does not match expected ${expectedDims}`);
+    throw new Error(`embedding length ${dims} does not match index ${expectedDims}`);
   }
 
   const vecLit = vectorLiteral(embedding);
@@ -1195,9 +1195,10 @@ export async function searchCuratedAgentMemory(env, opts) {
   if (limit > 50) limit = 50;
 
   const { embedding, model: embed_model } = await createAgentSamEmbedding(env, query);
-  const dim = agentsamEmbeddingDims(env);
-  if (embedding.length !== dim) {
-    throw new Error(`embedding must be ${dim} dimensions`);
+  const dim = embedding.length;
+  const expectedDims = await agentsamEmbeddingDims(env);
+  if (dim !== expectedDims) {
+    throw new Error(`embedding must be ${expectedDims} dimensions, got ${dim}`);
   }
   const vecLit = vectorLiteral(embedding);
 

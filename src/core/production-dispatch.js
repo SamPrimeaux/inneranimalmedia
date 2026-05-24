@@ -238,6 +238,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleEmbedCodebaseChunksBackfill(request, env);
   }
 
+  if (pathLower === '/api/internal/agentsam-vectorize/describe' && methodUpper === 'GET') {
+    const { handleAgentsamVectorizeDescribe } = await import('../api/agentsam-vectorize-describe.js');
+    return handleAgentsamVectorizeDescribe(request, env);
+  }
+
   if (pathLower.startsWith('/api/internal/designstudio/') || pathLower.startsWith('/api/designstudio/')) {
     return handleDesignStudioApi(request, url, env, ctx);
   }
