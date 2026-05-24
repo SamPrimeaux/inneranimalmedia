@@ -56,14 +56,53 @@ interface Workspace {
   workspace_type: string;
 }
 
+type McpClientKey = "cursor" | "claude" | "chatgpt" | "default";
+
 interface ConnectingAppInfo {
-  key: "cursor" | "claude" | "chatgpt" | "mcp";
+  key: McpClientKey;
   label: string;
   badge: string;
   tagline: string;
   return_hint: string;
   accent: string;
 }
+
+interface ClientCopy {
+  displayName: string;
+  headline: string;
+  helper: string;
+}
+
+const CLIENT_COPY: Record<McpClientKey, ClientCopy> = {
+  cursor: {
+    displayName: "Cursor",
+    headline: "Inner Animal Media MCP Server wants to connect to Cursor",
+    helper:
+      "This allows Cursor to use approved Inner Animal Media MCP tools for your account.",
+  },
+  claude: {
+    displayName: "Claude.ai",
+    headline: "Inner Animal Media MCP Server wants to connect to Claude.ai",
+    helper:
+      "This allows Claude.ai to use approved Inner Animal Media MCP tools for your account.",
+  },
+  chatgpt: {
+    displayName: "ChatGPT",
+    headline: "Inner Animal Media MCP Server wants to connect to ChatGPT",
+    helper:
+      "This allows ChatGPT to use approved Inner Animal Media MCP tools for your account.",
+  },
+  default: {
+    displayName: "your MCP client",
+    headline: "Inner Animal Media MCP Server wants to connect to your MCP client",
+    helper:
+      "This allows your MCP client to use approved Inner Animal Media MCP tools for your account.",
+  },
+};
+
+/** IA monogram (square) — oauth_clients.logo_url */
+const IAM_MCP_LOGO_URL =
+  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/avatar";
 
 interface ConsentData {
   client: OAuthClient;
@@ -92,7 +131,7 @@ type ConsentState =
 const SCOPE_META: Record<string, Omit<ScopeInfo, "scope">> = {
   "iam:profile": {
     label: "Your profile",
-    description: "Read your name, avatar, and account details.",
+    description: "Read your name, avatar, email, and account details.",
     sensitive: false,
   },
   "iam:workspaces": {
@@ -106,13 +145,13 @@ const SCOPE_META: Record<string, Omit<ScopeInfo, "scope">> = {
     sensitive: true,
   },
   "mcp:tools": {
-    label: "MCP tools",
-    description: "Invoke registered MCP tools on your behalf.",
+    label: "Approved MCP tools",
+    description: "Call approved MCP tools for your account.",
     sensitive: true,
   },
   "mcp:userinfo": {
     label: "MCP identity",
-    description: "Read your MCP-scoped identity and connection status.",
+    description: "Read connection status and MCP-scoped identity for this client.",
     sensitive: false,
   },
 };
@@ -128,9 +167,20 @@ function enrichScopes(rawScopes: string[]): ScopeInfo[] {
   }));
 }
 
-/** Hide workspace enumeration on external client consent — workspace is auto-bound server-side. */
-function scopesForDisplay(scopes: ScopeInfo[]): ScopeInfo[] {
-  return scopes.filter((s) => s.scope !== "iam:workspaces");
+/** Workspace bound server-side — do not show workspace picker or name on consent. */
+function scopesForDisplay(scopes: ScopeInfo[], clientDisplayName: string): ScopeInfo[] {
+  return scopes
+    .filter((s) => s.scope !== "iam:workspaces" && s.scope !== "iam:agent")
+    .map((s) => {
+      if (s.scope === "mcp:tools") {
+        return {
+          ...s,
+          label: "Approved MCP tools",
+          description: `Allow ${clientDisplayName} to call approved Inner Animal Media MCP tools.`,
+        };
+      }
+      return s;
+    });
 }
 
 function pickDefaultWorkspace(data: ConsentData): string {
@@ -141,40 +191,58 @@ function pickDefaultWorkspace(data: ConsentData): string {
   );
 }
 
-function workspaceDisplayName(data: ConsentData, workspaceId: string): string {
-  const ws = data.workspaces.find((w) => w.id === workspaceId);
-  return ws?.name || "your workspace";
-}
-
 const DEFAULT_CONNECTING_APP: ConnectingAppInfo = {
-  key: "mcp",
-  label: "MCP client",
+  key: "default",
+  label: "your MCP client",
   badge: "MCP",
-  tagline: "Authorize tools for your connected MCP application",
+  tagline: CLIENT_COPY.default.helper,
   return_hint: "Return to your MCP client to continue.",
   accent: "#0969da",
 };
 
-function resolveConnectingAppClient(data: ConsentData): ConnectingAppInfo {
-  return data.connecting_app ?? DEFAULT_CONNECTING_APP;
+function detectMcpClient(input: {
+  clientId?: string;
+  clientName?: string;
+  redirectUri?: string;
+}): McpClientKey {
+  const raw = [input.clientId, input.clientName, input.redirectUri]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (raw.includes("cursor") || raw.includes("anysphere")) return "cursor";
+  if (raw.includes("claude") || raw.includes("anthropic")) return "claude";
+  if (raw.includes("chatgpt") || raw.includes("openai")) return "chatgpt";
+  return "default";
 }
 
-function ConnectingAppBanner({ app }: { app: ConnectingAppInfo }) {
-  return (
-    <div
-      className={cn("connecting-app-banner", `connecting-app-banner--${app.key}`)}
-      style={{ ["--app-accent" as string]: app.accent }}
-      role="status"
-    >
-      <span className="connecting-app-badge" aria-hidden="true">
-        {app.badge}
-      </span>
-      <div className="connecting-app-copy">
-        <strong className="connecting-app-title">Connecting from {app.label}</strong>
-        <span className="connecting-app-tagline">{app.tagline}</span>
-      </div>
-    </div>
-  );
+function normalizeClientKey(key: string | undefined): McpClientKey {
+  if (key === "mcp") return "default";
+  if (key === "cursor" || key === "claude" || key === "chatgpt" || key === "default") return key;
+  return "default";
+}
+
+function resolveClientContext(data: ConsentData): {
+  key: McpClientKey;
+  copy: ClientCopy;
+  app: ConnectingAppInfo;
+} {
+  const detected = detectMcpClient({
+    clientId: data.client.client_id,
+    clientName: data.client.display_name,
+    redirectUri: data.redirect_uri ?? undefined,
+  });
+  const server = data.connecting_app;
+  const key = server?.key ? normalizeClientKey(server.key) : detected;
+  const copy = CLIENT_COPY[key];
+  const app: ConnectingAppInfo = server
+    ? { ...server, key, label: copy.displayName, tagline: copy.helper }
+    : { ...DEFAULT_CONNECTING_APP, key, label: copy.displayName, tagline: copy.helper };
+  return { key, copy, app };
+}
+
+function mcpLogoUrl(data: ConsentData): string {
+  return data.client.logo_url || IAM_MCP_LOGO_URL;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,37 +293,6 @@ async function submitConsent(
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function IamShield({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 40 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
-      <path
-        d="M20 2L4 8V22C4 32.5 11.2 42.3 20 46C28.8 42.3 36 32.5 36 22V8L20 2Z"
-        fill="currentColor"
-        opacity="0.12"
-      />
-      <path
-        d="M20 2L4 8V22C4 32.5 11.2 42.3 20 46C28.8 42.3 36 32.5 36 22V8L20 2Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M14 24L18 28L26 20"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function ScopePill({ scope }: { scope: ScopeInfo }) {
   return (
     <li className="scope-item">
@@ -288,7 +325,7 @@ function ErrorScreen({ message, onBack }: { message: string; onBack?: () => void
   );
 }
 
-function SuccessScreen({ app }: { app: ConnectingAppInfo }) {
+function SuccessScreen({ copy, app }: { copy: ClientCopy; app: ConnectingAppInfo }) {
   return (
     <div className="state-screen">
       <div className="state-icon state-icon--success">
@@ -297,14 +334,14 @@ function SuccessScreen({ app }: { app: ConnectingAppInfo }) {
           <path d="M9 14.5L12.5 18L19 11" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
-      <h2 className="state-title">Connected to {app.label}</h2>
+      <h2 className="state-title">Connected to {copy.displayName}</h2>
       <p className="state-body">{app.return_hint}</p>
     </div>
   );
 }
 
-function DeniedScreen({ app }: { app?: ConnectingAppInfo }) {
-  const label = app?.label ?? "the app";
+function DeniedScreen({ copy }: { copy: ClientCopy }) {
+  const label = copy.displayName;
   return (
     <div className="state-screen">
       <div className="state-icon state-icon--neutral">
@@ -365,7 +402,7 @@ export default function IamMcpOAuthConsentPage({
       .then((data) => {
         if (cancelled) return;
         // Validate not already acted on
-        const app = resolveConnectingAppClient(data);
+        const { app } = resolveClientContext(data);
         if (data.status === "approved") { setState({ phase: "success", connectingApp: app }); return; }
         if (data.status === "denied") { setState({ phase: "denied", connectingApp: app }); return; }
         if (data.status === "expired") {
@@ -391,8 +428,8 @@ export default function IamMcpOAuthConsentPage({
 
   useEffect(() => {
     if (state.phase === "ready" || state.phase === "submitting") {
-      const app = resolveConnectingAppClient(state.data);
-      document.title = `Authorize ${app.label} · Inner Animal Media`;
+      const { copy } = resolveClientContext(state.data);
+      document.title = `Authorize ${copy.displayName} · Inner Animal Media`;
     }
   }, [state]);
 
@@ -406,7 +443,7 @@ export default function IamMcpOAuthConsentPage({
       if (result.redirect_url) {
         window.location.href = result.redirect_url;
       } else {
-        setState({ phase: "success", connectingApp: resolveConnectingAppClient(frozen) });
+        setState({ phase: "success", connectingApp: resolveClientContext(frozen).app });
       }
     } catch (err: any) {
       setState({ phase: "error", message: err.message });
@@ -419,9 +456,9 @@ export default function IamMcpOAuthConsentPage({
     setState({ phase: "submitting", data: frozen });
     try {
       await submitConsent(authorizationId, selectedWorkspace || "_denied", "deny");
-      setState({ phase: "denied", connectingApp: resolveConnectingAppClient(frozen) });
+      setState({ phase: "denied", connectingApp: resolveClientContext(frozen).app });
     } catch {
-      setState({ phase: "denied", connectingApp: resolveConnectingAppClient(frozen) });
+      setState({ phase: "denied", connectingApp: resolveClientContext(frozen).app });
     }
   }, [authorizationId, selectedWorkspace, state]);
 
@@ -434,17 +471,9 @@ export default function IamMcpOAuthConsentPage({
           <header className="consent-header">
             <div className="iam-brand">
               {state.phase === "ready" || state.phase === "submitting" ? (
-                state.data.client.logo_url ? (
-                  <img
-                    src={state.data.client.logo_url}
-                    alt=""
-                    className="iam-brand-logo"
-                  />
-                ) : (
-                  <IamShield className="iam-shield" />
-                )
+                <img src={mcpLogoUrl(state.data)} alt="" className="iam-brand-logo" />
               ) : (
-                <IamShield className="iam-shield" />
+                <img src={IAM_MCP_LOGO_URL} alt="" className="iam-brand-logo" />
               )}
               <span className="iam-name">Inner Animal Media</span>
             </div>
@@ -458,28 +487,39 @@ export default function IamMcpOAuthConsentPage({
                 onBack={() => window.history.back()}
               />
             )}
-            {state.phase === "success" && <SuccessScreen app={state.connectingApp} />}
-            {state.phase === "denied" && <DeniedScreen app={state.connectingApp} />}
+            {state.phase === "success" && (
+              <SuccessScreen
+                copy={CLIENT_COPY[normalizeClientKey(state.connectingApp.key)]}
+                app={state.connectingApp}
+              />
+            )}
+            {state.phase === "denied" && (
+              <DeniedScreen
+                copy={CLIENT_COPY[normalizeClientKey(state.connectingApp?.key)]}
+              />
+            )}
 
             {(state.phase === "ready" || state.phase === "submitting") && (() => {
               const data = state.data;
 
               const isSubmitting = state.phase === "submitting";
-              const displayScopes = scopesForDisplay(data.scopes);
-              const wsName = workspaceDisplayName(data, selectedWorkspace);
+              const { copy, app: connectingApp } = resolveClientContext(data);
+              const displayScopes = scopesForDisplay(data.scopes, copy.displayName);
               const signedIn = data.signed_in_email || "";
-              const connectingApp = resolveConnectingAppClient(data);
+              const logoUrl = mcpLogoUrl(data);
 
               return (
-                <div className="consent-main">
-                  <ConnectingAppBanner app={connectingApp} />
+                <div
+                  className="consent-main"
+                  style={{ ["--app-accent" as string]: connectingApp.accent }}
+                >
                   <div className="client-block">
-                    <div className={cn("client-logo", data.client.logo_url && "client-logo--brand")}>
-                      {data.client.logo_url ? (
-                        <img src={data.client.logo_url} alt={data.client.display_name} className="client-logo-img" />
-                      ) : (
-                        <IamShield className="client-logo-fallback" />
-                      )}
+                    <div className={cn("client-logo", "client-logo--brand")}>
+                      <img
+                        src={logoUrl}
+                        alt={data.client.display_name}
+                        className="client-logo-img"
+                      />
                     </div>
                     <div className="client-meta">
                       <h1 className="client-name">{data.client.display_name}</h1>
@@ -496,22 +536,15 @@ export default function IamMcpOAuthConsentPage({
                     </div>
                   </div>
 
-                  <p className="consent-headline">
-                    <strong>{connectingApp.label}</strong> is connecting to{" "}
-                    <strong>{data.client.display_name}</strong> on your{" "}
-                    <strong>Inner Animal Media</strong> account
-                    {signedIn ? (
-                      <>
-                        {" "}
-                        as <strong>{signedIn}</strong>
-                      </>
-                    ) : null}
-                    .
-                  </p>
+                  <p className="consent-headline">{copy.headline}</p>
 
-                  <p className="consent-subline">
-                    Access will be scoped to <strong>{wsName}</strong>.
-                  </p>
+                  <p className="consent-helper">{copy.helper}</p>
+
+                  {signedIn ? (
+                    <p className="consent-account">
+                      Signed in as <strong>{signedIn}</strong>
+                    </p>
+                  ) : null}
 
                   <section className="scopes-section" aria-labelledby="scopes-heading">
                     <h2 id="scopes-heading" className="section-label">
@@ -523,6 +556,11 @@ export default function IamMcpOAuthConsentPage({
                       ))}
                     </ul>
                   </section>
+
+                  <div className="consent-trust-note" role="note">
+                    Write actions, terminal commands, deployments, and database changes
+                    require confirmation before running.
+                  </div>
 
                   <div className="action-stack">
                     <button
@@ -616,7 +654,7 @@ const STYLES = `
 
   .consent-card {
     width: 100%;
-    max-width: 400px;
+    max-width: 420px;
     background: var(--c-surface);
     border: 1px solid var(--c-border);
     border-radius: var(--r-card);
@@ -857,21 +895,40 @@ const STYLES = `
   .client-url:hover { color: var(--c-accent); text-decoration: underline; }
 
   .consent-headline {
-    font-size: 15px;
+    font-size: 16px;
+    font-weight: 600;
     color: var(--c-text);
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  .consent-helper {
+    font-size: 14px;
+    color: var(--c-muted);
     margin: 0;
     line-height: 1.45;
   }
 
-  .consent-headline strong {
+  .consent-account {
+    font-size: 13px;
+    color: var(--c-muted);
+    margin: 0;
+    line-height: 1.45;
+  }
+
+  .consent-account strong {
+    color: var(--c-text);
     font-weight: 600;
   }
 
-  .consent-subline {
-    font-size: 13px;
-    color: var(--c-muted);
-    margin: -8px 0 0;
+  .consent-trust-note {
+    font-size: 12px;
     line-height: 1.45;
+    color: #57606a;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #d0d7de;
+    background: #f6f8fa;
   }
 
   .scopes-section {

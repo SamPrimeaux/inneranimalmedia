@@ -124,10 +124,10 @@ export const MCP_OAUTH_REGISTERED_REDIRECT_URIS = [
  */
 export function resolveMcpConnectingApp(redirectUri) {
   const fallback = {
-    key: 'mcp',
-    label: 'MCP client',
+    key: 'default',
+    label: 'your MCP client',
     badge: 'MCP',
-    tagline: 'Authorize tools for your connected MCP application',
+    tagline: 'This allows your MCP client to use approved Inner Animal Media MCP tools.',
     return_hint: 'Return to your MCP client to continue.',
     accent: '#0969da',
   };
@@ -148,10 +148,10 @@ export function resolveMcpConnectingApp(redirectUri) {
   if (host === 'claude.ai' || host === 'claude.com') {
     return {
       key: 'claude',
-      label: 'Claude',
+      label: 'Claude.ai',
       badge: 'C',
-      tagline: 'Authorize Agent Sam MCP tools inside Claude',
-      return_hint: 'Return to Claude to finish connecting.',
+      tagline: 'This allows Claude.ai to use approved Inner Animal Media MCP tools.',
+      return_hint: 'Return to Claude.ai to finish connecting.',
       accent: '#d97757',
     };
   }
@@ -166,7 +166,7 @@ export function resolveMcpConnectingApp(redirectUri) {
       key: 'chatgpt',
       label: 'ChatGPT',
       badge: 'GPT',
-      tagline: 'Authorize Agent Sam MCP tools inside ChatGPT',
+      tagline: 'This allows ChatGPT to use approved Inner Animal Media MCP tools.',
       return_hint: 'Return to ChatGPT to finish connecting.',
       accent: '#10a37f',
     };
@@ -177,7 +177,7 @@ export function resolveMcpConnectingApp(redirectUri) {
       key: 'cursor',
       label: 'Cursor',
       badge: '↗',
-      tagline: 'Authorize Agent Sam MCP tools inside Cursor',
+      tagline: 'This allows Cursor to use approved Inner Animal Media MCP tools.',
       return_hint: 'Return to Cursor — your connection will resume automatically.',
       accent: '#1a1a2e',
     };
