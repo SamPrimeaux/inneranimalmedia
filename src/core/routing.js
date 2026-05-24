@@ -716,15 +716,26 @@ export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, 
   return out;
 }
 
+/** Task types that must keep their arm pool when tools are required (CDT / browser dispatch). */
+const BROWSER_COMPUTER_USE_TASK_TYPES = new Set([
+  'browser',
+  'browser_ui_repair',
+  'debug_live_page',
+]);
+
 /**
  * Map gate intent + request flags to `agentsam_routing_arms.task_type` (no tenant/workspace literals).
- * @param {{ intentSlug?: string, requireTools?: boolean, body?: Record<string, unknown> | null }} ctx
+ * @param {{ intentSlug?: string, requireTools?: boolean, intentTaskType?: string, body?: Record<string, unknown> | null }} ctx
  */
 export function resolveRoutingTaskType(ctx = {}) {
   const body = ctx.body && typeof ctx.body === 'object' ? ctx.body : {};
   const fromBody = body.task_type ?? body.taskType;
   if (fromBody != null && String(fromBody).trim() !== '') {
     return String(fromBody).trim();
+  }
+  const fromIntent = ctx.intentTaskType != null ? String(ctx.intentTaskType).trim() : '';
+  if (fromIntent && BROWSER_COMPUTER_USE_TASK_TYPES.has(fromIntent)) {
+    return fromIntent;
   }
   if (body.debug === true || String(body.mode || '').toLowerCase() === 'debug') return 'debug';
   if (body.subagent === true || (body.subagent_profile_id != null && String(body.subagent_profile_id).trim() !== '')) {

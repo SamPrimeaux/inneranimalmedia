@@ -1,6 +1,88 @@
 # Inner Animal Media — Cursor Rules
 # Synced to D1: agentsam_rules_document (ws_inneranimalmedia)
-# Last updated: 2026-05-23
+# Last updated: 2026-05-23 (rule_database_tool_surfaces_d1_supabase)
+
+## RULE: agentsam_* D1 table names — always use full prefix
+**ID:** rule_agentsam_table_namespace | **Priority:** ALWAYS
+
+Agent Sam operational tables in D1 are namespaced **`agentsam_*`**. That prefix is intentional:
+it marks the designed control plane and must never be dropped in docs, SQL, migrations,
+comments, specs, or agent responses.
+
+```text
+❌ NEVER (tables that do not exist)
+prompt_routes, routing_arms, workflow_handlers, route_requirements, approval_queue,
+workflow_runs, mcp_tools, model_catalog
+
+✅ ALWAYS — full D1 table name
+agentsam_prompt_routes, agentsam_routing_arms, agentsam_workflow_handlers,
+agentsam_route_requirements, agentsam_approval_queue, agentsam_workflow_runs,
+agentsam_mcp_tools, agentsam_model_catalog, agentsam_tools, agentsam_workflows,
+agentsam_plan_tasks, agentsam_todo, agentsam_plans, agentsam_agent_run, …
+```
+
+- Do not abbreviate `agentsam_prompt_routes` → "prompt routes table" without the identifier.
+- Do not invent unprefixed synonyms — if there is no `agentsam_` row in schema, the table does not exist.
+- Supabase mirror tables may share names (e.g. `public.agentsam_plans`); still use the full name.
+- Non-Agent-Sam D1 tables (e.g. `auth_users`, `user_secrets`) keep their actual names — do not add `agentsam_` to them.
+
+Canonical rule row: `agentsam_rules_document.id = rule_agentsam_table_namespace`.
+
+---
+
+## RULE: Two database tool surfaces — D1 lane vs Supabase lane
+**ID:** rule_database_tool_surfaces_d1_supabase | **Priority:** ALWAYS
+
+Agent Sam has **two distinct database tool surfaces**, not three. Do not treat Hyperdrive,
+Postgres, or “generic SQL” as a third lane — Supabase access is the **`supabase_*` surface**
+(via Hyperdrive binding). D1 access is the **`d1_*` surface** (`env.DB`).
+
+### Surface 1 — D1 (operational / `agentsam_*` canonical)
+
+| Tool | Purpose |
+|------|---------|
+| `d1_query` | SELECT against D1, including **`agentsam_*`** operational tables |
+| `d1_write` | INSERT / UPDATE / DELETE / DDL against D1 (approval-gated) |
+| `d1_schema` | PRAGMA, schema introspection, migration dry-run |
+
+**Workflow executor:** `agentsam_workflow_handlers.executor_kind = 'd1_sql'` → D1 only (`env.DB`).
+
+Catalog lane: **`agentsam_tools.tool_category`** prefix `database.d1.*`  
+Route capabilities: `d1.read`, `d1.schema`, `d1.write`, `d1.batch_write` in **`agentsam_route_requirements`**
+
+**Runtime aliases today (same D1 surface):** `d1_schema_introspect`, `d1_explain` → treat as `d1_schema` / read helpers until catalog rename.
+
+### Surface 2 — Supabase Postgres (mirror / observability / pgvector)
+
+| Tool | Purpose |
+|------|---------|
+| `supabase_query` | SELECT against Supabase Postgres (via Hyperdrive) |
+| `supabase_write` | INSERT / UPDATE / DELETE against Supabase (approval-gated) |
+| `supabase_schema` | pg_catalog introspection, table/index inspection |
+| `supabase_vector` | pgvector upsert / similarity search / embedding query |
+
+**Workflow executor (target):** `executor_kind = 'hyperdrive_sql'` or `supabase_sql` for registry steps —
+not `d1_sql`. Workflow steps must not run Postgres SQL through the D1 binding.
+
+Catalog lane: **`agentsam_tools.tool_category`** prefix `database.hyperdrive.*` (migrate display names to `supabase_*`)  
+Route capabilities: `hyperdrive.read`, `hyperdrive.schema`, `hyperdrive.explain`, `supabase.vector` in **`agentsam_route_requirements`**
+
+**Runtime aliases today (same Supabase surface):** `hyperdrive_query` → `supabase_query`,
+`hyperdrive_schema` → `supabase_schema`, `hyperdrive_explain` → read helper on Supabase lane.
+RAG / `agent_memory` pgvector paths belong on **`supabase_vector`**.
+
+### Routing law
+
+- **`agentsam_route_requirements`** picks the lane before the model sees tools — never load both
+  full surfaces unless the route explicitly requires alignment (e.g. D1 ↔ Supabase parity audit).
+- Do not describe `d1_sql` as “runs SQL against whatever tables the query references” — it runs
+  against **D1 only**. Supabase tables (`public.agentsam_*` mirror, `agent_memory`, etc.) use
+  the **`supabase_*`** surface.
+- Chat, workflow, and **`agentsam_mcp_tools`** rows must declare which surface they target.
+
+Canonical rule row: `agentsam_rules_document.id = rule_database_tool_surfaces_d1_supabase`.
+
+---
 
 ## REPO IDENTITY
 - Repo root: /Users/samprimeaux/inneranimalmedia
@@ -193,4 +275,3 @@ bound to the authenticated user/workspace (never platform-wide reads for non-sup
 `user_secrets`, `user_api_keys`, `mcp_workspace_tokens`, `terminal_connections`, `terminal_sessions`
 
 Database Studio (`/api/d1/*`) must use `resolveUserWorkspaceBinding` — never `env.DB` for non-owner users.
-```

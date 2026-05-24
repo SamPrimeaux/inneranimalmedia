@@ -119,6 +119,8 @@ const EMERGENCY_POLICY = {
   sql_d1_generation:      { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
   deploy:                 { primary: 'gpt-5.4-mini',  fallback: 'claude-haiku-4-5-20251001' },
   debug:                  { primary: 'gpt-5.4',        fallback: 'claude-sonnet-4-6'     },
+  browser:                { primary: 'gemini-3-flash-preview', fallback: 'gemini-2.5-flash' },
+  browser_ui_repair:      { primary: 'gemini-3-flash-preview', fallback: 'gemini-2.5-flash' },
   research:               { primary: 'gemini-2.5-pro', fallback: 'gpt-5.4'              },
   embedding:              { primary: '@cf/baai/bge-m3', fallback: null                  },
 };

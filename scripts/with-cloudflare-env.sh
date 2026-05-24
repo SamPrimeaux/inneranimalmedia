@@ -52,7 +52,16 @@ if [[ -f "$ENV_FILE" ]]; then
   # shellcheck source=/dev/null
   source "$ENV_FILE"
   set +a
-elif [[ -f "$HOME/.zshrc" ]]; then
+fi
+# Bridge/MCP rotation exports (gitignored) — used by deploy post-deploy + optional email auth.
+MCP_EXPORTS="${REPO_ROOT}/.mcp_exports.sh"
+if [[ -f "$MCP_EXPORTS" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$MCP_EXPORTS"
+  set +a
+fi
+if [[ ! -f "$ENV_FILE" ]] && [[ -f "$HOME/.zshrc" ]]; then
   set -a
   # shellcheck source=/dev/null
   source "$HOME/.zshrc"

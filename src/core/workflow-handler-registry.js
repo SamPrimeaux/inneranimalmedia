@@ -5,8 +5,9 @@
  * Zero throws — null return means "no registry row, use legacy switch."
  *
  * executor_kinds:
- *   d1_sql | d1_write | agent_llm | mcp_tool | builtin_tool
+ *   d1_sql | d1_write | agent_llm | mcp_tool | agent_step | script | catalog_tool
  *   http | ui_emit | eval | terminal | approval | passthrough
+ *   (builtin_tool removed in migration 384 — legacy shim in workflow-executor until D1 applied)
  */
 
 const _cache = new Map(); // per-isolate in-memory cache

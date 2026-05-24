@@ -194,7 +194,69 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
       return executeWorkflowMcpTool(env, toolRow, input, runContext, hkStr);
     }
 
+    case 'agent_step': {
+      const stepKey = String(config.handler_key || handlerKey || '').trim();
+      const stepMod = await import('./agent-step.js');
+      if (!stepMod.isRegisteredAgentStepHandler(stepKey)) {
+        return { ok: false, error: `agent_step not registered in agent-step.js: ${stepKey}` };
+      }
+      return stepMod.agentChatStep(env, {
+        handler_key: stepKey,
+        input,
+        runContext,
+        node,
+        config,
+      });
+    }
+
+    case 'catalog_tool': {
+      const toolKey = String(config.tool_key || config.tool_code || '').trim();
+      if (!toolKey) {
+        return { ok: false, error: 'catalog_tool executor missing tool_key in handler_config_json' };
+      }
+      const { dispatchByToolCode } = await import('./dispatch-by-tool-code.js');
+      const toolRes = await dispatchByToolCode(
+        env,
+        toolKey,
+        { ...buildWorkflowParamRoot(input, runContext), ...(config.input_map || {}) },
+        {
+          ...runContext,
+          workspaceId: runContext?.runMeta?.workspaceId ?? runContext?.workspace_id,
+          tenantId: runContext?.runMeta?.tenantId ?? runContext?.tenant_id,
+          userId: runContext?.canonicalUserId ?? runContext?.runMeta?.userId,
+        },
+      );
+      if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
+      return { ok: toolRes?.ok !== false, output: toolRes?.result ?? toolRes };
+    }
+
+    case 'script': {
+      const scriptSlug = String(config.script_slug || config.scriptSlug || '').trim();
+      if (!scriptSlug) {
+        return {
+          ok: false,
+          error: 'script executor missing script_slug in handler_config_json',
+        };
+      }
+      const { executeAgentsamScript } = await import('./execute-agentsam-script.js');
+      return executeAgentsamScript(
+        env,
+        {
+          scriptSlug,
+          workspaceId: runContext?.runMeta?.workspaceId ?? runContext?.workspace_id,
+          tenantId: runContext?.runMeta?.tenantId ?? runContext?.tenant_id,
+          userId: runContext?.canonicalUserId ?? runContext?.runMeta?.userId,
+          smoke: runContext?.smoke,
+        },
+        input,
+        runContext,
+      );
+    }
+
     case 'builtin_tool': {
+      console.warn(
+        `[workflow] deprecated executor_kind=builtin_tool for ${handlerKey} — run migration 384`,
+      );
       if (config.delegate === 'script' || String(handlerKey).startsWith('script_')) {
         return executeWorkflowScript(env, handlerKey, input, runContext, node);
       }

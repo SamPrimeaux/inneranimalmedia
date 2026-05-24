@@ -375,19 +375,27 @@ export async function executeWorkflowDbQuery(env, handlerKey, input, runContext,
  * @param {Record<string, unknown>} node
  */
 export async function executeWorkflowScript(env, handlerKey, input, runContext, node) {
-  if (runContext?.smoke) {
-    return { ok: true, output: { smoke: true, skipped: true, handler_key: handlerKey } };
+  const cfg = parseNodeConfig(node);
+  const scriptSlug = String(cfg.script_slug || cfg.scriptSlug || '').trim();
+  if (!scriptSlug) {
+    return {
+      ok: false,
+      error: `script node requires handler_config_json.script_slug (handler_key=${handlerKey || node?.node_key || 'unknown'})`,
+    };
   }
-  const hk = String(handlerKey || '').trim();
-  const fn = SCRIPT_HANDLERS[hk];
-  if (fn) {
-    const ctx = workflowHandlerContext(env, runContext, node);
-    return fn(env, input, ctx);
-  }
-  const toolName = hk.startsWith('script.') ? hk.slice(7) : hk;
-  const toolRes = await runBuiltinTool(env, toolName, flattenWorkflowInput(input), runContext);
-  if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
-  return { ok: true, output: toolRes };
+  const { executeAgentsamScript } = await import('./execute-agentsam-script.js');
+  return executeAgentsamScript(
+    env,
+    {
+      scriptSlug,
+      workspaceId: runContext?.runMeta?.workspaceId ?? runContext?.workspaceId,
+      tenantId: runContext?.runMeta?.tenantId ?? runContext?.tenantId,
+      userId: runContext?.runMeta?.userId ?? runContext?.userId,
+      smoke: runContext?.smoke,
+    },
+    input,
+    runContext,
+  );
 }
 
 /**
@@ -520,55 +528,42 @@ export async function executeWorkflowMcpTool(env, toolRow, input, runContext, ha
   }
 
   const flat = flattenWorkflowInput(input);
-  const toolKey = String(toolRow.tool_key || '').trim();
-  const handlerType = String(toolRow.handler_type || '').trim();
+  const toolKey = String(toolRow.tool_key || toolRow.tool_name || '').trim();
 
-  if (['builtin', 'r2', 'terminal', 'proxy'].includes(handlerType)) {
-    const alias = MCP_HANDLER_TOOL_ALIASES[handlerKey] || toolKey;
-    const params = {
-      ...flat,
-      workspace_id: runContext?.workspaceId ?? runContext?.runMeta?.workspaceId,
-      tenant_id: runContext?.tenantId ?? runContext?.runMeta?.tenantId,
-      user_id: runContext?.userId ?? runContext?.runMeta?.userId,
-    };
-    if (handlerType === 'terminal' || alias.includes('terminal')) {
-      const cmd = flat.command || flat.cmd;
-      if (cmd) {
-        const termRes = await runBuiltinTool(env, 'terminal_run', { command: cmd, ...params }, runContext);
-        if (termRes?.error) return { ok: false, error: String(termRes.error) };
-        return { ok: true, output: termRes };
-      }
-    }
-    if (alias === 'hyperdrive_query' && !params.sql) {
-      params.sql = 'SELECT 1 AS ok';
-    }
-    const toolRes = await runBuiltinTool(env, alias, params, runContext);
+  const catalogRow = env?.DB
+    ? await env.DB.prepare(
+        `SELECT tool_key FROM agentsam_tools
+         WHERE COALESCE(is_active,1)=1 AND (tool_key=? OR tool_code=? OR tool_name=?)
+         LIMIT 1`,
+      )
+        .bind(toolKey, toolKey, toolKey)
+        .first()
+        .catch(() => null)
+    : null;
+
+  if (catalogRow?.tool_key) {
+    const { dispatchByToolCode } = await import('./dispatch-by-tool-code.js');
+    const toolRes = await dispatchByToolCode(env, catalogRow.tool_key, flat, {
+      workspaceId: runContext?.workspaceId ?? runContext?.runMeta?.workspaceId,
+      tenantId: runContext?.tenantId ?? runContext?.runMeta?.tenantId,
+      userId: runContext?.userId ?? runContext?.runMeta?.userId,
+    });
     if (toolRes?.error) {
-      return {
-        ok: false,
-        error: `mcp_tool ${toolKey}: ${toolRes.error}`,
-      };
+      return { ok: false, error: `mcp_tool ${toolKey}: ${toolRes.error}` };
     }
-    return { ok: true, output: { tool: alias, result: toolRes } };
+    return { ok: toolRes?.ok !== false, output: toolRes?.result ?? toolRes };
   }
 
-  if (!toolRow.mcp_service_url) {
-    return { ok: false, error: `no mcp_service_url for tool: ${handlerKey}` };
+  const { executeMcpCatalogRow } = await import('./catalog-tool-executor.js');
+  const mcpOut = await executeMcpCatalogRow(env, toolRow, flat, {
+    workspaceId: runContext?.workspaceId ?? runContext?.runMeta?.workspaceId,
+    tenantId: runContext?.tenantId ?? runContext?.runMeta?.tenantId,
+    userId: runContext?.userId ?? runContext?.runMeta?.userId,
+  });
+  if (!mcpOut.ok) {
+    return { ok: false, error: mcpOut.error || `mcp_tool failed: ${handlerKey}` };
   }
-
-  const mcpRes = await fetch(String(toolRow.mcp_service_url), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method: toolKey, params: flat }),
-  }).catch((e) => ({ ok: false, status: 0, _err: e }));
-
-  if (!mcpRes?.ok) {
-    return {
-      ok: false,
-      error: `mcp_tool HTTP ${mcpRes?.status ?? 0}: ${mcpRes?._err?.message ?? handlerKey}`,
-    };
-  }
-  return { ok: true, output: await mcpRes.json().catch(() => ({})) };
+  return { ok: true, output: mcpOut.body ?? mcpOut };
 }
 
 const FLOW_PRIMITIVE_HANDLERS = [
@@ -617,11 +612,6 @@ export function registerWorkflowStepHandlers() {
   for (const key of Object.keys(DB_QUERY_HANDLERS)) {
     registerAgentStepHandler(key, (env, { input, runContext, node, smoke }) =>
       executeWorkflowDbQuery(env, key, input, { ...runContext, smoke }, node),
-    );
-  }
-  for (const key of Object.keys(SCRIPT_HANDLERS)) {
-    registerAgentStepHandler(key, (env, { input, runContext, node, smoke }) =>
-      executeWorkflowScript(env, key, input, { ...runContext, smoke }, node),
     );
   }
   for (const key of Object.keys(EVAL_HANDLERS)) {

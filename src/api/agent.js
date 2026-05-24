@@ -6659,6 +6659,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     'sql_d1_generation',
     'terminal_execution',
     'debug',
+    'browser',
+    'browser_ui_repair',
     'cms_edit',
     'tool_use',
     'code',
@@ -6743,10 +6745,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   /** Auto routing when the client sent `model: auto` — prompt-route preferred_model is a hint, not a pin. */
   const isAutoModel = !explicitModelFromRequest;
 
+  const browserDispatchToolsActive =
+    capabilityDecision?.should_use_browser === true ||
+    String(intentResult?.taskType || '').toLowerCase() === 'browser' ||
+    (Array.isArray(tools) &&
+      tools.some((t) => {
+        const n = agentToolNameOf(t);
+        return (
+          n === 'browser_navigate' ||
+          n === 'cdt_take_snapshot' ||
+          n === 'browser_content'
+        );
+      }));
+
   let resolvedRoutingTaskType = resolveRoutingTaskType({
     intentSlug,
     requireTools,
     body,
+    intentTaskType: intentResult?.taskType,
   });
   const bodyPinsRouting = (() => {
     const b = body && typeof body === 'object' ? body : {};
@@ -6772,6 +6788,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (!requireTools && !bodyPinsRouting && intentResult?.taskType) {
     const tt = String(intentResult.taskType).trim();
     resolvedRoutingTaskType = (tt === 'question' ? 'chat' : tt) || resolvedRoutingTaskType;
+  }
+  if (browserDispatchToolsActive && !bodyPinsRouting) {
+    resolvedRoutingTaskType = 'browser';
   }
 
   const routeKeyForRun = (() => {

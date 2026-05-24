@@ -12,6 +12,15 @@
  */
 import { verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
 
+/** Deploy hooks / automation: INTERNAL_API_SECRET or Bearer AGENTSAM_BRIDGE_KEY (same as post-deploy). */
+function isEmailSendAuthorized(request, env) {
+  if (verifyInternalApiSecret(request, env)) return true;
+  const auth = request.headers.get('Authorization') || '';
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  const bridge = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
+  return !!(bridge && bearer === bridge);
+}
+
 function b64UrlEncodeUtf8(str) {
   const bytes = new TextEncoder().encode(str);
   let bin = '';
@@ -174,7 +183,7 @@ export async function handleEmailApi(request, env) {
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
-  if (!verifyInternalApiSecret(request, env)) {
+  if (!isEmailSendAuthorized(request, env)) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 

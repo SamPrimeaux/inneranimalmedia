@@ -60,20 +60,17 @@ export async function dispatchAgentsamCommand(env, cmdRow, args = {}, runContext
     }
     case 'script': {
       const scriptSlug = toolKey || slug;
-      const script = await env.DB.prepare(
-        `SELECT slug, body, runner FROM agentsam_scripts
-         WHERE slug = ? AND COALESCE(is_active, 1) = 1 AND COALESCE(safe_to_run, 0) = 1
-         LIMIT 1`,
-      )
-        .bind(scriptSlug)
-        .first();
-      if (!script?.body) {
-        throw new Error(`[dispatch] script ${scriptSlug} not found or not safe`);
-      }
-      return runBuiltinTool(
+      const { executeAgentsamScript } = await import('./execute-agentsam-script.js');
+      return executeAgentsamScript(
         env,
-        'terminal_run',
-        { command: String(script.body), runner: script.runner ?? 'shell' },
+        {
+          scriptSlug,
+          workspaceId: runContext?.workspaceId ?? runContext?.workspace_id,
+          tenantId: runContext?.tenantId ?? runContext?.tenant_id,
+          userId: runContext?.userId ?? runContext?.user_id,
+          triggerSource: 'agent_sam',
+        },
+        { command: rendered, args, ...(typeof args === 'object' && args ? args : {}) },
         runContext,
       );
     }

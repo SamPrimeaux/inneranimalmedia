@@ -302,7 +302,7 @@ _MSG_DISP="${GIT_MSG_LINE:-—}"
 _ENV_DISP="${DEPLOY_ENV:-—}"
 _BY_DISP="${DEPLOYED_BY:-—}"
 # Notification recipient (Resend delivery) — not the deploy audit actor; see DEPLOY_USER_EMAIL.
-_NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_NOTIFY_EMAIL:-sam@inneranimalmedia.com}}"
+_NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_TO:-${RESEND_NOTIFY_EMAIL:-sam@inneranimalmedia.com}}}"
 _DEPLOY_ACTOR="${DEPLOY_USER_EMAIL:-—}"
 
 echo "→ Sending deploy notification (POST /api/email/send) → ${_NOTIFY_TO} ..."
@@ -329,9 +329,10 @@ NOTIFY_JSON="$(jq -n \
   '{to: $to, subject: $subj, html: $html}')"
 # Notification should never block deploy success; treat failures as warnings.
 # Notification should never block deploy success; treat failures as warnings.
+_EMAIL_AUTH_BEARER="${INTERNAL_API_SECRET:-${AGENTSAM_BRIDGE_KEY:-}}"
 NOTIFY_RESP="$(curl -sS -X POST "https://inneranimalmedia.com/api/email/send" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${INTERNAL_API_SECRET:-}" \
+  -H "Authorization: Bearer ${_EMAIL_AUTH_BEARER}" \
   -d "$NOTIFY_JSON" || true)"
 if command -v jq >/dev/null 2>&1; then
   _notify_err="$(echo "$NOTIFY_RESP" | jq -r '.error // empty' 2>/dev/null || true)"
@@ -342,8 +343,9 @@ NOTIFY_STATUS=sent
 if [ -n "${_notify_err:-}" ]; then
   NOTIFY_STATUS=failed
   echo "⚠️  Deploy notification failed: ${_notify_err}" >&2
-  echo "    Fix: set worker secret RESEND_FROM (verified sender). Example:" >&2
-  echo "    npx wrangler secret put RESEND_FROM -c ./wrangler.production.toml" >&2
+  echo "    Fix: Worker secrets RESEND_FROM + RESEND_API_KEY; deploy shell needs INTERNAL_API_SECRET in .env.cloudflare." >&2
+  echo "    Example: printf '%s' 'notifications@inneranimalmedia.com' | npx wrangler secret put RESEND_FROM -c wrangler.production.toml" >&2
+  echo "    Example: ensure .env.cloudflare has INTERNAL_API_SECRET matching the Worker secret." >&2
 elif [ -z "${NOTIFY_RESP}" ]; then
   NOTIFY_STATUS=failed
 fi
