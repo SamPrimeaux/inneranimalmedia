@@ -20,7 +20,7 @@ function oauthOrigin(url) {
 }
 
 /** Revoke browser cookie session before issuing a new login session (prevents wrong-account stickiness). */
-async function revokeIncomingCookieSession(request, env, reason = 'oauth_login_replaced') {
+export async function revokeIncomingCookieSession(request, env, reason = 'oauth_login_replaced') {
   const cookie = request.headers.get('Cookie') || '';
   const match = cookie.match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`));
   const sessionId = match ? decodeURIComponent(String(match[1]).trim()) : null;
@@ -117,7 +117,7 @@ function googleClientSecret(env) {
  * @param {string} browserSessionId — `auth_sessions.id` from createLoginSession (cookie session UUID)
  * @param {string} userId — auth_users.id
  */
-async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {
+export async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {
   if (!db || !browserSessionId || !userId) return;
   try {
     let au = null;

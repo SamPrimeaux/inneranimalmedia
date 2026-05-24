@@ -15,7 +15,6 @@ import {
   getAuthUser,
   getSession,
   resolveUserEnrichment,
-  establishIamSession,
   createLoginSession,
   revokeAuthSession,
   verifyAgentSessionMintSecret,
@@ -28,7 +27,11 @@ import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBef
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { logAuthEvent } from '../core/auth-events.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
-import { autoStartWorkSession } from './oauth-login-callbacks.js';
+import {
+  autoStartWorkSession,
+  revokeIncomingCookieSession,
+  tryOAuthLoginTimeTracking,
+} from './oauth-login-callbacks.js';
 import { upsertOauthToken } from './oauth.js';
 
 /**
@@ -1299,6 +1302,8 @@ export async function handleSupabaseOAuthCallback(request, env) {
       email: oauthEmail,
       name,
       supabaseUserId,
+      provider: 'supabase_auth',
+      provider_uid: supabaseUserId,
       source: 'supabase_auth',
     },
     { allowCreate: true },
@@ -1382,18 +1387,27 @@ export async function handleSupabaseOAuthCallback(request, env) {
     `).bind(authUserId, supabaseUserId, access_token, refresh_token || null, expiresAt).run();
   }
 
-  const sessionResponse = await establishIamSession(request, env, authUserId, { ok: true }, 'supabase_auth');
-  if (!sessionResponse.ok || sessionResponse.status !== 200) {
+  await revokeIncomingCookieSession(request, env);
+  let sessionId;
+  try {
+    sessionId = await createLoginSession(request, env, authUserId, 'supabase_auth', {
+      providerSubject: supabaseUserId,
+    });
+  } catch (e) {
+    console.error('[supabase_oauth] createLoginSession failed', e?.message ?? e);
     logSupabaseLoginDebug({
       phase: 'session_failed',
       provider: 'supabase_project_oauth',
       callback_path: url.pathname,
-      session_response_status: sessionResponse.status,
+      session_response_status: 500,
       cookie_name: AUTH_COOKIE_NAME,
       has_session_cookie: false,
     });
     return redirectToAuthLogin(request, 'error=session_failed');
   }
+
+  await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
+  autoStartWorkSession(env, authUserId, authRow?.tenant_id ?? null, url.pathname).catch(() => {});
 
   console.log('[supabase_oauth] session created', {
     supabase_user_id: supabaseUserId,
@@ -1404,28 +1418,26 @@ export async function handleSupabaseOAuthCallback(request, env) {
 
   const originBase = resolvePublicOriginForOAuth(request, env);
   const destPath = nextAfterLogin || DASHBOARD_AFTER_LOGIN_PATH;
-  const cookiesOut = collectSetCookieValues(sessionResponse.headers);
-  const hasSessionCookie = cookiesOut.some(
-    (c) =>
-      c.startsWith(`${AUTH_COOKIE_NAME}=`) &&
-      !/;\s*Max-Age=0\b/i.test(c) &&
-      !/;\s*Expires=Thu,\s*01\s+Jan\s+1970/i.test(c),
-  );
   logSupabaseLoginDebug({
     phase: 'session_created',
     provider: 'supabase_project_oauth',
     user_id: authUserId,
     cookie_name: AUTH_COOKIE_NAME,
     next_redirect: destPath,
-    has_session_cookie: hasSessionCookie,
-    session_response_status: sessionResponse.status,
+    has_session_cookie: true,
+    session_response_status: 200,
     callback_path: url.pathname,
     client_id_tail: oauthClientIdTail(env.SUPABASE_OAUTH_CLIENT_ID),
   });
   const redirectHeaders = new Headers({ Location: `${originBase}${destPath}` });
-  for (const c of cookiesOut) {
-    redirectHeaders.append('Set-Cookie', c);
-  }
+  redirectHeaders.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
+  redirectHeaders.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+  );
   appendLegacySessionCookieClears(redirectHeaders);
 
   return new Response(null, { status: 302, headers: redirectHeaders });
