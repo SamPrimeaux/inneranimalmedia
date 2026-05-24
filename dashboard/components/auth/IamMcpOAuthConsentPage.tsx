@@ -388,7 +388,19 @@ export default function IamMcpOAuthConsentPage({
         <div className="consent-card">
           <header className="consent-header">
             <div className="iam-brand">
-              <IamShield className="iam-shield" />
+              {state.phase === "ready" || state.phase === "submitting" ? (
+                state.data.client.logo_url ? (
+                  <img
+                    src={state.data.client.logo_url}
+                    alt=""
+                    className="iam-brand-logo"
+                  />
+                ) : (
+                  <IamShield className="iam-shield" />
+                )
+              ) : (
+                <IamShield className="iam-shield" />
+              )}
               <span className="iam-name">Inner Animal Media</span>
             </div>
           </header>
@@ -415,7 +427,7 @@ export default function IamMcpOAuthConsentPage({
               return (
                 <div className="consent-main">
                   <div className="client-block">
-                    <div className="client-logo">
+                    <div className={cn("client-logo", data.client.logo_url && "client-logo--brand")}>
                       {data.client.logo_url ? (
                         <img src={data.client.logo_url} alt={data.client.display_name} className="client-logo-img" />
                       ) : (
@@ -584,6 +596,15 @@ const STYLES = `
     flex-shrink: 0;
   }
 
+  .iam-brand-logo {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    object-fit: contain;
+    flex-shrink: 0;
+    background: #0b1220;
+  }
+
   .iam-name {
     font-size: 12px;
     font-weight: 600;
@@ -680,10 +701,20 @@ const STYLES = `
     overflow: hidden;
   }
 
+  .client-logo--brand {
+    background: #0b1220;
+    border-color: #21262d;
+  }
+
   .client-logo-img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    padding: 4px;
+  }
+
+  .client-logo--brand .client-logo-img {
+    padding: 6px;
   }
 
   .client-logo-fallback {
