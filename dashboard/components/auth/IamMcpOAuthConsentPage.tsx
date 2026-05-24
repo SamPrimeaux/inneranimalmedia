@@ -56,10 +56,21 @@ interface Workspace {
   workspace_type: string;
 }
 
+interface ConnectingAppInfo {
+  key: "cursor" | "claude" | "chatgpt" | "mcp";
+  label: string;
+  badge: string;
+  tagline: string;
+  return_hint: string;
+  accent: string;
+}
+
 interface ConsentData {
   client: OAuthClient;
   scopes: ScopeInfo[];
   workspaces: Workspace[];
+  redirect_uri?: string | null;
+  connecting_app?: ConnectingAppInfo;
   default_workspace_id?: string | null;
   signed_in_email?: string | null;
   expires_at: number;
@@ -70,8 +81,8 @@ type ConsentState =
   | { phase: "loading" }
   | { phase: "ready"; data: ConsentData }
   | { phase: "submitting"; data: ConsentData }
-  | { phase: "success" }
-  | { phase: "denied" }
+  | { phase: "success"; connectingApp: ConnectingAppInfo }
+  | { phase: "denied"; connectingApp?: ConnectingAppInfo }
   | { phase: "error"; message: string };
 
 // ---------------------------------------------------------------------------
@@ -133,6 +144,37 @@ function pickDefaultWorkspace(data: ConsentData): string {
 function workspaceDisplayName(data: ConsentData, workspaceId: string): string {
   const ws = data.workspaces.find((w) => w.id === workspaceId);
   return ws?.name || "your workspace";
+}
+
+const DEFAULT_CONNECTING_APP: ConnectingAppInfo = {
+  key: "mcp",
+  label: "MCP client",
+  badge: "MCP",
+  tagline: "Authorize tools for your connected MCP application",
+  return_hint: "Return to your MCP client to continue.",
+  accent: "#0969da",
+};
+
+function resolveConnectingAppClient(data: ConsentData): ConnectingAppInfo {
+  return data.connecting_app ?? DEFAULT_CONNECTING_APP;
+}
+
+function ConnectingAppBanner({ app }: { app: ConnectingAppInfo }) {
+  return (
+    <div
+      className={cn("connecting-app-banner", `connecting-app-banner--${app.key}`)}
+      style={{ ["--app-accent" as string]: app.accent }}
+      role="status"
+    >
+      <span className="connecting-app-badge" aria-hidden="true">
+        {app.badge}
+      </span>
+      <div className="connecting-app-copy">
+        <strong className="connecting-app-title">Connecting from {app.label}</strong>
+        <span className="connecting-app-tagline">{app.tagline}</span>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +288,7 @@ function ErrorScreen({ message, onBack }: { message: string; onBack?: () => void
   );
 }
 
-function SuccessScreen({ mode = "cli" }: { mode?: "cli" | "dashboard" }) {
+function SuccessScreen({ app }: { app: ConnectingAppInfo }) {
   return (
     <div className="state-screen">
       <div className="state-icon state-icon--success">
@@ -255,22 +297,14 @@ function SuccessScreen({ mode = "cli" }: { mode?: "cli" | "dashboard" }) {
           <path d="M9 14.5L12.5 18L19 11" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
-      <h2 className="state-title">Connected</h2>
-      <p className="state-body">
-        {mode === "cli"
-          ? "Return to Cursor or your MCP client — the connection will resume automatically."
-          : "Inner Animal Media MCP Server now has access to your workspace."}
-      </p>
-      {mode === "dashboard" && (
-        <a href="/dashboard/settings/keys" className="btn btn--ghost">
-          Manage connections →
-        </a>
-      )}
+      <h2 className="state-title">Connected to {app.label}</h2>
+      <p className="state-body">{app.return_hint}</p>
     </div>
   );
 }
 
-function DeniedScreen() {
+function DeniedScreen({ app }: { app?: ConnectingAppInfo }) {
+  const label = app?.label ?? "the app";
   return (
     <div className="state-screen">
       <div className="state-icon state-icon--neutral">
@@ -281,7 +315,9 @@ function DeniedScreen() {
         </svg>
       </div>
       <h2 className="state-title">Access denied</h2>
-      <p className="state-body">No access was granted. You can close this window.</p>
+      <p className="state-body">
+        No access was granted. You can close this window and return to {label}.
+      </p>
     </div>
   );
 }
@@ -310,13 +346,10 @@ function friendlyError(msg: string): string {
 interface IamMcpOAuthConsentPageProps {
   /** Passed from route query param: ?authorization_id=oaa_* */
   authorizationId?: string;
-  /** After approve — where to tell user to go. Defaults to cli. */
-  successMode?: "cli" | "dashboard";
 }
 
 export default function IamMcpOAuthConsentPage({
   authorizationId,
-  successMode = "cli",
 }: IamMcpOAuthConsentPageProps) {
   const [state, setState] = useState<ConsentState>({ phase: "loading" });
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("");
@@ -332,8 +365,9 @@ export default function IamMcpOAuthConsentPage({
       .then((data) => {
         if (cancelled) return;
         // Validate not already acted on
-        if (data.status === "approved") { setState({ phase: "success" }); return; }
-        if (data.status === "denied") { setState({ phase: "denied" }); return; }
+        const app = resolveConnectingAppClient(data);
+        if (data.status === "approved") { setState({ phase: "success", connectingApp: app }); return; }
+        if (data.status === "denied") { setState({ phase: "denied", connectingApp: app }); return; }
         if (data.status === "expired") {
           setState({ phase: "error", message: "expired" });
           return;
@@ -355,6 +389,13 @@ export default function IamMcpOAuthConsentPage({
     return () => { cancelled = true; };
   }, [authorizationId]);
 
+  useEffect(() => {
+    if (state.phase === "ready" || state.phase === "submitting") {
+      const app = resolveConnectingAppClient(state.data);
+      document.title = `Authorize ${app.label} · Inner Animal Media`;
+    }
+  }, [state]);
+
   // ── Actions ──────────────────────────────────────────────────────────────
   const handleApprove = useCallback(async () => {
     if (!authorizationId || !selectedWorkspace || state.phase !== "ready") return;
@@ -365,7 +406,7 @@ export default function IamMcpOAuthConsentPage({
       if (result.redirect_url) {
         window.location.href = result.redirect_url;
       } else {
-        setState({ phase: "success" });
+        setState({ phase: "success", connectingApp: resolveConnectingAppClient(frozen) });
       }
     } catch (err: any) {
       setState({ phase: "error", message: err.message });
@@ -378,9 +419,9 @@ export default function IamMcpOAuthConsentPage({
     setState({ phase: "submitting", data: frozen });
     try {
       await submitConsent(authorizationId, selectedWorkspace || "_denied", "deny");
-      setState({ phase: "denied" });
+      setState({ phase: "denied", connectingApp: resolveConnectingAppClient(frozen) });
     } catch {
-      setState({ phase: "denied" }); // best-effort — always show denied
+      setState({ phase: "denied", connectingApp: resolveConnectingAppClient(frozen) });
     }
   }, [authorizationId, selectedWorkspace, state]);
 
@@ -417,8 +458,8 @@ export default function IamMcpOAuthConsentPage({
                 onBack={() => window.history.back()}
               />
             )}
-            {state.phase === "success" && <SuccessScreen mode={successMode} />}
-            {state.phase === "denied" && <DeniedScreen />}
+            {state.phase === "success" && <SuccessScreen app={state.connectingApp} />}
+            {state.phase === "denied" && <DeniedScreen app={state.connectingApp} />}
 
             {(state.phase === "ready" || state.phase === "submitting") && (() => {
               const data = state.data;
@@ -427,9 +468,11 @@ export default function IamMcpOAuthConsentPage({
               const displayScopes = scopesForDisplay(data.scopes);
               const wsName = workspaceDisplayName(data, selectedWorkspace);
               const signedIn = data.signed_in_email || "";
+              const connectingApp = resolveConnectingAppClient(data);
 
               return (
                 <div className="consent-main">
+                  <ConnectingAppBanner app={connectingApp} />
                   <div className="client-block">
                     <div className={cn("client-logo", data.client.logo_url && "client-logo--brand")}>
                       {data.client.logo_url ? (
@@ -454,7 +497,8 @@ export default function IamMcpOAuthConsentPage({
                   </div>
 
                   <p className="consent-headline">
-                    <strong>{data.client.display_name}</strong> wants to access your{" "}
+                    <strong>{connectingApp.label}</strong> is connecting to{" "}
+                    <strong>{data.client.display_name}</strong> on your{" "}
                     <strong>Inner Animal Media</strong> account
                     {signedIn ? (
                       <>
@@ -690,6 +734,62 @@ const STYLES = `
     display: flex;
     flex-direction: column;
     gap: 18px;
+  }
+
+  .connecting-app-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--c-border-subtle);
+    border-left: 4px solid var(--app-accent, var(--c-accent));
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--app-accent, var(--c-accent)) 8%, transparent),
+      transparent 72%
+    );
+  }
+
+  .connecting-app-badge {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--app-accent, var(--c-accent));
+    background: color-mix(in srgb, var(--app-accent, var(--c-accent)) 12%, #fff);
+    border: 1px solid color-mix(in srgb, var(--app-accent, var(--c-accent)) 28%, var(--c-border));
+  }
+
+  .connecting-app-banner--cursor .connecting-app-badge {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .connecting-app-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .connecting-app-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--c-text);
+    line-height: 1.35;
+  }
+
+  .connecting-app-tagline {
+    font-size: 13px;
+    color: var(--c-muted);
+    line-height: 1.4;
   }
 
   .client-block {

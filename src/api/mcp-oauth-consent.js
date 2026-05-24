@@ -13,6 +13,7 @@ import {
   mcpOAuthParseScopeList,
   mcpOAuthScopeAllowed,
   MCP_OAUTH_CODE_TTL_SECONDS,
+  resolveMcpConnectingApp,
 } from './mcp-oauth-shared.js';
 
 export function isIamMcpAuthorizationId(id) {
@@ -106,11 +107,13 @@ function iamMcpConsentHtml(opts) {
     authorizationId,
     clientName,
     redirectUri,
+    connectingApp,
     scopes,
     signedInEmail,
     workspaces,
     errorMessage,
   } = opts;
+  const app = connectingApp || resolveMcpConnectingApp(redirectUri);
   const wsOptions = (workspaces || [])
     .map(
       (w) =>
@@ -147,7 +150,8 @@ button{flex:1;min-width:120px;padding:13px 16px;border-radius:12px;font-weight:7
 </style></head>
 <body><div class="shell"><div class="logo">◆ Inner Animal Media</div>
 <div class="card">${errBlock}
-<p class="sub" style="margin-top:0"><strong class="client">${escapeHtml(clientName || 'MCP client')}</strong> is requesting API access to your workspace via MCP OAuth.</p>
+<p class="sub" style="margin-top:0;padding:10px 12px;border-radius:10px;border-left:4px solid ${escapeHtml(app.accent)};background:rgba(255,255,255,.04)"><strong>Connecting from ${escapeHtml(app.label)}</strong><br/>${escapeHtml(app.tagline)}</p>
+<p class="sub"><strong class="client">${escapeHtml(clientName || 'MCP client')}</strong> is requesting API access to your workspace via MCP OAuth.</p>
 <div class="user"><strong>${escapeHtml(signedInEmail || '')}</strong></div>
 <p class="section-title">Permissions</p>
 <ul>${scopeItems || '<li>Standard MCP access</li>'}</ul>
@@ -233,6 +237,7 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     scopes,
     scope_labels: scopes.map(scopeLabel),
     redirect_uri: row.redirect_uri,
+    connecting_app: resolveMcpConnectingApp(row.redirect_uri),
     workspaces,
     default_workspace_id: defaultWorkspaceId,
     expires_at: row.expires_at,
@@ -381,6 +386,7 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
           authorizationId,
           clientName: loaded.row?.client_display_name || loaded.row?.client_id,
           redirectUri: loaded.row?.redirect_uri,
+          connectingApp: resolveMcpConnectingApp(loaded.row?.redirect_uri),
           scopes: mcpOAuthParseScopeList(loaded.row?.scope),
           signedInEmail: iamUser.email,
           workspaces,
@@ -436,6 +442,7 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
       authorizationId,
       clientName: loaded.row.client_display_name || loaded.row.client_name || loaded.row.client_id,
       redirectUri: loaded.row.redirect_uri,
+      connectingApp: resolveMcpConnectingApp(loaded.row.redirect_uri),
       scopes: mcpOAuthParseScopeList(loaded.row.scope),
       signedInEmail: iamUser.email,
       workspaces,

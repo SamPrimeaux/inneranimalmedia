@@ -118,6 +118,74 @@ export const MCP_OAUTH_REGISTERED_REDIRECT_URIS = [
   'https://chatgpt.com/connector/oauth/Fp4-o8x6PZh_',
 ];
 
+/**
+ * Infer external MCP host (Cursor, Claude, ChatGPT) from OAuth redirect_uri.
+ * Used by MCP consent UI for app-appropriate copy and accents.
+ */
+export function resolveMcpConnectingApp(redirectUri) {
+  const fallback = {
+    key: 'mcp',
+    label: 'MCP client',
+    badge: 'MCP',
+    tagline: 'Authorize tools for your connected MCP application',
+    return_hint: 'Return to your MCP client to continue.',
+    accent: '#0969da',
+  };
+
+  const raw = String(redirectUri || '').trim();
+  if (!raw) return fallback;
+
+  let host = '';
+  let path = '';
+  try {
+    const u = new URL(raw);
+    host = u.hostname.toLowerCase();
+    path = u.pathname.toLowerCase();
+  } catch {
+    return fallback;
+  }
+
+  if (host === 'claude.ai' || host === 'claude.com') {
+    return {
+      key: 'claude',
+      label: 'Claude',
+      badge: 'C',
+      tagline: 'Authorize Agent Sam MCP tools inside Claude',
+      return_hint: 'Return to Claude to finish connecting.',
+      accent: '#d97757',
+    };
+  }
+
+  if (
+    host === 'chatgpt.com' ||
+    host === 'chat.openai.com' ||
+    path.includes('connector_platform_oauth') ||
+    path.startsWith('/connector/oauth/')
+  ) {
+    return {
+      key: 'chatgpt',
+      label: 'ChatGPT',
+      badge: 'GPT',
+      tagline: 'Authorize Agent Sam MCP tools inside ChatGPT',
+      return_hint: 'Return to ChatGPT to finish connecting.',
+      accent: '#10a37f',
+    };
+  }
+
+  if (host === 'mcp.inneranimalmedia.com' && path.includes('/auth/callback')) {
+    return {
+      key: 'cursor',
+      label: 'Cursor',
+      badge: '↗',
+      tagline: 'Authorize Agent Sam MCP tools inside Cursor',
+      return_hint: 'Return to Cursor — your connection will resume automatically.',
+      accent: '#1a1a2e',
+    };
+  }
+
+  return fallback;
+}
+
 export function mcpOAuthValidateRedirectUri(raw, client, env) {
   let u;
   try {

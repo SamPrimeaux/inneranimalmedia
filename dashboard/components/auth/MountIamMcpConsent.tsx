@@ -5,9 +5,6 @@ import { useMcpOAuthConsent } from "../../hooks/useMcpOAuthConsent";
 export default function MountIamMcpConsent() {
   const { authorizationId, isMissing } = useMcpOAuthConsent();
   return (
-    <IamMcpOAuthConsentPage
-      authorizationId={isMissing ? undefined : authorizationId}
-      successMode="cli"
-    />
+    <IamMcpOAuthConsentPage authorizationId={isMissing ? undefined : authorizationId} />
   );
 }
