@@ -1,6 +1,6 @@
 # Handoff: MCP OAuth UI/UX + `inneranimalmedia-mcp-server` agent
 
-**Status (2026-05-23):** **Shipped** on `main` — IAM provider + React consent + MCP client (`mcp-oauth-iam.js`). MCP server **v2.6.0** surfaces `agentsam_*` tool names in `tools/list` and resolves them to handler `tool_key` on `tools/call`. Use this doc for maintenance and Cursor UX polish only.
+**Status (2026-05-23):** **Shipped + polished** on `main` — IAM provider + React consent (`IamMcpOAuthConsentPage.tsx` @ `/oauth/mcp/consent`) + MCP client (`mcp-oauth-iam.js`). MCP server **v2.6.1** surfaces `agentsam_*` tool names in `tools/list` and resolves on `tools/call`. Consent UI: IA branding, app-aware copy (Cursor / Claude.ai / ChatGPT), **no workspace name on screen** (scoped server-side). Latest IAM deploy: commit **`18d2b15`**, Worker version **`4b5ad6a2-6568-4175-a515-67e90869a2fc`**.
 
 **For:** Frontend / MCP-worker agent (not the IAM backend agent)  
 **Goal:** End-to-end OAuth login for MCP (`mcp.inneranimalmedia.com`) via IAM provider (`inneranimalmedia.com`)  
@@ -31,11 +31,7 @@
 | PKCE | **Required** (`requires_pkce = 1`) |
 | **Do not use** | `agent_sam_mcp`, default `mcp`, `inneranimal_builtin_oauth` |
 
-**Broken today (why you’re here):**
-
-- IAM `/api/oauth/authorize` **skips consent** and redirects to MCP with a code immediately (`oauth_state_nonces` path).
-- MCP likely sends wrong `client_id`; D1 shows **zero** `mcp_workspace_tokens` with `token_type='oauth'`.
-- Consent UI exists as **unwired mockup**: `dashboard/components/auth/AuthOAuthConsentPage.tsx` (route `/api/auth/oauth/consent` — today used for **Supabase** bridge, not IAM MCP).
+**Historical (fixed):** authorize no longer skips consent for `iam_mcp_inneranimalmedia`; consent is **`/oauth/mcp/consent`** (React), not the Supabase bridge at `/api/auth/oauth/consent`.
 
 ---
 
@@ -54,7 +50,7 @@
 
 - Client: `display_name`, `logo_url`, `homepage_url` from `oauth_clients`
 - Requested scopes (human labels mapped from `allowed_scopes`)
-- Workspace picker (user’s workspaces from authenticated session)
+- Signed-in email only — **no workspace picker or workspace name** (server picks membership/default on approve)
 - Primary CTA: **Authorize** | Secondary: **Deny**
 - States: `idle` → `loading` → `success` | `error` | `declined`
 - Footer: privacy/terms links from client row if present
@@ -236,7 +232,7 @@ SELECT COUNT(*) FROM mcp_workspace_tokens WHERE token_type='oauth' AND is_active
 
 - **Trust-first:** show IAM shield + “Inner Animal Media” as authorization server.
 - **Explicit scopes:** bullet list with read/write/guarded tones (already in mockup).
-- **Workspace choice required** before Authorize (multi-tenant).
+- **Workspace bound server-side** on approve (not shown on consent — avoids leaking workspace labels like tenant display names).
 - **Deny** is safe — clear “No access granted” state, no scary errors.
 - **Mobile-safe:** consent is a standalone page (not dashboard shell) — full viewport, large tap targets.
 
@@ -252,9 +248,9 @@ SELECT COUNT(*) FROM mcp_workspace_tokens WHERE token_type='oauth' AND is_active
 
 ## 9. Done checklist (your agent signs off)
 
-- [ ] Consent UI wired to live API; no hardcoded client/workspace.
-- [ ] MCP authorize URL uses `iam_mcp_inneranimalmedia` + PKCE + correct redirect.
-- [ ] `/auth/callback` exchanges code; tokens stored securely.
-- [ ] Greps clean in **both** repos (section 5).
-- [ ] One full manual E2E + screenshot or Playwright proof.
-- [ ] No secrets committed; `.env` / Wrangler secrets only.
+- [x] Consent UI wired to live API (`GET`/`POST` `/api/oauth/mcp/consent`); app-aware copy; no workspace name on screen.
+- [x] MCP authorize uses `iam_mcp_inneranimalmedia` + PKCE + registered redirect URIs (401 + 408 for ChatGPT connector).
+- [x] `/auth/callback` exchanges code; `mcp_workspace_tokens.token_type='oauth'`.
+- [x] IAM `main` through **`18d2b15`**; MCP server **`aa6ab4d`** (v2.6.1).
+- [ ] Per-user E2E proof when connecting ChatGPT connector (each user gets own callback URL in D1).
+- [x] No secrets in repo; Wrangler secrets only.
