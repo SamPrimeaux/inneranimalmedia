@@ -169,3 +169,34 @@ export function mcpOAuthAllowedRedirectUri(raw, env) {
 export function mcpOAuthSafePathWithSearch(url) {
   return `${url.pathname}${url.search || ''}`;
 }
+
+/**
+ * Curated tool keys for external OAuth MCP clients (Claude, ChatGPT).
+ * Source: agentsam_mcp_oauth_tool_allowlist (migration 403).
+ */
+export async function loadMcpOAuthExternalToolKeys(env, clientId = MCP_CANONICAL_CLIENT_ID) {
+  if (!env?.DB) return null;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT tool_key
+         FROM agentsam_mcp_oauth_tool_allowlist
+        WHERE client_id = ?
+          AND COALESCE(is_active, 1) = 1
+        ORDER BY sort_order ASC, tool_key ASC`,
+    )
+      .bind(String(clientId || MCP_CANONICAL_CLIENT_ID))
+      .all();
+    const keys = (results || [])
+      .map((r) => String(r.tool_key || '').trim())
+      .filter(Boolean);
+    return keys.length ? keys : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** JSON array for mcp_workspace_tokens.allowed_tools at OAuth token issue. */
+export async function loadMcpOAuthExternalAllowedToolsJson(env, clientId = MCP_CANONICAL_CLIENT_ID) {
+  const keys = await loadMcpOAuthExternalToolKeys(env, clientId);
+  return keys?.length ? JSON.stringify(keys) : null;
+}

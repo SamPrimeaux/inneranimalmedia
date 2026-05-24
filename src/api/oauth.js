@@ -43,6 +43,7 @@ import {
   mcpOAuthRedirectAllowed,
   mcpOAuthScopeAllowed,
   mcpOAuthNormalizeScope,
+  loadMcpOAuthExternalAllowedToolsJson,
 } from './mcp-oauth-shared.js';
 import { logAuthEvent } from '../core/auth-events.js';
 
@@ -949,6 +950,8 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   const tokenHash = await mcpOAuthSha256Hex(accessToken);
   const now = mcpOAuthNow();
   const expiresAt = now + MCP_OAUTH_TOKEN_TTL_SECONDS;
+  const oauthAllowedToolsJson =
+    (await loadMcpOAuthExternalAllowedToolsJson(env, row.client_id)) || null;
 
   await env.DB.prepare(
     `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ?`,
@@ -977,7 +980,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
       tenantId,
       `MCP OAuth ${authRow?.email || userId}`,
       tokenHash,
-      null,
+      oauthAllowedToolsJson,
       100,
       expiresAt,
       userId,
