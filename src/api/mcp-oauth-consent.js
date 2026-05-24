@@ -42,18 +42,19 @@ async function listUserWorkspaces(env, userId) {
   if (!env.DB || !userId) return [];
   try {
     const { results } = await env.DB.prepare(
-      `SELECT w.id, w.name, w.slug
+      `SELECT w.id, w.name, w.handle, w.domain
          FROM workspace_members wm
          JOIN workspaces w ON w.id = wm.workspace_id
         WHERE wm.user_id = ?
-        ORDER BY wm.joined_at ASC`,
+          AND COALESCE(wm.is_active, 1) = 1
+        ORDER BY COALESCE(wm.joined_at, wm.created_at) ASC`,
     )
       .bind(userId)
       .all();
     return (results || []).map((r) => ({
       id: String(r.id),
       name: String(r.name || r.id),
-      subtitle: r.slug ? String(r.slug) : undefined,
+      subtitle: r.handle ? String(r.handle) : r.domain ? String(r.domain) : undefined,
     }));
   } catch {
     return [];

@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -28,13 +29,35 @@ function loadEnv() {
 }
 loadEnv();
 
-function sessionCookie() {
+async function mintSessionCookie() {
+  const secret = process.env.AGENT_SESSION_MINT_SECRET || '';
+  if (!secret) return null;
+  const res = await fetch(`${IAM_ORIGIN}/api/auth/agent-session/mint`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${secret}`,
+    },
+    body: JSON.stringify({
+      user_id: process.env.IAM_E2E_USER_ID || 'au_871d920d1233cbd1',
+      ttl_seconds: 600,
+    }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) return null;
+  if (json.cookie_header) return json.cookie_header;
+  if (json.session_id) return `session=${json.session_id}`;
+  return null;
+}
+
+async function sessionCookie() {
   let v = process.env.IAM_SESSION_COOKIE || '';
   if (!v && existsSync(`${process.env.HOME}/.iam-session-cookie`)) {
     v = readFileSync(`${process.env.HOME}/.iam-session-cookie`, 'utf8').trim();
   }
+  if (!v) v = await mintSessionCookie();
   if (!v) return null;
-  return v.includes('=') ? v : `iam_session=${v}`;
+  return v.includes('=') ? v : `session=${v}`;
 }
 
 function pkcePair() {
@@ -44,9 +67,9 @@ function pkcePair() {
 }
 
 async function main() {
-  const cookie = sessionCookie();
+  const cookie = await sessionCookie();
   if (!cookie) {
-    console.error('Missing IAM_SESSION_COOKIE or ~/.iam-session-cookie');
+    console.error('Missing session: set IAM_SESSION_COOKIE, ~/.iam-session-cookie, or AGENT_SESSION_MINT_SECRET');
     process.exit(1);
   }
 
@@ -154,13 +177,33 @@ async function main() {
   const userinfo = await userinfoRes.json().catch(() => ({}));
   report.steps.push({ step: 'userinfo', status: userinfoRes.status, sub: userinfo.sub });
 
+  let d1Proof = {};
+  try {
+    const sql =
+      "SELECT COUNT(*) AS oauth_tokens FROM mcp_workspace_tokens WHERE token_type='oauth' AND is_active=1; SELECT total_authorizations FROM oauth_clients WHERE client_id='iam_mcp_inneranimalmedia';";
+    const out = execSync(
+      `./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --json --command "${sql}"`,
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    );
+    const parsed = JSON.parse(out);
+    const blocks = Array.isArray(parsed) ? parsed : [parsed];
+    d1Proof = {
+      oauth_tokens: blocks[0]?.results?.[0]?.oauth_tokens,
+      total_authorizations: blocks[1]?.results?.[0]?.total_authorizations,
+    };
+  } catch (e) {
+    d1Proof = { error: String(e.message || e) };
+  }
+  report.d1 = d1Proof;
+
   report.ok =
     authRes.status === 302 &&
     consentJsonRes.ok &&
     approveRes.ok &&
     tokenRes.ok &&
     userinfoRes.ok &&
-    !!userinfo.sub;
+    !!userinfo.sub &&
+    Number(d1Proof.oauth_tokens || 0) >= 1;
 
   writeReport(report);
   console.log(JSON.stringify(report, null, 2));
