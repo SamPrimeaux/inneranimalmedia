@@ -16,6 +16,7 @@ import {
   isAgentQuickstartPath,
   isAgentShellPath,
 } from './lib/agentRoutes';
+import { sanitizeBrowserNavigateUrl } from './lib/sanitizeBrowserUrl';
 import { MCPPanel } from './components/MCPPanel';
 import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
@@ -1552,10 +1553,11 @@ const App: React.FC = () => {
       if (!s) return;
       revealMainWorkspaceIfNarrow();
       if (s === 'browser') {
-        if (d?.url?.trim()) {
+        const safeUrl = sanitizeBrowserNavigateUrl(d?.url);
+        if (safeUrl) {
           setBrowserAddressDisplay(null);
           setBrowserTabTitle(null);
-          setBrowserUrl(d.url.trim());
+          setBrowserUrl(safeUrl);
         }
         openTab('browser');
         if (isNarrowViewport) setToastMsg('Browser tab opened. Tap Chat to return to Agent Sam.');
@@ -2168,7 +2170,8 @@ const App: React.FC = () => {
   const handleBrowserNavigateFromAgent = useCallback(
     (event: { type: 'browser_navigate'; url: string }) => {
       if (event.type !== 'browser_navigate' || !event.url?.trim()) return;
-      const url = event.url.trim();
+      const url = sanitizeBrowserNavigateUrl(event.url);
+      if (!url) return;
       if (/\/api\/r2\/file\b/i.test(url)) {
         return;
       }

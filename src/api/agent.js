@@ -71,6 +71,7 @@ import {
   scheduleInsertAgentCost,
 } from '../core/agent-costs.js';
 import { evaluateGuardrails } from '../core/guardrails.js';
+import { extractBrowserNavigateUrl } from '../core/extract-browser-url.js';
 import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { scheduleToolCallLog } from '../core/agentsam-ops-ledger.js';
 import {
@@ -1143,7 +1144,10 @@ function capabilityFamiliesFromUserMessage(message, intentResult) {
   if (/\bterminal\b|run_command|\brun ls\b|\bwrangler\b|\bnpm run\b|\bbash\b/i.test(m) || tt.includes('shell')) {
     fams.push('terminal');
   }
-  if (/\b(browser|screenshot|inspect).*\bhttps?:\/\//i.test(m) || /\bhttps?:\/\/\S+.*\b(inspect|screenshot)\b/i.test(m)) {
+  if (
+    /\b(browser|screenshot|inspect).*\bhttps?:\/\//i.test(m) ||
+    (extractBrowserNavigateUrl(m) && /\b(inspect|screenshot)\b/i.test(m))
+  ) {
     fams.push('browser');
   }
   if (hasImageGenerationIntent(message)) fams.push('image');
@@ -4797,18 +4801,18 @@ async function executeWorkflowAndStream(env, workflowKey, message, actor, worksp
         onStep: (evt) => send({ type: 'workflow_step', ...evt }),
         onStream: send,
       });
-      const stepTexts = (result?.step_results ?? [])
-        .map((s) => s?.output?.result ?? s?.output?.text ?? null)
-        .filter(Boolean);
-      const lastOut = result?.step_results?.length
-        ? result.step_results[result.step_results.length - 1]?.output
-        : null;
-      const finalText =
-        stepTexts.join('\n\n') ||
-        (lastOut && typeof lastOut === 'object' ? JSON.stringify(lastOut) : String(lastOut || '')) ||
-        '';
+      const finalText = formatWorkflowStreamFinalText(result);
       if (String(finalText).trim()) {
         send({ type: 'text', text: finalText });
+      }
+      const navFromProof = (result?.step_results ?? [])
+        .map((s) => s?.output?.surface_open_proof)
+        .filter(Boolean)
+        .map((p) => extractBrowserNavigateUrl(p))
+        .find(Boolean);
+      const navUrl = navFromProof || extractBrowserNavigateUrl(message);
+      if (navUrl) {
+        send({ type: 'browser_navigate', url: navUrl });
       }
       if (result?.status === 'awaiting_approval') {
         send({
@@ -4996,7 +5000,7 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
         /\b(url|site|page|dashboard|browser|dom|console|network)\b/i.test(t)) ||
       /\b(screenshot|screen\s*grab)\b/i.test(t) ||
       /\binspect\s+https?:\/\//i.test(t) ||
-      (/\bhttps?:\/\/\S+/i.test(t) && /\b(inspect|debug|browser)\b/i.test(t));
+      (!!extractBrowserNavigateUrl(t) && /\b(inspect|debug|browser)\b/i.test(t));
     if (!dbgBrowser) return null;
     return { route: 'browser', reason: 'debug_explicit_browser' };
   }
@@ -5027,7 +5031,8 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
     /\b(check|inspect)\s+(the\s+)?(console|network)\b/i.test(t) ||
     /\binspect\s+(the\s+)?dom\b/i.test(t) ||
     /\binspect\s+https?:\/\//i.test(t) ||
-    (/\bhttps?:\/\/\S+/i.test(t) && /\b(inspect|debug|open\s+the\s+browser|open\s+browser|screenshot|navigate)\b/i.test(t));
+    (!!extractBrowserNavigateUrl(t) &&
+      /\b(inspect|debug|open\s+the\s+browser|open\s+browser|screenshot|navigate)\b/i.test(t));
   if (browser) return { route: 'browser', reason: 'agent_browser_surface' };
 
   if (userExplicitlyRequestsMonacoEditor(raw)) return { route: 'monaco', reason: 'agent_monaco_code_surface' };
@@ -5037,19 +5042,51 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
 
 /** URL from message text or structured browser_context (dashboard BrowserView). */
 function extractPrimaryUrlForBrowserPreflight(message, browserContext) {
-  const m = String(message || '');
-  const fromMsg = m.match(/https?:\/\/[^\s)>'"<]+/i);
-  if (fromMsg) return fromMsg[0].replace(/[.,;)\]]+$/, '');
-  const bc = browserContext && typeof browserContext === 'object' ? browserContext : null;
-  if (bc) {
-    const u = bc.url;
-    if (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) return u.trim().slice(0, 2000);
-    const sel = bc.selected_element;
-    if (sel && typeof sel === 'object') {
-      const su = sel.url;
-      if (typeof su === 'string' && /^https?:\/\//i.test(su.trim())) return su.trim().slice(0, 2000);
+  const fromMsg = extractBrowserNavigateUrl(message);
+  if (fromMsg) return fromMsg;
+  return extractBrowserNavigateUrl(browserContext) || '';
+}
+
+/** Human-readable workflow SSE text — never dump surface_open_proof JSON into chat. */
+function formatWorkflowStreamFinalText(result) {
+  const steps = Array.isArray(result?.step_results) ? result.step_results : [];
+  const lines = [];
+  for (const s of steps) {
+    const nk = s?.node_key ? String(s.node_key) : 'step';
+    if (s?.ok === false && s?.error) {
+      lines.push(`**${nk}** failed: ${String(s.error).slice(0, 500)}`);
+      continue;
+    }
+    const proof = s?.output?.surface_open_proof;
+    if (proof && typeof proof === 'object') {
+      const url = typeof proof.url === 'string' ? proof.url.trim() : '';
+      const surface = typeof proof.surface === 'string' ? proof.surface : 'browser';
+      lines.push(url ? `Opened **${surface}** → ${url}` : `Opened **${surface}** workspace.`);
+      continue;
+    }
+    const text = s?.output?.result ?? s?.output?.text;
+    if (typeof text === 'string' && text.trim()) {
+      const t = text.trim();
+      if (!t.startsWith('{') && !t.startsWith('[')) {
+        lines.push(t);
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(t);
+        const summary =
+          (typeof parsed.summary === 'string' && parsed.summary) ||
+          (typeof parsed.message === 'string' && parsed.message) ||
+          (typeof parsed.issue_summary === 'string' && parsed.issue_summary) ||
+          '';
+        if (summary) lines.push(summary);
+      } catch {
+        /* skip opaque JSON blobs */
+      }
     }
   }
+  if (lines.length) return lines.join('\n\n');
+  const lastProof = steps[steps.length - 1]?.output?.surface_open_proof;
+  if (lastProof?.url) return `Opened browser → ${lastProof.url}`;
   return '';
 }
 

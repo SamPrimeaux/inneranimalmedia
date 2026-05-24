@@ -16,6 +16,7 @@ import { resolveModelForTask } from './resolveModel.js';
 import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
+import { extractBrowserNavigateUrl } from './extract-browser-url.js';
 
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
 
@@ -214,11 +215,14 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
       if (!toolKey) {
         return { ok: false, error: 'catalog_tool executor missing tool_key in handler_config_json' };
       }
+      const paramRoot = buildWorkflowParamRoot(input, runContext);
+      const { resolveCatalogToolParams } = await import('./extract-browser-url.js');
+      const toolParams = resolveCatalogToolParams(config, paramRoot);
       const { dispatchByToolCode } = await import('./dispatch-by-tool-code.js');
       const toolRes = await dispatchByToolCode(
         env,
         toolKey,
-        { ...buildWorkflowParamRoot(input, runContext), ...(config.input_map || {}) },
+        toolParams,
         {
           ...runContext,
           workspaceId: runContext?.runMeta?.workspaceId ?? runContext?.workspace_id,
@@ -826,31 +830,9 @@ function pickModelFromNodeOutput(nodeOutput) {
   return String(m).slice(0, 500);
 }
 
-const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>\])}]+/i;
-
 function firstUrlFromWorkflowNodeInput(nodeInput) {
-  if (!nodeInput || typeof nodeInput !== 'object') return undefined;
-  const bc = nodeInput.browser_context ?? nodeInput.browserContext;
-  if (bc && typeof bc === 'object') {
-    const top = bc.url;
-    if (typeof top === 'string' && /^https?:\/\//i.test(top.trim())) return top.trim().slice(0, 2000);
-    const sel = bc.selected_element;
-    if (sel && typeof sel === 'object') {
-      const su = sel.url;
-      if (typeof su === 'string' && /^https?:\/\//i.test(su.trim())) return su.trim().slice(0, 2000);
-    }
-  }
-  for (const k of ['url', 'target_url', 'href', 'page_url', 'navigate_url']) {
-    const u = nodeInput[k];
-    if (typeof u === 'string' && /^https?:\/\//i.test(u.trim())) return u.trim().slice(0, 2000);
-  }
-  for (const k of ['message', 'prompt', 'instruction', 'result']) {
-    const msg = nodeInput[k];
-    if (typeof msg !== 'string') continue;
-    const m = msg.match(URL_IN_TEXT_RE);
-    if (m) return m[0].replace(/[.,;)\]]+$/, '').slice(0, 2000);
-  }
-  return undefined;
+  const u = extractBrowserNavigateUrl(nodeInput);
+  return u || undefined;
 }
 
 /** Map graph node → dashboard surface (SSE surface_open / App.tsx iam:agent-open-surface). */

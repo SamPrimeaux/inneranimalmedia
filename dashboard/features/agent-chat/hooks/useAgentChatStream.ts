@@ -18,6 +18,7 @@ import type {
   ImageGenerationState,
 } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
+import { sanitizeBrowserNavigateUrl } from '../../../lib/sanitizeBrowserUrl';
 import {
   extractMonacoInvokesFromBuffer,
   hideIncompleteMonacoInvokeTail,
@@ -494,8 +495,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             }),
           );
           if (d.surface === 'browser' && typeof d.url === 'string' && d.url.trim()) {
-            const navUrl = d.url.trim();
-            if (!/\/api\/r2\/file\b/i.test(navUrl)) {
+            const navUrl = sanitizeBrowserNavigateUrl(d.url);
+            if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
               onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
             }
           }
@@ -1015,7 +1016,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           (data as { type?: string }).type === 'browser_navigate' &&
           typeof (data as { url?: string }).url === 'string'
         ) {
-          const navUrl = String((data as { url: string }).url).trim();
+          const navUrl = sanitizeBrowserNavigateUrl(String((data as { url: string }).url));
           if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
             onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
           }
@@ -1047,7 +1048,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 (typeof inp.target_url === 'string' && inp.target_url.trim()) ||
                 (typeof inp.page_url === 'string' && inp.page_url.trim()) ||
                 '';
-              if (u) pendingBrowserToolUrl = u;
+              if (u) pendingBrowserToolUrl = sanitizeBrowserNavigateUrl(u) || u;
             } catch {
               /* ignore */
             }
@@ -1242,8 +1243,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 /* ignore */
               }
             }
-            if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
-              onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
+            const safeNav = sanitizeBrowserNavigateUrl(navUrl);
+            if (safeNav && !/\/api\/r2\/file\b/i.test(safeNav)) {
+              onBrowserNavigate?.({ type: 'browser_navigate', url: safeNav });
             }
             pendingBrowserToolUrl = null;
             lastBrowserToolOutputChunk = null;
