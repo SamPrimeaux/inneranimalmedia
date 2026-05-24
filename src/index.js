@@ -407,6 +407,12 @@ export default {
         return handleIamMcpOAuthConsentPage(request, env);
       }
 
+      if (request.method === 'GET' && pathLower === '/.well-known/oauth-authorization-server') {
+        const { handleIamOAuthWellKnown } = await import('./api/oauth.js');
+        const wk = await handleIamOAuthWellKnown(request);
+        if (wk) return wk;
+      }
+
       if (pathLower.startsWith('/api/oauth/')) {
         const res = await handleOAuthApi(request, env, ctx);
         if (res && res.status !== 404) return res;

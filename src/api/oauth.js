@@ -37,7 +37,8 @@ import {
   mcpOAuthRandomToken,
   mcpOAuthJsonError,
   mcpOAuthSafePathWithSearch,
-  mcpOAuthAllowedRedirectUri,
+  mcpOAuthValidateRedirectUri,
+  iamMcpOAuthAuthorizationServerMetadata,
   mcpOAuthLoadClient,
   mcpOAuthRedirectAllowed,
   mcpOAuthScopeAllowed,
@@ -816,7 +817,7 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
     return mcpOAuthJsonError('missing_code_challenge', 400);
   }
 
-  const redirectCheck = mcpOAuthAllowedRedirectUri(redirectRaw, env);
+  const redirectCheck = mcpOAuthValidateRedirectUri(redirectRaw, client, env);
   if (!redirectCheck.ok) return mcpOAuthJsonError(redirectCheck.error, 400);
   if (!mcpOAuthRedirectAllowed(client, redirectCheck.url.href)) {
     return mcpOAuthJsonError('redirect_uri_not_registered', 400);
@@ -1061,6 +1062,15 @@ async function handleMcpOAuthUserinfo(request, env, _ctx) {
     person_uuid: row.person_uuid || null,
     scopes,
   });
+}
+
+export async function handleIamOAuthWellKnown(request) {
+  const url = new URL(request.url);
+  const pathLower = url.pathname.toLowerCase().replace(/\/$/, '');
+  if (pathLower === '/.well-known/oauth-authorization-server') {
+    return jsonResponse(iamMcpOAuthAuthorizationServerMetadata());
+  }
+  return null;
 }
 
 export async function handleOAuthApi(request, env, ctx) {

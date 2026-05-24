@@ -4,6 +4,7 @@
 
 **Related:**
 
+- **[MCP_CLOUDFLARE_AI_CONTROLS_SETUP.md](./MCP_CLOUDFLARE_AI_CONTROLS_SETUP.md)** — Zero Trust UI + API, team scale, deploy order
 - [IAM_OAUTH_PROVIDER_EXECUTION_PLAN.md](./IAM_OAUTH_PROVIDER_EXECUTION_PLAN.md) — D1 truth, provider design
 - [MCP_OAUTH_UI_AGENT_HANDOFF.md](./MCP_OAUTH_UI_AGENT_HANDOFF.md) — consent UI + MCP worker maintenance
 - MCP server README — [inneranimalmedia-mcp-server](https://github.com/SamPrimeaux/inneranimalmedia-mcp-server)

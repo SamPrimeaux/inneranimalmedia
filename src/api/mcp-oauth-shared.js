@@ -1,9 +1,26 @@
 import { jsonResponse } from '../core/auth.js';
 
 export const MCP_CANONICAL_CLIENT_ID = 'iam_mcp_inneranimalmedia';
+export const IAM_OAUTH_ISSUER = 'https://inneranimalmedia.com';
+export const IAM_MCP_RESOURCE_URL = 'https://mcp.inneranimalmedia.com/mcp';
 export const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
 export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 export const MCP_OAUTH_AUTHZ_TTL_SECONDS = 10 * 60;
+
+/** RFC 8414 — IAM as authorization server for MCP (inneranimalmedia.com). */
+export function iamMcpOAuthAuthorizationServerMetadata() {
+  return {
+    issuer: IAM_OAUTH_ISSUER,
+    authorization_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/authorize`,
+    token_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/token`,
+    userinfo_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/userinfo`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256'],
+    scopes_supported: ['iam:profile', 'iam:workspaces', 'iam:agent', 'mcp:tools', 'mcp:userinfo'],
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+  };
+}
 
 export function mcpOAuthNow() {
   return Math.floor(Date.now() / 1000);
@@ -91,7 +108,16 @@ export function mcpOAuthNormalizeScope(raw, client) {
   return Array.from(new Set(picked.filter((s) => allowed.includes(s)))).join(' ');
 }
 
-export function mcpOAuthAllowedRedirectUri(raw, env) {
+/** Canonical redirect URIs for iam_mcp_inneranimalmedia (migration 401). */
+export const MCP_OAUTH_REGISTERED_REDIRECT_URIS = [
+  'https://mcp.inneranimalmedia.com/auth/callback',
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://claude.com/api/mcp/auth_callback',
+  'https://chatgpt.com/connector_platform_oauth_redirect',
+  'https://chat.openai.com/connector_platform_oauth_redirect',
+];
+
+export function mcpOAuthValidateRedirectUri(raw, client, env) {
   let u;
   try {
     u = new URL(String(raw || ''));
@@ -103,6 +129,11 @@ export function mcpOAuthAllowedRedirectUri(raw, env) {
     return { ok: false, error: 'redirect_uri_must_be_https', url: null };
   }
 
+  const href = u.href;
+  if (client && mcpOAuthRedirectAllowed(client, href)) {
+    return { ok: true, error: null, url: u };
+  }
+
   const host = u.hostname.toLowerCase();
   const configured = String(env.MCP_OAUTH_ALLOWED_REDIRECT_HOSTS || '')
     .split(',')
@@ -111,12 +142,28 @@ export function mcpOAuthAllowedRedirectUri(raw, env) {
 
   const allowedHosts = configured.length
     ? configured
-    : ['mcp.inneranimalmedia.com', 'inneranimalmedia.com', 'www.inneranimalmedia.com'];
+    : [
+        'mcp.inneranimalmedia.com',
+        'inneranimalmedia.com',
+        'www.inneranimalmedia.com',
+        'claude.ai',
+        'claude.com',
+        'chatgpt.com',
+        'chat.openai.com',
+      ];
 
-  const ok = allowedHosts.includes(host) || host.endsWith('.inneranimalmedia.com');
+  const ok =
+    allowedHosts.includes(host) ||
+    host.endsWith('.inneranimalmedia.com') ||
+    host.endsWith('.cloudflareaccess.com');
   if (!ok) return { ok: false, error: 'redirect_uri_not_allowed', url: null };
 
   return { ok: true, error: null, url: u };
+}
+
+/** @deprecated Use mcpOAuthValidateRedirectUri */
+export function mcpOAuthAllowedRedirectUri(raw, env) {
+  return mcpOAuthValidateRedirectUri(raw, null, env);
 }
 
 export function mcpOAuthSafePathWithSearch(url) {
