@@ -144,7 +144,7 @@ INSERT OR IGNORE INTO agentsam_workflow_handlers (
 (
   'agentsam.embed.pick_scope',
   'branch',
-  'passthrough',
+  'branch',
   'Choose embed scope from run input',
   'Branches on input.embed_scope: priority | full | describe_only (default priority).',
   '{"branch_field":"embed_scope"}',

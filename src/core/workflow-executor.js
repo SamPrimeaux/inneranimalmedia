@@ -114,7 +114,18 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
   switch (executorKind) {
 
     case 'passthrough':
+      if (node?.node_type === 'branch') {
+        const runInput = flattenWorkflowInput(runContext?.initialInput);
+        const stepInput = flattenWorkflowInput(input);
+        return executeWorkflowBranch({ ...runInput, ...stepInput }, node);
+      }
       return { ok: true, result: input };
+
+    case 'branch': {
+      const runInput = flattenWorkflowInput(runContext?.initialInput);
+      const stepInput = flattenWorkflowInput(input);
+      return executeWorkflowBranch({ ...runInput, ...stepInput }, node);
+    }
 
     case 'd1_sql': {
       const sql = String(config.sql || '').trim();
@@ -401,6 +412,14 @@ function buildWorkflowParamRoot(input, runContext) {
     input: flat,
     run: runId ? { id: runId } : {},
   };
+}
+
+/** Promote primitive `result` to `output` so step chaining and branch edges see one shape. */
+function normalizeNodeOutput(nodeOutput) {
+  if (nodeOutput == null || typeof nodeOutput !== 'object') return nodeOutput;
+  if (nodeOutput.output != null) return nodeOutput;
+  if (nodeOutput.result == null) return nodeOutput;
+  return { ...nodeOutput, output: nodeOutput.result };
 }
 
 function emptyHandlerConfig(config, handlerKey, executorKind) {
@@ -1225,6 +1244,7 @@ export async function executeWorkflowGraph(env, opts) {
     toolBridge,
     workflowKey,
     workflowMeta: workflowMeta ?? null,
+    initialInput: input ?? {},
   };
   const streamSse =
     typeof onStream === 'function'
@@ -1307,6 +1327,7 @@ export async function executeWorkflowGraph(env, opts) {
       error: e?.message || String(e),
     }));
 
+    nodeOutput = normalizeNodeOutput(nodeOutput);
     nodeOutput = attachSurfaceProofToNodeOutput(nodeOutput, surfaceProof);
 
     ffCompleteExecutionStep(env.DB, stepCols, stepId, nodeStartTime, nodeOutput);
