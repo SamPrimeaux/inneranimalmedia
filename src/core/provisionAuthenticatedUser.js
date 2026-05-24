@@ -68,6 +68,7 @@ export async function provisionAuthenticatedUser(env, request, identity) {
     });
     return {
       ok: false,
+      reason: prov?.reason ?? 'provisionIdentitySignup_failed',
       authUserId,
       tenantId: prov?.tenantId ?? tenantId,
       workspaceId: prov?.workspaceId ?? null,

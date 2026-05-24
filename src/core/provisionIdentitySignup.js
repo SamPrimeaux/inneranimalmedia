@@ -56,6 +56,14 @@ function membershipId() {
   return `mbr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }
 
+/** Map auth_users.status → accounts.status CHECK (invited → pending). */
+export function mapAccountStatusFromAuthUser(authStatus) {
+  const s = (trimOrNull(authStatus) || 'active').toLowerCase();
+  if (s === 'invited') return 'pending';
+  if (s === 'active' || s === 'suspended' || s === 'pending' || s === 'deleted') return s;
+  return 'active';
+}
+
 function tenantWorkspaceLinkId() {
   return `tws_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }
@@ -151,6 +159,7 @@ export async function provisionIdentitySignup(env, identity) {
   const twsId = tenantWorkspaceLinkId();
   const wsHandle = workspaceId.replace(/^ws_/, '').slice(0, 60);
   const wsDisplayName = `${name} Workspace`;
+  const accountStatus = mapAccountStatusFromAuthUser(existingRow?.status);
 
   const [tenantCols, wsCols, mCols] = await Promise.all([
     pragmaTableInfo(env.DB, 'tenants'),
@@ -186,8 +195,19 @@ export async function provisionIdentitySignup(env, identity) {
       `INSERT OR IGNORE INTO accounts (
          id, type, email, display_name, password_hash, status, plan, timezone,
          meta_json, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, 'active', 'free', 'America/Chicago', '{}', ?, ?)`,
-    ).bind(authUserId, accountType, email, name, passwordHash, nowSec, nowSec),
+       ) VALUES (?, ?, ?, ?, ?, ?, 'free', 'America/Chicago', '{}', ?, ?)`,
+    ).bind(authUserId, accountType, email, name, passwordHash, accountStatus, nowSec, nowSec),
+  );
+
+  batch.push(
+    env.DB.prepare(
+      `UPDATE accounts SET
+         email = COALESCE(NULLIF(TRIM(email), ''), ?),
+         display_name = COALESCE(NULLIF(TRIM(display_name), ''), ?),
+         status = ?,
+         updated_at = ?
+       WHERE id = ?`,
+    ).bind(email, name, accountStatus, nowSec, authUserId),
   );
 
   if (tenantCols.has('slug')) {

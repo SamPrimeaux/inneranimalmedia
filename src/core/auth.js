@@ -902,6 +902,25 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     throw new Error('User not found in auth_users during login finalization');
   }
 
+  const accountRow = await env.DB.prepare(`SELECT id FROM accounts WHERE id = ? LIMIT 1`)
+    .bind(userId)
+    .first()
+    .catch(() => null);
+  if (!accountRow?.id) {
+    const { provisionIdentitySignup } = await import('./provisionIdentitySignup.js');
+    const gap = await provisionIdentitySignup(env, {
+      authUserId: userId,
+      email: String(userRow.email).toLowerCase().trim(),
+      name: userRow.name || userRow.display_name || userRow.email,
+      provider: sessionProvider,
+      providerSubject: opts.providerSubject ?? null,
+      allowCreateAuthUser: false,
+    });
+    if (!gap?.ok) {
+      throw new Error(`identity_plane_gap_fill_failed:${gap?.reason ?? 'unknown'}`);
+    }
+  }
+
   const sessionFields = sessionFieldsFromAuthUser(userRow, sessionProvider, {
     workspaceId: opts.workspaceId,
     providerSubject: opts.providerSubject,

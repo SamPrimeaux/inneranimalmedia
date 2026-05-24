@@ -11,7 +11,7 @@ import {
   createLoginSession,
   revokeAuthSession,
 } from '../core/auth.js';
-import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
+import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
 
@@ -353,14 +353,22 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
   } catch (e) {
     console.warn('[oauth/github/callback] auth_users name update:', e?.message ?? e);
   }
-  await provisionAuthenticatedUser(env, request, {
+  const ghSubject = String(userInfo.id ?? userInfo.sub ?? oauthEmail).trim();
+  const identityOkGh = await ensureIdentityPlaneBeforeSession(env, request, {
     authUserId: userId,
     email: oauthEmail,
     name,
     source: 'github_oauth',
+    provider: 'github',
+    providerSubject: ghSubject,
   });
+  if (!identityOkGh?.ok) {
+    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
+  }
   await revokeIncomingCookieSession(request, env);
-  const sessionId = await createLoginSession(request, env, userId, 'github');
+  const sessionId = await createLoginSession(request, env, userId, 'github', {
+    providerSubject: ghSubject,
+  });
   await tryOAuthLoginTimeTracking(env.DB, sessionId, userId);
   const tidGh = await resolveTenantAtLogin(env, userId).catch(() => null);
   autoStartWorkSession(env, userId, tidGh, url.pathname).catch(() => {});
@@ -544,15 +552,23 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     console.warn('[OAuth] auth_users name update:', e?.message ?? e);
   }
 
-  await provisionAuthenticatedUser(env, request, {
+  const goSubject = String(userInfo.id ?? userInfo.sub ?? oauthEmail).trim();
+  const identityOkGo = await ensureIdentityPlaneBeforeSession(env, request, {
     authUserId,
     email: oauthEmail,
     name,
     source: 'google_oauth',
+    provider: 'google',
+    providerSubject: goSubject,
   });
+  if (!identityOkGo?.ok) {
+    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
+  }
 
   await revokeIncomingCookieSession(request, env);
-  const sessionId = await createLoginSession(request, env, authUserId, 'google');
+  const sessionId = await createLoginSession(request, env, authUserId, 'google', {
+    providerSubject: goSubject,
+  });
   await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
 
   const safeDest = safeDashboardLoginRedirectPath(oauthOrigin(url), returnTo);

@@ -24,7 +24,7 @@ import {
   MAX_AGENT_SESSION_TTL_SECONDS,
 } from '../core/auth';
 
-import { provisionAuthenticatedUser } from '../core/provisionAuthenticatedUser.js';
+import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { logAuthEvent } from '../core/auth-events.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
@@ -254,12 +254,17 @@ async function handleEmailPasswordLogin(request, url, env) {
     return jsonResponse({ error: 'Invalid email or password' }, 401);
   }
 
-  await provisionAuthenticatedUser(env, request, {
+  const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
     authUserId: user.id,
     email,
     name: user.name || email.split('@')[0],
     source: 'email',
+    provider: 'email',
+    providerSubject: email,
   });
+  if (!identityOk?.ok) {
+    return jsonResponse({ error: 'Account provisioning failed', reason: identityOk?.reason }, 503);
+  }
 
   return finishLogin(request, url, env, user.id, body.next);
 }
@@ -299,12 +304,17 @@ async function handleBackupCodeLogin(request, _url, env) {
     const fullUser = await env.DB.prepare(`SELECT email, name FROM auth_users WHERE id = ? LIMIT 1`)
       .bind(authUserRow.id)
       .first();
-    await provisionAuthenticatedUser(env, request, {
+    const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
       authUserId: authUserRow.id,
       email: fullUser?.email || email,
       name: fullUser?.name,
       source: 'backup_code_master',
+      provider: 'backup_code',
+      providerSubject: email,
     });
+    if (!identityOk?.ok) {
+      return jsonResponse({ error: 'Account provisioning failed', reason: identityOk?.reason }, 503);
+    }
     const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
     return redirectWithLoginSession(request, sessionId);
   }
@@ -341,12 +351,17 @@ async function handleBackupCodeLogin(request, _url, env) {
   const fullUser = await env.DB.prepare(`SELECT email, name FROM auth_users WHERE id = ? LIMIT 1`)
     .bind(authUserRow.id)
     .first();
-  await provisionAuthenticatedUser(env, request, {
+  const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
     authUserId: authUserRow.id,
     email: fullUser?.email || email,
     name: fullUser?.name,
     source: 'backup_code',
+    provider: 'backup_code',
+    providerSubject: email,
   });
+  if (!identityOk?.ok) {
+    return jsonResponse({ error: 'Account provisioning failed', reason: identityOk?.reason }, 503);
+  }
 
   const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
   return redirectWithLoginSession(request, sessionId);
@@ -488,12 +503,19 @@ async function handleEmailSignup(request, url, env) {
     metadata: { email_domain: email.includes('@') ? email.split('@')[1] : null },
   });
 
-  await provisionAuthenticatedUser(env, request, {
+  const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
     authUserId,
     email,
     name: name || email.split('@')[0],
     source: 'email_signup',
+    provider: 'email',
+    providerSubject: email,
+    passwordHash,
+    salt: saltHex,
   });
+  if (!identityOk?.ok) {
+    return signupErr('Account provisioning failed', 503);
+  }
 
   const origin = new URL(request.url).origin;
   if (env.RESEND_API_KEY) {
@@ -1302,13 +1324,18 @@ export async function handleSupabaseOAuthCallback(request, env) {
     console.warn('[Supabase OAuth] auth_users name update:', e?.message ?? e);
   }
 
-  await provisionAuthenticatedUser(env, request, {
+  const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
     authUserId,
     email: oauthEmail,
     name,
     source: 'supabase_auth',
+    provider: 'supabase_auth',
+    providerSubject: supabaseUserId,
     supabaseUserId,
   });
+  if (!identityOk?.ok) {
+    return redirectToAuthLogin(request, 'error=provision_failed');
+  }
 
   const authRow = await env.DB.prepare(
     `SELECT id, tenant_id, person_uuid, supabase_user_id FROM auth_users WHERE id = ? LIMIT 1`,
