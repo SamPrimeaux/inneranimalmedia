@@ -200,3 +200,33 @@ export async function loadMcpOAuthExternalAllowedToolsJson(env, clientId = MCP_C
   const keys = await loadMcpOAuthExternalToolKeys(env, clientId);
   return keys?.length ? JSON.stringify(keys) : null;
 }
+
+/** Workspace github_repo + repo_path for MCP token rows (per-user isolation). */
+export async function loadWorkspaceMcpTokenBindings(env, workspaceId) {
+  if (!env?.DB || !workspaceId) return { github_repo: null, repo_path: null, tenant_id: null };
+  try {
+    const row = await env.DB.prepare(
+      `SELECT tenant_id, github_repo, settings_json
+         FROM workspaces
+        WHERE id = ?
+        LIMIT 1`,
+    )
+      .bind(String(workspaceId))
+      .first();
+    if (!row) return { github_repo: null, repo_path: null, tenant_id: null };
+    let repoPath = null;
+    try {
+      const settings = row.settings_json ? JSON.parse(row.settings_json) : {};
+      repoPath = settings?.repo_path || settings?.local_repo_path || null;
+    } catch (_) {}
+    let gh = String(row.github_repo || '').trim();
+    gh = gh.replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+    return {
+      tenant_id: row.tenant_id || null,
+      github_repo: gh || null,
+      repo_path: repoPath,
+    };
+  } catch (_) {
+    return { github_repo: null, repo_path: null, tenant_id: null };
+  }
+}

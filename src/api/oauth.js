@@ -44,6 +44,7 @@ import {
   mcpOAuthScopeAllowed,
   mcpOAuthNormalizeScope,
   loadMcpOAuthExternalAllowedToolsJson,
+  loadWorkspaceMcpTokenBindings,
 } from './mcp-oauth-shared.js';
 import { logAuthEvent } from '../core/auth-events.js';
 
@@ -952,6 +953,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   const expiresAt = now + MCP_OAUTH_TOKEN_TTL_SECONDS;
   const oauthAllowedToolsJson =
     (await loadMcpOAuthExternalAllowedToolsJson(env, row.client_id)) || null;
+  const wsBindings = await loadWorkspaceMcpTokenBindings(env, workspaceId);
 
   await env.DB.prepare(
     `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ?`,
@@ -969,18 +971,20 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   await env.DB.prepare(
     `INSERT INTO mcp_workspace_tokens
        (id, workspace_id, tenant_id, label, token_hash, allowed_tools,
-        rate_limit_per_hour, is_active, created_at, expires_at, user_id,
+        repo_path, github_repo, rate_limit_per_hour, is_active, created_at, expires_at, user_id,
         token_type, created_by, scopes_json, allowed_capability_keys_json,
         allowed_lanes_json, allowed_risk_levels_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       `tok_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
       workspaceId,
-      tenantId,
+      wsBindings.tenant_id || tenantId,
       `MCP OAuth ${authRow?.email || userId}`,
       tokenHash,
       oauthAllowedToolsJson,
+      wsBindings.repo_path || null,
+      wsBindings.github_repo || null,
       100,
       expiresAt,
       userId,
