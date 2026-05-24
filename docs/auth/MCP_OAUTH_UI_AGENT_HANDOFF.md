@@ -1,9 +1,11 @@
 # Handoff: MCP OAuth UI/UX + `inneranimalmedia-mcp-server` agent
 
+**Status (2026-05-24):** **Shipped** on `main` — IAM provider + React consent + MCP client (`mcp-oauth-iam.js`). Use this doc for maintenance and Cursor UX polish only.
+
 **For:** Frontend / MCP-worker agent (not the IAM backend agent)  
 **Goal:** End-to-end OAuth login for MCP (`mcp.inneranimalmedia.com`) via IAM provider (`inneranimalmedia.com`)  
 **D1 truth doc:** `docs/auth/IAM_OAUTH_PROVIDER_EXECUTION_PLAN.md`  
-**Backend owner:** IAM repo agent applies migration `399_*` + wires `src/api/oauth.js` — **do not duplicate that work**
+**Repos:** `SamPrimeaux/inneranimalmedia` @ `6e5f78d+`, `SamPrimeaux/inneranimalmedia-mcp-server` @ `d2aa6ed+`
 
 ---
 
@@ -12,7 +14,7 @@
 | Codebase | Path (typical) | Worker name | Deploy |
 |----------|----------------|-------------|--------|
 | **IAM** (provider + consent UI) | `/Users/samprimeaux/inneranimalmedia` | `inneranimalmedia` | `npm run deploy:full` from repo root |
-| **MCP** (OAuth client + callback) | `inneranimalmedia-mcp-server/` (sibling or separate clone) | **`inneranimalmedia-mcp-server`** | `cd inneranimalmedia-mcp-server && npx wrangler deploy -c wrangler.toml` |
+| **MCP** (OAuth client + callback) | `inneranimalmedia-mcp-server/` (sibling or separate clone) | **`inneranimalmedia-mcp-server`** | `cd inneranimalmedia-mcp-server && npx wrangler deploy -c wrangler.jsonc` |
 
 **Never** deploy MCP from IAM repo root. **Never** create a second MCP worker name.
 
