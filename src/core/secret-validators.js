@@ -1,0 +1,234 @@
+/**
+ * Provider key validation — server-side only; never log secret values.
+ */
+
+const VALIDATE_TIMEOUT_MS = 12_000;
+
+async function fetchWithTimeout(url, init, timeoutMs = VALIDATE_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function check(id, status, latencyMs, detail = null, extra = {}) {
+  return {
+    id,
+    status: status === 'pass' ? 'pass' : 'fail',
+    latency_ms: latencyMs,
+    ...(detail != null ? { detail: String(detail).slice(0, 500) } : {}),
+    ...extra,
+  };
+}
+
+/**
+ * @param {string} provider
+ * @param {string} apiKey
+ * @param {object} [env]
+ * @returns {Promise<{ ok: boolean, provider: string, checks: object[], warnings: string[] }>}
+ */
+export async function validateProviderKey(provider, apiKey, env = {}) {
+  const prov = String(provider || '').trim().toLowerCase();
+  const key = String(apiKey || '').trim();
+  const warnings = [];
+  const checks = [];
+
+  if (!key) {
+    return { ok: false, provider: prov, checks: [check('non_empty', 'fail', 0, 'API key is required')], warnings };
+  }
+
+  const t0 = Date.now();
+  try {
+    if (prov === 'cloudflare') {
+      const accountId =
+        env.CLOUDFLARE_ACCOUNT_ID && String(env.CLOUDFLARE_ACCOUNT_ID).trim() &&
+        !String(env.CLOUDFLARE_ACCOUNT_ID).includes('your_cloudflare')
+          ? String(env.CLOUDFLARE_ACCOUNT_ID).trim()
+          : null;
+
+      const verifyRes = await fetchWithTimeout('https://api.cloudflare.com/client/v4/user/tokens/verify', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const verifyBody = await verifyRes.json().catch(() => ({}));
+      const ms = Date.now() - t0;
+      if (!verifyRes.ok || verifyBody?.success === false) {
+        checks.push(
+          check(
+            'token_verify',
+            'fail',
+            ms,
+            verifyBody?.errors?.[0]?.message || `HTTP ${verifyRes.status}`,
+          ),
+        );
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      checks.push(check('token_verify', 'pass', ms, 'Token is valid'));
+
+      if (accountId) {
+        const t1 = Date.now();
+        const acctRes = await fetchWithTimeout(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}`,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          },
+        );
+        const acctBody = await acctRes.json().catch(() => ({}));
+        const ms2 = Date.now() - t1;
+        if (acctRes.ok && acctBody?.success !== false) {
+          checks.push(check('account_read', 'pass', ms2, acctBody?.result?.name || 'Account readable'));
+        } else {
+          checks.push(check('account_read', 'fail', ms2, 'Token cannot read this account (scope or wrong account)'));
+          warnings.push('Token verified but account read failed — use Account:Read for Agent Sam.');
+        }
+      } else {
+        warnings.push('CLOUDFLARE_ACCOUNT_ID not set on Worker; skipped account read check.');
+      }
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    if (prov === 'openai') {
+      const res = await fetchWithTimeout('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        checks.push(check('models_list', 'fail', ms, `HTTP ${res.status}`));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      checks.push(check('models_list', 'pass', ms, 'OpenAI API accepted key'));
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    if (prov === 'anthropic') {
+      const res = await fetchWithTimeout('https://api.anthropic.com/v1/models', {
+        headers: {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+      });
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        checks.push(check('models_list', 'fail', ms, `HTTP ${res.status}`));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      checks.push(check('models_list', 'pass', ms, 'Anthropic API accepted key'));
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    if (prov === 'google') {
+      const res = await fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
+      );
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        checks.push(check('models_list', 'fail', ms, `HTTP ${res.status}`));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      checks.push(check('models_list', 'pass', ms, 'Google AI API accepted key'));
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    if (prov === 'github') {
+      const res = await fetchWithTimeout('https://api.github.com/user', {
+        headers: {
+          Authorization: `Bearer ${key}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'InnerAnimalMedia-KeyValidate/1.0',
+        },
+      });
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        checks.push(check('user', 'fail', ms, `HTTP ${res.status}`));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      const body = await res.json().catch(() => ({}));
+      checks.push(check('user', 'pass', ms, body?.login ? `GitHub user: ${body.login}` : 'OK'));
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    if (prov === 'resend') {
+      const res = await fetchWithTimeout('https://api.resend.com/domains', {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        checks.push(check('domains', 'fail', ms, `HTTP ${res.status}`));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      checks.push(check('domains', 'pass', ms, 'Resend API accepted key'));
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    if (prov === 'supabase') {
+      const base =
+        env.SUPABASE_URL && String(env.SUPABASE_URL).trim()
+          ? String(env.SUPABASE_URL).replace(/\/$/, '')
+          : null;
+      if (!base) {
+        warnings.push('SUPABASE_URL not configured; skipped Supabase validate.');
+        checks.push(check('supabase', 'pass', 0, 'Skipped (no SUPABASE_URL)'));
+        return { ok: true, provider: prov, checks, warnings };
+      }
+      const res = await fetchWithTimeout(`${base}/rest/v1/`, {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+        },
+      });
+      const ms = Date.now() - t0;
+      if (res.status === 401 || res.status === 403) {
+        checks.push(check('rest_ping', 'fail', ms, `HTTP ${res.status}`));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      checks.push(check('rest_ping', 'pass', ms, `HTTP ${res.status}`));
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    if (prov === 'other') {
+      checks.push(check('format', 'pass', 0, 'No remote validator for provider "other"'));
+      warnings.push('Save only if you trust this secret; no automated validation.');
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
+    return {
+      ok: false,
+      provider: prov,
+      checks: [check('unsupported_provider', 'fail', 0, `No validator for ${prov}`)],
+      warnings,
+    };
+  } catch (e) {
+    const ms = Date.now() - t0;
+    checks.push(check('network', 'fail', ms, e?.name === 'AbortError' ? 'timeout' : e?.message || 'error'));
+    return { ok: false, provider: prov, checks, warnings };
+  }
+}
+
+const RL_PREFIX = 'key_validate_rl:';
+const RL_MAX = 10;
+const RL_TTL = 60;
+
+/** @returns {Promise<{ allowed: boolean, retry_after_sec?: number }>} */
+export async function checkValidateRateLimit(env, userId) {
+  const uid = String(userId || '').trim();
+  if (!uid || !env?.SESSION_CACHE) return { allowed: true };
+  const k = `${RL_PREFIX}${uid}`;
+  try {
+    const raw = await env.SESSION_CACHE.get(k);
+    const n = raw ? parseInt(raw, 10) : 0;
+    if (Number.isFinite(n) && n >= RL_MAX) {
+      return { allowed: false, retry_after_sec: RL_TTL };
+    }
+    await env.SESSION_CACHE.put(k, String((Number.isFinite(n) ? n : 0) + 1), { expirationTtl: RL_TTL });
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
+  }
+}

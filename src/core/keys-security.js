@@ -1,0 +1,600 @@
+/**
+ * User API key security: secret_audit_log, security_findings, security_shield_rules.
+ * Canonical secret_id = user_secrets.id (vault_secret_id on user_api_keys).
+ */
+import { logSecretAudit } from './security-scan.js';
+import { sendPlatformEmail } from '../lib/email.js';
+import { EXPOSURE_PATTERNS } from './security-scan.js';
+
+/** @typedef {'key_created'|'key_validated_pass'|'key_validated_fail'|'key_revealed'|'key_rotated'|'key_deleted'|'key_used_by_agent'} KeyAuditEventType */
+
+export const DEFAULT_TENANT_SHIELD_RULES = [
+  {
+    rule_type: 'key_expiry_warning',
+    severity: 'high',
+    config_json: { days_before: 14 },
+    notify_channels: ['dashboard', 'email'],
+  },
+  {
+    rule_type: 'rotation_due',
+    severity: 'medium',
+    config_json: { days: 90 },
+    notify_channels: ['dashboard'],
+  },
+  {
+    rule_type: 'untested_key_age',
+    severity: 'medium',
+    config_json: { days: 30 },
+    notify_channels: ['dashboard'],
+  },
+  {
+    rule_type: 'null_value_registered',
+    severity: 'high',
+    config_json: {},
+    notify_channels: ['dashboard', 'email'],
+  },
+  {
+    rule_type: 'test_failure',
+    severity: 'high',
+    config_json: {},
+    notify_channels: ['dashboard', 'email'],
+  },
+];
+
+const SHIELD_RULE_TYPES = new Set([
+  'key_expiry_warning',
+  'rotation_due',
+  'test_failure',
+  'exposure_pattern',
+  'untested_key_age',
+  'null_value_registered',
+  'audit_anomaly',
+]);
+
+const PROVIDER_TEST_FAIL_SEVERITY = {
+  cloudflare: 'high',
+  openai: 'high',
+  anthropic: 'high',
+  google: 'high',
+  github: 'medium',
+  resend: 'medium',
+  supabase: 'high',
+  other: 'medium',
+};
+
+function newFindingId() {
+  return `sf_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
+
+function parseJsonSafe(v, fallback = {}) {
+  if (v == null || v === '') return fallback;
+  if (typeof v === 'object') return v;
+  try {
+    return JSON.parse(String(v));
+  } catch {
+    return fallback;
+  }
+}
+
+function totalLatencyMs(checks) {
+  if (!Array.isArray(checks)) return 0;
+  return checks.reduce((n, c) => n + (Number(c?.latency_ms) || 0), 0);
+}
+
+/** @param {string} tenantId @param {string} secretId @param {string} findingType */
+export async function sha256FindingFingerprint(tenantId, secretId, findingType) {
+  const input = `${String(tenantId)}${String(secretId)}${String(findingType)}`;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function tableColumns(db, table) {
+  try {
+    const res = await db.prepare(`PRAGMA table_info(${table})`).all();
+    return new Set((res?.results || []).map((r) => String(r.name)));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Canonical user_secrets id for audit/findings.
+ * @param {{ vault_secret_id?: string|null, id?: string }} row
+ */
+export function canonicalUserSecretId(row) {
+  const vid = row?.vault_secret_id != null ? String(row.vault_secret_id).trim() : '';
+  if (vid) return vid;
+  return row?.id != null ? String(row.id).trim() : '';
+}
+
+/**
+ * Write secret_audit_log (non-blocking). secret_source is always user_secrets.
+ */
+export async function auditUserSecretEvent(env, {
+  secretId,
+  tenantId,
+  userId,
+  eventType,
+  triggeredBy = 'dashboard_ui',
+  previousLast4 = null,
+  newLast4 = null,
+  notes = null,
+  ipAddress = null,
+  userAgent = null,
+  terminalSessionId = null,
+}) {
+  if (!env?.DB || !secretId || !tenantId) return;
+  try {
+    await logSecretAudit(env, {
+      secretId,
+      tenantId,
+      userId,
+      eventType,
+      triggeredBy,
+      previousLast4,
+      newLast4,
+      notes,
+      ipAddress,
+      userAgent,
+      secretSource: 'user_secrets',
+      terminalSessionId,
+    });
+  } catch (e) {
+    console.warn('[keys-security] audit write failed', eventType, e?.message ?? e);
+  }
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+async function findingExistsOpen(db, fingerprint) {
+  const row = await db
+    .prepare(
+      `SELECT id FROM security_findings WHERE fingerprint = ? AND status IN ('open','triaged') LIMIT 1`,
+    )
+    .bind(fingerprint)
+    .first()
+    .catch(() => null);
+  return !!row?.id;
+}
+
+/**
+ * Insert security_findings row (api_key source). Dedupes on fingerprint when open.
+ */
+export async function insertApiKeySecurityFinding(env, {
+  tenantId,
+  userId,
+  workspaceId,
+  secretId,
+  findingType,
+  severity,
+  ruleId = null,
+  metadata = {},
+  createdBy = null,
+}) {
+  if (!env?.DB || !tenantId || !secretId || !findingType) return null;
+  const db = env.DB;
+  const cols = await tableColumns(db, 'security_findings');
+  if (!cols.size) return null;
+
+  const fingerprint = await sha256FindingFingerprint(tenantId, secretId, findingType);
+  if (await findingExistsOpen(db, fingerprint)) return null;
+
+  const id = newFindingId();
+  const meta = {
+    checks: metadata.checks ?? [],
+    warnings: metadata.warnings ?? [],
+    latency_ms: metadata.latency_ms ?? totalLatencyMs(metadata.checks),
+    ...metadata,
+  };
+
+  const fields = [
+    ['id', id],
+    ['tenant_id', tenantId],
+    ['source_type', 'api_key'],
+    ['source_ref', secretId],
+    ['finding_type', findingType],
+    ['severity', severity],
+    ['fingerprint', fingerprint],
+    ['status', 'open'],
+    ['created_by', createdBy || userId || 'system'],
+    ['metadata_json', JSON.stringify(meta)],
+  ];
+  if (cols.has('user_id')) fields.push(['user_id', userId ?? null]);
+  if (cols.has('workspace_id')) fields.push(['workspace_id', workspaceId ?? null]);
+  if (cols.has('secret_id')) fields.push(['secret_id', secretId]);
+  if (ruleId && cols.has('rule_id')) fields.push(['rule_id', ruleId]);
+  if (cols.has('snippet_redacted')) {
+    fields.push(['snippet_redacted', String(metadata.snippet_redacted || findingType).slice(0, 200)]);
+  }
+
+  const names = fields.map(([c]) => c).filter((c) => cols.has(c));
+  const values = fields.filter(([c]) => cols.has(c)).map(([, v]) => v);
+  if (!names.length) return null;
+
+  try {
+    await db
+      .prepare(
+        `INSERT INTO security_findings (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
+      )
+      .bind(...values)
+      .run();
+    return { id, fingerprint };
+  } catch (e) {
+    console.warn('[keys-security] finding insert failed', e?.message ?? e);
+    return null;
+  }
+}
+
+export async function fixOpenFindingsForSecret(env, { secretId, tenantId }) {
+  if (!env?.DB || !secretId || !tenantId) return;
+  const cols = await tableColumns(env.DB, 'security_findings');
+  if (!cols.has('secret_id')) return;
+  try {
+    const sets = [`status = 'fixed'`];
+    if (cols.has('resolved_at')) sets.push('resolved_at = unixepoch()');
+    if (cols.has('updated_at')) sets.push('updated_at = unixepoch()');
+    await env.DB.prepare(
+      `UPDATE security_findings SET ${sets.join(', ')} WHERE secret_id = ? AND tenant_id = ? AND status = 'open'`,
+    )
+      .bind(secretId, tenantId)
+      .run();
+  } catch (e) {
+    console.warn('[keys-security] fix findings failed', e?.message ?? e);
+  }
+}
+
+async function bumpShieldRuleTrigger(env, { tenantId, ruleType, userId = null }) {
+  if (!env?.DB) return;
+  try {
+    const binds = [ruleType, tenantId];
+    let sql = `
+      UPDATE security_shield_rules
+      SET last_triggered_at = unixepoch(),
+          trigger_count = trigger_count + 1,
+          updated_at = unixepoch()
+      WHERE rule_type = ? AND tenant_id = ? AND is_active = 1`;
+    if (userId) {
+      sql += ` AND (user_id IS NULL OR user_id = ?)`;
+      binds.push(userId);
+    } else {
+      sql += ` AND user_id IS NULL`;
+    }
+    await env.DB.prepare(sql).bind(...binds).run();
+  } catch (e) {
+    console.warn('[keys-security] shield rule bump failed', ruleType, e?.message ?? e);
+  }
+}
+
+async function loadShieldRules(env, tenantId, userId) {
+  if (!env?.DB) return [];
+  try {
+    const res = await env.DB.prepare(
+      `SELECT id, rule_type, severity, config_json, notify_channels, user_id
+       FROM security_shield_rules
+       WHERE tenant_id = ? AND is_active = 1
+         AND (user_id IS NULL OR user_id = ?)`,
+    )
+      .bind(tenantId, userId ?? '')
+      .all();
+    return res?.results || [];
+  } catch {
+    return [];
+  }
+}
+
+async function notifyShieldChannels(env, channels, { tenantId, subject, text }) {
+  const list = Array.isArray(channels) ? channels : parseJsonSafe(channels, ['dashboard']);
+  for (const ch of list) {
+    const c = String(ch || '').toLowerCase();
+    if (c === 'email') {
+      try {
+        await sendPlatformEmail(env, {
+          subject,
+          text,
+          category: 'keys_security',
+          noAgentSamPrefix: true,
+        });
+      } catch (e) {
+        console.warn('[keys-security] email notify failed', e?.message ?? e);
+      }
+    }
+    // dashboard = security_findings row (already inserted); imessage = future
+  }
+}
+
+function matchesExposurePattern(plaintext) {
+  const s = String(plaintext || '');
+  if (!s) return null;
+  for (const pat of EXPOSURE_PATTERNS) {
+    pat.regex.lastIndex = 0;
+    if (pat.regex.test(s)) return pat;
+  }
+  return null;
+}
+
+async function countRecentAuditEvents(env, { secretId, tenantId, eventType, windowSec }) {
+  if (!env?.DB) return 0;
+  const cutoff = Math.floor(Date.now() / 1000) - windowSec;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM secret_audit_log
+       WHERE secret_id = ? AND tenant_id = ? AND event_type = ? AND created_at >= ?`,
+    )
+      .bind(secretId, tenantId, eventType, cutoff)
+      .first();
+    return Number(row?.c) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Evaluate shield rules after a key operation. Never logs plaintext.
+ */
+export async function runShieldRulesForKeyOp(env, ctx) {
+  if (!env?.DB || !ctx?.tenantId || !ctx?.secretId) return;
+  const rules = await loadShieldRules(env, ctx.tenantId, ctx.userId);
+  if (!rules.length) return;
+
+  const apiRow = ctx.apiKeyRow || {};
+  const meta = parseJsonSafe(apiRow.metadata_json, {});
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  for (const rule of rules) {
+    const ruleType = String(rule.rule_type || '');
+    if (!SHIELD_RULE_TYPES.has(ruleType)) continue;
+    const cfg = parseJsonSafe(rule.config_json, {});
+    const channels = parseJsonSafe(rule.notify_channels, ['dashboard']);
+    let triggered = false;
+    let findingType = ruleType;
+    let severity = String(rule.severity || 'medium');
+
+    if (ruleType === 'null_value_registered' && ctx.operation === 'create' && ctx.encryptOk === false) {
+      triggered = true;
+    }
+
+    if (ruleType === 'test_failure' && ctx.operation === 'validate' && ctx.validationResult?.ok === false) {
+      triggered = true;
+      severity = PROVIDER_TEST_FAIL_SEVERITY[ctx.provider] || severity;
+    }
+
+    if (ruleType === 'exposure_pattern' && ctx.plaintextKey) {
+      const pat = matchesExposurePattern(ctx.plaintextKey);
+      if (pat) {
+        triggered = true;
+        severity = pat.severity || severity;
+        findingType = 'exposure_pattern';
+      }
+    }
+
+    if (ruleType === 'key_expiry_warning' && apiRow.expires_at != null) {
+      const exp = Number(apiRow.expires_at);
+      const daysBefore = Number(cfg.days_before) || 14;
+      if (Number.isFinite(exp) && exp > nowSec && exp - nowSec <= daysBefore * 86400) {
+        triggered = true;
+      }
+    }
+
+    if (ruleType === 'rotation_due' && apiRow.expires_at != null) {
+      const exp = Number(apiRow.expires_at);
+      if (Number.isFinite(exp) && exp < nowSec) triggered = true;
+    }
+
+    if (ruleType === 'untested_key_age') {
+      const days = Number(cfg.days) || 30;
+      const validatedAt = meta.validated_at || apiRow.last_tested_at;
+      let testedSec = null;
+      if (typeof validatedAt === 'number') testedSec = validatedAt;
+      else if (typeof validatedAt === 'string') {
+        const t = Date.parse(validatedAt);
+        if (Number.isFinite(t)) testedSec = Math.floor(t / 1000);
+      }
+      if (!testedSec && apiRow.created_at) {
+        const c = Date.parse(String(apiRow.created_at));
+        if (Number.isFinite(c)) testedSec = Math.floor(c / 1000);
+      }
+      if (testedSec && nowSec - testedSec > days * 86400) triggered = true;
+      if (!testedSec && ctx.operation === 'agent_use') triggered = true;
+    }
+
+    if (ruleType === 'audit_anomaly' && ctx.operation === 'reveal') {
+      const count = await countRecentAuditEvents(env, {
+        secretId: ctx.secretId,
+        tenantId: ctx.tenantId,
+        eventType: 'key_revealed',
+        windowSec: 3600,
+      });
+      if (count > 3) triggered = true;
+    }
+
+    if (!triggered) continue;
+
+    await bumpShieldRuleTrigger(env, {
+      tenantId: ctx.tenantId,
+      ruleType,
+      userId: rule.user_id ? ctx.userId : null,
+    });
+
+    await insertApiKeySecurityFinding(env, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      workspaceId: ctx.workspaceId,
+      secretId: ctx.secretId,
+      findingType,
+      severity,
+      ruleId: rule.id,
+      createdBy: ctx.userId,
+      metadata: {
+        checks: ctx.validationResult?.checks ?? [],
+        warnings: ctx.validationResult?.warnings ?? [],
+        latency_ms: totalLatencyMs(ctx.validationResult?.checks),
+        operation: ctx.operation,
+      },
+    });
+
+    await notifyShieldChannels(env, channels, {
+      tenantId: ctx.tenantId,
+      subject: `IAM Keys — ${findingType}`,
+      text: `Shield rule "${ruleType}" triggered for key ${ctx.secretId} (tenant ${ctx.tenantId}). Review in Settings → Security.`,
+    });
+  }
+}
+
+/**
+ * Full post-operation hook: audit + findings + shield rules.
+ */
+export async function handleKeySecurityAfterOp(env, ctx) {
+  const secretId = ctx.secretId;
+  if (!secretId) return;
+
+  const ip = ctx.request?.headers?.get('CF-Connecting-IP') ?? null;
+  const ua = ctx.request?.headers?.get('User-Agent') ?? null;
+
+  if (ctx.operation === 'create') {
+    await auditUserSecretEvent(env, {
+      secretId,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      eventType: 'key_created',
+      triggeredBy: ctx.triggeredBy || 'dashboard_ui',
+      newLast4: ctx.newLast4,
+      notes: ctx.notes || 'Key created',
+      ipAddress: ip,
+      userAgent: ua,
+    });
+    await runShieldRulesForKeyOp(env, ctx);
+    return;
+  }
+
+  if (ctx.operation === 'validate') {
+    const pass = !!ctx.validationResult?.ok;
+    await auditUserSecretEvent(env, {
+      secretId,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      eventType: pass ? 'key_validated_pass' : 'key_validated_fail',
+      triggeredBy: ctx.triggeredBy || 'dashboard_ui',
+      notes: pass ? `Validated ${ctx.provider}` : `Validation failed ${ctx.provider}`,
+      ipAddress: ip,
+      userAgent: ua,
+    });
+    if (pass) {
+      await fixOpenFindingsForSecret(env, { secretId, tenantId: ctx.tenantId });
+    }
+    await runShieldRulesForKeyOp(env, ctx);
+    return;
+  }
+
+  if (ctx.operation === 'reveal') {
+    await auditUserSecretEvent(env, {
+      secretId,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      eventType: 'key_revealed',
+      triggeredBy: ctx.triggeredBy || 'dashboard_ui',
+      notes: 'Personal secret revealed',
+      ipAddress: ip,
+      userAgent: ua,
+    });
+    await runShieldRulesForKeyOp(env, ctx);
+    return;
+  }
+
+  if (ctx.operation === 'rotate') {
+    await auditUserSecretEvent(env, {
+      secretId,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      eventType: 'key_rotated',
+      triggeredBy: ctx.triggeredBy || 'dashboard_ui',
+      previousLast4: ctx.previousLast4,
+      newLast4: ctx.newLast4,
+      notes: 'Key rotated',
+      ipAddress: ip,
+      userAgent: ua,
+    });
+    await fixOpenFindingsForSecret(env, { secretId, tenantId: ctx.tenantId });
+    await runShieldRulesForKeyOp(env, ctx);
+    return;
+  }
+
+  if (ctx.operation === 'delete') {
+    await auditUserSecretEvent(env, {
+      secretId,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      eventType: 'key_deleted',
+      triggeredBy: ctx.triggeredBy || 'dashboard_ui',
+      previousLast4: ctx.previousLast4,
+      notes: 'Key deleted',
+      ipAddress: ip,
+      userAgent: ua,
+    });
+    return;
+  }
+
+  if (ctx.operation === 'agent_use') {
+    await auditUserSecretEvent(env, {
+      secretId,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      eventType: 'key_used_by_agent',
+      triggeredBy: 'agent_sam',
+      terminalSessionId: ctx.terminalSessionId ?? null,
+      notes: ctx.notes || `Agent used ${ctx.provider} key`,
+      ipAddress: ip,
+      userAgent: ua,
+    });
+    await runShieldRulesForKeyOp(env, ctx);
+  }
+}
+
+/**
+ * Idempotent default shield rules for one tenant (provisioning + migration).
+ * @returns {import('@cloudflare/workers-types').D1PreparedStatement[]}
+ */
+export function buildDefaultShieldRuleStatements(env, tenantId) {
+  if (!env?.DB || !tenantId) return [];
+  const stmts = [];
+  for (const r of DEFAULT_TENANT_SHIELD_RULES) {
+    stmts.push(
+      env.DB.prepare(
+        `INSERT INTO security_shield_rules (id, tenant_id, user_id, rule_type, severity, config_json, notify_channels)
+         SELECT
+           'ssr_' || lower(hex(randomblob(8))),
+           ?,
+           NULL,
+           ?,
+           ?,
+           ?,
+           ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM security_shield_rules sr
+           WHERE sr.tenant_id = ? AND sr.rule_type = ? AND sr.user_id IS NULL
+         )`,
+      ).bind(
+        tenantId,
+        r.rule_type,
+        r.severity,
+        JSON.stringify(r.config_json),
+        JSON.stringify(r.notify_channels),
+        tenantId,
+        r.rule_type,
+      ),
+    );
+  }
+  return stmts;
+}
+
+export async function seedDefaultShieldRulesForTenant(env, tenantId) {
+  const stmts = buildDefaultShieldRuleStatements(env, tenantId);
+  if (!stmts.length) return;
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    console.warn('[keys-security] seed shield rules failed', tenantId, e?.message ?? e);
+  }
+}

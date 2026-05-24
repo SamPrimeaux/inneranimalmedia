@@ -5,6 +5,7 @@
  */
 import { generateAppUserId } from './ensureAppUser.js';
 import { workspaceSlugFromTenantId } from '../api/provisioning.js';
+import { buildDefaultShieldRuleStatements } from './keys-security.js';
 
 function trimOrNull(v) {
   if (v == null) return null;
@@ -370,6 +371,10 @@ export async function provisionIdentitySignup(env, identity) {
         `UPDATE auth_users SET supabase_user_id = COALESCE(supabase_user_id, ?), updated_at = datetime('now') WHERE id = ?`,
       ).bind(supabaseUserId, authUserId),
     );
+  }
+
+  for (const stmt of buildDefaultShieldRuleStatements(env, tenantId)) {
+    batch.push(stmt);
   }
 
   try {

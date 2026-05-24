@@ -12,7 +12,7 @@ export const SLUG_TO_LABEL: Record<string, string> = {
   themes: 'Themes',
   storage: 'Storage',
   security: 'Security',
-  'api-keys': 'API Keys',
+  keys: 'Keys & Secrets',
   billing: 'Plan & Usage',
   notifications: 'Notifications',
   docs: 'Docs',

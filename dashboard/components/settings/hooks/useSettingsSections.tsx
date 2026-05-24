@@ -79,7 +79,7 @@ export function useSettingsSections(activeSection: string) {
       { id: 'Themes', icon: <Palette size={14} /> },
       { id: 'Storage', icon: <Database size={14} /> },
       { id: 'Security', icon: <Shield size={14} /> },
-      { id: 'API Keys', icon: <Key size={14} /> },
+      { id: 'Keys & Secrets', icon: <Key size={14} /> },
       { id: 'Plan & Usage', icon: <BarChart2 size={14} /> },
       { id: 'Notifications', icon: <Bell size={14} /> },
       { id: 'Docs', icon: <BookOpen size={14} /> },

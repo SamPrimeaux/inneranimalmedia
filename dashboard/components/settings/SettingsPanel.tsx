@@ -19,7 +19,7 @@ import { NetworkSection } from './sections/NetworkSection';
 import { ThemesSection } from './sections/ThemesSection';
 import { StorageSection } from './sections/StorageSection';
 import { SecuritySection } from './sections/SecuritySection';
-import { ApiKeysSection } from './sections/ApiKeysSection';
+import { KeysSection } from './sections/ApiKeysSection';
 import { PlanUsageSection } from './sections/PlanUsageSection';
 import { NotificationsSection } from './sections/NotificationsSection';
 import { DocsSection } from './sections/DocsSection';
@@ -50,6 +50,12 @@ export default function SettingsPanel({
     if (!legacySection) return;
     navigateTo(`/dashboard/settings/${LABEL_TO_SLUG[legacySection] ?? DEFAULT_SLUG}`, { replace: true });
   }, [legacySection, navigateTo]);
+
+  useEffect(() => {
+    if (sectionSlug === 'api-keys') {
+      navigateTo('/dashboard/settings/keys', { replace: true });
+    }
+  }, [sectionSlug, navigateTo]);
 
   const handleSectionSelect = (label: string) => {
     navigateTo(`/dashboard/settings/${LABEL_TO_SLUG[label] ?? DEFAULT_SLUG}`);
@@ -114,8 +120,8 @@ export default function SettingsPanel({
         return <StorageSection />;
       case 'Security':
         return <SecuritySection data={data} />;
-      case 'API Keys':
-        return <ApiKeysSection workspaceId={workspaceId} />;
+      case 'Keys & Secrets':
+        return <KeysSection workspaceId={workspaceId} />;
       case 'Plan & Usage':
         return <PlanUsageSection data={data} />;
       case 'Notifications':

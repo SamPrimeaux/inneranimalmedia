@@ -28,7 +28,7 @@ import {
 } from '../core/bootstrap.js';
 import { handleSettingsIntegrationsApi } from './settings-integrations.js';
 import { handleSettingsSectionStatusApi } from './settings-sections.js';
-import { handleSettingsApiKeysApi } from './settings-api-keys.js';
+import { handleSettingsKeysApi } from './settings-api-keys.js';
 import { handleSettingsWorkspaceApi } from './settings-workspace.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace, canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
@@ -323,7 +323,7 @@ export async function handleSettingsRequest(request, env, ctx) {
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
   const sessionUserId = authUser.id;
 
-  const settingsApiKeysRes = await handleSettingsApiKeysApi(
+  const settingsApiKeysRes = await handleSettingsKeysApi(
     request,
     env,
     ctx,
@@ -3744,9 +3744,13 @@ export async function handleSettingsRequest(request, env, ctx) {
       if (!allowed.includes(newStatus)) {
         return jsonResponse({ error: 'invalid_status' }, 400);
       }
+      const resolvedClause =
+        newStatus === 'false_positive' || newStatus === 'fixed'
+          ? ', resolved_at = unixepoch()'
+          : '';
       const out = await env.DB.prepare(
         `UPDATE security_findings
-         SET status = ?, updated_at = unixepoch()
+         SET status = ?, updated_at = unixepoch()${resolvedClause}
          WHERE id = ? AND tenant_id = ?`,
       )
         .bind(newStatus, findingId, tenantId)

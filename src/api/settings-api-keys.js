@@ -1,5 +1,6 @@
 /**
- * Settings-scoped API key management: /api/settings/api-keys*
+ * Unified keys & secrets: /api/settings/keys* (canonical)
+ * Legacy alias: /api/settings/api-keys*
  *
  * Hard rules:
  * - Store secret material only in encrypted `user_secrets`.
@@ -9,9 +10,15 @@
  * - Schema drift safety: probe columns via PRAGMA and omit missing fields.
  */
 import { jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId, getSession } from '../core/auth.js';
-import { logSecretAudit } from '../core/security-scan.js';
+import {
+  canonicalUserSecretId,
+  handleKeySecurityAfterOp,
+} from '../core/keys-security.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
+import { validateProviderKey, checkValidateRateLimit } from '../core/secret-validators.js';
+
+const KEY_CATEGORIES = new Set(['provider', 'personal', 'internal']);
 
 const PROVIDERS = new Set([
   'openai',
@@ -134,6 +141,14 @@ async function assertWorkspaceAccess(env, request, authUser) {
   return { workspaceId, error: null };
 }
 
+function parseMeta(row) {
+  try {
+    return row?.metadata_json ? JSON.parse(String(row.metadata_json)) : {};
+  } catch {
+    return {};
+  }
+}
+
 function toSafeItem(row, cols) {
   const lastFour =
     row?.last_four != null && String(row.last_four).trim() !== ''
@@ -141,11 +156,14 @@ function toSafeItem(row, cols) {
       : row?.key_preview
         ? String(row.key_preview).slice(-4)
         : '????';
+  const meta = parseMeta(row);
 
   return {
     id: row.id,
     workspace_id: has(cols, 'workspace_id') ? row.workspace_id ?? null : null,
+    category: has(cols, 'category') ? row.category ?? 'provider' : 'provider',
     provider: row.provider ?? null,
+    secret_name: meta.secret_name ?? meta.secretName ?? null,
     label:
       row.label ??
       row.key_name ??
@@ -153,12 +171,177 @@ function toSafeItem(row, cols) {
     status: row.status ?? 'active',
     scope: row.scope ?? 'workspace',
     last_four: lastFour,
+    validated_at: meta.validated_at ?? null,
     created_at: row.created_at ?? null,
     updated_at: row.updated_at ?? null,
     last_used_at: has(cols, 'last_used_at') ? row.last_used_at ?? null : null,
     rotated_at: has(cols, 'rotated_at') ? row.rotated_at ?? null : null,
     expires_at: has(cols, 'expires_at') ? row.expires_at ?? null : null,
   };
+}
+
+/** Canonical /api/settings/keys paths; legacy /api/settings/api-keys maps here. */
+function normalizeKeysPath(pathLower) {
+  if (pathLower.startsWith('/api/settings/api-keys')) {
+    return pathLower.replace('/api/settings/api-keys', '/api/settings/keys');
+  }
+  return pathLower;
+}
+
+async function decryptVaultSecret(env, vaultSecretId, userId, tenantId, workspaceId) {
+  if (!env?.DB || !vaultSecretId) return null;
+  const sCols = await tableColumns(env.DB, 'user_secrets');
+  const where = ['id = ?', 'is_active = 1'];
+  const binds = [vaultSecretId];
+  if (has(sCols, 'user_id')) {
+    where.push('user_id = ?');
+    binds.push(userId);
+  }
+  if (has(sCols, 'tenant_id')) {
+    where.push('tenant_id = ?');
+    binds.push(tenantId);
+  }
+  if (workspaceId && has(sCols, 'workspace_id')) {
+    where.push('workspace_id = ?');
+    binds.push(workspaceId);
+  }
+  const row = await env.DB.prepare(
+    `SELECT secret_value_encrypted FROM user_secrets WHERE ${where.join(' AND ')} LIMIT 1`,
+  )
+    .bind(...binds)
+    .first();
+  if (!row?.secret_value_encrypted) return null;
+  const { vaultDecrypt } = await import('./vault.js');
+  const plain = await vaultDecrypt(env, row.secret_value_encrypted);
+  return plain ? String(plain).trim() : null;
+}
+
+async function patchValidatedMetadata(env, authUser, id, workspaceId, validationResult) {
+  const { row, cols } = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
+  if (!row || !has(cols, 'metadata_json')) return;
+  const meta = parseMeta(row);
+  meta.validated_at = nowIso();
+  meta.validation_checks = validationResult?.checks ?? [];
+  meta.validation_warnings = validationResult?.warnings ?? [];
+  meta.checks = validationResult?.checks ?? [];
+  meta.warnings = validationResult?.warnings ?? [];
+  meta.latency_ms = (validationResult?.checks ?? []).reduce(
+    (n, c) => n + (Number(c?.latency_ms) || 0),
+    0,
+  );
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+  const userId = String(authUser?.id || '').trim();
+  const where = ['id = ?'];
+  const binds = [id];
+  if (has(cols, 'user_id')) {
+    where.push('user_id = ?');
+    binds.push(userId);
+  }
+  if (has(cols, 'tenant_id')) {
+    where.push('tenant_id = ?');
+    binds.push(tenantId);
+  }
+  await env.DB.prepare(
+    `UPDATE user_api_keys SET metadata_json = ?, updated_at = datetime('now') WHERE ${where.join(' AND ')}`,
+  )
+    .bind(JSON.stringify(meta), ...binds)
+    .run()
+    .catch(() => {});
+}
+
+async function validateKeysRequest(env, authUser, request, body, keyId = null) {
+  const userId = String(authUser?.id || '').trim();
+  const rl = await checkValidateRateLimit(env, userId);
+  if (!rl.allowed) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: 'rate_limited',
+        message: `Too many validation attempts. Retry in ${rl.retry_after_sec ?? 60}s.`,
+      },
+      429,
+    );
+  }
+
+  const wsRes = await assertWorkspaceAccess(env, request, authUser);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing.', 400);
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
+
+  let provider = String(body?.provider || '').trim().toLowerCase();
+  let apiKey = String(body?.api_key || body?.secret_value || '').trim();
+
+  if (keyId) {
+    const tenantId = await resolveTenantIdOrFetch(env, authUser);
+    const { row, cols } = await loadApiKeyRowScoped(env, authUser, keyId, wsRes.workspaceId);
+    if (!row) return clientError('NOT_FOUND', 'Key not found.', 404);
+    provider = String(row.provider || 'other').toLowerCase();
+    apiKey = await decryptVaultSecret(env, row.vault_secret_id, userId, tenantId, wsRes.workspaceId);
+    if (!apiKey) return clientError('DECRYPT_FAILED', 'Could not decrypt stored key for validation.', 500);
+  }
+
+  if (!provider) return clientError('PROVIDER_REQUIRED', 'Provider is required.');
+  if (!apiKey) return clientError('API_KEY_REQUIRED', 'API key value is required.');
+
+  const result = await validateProviderKey(provider, apiKey, env);
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+
+  if (keyId) {
+    const { row } = await loadApiKeyRowScoped(env, authUser, keyId, wsRes.workspaceId);
+    const secretId = canonicalUserSecretId(row || { id: keyId, vault_secret_id: null });
+    if (result.ok) {
+      await patchValidatedMetadata(env, authUser, keyId, wsRes.workspaceId, result);
+    }
+    await handleKeySecurityAfterOp(env, {
+      operation: 'validate',
+      secretId,
+      apiKeyId: keyId,
+      apiKeyRow: row,
+      tenantId,
+      userId,
+      workspaceId: wsRes.workspaceId,
+      provider,
+      plaintextKey: apiKey,
+      validationResult: result,
+      request,
+      triggeredBy: 'dashboard_ui',
+    });
+  }
+
+  return jsonResponse(result);
+}
+
+async function revealKey(env, authUser, request, id) {
+  const wsRes = await assertWorkspaceAccess(env, request, authUser);
+  if (wsRes.error) {
+    const code = wsRes.error === 'Forbidden' ? 403 : 400;
+    return clientError(wsRes.error === 'Forbidden' ? 'FORBIDDEN' : 'WORKSPACE_CONTEXT_MISSING', wsRes.error, code);
+  }
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+  const userId = String(authUser?.id || '').trim();
+  const { row, cols } = await loadApiKeyRowScoped(env, authUser, id, wsRes.workspaceId);
+  if (!row) return clientError('NOT_FOUND', 'Key not found.', 404);
+  const category = has(cols, 'category') ? row.category : 'provider';
+  if (category !== 'personal' && category !== 'internal') {
+    return clientError('REVEAL_NOT_ALLOWED', 'Provider keys cannot be revealed. Rotate instead.', 403);
+  }
+  const plain = await decryptVaultSecret(env, row.vault_secret_id, userId, tenantId, wsRes.workspaceId);
+  if (!plain) return clientError('DECRYPT_FAILED', 'Could not decrypt secret.', 500);
+  const secretId = canonicalUserSecretId(row);
+  await handleKeySecurityAfterOp(env, {
+    operation: 'reveal',
+    secretId,
+    apiKeyId: id,
+    apiKeyRow: row,
+    tenantId,
+    userId,
+    workspaceId: wsRes.workspaceId,
+    request,
+    triggeredBy: 'dashboard_ui',
+  });
+  return jsonResponse({ ok: true, value: plain, expires_in_sec: 30 });
 }
 
 async function loadApiKeyRowScoped(env, authUser, id, workspaceId) {
@@ -235,6 +418,7 @@ async function listApiKeys(request, env, authUser, url) {
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
   const userId = String(authUser?.id || '').trim();
   const workspaceId = wsRes.workspaceId;
+  const categoryFilter = String(url.searchParams.get('category') || '').trim().toLowerCase();
 
   const where = [];
   const binds = [];
@@ -251,11 +435,17 @@ async function listApiKeys(request, env, authUser, url) {
     binds.push(workspaceId);
   }
   if (has(cols, 'is_active')) where.push('COALESCE(is_active, 1) = 1');
+  if (categoryFilter && has(cols, 'category') && KEY_CATEGORIES.has(categoryFilter)) {
+    where.push('category = ?');
+    binds.push(categoryFilter);
+  }
 
   const select = [
     'id',
     has(cols, 'workspace_id') ? 'workspace_id' : 'NULL AS workspace_id',
+    has(cols, 'category') ? 'category' : `'provider' AS category`,
     has(cols, 'provider') ? 'provider' : 'NULL AS provider',
+    has(cols, 'metadata_json') ? 'metadata_json' : 'NULL AS metadata_json',
     has(cols, 'label') ? 'label' : has(cols, 'key_name') ? 'key_name AS label' : 'NULL AS label',
     has(cols, 'status') ? 'status' : `'active' AS status`,
     has(cols, 'scope') ? 'scope' : `'workspace' AS scope`,
@@ -304,9 +494,14 @@ async function createApiKey(env, authUser, request) {
   const sCols = await tableColumns(db, 'user_secrets');
   const body = await request.json().catch(() => ({}));
 
-  const provider = String(body.provider || '').trim().toLowerCase();
-  const keyLabel = String(body.label ?? body.key_name ?? '').trim();
-  const api_key = String(body.api_key || '').trim();
+  const categoryRaw = String(body.category || 'provider').trim().toLowerCase();
+  const category = KEY_CATEGORIES.has(categoryRaw) ? categoryRaw : 'provider';
+  let provider = String(body.provider || '').trim().toLowerCase();
+  const secretName = String(body.secret_name || '').trim();
+  const keyLabel = String(
+    body.label ?? body.key_name ?? (category === 'personal' ? secretName : ''),
+  ).trim();
+  const api_key = String(body.api_key || body.secret_value || '').trim();
   const scopeRaw =
     body.scope == null || String(body.scope).trim() === ''
       ? 'workspace'
@@ -315,15 +510,31 @@ async function createApiKey(env, authUser, request) {
   const workspaceId = wsRes.workspaceId;
   const expires_at = body.expires_at ?? null;
   const metadata = body.metadata ?? null;
+  const validationOnCreate = body.validate === true;
+  let preValidateResult = null;
 
-  if (!provider) return clientError('PROVIDER_REQUIRED', 'Provider is required.');
-  if (!PROVIDERS.has(provider)) {
-    return clientError('INVALID_PROVIDER', 'Choose a supported provider (OpenAI, Anthropic, Google, etc.).');
+  if (category === 'personal') {
+    provider = provider || 'other';
+    if (!secretName && !keyLabel) {
+      return clientError('SECRET_NAME_REQUIRED', 'Secret name is required for personal secrets.');
+    }
+  } else {
+    if (!provider) return clientError('PROVIDER_REQUIRED', 'Provider is required.');
+    if (!PROVIDERS.has(provider)) {
+      return clientError('INVALID_PROVIDER', 'Choose a supported provider (OpenAI, Anthropic, Google, etc.).');
+    }
   }
   if (!keyLabel) {
-    return clientError('KEY_NAME_REQUIRED', 'API key label is required.');
+    return clientError('KEY_NAME_REQUIRED', 'Label is required.');
   }
-  if (!api_key) return clientError('API_KEY_REQUIRED', 'API key value is required.');
+  if (!api_key) return clientError('API_KEY_REQUIRED', 'Secret value is required.');
+
+  if (validationOnCreate && category === 'provider') {
+    preValidateResult = await validateProviderKey(provider, api_key, env);
+    if (!preValidateResult.ok) {
+      return jsonResponse({ ok: false, error: 'validation_failed', ...preValidateResult }, 400);
+    }
+  }
   if (!['user', 'workspace'].includes(scope)) {
     return clientError('INVALID_SCOPE', 'Scope must be user or workspace.');
   }
@@ -331,12 +542,33 @@ async function createApiKey(env, authUser, request) {
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
   const userId = String(authUser?.id || '').trim();
   const last_four = lastFourOfKey(api_key);
+  const vaultSecretId = newId('sec'); // canonical secret_id for audit/findings
+  const keyRowId = newId('uak');
 
   // Encrypt via existing helper (Cloudflare-safe)
-  const encrypted = await encryptApiKeyForStorage(env, api_key);
-
-  const vaultSecretId = newId('sec'); // internal pointer only; stored in user_api_keys, never returned
-  const keyRowId = newId('uak');
+  let encrypted;
+  let encryptOk = true;
+  try {
+    encrypted = await encryptApiKeyForStorage(env, api_key);
+    if (!encrypted) encryptOk = false;
+  } catch {
+    encryptOk = false;
+    encrypted = null;
+  }
+  if (!encryptOk || !encrypted) {
+    await handleKeySecurityAfterOp(env, {
+      operation: 'create',
+      secretId: vaultSecretId,
+      tenantId,
+      userId,
+      workspaceId,
+      provider,
+      encryptOk: false,
+      request,
+      triggeredBy: 'dashboard_ui',
+    });
+    return clientError('ENCRYPT_FAILED', 'Could not encrypt secret value.', 500);
+  }
 
   // Insert encrypted secret first
   try {
@@ -345,12 +577,28 @@ async function createApiKey(env, authUser, request) {
       ['user_id', userId],
       ['tenant_id', tenantId],
       ['workspace_id', workspaceId],
-      ['secret_name', `api_key:${provider}:${keyRowId}`],
+      [
+        'secret_name',
+        category === 'personal' && secretName
+          ? secretName
+          : `api_key:${provider}:${keyRowId}`,
+      ],
       ['secret_value_encrypted', encrypted],
-      ['service_name', provider],
-      ['description', keyLabel],
+      ['service_name', category === 'personal' ? body.service_name || 'personal' : provider],
+      ['description', body.description || keyLabel],
       ['project_label', 'user_api_keys'],
-      ['metadata_json', JSON.stringify({ api_key_id: keyRowId, provider, label: keyLabel, last_four })],
+      [
+        'metadata_json',
+        JSON.stringify({
+          api_key_id: keyRowId,
+          provider,
+          label: keyLabel,
+          last_four,
+          secret_name: secretName || null,
+          category,
+          ...(validationOnCreate ? { validated_at: nowIso() } : {}),
+        }),
+      ],
       ['is_active', 1],
       ['created_at', nowIso()],
       ['updated_at', nowIso()],
@@ -390,6 +638,7 @@ async function createApiKey(env, authUser, request) {
       ['tenant_id', tenantId],
       ['user_id', userId],
       ['workspace_id', workspaceId],
+      ['category', category],
       ['provider', provider],
       ['label', keyLabel],
       ['key_name', keyLabel],
@@ -399,7 +648,20 @@ async function createApiKey(env, authUser, request) {
       ['key_preview', keyPreviewVal],
       ['vault_secret_id', vaultSecretId],
       ['expires_at', expires_at],
-      ['metadata_json', metaJson],
+      [
+        'metadata_json',
+        metaJson != null
+          ? metaJson
+          : JSON.stringify({
+              api_key_id: keyRowId,
+              provider,
+              label: keyLabel,
+              last_four,
+              secret_name: secretName || null,
+              category,
+              ...(validationOnCreate ? { validated_at: nowIso() } : {}),
+            }),
+      ],
       ['created_at', nowIso()],
       ['updated_at', nowIso()],
       ['is_active', 1],
@@ -413,17 +675,32 @@ async function createApiKey(env, authUser, request) {
       .bind(...fields.map(([, v]) => v))
       .run();
 
-    await logSecretAudit(env, {
-      secretId: keyRowId,
+    const metaField = fields.find(([c]) => c === 'metadata_json');
+    const rowMetaJson = metaField ? metaField[1] : null;
+    const apiKeyRow = {
+      id: keyRowId,
+      vault_secret_id: vaultSecretId,
+      provider,
+      expires_at,
+      created_at: nowIso(),
+      metadata_json: rowMetaJson,
+    };
+    await handleKeySecurityAfterOp(env, {
+      operation: 'create',
+      secretId: vaultSecretId,
+      apiKeyId: keyRowId,
+      apiKeyRow,
       tenantId,
       userId,
-      eventType: 'created',
-      triggeredBy: 'dashboard_ui',
+      workspaceId,
+      provider,
+      plaintextKey: api_key,
+      encryptOk: true,
       newLast4: last_four,
+      validationResult: preValidateResult,
+      request,
+      triggeredBy: 'dashboard_ui',
       notes: `Created API key (${provider})`,
-      ipAddress: request.headers.get('CF-Connecting-IP'),
-      userAgent: request.headers.get('User-Agent'),
-      secretSource: 'user_api_keys',
     });
   } catch (e) {
     // Best-effort rollback secret row so we don't orphan it.
@@ -649,18 +926,20 @@ async function rotateApiKey(env, authUser, request, id) {
       .bind(...binds, ...wBinds)
       .run();
 
-    await logSecretAudit(env, {
-      secretId: id,
+    const secretId = canonicalUserSecretId(row);
+    await handleKeySecurityAfterOp(env, {
+      operation: 'rotate',
+      secretId,
+      apiKeyId: id,
+      apiKeyRow: row,
       tenantId,
       userId,
-      eventType: 'rotated',
-      triggeredBy: 'dashboard_ui',
+      workspaceId,
+      provider: row.provider,
       previousLast4,
       newLast4,
-      notes: 'Rotated API key',
-      ipAddress: request.headers.get('CF-Connecting-IP'),
-      userAgent: request.headers.get('User-Agent'),
-      secretSource: 'user_api_keys',
+      request,
+      triggeredBy: 'dashboard_ui',
     });
   } catch (e) {
     const { code, message } = sqliteErrorMessage(e);
@@ -730,17 +1009,19 @@ async function revokeApiKey(env, authUser, request, id) {
       .bind(...binds, ...wBinds)
       .run();
 
-    await logSecretAudit(env, {
-      secretId: id,
+    const secretId = canonicalUserSecretId(row);
+    await handleKeySecurityAfterOp(env, {
+      operation: 'delete',
+      secretId,
+      apiKeyId: id,
+      apiKeyRow: row,
       tenantId,
       userId,
-      eventType: 'revoked',
-      triggeredBy: 'dashboard_ui',
+      workspaceId,
+      provider: row.provider,
       previousLast4,
-      notes: 'Revoked API key',
-      ipAddress: request.headers.get('CF-Connecting-IP'),
-      userAgent: request.headers.get('User-Agent'),
-      secretSource: 'user_api_keys',
+      request,
+      triggeredBy: 'dashboard_ui',
     });
   } catch (e) {
     return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -823,23 +1104,51 @@ async function auditApiKeys(request, env, authUser, url) {
 /**
  * @returns {Promise<Response|null>}
  */
-export async function handleSettingsApiKeysApi(request, env, ctx, authUser, url, pathLower, method) {
+export async function handleSettingsKeysApi(request, env, ctx, authUser, url, pathLower, method) {
   void ctx;
-  if (!pathLower.startsWith('/api/settings/api-keys')) return null;
+  const keysPath = normalizeKeysPath(pathLower);
+  if (!keysPath.startsWith('/api/settings/keys')) return null;
 
-  if (pathLower === '/api/settings/api-keys' && method === 'GET') {
+  if (keysPath === '/api/settings/keys/validate' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    return validateKeysRequest(env, authUser, request, body, null);
+  }
+
+  if (keysPath === '/api/settings/keys' && method === 'GET') {
     return listApiKeys(request, env, authUser, url);
   }
 
-  if (pathLower === '/api/settings/api-keys' && method === 'POST') {
+  if (keysPath === '/api/settings/keys' && method === 'POST') {
     return createApiKey(env, authUser, request);
   }
 
-  if (pathLower === '/api/settings/api-keys/audit' && method === 'GET') {
+  if (keysPath === '/api/settings/keys/audit' && method === 'GET') {
     return auditApiKeys(request, env, authUser, url);
   }
 
-  const idMatch = pathLower.match(/^\/api\/settings\/api-keys\/([^/]+)$/);
+  const validateIdMatch = keysPath.match(/^\/api\/settings\/keys\/([^/]+)\/validate$/);
+  if (validateIdMatch && method === 'POST') {
+    const id = decodeURIComponent(validateIdMatch[1] || '').trim();
+    if (!id) return jsonResponse({ error: 'id required' }, 400);
+    const body = await request.json().catch(() => ({}));
+    return validateKeysRequest(env, authUser, request, body, id);
+  }
+
+  const revealMatch = keysPath.match(/^\/api\/settings\/keys\/([^/]+)\/reveal$/);
+  if (revealMatch && method === 'POST') {
+    const id = decodeURIComponent(revealMatch[1] || '').trim();
+    if (!id) return jsonResponse({ error: 'id required' }, 400);
+    return revealKey(env, authUser, request, id);
+  }
+
+  const rotateMatch = keysPath.match(/^\/api\/settings\/keys\/([^/]+)\/rotate$/);
+  if (rotateMatch && method === 'POST') {
+    const id = decodeURIComponent(rotateMatch[1] || '').trim();
+    if (!id) return jsonResponse({ error: 'id required' }, 400);
+    return rotateApiKey(env, authUser, request, id);
+  }
+
+  const idMatch = keysPath.match(/^\/api\/settings\/keys\/([^/]+)$/);
   if (idMatch) {
     const id = decodeURIComponent(idMatch[1] || '').trim();
     if (!id) return jsonResponse({ error: 'id required' }, 400);
@@ -847,13 +1156,9 @@ export async function handleSettingsApiKeysApi(request, env, ctx, authUser, url,
     if (method === 'DELETE') return revokeApiKey(env, authUser, request, id);
   }
 
-  const rotateMatch = pathLower.match(/^\/api\/settings\/api-keys\/([^/]+)\/rotate$/);
-  if (rotateMatch && method === 'POST') {
-    const id = decodeURIComponent(rotateMatch[1] || '').trim();
-    if (!id) return jsonResponse({ error: 'id required' }, 400);
-    return rotateApiKey(env, authUser, request, id);
-  }
-
   return null;
 }
+
+/** @deprecated alias — use handleSettingsKeysApi */
+export const handleSettingsApiKeysApi = handleSettingsKeysApi;
 

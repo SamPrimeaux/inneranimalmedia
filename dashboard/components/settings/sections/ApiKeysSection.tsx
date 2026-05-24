@@ -13,16 +13,27 @@ import {
 type ApiKeyItem = {
   id: string;
   workspace_id: string | null;
+  category?: string;
   provider: string | null;
+  secret_name?: string | null;
   label: string | null;
   status: string;
   scope: string;
   last_four: string;
+  validated_at?: string | null;
   created_at: string | null;
   updated_at: string | null;
   last_used_at: string | null;
   rotated_at: string | null;
   expires_at: string | number | null;
+};
+
+type ValidateResult = {
+  ok?: boolean;
+  checks?: { id: string; status: string; latency_ms?: number; detail?: string }[];
+  warnings?: string[];
+  message?: string;
+  error?: string;
 };
 
 type AuditRow = {
@@ -99,7 +110,7 @@ function readApiError(j: Record<string, unknown>, fallback: string): string {
   return fallback;
 }
 
-export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
+export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
@@ -121,8 +132,19 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
+  const [testing, setTesting] = useState(false);
+  const [validatingId, setValidatingId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<ValidateResult | null>(null);
+
+  const [personalItems, setPersonalItems] = useState<ApiKeyItem[]>([]);
+  const [personalLoading, setPersonalLoading] = useState(true);
+  const [personalCreateOpen, setPersonalCreateOpen] = useState(false);
+  const [personalName, setPersonalName] = useState('');
+  const [personalValue, setPersonalValue] = useState('');
+  const [personalSaving, setPersonalSaving] = useState(false);
 
   const ws = workspaceId || null;
+  const KEYS_API = '/api/settings/keys';
 
   const load = useCallback(async () => {
     if (!ws) {
@@ -134,7 +156,7 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`/api/settings/api-keys`, {
+      const r = await fetch(`${KEYS_API}?category=provider`, {
         credentials: 'same-origin',
         headers: ws ? { 'X-IAM-Workspace-Id': ws } : undefined,
       });
@@ -149,12 +171,34 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
     }
   }, [ws]);
 
+  const loadPersonal = useCallback(async () => {
+    if (!ws) {
+      setPersonalItems([]);
+      setPersonalLoading(false);
+      return;
+    }
+    setPersonalLoading(true);
+    try {
+      const r = await fetch(`${KEYS_API}?category=personal`, {
+        credentials: 'same-origin',
+        headers: ws ? { 'X-IAM-Workspace-Id': ws } : undefined,
+      });
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown> & { items?: ApiKeyItem[] };
+      if (!r.ok) throw new Error(readApiError(j, `Load failed (${r.status})`));
+      setPersonalItems(Array.isArray(j.items) ? j.items : []);
+    } catch {
+      setPersonalItems([]);
+    } finally {
+      setPersonalLoading(false);
+    }
+  }, [ws]);
+
   const loadAudit = useCallback(async () => {
     if (!ws) return;
     setAuditLoading(true);
     setAuditError(null);
     try {
-      const r = await fetch(`/api/settings/api-keys/audit?limit=20`, {
+      const r = await fetch(`${KEYS_API}/audit?limit=20`, {
         credentials: 'same-origin',
         headers: ws ? { 'X-IAM-Workspace-Id': ws } : undefined,
       });
@@ -171,8 +215,9 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
 
   useEffect(() => {
     void load();
+    void loadPersonal();
     void loadAudit();
-  }, [load, loadAudit]);
+  }, [load, loadPersonal, loadAudit]);
 
   const summary = useMemo(() => {
     const active = items.filter((i) => String(i.status || '').toLowerCase() === 'active').length;
@@ -184,6 +229,95 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
       providers: new Set(items.map((i) => String(i.provider || '').toLowerCase()).filter(Boolean)).size,
     };
   }, [items]);
+
+  const onTestStored = async (row: ApiKeyItem) => {
+    if (!ws) return;
+    setValidatingId(row.id);
+    setError(null);
+    try {
+      const r = await fetch(`${KEYS_API}/${encodeURIComponent(row.id)}/validate`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: apiKeysJsonHeaders(ws),
+        body: JSON.stringify({}),
+      });
+      const j = (await r.json().catch(() => ({}))) as ValidateResult;
+      if (!r.ok || !j.ok) {
+        setError(j.message || j.error || `Validation failed for ${row.label || row.id}`);
+      }
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Validation failed');
+    } finally {
+      setValidatingId(null);
+    }
+  };
+
+  const onCreatePersonal = async () => {
+    if (!ws) return;
+    const name = personalName.trim();
+    const val = personalValue.trim();
+    if (!name || !val) {
+      setError('Name and secret value are required.');
+      return;
+    }
+    setPersonalSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(KEYS_API, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: apiKeysJsonHeaders(ws),
+        body: JSON.stringify({
+          category: 'personal',
+          secret_name: name,
+          label: name,
+          api_key: val,
+          scope: 'workspace',
+        }),
+      });
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!r.ok) throw new Error(readApiError(j, `Create failed (${r.status})`));
+      setPersonalCreateOpen(false);
+      setPersonalName('');
+      setPersonalValue('');
+      await loadPersonal();
+      await loadAudit();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Create failed');
+    } finally {
+      setPersonalSaving(false);
+    }
+  };
+
+  const onTestKey = async () => {
+    if (!ws) return;
+    const keyT = apiKey.trim();
+    if (!provider.trim() || !keyT) {
+      setError('Provider and key are required to test.');
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    setError(null);
+    try {
+      const r = await fetch(`${KEYS_API}/validate`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: apiKeysJsonHeaders(ws),
+        body: JSON.stringify({ provider: provider.trim().toLowerCase(), api_key: keyT }),
+      });
+      const j = (await r.json().catch(() => ({}))) as ValidateResult;
+      setTestResult(j);
+      if (!r.ok || !j.ok) {
+        setError(j.message || j.error || 'Validation failed');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Validation failed');
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const onCreate = async () => {
     if (!ws) return;
@@ -208,16 +342,18 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
     setSaving(true);
     setError(null);
     try {
-      const r = await fetch('/api/settings/api-keys', {
+      const r = await fetch(KEYS_API, {
         method: 'POST',
         credentials: 'same-origin',
         headers: apiKeysJsonHeaders(ws),
         body: JSON.stringify({
+          category: 'provider',
           provider: provider.trim().toLowerCase(),
           label: labelT,
           key_name: labelT,
           api_key: keyT,
           scope,
+          validate: true,
           expires_at: expiresAt.trim() ? expiresAt.trim() : null,
         }),
       });
@@ -251,7 +387,7 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
     const keyToSend = newApiKey;
     setNewApiKey('');
     try {
-      const r = await fetch(`/api/settings/api-keys/${encodeURIComponent(rotateTarget.id)}/rotate`, {
+      const r = await fetch(`${KEYS_API}/${encodeURIComponent(rotateTarget.id)}/rotate`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: apiKeysJsonHeaders(ws),
@@ -276,7 +412,7 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
     setRevokingId(row.id);
     setError(null);
     try {
-      const r = await fetch(`/api/settings/api-keys/${encodeURIComponent(row.id)}`, {
+      const r = await fetch(`${KEYS_API}/${encodeURIComponent(row.id)}`, {
         method: 'DELETE',
         credentials: 'same-origin',
         headers: apiKeysJsonHeaders(ws),
@@ -296,8 +432,8 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
   return (
     <div className="flex flex-col gap-5 max-w-4xl">
       <SectionHeader
-        title="API Keys"
-        description="Store workspace API keys securely. Keys are encrypted at rest and never shown again after you save them."
+        title="Keys & Secrets"
+        description="Provider keys power Agent Sam (BYOK). Secrets are encrypted at rest and never shown again after save."
         right={
           <div className="flex items-center gap-2">
             <button
@@ -340,6 +476,10 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
         ]}
       />
 
+      <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+        Provider keys
+      </h3>
+
       {loading ? (
         <LoadingRow label="Loading API keys…" />
       ) : items.length === 0 ? (
@@ -379,6 +519,17 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
               render: (r) => <ScopePill scope={r.scope} />,
             },
             {
+              key: 'validated_at',
+              label: 'Validated',
+              widthClass: '120px',
+              render: (r) =>
+                r.validated_at ? (
+                  <span className="text-[10px] text-[var(--color-success)]">✓ validated</span>
+                ) : (
+                  <span className="text-[10px] text-[var(--text-muted)]">—</span>
+                ),
+            },
+            {
               key: 'status',
               label: 'Status',
               widthClass: '110px',
@@ -402,6 +553,15 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
               widthClass: '210px',
               render: (r) => (
                 <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={validatingId === r.id}
+                    onClick={() => void onTestStored(r)}
+                    className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                    title="Test key"
+                  >
+                    {validatingId === r.id ? 'Testing…' : 'Test'}
+                  </button>
                   <button
                     type="button"
                     disabled={rotatingId === r.id}
@@ -433,6 +593,52 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
           rows={items}
         />
       )}
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+            Personal secrets
+          </h3>
+          <button
+            type="button"
+            disabled={!ws}
+            onClick={() => setPersonalCreateOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+          >
+            <Plus size={14} />
+            Add secret
+          </button>
+        </div>
+        {personalLoading ? (
+          <LoadingRow label="Loading personal secrets…" />
+        ) : personalItems.length === 0 ? (
+          <EmptyState message="No personal secrets yet. Store passwords and arbitrary tokens here." />
+        ) : (
+          <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-app)]">
+            {personalItems.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[var(--border-subtle)] text-[11px] last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <div className="font-semibold text-[var(--text-main)] truncate">
+                    {r.secret_name || r.label || r.id}
+                  </div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono">••••{r.last_four}</div>
+                </div>
+                <button
+                  type="button"
+                  disabled={revokingId === r.id}
+                  onClick={() => void onRevoke(r)}
+                  className="text-[10px] px-2 py-1 rounded border border-[var(--color-danger)]/40 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 space-y-2">
         <div className="flex items-center justify-between gap-2">
@@ -484,6 +690,66 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
           </div>
         )}
       </section>
+
+      {personalCreateOpen && (
+        <div className="fixed inset-0 z-[250]">
+          <div
+            className="absolute inset-0 bg-[var(--text-main)]/40"
+            onClick={() => setPersonalCreateOpen(false)}
+            role="presentation"
+          />
+          <div className="absolute top-0 right-0 h-full w-[480px] max-w-[92vw] bg-[var(--bg-panel)] border-l border-[var(--border-subtle)] shadow-2xl flex flex-col">
+            <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
+              <div className="text-[12px] font-semibold text-[var(--text-heading)]">Add personal secret</div>
+              <button
+                type="button"
+                className="text-[11px] text-[var(--text-muted)]"
+                onClick={() => setPersonalCreateOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-4 flex-1 overflow-auto space-y-3">
+              <label className="flex flex-col gap-1 text-[11px]">
+                <span className="text-[var(--text-muted)]">Name</span>
+                <input
+                  value={personalName}
+                  onChange={(e) => setPersonalName(e.target.value)}
+                  placeholder="stripe-live-key"
+                  className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px]">
+                <span className="text-[var(--text-muted)]">Secret value</span>
+                <input
+                  type="password"
+                  value={personalValue}
+                  onChange={(e) => setPersonalValue(e.target.value)}
+                  autoComplete="off"
+                  className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                />
+              </label>
+            </div>
+            <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
+                onClick={() => setPersonalCreateOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={personalSaving || !personalName.trim() || !personalValue.trim()}
+                className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 disabled:opacity-50"
+                onClick={() => void onCreatePersonal()}
+              >
+                {personalSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {createOpen && (
         <div className="fixed inset-0 z-[250]">
@@ -563,6 +829,19 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
                 />
               </label>
             </div>
+            {testResult?.checks?.length ? (
+              <div className="px-4 pb-2 space-y-1">
+                {testResult.checks.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`text-[10px] ${c.status === 'pass' ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}
+                  >
+                    {c.status === 'pass' ? '✓' : '✗'} {c.id}
+                    {c.detail ? ` — ${c.detail}` : ''}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex items-center justify-end gap-2 bg-[var(--bg-app)]">
               <button
                 type="button"
@@ -570,6 +849,14 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
                 onClick={() => setCreateOpen(false)}
               >
                 Cancel
+              </button>
+              <button
+                type="button"
+                disabled={testing || !apiKey.trim() || !provider.trim() || !ws}
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] disabled:opacity-50"
+                onClick={() => void onTestKey()}
+              >
+                {testing ? 'Testing…' : 'Test'}
               </button>
               <button
                 type="button"
@@ -645,3 +932,5 @@ export function ApiKeysSection({ workspaceId }: ApiKeysSectionProps) {
   );
 }
 
+/** @deprecated use KeysSection */
+export const ApiKeysSection = KeysSection;

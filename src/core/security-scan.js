@@ -260,6 +260,7 @@ export async function logSecretAudit(env, {
   ipAddress,
   userAgent,
   secretSource = 'user_secrets',
+  terminalSessionId = null,
   closeAuditTrail = false,
   resolvedNotes = null,
 }) {
@@ -352,14 +353,22 @@ export async function logSecretAudit(env, {
     placeholders.push('?');
     binds.push(values.resolved_notes);
   }
+  if (terminalSessionId && cols.has('terminal_session_id')) {
+    insertCols.push('terminal_session_id');
+    placeholders.push('?');
+    binds.push(terminalSessionId);
+  }
 
-  await db
-    .prepare(
-      `INSERT INTO secret_audit_log (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')})`,
-    )
-    .bind(...binds)
-    .run()
-    .catch(() => {});
+  try {
+    await db
+      .prepare(
+        `INSERT INTO secret_audit_log (${insertCols.join(', ')}) VALUES (${placeholders.join(', ')})`,
+      )
+      .bind(...binds)
+      .run();
+  } catch (e) {
+    console.warn('[logSecretAudit] insert failed', eventType, e?.message ?? e);
+  }
 }
 
 export { EXPOSURE_PATTERNS, SCAN_TARGETS };

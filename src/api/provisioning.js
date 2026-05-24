@@ -386,7 +386,7 @@ const BYOK_PROVIDER_SECRET = {
   google: 'GEMINI_API_KEY',
 };
 
-export async function getUserBYOKey(env, userId, tenantId, provider) {
+export async function getUserBYOKey(env, userId, tenantId, provider, opts = {}) {
   if (!env?.DB || !userId || !tenantId || !provider) return null;
   const prov = String(provider || '').trim().toLowerCase();
   const secretName = BYOK_PROVIDER_SECRET[prov] || null;
@@ -419,7 +419,8 @@ export async function getUserBYOKey(env, userId, tenantId, provider) {
 
   try {
     const row = await env.DB.prepare(
-      `SELECT key_hash, key_preview FROM user_api_keys
+      `SELECT id, vault_secret_id, key_hash, key_preview, provider, workspace_id, metadata_json, expires_at, created_at, last_tested_at
+       FROM user_api_keys
        WHERE tenant_id = ? AND user_id = ? AND provider = ? AND COALESCE(is_active, 1) = 1
        LIMIT 1`,
     )
@@ -430,7 +431,29 @@ export async function getUserBYOKey(env, userId, tenantId, provider) {
 
     const aesKey = await getAESKey(env, ['decrypt']);
     const decrypted = await aesGcmDecryptFromB64(row.key_hash, aesKey);
-    return { key: decrypted, preview: row.key_preview ?? null, source: 'user_api_keys' };
+    const out = { key: decrypted, preview: row.key_preview ?? null, source: 'user_api_keys' };
+    try {
+      const { handleKeySecurityAfterOp, canonicalUserSecretId } = await import('../core/keys-security.js');
+      const secretId = canonicalUserSecretId(row);
+      if (secretId) {
+        void handleKeySecurityAfterOp(env, {
+          operation: 'agent_use',
+          secretId,
+          apiKeyId: row.id,
+          apiKeyRow: row,
+          tenantId,
+          userId,
+          workspaceId: row.workspace_id ?? null,
+          provider: row.provider || prov,
+          triggeredBy: 'agent_sam',
+          terminalSessionId: opts?.terminalSessionId ?? null,
+          notes: `Agent resolved BYOK ${prov}`,
+        });
+      }
+    } catch {
+      /* audit non-blocking */
+    }
+    return out;
   } catch (e) {
     console.warn('[getUserBYOKey]', e?.message ?? e);
     return null;
