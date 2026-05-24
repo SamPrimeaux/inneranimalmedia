@@ -32,7 +32,16 @@ Migration **406** (script: `scripts/migration_406.py`) backfills display names, 
 ## OAuth allowlist (migration 403 + 406)
 
 **Client:** `iam_mcp_inneranimalmedia`  
-**Count:** ~35–39 curated tools (canonical **`agentsam_*`** names in `agentsam_mcp_oauth_tool_allowlist.tool_key`)
+**Count:** 46 curated tools after migration **407** (canonical **`agentsam_*`** names in `agentsam_mcp_oauth_tool_allowlist.tool_key`)
+
+### Discovery (read-only, migration 407)
+
+| Tool | Purpose |
+|------|---------|
+| `agentsam_health_check` | Server version + workspace/token binding + binding flags (no secrets) |
+| `agentsam_workspace_context` | `workspaces` + `workspace_settings` + default model |
+| `agentsam_recent_errors` | Last N rows from `agentsam_error_log` for this workspace |
+| `agentsam_search_tools` | Search `agentsam_mcp_tools` by name / lane / description |
 
 ### Read (discovery-safe)
 
