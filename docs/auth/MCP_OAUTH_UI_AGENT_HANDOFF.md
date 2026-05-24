@@ -1,12 +1,12 @@
 # Handoff: MCP OAuth UI/UX + `inneranimalmedia-mcp-server` agent
 
-**Status (2026-05-24):** **Shipped** on `main` — IAM provider + React consent + MCP client (`mcp-oauth-iam.js`). Use this doc for maintenance and Cursor UX polish only.
+**Status (2026-05-23):** **Shipped** on `main` — IAM provider + React consent + MCP client (`mcp-oauth-iam.js`). MCP server **v2.6.0** surfaces `agentsam_*` tool names in `tools/list` and resolves them to handler `tool_key` on `tools/call`. Use this doc for maintenance and Cursor UX polish only.
 
 **For:** Frontend / MCP-worker agent (not the IAM backend agent)  
 **Goal:** End-to-end OAuth login for MCP (`mcp.inneranimalmedia.com`) via IAM provider (`inneranimalmedia.com`)  
 **D1 truth doc:** `docs/auth/IAM_OAUTH_PROVIDER_EXECUTION_PLAN.md`  
 **External clients (ChatGPT, Claude.ai):** `docs/auth/EXTERNAL_AI_MCP_OAUTH_INSTRUCTIONS.md`  
-**Repos:** `SamPrimeaux/inneranimalmedia` @ `6e5f78d+`, `SamPrimeaux/inneranimalmedia-mcp-server` @ `d2aa6ed+`
+**Repos:** `SamPrimeaux/inneranimalmedia` (IAM + D1 migrations/scripts), `SamPrimeaux/inneranimalmedia-mcp-server` @ **v2.6.0+** (`src/mcp-tool-resolve.js`)
 
 ---
 

@@ -17,38 +17,49 @@ Many `tool_key` values appear twice in D1 because there is a **global** row (`ma
 
 **Fix:** MCP `tools/list` resolves **one row per `tool_key`** for the token’s workspace (workspace → user → tenant → global). Do not `DELETE` workspace rows to “dedupe.”
 
-## OAuth allowlist (migration 403)
+## Tool identity (MCP server v2.6.0+)
+
+| Layer | Field | Example |
+|-------|--------|---------|
+| D1 registry | `agentsam_mcp_tools.tool_key` | `d1_query` |
+| Client-facing name | `display_name` (also in allowlist) | `agentsam_db_query` |
+| Alias table | `agentsam_capability_aliases.abstract_capability` → `match_value` | `agentsam_db_query` → `d1_query` |
+
+**`tools/list`** returns `display_name` as MCP `name`. **`tools/call`** accepts that name, resolves to `tool_key`, then dispatches. Reconnect external clients after deploy to refresh the catalog.
+
+Migration **406** (script: `scripts/migration_406.py`) backfills display names, OAuth allowlist keys, and capability aliases.
+
+## OAuth allowlist (migration 403 + 406)
 
 **Client:** `iam_mcp_inneranimalmedia`  
-**Count:** 39 tools (27 read, 12 write) after migration 404
+**Count:** ~35–39 curated tools (canonical **`agentsam_*`** names in `agentsam_mcp_oauth_tool_allowlist.tool_key`)
 
 ### Read (discovery-safe)
 
-| Tool | Purpose |
+| Tool (MCP `name`) | Purpose |
 |------|---------|
-| `d1_query`, `d1_explain`, `d1_schema_introspect` | Read D1 / schema |
-| `r2_read`, `r2_list`, `r2_search`, `r2_bucket_summary` | Read storage |
-| `github_repos`, `github_file`, `github_list_directory`, `github_get_tree`, `github_list_issues`, `github_get_issue`, `github_compare_refs`, `github_list_branches` | Read GitHub |
-| `web_fetch` | Fetch allowed URLs |
-| `knowledge_search`, `rag_search`, `context_search` | Search / RAG |
-| `agent_memory_search` | Memory read |
+| `agentsam_db_query`, `agentsam_db_explain`, `agentsam_db_schema` | Read D1 / schema |
+| `agentsam_r2_read`, `agentsam_r2_list`, `agentsam_r2_search`, `agentsam_r2_summary` | Read storage |
+| `agentsam_github_repo_list`, `agentsam_github_file`, … | Read GitHub |
+| `agentsam_web_fetch` | Fetch allowed URLs |
+| `agentsam_knowledge_search`, `agentsam_rag_search`, `agentsam_context_search` | Search / RAG |
+| `agentsam_memory_search` | Memory read |
 | `agentsam_list_agents`, `agentsam_get_agent` | Agent metadata |
-| `workspace_search`, `human_context_list` | Workspace context |
-| `ai_embed` | Embeddings only |
-| `github_repos` | List repos for the **connected GitHub user** (alias: `github_repo_list`) |
+| `agentsam_workspace_search`, `agentsam_human_context_list` | Workspace context |
+| `agentsam_ai_embed` | Embeddings only |
 
 ### Write (Sam + Connor — Claude / ChatGPT)
 
-| Tool | Purpose |
+| Tool (MCP `name`) | Purpose |
 |------|---------|
-| `agentsam_run_agent` | Run Agent Sam (registry `requires_approval` still applies) |
-| `agentsam_plan_create`, `agentsam_todo_create`, `agentsam_todo_update` | Planning / todos |
-| `agent_memory_write` | Persist memory |
-| `github_create_file`, `github_create_branch`, `github_create_pr`, `github_merge_pr` | GitHub write (repo-bound) |
-| `github_create_repo` | Create repo on **your** GitHub account |
-| `d1_write` | D1 mutations — SQL must include your `tenant_id` or `workspace_id` |
-| `r2_write` | Write objects under workspace `r2_prefix` |
-| `ai_complete` | LLM completion |
+| `agentsam_run` | Run Agent Sam (handler: `agentsam_run_agent`; approval flags in registry) |
+| `agentsam_plan`, `agentsam_todo_add`, `agentsam_todo_update` | Planning / todos |
+| `agentsam_memory_save` | Persist memory |
+| `agentsam_github_create_file`, `agentsam_github_create_branch`, `agentsam_github_create_pr`, `agentsam_github_merge_pr` | GitHub write (repo-bound) |
+| `agentsam_github_create_repo` | Create repo on **your** GitHub account |
+| `agentsam_db_write` | D1 mutations — SQL must include your `tenant_id` or `workspace_id` |
+| `agentsam_r2_write` | Write objects under workspace `r2_prefix` |
+| `agentsam_ai_complete` | LLM completion |
 
 ### Explicitly excluded from external OAuth
 
