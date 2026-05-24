@@ -302,7 +302,7 @@ _MSG_DISP="${GIT_MSG_LINE:-—}"
 _ENV_DISP="${DEPLOY_ENV:-—}"
 _BY_DISP="${DEPLOYED_BY:-—}"
 # Notification recipient (Resend delivery) — not the deploy audit actor; see DEPLOY_USER_EMAIL.
-_NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_NOTIFY_EMAIL:-info@inneranimals.com}}"
+_NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_NOTIFY_EMAIL:-sam@inneranimalmedia.com}}"
 _DEPLOY_ACTOR="${DEPLOY_USER_EMAIL:-—}"
 
 echo "→ Sending deploy notification (POST /api/email/send) → ${_NOTIFY_TO} ..."
