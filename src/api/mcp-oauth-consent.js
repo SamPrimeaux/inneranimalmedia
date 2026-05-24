@@ -343,7 +343,7 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
   const iamUser = await getAuthUser(request, env);
   if (!iamUser) {
     const q = new URLSearchParams();
-    q.set('next', `/api/auth/oauth/consent?authorization_id=${encodeURIComponent(authorizationId)}`);
+    q.set('next', `/oauth/mcp/consent?authorization_id=${encodeURIComponent(authorizationId)}`);
     return Response.redirect(`${url.origin}/auth/login?${q.toString()}`, 302);
   }
 

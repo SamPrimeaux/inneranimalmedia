@@ -45,8 +45,28 @@ import {
   mcpOAuthNormalizeScope,
   loadMcpOAuthExternalAllowedToolsJson,
   loadWorkspaceMcpTokenBindings,
+  buildMcpOAuthTokenEntitlements,
+  oauthToolAccessDomainsPayload,
+  resolveMcpOAuthTokenTtlSeconds,
 } from './mcp-oauth-shared.js';
+import { checkMcpOAuthRateLimit } from './mcp-oauth-rate-limit.js';
 import { logAuthEvent } from '../core/auth-events.js';
+
+function mcpOAuthRequestMeta(request) {
+  return {
+    cf_ray: request.headers.get('cf-ray') || null,
+    colo: request.headers.get('cf-ipcountry') || null,
+  };
+}
+
+async function logMcpOAuthTokenFailure(env, request, error, extra = {}) {
+  await logAuthEvent(env, {
+    request,
+    eventType: 'iam_mcp_oauth_token_failed',
+    status: 'fail',
+    metadata: { error, ...mcpOAuthRequestMeta(request), ...extra },
+  });
+}
 
 const OAUTH_STATE_TTL_SECONDS = 600;
 
@@ -792,6 +812,9 @@ async function mcpOAuthReadBody(request) {
 async function handleMcpOAuthAuthorize(request, env, _ctx) {
   if (!env.DB) return mcpOAuthJsonError('database_not_configured', 503);
 
+  const rl = await checkMcpOAuthRateLimit(env, request, 'authorize', 120);
+  if (!rl.ok) return mcpOAuthJsonError(rl.error, 429, { retry_after: rl.retry_after });
+
   const url = new URL(request.url);
   const authUser = await getAuthUser(request, env);
   if (!authUser) {
@@ -871,7 +894,7 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   return Response.redirect(consent.href, 302);
 }
 
-async function mcpOAuthExchangeFromAuthorizationCode(env, body) {
+async function mcpOAuthConsumeAuthorizationCode(env, body) {
   const codeHash = await mcpOAuthSha256Hex(body.code);
   const row = await env.DB.prepare(
     `SELECT code, user_id, tenant_id, client_id, redirect_uri, code_challenge, code_challenge_method,
@@ -903,11 +926,24 @@ async function mcpOAuthExchangeFromAuthorizationCode(env, body) {
     return { ok: false, error: 'invalid_client' };
   }
 
+  const consumed = await env.DB.prepare(
+    `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ? AND used = 0`,
+  )
+    .bind(codeHash)
+    .run();
+
+  if (!consumed?.meta?.changes) {
+    return { ok: false, error: 'invalid_grant_consumed' };
+  }
+
   return { ok: true, row, codeHash };
 }
 
 async function handleMcpOAuthToken(request, env, _ctx) {
   if (!env.DB) return mcpOAuthJsonError('database_not_configured', 503);
+
+  const rl = await checkMcpOAuthRateLimit(env, request, 'token', 90);
+  if (!rl.ok) return mcpOAuthJsonError(rl.error, 429, { retry_after: rl.retry_after });
 
   const body = await mcpOAuthReadBody(request);
   if (body.grant_type && body.grant_type !== 'authorization_code') {
@@ -917,8 +953,13 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   if (!body.code_verifier) return mcpOAuthJsonError('missing_code_verifier', 400);
   if (!body.redirect_uri) return mcpOAuthJsonError('missing_redirect_uri', 400);
 
-  const exchanged = await mcpOAuthExchangeFromAuthorizationCode(env, body);
-  if (!exchanged.ok) return mcpOAuthJsonError(exchanged.error, 400);
+  const exchanged = await mcpOAuthConsumeAuthorizationCode(env, body);
+  if (!exchanged.ok) {
+    await logMcpOAuthTokenFailure(env, request, exchanged.error, {
+      client_id: body.client_id || null,
+    });
+    return mcpOAuthJsonError(exchanged.error, 400);
+  }
   const row = exchanged.row;
   const codeHash = exchanged.codeHash;
 
@@ -950,22 +991,23 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
   const tokenHash = await mcpOAuthSha256Hex(accessToken);
   const now = mcpOAuthNow();
-  const expiresAt = now + MCP_OAUTH_TOKEN_TTL_SECONDS;
+  const tokenTtl = resolveMcpOAuthTokenTtlSeconds(env);
+  const expiresAt = now + tokenTtl;
   const oauthAllowedToolsJson =
     (await loadMcpOAuthExternalAllowedToolsJson(env, row.client_id)) || null;
   const wsBindings = await loadWorkspaceMcpTokenBindings(env, workspaceId);
-
-  await env.DB.prepare(
-    `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ?`,
-  )
-    .bind(codeHash)
-    .run();
+  const entitlements = await buildMcpOAuthTokenEntitlements(env, row.client_id, scope);
+  const domainsPayload = oauthToolAccessDomainsPayload(entitlements);
 
   await logAuthEvent(env, {
     request,
     eventType: 'iam_mcp_oauth_token_issued',
     userId,
-    metadata: { client_id: row.client_id },
+    metadata: {
+      client_id: row.client_id,
+      workspace_id: workspaceId,
+      ...mcpOAuthRequestMeta(request),
+    },
   });
 
   await env.DB.prepare(
@@ -973,7 +1015,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
        (id, workspace_id, tenant_id, label, token_hash, allowed_tools,
         repo_path, github_repo, rate_limit_per_hour, is_active, created_at, expires_at, user_id,
         token_type, created_by, scopes_json, allowed_capability_keys_json,
-        allowed_lanes_json, allowed_risk_levels_json)
+        allowed_lanes_json, allowed_risk_levels_json, allowed_domains_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
@@ -991,16 +1033,17 @@ async function handleMcpOAuthToken(request, env, _ctx) {
       'oauth',
       userId,
       JSON.stringify(scope.split(/\s+/).filter(Boolean)),
-      JSON.stringify(['mcp.*', 'agent.*', 'workspace.*']),
-      JSON.stringify(['general', 'inspect', 'operate']),
-      JSON.stringify(['low', 'medium']),
+      JSON.stringify(entitlements.capabilityKeys),
+      JSON.stringify(entitlements.lanes),
+      JSON.stringify(entitlements.riskLevels),
+      domainsPayload,
     )
     .run();
 
   return jsonResponse({
     access_token: accessToken,
     token_type: 'Bearer',
-    expires_in: MCP_OAUTH_TOKEN_TTL_SECONDS,
+    expires_in: tokenTtl,
     scope,
   });
 }

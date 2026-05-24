@@ -23,9 +23,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-/** Company signature wordmark (hosted CF Images). Footer ~150px display. */
-const IAM_SIGNATURE_LOGO_URL =
-  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail";
+/** Footer company signature — do not use for app/MCP identity. */
+const IAM_FOOTER_LOGO_URL =
+  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/87aac7e9-d6c7-4a53-df89-605e8020e000/small";
+
+/** Square MCP / app icon — header + client identity row only. */
+const IAM_APP_ICON_URL =
+  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/avatar";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -99,10 +103,6 @@ const CLIENT_COPY: Record<McpClientKey, ClientCopy> = {
       "This allows your MCP client to use approved Inner Animal Media MCP tools for your account.",
   },
 };
-
-/** IA monogram (square) — oauth_clients.logo_url */
-const IAM_MCP_LOGO_URL =
-  "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/avatar";
 
 interface ConsentData {
   client: OAuthClient;
@@ -239,10 +239,6 @@ function resolveClientContext(data: ConsentData): {
     ? { ...server, key, label: copy.displayName, tagline: copy.helper }
     : { ...DEFAULT_CONNECTING_APP, key, label: copy.displayName, tagline: copy.helper };
   return { key, copy, app };
-}
-
-function mcpLogoUrl(data: ConsentData): string {
-  return data.client.logo_url || IAM_MCP_LOGO_URL;
 }
 
 // ---------------------------------------------------------------------------
@@ -470,11 +466,15 @@ export default function IamMcpOAuthConsentPage({
         <div className="consent-card">
           <header className="consent-header">
             <div className="iam-brand">
-              {state.phase === "ready" || state.phase === "submitting" ? (
-                <img src={mcpLogoUrl(state.data)} alt="" className="iam-brand-logo" />
-              ) : (
-                <img src={IAM_MCP_LOGO_URL} alt="" className="iam-brand-logo" />
-              )}
+              <div className="iam-app-icon-wrap">
+                <img
+                  src={IAM_APP_ICON_URL}
+                  alt="Inner Animal Media MCP"
+                  className="iam-brand-logo"
+                  loading="eager"
+                  decoding="async"
+                />
+              </div>
               <span className="iam-name">Inner Animal Media</span>
             </div>
           </header>
@@ -506,19 +506,19 @@ export default function IamMcpOAuthConsentPage({
               const { copy, app: connectingApp } = resolveClientContext(data);
               const displayScopes = scopesForDisplay(data.scopes, copy.displayName);
               const signedIn = data.signed_in_email || "";
-              const logoUrl = mcpLogoUrl(data);
-
               return (
                 <div
                   className="consent-main"
                   style={{ ["--app-accent" as string]: connectingApp.accent }}
                 >
                   <div className="client-block">
-                    <div className={cn("client-logo", "client-logo--brand")}>
+                    <div className="client-logo client-logo--brand">
                       <img
-                        src={logoUrl}
-                        alt={data.client.display_name}
+                        src={IAM_APP_ICON_URL}
+                        alt="Inner Animal Media MCP"
                         className="client-logo-img"
+                        loading="eager"
+                        decoding="async"
                       />
                     </div>
                     <div className="client-meta">
@@ -589,11 +589,11 @@ export default function IamMcpOAuthConsentPage({
           {/* Footer — company signature wordmark */}
           <footer className="consent-footer">
             <img
-              src={IAM_SIGNATURE_LOGO_URL}
+              src={IAM_FOOTER_LOGO_URL}
               alt="Inner Animal Media"
               className="consent-footer-signature"
-              width={150}
-              height={48}
+              loading="lazy"
+              decoding="async"
             />
             <span className="consent-footer-note">Authorization secured by Inner Animal Media</span>
           </footer>
@@ -689,13 +689,26 @@ const STYLES = `
     flex-shrink: 0;
   }
 
+  .iam-app-icon-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid var(--c-border);
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(31, 35, 40, 0.06);
+    flex-shrink: 0;
+  }
+
   .iam-brand-logo {
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
     object-fit: contain;
     flex-shrink: 0;
-    background: #0b1220;
+    background: transparent;
   }
 
   .iam-name {
@@ -851,19 +864,16 @@ const STYLES = `
   }
 
   .client-logo--brand {
-    background: #0b1220;
-    border-color: #21262d;
+    background: #ffffff;
+    border-color: var(--c-border);
+    box-shadow: 0 1px 2px rgba(31, 35, 40, 0.06);
   }
 
   .client-logo-img {
-    width: 100%;
-    height: 100%;
+    width: 32px;
+    height: 32px;
     object-fit: contain;
-    padding: 4px;
-  }
-
-  .client-logo--brand .client-logo-img {
-    padding: 6px;
+    padding: 0;
   }
 
   .client-logo-fallback {
@@ -1076,11 +1086,12 @@ const STYLES = `
   }
 
   .consent-footer-signature {
-    width: 150px;
-    max-width: 100%;
-    height: auto;
+    width: auto;
+    max-width: 200px;
+    height: 32px;
     object-fit: contain;
     display: block;
+    opacity: 0.88;
   }
 
   .consent-footer-note {

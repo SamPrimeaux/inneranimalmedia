@@ -4,7 +4,13 @@ export const MCP_CANONICAL_CLIENT_ID = 'iam_mcp_inneranimalmedia';
 export const IAM_OAUTH_ISSUER = 'https://inneranimalmedia.com';
 export const IAM_MCP_RESOURCE_URL = 'https://mcp.inneranimalmedia.com/mcp';
 export const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
-export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
+/** OAuth access tokens — 24h (override per deploy via env.MCP_OAUTH_TOKEN_TTL_SECONDS). */
+export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24;
+
+export function resolveMcpOAuthTokenTtlSeconds(env) {
+  const n = parseInt(String(env?.MCP_OAUTH_TOKEN_TTL_SECONDS ?? ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : MCP_OAUTH_TOKEN_TTL_SECONDS;
+}
 export const MCP_OAUTH_AUTHZ_TTL_SECONDS = 10 * 60;
 
 /** RFC 8414 — IAM as authorization server for MCP (inneranimalmedia.com). */
@@ -268,6 +274,91 @@ export async function loadMcpOAuthExternalToolKeys(env, clientId = MCP_CANONICAL
 export async function loadMcpOAuthExternalAllowedToolsJson(env, clientId = MCP_CANONICAL_CLIENT_ID) {
   const keys = await loadMcpOAuthExternalToolKeys(env, clientId);
   return keys?.length ? JSON.stringify(keys) : null;
+}
+
+/** Allowlist rows with access_class for OAuth token entitlements + MCP runtime guards. */
+export async function loadMcpOAuthAllowlistRows(env, clientId = MCP_CANONICAL_CLIENT_ID) {
+  if (!env?.DB) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT tool_key, access_class
+         FROM agentsam_mcp_oauth_tool_allowlist
+        WHERE client_id = ?
+          AND COALESCE(is_active, 1) = 1
+        ORDER BY sort_order ASC, tool_key ASC`,
+    )
+      .bind(String(clientId || MCP_CANONICAL_CLIENT_ID))
+      .all();
+    return (results || []).map((r) => ({
+      tool_key: String(r.tool_key || '').trim(),
+      access_class: String(r.access_class || 'read').toLowerCase() === 'write' ? 'write' : 'read',
+    })).filter((r) => r.tool_key);
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Derive narrow token entitlements from granted OAuth scopes + client allowlist.
+ * Avoids broad mcp.* / agent.* defaults on OAuth-issued rows.
+ */
+export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScopeStr) {
+  const scopes = mcpOAuthParseScopeList(grantedScopeStr);
+  const scopeSet = new Set(scopes);
+  const rows = await loadMcpOAuthAllowlistRows(env, clientId);
+
+  const hasMcpTools = scopeSet.has('mcp:tools');
+  const hasAgent = scopeSet.has('iam:agent');
+
+  const capabilityKeys = [];
+  if (scopeSet.has('iam:profile')) capabilityKeys.push('iam.profile.read');
+  if (scopeSet.has('mcp:userinfo')) capabilityKeys.push('mcp.userinfo.read');
+  if (hasMcpTools) capabilityKeys.push('mcp.tools.invoke.read');
+  if (hasAgent && hasMcpTools) capabilityKeys.push('mcp.tools.invoke.write');
+
+  const lanes = new Set();
+  const riskLevels = new Set(['low']);
+  let includesWrite = false;
+
+  for (const row of rows) {
+    if (!hasMcpTools) continue;
+    if (row.access_class === 'write') {
+      if (!hasAgent) continue;
+      includesWrite = true;
+      riskLevels.add('medium');
+      riskLevels.add('high');
+      lanes.add('operate');
+    } else {
+      lanes.add('general');
+      lanes.add('inspect');
+      riskLevels.add('medium');
+    }
+  }
+
+  if (!lanes.size) {
+    lanes.add('general');
+    lanes.add('inspect');
+  }
+
+  if (!includesWrite) {
+    riskLevels.delete('high');
+  }
+
+  return {
+    capabilityKeys: capabilityKeys.length ? capabilityKeys : ['mcp.oauth.connected'],
+    lanes: Array.from(lanes),
+    riskLevels: Array.from(riskLevels),
+    oauthToolAccess: Object.fromEntries(rows.map((r) => [r.tool_key, r.access_class])),
+    oauthClientId: String(clientId || MCP_CANONICAL_CLIENT_ID),
+  };
+}
+
+/** Map tool_key → access_class JSON for mcp_workspace_tokens.allowed_domains_json reuse. */
+export function oauthToolAccessDomainsPayload(entitlements) {
+  return JSON.stringify({
+    oauth_client_id: entitlements.oauthClientId,
+    oauth_tool_access: entitlements.oauthToolAccess,
+  });
 }
 
 /** Workspace github_repo + repo_path for MCP token rows (per-user isolation). */
