@@ -442,6 +442,13 @@ export default {
       ) {
         return handleOAuthConsentPage(request, env);
       }
+      if (
+        (request.method === 'GET' || request.method === 'POST') &&
+        pathLower === '/api/oauth/mcp/consent'
+      ) {
+        const { handleIamMcpOAuthConsentPage } = await import('./api/mcp-oauth-consent.js');
+        return handleIamMcpOAuthConsentPage(request, env);
+      }
       if (pathLower.startsWith('/api/auth-hooks/')) {
         const { handleAuthHooksApi } = await import('./api/auth-hooks.js');
         const res = await handleAuthHooksApi(request, env);

@@ -1,0 +1,124 @@
+import { jsonResponse } from '../core/auth.js';
+
+export const MCP_CANONICAL_CLIENT_ID = 'iam_mcp_inneranimalmedia';
+export const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
+export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
+export const MCP_OAUTH_AUTHZ_TTL_SECONDS = 10 * 60;
+
+export function mcpOAuthNow() {
+  return Math.floor(Date.now() / 1000);
+}
+
+export function mcpOAuthJsonError(error, status = 400, extra = {}) {
+  return jsonResponse({ error, ...extra }, status);
+}
+
+export function mcpOAuthBase64Url(buffer) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  let str = '';
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+export async function mcpOAuthSha256Hex(value) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function mcpOAuthPkceS256(value) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+  return mcpOAuthBase64Url(buf);
+}
+
+export function mcpOAuthRandomToken(prefix, bytes = 32) {
+  const arr = new Uint8Array(bytes);
+  crypto.getRandomValues(arr);
+  const hex = Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${prefix}_${hex}`;
+}
+
+export function mcpOAuthParseJsonArray(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(String);
+  try {
+    const parsed = JSON.parse(String(raw));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function mcpOAuthParseScopeList(raw) {
+  return String(raw || '')
+    .split(/[\s,]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+export async function mcpOAuthLoadClient(env, clientId) {
+  if (!env.DB) return null;
+  return env.DB.prepare(
+    `SELECT client_id, display_name, name, logo_url, homepage_url, redirect_uris,
+            allowed_scopes, requires_pkce, is_active, token_endpoint_auth_method
+       FROM oauth_clients
+      WHERE client_id = ? AND is_active = 1
+      LIMIT 1`,
+  )
+    .bind(clientId)
+    .first();
+}
+
+export function mcpOAuthRedirectAllowed(client, redirectHref) {
+  const allowed = mcpOAuthParseJsonArray(client?.redirect_uris);
+  const norm = String(redirectHref || '').replace(/\/$/, '');
+  return allowed.some((u) => String(u).replace(/\/$/, '') === norm);
+}
+
+export function mcpOAuthScopeAllowed(client, scopeStr) {
+  const requested = mcpOAuthParseScopeList(scopeStr);
+  const allowed = mcpOAuthParseJsonArray(client?.allowed_scopes);
+  if (!requested.length) return allowed.length > 0;
+  return requested.every((s) => allowed.includes(s));
+}
+
+export function mcpOAuthNormalizeScope(raw, client) {
+  const allowed = mcpOAuthParseJsonArray(client?.allowed_scopes);
+  const scopes = mcpOAuthParseScopeList(raw);
+  const picked = scopes.length ? scopes : allowed.slice(0, 3);
+  if (!picked.includes('mcp:userinfo') && allowed.includes('mcp:userinfo')) {
+    picked.push('mcp:userinfo');
+  }
+  return Array.from(new Set(picked.filter((s) => allowed.includes(s)))).join(' ');
+}
+
+export function mcpOAuthAllowedRedirectUri(raw, env) {
+  let u;
+  try {
+    u = new URL(String(raw || ''));
+  } catch {
+    return { ok: false, error: 'invalid_redirect_uri', url: null };
+  }
+
+  if (u.protocol !== 'https:') {
+    return { ok: false, error: 'redirect_uri_must_be_https', url: null };
+  }
+
+  const host = u.hostname.toLowerCase();
+  const configured = String(env.MCP_OAUTH_ALLOWED_REDIRECT_HOSTS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+
+  const allowedHosts = configured.length
+    ? configured
+    : ['mcp.inneranimalmedia.com', 'inneranimalmedia.com', 'www.inneranimalmedia.com'];
+
+  const ok = allowedHosts.includes(host) || host.endsWith('.inneranimalmedia.com');
+  if (!ok) return { ok: false, error: 'redirect_uri_not_allowed', url: null };
+
+  return { ok: true, error: null, url: u };
+}
+
+export function mcpOAuthSafePathWithSearch(url) {
+  return `${url.pathname}${url.search || ''}`;
+}

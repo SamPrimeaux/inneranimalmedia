@@ -27,6 +27,23 @@ import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/cry
 
 export { upsertOauthToken, ensureOauthTokenColumns, normalizeProvider } from '../core/oauth-token-store.js';
 import { syncProviderModels } from './integrations/model-sync.js';
+import {
+  MCP_OAUTH_CODE_TTL_SECONDS,
+  MCP_OAUTH_TOKEN_TTL_SECONDS,
+  MCP_OAUTH_AUTHZ_TTL_SECONDS,
+  mcpOAuthNow,
+  mcpOAuthSha256Hex,
+  mcpOAuthPkceS256,
+  mcpOAuthRandomToken,
+  mcpOAuthJsonError,
+  mcpOAuthSafePathWithSearch,
+  mcpOAuthAllowedRedirectUri,
+  mcpOAuthLoadClient,
+  mcpOAuthRedirectAllowed,
+  mcpOAuthScopeAllowed,
+  mcpOAuthNormalizeScope,
+} from './mcp-oauth-shared.js';
+import { logAuthEvent } from '../core/auth-events.js';
 
 const OAUTH_STATE_TTL_SECONDS = 600;
 
@@ -703,80 +720,6 @@ async function storeApiKeyAsOauth(env, authUser, provider, apiKey) {
 //
 // Existing integration OAuth routes remain under /api/oauth/:provider/start|callback.
 
-const MCP_OAUTH_PROVIDER = 'inneranimalmedia_mcp';
-const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
-const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
-
-function mcpOAuthNow() {
-  return Math.floor(Date.now() / 1000);
-}
-
-function mcpOAuthBase64Url(buffer) {
-  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  let str = '';
-  for (const b of bytes) str += String.fromCharCode(b);
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-async function mcpOAuthSha256Hex(value) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function mcpOAuthPkceS256(value) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
-  return mcpOAuthBase64Url(buf);
-}
-
-function mcpOAuthRandomToken(prefix, bytes = 32) {
-  const arr = new Uint8Array(bytes);
-  crypto.getRandomValues(arr);
-  const hex = Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
-  return `${prefix}_${hex}`;
-}
-
-function mcpOAuthJsonError(error, status = 400, extra = {}) {
-  return jsonResponse({ error, ...extra }, status);
-}
-
-function mcpOAuthSafePathWithSearch(url) {
-  return `${url.pathname}${url.search || ''}`;
-}
-
-function mcpOAuthAllowedRedirectUri(raw, env) {
-  let u;
-  try {
-    u = new URL(String(raw || ''));
-  } catch {
-    return { ok: false, error: 'invalid_redirect_uri', url: null };
-  }
-
-  if (u.protocol !== 'https:') {
-    return { ok: false, error: 'redirect_uri_must_be_https', url: null };
-  }
-
-  const host = u.hostname.toLowerCase();
-  const configured = String(env.MCP_OAUTH_ALLOWED_REDIRECT_HOSTS || '')
-    .split(',')
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
-
-  const allowedHosts = configured.length
-    ? configured
-    : [
-        'mcp.inneranimalmedia.com',
-        'inneranimalmedia.com',
-        'www.inneranimalmedia.com',
-      ];
-
-  const ok = allowedHosts.includes(host) || host.endsWith('.inneranimalmedia.com');
-  if (!ok) {
-    return { ok: false, error: 'redirect_uri_not_allowed', url: null };
-  }
-
-  return { ok: true, error: null, url: u };
-}
-
 async function mcpOAuthResolveTenantId(env, authUser) {
   const direct = String(authUser?.tenant_id || env.TENANT_ID || env.DEFAULT_TENANT_ID || '').trim();
   if (direct) return direct;
@@ -818,16 +761,6 @@ async function mcpOAuthResolveWorkspaceId(env, authUser, url) {
   return null;
 }
 
-function mcpOAuthNormalizeScope(raw) {
-  const scopes = String(raw || 'mcp:tools mcp:userinfo')
-    .split(/[\s,]+/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-
-  if (!scopes.includes('mcp:userinfo')) scopes.push('mcp:userinfo');
-  return Array.from(new Set(scopes)).join(' ');
-}
-
 async function mcpOAuthReadBody(request) {
   const ct = String(request.headers.get('Content-Type') || '').toLowerCase();
 
@@ -865,12 +798,11 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   }
 
   const responseType = String(url.searchParams.get('response_type') || 'code').toLowerCase();
-  const clientId = String(url.searchParams.get('client_id') || 'mcp').trim();
+  const clientId = String(url.searchParams.get('client_id') || '').trim();
   const redirectRaw = String(url.searchParams.get('redirect_uri') || '').trim();
   const state = String(url.searchParams.get('state') || '').trim();
   const codeChallenge = String(url.searchParams.get('code_challenge') || '').trim();
   const codeChallengeMethod = String(url.searchParams.get('code_challenge_method') || 'S256').toUpperCase();
-  const scope = mcpOAuthNormalizeScope(url.searchParams.get('scope'));
 
   if (responseType !== 'code') return mcpOAuthJsonError('unsupported_response_type', 400);
   if (!clientId) return mcpOAuthJsonError('invalid_client', 400);
@@ -878,51 +810,97 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   if (!codeChallenge) return mcpOAuthJsonError('missing_code_challenge', 400);
   if (codeChallengeMethod !== 'S256') return mcpOAuthJsonError('unsupported_code_challenge_method', 400);
 
+  const client = await mcpOAuthLoadClient(env, clientId);
+  if (!client) return mcpOAuthJsonError('invalid_client', 400);
+  if (Number(client.requires_pkce) === 1 && !codeChallenge) {
+    return mcpOAuthJsonError('missing_code_challenge', 400);
+  }
+
   const redirectCheck = mcpOAuthAllowedRedirectUri(redirectRaw, env);
   if (!redirectCheck.ok) return mcpOAuthJsonError(redirectCheck.error, 400);
+  if (!mcpOAuthRedirectAllowed(client, redirectCheck.url.href)) {
+    return mcpOAuthJsonError('redirect_uri_not_registered', 400);
+  }
+
+  const scope = mcpOAuthNormalizeScope(url.searchParams.get('scope'), client);
+  if (!mcpOAuthScopeAllowed(client, scope)) {
+    return mcpOAuthJsonError('invalid_scope', 400);
+  }
 
   const tenantId = await mcpOAuthResolveTenantId(env, authUser);
+  if (!tenantId) return mcpOAuthJsonError('invalid_tenant', 400);
+
   const workspaceId = await mcpOAuthResolveWorkspaceId(env, authUser, url);
-
-  const code = mcpOAuthRandomToken('mcp_code', 24);
-  const codeHash = await mcpOAuthSha256Hex(code);
   const now = mcpOAuthNow();
-  const expiresAt = now + MCP_OAUTH_CODE_TTL_SECONDS;
-
-  const metadata = {
-    client_id: clientId,
-    redirect_uri: redirectCheck.url.href,
-    code_challenge: codeChallenge,
-    code_challenge_method: codeChallengeMethod,
-    scope,
-    workspace_id: workspaceId,
-    user_email: authUser.email || null,
-    user_name: authUser.name || null,
-    issued_at: now,
-  };
+  const expiresAt = now + MCP_OAUTH_AUTHZ_TTL_SECONDS;
+  const authorizationId = `oaa_${crypto.randomUUID().replace(/-/g, '')}`;
 
   await env.DB.prepare(
-    `INSERT INTO oauth_state_nonces
-       (id, tenant_id, user_id, provider, state_hash, redirect_after, metadata_json, expires_at, consumed_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, unixepoch())`,
+    `INSERT INTO oauth_authorizations (
+       id, client_id, user_id, tenant_id, workspace_id, redirect_uri, scope, state,
+       code_challenge, code_challenge_method, status, expires_at, metadata_json, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, '{}', unixepoch(), unixepoch())`,
   )
     .bind(
-      `mcp_auth_${crypto.randomUUID()}`,
+      authorizationId,
+      clientId,
+      authUser.id,
       tenantId,
-      authUser.id || authUser.email || '',
-      MCP_OAUTH_PROVIDER,
-      codeHash,
+      workspaceId,
       redirectCheck.url.href,
-      JSON.stringify(metadata),
+      scope,
+      state,
+      codeChallenge,
+      codeChallengeMethod,
       expiresAt,
     )
     .run();
 
-  const dest = new URL(redirectCheck.url.href);
-  dest.searchParams.set('code', code);
-  dest.searchParams.set('state', state);
+  await logAuthEvent(env, {
+    request,
+    eventType: 'iam_mcp_oauth_authorize_pending',
+    userId: authUser.id,
+    metadata: { client_id: clientId, authorization_id: authorizationId },
+  });
 
-  return Response.redirect(dest.href, 302);
+  const consent = new URL('/api/auth/oauth/consent', url.origin);
+  consent.searchParams.set('authorization_id', authorizationId);
+  return Response.redirect(consent.href, 302);
+}
+
+async function mcpOAuthExchangeFromAuthorizationCode(env, body) {
+  const codeHash = await mcpOAuthSha256Hex(body.code);
+  const row = await env.DB.prepare(
+    `SELECT code, user_id, tenant_id, client_id, redirect_uri, code_challenge, code_challenge_method,
+            scope, expires_at, used
+       FROM oauth_authorization_codes
+      WHERE code = ?
+      LIMIT 1`,
+  )
+    .bind(codeHash)
+    .first();
+
+  if (!row) return { ok: false, error: 'invalid_grant' };
+  if (Number(row.used) === 1) return { ok: false, error: 'invalid_grant_consumed' };
+  if (Number(row.expires_at || 0) <= mcpOAuthNow()) return { ok: false, error: 'invalid_grant_expired' };
+
+  const expectedRedirect = String(row.redirect_uri || '').trim();
+  if (expectedRedirect && expectedRedirect !== body.redirect_uri) {
+    return { ok: false, error: 'redirect_uri_mismatch' };
+  }
+
+  const expectedChallenge = String(row.code_challenge || '');
+  const gotChallenge = await mcpOAuthPkceS256(body.code_verifier);
+  if (!expectedChallenge || gotChallenge !== expectedChallenge) {
+    return { ok: false, error: 'invalid_code_verifier' };
+  }
+
+  const clientId = String(body.client_id || row.client_id || '').trim();
+  if (clientId && String(row.client_id) !== clientId) {
+    return { ok: false, error: 'invalid_client' };
+  }
+
+  return { ok: true, row, codeHash };
 }
 
 async function handleMcpOAuthToken(request, env, _ctx) {
@@ -936,38 +914,10 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   if (!body.code_verifier) return mcpOAuthJsonError('missing_code_verifier', 400);
   if (!body.redirect_uri) return mcpOAuthJsonError('missing_redirect_uri', 400);
 
-  const codeHash = await mcpOAuthSha256Hex(body.code);
-  const row = await env.DB.prepare(
-    `SELECT id, tenant_id, user_id, provider, state_hash, redirect_after, metadata_json, expires_at, consumed_at
-       FROM oauth_state_nonces
-      WHERE provider = ?
-        AND state_hash = ?
-      LIMIT 1`,
-  )
-    .bind(MCP_OAUTH_PROVIDER, codeHash)
-    .first();
-
-  if (!row) return mcpOAuthJsonError('invalid_grant', 400);
-  if (row.consumed_at) return mcpOAuthJsonError('invalid_grant_consumed', 400);
-  if (Number(row.expires_at || 0) <= mcpOAuthNow()) return mcpOAuthJsonError('invalid_grant_expired', 400);
-
-  let metadata = {};
-  try {
-    metadata = JSON.parse(row.metadata_json || '{}');
-  } catch {
-    metadata = {};
-  }
-
-  const expectedRedirect = String(metadata.redirect_uri || row.redirect_after || '').trim();
-  if (expectedRedirect && expectedRedirect !== body.redirect_uri) {
-    return mcpOAuthJsonError('redirect_uri_mismatch', 400);
-  }
-
-  const expectedChallenge = String(metadata.code_challenge || '');
-  const gotChallenge = await mcpOAuthPkceS256(body.code_verifier);
-  if (!expectedChallenge || gotChallenge !== expectedChallenge) {
-    return mcpOAuthJsonError('invalid_code_verifier', 400);
-  }
+  const exchanged = await mcpOAuthExchangeFromAuthorizationCode(env, body);
+  if (!exchanged.ok) return mcpOAuthJsonError(exchanged.error, 400);
+  const row = exchanged.row;
+  const codeHash = exchanged.codeHash;
 
   const userId = String(row.user_id || '').trim();
   if (!userId) return mcpOAuthJsonError('invalid_user', 400);
@@ -982,21 +932,35 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     .first()
     .catch(() => null);
 
+  const client = await mcpOAuthLoadClient(env, row.client_id);
   const tenantId = String(row.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
-  const workspaceId = String(metadata.workspace_id || env.WORKSPACE_ID || '');
-  const scope = mcpOAuthNormalizeScope(metadata.scope || 'mcp:tools mcp:userinfo');
+  let workspaceId = env.WORKSPACE_ID || '';
+  try {
+    const authz = await env.DB.prepare(
+      `SELECT workspace_id FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
+    )
+      .bind(codeHash)
+      .first();
+    workspaceId = String(authz?.workspace_id || workspaceId || '');
+  } catch (_) {}
+  const scope = String(row.scope || mcpOAuthNormalizeScope('', client));
   const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
   const tokenHash = await mcpOAuthSha256Hex(accessToken);
   const now = mcpOAuthNow();
   const expiresAt = now + MCP_OAUTH_TOKEN_TTL_SECONDS;
 
   await env.DB.prepare(
-    `UPDATE oauth_state_nonces
-        SET consumed_at = unixepoch()
-      WHERE id = ?`,
+    `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ?`,
   )
-    .bind(row.id)
+    .bind(codeHash)
     .run();
+
+  await logAuthEvent(env, {
+    request,
+    eventType: 'iam_mcp_oauth_token_issued',
+    userId,
+    metadata: { client_id: row.client_id },
+  });
 
   await env.DB.prepare(
     `INSERT INTO mcp_workspace_tokens

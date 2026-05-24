@@ -1781,6 +1781,11 @@ export async function handleOAuthConsentPage(request, env) {
     postAction = '';
   }
 
+  if (authorizationId.startsWith('oaa_')) {
+    const { handleIamMcpOAuthConsentPage } = await import('./mcp-oauth-consent.js');
+    return handleIamMcpOAuthConsentPage(request, env);
+  }
+
   const iamUser = await getAuthUser(request, env);
   let workspaceLabel = '';
   if (iamUser?.id && env.DB) {
