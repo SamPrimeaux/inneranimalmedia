@@ -207,9 +207,12 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     authorization_id: row.id,
     status: row.status,
     client: {
+      client_id: row.client_id,
+      display_name: client?.display_name || client?.name || row.client_display_name || row.client_id,
       name: client?.display_name || client?.name || row.client_display_name || row.client_id,
-      domain: client?.homepage_url || null,
       logo_url: client?.logo_url || row.client_logo_url || null,
+      homepage_url: client?.homepage_url || null,
+      domain: client?.homepage_url || null,
       type_label: 'MCP OAuth client',
     },
     scopes,

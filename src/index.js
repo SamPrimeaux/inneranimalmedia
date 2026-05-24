@@ -847,7 +847,12 @@ export default {
             const obj = await getDashboardR2Object(env.DASHBOARD, assetKey);
             if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey), 'Cache-Control': 'public, max-age=31536000' } });
 
-            if (pathLower.startsWith('/dashboard/') || pathLower === '/onboarding' || pathLower.startsWith('/onboarding/')) {
+            if (
+              pathLower.startsWith('/dashboard/') ||
+              pathLower === '/onboarding' ||
+              pathLower.startsWith('/onboarding/') ||
+              pathLower === '/oauth/mcp/consent'
+            ) {
               const index = await getDashboardSpaHtmlShell(env.DASHBOARD);
               if (index) {
                 const h = new Headers({

@@ -863,7 +863,7 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
     metadata: { client_id: clientId, authorization_id: authorizationId },
   });
 
-  const consent = new URL('/api/auth/oauth/consent', url.origin);
+  const consent = new URL('/oauth/mcp/consent', url.origin);
   consent.searchParams.set('authorization_id', authorizationId);
   return Response.redirect(consent.href, 302);
 }
@@ -976,7 +976,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
       tenantId,
       `MCP OAuth ${authRow?.email || userId}`,
       tokenHash,
-      '[]',
+      null,
       100,
       expiresAt,
       userId,

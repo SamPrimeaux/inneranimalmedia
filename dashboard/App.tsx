@@ -77,7 +77,7 @@ import { AuthSignUpPage } from './components/auth/AuthSignUpPage';
 import { AuthForgotPage } from './components/auth/AuthForgotPage';
 import { AuthResetPage } from './components/auth/AuthResetPage';
 import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
-import IamMcpOAuthConsentRoute from './components/auth/IamMcpOAuthConsentRoute';
+import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library, FileCode2 } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
@@ -353,7 +353,7 @@ const App: React.FC = () => {
         <Route path="/forgot-password" element={<AuthForgotPage />} />
         <Route path="/reset-password" element={<AuthResetPage />} />
         <Route path="/api/auth/oauth/consent" element={<AuthOAuthConsentPage />} />
-        <Route path="/oauth/mcp/consent" element={<IamMcpOAuthConsentRoute />} />
+        <Route path="/oauth/mcp/consent" element={<MountIamMcpConsent />} />
         <Route path="*" element={<Navigate to="/auth/login" replace />} />
       </Routes>
     );

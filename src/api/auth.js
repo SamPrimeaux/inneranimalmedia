@@ -1782,6 +1782,11 @@ export async function handleOAuthConsentPage(request, env) {
   }
 
   if (authorizationId.startsWith('oaa_')) {
+    if (request.method === 'GET' && url.pathname === '/api/auth/oauth/consent') {
+      const react = new URL('/oauth/mcp/consent', url.origin);
+      react.searchParams.set('authorization_id', authorizationId);
+      return Response.redirect(react.href, 302);
+    }
     const { handleIamMcpOAuthConsentPage } = await import('./mcp-oauth-consent.js');
     return handleIamMcpOAuthConsentPage(request, env);
   }
