@@ -36,7 +36,7 @@ export async function revokeIncomingCookieSession(request, env, reason = 'oauth_
 }
 
 /** Clear stale host/domain session cookies, then set the new canonical host-only session. */
-function appendBrowserLoginSessionCookies(headers, sessionId) {
+export function appendBrowserLoginSessionCookies(headers, sessionId) {
   headers.append(
     'Set-Cookie',
     `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
@@ -214,6 +214,107 @@ export async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {
 }
 
 /**
+ * Unified inbound OAuth finalize: provision user, identity plane, browser session, time tracking.
+ *
+ * @param {*} env
+ * @param {Request} request
+ * @param {{
+ *   provider: string,
+ *   sessionProvider?: string,
+ *   email: string,
+ *   name: string,
+ *   providerUid: string,
+ *   supabaseUserId?: string|null,
+ *   source: string,
+ *   pageContext?: string,
+ * }} input
+ * @returns {Promise<
+ *   | { ok: true, authUserId: string, sessionId: string, tenantId: string|null }
+ *   | { ok: false, error: 'provision_failed' | 'session_failed' }
+ * >}
+ */
+export async function finalizeInboundOAuth(env, request, input) {
+  const provider = String(input?.provider || '').trim();
+  const sessionProvider = String(input?.sessionProvider || provider).trim() || provider;
+  const oauthEmail = String(input?.email || '')
+    .toLowerCase()
+    .trim();
+  const name = String(input?.name || oauthEmail.split('@')[0] || 'User').trim();
+  const providerUid = String(input?.providerUid || '').trim();
+  const supabaseUserId =
+    input?.supabaseUserId != null && String(input.supabaseUserId).trim()
+      ? String(input.supabaseUserId).trim()
+      : null;
+  const source = String(input?.source || `${provider}_oauth`).trim();
+  const pageContext = String(input?.pageContext || '/dashboard/overview').trim();
+
+  if (!env?.DB || !oauthEmail || !provider || !providerUid) {
+    return { ok: false, error: 'provision_failed' };
+  }
+
+  const ensured = await ensureAppUser(
+    env,
+    {
+      email: oauthEmail,
+      name,
+      supabaseUserId,
+      provider,
+      provider_uid: providerUid,
+      source,
+    },
+    { allowCreate: true },
+  );
+  if (!ensured?.authUserId) {
+    return { ok: false, error: 'provision_failed' };
+  }
+  const authUserId = String(ensured.authUserId).trim();
+
+  try {
+    const nm = await env.DB.prepare(`SELECT name FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(authUserId)
+      .first();
+    if (!nm?.name || !String(nm.name).trim()) {
+      await env.DB.prepare(`UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(name, authUserId)
+        .run();
+    }
+  } catch (e) {
+    console.warn(`[finalizeInboundOAuth/${provider}] name update:`, e?.message ?? e);
+  }
+
+  const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
+    authUserId,
+    email: oauthEmail,
+    name,
+    source,
+    provider,
+    providerSubject: providerUid,
+    supabaseUserId: supabaseUserId || undefined,
+  });
+  if (!identityOk?.ok) {
+    return { ok: false, error: 'provision_failed' };
+  }
+
+  await revokeIncomingCookieSession(request, env);
+
+  let sessionId;
+  try {
+    sessionId = await createLoginSession(request, env, authUserId, sessionProvider, {
+      providerSubject: providerUid,
+    });
+  } catch (e) {
+    console.error(`[finalizeInboundOAuth/${provider}] createLoginSession failed`, e?.message ?? e);
+    return { ok: false, error: 'session_failed' };
+  }
+
+  await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
+  const tenantId = await resolveTenantAtLogin(env, authUserId).catch(() => null);
+  autoStartWorkSession(env, authUserId, tenantId, pageContext).catch(() => {});
+
+  return { ok: true, authUserId, sessionId, tenantId };
+}
+
+/**
  * GitHub login callback — parity with worker.js handleGitHubOAuthCallback.
  * @param {object} [options]
  * @param {string} [options.cachedRedirect] — if set, KV get/delete for github state was already done (e.g. /api/oauth/github/callback dispatch).
@@ -331,47 +432,22 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     );
   }
 
-  const ensuredGh = await ensureAppUser(
-    env,
-    { email: oauthEmail, name, source: 'github_oauth' },
-    { allowCreate: true },
-  );
-  if (!ensuredGh?.authUserId) {
-    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
-  }
-  const userId = ensuredGh.authUserId;
-
-  try {
-    const nm = await env.DB.prepare(`SELECT name FROM auth_users WHERE id = ? LIMIT 1`)
-      .bind(userId)
-      .first();
-    if (!nm?.name || !String(nm.name).trim()) {
-      await env.DB.prepare(`UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`)
-        .bind(name, userId)
-        .run();
-    }
-  } catch (e) {
-    console.warn('[oauth/github/callback] auth_users name update:', e?.message ?? e);
-  }
   const ghSubject = String(userInfo.id ?? userInfo.sub ?? oauthEmail).trim();
-  const identityOkGh = await ensureIdentityPlaneBeforeSession(env, request, {
-    authUserId: userId,
+  const finalizedGh = await finalizeInboundOAuth(env, request, {
+    provider: 'github',
     email: oauthEmail,
     name,
+    providerUid: ghSubject,
     source: 'github_oauth',
-    provider: 'github',
-    providerSubject: ghSubject,
+    pageContext: url.pathname,
   });
-  if (!identityOkGh?.ok) {
-    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
+  if (!finalizedGh.ok) {
+    return Response.redirect(
+      `${oauthOrigin(url)}/auth/login?error=${finalizedGh.error}`,
+      302,
+    );
   }
-  await revokeIncomingCookieSession(request, env);
-  const sessionId = await createLoginSession(request, env, userId, 'github', {
-    providerSubject: ghSubject,
-  });
-  await tryOAuthLoginTimeTracking(env.DB, sessionId, userId);
-  const tidGh = await resolveTenantAtLogin(env, userId).catch(() => null);
-  autoStartWorkSession(env, userId, tidGh, url.pathname).catch(() => {});
+  const { authUserId: userId, sessionId, tenantId: tidGh } = finalizedGh;
   const ghLogin = (userInfo.login || '').toString() || 'github';
   if (tokens.access_token && env.DB) {
     try {
@@ -529,47 +605,22 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     );
   }
 
-  const ensuredGo = await ensureAppUser(
-    env,
-    { email: oauthEmail, name, source: 'google_oauth' },
-    { allowCreate: true },
-  );
-  if (!ensuredGo?.authUserId) {
-    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
-  }
-  const authUserId = ensuredGo.authUserId;
-
-  try {
-    const nm = await env.DB.prepare(`SELECT name FROM auth_users WHERE id = ? LIMIT 1`)
-      .bind(authUserId)
-      .first();
-    if (!nm?.name || !String(nm.name).trim()) {
-      await env.DB.prepare(`UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`)
-        .bind(name, authUserId)
-        .run();
-    }
-  } catch (e) {
-    console.warn('[OAuth] auth_users name update:', e?.message ?? e);
-  }
-
   const goSubject = String(userInfo.id ?? userInfo.sub ?? oauthEmail).trim();
-  const identityOkGo = await ensureIdentityPlaneBeforeSession(env, request, {
-    authUserId,
+  const finalizedGo = await finalizeInboundOAuth(env, request, {
+    provider: 'google',
     email: oauthEmail,
     name,
+    providerUid: goSubject,
     source: 'google_oauth',
-    provider: 'google',
-    providerSubject: goSubject,
+    pageContext: url.pathname,
   });
-  if (!identityOkGo?.ok) {
-    return Response.redirect(`${oauthOrigin(url)}/auth/login?error=provision_failed`, 302);
+  if (!finalizedGo.ok) {
+    return Response.redirect(
+      `${oauthOrigin(url)}/auth/login?error=${finalizedGo.error}`,
+      302,
+    );
   }
-
-  await revokeIncomingCookieSession(request, env);
-  const sessionId = await createLoginSession(request, env, authUserId, 'google', {
-    providerSubject: goSubject,
-  });
-  await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
+  const { sessionId } = finalizedGo;
 
   const safeDest = safeDashboardLoginRedirectPath(oauthOrigin(url), returnTo);
   const headers = new Headers({ Location: `${oauthOrigin(url)}${safeDest}` });

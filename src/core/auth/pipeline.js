@@ -1,4 +1,6 @@
 // @auth-pipeline-v1
+// UNUSED — do not route from index.js. Scaffold targets auth_identities / JWT session cookie,
+// not production account_identities + auth_sessions. Use finalizeInboundOAuth in oauth-login-callbacks.js.
 
 import { normalizeProviderProfile, buildIdentityRecord, safeIdentityFromRow } from "./identity.js";
 import { encryptVerifier, decryptVerifier, createPkceVerifier, createPkceChallenge, createSessionPayload, signSession, buildSetCookie } from "./session.js";

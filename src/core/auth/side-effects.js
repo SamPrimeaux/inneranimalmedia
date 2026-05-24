@@ -1,4 +1,5 @@
 // @auth-pipeline-v1
+// UNUSED — only imported by src/core/auth/pipeline.js (not routed). See pipeline.js header.
 
 export async function upsertIdentity(db, identity) {
   try {

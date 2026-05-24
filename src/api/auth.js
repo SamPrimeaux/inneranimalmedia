@@ -28,9 +28,9 @@ import { ensureAppUser } from '../core/ensureAppUser.js';
 import { logAuthEvent } from '../core/auth-events.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
 import {
+  appendBrowserLoginSessionCookies,
   autoStartWorkSession,
-  revokeIncomingCookieSession,
-  tryOAuthLoginTimeTracking,
+  finalizeInboundOAuth,
 } from './oauth-login-callbacks.js';
 import { upsertOauthToken } from './oauth.js';
 
@@ -1296,51 +1296,32 @@ export async function handleSupabaseOAuthCallback(request, env) {
     (sbUser && (sbUser.name || sbUser.user_metadata?.full_name)) ||
     oauthEmail.split('@')[0];
 
-  const ensured = await ensureAppUser(
-    env,
-    {
-      email: oauthEmail,
-      name,
-      supabaseUserId,
-      provider: 'supabase_auth',
-      provider_uid: supabaseUserId,
-      source: 'supabase_auth',
-    },
-    { allowCreate: true },
-  );
-
-  if (!ensured?.authUserId) {
-    console.error('[supabase_oauth] ensureAppUser failed', supabaseUserId);
-    return redirectToAuthLogin(request, 'error=provision_failed');
-  }
-
-  const authUserId = String(ensured.authUserId).trim();
-
-  try {
-    const nm = await env.DB.prepare(`SELECT name FROM auth_users WHERE id = ? LIMIT 1`)
-      .bind(authUserId)
-      .first();
-    if (!nm?.name || !String(nm.name).trim()) {
-      await env.DB.prepare(
-        `UPDATE auth_users SET name = ?, updated_at = datetime('now') WHERE id = ?`,
-      ).bind(name, authUserId).run();
-    }
-  } catch (e) {
-    console.warn('[Supabase OAuth] auth_users name update:', e?.message ?? e);
-  }
-
-  const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
-    authUserId,
+  const finalizedSb = await finalizeInboundOAuth(env, request, {
+    provider: 'supabase_auth',
     email: oauthEmail,
     name,
-    source: 'supabase_auth',
-    provider: 'supabase_auth',
-    providerSubject: supabaseUserId,
+    providerUid: supabaseUserId,
     supabaseUserId,
+    source: 'supabase_auth',
+    pageContext: url.pathname,
   });
-  if (!identityOk?.ok) {
-    return redirectToAuthLogin(request, 'error=provision_failed');
+  if (!finalizedSb.ok) {
+    if (finalizedSb.error === 'session_failed') {
+      logSupabaseLoginDebug({
+        phase: 'session_failed',
+        provider: 'supabase_project_oauth',
+        callback_path: url.pathname,
+        session_response_status: 500,
+        cookie_name: AUTH_COOKIE_NAME,
+        has_session_cookie: false,
+      });
+    } else {
+      console.error('[supabase_oauth] finalizeInboundOAuth failed', supabaseUserId);
+    }
+    return redirectToAuthLogin(request, `error=${finalizedSb.error}`);
   }
+
+  const { authUserId, sessionId, tenantId: finalizedTenantId } = finalizedSb;
 
   const authRow = await env.DB.prepare(
     `SELECT id, tenant_id, person_uuid, supabase_user_id FROM auth_users WHERE id = ? LIMIT 1`,
@@ -1387,33 +1368,11 @@ export async function handleSupabaseOAuthCallback(request, env) {
     `).bind(authUserId, supabaseUserId, access_token, refresh_token || null, expiresAt).run();
   }
 
-  await revokeIncomingCookieSession(request, env);
-  let sessionId;
-  try {
-    sessionId = await createLoginSession(request, env, authUserId, 'supabase_auth', {
-      providerSubject: supabaseUserId,
-    });
-  } catch (e) {
-    console.error('[supabase_oauth] createLoginSession failed', e?.message ?? e);
-    logSupabaseLoginDebug({
-      phase: 'session_failed',
-      provider: 'supabase_project_oauth',
-      callback_path: url.pathname,
-      session_response_status: 500,
-      cookie_name: AUTH_COOKIE_NAME,
-      has_session_cookie: false,
-    });
-    return redirectToAuthLogin(request, 'error=session_failed');
-  }
-
-  await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
-  autoStartWorkSession(env, authUserId, authRow?.tenant_id ?? null, url.pathname).catch(() => {});
-
   console.log('[supabase_oauth] session created', {
     supabase_user_id: supabaseUserId,
     user_id: authUserId,
     email_domain: oauthEmail.includes('@') ? oauthEmail.split('@')[1] : '',
-    tenant_id: authRow?.tenant_id ?? null,
+    tenant_id: authRow?.tenant_id ?? finalizedTenantId ?? null,
   });
 
   const originBase = resolvePublicOriginForOAuth(request, env);
@@ -1430,14 +1389,7 @@ export async function handleSupabaseOAuthCallback(request, env) {
     client_id_tail: oauthClientIdTail(env.SUPABASE_OAUTH_CLIENT_ID),
   });
   const redirectHeaders = new Headers({ Location: `${originBase}${destPath}` });
-  redirectHeaders.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  redirectHeaders.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
-  );
+  appendBrowserLoginSessionCookies(redirectHeaders, sessionId);
   appendLegacySessionCookieClears(redirectHeaders);
 
   return new Response(null, { status: 302, headers: redirectHeaders });

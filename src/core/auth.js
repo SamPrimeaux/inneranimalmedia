@@ -822,7 +822,7 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
   const resolvedWorkspaceId = await resolveWorkspaceIdAtLogin(env, userRow, {});
   sessionFields.workspaceId = resolvedWorkspaceId ?? sessionFields.workspaceId;
 
-  await insertAuthSessionRow(env, {
+  const insertStmt = await prepareInsertAuthSessionRow(env, {
     sessionId,
     userId,
     tenantId: sessionFields.tenantId,
@@ -838,6 +838,13 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
     ua,
     expiresAtIso,
   });
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE auth_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`,
+    ).bind(userId),
+    insertStmt,
+  ]);
 
   if (sessionFields.workspaceId) {
     try {
