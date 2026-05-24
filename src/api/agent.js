@@ -286,8 +286,85 @@ async function filterWorkspaceModelTierPool(env, workspaceId, chainRows) {
   }
 }
 
+function parseRuleTriggerCondition(raw) {
+  const obj = parseJsonSafe(raw, {}) || {};
+  const keywords = Array.isArray(obj.keywords)
+    ? obj.keywords.map((k) => String(k).trim()).filter(Boolean)
+    : [];
+  const minMatches = Math.max(1, Number(obj.min_matches ?? obj.minMatches ?? 1) || 1);
+  return { keywords, minMatches };
+}
+
+function countKeywordsInMessage(message, keywords) {
+  const hay = String(message || '').toLowerCase();
+  if (!hay || !keywords.length) return 0;
+  let hits = 0;
+  for (const kw of keywords) {
+    const needle = String(kw).toLowerCase();
+    if (needle && hay.includes(needle)) hits += 1;
+  }
+  return hits;
+}
+
+function ruleMatchesKeywordTrigger(message, triggerConditionJson) {
+  const { keywords, minMatches } = parseRuleTriggerCondition(triggerConditionJson);
+  if (!keywords.length) return false;
+  return countKeywordsInMessage(message, keywords) >= minMatches;
+}
+
 /**
- * Appends active skills + rules to the system prompt; records skill invocations (waitUntil).
+ * Loads agentsam_rules_document rows for system prompt injection:
+ * apply_mode=always, trigger_type=system (always) or keyword (message match).
+ */
+async function fetchTriggeredRulesForSystemPrompt(env, opts = {}) {
+  if (!env?.DB) return [];
+  const ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  const uid = opts.userId != null ? String(opts.userId).trim() : '';
+  if (!ws) return [];
+  const message = String(opts.message ?? '');
+
+  let rows = [];
+  try {
+    const rRes = await env.DB.prepare(
+      `SELECT id, title, body_markdown, trigger_type, trigger_condition_json, sort_order
+       FROM agentsam_rules_document
+       WHERE is_active = 1
+         AND apply_mode = 'always'
+         AND trigger_type IN ('system', 'keyword')
+         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+         AND (user_id = ? OR user_id IS NULL OR TRIM(COALESCE(user_id, '')) = '')
+       ORDER BY COALESCE(sort_order, 0) ASC, updated_at_epoch DESC`,
+    )
+      .bind(ws, uid || '')
+      .all();
+    rows = rRes.results || [];
+  } catch (e) {
+    console.warn('[agent] triggered rules query', e?.message ?? e);
+    return [];
+  }
+
+  return rows.filter((r) => {
+    const tt = String(r.trigger_type || '').toLowerCase();
+    if (tt === 'system') return true;
+    if (tt === 'keyword') return ruleMatchesKeywordTrigger(message, r.trigger_condition_json);
+    return false;
+  });
+}
+
+async function appendTriggeredRulesToSystemPrompt(env, systemPrompt, opts = {}) {
+  const rules = await fetchTriggeredRulesForSystemPrompt(env, opts);
+  if (!rules.length) return systemPrompt;
+  const blocks = rules.map((r) => {
+    const title = String(r.title || r.id || 'Rule');
+    const body = String(r.body_markdown || '');
+    return `### ${title}\n${body}`;
+  });
+  return `${systemPrompt}\n\n## Rules\n${blocks.join('\n\n')}\n`;
+}
+
+/**
+ * Appends active skills to the system prompt; records skill invocations (waitUntil).
+ * Rules are injected in buildSystemPrompt via appendTriggeredRulesToSystemPrompt (D1 triggers).
  */
 async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) {
   const {
@@ -320,55 +397,6 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
     }
   } catch (e) {
     console.warn('[agent] skills prompt query', e?.message ?? e);
-  }
-
-  try {
-    let rules = [];
-    try {
-      const rRes = await env.DB.prepare(
-        `SELECT title, body_markdown, apply_mode, globs
-         FROM agentsam_rules_document
-         WHERE is_active = 1
-           AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
-           AND (user_id = ? OR user_id IS NULL)
-           AND COALESCE(apply_mode, 'always') != 'manual'
-         ORDER BY COALESCE(sort_order, 0) ASC, updated_at DESC`,
-      )
-        .bind(ws, uid)
-        .all();
-      rules = rRes.results || [];
-    } catch (rulesErr) {
-      const rRes = await env.DB.prepare(
-        `SELECT title, body_markdown FROM agentsam_rules_document
-         WHERE is_active = 1
-           AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
-           AND (user_id = ? OR user_id IS NULL)
-         ORDER BY updated_at DESC`,
-      )
-        .bind(ws, uid)
-        .all()
-        .catch(() => ({ results: [] }));
-      rules = rRes.results || [];
-      if (rulesErr?.message) console.warn('[agent] rules apply_mode column', rulesErr.message);
-    }
-    if (rules.length) {
-      const blocks = rules.map((r) => {
-        const title = String(r.title || 'Rule');
-        const body = String(r.body_markdown || '');
-        const mode = r.apply_mode != null ? String(r.apply_mode) : 'always';
-        const globs = r.globs != null && String(r.globs).trim() ? String(r.globs).trim() : '';
-        const scope =
-          mode === 'glob' && globs
-            ? `\n_Apply when working on paths matching:_ \`${globs}\``
-            : mode === 'glob'
-              ? '\n_Apply when relevant file paths match configured globs._'
-              : '';
-        return `### ${title}${scope}\n${body}`;
-      });
-      extra += `\n## Rules\n${blocks.join('\n\n')}\n`;
-    }
-  } catch (e) {
-    console.warn('[agent] rules prompt query', e?.message ?? e);
   }
 
   if (skillRows.length && ctx?.waitUntil) {
@@ -857,6 +885,15 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
 
   const minimalAsk = Boolean(options?.minimalAsk) || Boolean(routeDerivedMinimal);
 
+  const rulesPromptOpts = {
+    workspaceId: options?.workspaceId,
+    userId: options?.userId,
+    message: options?.message,
+  };
+
+  const appendRulesContextBlock = async (systemPrompt) =>
+    appendTriggeredRulesToSystemPrompt(env, systemPrompt, rulesPromptOpts);
+
   const appendVectorContextBlock = async (systemPrompt) => {
     const includeVectorRag = Number(promptRouteRow?.include_rag ?? 1) === 1;
     const msg = String(options?.message ?? '').trim();
@@ -866,8 +903,11 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     return vectorBlock ? `${systemPrompt}${vectorBlock}` : systemPrompt;
   };
 
+  const finalizeSystemPrompt = async (systemPrompt) =>
+    appendVectorContextBlock(await appendRulesContextBlock(systemPrompt));
+
   if (cachedPrompt != null) {
-    return appendVectorContextBlock(cachedPrompt);
+    return finalizeSystemPrompt(cachedPrompt);
   }
 
   try {
@@ -969,11 +1009,11 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
       void logPromptCacheUsage(env, tenantId, layerKeys, promptRouteRow?.route_key, options?.provider ?? null, options?.modelKey ?? null).catch(() => {});
     }
 
-    return appendVectorContextBlock(result);
+    return finalizeSystemPrompt(result);
   } catch (e) {
     console.warn('[agent] buildSystemPrompt failed:', e?.message);
     const fallback = FALLBACK_CORE_SYSTEM + (!minimalAsk && contextBlock ? `\n\n${contextBlock}` : '');
-    return appendVectorContextBlock(fallback);
+    return finalizeSystemPrompt(fallback);
   }
 }
 
@@ -6065,7 +6105,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       '',
       modeConfig,
       promptRouteRow,
-      { minimalAsk: true, workspaceId, message, taskType: promptRouteIntentSlug },
+      { minimalAsk: true, workspaceId, userId, message, taskType: promptRouteIntentSlug },
     );
     const resolvedModelKey = await resolveAskFastModelKey(env, body, tenantId, promptRouteRow);
 
@@ -7260,6 +7300,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     taskId: body.taskId ?? body.task_id ?? null,
     message,
     taskType: intentResult?.taskType ?? null,
+    workspaceId,
+    userId,
   };
 
   /** Minimal lane: never seed from `agentMeta.system_prompt` (often huge); D1 layers only. */
