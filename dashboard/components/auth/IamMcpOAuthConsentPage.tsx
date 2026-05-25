@@ -104,6 +104,20 @@ const CLIENT_COPY: Record<McpClientKey, ClientCopy> = {
   },
 };
 
+interface ConsentToolRow {
+  tool_key: string;
+  label: string;
+  access_class: "read" | "write";
+  risk_level?: string;
+  requires_approval?: boolean;
+}
+
+interface ConsentToolSummary {
+  total: number;
+  read: number;
+  write: number;
+}
+
 interface ConsentData {
   client: OAuthClient;
   scopes: ScopeInfo[];
@@ -114,6 +128,11 @@ interface ConsentData {
   signed_in_email?: string | null;
   expires_at: number;
   status: "pending" | "approved" | "denied" | "expired";
+  /** Double-submit CSRF — must match __Host-mcp_oauth_consent_csrf cookie on POST */
+  consent_csrf?: string;
+  allowed_tools?: ConsentToolRow[];
+  tool_summary?: ConsentToolSummary;
+  require_allowlist_for_mcp?: number;
 }
 
 type ConsentState =
@@ -145,8 +164,8 @@ const SCOPE_META: Record<string, Omit<ScopeInfo, "scope">> = {
     sensitive: true,
   },
   "mcp:tools": {
-    label: "Approved MCP tools",
-    description: "Call approved MCP tools for your account.",
+    label: "MCP tools",
+    description: "Invoke only the tools listed below for your account.",
     sensitive: true,
   },
   "mcp:userinfo": {
@@ -168,15 +187,23 @@ function enrichScopes(rawScopes: string[]): ScopeInfo[] {
 }
 
 /** Workspace bound server-side — do not show workspace picker or name on consent. */
-function scopesForDisplay(scopes: ScopeInfo[], clientDisplayName: string): ScopeInfo[] {
+function scopesForDisplay(
+  scopes: ScopeInfo[],
+  clientDisplayName: string,
+  hasToolManifest: boolean,
+): ScopeInfo[] {
   return scopes
-    .filter((s) => s.scope !== "iam:workspaces" && s.scope !== "iam:agent")
+    .filter((s) => {
+      if (s.scope === "iam:workspaces" || s.scope === "iam:agent") return false;
+      if (hasToolManifest && s.scope === "mcp:tools") return false;
+      return true;
+    })
     .map((s) => {
       if (s.scope === "mcp:tools") {
         return {
           ...s,
-          label: "Approved MCP tools",
-          description: `Allow ${clientDisplayName} to call approved Inner Animal Media MCP tools.`,
+          label: "MCP tools",
+          description: `Allow ${clientDisplayName} to call only the MCP tools listed for your account.`,
         };
       }
       return s;
@@ -197,7 +224,7 @@ const DEFAULT_CONNECTING_APP: ConnectingAppInfo = {
   badge: "MCP",
   tagline: CLIENT_COPY.default.helper,
   return_hint: "Return to your MCP client to continue.",
-  accent: "#0969da",
+  accent: "#38bdf8",
 };
 
 function detectMcpClient(input: {
@@ -266,13 +293,19 @@ async function fetchConsentData(authorizationId: string): Promise<ConsentData> {
 async function submitConsent(
   authorizationId: string,
   workspaceId: string,
-  action: "approve" | "deny"
+  action: "approve" | "deny",
+  consentCsrf: string
 ): Promise<{ redirect_url?: string }> {
   const res = await fetch("/api/oauth/mcp/consent", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ authorization_id: authorizationId, workspace_id: workspaceId, action }),
+    body: JSON.stringify({
+      authorization_id: authorizationId,
+      workspace_id: workspaceId,
+      action,
+      consent_csrf: consentCsrf,
+    }),
   });
   if (res.redirected) {
     return { redirect_url: res.url };
@@ -298,6 +331,63 @@ function ScopePill({ scope }: { scope: ScopeInfo }) {
         <span className="scope-desc">{scope.description}</span>
       </div>
     </li>
+  );
+}
+
+function ConsentToolsSection({
+  tools,
+  summary,
+  clientLabel,
+  requireAllowlist,
+}: {
+  tools: ConsentToolRow[];
+  summary: ConsentToolSummary;
+  clientLabel: string;
+  requireAllowlist: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const show = expanded ? tools : tools.slice(0, 8);
+  const hasMore = tools.length > 8;
+
+  return (
+    <section className="tools-section" aria-labelledby="tools-heading">
+      <h2 id="tools-heading" className="section-label">
+        MCP tools {clientLabel} may call
+      </h2>
+      <p className="tools-summary">
+        {summary.total} tool{summary.total === 1 ? "" : "s"} for this connection
+        {summary.read > 0 ? ` · ${summary.read} read` : ""}
+        {summary.write > 0 ? ` · ${summary.write} write` : ""}
+        {requireAllowlist ? " · filtered by your Settings allowlist" : ""}
+      </p>
+      {tools.length === 0 ? (
+        <p className="tools-empty">
+          No MCP tools are available for your account with the current allowlist and scopes.
+          Adjust Settings → Network or reconnect after adding tools.
+        </p>
+      ) : (
+        <ul className="tool-list">
+          {show.map((t) => (
+            <li key={t.tool_key} className="tool-row">
+              <span className={cn("tool-badge", t.access_class === "write" && "tool-badge--write")}>
+                {t.access_class}
+              </span>
+              <span className="tool-label" title={t.tool_key}>
+                {t.label}
+              </span>
+              {t.requires_approval ? (
+                <span className="tool-tag">approval</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {hasMore && (
+        <button type="button" className="tools-expand" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "Show fewer" : `Show all ${tools.length} tools`}
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -423,6 +513,22 @@ export default function IamMcpOAuthConsentPage({
   }, [authorizationId]);
 
   useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlBg = html.style.background;
+    const prevBodyBg = body.style.background;
+    const prevBodyColor = body.style.color;
+    html.style.background = "#0b1220";
+    body.style.background = "#0b1220";
+    body.style.color = "#f1f5f9";
+    return () => {
+      html.style.background = prevHtmlBg;
+      body.style.background = prevBodyBg;
+      body.style.color = prevBodyColor;
+    };
+  }, []);
+
+  useEffect(() => {
     if (state.phase === "ready" || state.phase === "submitting") {
       const { copy } = resolveClientContext(state.data);
       document.title = `Authorize ${copy.displayName} · Inner Animal Media`;
@@ -435,7 +541,12 @@ export default function IamMcpOAuthConsentPage({
     const frozen = state.data;
     setState({ phase: "submitting", data: frozen });
     try {
-      const result = await submitConsent(authorizationId, selectedWorkspace, "approve");
+      const result = await submitConsent(
+        authorizationId,
+        selectedWorkspace,
+        "approve",
+        frozen.consent_csrf || ""
+      );
       if (result.redirect_url) {
         window.location.href = result.redirect_url;
       } else {
@@ -451,7 +562,12 @@ export default function IamMcpOAuthConsentPage({
     const frozen = state.data;
     setState({ phase: "submitting", data: frozen });
     try {
-      await submitConsent(authorizationId, selectedWorkspace || "_denied", "deny");
+      await submitConsent(
+        authorizationId,
+        selectedWorkspace || "_denied",
+        "deny",
+        frozen.consent_csrf || ""
+      );
       setState({ phase: "denied", connectingApp: resolveClientContext(frozen).app });
     } catch {
       setState({ phase: "denied", connectingApp: resolveClientContext(frozen).app });
@@ -504,8 +620,15 @@ export default function IamMcpOAuthConsentPage({
 
               const isSubmitting = state.phase === "submitting";
               const { copy, app: connectingApp } = resolveClientContext(data);
-              const displayScopes = scopesForDisplay(data.scopes, copy.displayName);
+              const tools = data.allowed_tools ?? [];
+              const summary = data.tool_summary ?? { total: tools.length, read: 0, write: 0 };
+              const displayScopes = scopesForDisplay(
+                data.scopes,
+                copy.displayName,
+                tools.length > 0,
+              );
               const signedIn = data.signed_in_email || "";
+              const requireAllowlist = Number(data.require_allowlist_for_mcp || 0) === 1;
               return (
                 <div
                   className="consent-main"
@@ -556,6 +679,15 @@ export default function IamMcpOAuthConsentPage({
                       ))}
                     </ul>
                   </section>
+
+                  {(data.scopes.some((s) => s.scope === "mcp:tools") || tools.length > 0) && (
+                    <ConsentToolsSection
+                      tools={tools}
+                      summary={summary}
+                      clientLabel={copy.displayName}
+                      requireAllowlist={requireAllowlist}
+                    />
+                  )}
 
                   <div className="consent-trust-note" role="note">
                     Write actions, terminal commands, deployments, and database changes
@@ -616,45 +748,51 @@ export function IamMcpOAuthConsentPageStateful(props: IamMcpOAuthConsentPageProp
 }
 
 // ---------------------------------------------------------------------------
-// Styles — light OAuth consent (GitHub-style)
+// Styles — official IAM MCP OAuth consent (dark tile #0b1220)
 // ---------------------------------------------------------------------------
 
 const STYLES = `
   .consent-root {
-    --c-bg: #f6f8fa;
-    --c-surface: #ffffff;
-    --c-border: #d0d7de;
-    --c-border-subtle: #eaeef2;
-    --c-text: #1f2328;
-    --c-muted: #656d76;
-    --c-accent: #0969da;
-    --c-accent-hover: #0550ae;
-    --c-approve-bg: #2da44e;
-    --c-approve-hover: #2c974b;
-    --c-approve-text: #ffffff;
-    --c-dot: #0969da;
-    --c-dot-sensitive: #bc4c00;
-    --c-success: #1a7f37;
-    --c-error: #cf222e;
-    --r-card: 12px;
-    --r-btn: 6px;
-    --shadow-card: 0 1px 3px rgba(31,35,40,0.12), 0 8px 24px rgba(31,35,40,0.08);
+    --c-bg: #0b1220;
+    --c-surface: #0f172a;
+    --c-border: #1e293b;
+    --c-border-subtle: #334155;
+    --c-text: #f1f5f9;
+    --c-muted: #94a3b8;
+    --c-accent: #38bdf8;
+    --c-accent-hover: #7dd3fc;
+    --c-approve-bg: #22c55e;
+    --c-approve-hover: #16a34a;
+    --c-approve-text: #052e16;
+    --c-dot: #38bdf8;
+    --c-dot-sensitive: #fb923c;
+    --c-success: #4ade80;
+    --c-error: #f87171;
+    --r-card: 16px;
+    --r-btn: 10px;
+    --shadow-card: 0 28px 100px rgba(0,0,0,0.55);
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
 
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    overflow-y: auto;
+    color-scheme: dark;
     min-height: 100dvh;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--c-bg);
+    background: radial-gradient(900px 500px at 80% -20%, rgba(56,189,248,0.18), transparent 50%), var(--c-bg) !important;
     padding: 32px 16px;
     font-family: var(--font-sans);
     color: var(--c-text);
     -webkit-font-smoothing: antialiased;
+    isolation: isolate;
   }
 
   .consent-card {
     width: 100%;
-    max-width: 420px;
+    max-width: 440px;
     background: var(--c-surface);
     border: 1px solid var(--c-border);
     border-radius: var(--r-card);
@@ -672,8 +810,8 @@ const STYLES = `
 
   .consent-header {
     padding: 16px 24px;
-    border-bottom: 1px solid var(--c-border-subtle);
-    background: #fafbfc;
+    border-bottom: 1px solid var(--c-border);
+    background: #0b1220;
   }
 
   .iam-brand {
@@ -693,12 +831,12 @@ const STYLES = `
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
     border: 1px solid var(--c-border);
-    background: #ffffff;
-    box-shadow: 0 1px 2px rgba(31, 35, 40, 0.06);
+    background: #0b1220;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
     flex-shrink: 0;
   }
 
@@ -851,10 +989,10 @@ const STYLES = `
   }
 
   .client-logo {
-    width: 44px;
-    height: 44px;
-    border-radius: 8px;
-    background: #f6f8fa;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: #0b1220;
     border: 1px solid var(--c-border);
     display: flex;
     align-items: center;
@@ -864,9 +1002,9 @@ const STYLES = `
   }
 
   .client-logo--brand {
-    background: #ffffff;
+    background: #0b1220;
     border-color: var(--c-border);
-    box-shadow: 0 1px 2px rgba(31, 35, 40, 0.06);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   }
 
   .client-logo-img {
@@ -934,12 +1072,101 @@ const STYLES = `
   .consent-trust-note {
     font-size: 12px;
     line-height: 1.45;
-    color: #57606a;
+    color: var(--c-muted);
     padding: 10px 12px;
-    border-radius: 8px;
-    border: 1px solid #d0d7de;
-    background: #f6f8fa;
+    border-radius: 10px;
+    border: 1px solid var(--c-border);
+    background: rgba(2, 6, 23, 0.6);
   }
+
+  .tools-section {
+    border-top: 1px solid var(--c-border-subtle);
+    padding-top: 16px;
+    margin-top: 4px;
+  }
+
+  .tools-summary {
+    font-size: 12px;
+    color: var(--c-muted);
+    margin: 0 0 10px;
+    line-height: 1.45;
+  }
+
+  .tools-empty {
+    font-size: 13px;
+    color: var(--c-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .tool-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+    background: rgba(2, 6, 23, 0.5);
+  }
+
+  .tool-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+    font-size: 12px;
+  }
+
+  .tool-row:last-child { border-bottom: none; }
+
+  .tool-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.15);
+    color: #7dd3fc;
+    flex-shrink: 0;
+  }
+
+  .tool-badge--write {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fcd34d;
+  }
+
+  .tool-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--c-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+  }
+
+  .tool-tag {
+    font-size: 10px;
+    color: #fca5a5;
+    flex-shrink: 0;
+  }
+
+  .tools-expand {
+    margin-top: 8px;
+    background: transparent;
+    border: none;
+    color: var(--c-accent);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+
+  .tools-expand:hover { text-decoration: underline; }
 
   .scopes-section {
     border-top: 1px solid var(--c-border-subtle);
@@ -1030,9 +1257,9 @@ const STYLES = `
   }
 
   .btn--approve {
-    background: var(--c-approve-bg);
-    color: var(--c-approve-text);
-    border-color: rgba(27,31,36,0.15);
+    background: linear-gradient(135deg, var(--c-approve-bg), #16a34a);
+    color: #ecfdf5;
+    border-color: rgba(34, 197, 94, 0.35);
   }
 
   .btn--approve:hover:not(:disabled) {
@@ -1061,8 +1288,8 @@ const STYLES = `
   }
 
   .btn--ghost:hover {
-    background: #f6f8fa;
-    border-color: #8c959f;
+    background: rgba(30, 41, 59, 0.5);
+    border-color: #64748b;
   }
 
   .btn-spinner {
@@ -1078,7 +1305,7 @@ const STYLES = `
     padding: 16px 24px 20px;
     border-top: 1px solid var(--c-border-subtle);
     text-align: center;
-    background: #fafbfc;
+    background: #0b1220;
     display: flex;
     flex-direction: column;
     align-items: center;

@@ -14,7 +14,14 @@ import {
   mcpOAuthScopeAllowed,
   MCP_OAUTH_CODE_TTL_SECONDS,
   resolveMcpConnectingApp,
+  loadMcpOAuthConsentToolManifest,
 } from './mcp-oauth-shared.js';
+import {
+  issueMcpConsentCsrf,
+  verifyMcpConsentCsrf,
+  consumeMcpConsentCsrf,
+  MCP_CONSENT_CSRF_COOKIE_NAME,
+} from './mcp-oauth-consent-csrf.js';
 
 export function isIamMcpAuthorizationId(id) {
   return String(id || '').trim().startsWith('oaa_');
@@ -186,6 +193,7 @@ async function parseConsentBody(request, url) {
       authorizationId: String(j.authorization_id || '').trim(),
       action: a === 'approve' || a === 'deny' ? a : pathAction,
       workspaceId: String(j.workspace_id || '').trim(),
+      consentCsrf: String(j.consent_csrf || j.consentCsrf || '').trim(),
     };
   }
   const fd = await request.formData().catch(() => null);
@@ -195,10 +203,32 @@ async function parseConsentBody(request, url) {
       authorizationId: String(fd.get('authorization_id') || '').trim(),
       action: raw === 'approve' || raw === 'deny' ? raw : pathAction,
       workspaceId: String(fd.get('workspace_id') || '').trim(),
+      consentCsrf: String(fd.get('consent_csrf') || '').trim(),
     };
   }
-  return { authorizationId: '', action: pathAction, workspaceId: '' };
+  return { authorizationId: '', action: pathAction, workspaceId: '', consentCsrf: '' };
 }
+
+/**
+ * Reject consent POST when CSRF cookie/body/KV binding fails (no redirect).
+ */
+async function rejectMcpConsentCsrf(request, env, iamUser, authorizationId, csrfError) {
+  await logAuthEvent(env, {
+    request,
+    eventType: 'iam_mcp_oauth_consent_csrf_rejected',
+    userId: iamUser?.id,
+    status: 'fail',
+    metadata: {
+      authorization_id: authorizationId,
+      error: csrfError,
+      cookie_name: MCP_CONSENT_CSRF_COOKIE_NAME,
+    },
+  });
+  return mcpOAuthJsonError('csrf_invalid', 403, { reason: csrfError });
+}
+
+/** CSRF check runs in handleIamMcpOAuthConsentPage before approve/deny (see POST block). */
+export { MCP_CONSENT_CSRF_COOKIE_NAME as MCP_CONSENT_CSRF_COOKIE } from './mcp-oauth-consent-csrf.js';
 
 export async function handleIamMcpOAuthConsentApi(request, env) {
   const url = new URL(request.url);
@@ -221,10 +251,23 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
   const defaultWorkspaceId = await resolveDefaultMcpWorkspaceId(env, iamUser, null);
   const scopes = mcpOAuthParseScopeList(row.scope);
   const client = await mcpOAuthLoadClient(env, row.client_id);
+  const toolManifest = await loadMcpOAuthConsentToolManifest(env, {
+    userId: iamUser.id,
+    workspaceId: defaultWorkspaceId || String(iamUser.workspace_id || '').trim(),
+    tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim(),
+    clientId: row.client_id,
+    grantedScopes: scopes,
+  });
 
-  return jsonResponse({
+  const csrf = await issueMcpConsentCsrf(env, {
+    authorizationId,
+    userId: iamUser.id,
+  });
+
+  const res = jsonResponse({
     authorization_id: row.id,
     status: row.status,
+    consent_csrf: csrf.token,
     client: {
       client_id: row.client_id,
       display_name: client?.display_name || client?.name || row.client_display_name || row.client_id,
@@ -236,6 +279,9 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     },
     scopes,
     scope_labels: scopes.map(scopeLabel),
+    allowed_tools: toolManifest.tools,
+    tool_summary: toolManifest.summary,
+    require_allowlist_for_mcp: toolManifest.require_allowlist_for_mcp ? 1 : 0,
     redirect_uri: row.redirect_uri,
     connecting_app: resolveMcpConnectingApp(row.redirect_uri),
     workspaces,
@@ -243,6 +289,8 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     expires_at: row.expires_at,
     signed_in_email: iamUser.email || null,
   });
+  res.headers.append('Set-Cookie', csrf.setCookie);
+  return res;
 }
 
 export async function approveIamMcpAuthorization(env, authorizationId, iamUser, workspaceId) {
@@ -334,7 +382,7 @@ export async function denyIamMcpAuthorization(env, authorizationId, iamUser) {
 
 export async function handleIamMcpOAuthConsentPage(request, env) {
   const url = new URL(request.url);
-  const { authorizationId, action, workspaceId } = await parseConsentBody(request, url);
+  const { authorizationId, action, workspaceId, consentCsrf } = await parseConsentBody(request, url);
 
   if (!isIamMcpAuthorizationId(authorizationId)) {
     return new Response('Invalid IAM MCP authorization id', { status: 400 });
@@ -356,6 +404,15 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
   }
 
   if (request.method === 'POST' && action) {
+    const csrfCheck = await verifyMcpConsentCsrf(request, env, {
+      authorizationId,
+      userId: iamUser.id,
+      bodyToken: consentCsrf,
+    });
+    if (!csrfCheck.ok) {
+      return rejectMcpConsentCsrf(request, env, iamUser, authorizationId, csrfCheck.error);
+    }
+
     await logAuthEvent(env, {
       request,
       eventType: 'iam_mcp_oauth_consent_submit',
@@ -373,6 +430,10 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
         eventType: 'iam_mcp_oauth_consent_denied',
         userId: iamUser.id,
       });
+      await consumeMcpConsentCsrf(env, authorizationId);
+      if (acceptJson) {
+        return jsonResponse({ redirect_url: denied.redirect_url });
+      }
       return Response.redirect(denied.redirect_url, 302);
     }
 
@@ -402,6 +463,8 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
       userId: iamUser.id,
       metadata: { client_id: approved.client_id },
     });
+
+    await consumeMcpConsentCsrf(env, authorizationId);
 
     if (acceptJson) {
       return jsonResponse({ redirect_url: approved.redirect_url });
