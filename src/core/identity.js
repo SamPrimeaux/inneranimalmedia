@@ -5,7 +5,14 @@
  * Returns null if session is missing or expired.
  * Callers must handle null as 401 — never substitute defaults.
  */
-import { getSession, authContextToLegacyUser, peekRequestAuth, getRequestAuth, fetchAuthUserTenantId } from './auth.js';
+import {
+  getSession,
+  authContextToLegacyUser,
+  authUserFromRequest,
+  peekRequestAuth,
+  getRequestAuth,
+  fetchAuthUserTenantId,
+} from './auth.js';
 import {
   resolveDefaultWorkspaceForTenant,
   ensureUserTenantWorkspace,
@@ -32,7 +39,7 @@ function envAllowsAutoProvision(env) {
  */
 export async function resolveIamActorContext(request, env) {
   const session = await getSession(env, request).catch(() => null);
-  const actor = await getAuthUser(request, env).catch(() => null);
+  const actor = await authUserFromRequest(request, env).catch(() => null);
 
   let tenantId =
     trimOrNull(actor?.active_tenant_id) ||
