@@ -1,7 +1,7 @@
 /**
  * Agent Sam Planner
  * Decomposes a user goal into agentsam_plans + agentsam_plan_tasks rows.
- * Uses gpt-5.4-mini via dispatchComplete (openai_responses platform).
+ * Decomposes goals via resolveModelForTask + dispatchComplete (D1 routing arms).
  *
  * Work-intent chat wires the proven D1 spine:
  *   agentsam_workflow_runs → agentsam_plans → agentsam_execution_steps (execution_id = run id)
@@ -461,7 +461,6 @@ export async function createPlan(
       status: 'active',
       plan_type: 'feature',
       plan_date: today,
-      default_model: 'gpt-5.4-mini',
       tasks_total: tasks.length,
       tasks_done: 0,
       workflow_run_id: validWrun,

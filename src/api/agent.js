@@ -2556,7 +2556,7 @@ async function loadGlobalAlwaysApplySkills(env) {
   }
 }
 
-async function recordArmOutcome(env, ctx, armId, success, routingInfo) {
+export async function recordArmOutcome(env, ctx, armId, success, routingInfo) {
   if (!env.DB || !armId) return;
   try {
     const etoOwner = await isEtoThompsonOwner(env);

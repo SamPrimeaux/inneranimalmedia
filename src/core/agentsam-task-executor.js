@@ -16,6 +16,7 @@ import { r2PutViaBindingOrS3 } from './r2.js';
 import { getR2Binding } from '../api/r2-api.js';
 import { insertPlanExecutionStep, resolvePlanTaskCapabilityType } from './agentsam-planner.js';
 import { scheduleMirrorAgentChatPlanToSupabase, scheduleMirrorAgentsamPlanToSupabasePublic } from './agentsam-plan-supabase-public-sync.js';
+import * as agentApiModule from '../api/agent.js';
 
 const PLAN_ARTIFACT_R2_BUCKET = 'inneranimalmedia';
 
@@ -25,13 +26,15 @@ async function resolveTaskExecutorModelKey(env, workspaceId) {
   const resolved = await resolveModelForTask(env, {
     task_type: 'agent',
     workspace_id:
-      workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
+      workspaceId != null && String(workspaceId).trim() !== ''
+        ? String(workspaceId).trim()
+        : null,
     require_tools: true,
   });
   if (!resolved?.model_key) {
     throw new Error('agentsam-task-executor: resolveModelForTask returned no model');
   }
-  return resolved.model_key;
+  return resolved;
 }
 
 /**
@@ -1017,7 +1020,8 @@ Rules:
 - Include every path listed in files_involved with complete, production-ready content.
 - path must be a simple filename or relative path (no .. segments).
 - content must be the entire file (not a diff).`;
-        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
+        const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
+        const modelKey = resolved.model_key;
         const genResult = await dispatchComplete(env, {
           modelKey,
           taskType: 'agent',
@@ -1030,6 +1034,14 @@ Rules:
           ],
           options: { reasoningEffort: 'medium', verbosity: 'low' },
         });
+        try {
+          if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
+            await agentApiModule.recordArmOutcome(
+              env, ctx, resolved.routing_arm_id, !!genResult?.ok ?? true,
+              { model_key: resolved.model_key }
+            );
+          }
+        } catch (_) {}
         const genRaw = genResult?.text || genResult?.output_text || '';
         let parsedGen = null;
         try {
@@ -1143,7 +1155,8 @@ Rules:
       }
 
       if (task.handler_type === 'agent' || !task.handler_type) {
-        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
+        const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
+        const modelKey = resolved.model_key;
         const result = await dispatchComplete(env, {
           modelKey,
           taskType: 'agent',
@@ -1156,6 +1169,14 @@ Rules:
           ],
           options: { reasoningEffort: 'medium', verbosity: 'low' },
         });
+        try {
+          if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
+            await agentApiModule.recordArmOutcome(
+              env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+              { model_key: resolved.model_key }
+            );
+          }
+        } catch (_) {}
         output = result?.text || result?.output_text || '';
       } else if (terminalLike) {
         const cmd = shellCommandForTerminalTask(task).trim();
@@ -1431,7 +1452,8 @@ Rules:
             continue;
           }
         }
-        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
+        const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
+        const modelKey = resolved.model_key;
         const result = await dispatchComplete(env, {
           modelKey,
           systemPrompt:
@@ -1439,6 +1461,14 @@ Rules:
           messages: [{ role: 'user', content: task.description || task.title }],
           options: { reasoningEffort: 'low', verbosity: 'low' },
         });
+        try {
+          if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
+            await agentApiModule.recordArmOutcome(
+              env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+              { model_key: resolved.model_key }
+            );
+          }
+        } catch (_) {}
         output = result?.text || result?.output_text || '';
       } else if (task.handler_type === 'mcp_tool') {
         const wk = String(task.handler_key || '').trim();
@@ -1461,23 +1491,41 @@ Rules:
             : `Workflow failed: ${wResult?.error ?? wResult?.kill_reason ?? 'unknown'}`;
           ok = !!wResult?.ok;
         } else {
-          const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
+          const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
+          const modelKey = resolved.model_key;
           const result = await dispatchComplete(env, {
             modelKey,
             systemPrompt: TASK_AGENT_SYSTEM,
             messages: [{ role: 'user', content: task.description || task.title }],
             options: { reasoningEffort: 'low' },
           });
+          try {
+            if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
+              await agentApiModule.recordArmOutcome(
+                env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+                { model_key: resolved.model_key }
+              );
+            }
+          } catch (_) {}
           output = result?.text || result?.output_text || '';
         }
       } else {
-        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
+        const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
+        const modelKey = resolved.model_key;
         const result = await dispatchComplete(env, {
           modelKey,
           systemPrompt: TASK_AGENT_SYSTEM,
           messages: [{ role: 'user', content: task.description || task.title }],
           options: { reasoningEffort: 'low' },
         });
+        try {
+          if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
+            await agentApiModule.recordArmOutcome(
+              env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+              { model_key: resolved.model_key }
+            );
+          }
+        } catch (_) {}
         output = result?.text || result?.output_text || '';
       }
 
