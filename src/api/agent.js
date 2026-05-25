@@ -20,7 +20,7 @@
  * Sample hits patched this pass: agentsam_plans/tasks, agentsam_todo, agent_conversations/messages/sessions, /problems.
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
-import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/provider.js';
+import { dispatchStream, resolveModelMeta } from '../core/provider.js';
 import {
   resolveModelForTask,
   normalizeCanonicalTaskType,
@@ -2462,33 +2462,42 @@ async function resolveAiModelFromRequest(env, body, tenantIdCtx) {
   return { row: null, rawRequestedKey: rawKey || null, rawRequestedId: rawId || null };
 }
 
-/** Ask SSE fast path: body/catalog first, then agentsam_prompt_routes models, then tenant default. */
-async function resolveAskFastModelKey(env, body, tenantId, promptRouteRow) {
+/** Ask SSE fast path: explicit request or route preference, then canonical routing resolution. */
+async function resolveAskFastModelKey(env, body, tenantId, workspaceId, promptRouteRow) {
   const { row } = await resolveAiModelFromRequest(env, body, tenantId);
-  if (row?.model_key) return String(row.model_key).trim();
   const tid = tenantId != null ? String(tenantId).trim() : '';
-  if (!tid || !env?.DB) return 'gemini-2.5-flash';
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  const requestedModelKey = row?.model_key ? String(row.model_key).trim() : '';
+  if (!env?.DB) return requestedModelKey || null;
   try {
-    if (promptRouteRow?.preferred_model) {
+    let requestedForResolver = requestedModelKey || null;
+    if (!requestedForResolver && promptRouteRow?.preferred_model) {
       const pref = String(promptRouteRow.preferred_model).trim();
       if (pref) {
         const pr = await resolveAgentsamAiRowByModelKey(env, tid, pref);
-        if (pr?.model_key) return String(pr.model_key).trim();
+        if (pr?.model_key) requestedForResolver = String(pr.model_key).trim();
       }
     }
-    if (promptRouteRow?.fallback_model) {
+    if (!requestedForResolver && promptRouteRow?.fallback_model) {
       const fb = String(promptRouteRow.fallback_model).trim();
       if (fb) {
         const fr = await resolveAgentsamAiRowByModelKey(env, tid, fb);
-        if (fr?.model_key) return String(fr.model_key).trim();
+        if (fr?.model_key) requestedForResolver = String(fr.model_key).trim();
       }
     }
+    const resolved = await resolveModelForTask(env, {
+      task_type: 'ask',
+      mode: 'ask',
+      requested_model_key: requestedForResolver,
+      workspace_id: ws || null,
+      tenant_id: tid || null,
+      require_tools: false,
+    });
+    return resolved?.model_key ? String(resolved.model_key).trim() : null;
   } catch (_) {
     /* fall through */
   }
-  const def = await resolveDefaultModel(env, tid);
-  if (def) return String(def).trim();
-  return 'gemini-2.5-flash';
+  return null;
 }
 
 function normalizeGateParseFailure(originalMessage) {
@@ -3785,7 +3794,6 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       });
       isWorkersAiStream = false;
     } catch (e) {
-      if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) throw e;
       console.warn('[agent] model call failed:', e?.message ?? e);
       routeArmOutcome(false);
       const detail = e?.message != null ? String(e.message).slice(0, 8000) : String(e).slice(0, 8000);
@@ -6014,6 +6022,25 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     console.warn('[agent] subagent_profile_resolve', e?.message ?? e);
   }
 
+  if (!subagentProfileRow && requestedMode === 'ask') {
+    try {
+      subagentProfileRow = await resolveSubagentProfileForChat(env.DB, {
+        userId: String(userId),
+        workspaceId,
+        tenantId,
+        profileId: 'codex_builtin_default',
+        slug: 'codex-default',
+      });
+      if (subagentProfileRow) {
+        body.subagent_profile_id = subagentProfileRow.id;
+        body.subagent_slug = subagentProfileRow.slug;
+        body.subagent = true;
+      }
+    } catch (e) {
+      console.warn('[agent] ask_default_subagent_resolve', e?.message ?? e);
+    }
+  }
+
   const grRoute = await evaluateGuardrails(env, ctx, {
     applies_to: 'route',
     tenant_id: tenantId,
@@ -6056,12 +6083,34 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       promptRouteRow,
       { minimalAsk: true, workspaceId, userId, message, taskType: promptRouteIntentSlug },
     );
-    const resolvedModelKey = await resolveAskFastModelKey(env, body, tenantId, promptRouteRow);
+    let finalAskSystemPrompt = askSystemPrompt;
+    try {
+      finalAskSystemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, finalAskSystemPrompt, {
+        userId,
+        tenantId,
+        workspaceId,
+        conversationId: session?.session_id ?? body.sessionId ?? body.session_id ?? null,
+        taskType: intentResult?.taskType ?? promptRouteIntentSlug,
+      });
+    } catch (e) {
+      console.warn('[agent] ask_fast skills/rules prompt enrich', e?.message ?? e);
+    }
+    if (subagentProfileRow) {
+      finalAskSystemPrompt = appendSubagentProfileToSystemPrompt(finalAskSystemPrompt, subagentProfileRow);
+    }
+    const resolvedModelKey = await resolveAskFastModelKey(
+      env,
+      body,
+      tenantId,
+      workspaceId,
+      promptRouteRow,
+    );
+    if (!resolvedModelKey) return jsonResponse({ error: 'MODEL_RESOLUTION_FAILED' }, 503);
 
     return agentChatDirectSseHandler(env, ctx, {
       request,
       ...body,
-      systemPrompt: askSystemPrompt,
+      systemPrompt: finalAskSystemPrompt,
       modelKey: resolvedModelKey,
       modeConfig,
       promptRouteRow,
@@ -7837,9 +7886,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             errorMessage: String(e?.message || '').slice(0, 500),
           });
 
-          if (String(e?.message || '') === OLLAMA_SKIP_MESSAGE) {
-            console.warn('[agent] ollama skipped; trying next model');
-          } else if (e?.code === 'IAM_PROVIDER_HTTP' && explicitModelFromRequest) {
+          if (e?.code === 'IAM_PROVIDER_HTTP' && explicitModelFromRequest) {
             explicitProviderFailure = true;
             succeeded = false;
             break;
