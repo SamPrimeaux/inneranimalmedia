@@ -21,18 +21,6 @@ import * as agentApiModule from '../api/agent.js';
 
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
 
-const TRIGGER_TYPES_SAFE = new Set([
-  'manual',
-  'agent',
-  'cursor',
-  'github_push',
-  'scheduled',
-  'cicd',
-  'deploy',
-  'api',
-  'smoke',
-]);
-
 /**
  * MCP catalog row that owns agentsam_workflow_nodes.workflow_id (D1 FK).
  * Prefers tenant + workspace match, then tenant-scoped, then platform-global rows.
@@ -82,9 +70,27 @@ async function resolveMcpWorkflowRow(db, workflowKey, tenantId, workspaceId) {
   );
 }
 
-function normalizeTriggerType(raw) {
-  const t = String(raw || 'agent').toLowerCase().trim();
-  return TRIGGER_TYPES_SAFE.has(t) ? t : 'agent';
+async function normalizeTriggerType(db, raw) {
+  const t = String(raw || 'agent').toLowerCase().trim() || 'agent';
+  if (!db) return t;
+  try {
+    const res = await db
+      .prepare(
+        `SELECT trigger_type FROM agentsam_workflow_triggers
+         WHERE is_active = 1`,
+      )
+      .all();
+    const active = new Set(
+      (res?.results || [])
+        .map((row) => String(row?.trigger_type || '').toLowerCase().trim())
+        .filter(Boolean),
+    );
+    if (!active.size) return 'agent';
+    return active.has(t) ? t : 'agent';
+  } catch (err) {
+    console.warn('[workflow] trigger type lookup unavailable', err?.message ?? err);
+    return t;
+  }
 }
 
 /** Normalize `agentsam_workflow_nodes.input_schema_json` (D1 may return string or object). */
@@ -506,9 +512,7 @@ async function dispatchNode(env, node, input, runContext) {
           || hkParts[0]
           || 'agent',
         );
-        const mode =
-          runContext?.workflowMeta?.default_mode
-          || (String(runContext?.workflowKey || '').includes('build') ? 'build' : 'agent');
+        const mode = runContext?.workflowMeta?.default_mode ?? null;
 
         const wsId =
           runContext?.runMeta?.workspaceId != null
@@ -520,7 +524,7 @@ async function dispatchNode(env, node, input, runContext) {
           try {
             const resolved = await resolveModelForTask(env, {
               task_type: taskType,
-              mode: String(mode).trim() || 'agent',
+              mode,
               workspace_id: wsId,
               tenant_id:
                 runContext?.runMeta?.tenantId != null
@@ -1112,7 +1116,7 @@ export async function executeWorkflowGraph(env, opts) {
 
   if (!env.DB) return { ok: false, error: 'DB not available' };
 
-  const triggerType = normalizeTriggerType(triggerTypeRaw);
+  const triggerType = await normalizeTriggerType(env.DB, triggerTypeRaw);
 
   const workflow = await env.DB.prepare(
     `SELECT * FROM agentsam_workflows WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
