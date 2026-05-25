@@ -410,10 +410,11 @@ export default {
       if (
         request.method === 'GET' &&
         (pathLower === '/.well-known/oauth-authorization-server' ||
-          pathLower === '/.well-known/openid-configuration')
+          pathLower === '/.well-known/openid-configuration' ||
+          pathLower === '/.well-known/jwks.json')
       ) {
         const { handleIamOAuthWellKnown } = await import('./api/oauth.js');
-        const wk = await handleIamOAuthWellKnown(request);
+        const wk = await handleIamOAuthWellKnown(request, env);
         if (wk) return wk;
       }
 

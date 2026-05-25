@@ -84,7 +84,8 @@ export function iamMcpOAuthAuthorizationServerMetadata() {
     ],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
     subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['HS256'],
+    jwks_uri: `${IAM_OAUTH_ISSUER}/.well-known/jwks.json`,
+    id_token_signing_alg_values_supported: ['RS256'],
   };
 }
 
@@ -97,7 +98,8 @@ export function iamMcpOpenIdConfiguration() {
     claims_supported: ['sub', 'iss', 'aud', 'azp', 'exp', 'iat', 'email', 'name', 'resource'],
     response_types_supported: ['code'],
     subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['HS256'],
+    jwks_uri: base.jwks_uri,
+    id_token_signing_alg_values_supported: ['RS256'],
   };
 }
 

@@ -61,7 +61,11 @@ import {
 } from './mcp-oauth-shared.js';
 import { checkMcpOAuthRateLimit } from './mcp-oauth-rate-limit.js';
 import { logAuthEvent } from '../core/auth-events.js';
-import { signIamOidcIdToken, buildIamMcpIdTokenClaims } from '../core/mcp-oidc-id-token.js';
+import {
+  signIamOidcIdToken,
+  buildIamMcpIdTokenClaims,
+  iamOidcJwksResponse,
+} from '../core/mcp-oidc-id-token.js';
 
 function mcpOAuthRequestMeta(request) {
   return {
@@ -1207,7 +1211,7 @@ async function handleMcpOAuthUserinfo(request, env, _ctx) {
   });
 }
 
-export async function handleIamOAuthWellKnown(request) {
+export async function handleIamOAuthWellKnown(request, env) {
   const url = new URL(request.url);
   const pathLower = url.pathname.toLowerCase().replace(/\/$/, '');
   if (pathLower === '/.well-known/oauth-authorization-server') {
@@ -1215,6 +1219,9 @@ export async function handleIamOAuthWellKnown(request) {
   }
   if (pathLower === '/.well-known/openid-configuration') {
     return jsonResponse(iamMcpOpenIdConfiguration());
+  }
+  if (pathLower === '/.well-known/jwks.json') {
+    return iamOidcJwksResponse(env);
   }
   return null;
 }
