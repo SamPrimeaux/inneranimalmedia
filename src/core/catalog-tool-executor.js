@@ -257,18 +257,83 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       return { ok: true, status: res.status, body: json };
     }
 
+    case 'mybrowser': {
+      const toolName = String(row.tool_key || row.tool_name || '').trim();
+      const { handlers: webHandlers } = await import('../tools/builtin/web.js');
+      const fn = webHandlers[toolName];
+      if (typeof fn !== 'function') {
+        return { ok: false, error: `mybrowser handler not registered for tool_key=${toolName}` };
+      }
+      const out = await fn(params, env);
+      if (out?.error) return { ok: false, error: String(out.error) };
+      return { ok: true, body: out };
+    }
+
     case 'mcp':
     case 'browser_agentic':
     case 'proxy':
     case 'workspace.reader': {
-      const mcpRow = await loadMcpToolRow(env, row.linked_mcp_tool_id, row.tool_key || row.tool_name);
-      if (!mcpRow) {
+      const op = String(config.operation || '').toLowerCase();
+      if (
+        handlerType === 'workspace.reader' ||
+        ['read', 'list', 'grep', 'write', 'search'].includes(op)
+      ) {
+        const { handlers: fsHandlers } = await import('../tools/fs.js');
+        const fsOp = op === 'write' || op === 'put' ? 'write_file' : 'read_file';
+        const fn = fsHandlers[fsOp];
+        if (typeof fn !== 'function') {
+          return { ok: false, error: `filesystem operation not available: ${fsOp}` };
+        }
+        const out = await fn(params, env, runContext);
+        if (out?.error) return { ok: false, error: String(out.error) };
+        return { ok: true, body: out };
+      }
+
+      const moduleKey = String(config.module || config.executor_module || '').toLowerCase();
+      if (moduleKey === 'memory' || moduleKey === 'tools/memory.js') {
+        const { handlers: memoryHandlers } = await import('../tools/memory.js');
+        const memKey = String(config.handler || row.tool_key || '').trim();
+        const fn = memoryHandlers[memKey];
+        if (typeof fn !== 'function') {
+          return { ok: false, error: `memory handler not registered: ${memKey}` };
+        }
+        const out = await fn(params, env, runContext);
+        if (out?.error) return { ok: false, error: String(out.error) };
+        return { ok: true, body: out };
+      }
+      if (moduleKey === 'context' || String(config.executor || '').includes('context')) {
+        const { handlers: contextHandlers } = await import('../tools/builtin/context.js');
+        const ctxKey = String(config.handler || config.tool_name || row.tool_key || '').trim();
+        const fn = contextHandlers[ctxKey];
+        if (typeof fn !== 'function') {
+          return { ok: false, error: `context handler not registered: ${ctxKey}` };
+        }
+        const out = await fn(params, env);
+        if (out?.error) return { ok: false, error: String(out.error) };
+        return { ok: true, body: out };
+      }
+
+      const mcpUrl = String(row.mcp_service_url || config.mcp_service_url || '').trim();
+      if (mcpUrl) {
+        const syntheticRow = {
+          tool_key: row.tool_key,
+          tool_name: row.tool_name || row.tool_key,
+          mcp_service_url: mcpUrl,
+        };
+        return executeMcpCatalogRow(env, syntheticRow, params, runContext);
+      }
+
+      if (String(config.binding || '').toLowerCase() === 'internal') {
         return {
           ok: false,
-          error: `no agentsam_mcp_tools row for catalog tool_key=${row.tool_key}`,
+          error: `internal binding tool_key=${row.tool_key} requires handler_config.module or mcp_service_url`,
         };
       }
-      return executeMcpCatalogRow(env, mcpRow, params, runContext);
+
+      return {
+        ok: false,
+        error: `handler_config not routable for tool_key=${row.tool_key} (need operation+filesystem, module, or mcp_service_url)`,
+      };
     }
 
     case 'filesystem': {

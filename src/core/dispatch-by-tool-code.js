@@ -4,6 +4,10 @@
  */
 import { parseHandlerConfig, resolveCredential } from './resolve-credential.js';
 import { executeCatalogTool } from './catalog-tool-executor.js';
+import {
+  loadAgentsamToolRow,
+  validateHandlerConfigForExecution,
+} from './agentsam-tools-catalog.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -13,26 +17,7 @@ function parseInput(input) {
 
 /**
  * @param {any} env
- * @param {string} toolCodeOrKey
- */
-async function loadAgentsamToolRow(env, toolCodeOrKey) {
-  const key = String(toolCodeOrKey || '').trim();
-  if (!env?.DB || !key) return null;
-  return env.DB.prepare(
-    `SELECT id, tool_key, tool_code, tool_name, handler_type, handler_config, handler_key,
-            linked_mcp_tool_id, mcp_service_url, is_active
-     FROM agentsam_tools
-     WHERE COALESCE(is_active, 1) = 1
-       AND (tool_code = ? OR tool_key = ? OR tool_name = ?)
-     LIMIT 1`,
-  )
-    .bind(key, key, key)
-    .first();
-}
-
-/**
- * @param {any} env
- * @param {string} toolCodeOrKey — tool_code, tool_key, or tool_name
+ * @param {string} toolCodeOrKey — tool_code, tool_key, tool_name, or display_name
  * @param {unknown} input
  * @param {Record<string, unknown>} runContext — workspaceId, tenantId, userId required for user creds
  */
@@ -43,18 +28,25 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
   }
 
   const config = parseHandlerConfig(row.handler_config);
+  const configCheck = validateHandlerConfigForExecution(row, config);
+  if (!configCheck.ok) {
+    return { ok: false, error: configCheck.error, tool_key: row.tool_key };
+  }
+
   const workspaceId = runContext.workspaceId ?? runContext.workspace_id ?? null;
   const tenantId = runContext.tenantId ?? runContext.tenant_id ?? null;
   const userId = runContext.userId ?? runContext.user_id ?? null;
 
-  let credentials;
-  try {
-    credentials = await resolveCredential(env, workspaceId, tenantId, config, {
-      userId,
-      account_identifier: config.account_identifier,
-    });
-  } catch (e) {
-    return { ok: false, error: e?.message ?? String(e), tool_key: row.tool_key };
+  let credentials = { auth_source: 'none', value: null };
+  if (config.auth_source) {
+    try {
+      credentials = await resolveCredential(env, workspaceId, tenantId, config, {
+        userId,
+        account_identifier: config.account_identifier,
+      });
+    } catch (e) {
+      return { ok: false, error: e?.message ?? String(e), tool_key: row.tool_key };
+    }
   }
 
   const enrichedContext = {
