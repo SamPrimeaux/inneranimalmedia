@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -150,6 +151,29 @@ def resolve_workspace_uuid(config: dict[str, str]) -> str:
     return str(rows[0]["id"])
 
 
+def probe_table_or_die(config: dict[str, str], table: str) -> None:
+    query = urllib.parse.urlencode({
+        "select": "id",
+        "id": "is.null",
+        "limit": "1",
+    })
+    url = f"{config['supabase_url']}/rest/v1/{table}?{query}"
+    try:
+        status, data = json_request("GET", url, headers=supabase_headers(config["supabase_key"]))
+        if status == 200 and (data == [] or isinstance(data, list)):
+            return
+        print(f"[probe] unexpected response for {table}: {status} {data}")
+        raise SystemExit(1)
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8")
+        except Exception:
+            body = ""
+        print(f"[probe] {table} unreachable: HTTP {e.code} {body}")
+        raise SystemExit(1)
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -255,6 +279,7 @@ def build_payload(workspace_uuid: str, row_id: str, title: str, memory_key: str,
 
 def main() -> int:
     config = env_config()
+    probe_table_or_die(config, SUPABASE_TABLE)
     workspace_uuid = resolve_workspace_uuid(config)
 
     count = 0
