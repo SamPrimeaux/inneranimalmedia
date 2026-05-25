@@ -557,6 +557,8 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     agentRunId,
     conversation_id,
     conversationId,
+    routingArmId,
+    routing_arm_id,
   } = fields;
   const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
   const ws =
@@ -595,6 +597,7 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     policy_decision_json: fields.policy_decision_json,
     agent_run_id: agent_run_id ?? agentRunId,
     conversation_id: conversation_id ?? conversationId ?? sessionId,
+    routing_arm_id: routing_arm_id ?? routingArmId ?? null,
   });
   if (stat === 'error' && errMsg && ctx?.waitUntil) {
     scheduleAgentsamErrorLog(env, ctx, {
@@ -2469,7 +2472,11 @@ async function resolveAskFastModelKey(env, body, tenantId, workspaceId, promptRo
   const tid = tenantId != null ? String(tenantId).trim() : '';
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
   const requestedModelKey = row?.model_key ? String(row.model_key).trim() : '';
-  if (!env?.DB) return requestedModelKey || null;
+  if (!env?.DB) {
+    return requestedModelKey
+      ? { model_key: requestedModelKey, routing_arm_id: null }
+      : null;
+  }
   try {
     let requestedForResolver = requestedModelKey || null;
     if (!requestedForResolver && promptRouteRow?.preferred_model) {
@@ -2494,7 +2501,7 @@ async function resolveAskFastModelKey(env, body, tenantId, workspaceId, promptRo
       tenant_id: tid || null,
       require_tools: false,
     });
-    return resolved?.model_key ? String(resolved.model_key).trim() : null;
+    return resolved?.model_key ? resolved : null;
   } catch (_) {
     /* fall through */
   }
@@ -4285,6 +4292,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           workspaceId,
           errorMessage: validation.reason,
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+          routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
         });
@@ -4349,6 +4357,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           workspaceId,
           errorMessage: grTool.decision?.reason || 'guardrail_blocked',
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+          routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
         });
@@ -4400,6 +4409,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           workspaceId,
           errorMessage: 'duplicate_pending_approval',
           inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+          routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
         });
@@ -4686,6 +4696,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         workspaceId,
         errorMessage: execErr ? String(execErr.message || execErr).slice(0, 4000) : null,
         inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
+        routingArmId: attributedRoutingArmId(),
         ...toolLogFieldsFromValidation(validation),
         ...runSpineIds,
       });
@@ -5742,6 +5753,12 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
       ? String(promptRouteRow.route_key).trim()
       : null;
   const routingTaskType = normalizeCanonicalTaskType(intentResult?.taskType || 'ask');
+  const routingArmId =
+    opts.routingArmId != null && String(opts.routingArmId).trim() !== ''
+      ? String(opts.routingArmId).trim()
+      : opts.routing_arm_id != null && String(opts.routing_arm_id).trim() !== ''
+        ? String(opts.routing_arm_id).trim()
+        : null;
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -5754,6 +5771,7 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
 
   const chatAgentRunId =
     env.DB && userId && workspaceId ? newChatAgentRunId() : null;
+  const runStartedAt = Date.now();
 
   (async () => {
     const doneGuard = { emitted: false };
@@ -5762,7 +5780,35 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
       doneGuard.emitted = true;
       emit('done', p || {});
     };
+    let loopStats = null;
+    let finalSuccess = false;
+    let finalError = null;
     try {
+      if (chatAgentRunId && userId && workspaceId) {
+        scheduleAgentsamChatAgentRunStart(env, ctx, {
+          runId: chatAgentRunId,
+          run_group_id: chatAgentRunId,
+          userId,
+          tenantId,
+          workspaceId,
+          conversationId: sessionId ? String(sessionId) : null,
+          routingArmId,
+          modelKey,
+          selectedModel: modelKey,
+          taskType: routingTaskType,
+          mode: 'ask',
+          routeKey,
+          intent: intentResult.intent != null ? String(intentResult.intent) : 'question',
+          trigger: 'chat_sse',
+          requiresTools: false,
+          modelSupportsTools: true,
+          routingStrategy: 'ask_fast_path',
+          fallbackUsed: false,
+          planId: opts.planId ?? opts.plan_id ?? null,
+          taskId: opts.taskId ?? opts.task_id ?? null,
+          workSessionId: sessionId ? String(sessionId) : null,
+        });
+      }
       emit('context', {
         intent: intentResult.intent != null ? String(intentResult.intent) : 'question',
         task_type: intentResult.taskType != null ? String(intentResult.taskType) : null,
@@ -5785,7 +5831,7 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
         routeKey,
       };
 
-      await runAgentToolLoop(env, ctx, emit, {
+      loopStats = await runAgentToolLoop(env, ctx, emit, {
         request,
         messages: [{ role: 'user', content: message }],
         tools: [],
@@ -5803,9 +5849,9 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
         routingTaskType,
         qualityScore: null,
         mcpRuntimeContext,
-        routingArmId: null,
-        thompsonModelKey: null,
-        runStartedAt: Date.now(),
+        routingArmId,
+        thompsonModelKey: modelKey,
+        runStartedAt,
         maxRuntimeMs: modeConfig.max_runtime_ms,
         chatAgentRunId,
         promptAuditContext: {
@@ -5819,10 +5865,69 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
         doneGuard,
         chatRouteKey: routeKey,
       });
+      finalSuccess = loopStats?.timedOut !== true;
+      finalError = loopStats?.timedOut === true ? 'agent_run_timeout' : null;
     } catch (e) {
-      emit('error', { message: String(e?.message || e || 'error').slice(0, 2000) });
+      finalSuccess = false;
+      finalError = String(e?.message || e || 'error').slice(0, 2000);
+      emit('error', { message: finalError });
       if (!doneGuard.emitted) safeDone({});
     } finally {
+      const inputTokens = Math.max(0, Math.floor(Number(loopStats?.totalUsage?.input_tokens) || 0));
+      const outputTokens = Math.max(
+        0,
+        Math.floor(Number(loopStats?.totalUsage?.output_tokens) || 0),
+      );
+      const cacheReadTokens = Math.max(
+        0,
+        Math.floor(Number(loopStats?.totalUsage?.cache_read_input_tokens) || 0),
+      );
+      const timedOut = loopStats?.timedOut === true || finalError === 'agent_run_timeout';
+      const costUsd =
+        inputTokens > 0 || outputTokens > 0
+          ? await fetchModelCostUsd(
+              env,
+              loopStats?.modelKey || modelKey,
+              inputTokens,
+              outputTokens,
+              cacheReadTokens,
+            )
+          : 0;
+      if (chatAgentRunId && userId && workspaceId) {
+        scheduleAgentsamChatAgentRunInsert(env, ctx, {
+          runId: chatAgentRunId,
+          userId,
+          tenantId,
+          workspaceId,
+          conversationId: sessionId ? String(sessionId) : null,
+          routingArmId,
+          modelKey: loopStats?.modelKey || modelKey,
+          taskType: routingTaskType,
+          mode: 'ask',
+          routeKey,
+          success: finalSuccess,
+          inputTokens,
+          outputTokens,
+          costUsd,
+          durationMs: Date.now() - runStartedAt,
+          errorMessage: timedOut ? 'agent_run_timeout' : finalError,
+          workflowRunId: loopStats?.workflowRunId ?? null,
+          chainRootId: loopStats?.chainRootId ?? null,
+          timedOut,
+          fallbackUsed: false,
+          fallbackReason: null,
+          modelsTried: [loopStats?.modelKey || modelKey],
+          quickstartBatch: null,
+        });
+      }
+      if (routingArmId) {
+        await recordArmOutcome(env, ctx, routingArmId, finalSuccess && !timedOut, {
+          taskType: routingTaskType ?? 'ask',
+          mode: 'ask',
+          modelKey: loopStats?.modelKey ?? modelKey,
+          workspaceId,
+        });
+      }
       await writer.close().catch(() => {});
     }
   })();
@@ -6099,20 +6204,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     if (subagentProfileRow) {
       finalAskSystemPrompt = appendSubagentProfileToSystemPrompt(finalAskSystemPrompt, subagentProfileRow);
     }
-    const resolvedModelKey = await resolveAskFastModelKey(
+    const resolvedAskModel = await resolveAskFastModelKey(
       env,
       body,
       tenantId,
       workspaceId,
       promptRouteRow,
     );
-    if (!resolvedModelKey) return jsonResponse({ error: 'MODEL_RESOLUTION_FAILED' }, 503);
+    if (!resolvedAskModel?.model_key) return jsonResponse({ error: 'MODEL_RESOLUTION_FAILED' }, 503);
 
     return agentChatDirectSseHandler(env, ctx, {
       request,
       ...body,
       systemPrompt: finalAskSystemPrompt,
-      modelKey: resolvedModelKey,
+      modelKey: String(resolvedAskModel.model_key).trim(),
+      routingArmId:
+        resolvedAskModel.routing_arm_id != null
+          ? String(resolvedAskModel.routing_arm_id).trim() || null
+          : null,
       modeConfig,
       promptRouteRow,
       intentResult,

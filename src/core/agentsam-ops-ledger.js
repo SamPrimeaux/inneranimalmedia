@@ -207,6 +207,10 @@ export function scheduleToolCallLog(env, ctx, fields) {
       user_id: uidLog,
       error_message: errMsg,
       input_summary: inputSummary || null,
+      routing_arm_id:
+        pick('routingArmId', 'routing_arm_id') != null
+          ? String(pick('routingArmId', 'routing_arm_id')).slice(0, 120)
+          : undefined,
       trace_id: fields.traceId ?? null,
       span_id: fields.spanId ?? null,
       batch_id: fields.batchId ?? null,

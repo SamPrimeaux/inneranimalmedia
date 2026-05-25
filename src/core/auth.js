@@ -367,8 +367,8 @@ export async function assertPathAllowedByIgnorePatterns(env, userId, workspaceId
  */
 export async function assertBrowserOriginTrusted(env, opts) {
   const { userId, workspaceId, origin } = opts || {};
-  void workspaceId;
   if (!userId || !origin || !env?.DB) return;
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
 
   let parsedOrigin;
   try {
@@ -383,10 +383,15 @@ export async function assertBrowserOriginTrusted(env, opts) {
       SELECT origin, trust_scope
       FROM agentsam_browser_trusted_origin
       WHERE user_id = ?
+        AND (
+          workspace_id = ?
+          OR workspace_id IS NULL
+          OR TRIM(COALESCE(workspace_id, '')) = ''
+        )
       LIMIT 100
     `,
   )
-    .bind(userId)
+    .bind(userId, ws)
     .all()
     .catch(() => ({ results: [] }));
 

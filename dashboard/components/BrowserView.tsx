@@ -23,7 +23,7 @@ import {
   RotateCcw, Copy, Columns2, X, Loader2, CheckCircle,
   AlertTriangle, Camera, MoreHorizontal, MousePointer2,
   Code2, Layers, ZoomIn, ZoomOut, Trash2, Cookie,
-  HardDrive, Shield, ShieldCheck, ShieldX, Globe,
+  HardDrive, Shield, ShieldCheck, Globe, ChevronRight,
   Terminal, Network, Bug,
 } from 'lucide-react';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
@@ -274,56 +274,186 @@ const PermissionGate: React.FC<{
   onAlwaysAllow: () => void;
 }> = ({ request, onDeny, onAllowOnce, onAlwaysAllow }) => {
   const origin = originOf(request.url);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [selection, setSelection] = useState<'session' | 'persistent' | null>(null);
+
+  const applySelection = () => {
+    if (selection === 'persistent') onAlwaysAllow();
+    else if (selection === 'session') onAllowOnce();
+  };
+
   return (
     <div className="fixed top-0 left-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[340px] rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-2xl overflow-hidden">
-
-        {/* Header */}
-        <div className="flex flex-col items-center gap-3 px-6 pt-6 pb-4 border-b border-[var(--border-subtle)]">
-          <div className="p-3 rounded-full bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20">
-            <Globe size={22} className="text-[var(--color-primary)]" />
+      <div className="w-[440px] max-w-[calc(100vw-24px)] rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-2xl overflow-hidden">
+        <div className="flex flex-col gap-4 border-b border-[var(--border-subtle)] px-6 pt-6 pb-5">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--text-muted)]">
+              Browser Trust
+            </p>
+            <p className="text-[10px] font-mono text-[var(--text-muted)]">
+              Step {step} of 2
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
+              <Globe size={20} className="text-[var(--color-primary)]" />
+            </div>
+            <div className="flex-1 border-t border-dashed border-[var(--border-subtle)] opacity-70" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-hover)]">
+              <ShieldCheck size={20} className="text-[var(--text-main)]" />
+            </div>
           </div>
           <div className="text-center">
-            <p className="text-[12px] font-bold text-[var(--text-main)] uppercase tracking-widest mb-1">
-              Navigation Request
+            <p className="text-[16px] font-semibold text-[var(--text-main)]">
+              Trust this browser destination?
             </p>
-            <p className="text-[11px] text-[var(--text-muted)] font-mono break-all">
-              {origin}
+            <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-muted)]">
+              Agent Sam wants to open a page outside the current trust list. Review the origin and choose how long the grant should last.
             </p>
           </div>
-          <p className="text-[11px] text-[var(--text-muted)] text-center leading-relaxed">
-            Agent Sam wants to open this page. Choose how to allow access.
-          </p>
         </div>
 
-        {/* Actions */}
-        <div className="flex flex-col gap-2 p-4">
-          <button
-            type="button"
-            onClick={onAlwaysAllow}
-            className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-lg bg-[var(--color-primary)] text-white text-[12px] font-bold hover:opacity-90 transition-opacity"
-          >
-            <ShieldCheck size={14} />
-            Always Allow
-            <span className="ml-auto text-[10px] font-normal opacity-70">saved to trust list</span>
-          </button>
-          <button
-            type="button"
-            onClick={onAllowOnce}
-            className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-hover)] text-[var(--text-main)] text-[12px] font-semibold hover:bg-[var(--bg-panel)] transition-colors"
-          >
-            <Shield size={14} className="text-[var(--text-muted)]" />
-            Allow Once
-            <span className="ml-auto text-[10px] text-[var(--text-muted)]">this session only</span>
-          </button>
-          <button
-            type="button"
-            onClick={onDeny}
-            className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-lg border border-red-500/20 bg-red-500/5 text-red-400 text-[12px] font-semibold hover:bg-red-500/10 transition-colors"
-          >
-            <ShieldX size={14} />
-            Deny
-          </button>
+        <div className="p-5">
+          {step === 1 ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                  Requested origin
+                </div>
+                <div className="mt-2 break-all text-[12px] font-mono text-[var(--text-main)]">
+                  {origin}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setSelection('session')}
+                  className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left transition-colors ${
+                    selection === 'session'
+                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg-panel)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border-subtle)]">
+                    {selection === 'session' ? (
+                      <CheckCircle size={12} className="text-[var(--color-primary)]" />
+                    ) : (
+                      <Shield size={12} className="text-[var(--text-muted)]" />
+                    )}
+                  </span>
+                  <span className="flex-1">
+                    <span className="block text-[12px] font-semibold text-[var(--text-main)]">
+                      Allow for this session
+                    </span>
+                    <span className="mt-1 block text-[11px] text-[var(--text-muted)]">
+                      Browser navigation stays enabled until this dashboard session ends.
+                    </span>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelection('persistent')}
+                  className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left transition-colors ${
+                    selection === 'persistent'
+                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
+                      : 'border-[var(--border-subtle)] bg-[var(--bg-panel)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border-subtle)]">
+                    {selection === 'persistent' ? (
+                      <CheckCircle size={12} className="text-[var(--color-primary)]" />
+                    ) : (
+                      <HardDrive size={12} className="text-[var(--text-muted)]" />
+                    )}
+                  </span>
+                  <span className="flex-1">
+                    <span className="block text-[12px] font-semibold text-[var(--text-main)]">
+                      Always allow this origin
+                    </span>
+                    <span className="mt-1 block text-[11px] text-[var(--text-muted)]">
+                      Save this origin to the trusted list for future browser actions.
+                    </span>
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={onDeny}
+                  className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-2 text-[12px] font-semibold text-red-400 transition-colors hover:bg-red-500/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!selection}
+                  onClick={() => setStep(2)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 py-2 text-[12px] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Review access
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                  Origin
+                </div>
+                <div className="mt-2 break-all text-[12px] font-mono text-[var(--text-main)]">
+                  {origin}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                  Grant scope
+                </div>
+                <div className="mt-2 text-[12px] font-semibold text-[var(--text-main)]">
+                  {selection === 'persistent' ? 'Persistent trusted origin' : 'Session-only browser access'}
+                </div>
+                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  {selection === 'persistent'
+                    ? 'This origin will be saved in your trusted browser origins list.'
+                    : 'This origin will only be allowed for the current dashboard session.'}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-4 py-3 text-[11px] leading-relaxed text-[var(--text-muted)]">
+                Browser trust only controls where the embedded browser can navigate. Risky actions inside the page still require their own tool approvals.
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-hover)] px-4 py-2 text-[12px] font-semibold text-[var(--text-main)] transition-colors hover:bg-[var(--bg-panel)]"
+                >
+                  Edit
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onDeny}
+                    className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-2 text-[12px] font-semibold text-red-400 transition-colors hover:bg-red-500/10"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applySelection}
+                    className="rounded-xl bg-[var(--color-primary)] px-4 py-2 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+                  >
+                    Authorize
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -887,7 +1017,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   const [inputVal,       setInputVal]       = useState(() => normalize(initialUrl || DEFAULT_URL));
   const [loading,        setLoading]        = useState(false);
   const [navigateError,  setNavigateError]  = useState<string | null>(null);
-  const [pageText,       setPageText]       = useState<string | null>(initialPreview?.page_text ?? null);
+  const [,               setPageText]       = useState<string | null>(initialPreview?.page_text ?? null);
   const [mode,           setMode]           = useState<PaneMode>('browse');
   const [menuOpen,       setMenuOpen]       = useState(false);
   const [copied,         setCopied]         = useState(false);
@@ -1605,16 +1735,6 @@ const BrowserPane: React.FC<PaneProps> = ({
                         <Globe size={28} className="text-[var(--text-muted)] opacity-40" />
                         <p className="text-[11px] text-[var(--text-muted)]">Enter a URL to load a Chromium preview</p>
                       </div>
-                    )}
-                    {!loading && pageText && mode === 'browse' && (
-                      <details className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)]">
-                        <summary className="cursor-pointer px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)]">
-                          Page text (extracted)
-                        </summary>
-                        <pre className="max-h-48 overflow-auto px-3 pb-3 text-[10px] text-[var(--text-main)] whitespace-pre-wrap font-mono">
-                          {pageText.length > 12_000 ? `${pageText.slice(0, 12_000)}…` : pageText}
-                        </pre>
-                      </details>
                     )}
                   </div>
                 )}
