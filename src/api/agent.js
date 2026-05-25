@@ -6,10 +6,8 @@
  *  - Provider dispatch metadata: D1 agentsam_model_catalog (canonical); agentsam_ai is legacy/persona/BYOK overlay.
  *  - agent_model_registry is legacy/staging/enrichment — never used for chat routing or billing math here.
  *  - No hardcoded model strings — always resolved from DB
- *  - Tool definitions: agent chat → resolveAgentChatRouteToolRequirements + selectMcpToolsForDeterministicAgentChat
- *    (lanes, required capabilities, mcp_workspace_tokens entitlements, branded view). Legacy MCP list fallback is
- *    opt-in (`allowLegacyMcpToolFallback`); caps = min(prompt_routes.max_tools, route_requirements.max_tools, model cap).
- *    Other paths: selectMcpToolsForChatRuntime / selectAgentsamMcpToolsList. Cap: maxModelToolsForAgentTask.
+ *  - Tool definitions: agent chat → agentsam_tools via selectAgentsamToolsForAgentChat (lane→tool_category, allowlist,
+ *    workspace_scope, modes_json). Execution: dispatchByToolCode only (no runBuiltinTool). Cap: maxModelToolsForAgentTask.
  *  - MCP catalog (management JSON): GET /api/mcp/tools/catalog (lane, limit, include_schema).
  *  - Approval gate wired for high-risk tool calls
  *  - Telemetry written per request via writeTelemetry
@@ -47,11 +45,7 @@ import { getAuthUser, getSession,
 import { resolveGitHubToken } from '../core/github-token.js';
 import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
 import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
-import {
-  selectMcpToolsForChatRuntime,
-  selectMcpToolsForDeterministicAgentChat,
-  maxModelToolsForAgentTask,
-} from '../core/mcp-tools-branded.js';
+import { maxModelToolsForAgentTask } from '../core/mcp-tools-branded.js';
 import {
   resolveAgentChatRouteToolRequirements,
   effectiveAgentChatToolCap,
@@ -91,8 +85,13 @@ import { formatRelativeCheckedAgo, toUnixSeconds }     from './workspaces.js';
 import { notifySam }                                    from '../core/notifications.js';
 import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
-import { runBuiltinTool, normalizeToolName } from '../tools/ai-dispatch.js';
+import { normalizeToolName } from '../tools/ai-dispatch.js';
 import { dispatchByToolCode } from '../core/dispatch-by-tool-code.js';
+import {
+  selectAgentsamToolsForAgentChat,
+  selectAgentsamToolsForChatRuntime,
+  loadAgentsamToolRow,
+} from '../core/agentsam-tools-catalog.js';
 import {
   isImageGenerationTool,
   isPrimaryImageGenerationIntent,
@@ -1821,6 +1820,24 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   let toolRoutingError = null;
   let rows = [];
 
+  let allowlistKeys = null;
+  const uid = opts.userId != null ? String(opts.userId).trim() : '';
+  const wsId = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  const tid = opts.tenantId != null ? String(opts.tenantId).trim() : '';
+  const pid = opts.personUuid != null ? String(opts.personUuid).trim() : '';
+  if (wsId && (uid || tid || pid)) {
+    try {
+      allowlistKeys = await collectAllowlistToolKeysForScope(env.DB, {
+        userId: uid,
+        workspaceId: wsId,
+        tenantId: tid,
+        personUuid: pid,
+      });
+    } catch (e) {
+      console.warn('[agent] mcp allowlist preload', e?.message ?? e);
+    }
+  }
+
   if (opts.agentChat && useBranded) {
     routeToolRequirements = await resolveAgentChatRouteToolRequirements(env, {
       routeKey: opts.routeKey,
@@ -1845,15 +1862,14 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     if (mergedMax === 0) {
       return { tools: [], toolRoutingError: null, routeToolRequirements };
     }
-    const det = await selectMcpToolsForDeterministicAgentChat(env.DB, mcpScope, {
+    const det = await selectAgentsamToolsForAgentChat(env.DB, mcpScope, {
       routeToolRequirements,
       message: opts.message,
-      intentSlug: _intent,
       taskType: opts.taskType,
       modeSlug,
       catalogLimit,
       outputLimit: mergedMax,
-      allowLegacyFallback: opts.allowLegacyMcpToolFallback === true,
+      allowlistKeys,
     });
     if (det.missingRequiredCapabilities?.length) {
       const miss = det.missingRequiredCapabilities;
@@ -1873,27 +1889,21 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       rows = [];
     } else {
       rows = det.rows;
-      if (det.usedLegacyFallback) {
-        console.warn('[agent] tool_routing_legacy_mcp_list_fallback', {
-          route_key: routeToolRequirements.route_key,
-          task_type: routeToolRequirements.task_type,
-        });
-      }
     }
   } else if (useBranded) {
-    rows = await selectMcpToolsForChatRuntime(env.DB, mcpScope, {
+    rows = await selectAgentsamToolsForChatRuntime(env.DB, mcpScope, {
       outputLimit: lim,
-      catalogLimit,
       message: opts.message,
-      intentSlug: _intent,
-      taskType: opts.taskType,
       modeSlug,
+      allowlistKeys,
     });
   } else {
-    const wsForLibrary = mcpScope.workspaceId != null ? String(mcpScope.workspaceId).trim() : '';
-    rows = wsForLibrary
-      ? await loadAgentsamMcpToolsWorkspaceLibrary(env, wsForLibrary, lim)
-      : await selectAgentsamMcpToolsList(env.DB, mcpScope, lim);
+    rows = await selectAgentsamToolsForChatRuntime(env.DB, mcpScope, {
+      outputLimit: lim,
+      message: opts.message,
+      modeSlug,
+      allowlistKeys,
+    });
   }
 
   if (!toolRoutingError && opts.agentChat && opts.taskType && routeToolRequirements?.max_tools != null) {
@@ -1904,32 +1914,20 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       rows = rows.slice(0, effCap);
     }
   }
-  const uid = opts.userId != null ? String(opts.userId).trim() : '';
-  const wsId = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
-  const tid = opts.tenantId != null ? String(opts.tenantId).trim() : '';
-  const pid = opts.personUuid != null ? String(opts.personUuid).trim() : '';
-  if (wsId && (uid || tid || pid)) {
-    try {
-      const keys = await collectAllowlistToolKeysForScope(env.DB, {
-        userId: uid,
-        workspaceId: wsId,
-        tenantId: tid,
-        personUuid: pid,
-      });
-      if (keys.size) {
-        rows = rows.filter((r) => keys.has(String(r.tool_name || '').trim()));
-      }
-    } catch (e) {
-      console.warn('[agent] mcp allowlist', e?.message ?? e);
-    }
+  if (allowlistKeys?.size) {
+    rows = rows.filter((r) => {
+      const name = String(r.tool_name || r.name || '').trim();
+      const key = String(r.tool_key || name).trim();
+      return allowlistKeys.has(name) || allowlistKeys.has(key);
+    });
   }
   if (policy.allowTools.length) {
     const allow = new Set(policy.allowTools);
-    rows = rows.filter((r) => allow.has(String(r.tool_name)));
+    rows = rows.filter((r) => allow.has(String(r.tool_name || r.name || '')));
   }
   if (policy.denyTools.length) {
     const deny = new Set(policy.denyTools);
-    rows = rows.filter((r) => !deny.has(String(r.tool_name)));
+    rows = rows.filter((r) => !deny.has(String(r.tool_name || r.name || '')));
   }
   const preferredKeys = Array.isArray(opts.preferredToolKeys)
     ? opts.preferredToolKeys.map((k) => String(k || '').trim()).filter(Boolean)
@@ -1939,14 +1937,14 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     const preferred = [];
     const rest = [];
     for (const r of rows) {
-      const name = String(r.tool_name || '').trim();
+      const name = String(r.tool_name || r.name || '').trim();
       if (prefSet.has(name)) preferred.push(r);
       else rest.push(r);
     }
     rows = [...preferred, ...rest];
   }
   const tools = rows.map((r) => ({
-    name: String(r.tool_name),
+    name: String(r.tool_name || r.name || ''),
     description: String(r.description || ''),
     input_schema: parseJsonSafe(r.input_schema, { type: 'object', properties: {} }),
     tool_category: String(r.tool_category || 'builtin'),
@@ -2052,29 +2050,22 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
   }
   let row = null;
   if (env.DB) {
-    const scope = {
-      userId: mcpRuntimeContext.userId,
-      tenantId: mcpRuntimeContext.tenantId,
-      workspaceId: mcpRuntimeContext.workspaceId,
-      personUuid: mcpRuntimeContext.personUuid,
-    };
-    row = await selectAgentsamMcpToolRow(env.DB, scope, name);
-    if (row && Number(row.enabled || 0) !== 1) {
-      const rk = row && typeof row === 'object' ? row : {};
+    row = await loadAgentsamToolRow(env, name);
+    if (!row) {
       return {
         allowed: false,
-        reason: 'tool disabled',
+        reason: 'agentsam_tools not found',
         riskLevel: 'blocked',
         requiresConfirmation: false,
-        mcpToolId: row?.id ?? null,
-        toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
-        capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
-        handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
-        routeKey: routeKeyOut(rk.route_key),
-        serverKey: rk.server_key != null ? String(rk.server_key) : null,
-        mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
-        agentsamMcpToolsId: rk.id ?? null,
-        agentsamToolsId: rk.agentsam_tools_id ?? null,
+        mcpToolId: null,
+        toolKey: name,
+        capabilityKey: null,
+        handlerKey: null,
+        routeKey: routeKeyOut(null),
+        serverKey: null,
+        mcpServerId: null,
+        agentsamMcpToolsId: null,
+        agentsamToolsId: null,
       };
     }
   }
@@ -2090,7 +2081,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       isSuperadmin: !!mcpRuntimeContext.isSuperadmin,
     },
     name,
-    row,
+    row ? { ...row, enabled: 1 } : null,
     { agentMode: String(modeSlug || '').toLowerCase() === 'agent' },
   );
   if (!allowRes.allowed) {
@@ -2132,19 +2123,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     };
   }
 
-  let registryRequiresApproval = false;
-  if (env.DB && ws) {
-    const appr = await env.DB.prepare(
-      `SELECT requires_approval FROM agentsam_mcp_tools
-       WHERE tool_key = ? AND workspace_id = ? AND COALESCE(is_active, 1) = 1
-       LIMIT 1`,
-    )
-      .bind(name, ws)
-      .first()
-      .catch(() => null);
-    registryRequiresApproval = Number(appr?.requires_approval || 0) === 1;
-  }
-
+  const registryRequiresApproval = Number(row?.requires_approval || 0) === 1;
   const requiresConfirmation = registryRequiresApproval || policy.requireApprovalTools.includes(name);
   const rk = row && typeof row === 'object' ? row : {};
   return {
@@ -2152,15 +2131,15 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     reason: 'allowed',
     riskLevel,
     requiresConfirmation,
-    mcpToolId: row?.id ?? null,
+    mcpToolId: null,
     toolKey: rk.tool_key != null ? String(rk.tool_key) : name,
     capabilityKey: rk.capability_key != null ? String(rk.capability_key) : null,
     handlerKey: rk.handler_key != null ? String(rk.handler_key) : null,
     routeKey: routeKeyOut(rk.route_key),
-    serverKey: rk.server_key != null ? String(rk.server_key) : null,
-    mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
-    agentsamMcpToolsId: rk.id != null ? rk.id : null,
-    agentsamToolsId: rk.agentsam_tools_id ?? null,
+    serverKey: null,
+    mcpServerId: null,
+    agentsamMcpToolsId: null,
+    agentsamToolsId: rk.id != null ? String(rk.id) : null,
   };
 }
 
@@ -2202,86 +2181,11 @@ async function dispatchToolCall(env, toolName, input, context = {}) {
       input?.conversationId ??
       null,
   };
-  let out = null;
-  const catalogRow = env?.DB
-    ? await env.DB.prepare(
-        `SELECT tool_key FROM agentsam_tools
-         WHERE COALESCE(is_active, 1) = 1
-           AND (tool_key = ? OR tool_code = ? OR tool_name = ?)
-           AND json_extract(handler_config, '$.auth_source') IS NOT NULL
-         LIMIT 1`,
-      )
-        .bind(toolName, toolName, toolName)
-        .first()
-        .catch(() => null)
-    : null;
-  if (catalogRow?.tool_key) {
-    const catalogOut = await dispatchByToolCode(env, toolName, params, context);
-    out =
-      catalogOut?.ok === false
-        ? { error: catalogOut.error ?? 'dispatch_failed' }
-        : catalogOut?.result ?? catalogOut;
-  } else {
-    out = await runBuiltinTool(env, toolName, params, context);
-  }
-  if (out && typeof out === 'object' && out.error) {
-    const errStr = typeof out.error === 'string' ? out.error : JSON.stringify(out.error);
-    const looksUnknown =
-      /Tool integration for/i.test(errStr) || /not found/i.test(errStr);
-    let resolved = out;
-    if (looksUnknown && env?.DB && toolName) {
-      let cmd = null;
-      try {
-        cmd = await env.DB.prepare(`
-    SELECT mapped_command, router_type, tool_key, workflow_key, execution_mode
-    FROM agentsam_commands
-    WHERE (slug = ? OR tool_key = ? OR mapped_command = ?)
-      AND is_active = 1
-    LIMIT 1
-  `)
-          .bind(toolName, toolName, toolName)
-          .first();
-      } catch (_) {
-        cmd = null;
-      }
-      const router = String(cmd?.router_type || 'tool').toLowerCase();
-      const tn = String(toolName || '').toLowerCase();
-      const blockTerminalDbShortcut =
-        tn.startsWith('d1_') ||
-        tn.startsWith('hyperdrive_') ||
-        tn === 'd1_query' ||
-        tn === 'd1_schema' ||
-        tn === 'hyperdrive_query';
-      if (cmd?.mapped_command && router === 'tool' && !blockTerminalDbShortcut) {
-        resolved = await runBuiltinTool(
-          env,
-          'terminal_run',
-          { ...params, command: String(cmd.mapped_command) },
-          context,
-        );
-      } else if (cmd?.workflow_key) {
-        try {
-          const { executeWorkflowGraph } = await import('../core/workflow-executor.js');
-          resolved = await executeWorkflowGraph(env, {
-            workflowKey: String(cmd.workflow_key).trim(),
-            input: input && typeof input === 'object' ? input : {},
-            tenantId: context.tenantId,
-            workspaceId: context.workspaceId,
-            userId: context.userId ?? null,
-            userEmail: context.userEmail ?? null,
-            triggerType: 'agent',
-          });
-        } catch (wfErr) {
-          resolved = {
-            error: wfErr && typeof wfErr === 'object' && 'message' in wfErr
-              ? String(wfErr.message)
-              : String(wfErr),
-          };
-        }
-      }
-    }
-    out = resolved;
-  }
+  const catalogOut = await dispatchByToolCode(env, toolName, params, context);
+  let out =
+    catalogOut?.ok === false
+      ? { error: catalogOut.error ?? 'dispatch_failed' }
+      : catalogOut?.result ?? catalogOut;
   if (out && typeof out === 'object' && out.error) {
     throw new Error(typeof out.error === 'string' ? out.error : JSON.stringify(out.error));
   }
@@ -8873,12 +8777,16 @@ export async function handleAgentApi(request, url, env, ctx) {
 
     const execT0 = Date.now();
     try {
-      const raw = await runBuiltinTool(env, toolName, params, {
+      const catalogOut = await dispatchByToolCode(env, toolName, params, {
         tenantId: sess.tenant_id,
         userId: sess.user_id,
         workspaceId: sess.workspace_id,
         sessionId: sess.session_id,
       });
+      const raw =
+        catalogOut?.ok === false
+          ? { error: catalogOut.error ?? 'dispatch_failed' }
+          : catalogOut?.result ?? catalogOut;
       const execMs = Math.max(0, Date.now() - execT0);
       if (raw && typeof raw === 'object' && raw.error) {
         const errMsg = typeof raw.error === 'string' ? raw.error : JSON.stringify(raw.error);
