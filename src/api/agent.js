@@ -21,7 +21,12 @@
  */
 import { chatWithAnthropic }                            from '../integrations/anthropic.js';
 import { dispatchStream, OLLAMA_SKIP_MESSAGE, resolveModelMeta } from '../core/provider.js';
-import { resolveModelForTask, ResolutionError, computeCostUsd as computeModelCostUsd } from '../core/resolveModel.js';
+import {
+  resolveModelForTask,
+  normalizeCanonicalTaskType,
+  ResolutionError,
+  computeCostUsd as computeModelCostUsd,
+} from '../core/resolveModel.js';
 import {
   resolveWorkspaceCapabilityShellWorkflowId,
   isWorkspaceCapabilityActionIntent,
@@ -166,7 +171,7 @@ async function routingPickFromResolveModelForTask(env, {
   if (!env?.DB || !taskType || !workspaceId) return null;
   try {
     const resolved = await resolveModelForTask(env, {
-      task_type: String(taskType).trim(),
+      task_type: normalizeCanonicalTaskType(taskType),
       mode: mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent',
       workspace_id: String(workspaceId).trim(),
       tenant_id: tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : undefined,
@@ -1077,7 +1082,7 @@ function shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDec
 
 function inferIntentHeuristically(text) {
   const t = String(text || '').trim().toLowerCase();
-  if (!t) return { taskType: 'chat', mode: 'auto' };
+  if (!t) return { taskType: 'ask', mode: 'auto' };
 
   const is = (pattern) => pattern.test(t);
   const hasUrlNavigate = messageHasBrowserUrlNavigation(t);
@@ -1104,7 +1109,7 @@ function inferIntentHeuristically(text) {
 
   // ── Image generation (before browser — "generate mockup" is not browser screenshot) ──
   if (isPrimaryImageGenerationIntent(t)) {
-    return { taskType: 'image_generation', mode: 'agent' };
+    return { taskType: 'agent', mode: 'agent' };
   }
 
   // ── Web / browser ─────────────────────────────────────────────────────────
@@ -1158,40 +1163,40 @@ function inferIntentHeuristically(text) {
   const hasSpawn     = is(/(spawn subagent|delegate to|assign to agent|run.*agent|subagent|agent.*handle|have.*agent|let.*agent)/);
 
   // ── Priority-ordered classification ──────────────────────────────────────
-  if (hasWorkflow)    return { taskType: 'workflow_orchestration', mode: 'agent' };
-  if (hasDeploy)      return { taskType: 'deploy',                 mode: 'agent' };
-  if (hasMultitask)   return { taskType: 'multitask',              mode: 'agent' };
-  if (hasSpawn)       return { taskType: 'agent_spawn',            mode: 'agent' };
-  if (hasDbWrite)     return { taskType: 'db_write',               mode: 'agent' };
-  if (hasSupabase)    return { taskType: 'supabase',               mode: 'agent' };
-  if (hasDbRead && !hasSql) return { taskType: 'db_read',          mode: 'agent' };
-  if (hasR2)          return { taskType: 'r2_ops',                 mode: 'agent' };
-  if (hasCfOps)       return { taskType: 'cf_ops',                 mode: 'agent' };
-  if (hasShell && !hasCode) return { taskType: 'terminal_execution', mode: 'agent' };
-  if (hasBrowser)     return { taskType: 'browser',                mode: 'agent' };
-  if (hasWebSearch)   return { taskType: 'web_search',             mode: 'agent' };
-  if (hasVectorize)   return { taskType: 'vectorize',              mode: 'agent' };
-  if (hasGitHub)      return { taskType: 'github',                 mode: 'agent' };
-  if (hasSql)         return { taskType: 'sql_d1_generation',      mode: 'agent' };
-  if (hasDebug)       return { taskType: 'debug',                  mode: 'agent' };
-  if (hasSearchCode)  return { taskType: 'search_code',            mode: 'agent' };
-  if (hasRefactor)    return { taskType: 'refactor',               mode: 'agent' };
-  if (hasReview)      return { taskType: 'review',                 mode: 'agent' };
-  if (hasCode)        return { taskType: 'code',                   mode: 'agent' };
-  if (hasSkillCreate) return { taskType: 'plan',                   mode: 'agent' };
-  if (hasPlan)        return { taskType: 'plan',                   mode: 'agent' };
-  if (hasSkill)       return { taskType: 'skill_use',              mode: 'agent' };
-  if (hasTool)        return { taskType: 'tool_use',               mode: 'agent' };
-  if (hasCms)         return { taskType: 'cms_edit',               mode: 'agent' };
-  if (hasRecall)      return { taskType: 'summary',                mode: 'auto'  };
-  if (hasExplain)     return { taskType: 'explain',                mode: 'auto'  };
-  return { taskType: 'chat', mode: 'agent' };
+  if (hasWorkflow)    return { taskType: 'agent', mode: 'agent' };
+  if (hasDeploy)      return { taskType: 'agent', mode: 'agent' };
+  if (hasMultitask)   return { taskType: 'multitask', mode: 'agent' };
+  if (hasSpawn)       return { taskType: 'multitask', mode: 'agent' };
+  if (hasDbWrite)     return { taskType: 'agent', mode: 'agent' };
+  if (hasSupabase)    return { taskType: 'agent', mode: 'agent' };
+  if (hasDbRead && !hasSql) return { taskType: 'agent', mode: 'agent' };
+  if (hasR2)          return { taskType: 'agent', mode: 'agent' };
+  if (hasCfOps)       return { taskType: 'agent', mode: 'agent' };
+  if (hasShell && !hasCode) return { taskType: 'agent', mode: 'agent' };
+  if (hasBrowser)     return { taskType: 'agent', mode: 'agent' };
+  if (hasWebSearch)   return { taskType: 'agent', mode: 'agent' };
+  if (hasVectorize)   return { taskType: 'agent', mode: 'agent' };
+  if (hasGitHub)      return { taskType: 'agent', mode: 'agent' };
+  if (hasSql)         return { taskType: 'agent', mode: 'agent' };
+  if (hasDebug)       return { taskType: 'debug', mode: 'agent' };
+  if (hasSearchCode)  return { taskType: 'agent', mode: 'agent' };
+  if (hasRefactor)    return { taskType: 'agent', mode: 'agent' };
+  if (hasReview)      return { taskType: 'agent', mode: 'agent' };
+  if (hasCode)        return { taskType: 'agent', mode: 'agent' };
+  if (hasSkillCreate) return { taskType: 'plan', mode: 'agent' };
+  if (hasPlan)        return { taskType: 'plan', mode: 'agent' };
+  if (hasSkill)       return { taskType: 'agent', mode: 'agent' };
+  if (hasTool)        return { taskType: 'agent', mode: 'agent' };
+  if (hasCms)         return { taskType: 'agent', mode: 'agent' };
+  if (hasRecall)      return { taskType: 'ask', mode: 'auto' };
+  if (hasExplain)     return { taskType: 'ask', mode: 'auto' };
+  return { taskType: 'ask', mode: 'agent' };
 }
 
 async function classifyIntent(_env, lastMessageText) {
   const { taskType: rawTt, mode } = inferIntentHeuristically(lastMessageText);
   const taskType =
-    rawTt != null && String(rawTt).trim() !== '' ? String(rawTt).trim() : 'chat';
+    rawTt != null && String(rawTt).trim() !== '' ? normalizeCanonicalTaskType(rawTt) : 'ask';
   // Route intent directly — no collapsing to legacy 3-value set
   const intentRouteMap = {
     workflow_orchestration: 'workflow_orchestration',
@@ -2284,12 +2289,12 @@ async function loadModeConfig(env, modeSlug, workspaceId = null) {
 
   try {
     const gateResolved = await resolveModelForTask(env, {
-      task_type: 'gate',
+      task_type: 'ask',
       mode: 'auto',
       workspace_id: ws,
     });
     const escResolved = await resolveModelForTask(env, {
-      task_type: 'gate',
+      task_type: 'ask',
       mode: 'agent',
       workspace_id: ws,
     });
@@ -2471,7 +2476,7 @@ function normalizeGateParseFailure(originalMessage) {
 
 /** Map heuristic taskType + mode → routing arm intent_slug prefix (e.g. code_agent). */
 function intentSlugFromHeuristic(taskType, mode, modeConfig) {
-  const tt = String(taskType || 'chat').trim().toLowerCase() || 'chat';
+  const tt = normalizeCanonicalTaskType(taskType || 'ask');
   const md =
     String(mode || modeConfig?.slug || modeConfig?.mode || 'agent').trim().toLowerCase() || 'agent';
   return `${tt}_${md}`;
@@ -3628,7 +3633,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       ? (
           await resolveRoutingArmByModelKey(env, {
             modelKey: String(modelKey || ''),
-            taskType: String(routingTaskType || 'chat'),
+            taskType: String(routingTaskType || 'ask'),
             mode: String(mode || 'agent'),
             workspaceId: routingWs || env.WORKSPACE_ID || '',
             agentSlug: agentSlugParam != null ? String(agentSlugParam).trim() : '',
@@ -3662,7 +3667,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       );
     } else if (routingWs) {
       scheduleRoutingArmBanditUpdate(env, ctx, {
-        taskType: routingTaskType || 'chat',
+        taskType: routingTaskType || 'ask',
         mode: mode || 'ask',
         modelKey,
         workspaceId: routingWs,
@@ -3749,7 +3754,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         temperature,
         userId,
         tenantId,
-        taskType: routingTaskType || 'chat',
+        taskType: routingTaskType || 'ask',
         mode: mode || 'auto',
         openaiPreviousResponseId,
         promptAuditContext:
@@ -4126,7 +4131,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             temperature,
             userId,
             tenantId,
-            taskType: routingTaskType || 'chat',
+            taskType: routingTaskType || 'ask',
             mode: mode || 'auto',
             anthropicContainerId: containerId,
             promptAuditContext:
@@ -4177,7 +4182,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         const qs = Number(qualityScore);
         if (Number.isFinite(qs)) {
           scheduleRoutingArmQualityUpdate(env, ctx, {
-            taskType: routingTaskType || 'chat',
+            taskType: routingTaskType || 'ask',
             mode: mode || 'ask',
             modelKey,
             workspaceId: routingWs,
@@ -4725,7 +4730,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     if (routingWs) {
       if (!attributedRoutingArmId()) {
         scheduleRoutingArmBanditUpdate(env, ctx, {
-          taskType: routingTaskType || 'chat',
+          taskType: routingTaskType || 'ask',
           mode: mode || 'ask',
           modelKey,
           workspaceId: routingWs,
@@ -4736,7 +4741,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       const qs = Number(qualityScore);
       if (Number.isFinite(qs)) {
         scheduleRoutingArmQualityUpdate(env, ctx, {
-          taskType: routingTaskType || 'chat',
+          taskType: routingTaskType || 'ask',
           mode: mode || 'ask',
           modelKey,
           workspaceId: routingWs,
@@ -5474,7 +5479,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     tenantId,
     personUuid,
     message: lastUserMsg,
-    taskType: 'mcp_panel',
+    taskType: 'agent',
     agentChat: true,
     routeKey: 'mcp_panel',
   });
@@ -5564,7 +5569,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
           tenantId,
           userId,
           workspaceId,
-          routingTaskType: 'mcp_panel',
+          routingTaskType: 'agent',
           qualityScore: 1,
           mcpRuntimeContext,
           routingArmId: null,
@@ -5706,7 +5711,7 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
     promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
       ? String(promptRouteRow.route_key).trim()
       : null;
-  const routingTaskType = String(intentResult?.taskType || 'chat').trim() || 'chat';
+  const routingTaskType = normalizeCanonicalTaskType(intentResult?.taskType || 'ask');
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -6112,7 +6117,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         ? String(body.taskType).trim()
         : null;
   if (bodyTaskTypePin) {
-    intentResult.taskType = bodyTaskTypePin;
+    intentResult.taskType = normalizeCanonicalTaskType(bodyTaskTypePin);
   }
   if (
     ['agent', 'debug', 'multitask'].includes(requestedMode) &&
@@ -6158,7 +6163,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   let _selectedArmId   = null;
   try {
     _autoModelResult = await selectAutoModel(env, {
-      taskType:    intentResult?.taskType  || 'chat',
+      taskType:    intentResult?.taskType  || 'ask',
       mode:        intentResult?.mode      || requestedMode || 'agent',
       workspaceId: workspaceId,
       tenantId:    tenantId,
@@ -6791,17 +6796,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   /** Only force tool-capable models + provider tool arrays when intent clearly needs execution surfaces. */
   const TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL = new Set([
-    'workflow_orchestration',
-    'deploy',
-    'sql_d1_generation',
-    'terminal_execution',
+    'agent',
+    'multitask',
     'debug',
-    'browser',
-    'browser_ui_repair',
-    'cms_edit',
-    'tool_use',
-    'code',
-    'image_generation',
   ]);
   const taskTypeKey = String(intentResult?.taskType || '').toLowerCase();
   const agentWantsToolExecution =
@@ -6924,10 +6921,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   })();
   if (!requireTools && !bodyPinsRouting && intentResult?.taskType) {
     const tt = String(intentResult.taskType).trim();
-    resolvedRoutingTaskType = (tt === 'question' ? 'chat' : tt) || resolvedRoutingTaskType;
+    resolvedRoutingTaskType = (tt === 'question' ? 'ask' : normalizeCanonicalTaskType(tt)) || resolvedRoutingTaskType;
   }
   if (browserDispatchToolsActive && !bodyPinsRouting) {
-    resolvedRoutingTaskType = 'browser';
+    resolvedRoutingTaskType = 'agent';
   }
 
   const routeKeyForRun = (() => {
@@ -7758,7 +7755,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           });
           if (attemptArmId && Number.isFinite(confidence)) {
             scheduleRoutingArmQualityUpdate(env, ctx, {
-              taskType: resolvedRoutingTaskType ?? 'chat',
+              taskType: resolvedRoutingTaskType ?? 'ask',
               mode: requestedMode ?? 'auto',
               modelKey,
               workspaceId: workspaceId || '',
@@ -7834,7 +7831,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         (lastLoopStats?.modelKey
           ? (await resolveRoutingArmByModelKey(env, {
               modelKey: lastLoopStats.modelKey,
-              taskType: resolvedRoutingTaskType ?? 'chat',
+              taskType: resolvedRoutingTaskType ?? 'ask',
               mode: requestedMode ?? 'auto',
               workspaceId: workspaceId ?? resolvedWorkspaceId ?? '',
               agentSlug: subagentProfileRow?.id ?? null,
@@ -7866,7 +7863,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
       if (outcomeArmId) {
         await recordArmOutcome(env, ctx, outcomeArmId, succeeded, {
-          taskType: resolvedRoutingTaskType ?? 'chat',
+          taskType: resolvedRoutingTaskType ?? 'ask',
           mode: requestedMode ?? 'auto',
           modelKey: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? fallbackModelKeys[0],
           workspaceId: workspaceId ?? resolvedWorkspaceId,
@@ -7885,7 +7882,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               routing_arm_id: outcomeArmId,
               plan_id: body?.planId ?? body?.plan_id ?? null,
               event_type: 'agent_run_complete',
-              reason: resolvedRoutingTaskType ?? 'chat',
+              reason: resolvedRoutingTaskType ?? 'ask',
               tokens_in: finalInputTokens,
               tokens_out: finalOutputTokens,
               cost_usd: realCostUsd,
@@ -7902,7 +7899,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               model_key: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
               arm_id: outcomeArmId,
               succeeded,
-              task_type: resolvedRoutingTaskType ?? 'chat',
+              task_type: resolvedRoutingTaskType ?? 'ask',
               mode: requestedMode ?? 'auto',
               cost_usd: realCostUsd,
               input_tokens: finalInputTokens,
@@ -8003,7 +8000,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         if (ctx?.waitUntil && chatAgentRunId && resolvedWorkspaceId) {
           ctx.waitUntil(
             resolveModelForTask(env, {
-              task_type:           resolvedRoutingTaskType ?? 'chat',
+              task_type:           resolvedRoutingTaskType ?? 'ask',
               mode:                requestedMode ?? 'auto',
               requested_model_key: finalModelKey || rawRequestedKey || null,
               routing_arm_id:      (outcomeArmId ?? routingArmIdForRun) || null,
@@ -8157,7 +8154,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       }
       if (routingArmIdForRun && !routingArmOutcomeLogged) {
         await recordArmOutcome(env, ctx, routingArmIdForRun, partialSuccess, {
-          taskType: resolvedRoutingTaskType ?? 'chat',
+          taskType: resolvedRoutingTaskType ?? 'ask',
           mode: requestedMode ?? 'auto',
           modelKey: catchModelKey ?? fallbackModelKeys[0],
           workspaceId: resolvedWorkspaceId ?? '',

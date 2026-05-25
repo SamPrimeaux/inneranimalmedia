@@ -95,34 +95,48 @@ export class ResolutionError extends Error {
   }
 }
 
+const CANONICAL_TASK_TYPES = ['agent', 'ask', 'multitask', 'plan', 'debug'];
+
+/** Locked chat/orchestration task_type contract — map legacy values before D1 arm lookup. */
+export function normalizeCanonicalTaskType(task_type) {
+  const tt = String(task_type ?? 'ask').trim().toLowerCase();
+  if (CANONICAL_TASK_TYPES.includes(tt)) return tt;
+  if (tt === 'subagent_dispatch') return 'multitask';
+  if (tt === 'plan') return 'plan';
+  if (tt === 'debug' || tt === 'debug_live_page' || tt === 'browser_ui_repair') return 'debug';
+  if (
+    [
+      'chat',
+      'explain',
+      'summary',
+      'question',
+      'greeting',
+      'gate',
+      'intent_classification',
+      'rag_query',
+      'skill_invocation',
+      'recall',
+      'auto',
+    ].includes(tt)
+  ) {
+    return 'ask';
+  }
+  return 'agent';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. Emergency JS policy (Path E — last resort only)
 //    These are NEVER the primary routing decision.
 //    Thompson arms and DB policy take precedence.
-//    Update here only if you add a new task_type with zero arms.
+//    Canonical task_types only: agent | ask | multitask | plan | debug
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EMERGENCY_POLICY = {
-  chat:                   { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash-lite' },
-  code:                   { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
-  plan:                   { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
-  tool_use:               { primary: 'gpt-5.4-mini',  fallback: 'claude-sonnet-4-6'     },
-  intent_classification:  { primary: 'gpt-5.4-nano',  fallback: 'gemini-2.5-flash-lite' },
-  rag_query:              { primary: 'gpt-5.4-nano',  fallback: 'gemini-2.5-flash-lite' },
-  summary:                { primary: 'gpt-5.4-nano',  fallback: 'gemini-2.5-flash-lite' },
-  skill_invocation:       { primary: 'gpt-5.4-nano',  fallback: 'gemini-2.5-flash-lite' },
-  terminal_execution:     { primary: 'gpt-5.4-mini',  fallback: 'gpt-5.4'              },
-  subagent_dispatch:      { primary: 'gpt-5.4',        fallback: 'gpt-5.4-mini'         },
-  workflow_orchestration: { primary: 'gpt-5.4',        fallback: 'gpt-5.4-mini'         },
-  cms_edit:               { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
-  cms_theme_generation:   { primary: 'gpt-5.4-nano',  fallback: 'claude-sonnet-4-6'     },
-  sql_d1_generation:      { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
-  deploy:                 { primary: 'gpt-5.4-mini',  fallback: 'claude-haiku-4-5-20251001' },
-  debug:                  { primary: 'gpt-5.4',        fallback: 'claude-sonnet-4-6'     },
-  browser:                { primary: 'gemini-3-flash-preview', fallback: 'gemini-2.5-flash' },
-  browser_ui_repair:      { primary: 'gemini-3-flash-preview', fallback: 'gemini-2.5-flash' },
-  research:               { primary: 'gemini-2.5-pro', fallback: 'gpt-5.4'              },
-  embedding:              { primary: '@cf/baai/bge-m3', fallback: null                  },
+  ask:       { primary: 'gpt-5.4-nano',  fallback: 'gemini-2.5-flash-lite' },
+  agent:     { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
+  plan:      { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
+  debug:     { primary: 'gpt-5.4',       fallback: 'claude-sonnet-4-6'     },
+  multitask: { primary: 'gpt-5.4',       fallback: 'gpt-5.4-mini'          },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -424,6 +438,8 @@ export async function resolveModelForTask(env, {
   if (!env?.DB) throw new ResolutionError('NO_DB', 'env.DB unavailable');
   if (!task_type) throw new ResolutionError('MISSING_TASK_TYPE', 'task_type is required');
 
+  const normalizedTaskType = normalizeCanonicalTaskType(task_type);
+
   const db  = env.DB;
   const t0  = Date.now();
   const cap = { require_tools, require_vision, require_json_mode };
@@ -460,7 +476,7 @@ export async function resolveModelForTask(env, {
     // ── Path C: Thompson sampling across eligible arms ──────────────────────
     source = 'thompson';
     const candidates = await selectThompsonArm(db, {
-      task_type, mode, workspace_id, require_tools,
+      task_type: normalizedTaskType, mode, workspace_id, require_tools,
     });
 
     if (candidates && candidates.length > 0) {
@@ -495,7 +511,7 @@ export async function resolveModelForTask(env, {
 
     // ── Path D: DB global policy (workspace-agnostic arms) ──────────────────
     source = 'policy';
-    const globalArm = await queryGlobalPolicyArm(db, { task_type, mode, require_tools });
+    const globalArm = await queryGlobalPolicyArm(db, { task_type: normalizedTaskType, mode, require_tools });
     if (globalArm) {
       try {
         const resolved = await loadModelRecord(db, globalArm.model_key, 'policy', globalArm.id, cap);
@@ -508,10 +524,10 @@ export async function resolveModelForTask(env, {
 
     // ── Path E: JS emergency hardstop ───────────────────────────────────────
     source = 'emergency';
-    const policy = EMERGENCY_POLICY[task_type]
-      ?? EMERGENCY_POLICY['chat'];
+    const policy = EMERGENCY_POLICY[normalizedTaskType]
+      ?? EMERGENCY_POLICY['ask'];
 
-    console.warn(`[resolveModel] E EMERGENCY task=${task_type} mode=${mode} — no arms or global policy found. Seed agentsam_routing_arms.`);
+    console.warn(`[resolveModel] E EMERGENCY task=${normalizedTaskType} mode=${mode} — no arms or global policy found. Seed agentsam_routing_arms.`);
 
     for (const [key, src] of [
       [policy?.primary,  'emergency'],
@@ -528,12 +544,12 @@ export async function resolveModelForTask(env, {
     }
 
     throw new ResolutionError('RESOLUTION_EXHAUSTED',
-      `all paths failed for task_type="${task_type}" mode="${mode}"`,
-      { task_type, mode, workspace_id });
+      `all paths failed for task_type="${normalizedTaskType}" mode="${mode}"`,
+      { task_type: normalizedTaskType, mode, workspace_id });
 
   } catch (e) {
     if (e instanceof ResolutionError) throw e;
-    throw new ResolutionError('UNEXPECTED', e?.message ?? String(e), { task_type, mode, source });
+    throw new ResolutionError('UNEXPECTED', e?.message ?? String(e), { task_type: normalizedTaskType, mode, source });
   }
 }
 
@@ -725,6 +741,6 @@ USAGE PATTERN inside chat SSE handler:
 
 TESTING:
   // Dry-run resolution without dispatching
-  const m = await resolveModelForTask(env, { task_type: 'chat', mode: 'agent', workspace_id: 'ws_inneranimalmedia' });
+  const m = await resolveModelForTask(env, { task_type: 'ask', mode: 'agent', workspace_id: 'ws_inneranimalmedia' });
   console.log(m.model_key, m.provider, m.resolution_source, m.routing_arm_id);
 */

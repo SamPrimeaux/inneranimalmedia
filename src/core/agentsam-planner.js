@@ -367,6 +367,7 @@ export async function createPlan(
   try {
     const result = await dispatchComplete(env, {
       modelKey: 'gpt-5.4-mini',
+      taskType: 'plan',
       systemPrompt: PLANNER_SYSTEM,
       messages: [{ role: 'user', content: String(goal).slice(0, 4000) }],
       options: { reasoningEffort: 'medium', verbosity: 'low' },

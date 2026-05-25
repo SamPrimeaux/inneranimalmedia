@@ -1005,7 +1005,7 @@ Rules:
 - content must be the entire file (not a diff).`;
         const genResult = await dispatchComplete(env, {
           modelKey: 'gpt-5.4-mini',
-          taskType: 'code',
+          taskType: 'agent',
           mode: 'agent',
           systemPrompt: fileGenSys,
           messages: [
@@ -1131,7 +1131,7 @@ Rules:
       if (task.handler_type === 'agent' || !task.handler_type) {
         const result = await dispatchComplete(env, {
           modelKey: 'gpt-5.4-mini',
-          taskType: task.category === 'db' ? 'sql_d1_generation' : 'code',
+          taskType: 'agent',
           mode: 'agent',
           systemPrompt: TASK_AGENT_SYSTEM,
           messages: [
@@ -1319,7 +1319,7 @@ Rules:
             durationMs,
             outputSummary: http?.ok ? String(http.text || '').slice(0, 8000) : null,
             errorMessage: http?.ok ? null : 'terminal_http_exec_failed',
-            taskType: authz.task_type || 'tool_use',
+            taskType: 'agent',
             modelKey: authz.modelKey,
             provider: authz.provider,
           });

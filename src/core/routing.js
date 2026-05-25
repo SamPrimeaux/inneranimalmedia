@@ -16,6 +16,7 @@ import { triggerEvalAfterNRuns } from './eval-runner.js';
  */
 
 import { pickRoutingArmByThompson } from './thompson.js';
+import { normalizeCanonicalTaskType } from './resolveModel.js';
 import { filterArmsByCatalogCapabilities, SCOUT_TASK_TYPES } from './model-catalog-capabilities.js';
 import { pragmaTableInfo } from './retention.js';
 import {
@@ -313,7 +314,7 @@ function filterNanoEscalation(results, q, tt, toolReq) {
 export async function queryRoutingArmsCandidates(env, q) {
   const db = env?.DB;
   if (!db) return [];
-  const tt = q.taskType != null ? String(q.taskType).trim() : 'chat';
+  const tt = normalizeCanonicalTaskType(q.taskType != null ? q.taskType : 'ask');
   const m = q.mode != null && String(q.mode).trim() !== '' ? String(q.mode).trim() : 'auto';
   const toolReq = !!q.toolRequired;
   const routeKey = q.routeKey != null ? String(q.routeKey).trim() : '';
@@ -617,7 +618,7 @@ export async function resolveRoutingArmByModelKey(
   { modelKey, taskType, mode, workspaceId, agentSlug } = {},
 ) {
   const mk = modelKey != null ? String(modelKey).trim() : '';
-  const tt = taskType != null && String(taskType).trim() !== '' ? String(taskType).trim() : 'chat';
+  const tt = normalizeCanonicalTaskType(taskType != null && String(taskType).trim() !== '' ? taskType : 'ask');
   const md = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
   if (!env?.DB || !mk) return null;
@@ -677,7 +678,7 @@ export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, 
   if (!mem.size || !mem.has('model_key')) return arms;
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
   if (!ws) return arms;
-  const tt = taskType != null ? String(taskType).trim() : 'chat';
+  const tt = normalizeCanonicalTaskType(taskType != null ? taskType : 'ask');
   const out = [];
   for (const arm of arms) {
     const mk = String(arm.model_key ?? '').trim();
@@ -721,6 +722,7 @@ const BROWSER_COMPUTER_USE_TASK_TYPES = new Set([
   'browser',
   'browser_ui_repair',
   'debug_live_page',
+  'agent',
 ]);
 
 /**
@@ -731,40 +733,40 @@ export function resolveRoutingTaskType(ctx = {}) {
   const body = ctx.body && typeof ctx.body === 'object' ? ctx.body : {};
   const fromBody = body.task_type ?? body.taskType;
   if (fromBody != null && String(fromBody).trim() !== '') {
-    return String(fromBody).trim();
+    return normalizeCanonicalTaskType(String(fromBody).trim());
   }
   const fromIntent = ctx.intentTaskType != null ? String(ctx.intentTaskType).trim() : '';
   if (fromIntent && BROWSER_COMPUTER_USE_TASK_TYPES.has(fromIntent)) {
-    return fromIntent;
+    return normalizeCanonicalTaskType(fromIntent === 'browser' ? 'agent' : fromIntent);
   }
   if (body.debug === true || String(body.mode || '').toLowerCase() === 'debug') return 'debug';
   if (body.subagent === true || (body.subagent_profile_id != null && String(body.subagent_profile_id).trim() !== '')) {
-    return 'subagent_dispatch';
+    return 'multitask';
   }
-  if (body.workflow_step === true || body.workflow_run_id != null) return 'workflow_orchestration';
-  if (body.terminal_session_id != null || body.pty_session_id != null) return 'terminal_execution';
-  if (body.intent_classification_only === true) return 'intent_classification';
-  if (body.rag_only === true || body.memory_search_only === true) return 'rag_query';
-  if (body.skill_pick_only === true) return 'skill_invocation';
-  if (ctx.requireTools) return 'tool_use';
+  if (body.workflow_step === true || body.workflow_run_id != null) return 'agent';
+  if (body.terminal_session_id != null || body.pty_session_id != null) return 'agent';
+  if (body.intent_classification_only === true) return 'ask';
+  if (body.rag_only === true || body.memory_search_only === true) return 'ask';
+  if (body.skill_pick_only === true) return 'ask';
+  if (ctx.requireTools) return 'agent';
   const slug = String(ctx.intentSlug ?? 'auto').toLowerCase().trim() || 'auto';
-  return INTENT_SLUG_TO_ROUTING_TASK[slug] ?? 'chat';
+  return normalizeCanonicalTaskType(INTENT_SLUG_TO_ROUTING_TASK[slug] ?? 'ask');
 }
 
 /** Gate intent slugs → `task_type` rows (seeded / expanded schema). */
 const INTENT_SLUG_TO_ROUTING_TASK = {
-  auto: 'chat',
-  question: 'chat',
-  explain: 'chat',
-  code_help: 'code/build',
-  fix_bug: 'code/debug',
-  write_code: 'code/build',
+  auto: 'ask',
+  question: 'ask',
+  explain: 'ask',
+  code_help: 'agent',
+  fix_bug: 'debug',
+  write_code: 'agent',
   plan: 'plan',
-  deploy: 'deploy',
-  sql: 'sql_d1_generation',
-  summarize: 'summary',
-  rag: 'rag_query',
-  image_generation: 'image_generation',
+  deploy: 'agent',
+  sql: 'agent',
+  summarize: 'ask',
+  rag: 'ask',
+  image_generation: 'agent',
 };
 
 /**
@@ -796,10 +798,11 @@ export async function getDefaultModelForTask(env, ctx = {}) {
     if (!workspaceId) {
       return { modelId: null, armId: null, source: 'fallback', fallbackReason: 'missing_workspace' };
     }
-    const taskType =
+    const taskType = normalizeCanonicalTaskType(
       ctx.taskKey != null && String(ctx.taskKey).trim() !== ''
         ? String(ctx.taskKey).trim()
-        : 'chat';
+        : 'ask',
+    );
     const mode = ctx.mode != null && String(ctx.mode).trim() !== '' ? String(ctx.mode).trim() : 'auto';
     const agentSlug = normalizeAgentSlug(ctx.agentSlug);
     if (agentSlug && ctx.subagentProfile) {
@@ -922,7 +925,7 @@ export async function resolveRoutingArm(
   } = {},
 ) {
   if (!env?.DB || !taskType || !workspaceId) return null;
-  const tt = String(taskType).trim();
+  const tt = normalizeCanonicalTaskType(taskType);
   const md = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
   const ws = String(workspaceId).trim();
   const slug = normalizeAgentSlug(agentSlug);
@@ -1019,7 +1022,7 @@ export async function loadChatRoutingArmsModelKeyOrder(env, mode, workspaceId, o
   const m = mode != null && String(mode).trim() !== '' ? String(mode).trim() : 'agent';
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
   const rows = await queryRoutingArmsCandidates(env, {
-    taskType: 'chat',
+    taskType: 'ask',
     mode: m,
     workspaceId: ws,
     toolRequired: !!opts.toolRequired,

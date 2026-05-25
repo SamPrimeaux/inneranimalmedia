@@ -12,7 +12,7 @@ import {
   flattenWorkflowInput,
 } from './workflow-node-handlers.js';
 import { dispatchComplete } from './provider.js';
-import { resolveModelForTask } from './resolveModel.js';
+import { resolveModelForTask, normalizeCanonicalTaskType } from './resolveModel.js';
 import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
@@ -147,8 +147,9 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
 
     case 'agent_llm': {
       const paramRoot = buildWorkflowParamRoot(input, runContext);
-      const taskType =
-        config.task_type || runContext?.workflowMeta?.default_task_type || 'code';
+      const taskType = normalizeCanonicalTaskType(
+        config.task_type || runContext?.workflowMeta?.default_task_type || 'agent',
+      );
       const mode = config.mode || runContext?.workflowMeta?.default_mode || 'agent';
       const userMsg =
         typeof input === 'string'
@@ -498,11 +499,12 @@ async function dispatchNode(env, node, input, runContext) {
       try {
         // Derive task_type: prefer agentsam_workflows.default_task_type, then handler_key, then fallback
         const hkParts = String(handlerKey || '').split('.');
-        const taskType =
+        const taskType = normalizeCanonicalTaskType(
           runContext?.workflowMeta?.default_task_type
           || hkParts[1]
           || hkParts[0]
-          || 'code';
+          || 'agent',
+        );
         const mode =
           runContext?.workflowMeta?.default_mode
           || (String(runContext?.workflowKey || '').includes('build') ? 'build' : 'agent');
@@ -515,7 +517,7 @@ async function dispatchNode(env, node, input, runContext) {
         if (!resolvedCatalogKey && env?.DB && wsId) {
           try {
             const resolved = await resolveModelForTask(env, {
-              task_type: String(taskType).trim(),
+              task_type: taskType,
               mode: String(mode).trim() || 'agent',
               workspace_id: wsId,
               tenant_id:
@@ -536,7 +538,7 @@ async function dispatchNode(env, node, input, runContext) {
              ORDER BY (success_alpha * 1.0 / (success_alpha + success_beta)) DESC
              LIMIT 1`,
           )
-            .bind(wsId, String(taskType).trim())
+            .bind(wsId, taskType)
             .first()
             .catch(() => null);
           resolvedCatalogKey = arm?.model_key ?? null;
