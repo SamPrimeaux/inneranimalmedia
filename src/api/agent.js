@@ -5941,6 +5941,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         202,
       );
     }
+    if (cmdResult.command?.id && env?.DB) {
+      env.DB.prepare(
+        `UPDATE agentsam_commands
+         SET use_count = use_count + 1, last_used_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(cmdResult.command.id)
+        .run()
+        .catch(() => {});
+    }
     body.message = cmdResult.mappedCommand;
     body._resolved_command_id = cmdResult.command?.id || null;
     body._resolved_command_slug = cmdResult.command?.slug || null;
