@@ -53,8 +53,24 @@ export const handlers = {
       if (!env?.DB) return w;
       try {
         const { dispatchComplete } = await import('../../core/provider.js');
+        const { resolveModelForTask } = await import('../../core/resolveModel.js');
+        const workspaceId =
+          params.workspace_id != null && String(params.workspace_id).trim() !== ''
+            ? String(params.workspace_id).trim()
+            : params.workspaceId != null && String(params.workspaceId).trim() !== ''
+              ? String(params.workspaceId).trim()
+              : null;
+        const resolved = await resolveModelForTask(env, {
+          task_type: 'ask',
+          workspace_id: workspaceId,
+          require_tools: false,
+        });
+        if (!resolved?.model_key) {
+          throw new Error('ai-ops: resolveModelForTask returned no model');
+        }
+        const modelKey = resolved.model_key;
         const data = await dispatchComplete(env, {
-          modelKey: 'gpt-5.4-nano',
+          modelKey,
           systemPrompt: sys,
           messages: [{ role: 'user', content: user }],
           tools: [],

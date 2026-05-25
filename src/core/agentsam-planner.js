@@ -10,6 +10,7 @@
  */
 
 import { dispatchComplete } from './provider.js';
+import { resolveModelForTask } from './resolveModel.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pragmaTableInfo } from './retention.js';
 import { createPlanExcalidrawArtifact, createPlanMarkdownArtifact } from './agentsam-plan-excalidraw-artifact.js';
@@ -365,8 +366,18 @@ export async function createPlan(
 
   let parsed;
   try {
+    const resolved = await resolveModelForTask(env, {
+      task_type: 'plan',
+      workspace_id:
+        workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
+      require_tools: true,
+    });
+    if (!resolved?.model_key) {
+      throw new Error('agentsam-planner: resolveModelForTask returned no model');
+    }
+    const modelKey = resolved.model_key;
     const result = await dispatchComplete(env, {
-      modelKey: 'gpt-5.4-mini',
+      modelKey,
       taskType: 'plan',
       systemPrompt: PLANNER_SYSTEM,
       messages: [{ role: 'user', content: String(goal).slice(0, 4000) }],

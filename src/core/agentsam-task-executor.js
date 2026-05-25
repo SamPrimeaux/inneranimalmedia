@@ -5,6 +5,7 @@
  */
 
 import { dispatchComplete } from './provider.js';
+import { resolveModelForTask } from './resolveModel.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { fetchAuthUserTenantId } from './auth.js';
 import { executeCommand, completeCommand } from '../api/command-run-telemetry.js';
@@ -19,6 +20,19 @@ import { scheduleMirrorAgentChatPlanToSupabase, scheduleMirrorAgentsamPlanToSupa
 const PLAN_ARTIFACT_R2_BUCKET = 'inneranimalmedia';
 
 const TASK_AGENT_SYSTEM = `You are Agent Sam executing a specific task. Complete it thoroughly and concisely. Return your result as plain text.`;
+
+async function resolveTaskExecutorModelKey(env, workspaceId) {
+  const resolved = await resolveModelForTask(env, {
+    task_type: 'agent',
+    workspace_id:
+      workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
+    require_tools: true,
+  });
+  if (!resolved?.model_key) {
+    throw new Error('agentsam-task-executor: resolveModelForTask returned no model');
+  }
+  return resolved.model_key;
+}
 
 /**
  * Tenant/workspace for plan execution: caller params → agentsam_plans → logged-in user (auth_users.tenant_id).
@@ -1003,10 +1017,10 @@ Rules:
 - Include every path listed in files_involved with complete, production-ready content.
 - path must be a simple filename or relative path (no .. segments).
 - content must be the entire file (not a diff).`;
+        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
         const genResult = await dispatchComplete(env, {
-          modelKey: 'gpt-5.4-mini',
+          modelKey,
           taskType: 'agent',
-          mode: 'agent',
           systemPrompt: fileGenSys,
           messages: [
             {
@@ -1129,10 +1143,10 @@ Rules:
       }
 
       if (task.handler_type === 'agent' || !task.handler_type) {
+        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
         const result = await dispatchComplete(env, {
-          modelKey: 'gpt-5.4-mini',
+          modelKey,
           taskType: 'agent',
-          mode: 'agent',
           systemPrompt: TASK_AGENT_SYSTEM,
           messages: [
             {
@@ -1417,8 +1431,9 @@ Rules:
             continue;
           }
         }
+        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
         const result = await dispatchComplete(env, {
-          modelKey: 'gpt-5.4-nano',
+          modelKey,
           systemPrompt:
             'You are a D1 database assistant. Describe what query you would run and what it returns.',
           messages: [{ role: 'user', content: task.description || task.title }],
@@ -1446,8 +1461,9 @@ Rules:
             : `Workflow failed: ${wResult?.error ?? wResult?.kill_reason ?? 'unknown'}`;
           ok = !!wResult?.ok;
         } else {
+          const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
           const result = await dispatchComplete(env, {
-            modelKey: 'gpt-5.4-nano',
+            modelKey,
             systemPrompt: TASK_AGENT_SYSTEM,
             messages: [{ role: 'user', content: task.description || task.title }],
             options: { reasoningEffort: 'low' },
@@ -1455,8 +1471,9 @@ Rules:
           output = result?.text || result?.output_text || '';
         }
       } else {
+        const modelKey = await resolveTaskExecutorModelKey(env, workspaceId);
         const result = await dispatchComplete(env, {
-          modelKey: 'gpt-5.4-nano',
+          modelKey,
           systemPrompt: TASK_AGENT_SYSTEM,
           messages: [{ role: 'user', content: task.description || task.title }],
           options: { reasoningEffort: 'low' },
